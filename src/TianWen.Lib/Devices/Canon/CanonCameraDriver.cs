@@ -165,7 +165,6 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver, ILe
     public ILogger Logger { get; }
     public ITimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
     public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
@@ -319,7 +318,6 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver, ILe
         await DisarmMirrorLockupAsync(_camera, cancellationToken);
 
         Volatile.Write(ref _connected, true);
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
         Logger.LogInformation("Canon camera connected: {Name} ({Transport})", Name, _device.IsWifi ? "WiFi" : "USB");
     }
 
@@ -398,7 +396,6 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver, ILe
         }
 
         Volatile.Write(ref _connected, false);
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
     }
 
     // --- ICameraDriver capability flags ---
