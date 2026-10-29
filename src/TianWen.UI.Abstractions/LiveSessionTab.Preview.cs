@@ -569,12 +569,15 @@ namespace TianWen.UI.Abstractions
                         ("Unpark", "Unpark", () => PostSignal(new MountPositionSignal(MountPositionCommand.Unpark))),
                         ("Set park", "SetPark", () => PostSignal(new MountPositionSignal(MountPositionCommand.SetPark))))])
                 .WithGap(2f)
-                .Pad(BasePadding);
+                .Pad(BasePadding)
+                // The whole panel's width, so the rows that stretch reach its right edge (Set park under W) rather than
+                // shrinking to the widest row's content, a stack's default.
+                .WStar();
 
             // Full-width hairline divider above the block (a coloured Box node, not a Fill painter).
             return Layout.Builder.VStack(
                 Layout.Builder.Box(0f, 1f, SeparatorColor).RowH(1f),
-                content);
+                content).WStar();
         }
 
         // -----------------------------------------------------------------------

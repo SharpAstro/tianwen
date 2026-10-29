@@ -52,7 +52,7 @@ internal static class MountJogControls
                     Move("S", GuideDirection.South),
                     Move("E", GuideDirection.East),
                     Move("W", GuideDirection.West))
-                .RowH(rowHeight).WithGap(look.Gap),
+                .WStar().RowH(rowHeight).WithGap(look.Gap),
         ];
     }
 
@@ -74,11 +74,11 @@ internal static class MountJogControls
                 Step("−", $"{id}Down", down),
                 Layout.Builder.Text(value, fontSize, look.ValueText, TextAlign.Center, TextAlign.Center, widthSample: valueWidthSample).HStar(),
                 Step("+", $"{id}Up", up))
-            .RowH(rowHeight).WithGap(look.Gap);
+            .WStar().RowH(rowHeight).WithGap(look.Gap);
     }
 
     /// <summary>
-    /// A row of buttons, each exactly as wide as its own label (measured from it, so never cut) plus padding: the Preview's
+    /// A row of buttons sharing the row's whole width, so the last ends where the Move row's W does: the Preview's
     /// Home / Park / Unpark / Set park.
     /// </summary>
     public static Layout.Node ButtonRow(string idPrefix, in Look look, params ReadOnlySpan<(string Label, string Id, Action Press)> buttons)
@@ -87,11 +87,11 @@ internal static class MountJogControls
         for (var i = 0; i < buttons.Length; i++)
         {
             var (label, id, press) = buttons[i];
-            nodes[i] = Layout.Builder.Text(label, look.FontSize, look.GlyphText, TextAlign.Center, TextAlign.Center, widthSample: label)
-                .PadX(look.Gap * 1.5f).HStar().Bg(look.ButtonBg).BgHover(GuiTheme.Hover(look.ButtonBg))
+            nodes[i] = Layout.Builder.Text(label, look.FontSize, look.GlyphText, TextAlign.Center, TextAlign.Center)
+                .WStar().HStar().Bg(look.ButtonBg).BgHover(GuiTheme.Hover(look.ButtonBg))
                 .Clickable(new HitResult.ButtonHit($"{idPrefix}{id}"), _ => press());
         }
-        return Layout.Builder.HStack(nodes).RowH(look.RowHeight).WithGap(look.Gap);
+        return Layout.Builder.HStack(nodes).WStar().RowH(look.RowHeight).WithGap(look.Gap);
     }
 
     /// <summary>
@@ -110,7 +110,7 @@ internal static class MountJogControls
                     .Bg(look.ButtonBg).BgHover(GuiTheme.Hover(look.ButtonBg))
                     .Clickable(new HitResult.ButtonHit(hitAction), _ => press()),
                 Layout.Builder.Spacer().WStar())
-            .RowH(look.RowHeight).WithGap(look.Gap);
+            .WStar().RowH(look.RowHeight).WithGap(look.Gap);
     }
 
     private static Layout.Node Label(string text, in Look look)
