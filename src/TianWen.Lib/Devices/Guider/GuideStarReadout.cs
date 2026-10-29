@@ -117,7 +117,7 @@ public static class GuideStarReadout
         for (var i = 0; i < stars.Count; i++)
         {
             var star = stars[i];
-            if (star.Flux <= chosenFlux || !IsIsolated(stars, i))
+            if (star.Flux <= chosenFlux)
             {
                 continue;
             }
@@ -200,15 +200,16 @@ public static class GuideStarReadout
         var py = (int)Math.Round(star.Y);
         var bg = Background(frame, width, height, px, py);
         var floor = bg + ((star.Peak - bg) * IsolationFlux);
-        for (var dy = -Radius; dy <= Radius; dy++)
+        const int reach = (int)IsolationDistance;
+        for (var dy = -reach; dy <= reach; dy++)
         {
-            for (var dx = -Radius; dx <= Radius; dx++)
+            for (var dx = -reach; dx <= reach; dx++)
             {
                 var x = px + dx;
                 var y = py + dy;
                 var rx = x - star.X;
                 var ry = y - star.Y;
-                if (dx * dx + dy * dy > Radius * Radius || rx * rx + ry * ry < 16 || x < 1 || y < 1 || x >= width - 1 || y >= height - 1)
+                if (dx * dx + dy * dy > reach * reach || rx * rx + ry * ry < 16 || x < 1 || y < 1 || x >= width - 1 || y >= height - 1)
                 {
                     continue;
                 }
@@ -220,25 +221,6 @@ public static class GuideStarReadout
             }
         }
         return false;
-    }
-
-    private static bool IsIsolated(List<(double X, double Y, double Flux, double SNR)> stars, int index)
-    {
-        var star = stars[index];
-        for (var j = 0; j < stars.Count; j++)
-        {
-            if (j == index || stars[j].Flux < star.Flux * IsolationFlux)
-            {
-                continue;
-            }
-            var dx = stars[j].X - star.X;
-            var dy = stars[j].Y - star.Y;
-            if (dx * dx + dy * dy < IsolationDistance * IsolationDistance)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     /// <summary>Walks the centroid from <paramref name="at"/> onto the star's centre; false when no star holds it.</summary>
