@@ -51,9 +51,11 @@ namespace TianWen.UI.Abstractions
 
         // The view switch's fixed words, named once for the segments and for the width they are sized by.
         private const string RawLabel = "Raw";
+        private const string LiveLabel = "Live";
+        private const string LivePendingLabel = "Live...";
                 
-        // Every word a segment can take: a live capture offers Raw and Stack, a SER also the Auto stack's stage words.
-        private static readonly string[] LiveViewLabels = [RawLabel, "Live", "Live..."];
+        // Every word a segment can take: a live capture offers Raw and Live, a SER also the Full stack's stage words.
+        private static readonly string[] LiveViewLabels = [RawLabel, LiveLabel, LivePendingLabel];
         private static readonly string[] SerViewLabels = [.. LiveViewLabels, .. ViewerState.AutoSegmentLabels];
 
         /// <summary>The play / pause button's fill, which the bar draws its mark into.</summary>
@@ -87,7 +89,7 @@ namespace TianWen.UI.Abstractions
             // and Full (the whole capture identified and stacked once, A4 #1391, #817). "Auto" is left to the Enhance panel's choice rows.
             // "Live..." while the live stack's first master is still computing, and the Full stack's progress on its own segment while it runs
             // (the view under it stays on show until it ends). Arranged in device pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
-            var liveLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? "Live..." : "Live";
+            var liveLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? LivePendingLabel : LiveLabel;
             var fullLabel = state.AutoSegmentLabel;
             ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> rawView =
             [

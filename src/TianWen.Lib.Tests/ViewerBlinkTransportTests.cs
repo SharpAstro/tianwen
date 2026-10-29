@@ -393,11 +393,13 @@ namespace TianWen.Lib.Tests
             recordedWords.ShouldContain("Full");
             recordedWords.ShouldNotContain("Auto");
 
-            // The label is plain text: no button carries its words.
-            foreach (var viewer in new[] { liveViewer, recordedViewer })
+            // The label is plain text: no painted region of any kind covers where its words were drawn.
+            foreach (var (viewer, renderer) in new[] { (liveViewer, live), (recordedViewer, recorded) })
             {
-                viewer.PaintedRegions().Select(static r => r.Result).OfType<HitResult.ButtonHit>()
-                    .Select(static h => h.Action).ShouldNotContain("Stack:");
+                var caption = renderer.Texts.Single(static t => t.Text == "Stack:").Rect;
+                var (cx, cy) = ((caption.UpperLeft.X + caption.LowerRight.X) / 2f, (caption.UpperLeft.Y + caption.LowerRight.Y) / 2f);
+                viewer.PaintedRegions().Where(r => cx >= r.X && cx <= r.X + r.Width && cy >= r.Y && cy <= r.Y + r.Height)
+                    .ShouldBeEmpty("the Stack: caption registers no clickable region");
             }
         }
 
