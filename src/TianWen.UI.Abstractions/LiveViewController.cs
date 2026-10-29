@@ -78,6 +78,23 @@ public sealed class LiveViewController : IAsyncDisposable
     /// </summary>
     public Action? RedrawRequested { get; set; }
 
+    /// <summary>
+    /// A frame source to POLL for the newest frame (asked for each time, with the last one's token) rather than the live view's
+    /// own stream. The guide camera's loop reads <see cref="FrameSources.Guider"/> this way (#1915): it shows the loop's frames
+    /// and, once a guiding run has replaced the loop, that run's, with no break in the picture. Null reads the live view's stream.
+    /// </summary>
+    public string? PolledFrameSource { get; init; }
+
+    /// <summary>
+    /// Whether the watching goes on through a live view that has ended or gone from the node's state, true while it returns so
+    /// (#1915: the guide camera's loop is replaced by a guiding run and put back, and this view is the same loop to its user
+    /// across it). Null, or false, ends the watching with the live view, as it always did.
+    /// </summary>
+    public Func<bool>? KeepsWatching { get; set; }
+
+    // A stop the user asked for ends the watching whatever KeepsWatching says: the loop they stopped is not coming back.
+    private bool KeepsWatchingNow => Volatile.Read(ref _stopAsked) == 0 && KeepsWatching?.Invoke() == true;
+
     /// <summary>The OTA whose camera this view streams, from a start until the node says the run ended; null otherwise.</summary>
     public int? LiveOta => Volatile.Read(ref _liveOta) is >= 0 and var ota ? ota : null;
 
@@ -287,10 +304,13 @@ public sealed class LiveViewController : IAsyncDisposable
                         {
                             _logger.LogWarning("The live view ended: {Failure}", failure);
                         }
-                        return;
+                        if (!KeepsWatchingNow)
+                        {
+                            return;
+                        }
                     }
                 }
-                else if (now.IsNotFound)
+                else if (now.IsNotFound && !KeepsWatchingNow)
                 {
                     return;
                 }
@@ -344,12 +364,40 @@ public sealed class LiveViewController : IAsyncDisposable
     // thread, the one it replaces given back.
     private async Task ReadFramesAsync(NodeConnection node, CancellationToken cancellationToken)
     {
+        if (PolledFrameSource is { } source)
+        {
+            await PollFramesAsync(node, source, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.LiveView, cancellationToken).ConfigureAwait(false);
         var reader = new FrameReader();
         while (await stream.ReadAsync(reader, cancellationToken).ConfigureAwait(false) is { } next)
         {
             Interlocked.Exchange(ref _pendingFrame, next.Frame)?.Release();
             RedrawRequested?.Invoke();
+        }
+    }
+
+    /// <summary>How often a polled source is asked for a newer frame: well inside a guide exposure, and an unchanged answer moves no pixels.</summary>
+    private static readonly TimeSpan FramePollInterval = TimeSpan.FromMilliseconds(80);
+
+    // The newest frame of a source the node serves by asking, each time with the token of the last one taken (an unchanged
+    // frame is a bodiless answer), handed to the render thread as the streamed ones are.
+    private async Task PollFramesAsync(NodeConnection node, string source, CancellationToken cancellationToken)
+    {
+        var reader = new FrameReader();
+        int? after = null;
+        while (true)
+        {
+            var latest = await node.Client.GetLatestFrameAsync(source, after, reader, cancellationToken).ConfigureAwait(false);
+            if (latest.Image is { } frame)
+            {
+                after = latest.FrameNumber;
+                Interlocked.Exchange(ref _pendingFrame, frame)?.Release();
+                RedrawRequested?.Invoke();
+            }
+            await _timeProvider.SleepAsync(FramePollInterval, cancellationToken).ConfigureAwait(false);
         }
     }
 

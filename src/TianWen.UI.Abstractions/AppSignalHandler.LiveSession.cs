@@ -234,7 +234,11 @@ namespace TianWen.UI.Abstractions
                     if (await guideLoop.View.StartAsync(node, request, shutdownToken) is { } refusal)
                     {
                         Notify(NotificationSeverity.Warning, refusal);
+                        return;
                     }
+
+                    // The calibration the node's guider already holds, shown beside the loop before any run of this window's.
+                    await guideLoop.Run.RefreshAsync(node, ct);
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
@@ -242,6 +246,42 @@ namespace TianWen.UI.Abstractions
             {
                 guideLoop.View.Stop();
                 appState.NeedsRedraw = true;
+            });
+
+            // Calibrating and guiding off that loop (#1915): the node's run replaces the loop, on the chosen star, and puts it back.
+            guideLoop.Run.RedrawRequested = () => appState.NeedsRedraw = true;
+
+            bus.Subscribe<StartGuidingSignal>(sig =>
+            {
+                if (CommandTargetOrSay(sig.Mode is GuideRunMode.Calibrate ? "Calibrating the guider" : "Guiding") is not { Node: var node }) return;
+
+                RunTracked("StartGuiding", "Guiding failed to start", async ct =>
+                {
+                    var request = new GuidingRequestDto
+                    {
+                        StarX = sig.StarX,
+                        StarY = sig.StarY,
+                        ExposureMs = sig.ExposureSeconds * 1000.0,
+                        Gain = sig.Gain is { } g ? (short)g : null,
+                    };
+                    if (await guideLoop.Run.StartAsync(node, sig.Mode, request, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopGuidingSignal>(_ =>
+            {
+                if (CommandTargetOrSay("Stopping guiding") is not { Node: var node }) return;
+
+                RunTracked("StopGuiding", "Could not stop guiding", async ct =>
+                {
+                    if (await guideLoop.Run.StopAsync(node, ct) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             bus.Subscribe<SaveSnapshotSignal>(sig =>

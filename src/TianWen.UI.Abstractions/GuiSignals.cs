@@ -648,3 +648,13 @@ public readonly record struct StartGuideLoopSignal(double ExposureSeconds, int? 
 
 /// <summary>Stop the guide-camera loop started by <see cref="StartGuideLoopSignal"/>.</summary>
 public readonly record struct StopGuideLoopSignal;
+
+/// <summary>
+/// Calibrate, or calibrate and guide, off the guide-camera loop (#1915): the node's guiding run replaces the loop, on the star
+/// chosen on it (both coordinates, or neither for the guider's own choice) at the loop's exposure and gain, and puts the loop
+/// back as it ends.
+/// </summary>
+public readonly record struct StartGuidingSignal(GuideRunMode Mode, double ExposureSeconds, int? Gain = null, double? StarX = null, double? StarY = null);
+
+/// <summary>Stop the guiding run started by <see cref="StartGuidingSignal"/>: the node puts the loop back.</summary>
+public readonly record struct StopGuidingSignal;

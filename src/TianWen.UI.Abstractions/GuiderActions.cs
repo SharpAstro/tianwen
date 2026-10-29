@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
@@ -26,6 +27,56 @@ public static class GuiderActions
     /// <summary>The peak as the readout shows it: the value and its share of the full scale.</summary>
     public static string PeakText(GuideStarMeasurement star)
         => double.IsNaN(star.PeakFraction) ? $"{star.Peak:F0}" : $"{star.Peak / star.FullScale * 100:F0}%";
+
+    /// <summary>
+    /// A calibration's result in words, a line each (#1915): the two axes' directions on the frame and how fast a pulse moves the
+    /// star along them, how far from square they are (cone error and camera tilt show here), and how long it took. A figure the
+    /// node did not know is said so, never shown as zero.
+    /// </summary>
+    public static ImmutableArray<string> CalibrationLines(GuiderCalibrationDto calibration)
+    {
+        static string Axis(string name, double? angle, double? rate)
+            => $"{name}: {(angle is { } a ? $"{a:0}°" : "?")} at {(rate is { } r ? $"{r:0.0}\"/s" : "?")}";
+
+        var lines = ImmutableArray.CreateBuilder<string>(4);
+        lines.Add(Axis("RA", calibration.RaAngleDeg, calibration.RaRateArcsecPerSec));
+        lines.Add(Axis("Dec", calibration.DecAngleDeg, calibration.DecRateArcsecPerSec));
+        lines.Add(calibration.OrthogonalityErrorDeg is { } ortho
+            ? $"Axes {ortho:0.0}° from square{(ortho > OrthogonalityWarnDeg ? ": cone error or camera tilt" : "")}"
+            : "Axes: ?");
+        if (calibration.DurationSeconds is { } seconds)
+        {
+            lines.Add($"Took {seconds:0} s");
+        }
+        return lines.ToImmutable();
+    }
+
+    /// <summary>More than this many degrees off square is worth saying why (a calibration is accepted to 30).</summary>
+    public const double OrthogonalityWarnDeg = 5.0;
+
+    /// <summary>
+    /// What a guiding run is doing, for the tab's header (#1915): the phase and, guiding, the RMS; or why the last run failed.
+    /// Empty when there is nothing to say.
+    /// </summary>
+    public static string GuidingStatus(GuidingRunView? run)
+    {
+        if (run is null)
+        {
+            return "";
+        }
+        if (!run.Running)
+        {
+            return run.FailureReason ?? "";
+        }
+        return run.Phase switch
+        {
+            GuidingPhase.Calibrating => "Calibrating…",
+            GuidingPhase.Settling => run.Settle is { Distance: { } distance and > 0 } ? $"Settling… {distance:F1}\"" : "Settling…",
+            GuidingPhase.Guiding => run.Stats is { } stats ? $"Guiding  {stats.TotalRMS:F2}\" RMS" : "Guiding",
+            GuidingPhase.LostLock => "Guide star lost",
+            _ => "Starting…",
+        };
+    }
 
     private const string SparkChars = "▁▂▃▄▅▆▇█";
 

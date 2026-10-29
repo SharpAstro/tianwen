@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using DIR.Lib;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
@@ -112,6 +113,9 @@ namespace TianWen.UI.Abstractions
 
             if (State.PlaceholderReason is GuiderPlaceholder.NoSession && GuideLoop is { } loop)
             {
+                // What the node's guiding run reports fills the session's fields, so the graph, the stats and the camera
+                // overlays draw it as they draw a session's.
+                State.PollFromRun(loop.Run.View);
                 RenderLoop(loop, liveState, contentRect, quiet);
                 return;
             }
@@ -180,12 +184,20 @@ namespace TianWen.UI.Abstractions
             var source = GuideCameraViewer is not null ? view.Source : null;
 
             var running = view.IsLive;
-            var button = Layout.Builder.Text(running ? "Stop" : "Loop", BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
-                .WFixed(72f).HStar().Bg(running ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg)
-                .BgHover(GuiTheme.Hover(running ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg))
+            var runGoing = loop.Run.IsRunning;
+
+            // The first button ends whichever is going on: a guiding run (the node then puts the loop back) or the loop itself.
+            var stoppable = running || runGoing;
+            var button = Layout.Builder.Text(stoppable ? "Stop" : "Loop", BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
+                .WFixed(72f).HStar().Bg(stoppable ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg)
+                .BgHover(GuiTheme.Hover(stoppable ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg))
                 .Clickable(new HitResult.ButtonHit("GuideLoopToggle"), _ =>
                 {
-                    if (running)
+                    if (runGoing)
+                    {
+                        PostSignal(new StopGuidingSignal());
+                    }
+                    else if (running)
                     {
                         PostSignal(new StopGuideLoopSignal());
                     }
@@ -194,6 +206,21 @@ namespace TianWen.UI.Abstractions
                         PostSignal(new StartGuideLoopSignal(loop.ExposureSeconds, loop.Gain));
                     }
                 });
+
+            // Calibrate and Guide take the star chosen on the loop (the guider's own choice with none) at the loop's exposure and
+            // gain, and are offered only while looping with no run going on: the node's run replaces the loop.
+            var canStart = running && !runGoing;
+            Layout.Node GuideAction(string label, float width, string id, GuideRunMode mode)
+            {
+                var node = Layout.Builder.Text(label, BaseFontSize * 0.9f, canStart ? BodyText : DimText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(width).HStar().Bg(GuiTheme.NeutralButtonBg);
+                return canStart
+                    ? node.BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg)).Clickable(new HitResult.ButtonHit(id), _ =>
+                        PostSignal(new StartGuidingSignal(mode, loop.ExposureSeconds, loop.Gain, State.Selection?.X, State.Selection?.Y)))
+                    : node;
+            }
+            var calibrate = GuideAction("Calibrate", 80f, "GuideCalibrate", GuideRunMode.Calibrate);
+            var guide = GuideAction("Guide", 56f, "GuideStart", GuideRunMode.Guide);
             var exposure = FormRowLayout.StepperControl(LoopStepperStyle,
                 "-", "GuideLoopExpDec", _ => loop.StepExposure(-1),
                 "+", "GuideLoopExpInc", _ => loop.StepExposure(+1),
@@ -203,11 +230,14 @@ namespace TianWen.UI.Abstractions
                 "+", "GuideLoopGainInc", _ => loop.StepGain(+1),
                 loop.GainLabel, BaseFontSize * 0.85f, loop.Gain.HasValue ? BodyText : DimText, enabled: true);
 
-            var status = view.State is { } s
+            var loopStatus = view.State is { } s
                 ? running
                     ? s.FramesPerSecond is { } fps && s.Width > 0 ? $"{fps:0.#} fps  {s.Width}x{s.Height}" : "Starting\u2026"
                     : s.FailureReason ?? ""
                 : "";
+            // What the run is doing while it goes on; after it, why it failed, which stays beside the loop it handed back.
+            var runStatus = GuiderActions.GuidingStatus(loop.Run.View);
+            var status = runGoing ? runStatus : runStatus.Length > 0 ? $"{loopStatus}  {runStatus}".Trim() : loopStatus;
             // Auto picks the brightest unsaturated isolated star, which a click on the frame overrides; Clear drops the choice.
             var auto = Layout.Builder.Text("Auto", BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
                 .WFixed(56f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
@@ -216,7 +246,7 @@ namespace TianWen.UI.Abstractions
                 .WFixed(56f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
                 .Clickable(new HitResult.ButtonHit("GuideStarClear"), _ => State.ClearSelection());
 
-            var controls = Layout.Builder.HStack(button, exposure.WFixed(150f), gain.WFixed(150f), auto, clear,
+            var controls = Layout.Builder.HStack(button, calibrate, guide, exposure.WFixed(150f), gain.WFixed(150f), auto, clear,
                     Layout.Builder.Text(quiet ?? status, BaseFontSize * 0.85f, DimText).Stretch())
                 .WithGap(BasePadding).Pad(BasePadding).Bg(HeaderBg);
 
@@ -244,7 +274,13 @@ namespace TianWen.UI.Abstractions
                     readoutPane)
                 .Stretch().Pad(BasePadding).Bg(ProfileBg);
 
-            var right = new List<Layout.Node> { Layout.Builder.HStack(profile, BuildReadoutPanel().ColW(BaseStatsWidth)).Stretch() };
+            // Once the run is guiding, the guide stats take the star readout's place: HFD is for focusing, RMS is for guiding.
+            var side = State.IsGuidingRun ? BuildStatsPanel() : BuildReadoutPanel();
+            var right = new List<Layout.Node>
+            {
+                Layout.Builder.HStack(profile, side.ColW(BaseStatsWidth)).Stretch(),
+                BuildCalibrationPanel(),
+            };
             if (BuildGuideFocuserPanel(liveState) is { } focuser)
             {
                 right.Add(focuser);
@@ -253,7 +289,14 @@ namespace TianWen.UI.Abstractions
             // The right column is there with no frame yet: the guide focuser needs no frame to be moved.
             var body = Layout.Builder.HStack(camera, Layout.Builder.VStack([.. right]).ColW(BaseProfileWidth + BaseStatsWidth)).Stretch();
 
-            RenderLayout(Layout.Builder.VStack(controls.RowH(BaseHeaderHeight), body).Bg(ContentBg), contentRect,
+            // The guide graph, as a session's tab draws it, once the run has steps to draw.
+            var rows = new List<Layout.Node> { controls.RowH(BaseHeaderHeight), body };
+            if (State.GuideSamples.Length >= 2)
+            {
+                rows.Add(Layout.Builder.Fill(key: GraphFillKey).RowH(MathF.Max((contentRect.Height / DpiScale - BaseHeaderHeight) * 0.2f, 80f)));
+            }
+
+            RenderLayout(Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Bg(ContentBg), contentRect,
                 drawFill: (fill, rect) =>
                 {
                     switch (fill.Key)
@@ -267,8 +310,34 @@ namespace TianWen.UI.Abstractions
                             ProfilePlotRect = rect;
                             StarProfilePlotRenderer.Render(Renderer, rect, star.HProfile, star.VProfile, DpiScale, FontPath, fontSize);
                             break;
+                        case GraphFillKey:
+                            GraphRect = rect;
+                            RenderGraph(rect, fontSize);
+                            break;
                     }
                 });
+        }
+
+        /// <summary>
+        /// What the node's guider holds of its calibration (#1915), in words beside the L it drew on the frame: each axis's direction
+        /// and rate, how far from square they are, how long it took; or how to get one.
+        /// </summary>
+        private Layout.Node BuildCalibrationPanel()
+        {
+            var rows = new List<Layout.Node> { StatsPitch(Layout.Builder.Text("Calibration", BaseFontSize, HeaderText)) };
+            if (State.Run?.Calibration is { } calibration)
+            {
+                foreach (var line in GuiderActions.CalibrationLines(calibration))
+                {
+                    rows.Add(StatsPitch(Layout.Builder.Text(line, BaseFontSize * 0.9f, BodyText)));
+                }
+            }
+            else
+            {
+                rows.Add(StatsPitch(Layout.Builder.Text("Not calibrated", BaseFontSize * 0.9f, DimText)));
+                rows.Add(StatsPitch(Layout.Builder.Text("Calibrate, or Guide, measures it", BaseFontSize * 0.9f, DimText)));
+            }
+            return Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Pad(BasePadding).Bg(PanelBg).HAuto();
         }
 
         /// <summary>
