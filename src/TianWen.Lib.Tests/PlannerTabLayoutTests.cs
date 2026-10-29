@@ -754,7 +754,7 @@ namespace TianWen.Lib.Tests
         {
             var scale = dpiScale * interfaceScale;
             const uint height = 1000u;
-            using var renderer = new RgbaImageRenderer((uint)width, height);
+            using var renderer = new TextCapturingRenderer((uint)width, height);
             var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale, interfaceScale: interfaceScale,
                 db: panorama ? PanoramaDb() : null);
 
@@ -777,8 +777,8 @@ namespace TianWen.Lib.Tests
             tab.PaintedDetailsTextRect.Width.ShouldBeGreaterThan(details.Width * (1f - PlannerTab<RgbaImage>.DetailsPictureMaxShare) - 1f);
             thumbnail.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
 
-            // The thumbnail takes the strip's height less the section's margins and its credit row.
-            thumbnail.Height.ShouldBe(ObjectInfoPanel.DesignPictureHeightIn(strip / scale) * scale, 1f);
+            // The thumbnail takes the strip's height less the section's two 4-unit margins and its credit row.
+            thumbnail.Height.ShouldBe(strip - ((2f * 4f) + ObjectInfoPanel.DesignRowHeight) * scale, 1f);
 
             // The thumbnail is the picture's own aspect (a capped panorama is fitted inside its slot by the host),
             // and its credit row stays inside the strip, beside the text.
@@ -811,7 +811,7 @@ namespace TianWen.Lib.Tests
             }
 
             // Every text line fits the column the picture left, not the strip.
-            AssertDetailLinesFitTheirColumn(tab, renderer, scale);
+            AssertDetailLinesFitTheirColumn(tab, renderer);
         }
 
         /// <summary>
@@ -825,7 +825,7 @@ namespace TianWen.Lib.Tests
         [InlineData(960u, 700u, 1.5f, 1.15f)]
         public async Task ANarrowStripDropsThePictureRatherThanRunTheTextUnderIt(uint width, uint height, float dpiScale, float interfaceScale)
         {
-            using var renderer = new RgbaImageRenderer(width, height);
+            using var renderer = new TextCapturingRenderer(width, height);
             var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale, interfaceScale: interfaceScale);
 
             tab.DetailsRect.Width.ShouldBeGreaterThan(0f);
@@ -833,18 +833,21 @@ namespace TianWen.Lib.Tests
             tab.Pictures.ShouldBeEmpty();
             tab.GetRegisteredRegions().Any(r => r.Result is HitResult.ButtonHit { Action: PictureOpenAction }).ShouldBeFalse();
             tab.PaintedDetailsTextRect.Width.ShouldBe(tab.DetailsRect.Width, 0.5f);
-            AssertDetailLinesFitTheirColumn(tab, renderer, dpiScale * interfaceScale);
+            AssertDetailLinesFitTheirColumn(tab, renderer);
         }
 
-        /// <summary>Every line after the name (which gives way to the Show in atlas button) fits the strip's text column.</summary>
-        private static void AssertDetailLinesFitTheirColumn(PlannerTab<RgbaImage> tab, RgbaImageRenderer renderer, float scale)
+        /// <summary>
+        /// Every line after the name (which gives way to the Show in atlas button) is drawn with its ink inside the strip's
+        /// text column: read off the runs the renderer was handed, measured at the size each was painted at.
+        /// </summary>
+        private static void AssertDetailLinesFitTheirColumn(PlannerTab<RgbaImage> tab, TextCapturingRenderer renderer)
         {
-            var fontPath = FontResolver.ResolveSystemFont();
-            var fontSize = GuiTheme.Metrics.BaseFontSize * scale;
+            var columnRight = tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width;
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
-                renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
-                    .ShouldBeLessThanOrEqualTo(tab.PaintedDetailsTextRect.Width - (2f * PlannerTab<RgbaImage>.BasePadding * scale), line);
+                var run = renderer.Runs.Last(r => r.Text == line);
+                (run.Rect.UpperLeft.X + renderer.MeasureText(line.AsSpan(), run.Font, run.FontSize).Width)
+                    .ShouldBeLessThanOrEqualTo(columnRight, line);
             }
         }
 
