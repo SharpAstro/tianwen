@@ -88,8 +88,10 @@ public sealed class AppQuit(
         {
             if (await AskAsync().ConfigureAwait(false) is { } dialog)
             {
+                SwitchToQuestion();
+                // Published last: a reader that sees the dialog must see the question's view and tab already on screen (#1587).
                 contexts.Local.LiveSession.QuitDialog = dialog;
-                ShowQuestion();
+                RequestRedraw();
             }
             else
             {
@@ -140,8 +142,18 @@ public sealed class AppQuit(
     // be set where no frame draws it, so this computer's goes on screen.
     private void ShowQuestion()
     {
+        SwitchToQuestion();
+        RequestRedraw();
+    }
+
+    private void SwitchToQuestion()
+    {
         contexts.Activate(contexts.Local);
         appState.ActiveTab = GuiTab.LiveSession;
+    }
+
+    private void RequestRedraw()
+    {
         contexts.Local.LiveSession.NeedsRedraw = true;
         appState.NeedsRedraw = true;
     }
