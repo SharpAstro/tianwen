@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Collections.Immutable;
 using System.IO;
 using DIR.Lib;
@@ -143,6 +145,63 @@ namespace TianWen.Lib.Tests
             tab.TargetViewRect.ShouldBe(default(RectF32));
             tab.ProfilePlotRect.ShouldBe(default(RectF32));
             tab.CameraRect.ShouldBe(default(RectF32));
+        }
+
+        /// <summary>
+        /// With no session and a loop wired (#1915) the NoSession placeholder gives way to the loop's controls: a Loop button
+        /// that asks for the guide camera at the stepped exposure and gain, then Stop once the loop runs, and the steppers.
+        /// </summary>
+        [Fact]
+        public void NoSession_WithAGuideLoop_OffersLoopExposureAndGain()
+        {
+            using var renderer = new RgbaImageRenderer(1280, 800);
+            var bus = new SignalBus();
+            var loop = new GuideLoopController(new SystemTimeProvider(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
+            var tab = new GuiderTab<RgbaImage>(renderer)
+            {
+                DpiScale = 1f,
+                FontPath = FontResolver.ResolveSystemFont(),
+                Bus = bus,
+                GuideLoop = loop,
+            };
+            var starts = new List<StartGuideLoopSignal>();
+            bus.Subscribe<StartGuideLoopSignal>(signal => starts.Add(signal));
+            var time = new FakeTimeProviderWrapper(SampleStart);
+
+            void Draw() => tab.Render(new LiveSessionState(), new RectF32(0, 0, 1280, 800), time);
+            bool Has(string action) => tab.GetRegisteredRegions().Any(r => r.Result is HitResult.ButtonHit hit && hit.Action == action);
+            void Click(string action)
+            {
+                var region = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit hit && hit.Action == action);
+                UiRouting.RoutePress(tab, region.X + (region.Width / 2f), region.Y + (region.Height / 2f));
+                bus.ProcessPending();
+            }
+
+            Draw();
+            Has("GuideLoopToggle").ShouldBeTrue();
+            Has("GuideLoopExpDec").ShouldBeTrue();
+            Has("GuideLoopExpInc").ShouldBeTrue();
+            Has("GuideLoopGainDec").ShouldBeTrue();
+            Has("GuideLoopGainInc").ShouldBeTrue();
+
+            // The steppers move what the loop starts at, and the Loop button asks for exactly that.
+            Click("GuideLoopExpInc");
+            Click("GuideLoopGainInc");
+            loop.ExposureSeconds.ShouldBeGreaterThan(1.0);
+            loop.Gain.ShouldBe(GuideLoopController.GainStep);
+            Draw();
+            Click("GuideLoopToggle");
+            starts.ShouldBe([new StartGuideLoopSignal(loop.ExposureSeconds, GuideLoopController.GainStep)]);
+
+            // Once it runs, the same button is Stop.
+            loop.View.Began(0, null);
+            var stops = 0;
+            bus.Subscribe<StopGuideLoopSignal>(_ => stops++);
+            Draw();
+            Click("GuideLoopToggle");
+            stops.ShouldBe(1);
+            starts.Count.ShouldBe(1);
         }
 
         // Sentinel the guider tab never paints: the root tree carries the content background and every

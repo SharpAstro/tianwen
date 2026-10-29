@@ -163,11 +163,13 @@ internal sealed class NodeHarness : IAsyncDisposable
     /// An active profile whose one OTA has <paramref name="camera"/>, with <paramref name="mount"/> (none when null) at a
     /// site, and its filter wheel and focuser where given, all connected to the node's hub.
     /// </summary>
-    public async Task ActivateRigAsync(FakeDevice camera, FakeDevice? mount, CancellationToken ct, FakeDevice? filterWheel = null, FakeDevice? focuser = null)
+    public async Task ActivateRigAsync(FakeDevice camera, FakeDevice? mount, CancellationToken ct, FakeDevice? filterWheel = null, FakeDevice? focuser = null,
+        FakeDevice? guideCamera = null, Uri? guider = null)
     {
         var ota = new OTAData("Test OTA", 400, camera.DeviceUri, null, focuser?.DeviceUri, filterWheel?.DeviceUri, null, null);
         var profile = new Profile(Guid.NewGuid(), "Test rig",
-            new ProfileData(mount?.DeviceUri ?? NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, [ota], SiteLatitude: 48.2, SiteLongitude: 16.3));
+            new ProfileData(mount?.DeviceUri ?? NoneDevice.Instance.DeviceUri, guider ?? NoneDevice.Instance.DeviceUri, [ota],
+                GuiderCamera: guideCamera?.DeviceUri, SiteLatitude: 48.2, SiteLongitude: 16.3));
         await profile.SaveAsync(External, ct);
         await Node.SetActiveProfileAsync(profile.ProfileId, ct);
         var hub = App.Services.GetRequiredService<IDeviceHub>();
@@ -183,6 +185,10 @@ internal sealed class NodeHarness : IAsyncDisposable
         if (focuser is not null)
         {
             await hub.ConnectAsync(focuser, ct);
+        }
+        if (guideCamera is not null)
+        {
+            await hub.ConnectAsync(guideCamera, ct);
         }
     }
 

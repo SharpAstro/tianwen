@@ -215,6 +215,35 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            // The Guider tab's loop of the guide camera (#1915): the same live view run, asked for the guide camera.
+            var guideLoop = sp.GetRequiredService<GuideLoopController>();
+            guideLoop.View.RedrawRequested = () => appState.NeedsRedraw = true;
+
+            bus.Subscribe<StartGuideLoopSignal>(sig =>
+            {
+                if (CommandTargetOrSay("A guide camera loop") is not { Node: var node }) return;
+
+                RunTracked("StartGuideLoop", "The guide camera loop failed to start", async ct =>
+                {
+                    var request = new LiveViewRequestDto
+                    {
+                        CameraRole = LiveViewCamera.Guider,
+                        ExposureMs = sig.ExposureSeconds * 1000.0,
+                        Gain = sig.Gain is { } g ? (short)g : null,
+                    };
+                    if (await guideLoop.View.StartAsync(node, request, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopGuideLoopSignal>(_ =>
+            {
+                guideLoop.View.Stop();
+                appState.NeedsRedraw = true;
+            });
+
             bus.Subscribe<SaveSnapshotSignal>(sig =>
             {
                 if (CommandTargetOrSay("A snapshot") is not { Node: var node }) return;

@@ -82,6 +82,13 @@ namespace TianWen.UI.Gui
             set => _liveSessionTab.LiveView = value;
         }
 
+        /// <summary>The Guider tab's loop of the guide camera (#1915). Set by the host (resolved from DI).</summary>
+        public GuideLoopController? GuideLoop
+        {
+            get => _guiderTab.GuideLoop;
+            set => _guiderTab.GuideLoop = value;
+        }
+
         // Held as the concrete widget base, not as the IPixelWidget the interface exposes, because the
         // cursor query lives on the base: DIR.Lib's IPixelWidget carries HitTest, click dispatch and
         // text-input discovery, but not HitTestCursor. Every tab derives from PixelWidgetBase, so this

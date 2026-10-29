@@ -3,6 +3,19 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Hosting.Dto;
 
+/// <summary>Which of the profile's cameras a live view streams. Numeric on the wire; <see cref="Ota"/> is the default.</summary>
+public enum LiveViewCamera
+{
+    /// <summary>An OTA's camera, its frames at <see cref="FrameSources.LiveView"/>.</summary>
+    Ota = 0,
+
+    /// <summary>
+    /// The profile's guide camera (the Guider tab's loop, #1915): its frames are the guider's own source
+    /// (<see cref="FrameSources.Guider"/>) while no session runs, and the live stream too.
+    /// </summary>
+    Guider = 1,
+}
+
 /// <summary>
 /// A live view as the node's run: <c>POST /api/v1/live</c> (P4 of docs/plans/live-session-preview.md, #1111). The node
 /// streams the OTA's camera over its whole sensor, natively where the camera has video (a Canon's Live View) and as a loop
@@ -11,8 +24,11 @@ namespace TianWen.Hosting.Dto;
 /// </summary>
 public sealed class LiveViewRequestDto
 {
-    /// <summary>The OTA whose camera streams.</summary>
+    /// <summary>The OTA whose camera streams (ignored for <see cref="LiveViewCamera.Guider"/>).</summary>
     public int OtaIndex { get; init; }
+
+    /// <summary>Which camera streams: an OTA's (the default) or the profile's guide camera (#1915).</summary>
+    public LiveViewCamera CameraRole { get; init; }
 
     // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
     // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
@@ -53,6 +69,9 @@ public sealed class LiveViewControlsDto
 public sealed class LiveViewStateDto
 {
     public int OtaIndex { get; init; }
+
+    /// <summary>Which camera runs: an OTA's, or the guide camera.</summary>
+    public LiveViewCamera CameraRole { get; init; }
 
     /// <summary>The camera's name.</summary>
     public required string Camera { get; init; }

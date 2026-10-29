@@ -47,7 +47,9 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
         {
             return ResponseEnvelope<LiveViewStateDto>.Fail("The node has no active profile to show a live view of", 409);
         }
-        if (request.OtaIndex >= 0 && request.OtaIndex < data.OTAs.Length && jobs.TryGetRunningOn(data.OTAs[request.OtaIndex].Camera, out var job))
+        var guide = request.CameraRole == LiveViewCamera.Guider;
+        var camera = guide ? data.GuiderCamera : request.OtaIndex >= 0 && request.OtaIndex < data.OTAs.Length ? data.OTAs[request.OtaIndex].Camera : null;
+        if (camera is not null && jobs.TryGetRunningOn(camera, out var job))
         {
             return ResponseEnvelope<LiveViewStateDto>.Fail($"The camera is busy: a {job.Kind} of it is running (job {job.Id})", 409);
         }
@@ -60,7 +62,7 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
         {
             // The whole sensor (a zero window) at the Preview's binning: a Canon's Live View unmagnified, any other camera full frame.
             var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain, 0, 0,
-                Bin: request.Binning);
+                Bin: request.Binning, GuideCamera: guide);
             if (!run.TryPrepare(capture, data, hub, out var refusal))
             {
                 return ResponseEnvelope<LiveViewStateDto>.Fail(refusal, 409);
@@ -75,7 +77,7 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
             // The node's from here: it disposes the run when the next one replaces it, or as the host stops.
             var started = run;
             run = null;
-            logger.LogInformation("Live view of {Camera} at {Exposure} ms", started.State.Camera, request.ExposureMs);
+            logger.LogInformation("Live view ({Role}) of {Camera} at {Exposure} ms", request.CameraRole, started.State.Camera, request.ExposureMs);
             return ResponseEnvelope<LiveViewStateDto>.Accepted(started.State);
         }
         finally
@@ -143,6 +145,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     private readonly ITimeProvider _timeProvider;
     private readonly FrameSampler _live;
     private int _otaIndex;
+    private bool _guide;
     private string _camera = "";
     // The newest shown frame's size, its width in the high half and its height in the low: one write, so a reader never
     // pairs one frame's width with another's height. Zero until the first frame is shown.
@@ -168,6 +171,9 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     /// <inheritdoc/>
     public Uri? FilterWheel { get; private set; }
 
+    /// <summary>Whether this view streams the guide camera (#1915): its newest frame is then the guider's too (<see cref="NodeFrames.Guider"/>).</summary>
+    public bool IsGuideCamera => _guide;
+
     public NodeRunKind Kind => NodeRunKind.LiveView;
 
     /// <summary>A live view nobody watches is a camera held for nobody.</summary>
@@ -188,6 +194,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
             return new LiveViewStateDto
             {
                 OtaIndex = _otaIndex,
+                CameraRole = _guide ? LiveViewCamera.Guider : LiveViewCamera.Ota,
                 Camera = _camera,
                 Width = (int)(size >> 32),
                 Height = (int)(uint)size,
@@ -209,10 +216,11 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
         {
             return false;
         }
-        _otaIndex = request.OtaIndex;
+        _guide = request.GuideCamera;
+        _otaIndex = _guide ? -1 : request.OtaIndex;
         _camera = Capture.Camera?.Name ?? "";
-        // The wheel its stream goes through: a filter change of it is this live view's interlude (INodeStreamingRun).
-        FilterWheel = profile.OTAs[request.OtaIndex].FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
+        // The wheel its stream goes through: a filter change of it is this live view's interlude (INodeStreamingRun). The guide camera has none.
+        FilterWheel = !_guide && profile.OTAs[request.OtaIndex].FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
         return true;
     }
 

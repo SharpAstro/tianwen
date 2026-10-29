@@ -47,6 +47,7 @@ services
     .AddSingleton<PlanetaryCaptureController>()
     // The Preview mode's live view (#1111): the node streams the camera, the preview pane shows it.
     .AddSingleton<LiveViewController>()
+    .AddSingleton<GuideLoopController>()
     .AddSingleton(sp => new GuiAppState { PeerTable = sp.GetService<IPeerTable>() });
 
 // LAN peer discovery (docs/plans/remote-profile.md): symmetric beacon so the Equipment tab's
@@ -208,6 +209,7 @@ guiRenderer.PlanetaryCapture = planetaryCapture;
 // The Preview mode's live view (#1111), driven by StartLiveViewSignal/StopLiveViewSignal in AppSignalHandler.
 var liveView = sp.GetRequiredService<LiveViewController>();
 guiRenderer.LiveView = liveView;
+guiRenderer.GuideLoop = sp.GetRequiredService<GuideLoopController>();
 
 // Event handler setup
 using var cts = new CancellationTokenSource();
