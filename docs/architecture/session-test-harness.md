@@ -151,7 +151,7 @@ x64 functional leg, PR #1873) against its 3" bound. #1910 asked how often that h
 Release, `maxParallelThreads: 4`. Each case printed the At-settle statistics, the hand-pump iterations, the fake
 time pumped and the chosen guide star. Batch 1 ran with nothing else on the machine (23 min). Batch 2 ran while a CPU
 burner was meant to keep the box busy, but the burner exited after about 26 of its 50 minutes, so only the first
-part of that batch was loaded (23 min). The cases of one theory share a class and run one after another, so even
+part of that batch was loaded (23 min); how many burners that was is not recorded. The cases of one theory share a class and run one after another, so even
 the loaded batch never had four of them contending. The theory is removed again and no seam was added or kept.
 
 **Distribution of the At-settle RMS (arcsec).**
@@ -177,7 +177,9 @@ the loaded batch never had four of them contending. The theory is removed again 
   iterations and 108.5 to 117 s of fake time, and the 1.99" run sat in the middle (444 iterations, 111 s). Batch 2
   did not need more iterations than batch 1 (median 445 against 448). What was NOT tested is real four-way
   contention, since the burner died and the cases ran sequentially. The suspect is not cleared, only not shown.
-- `GuideFrameCount` read 1 at settle in every run, so it carries no signal and was not used.
+- `GuideFrameCount` read 1 at settle in every run, so it says nothing about a settle's quality. It does advance
+  across a pump: one unloaded run read 1 at settle and 83 after the 175 s sustained pump. That is why the pumps use it
+  as their progress probe (a stall is a probe that stops moving), though it was not used as a statistic here.
 - Reading: the 4.46" CI settle looks like the far tail of a mostly tight but occasionally spiky Dec distribution
   on a loaded runner. The 3" bound sits well over ten times above the typical settle. Nothing measured ties a bad run
   to a frame count, a pump cadence or a star choice, so the cause of the tail itself is not established.
@@ -197,28 +199,35 @@ that shares its body (`PumpCoreAsync`) and takes the same progress probe (`Guide
 keep their hand step on purpose: they have no guide loop to pace against and do not set `ExternalTimePump`.
 
 **The first loaded repeat still failed, and showed the real mechanism.** With the cooperative pump and nothing else
-changed, 120 runs of the target test under twelve CPU burners on win-x64 (16 cores) failed 2 times, both in the
+changed, 120 runs of the target test beside twelve CPU burners (each a 2400 s, 40 minute busy loop, all started at once; the
+batch's own length and how much of it the burners overlapped were not recorded, and they had expired when checked
+afterwards) on win-x64 (16 cores) failed 2 times, both in the
 sustained phase and not at settle: `TotalRMS` 5.17" and 5.93" against the 5" bound (At-settle 0.50" and 0.60", so
 the 3" settle bound held). Both runs carry the same signature, one frame with a single RA excursion of 26.0" (a
 `corrRA` of -859 ms in one) while Dec stayed near 0.35". That is about 1.7 s of sidereal drift, a guide tick that was
-never observed, not a spread in the guider's own behaviour. The cause: the pump gave the pool and a released sleep
-only `SettleBound` (2 ms) to settle before the next advance. The guide loop wakes on a `PeriodicTimer`, which
-coalesces: a tick that fires while its continuation is still queued is dropped. On a saturated runner 2 ms is not
-enough, so the pump advanced over the tick and the next frame saw the mount drift of both intervals at once.
+never observed, not a spread in the guider's own behaviour.
+
+**The cause is a hypothesis, not shown.** The guide loop waits only through `SleepAsync` (`GuideLoop`); the one
+`PeriodicTimer` in the guider code is the dither settle ticker in `IGuider.cs`, on the real system clock and not the
+fake one, so a coalescing `PeriodicTimer` tick is NOT the mechanism. The supposition is that the pump gave the pool
+and a released sleep only `SettleBound` (2 ms) to settle before the next advance, and on a saturated runner that was
+not enough, so an advance passed over a wake the loop had not yet observed and the next frame saw the drift of both
+intervals at once. The skipped wake was not observed, and it cannot be shown without load. The observed fact is only
+the one 26" RA excursion (about 1.7 s of sidereal drift) in each of the two failing loaded runs.
 
 **The change.** `PumpUntilAsync` takes an optional `settleBound`, used for both settle waits of an advance. The
 guider pumps pass 25 ms (`GuideSettleBound`). It costs nothing on an idle runner (the wait ends as soon as the pool
 is quiet) and only waits where the pool is backlogged. The default stays 2 ms for every other caller. No test bound
-was widened: both failures were a skipped tick, not a distribution to fit a bound to.
+was widened: both failures were one excursion, not a distribution to fit a bound to.
 
 **Unloaded repeat after the fix: 120 of 120 passed** (a temporary `[Theory]` of 120 runs of the target test, since
 removed; about 7 minutes on an ordinary, unloaded run). That shows no regression and no new unloaded flake. It does
 NOT show the fix works under load, because the unloaded runs never failed even before the fix.
 
-**The loaded repeat was NOT run, and why.** The owner's rule is never to load the machine on purpose (no CPU burner,
-no stress or soak loop), and the owner declined a request to make an exception. So this section makes no claim, from
-measurement, that the fixed pump is clean under load. The reasoning for the loaded case: the settle wait ends as soon
-as the thread pool is quiet, so a 25 ms bound costs nothing on an idle pool and adds waiting only where the pool is
-backlogged, which is exactly the saturation that let a coalesced `PeriodicTimer` tick be dropped. A loaded repeat of
-the target test (120 runs beside enough CPU burners to saturate the box) remains owed, and it is the one check that can
-tell whether 25 ms is enough.
+**OPEN ITEM: the loaded 100-run repeat was NOT run.** This machine is not to be loaded on purpose (no CPU burner, no
+stress or soak loop), so the repeat was not run, and the controller is to accept the fix without it or arrange it
+elsewhere. This section makes no claim, from measurement, that the fixed pump is clean under load. The reasoning for
+the loaded case, which is reasoning and not proof: the settle wait ends as soon as the thread pool is quiet, so a 25 ms
+bound costs nothing on an idle pool and adds waiting only where the pool is backlogged, which is where a 2 ms bound
+would have been overrun. A loaded repeat of the target test (100 runs on a saturated box) is the one check that can
+tell whether 25 ms is enough, and whether the hypothesis above is the cause.
