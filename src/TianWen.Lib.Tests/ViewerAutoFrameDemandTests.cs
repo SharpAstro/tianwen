@@ -41,6 +41,8 @@ public class ViewerAutoFrameDemandTests
         if (fromStack)
         {
             e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewLive" }, "the Live view"));
+            // The live stack has a master before Auto is chosen, so the placeholder is what keeps it off the screen, not its absence.
+            await e2e.PumpUntilAsync(() => e2e.Controller.ViewLayers.Live is { HasMaster: true, IsBusy: false }, "the live stack's first master", ct);
         }
         e2e.State.PlaybackFps = 1000f;
         e2e.State.IsPlaying = true;
@@ -70,6 +72,9 @@ public class ViewerAutoFrameDemandTests
         ViewerState.AutoShowsFramesWording.ShouldBe("Showing the frames while Auto stacks");
 
         var playhead = e2e.State.FrameIndex;
+        var raw = e2e.Controller.Source.ShouldBeOfType<SerPreviewSource>();
+        var live = e2e.Controller.ViewLayers.Live;
+        var (decodes, folds) = (raw.DecodesStarted, live?.StacksPublished);
         var asked = 0;
         for (var i = 0; i < Iterations; i++)
         {
@@ -82,6 +87,16 @@ public class ViewerAutoFrameDemandTests
         }
 
         asked.ShouldBe(0, "no progress and no new picture, so no frame is asked for");
+        raw.DecodesStarted.ShouldBe(decodes, "no raw decode while the Auto view is pending");
+        (live?.StacksPublished).ShouldBe(folds, "no live restack while the Auto view is pending");
+
+        // A change of the Auto progress is the one thing that asks for a frame, and one frame answers it.
+        var shown = e2e.State.AutoStackProgress;
+        e2e.State.AutoStackProgress = (shown ?? 0) + 0.01;
+        e2e.Host.WantsFrame().ShouldBeTrue("the progress changed, so a frame is asked for");
+        e2e.Frame();
+        e2e.State.AutoStackProgress.ShouldBe(shown, "the frame shows the run's own progress again");
+        e2e.Host.WantsFrame().ShouldBeFalse("the progress is shown, so nothing more is asked for");
         e2e.State.FrameIndex.ShouldBe(playhead, "the playhead holds under the Auto view");
         e2e.Controller.ViewLayers.Auto?.HasMaster.ShouldNotBe(true);
 
