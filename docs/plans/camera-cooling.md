@@ -10,9 +10,9 @@ cheap: this plan is about how fast a sensor's temperature is made to change, and
   crash journal's recovery and the dark run. Each step (every 15 s) sets the setpoint one degree past the sensor's own
   reading (`SetupointDirection.SetpointTemp`), so the setpoint never runs ahead of a cooler that cannot keep up, and the
   ramp stops stepping once the cooler passes 80 % power (`CoolDownPowerThreshold`).
-- **Two warm-ups**: the session's, through the same ramp towards ambient (`CoolCamerasToAmbientAsync`), and the hub's,
-  2 °C every 30 s for at most 30 steps then the cooler off (`DeviceHubCameraSafetyExtensions.WarmCameraAsync`), which
-  serves every warm-up outside a session.
+- **One warm-up**: `CameraCoolingRamp` towards ambient, for the session (`CoolCamerasToAmbientAsync`) and for the hub
+  (`DeviceHubCameraSafetyExtensions.WarmCameraAsync`), which serves every warm-up outside a session. The hub used to step
+  2 °C every 30 s of its own.
 - **Two settings that do not do what they say**: the session tab's `CooldownRampInterval` and `WarmupRampInterval` (5 min
   each) only cap a ramp, which gives up at twice the budget; neither slows it.
 
@@ -45,7 +45,11 @@ usable heat sink resolves to `CameraReading.WarmUpTargetC(NaN)`, the +25 C fallb
 once the cooler is no longer holding the sensor down: power at or below `CameraCoolingRamp.WarmUpPowerThreshold` (1 %) for
 the ramp's consecutive-step count, whatever the sensor reads, so the QHY294PROC case of 2026-10-26 (15 minutes stepping at 0 %
 toward an unreachable +25 C) costs a few steps, not the safety cap. `Session.CoolCamerasToAmbientAsync` passes that constant.
-Pinned by `CameraCoolingRampTests`. The hub's side (lease check, cooler-off, intent) is still open.
+Pinned by `CameraCoolingRampTests`. 
+**Shipped, the hub side (#1840).** `WarmCameraAsync` runs `CameraCoolingRamp.RunAsync` (Ambient, upward, `WarmUpPowerThreshold`,
+`WarmupRampInterval` as the budget) and keeps the lease check, the no-cooler and cooler-off skips, the intent recorded as Warm
+then Off, the cooler switched off at the end (also when the ramp fails) and the optional disconnect. Pinned by
+`EquipmentWarmUpTests` (15 s steps, a held camera refused, a cooler stuck at 0 % ending in a few steps).
 
 ## The profile's settings everywhere
 

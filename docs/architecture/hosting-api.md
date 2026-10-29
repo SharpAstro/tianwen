@@ -610,7 +610,7 @@ settings ride on the query, and a URI's left part cannot be a path segment).
   offered, a camera's cooler and whether it is at work (`GetDisconnectSafetyAsync`) and the run holding the device.
 - **`POST /api/v1/devices/disconnect`** (`DisconnectRequestDto`): refused with a 409 naming the run while one holds
   the device, FIRST; then, unless `SkipWarmUp`, refused while a camera is cold or at work, saying so.
-- **`POST /api/v1/devices/warm-and-disconnect`**: the hub's ramp (`WarmAndDisconnectAsync`) as a job, so a warm-up the
+- **`POST /api/v1/devices/warm-and-disconnect`**: the hub's warm-up (`WarmAndDisconnectAsync`, which runs the session's own `CameraCoolingRamp`) as a job, so a warm-up the
   window started finishes whatever becomes of the window. Cancelling it (`DELETE /jobs/{id}`) stops the ramp where it
   is and disconnects nothing.
 - **`SkipWarmUp` is consent to a COLD disconnect, never to ending a night**: no request gets past a lease, exactly as
