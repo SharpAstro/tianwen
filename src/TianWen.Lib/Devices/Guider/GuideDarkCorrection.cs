@@ -139,7 +139,7 @@ public sealed class GuideDarkCorrection
         if (dark is not null)
         {
             var ratio = exposure / dark.Exposure;
-            var levels = _levels[dark];
+            var levels = PedestalsOf(dark);
             var data = new float[frame.ChannelCount][,];
             for (var c = 0; c < data.Length; c++)
             {
@@ -167,7 +167,42 @@ public sealed class GuideDarkCorrection
         return current;
     }
 
-    // dark scaled about its own level: level + (dark - level) * ratio, so the pedestal stays and only the dark current moves.
+    // The pedestal of each plane of a dark: its level at zero exposure, extrapolated through the library's dark of the same gain
+    // and the most different exposure (a dark's median is pedestal PLUS dark current, so it cannot be the pedestal). With no such
+    // partner the pedestal is unknowable and taken as zero, so the whole dark scales.
+    private float[] PedestalsOf(GuideDark dark)
+    {
+        var own = _levels[dark];
+        GuideDark? partner = null;
+        foreach (var other in _darks)
+        {
+            if (other.Master.ChannelCount != dark.Master.ChannelCount || other.Master.Width != dark.Master.Width || other.Master.Height != dark.Master.Height
+                || (other.Gain >= 0 && dark.Gain >= 0 && other.Gain != dark.Gain) || other.Exposure == dark.Exposure)
+            {
+                continue;
+            }
+            if (partner is null || Math.Abs(other.Exposure.TotalSeconds - dark.Exposure.TotalSeconds) > Math.Abs(partner.Exposure.TotalSeconds - dark.Exposure.TotalSeconds))
+            {
+                partner = other;
+            }
+        }
+        if (partner is null)
+        {
+            return new float[own.Length];
+        }
+
+        var theirs = _levels[partner];
+        var (t1, t2) = (dark.Exposure.TotalSeconds, partner.Exposure.TotalSeconds);
+        var pedestals = new float[own.Length];
+        for (var c = 0; c < pedestals.Length; c++)
+        {
+            var p = (own[c] * t2 - theirs[c] * t1) / (t2 - t1);
+            pedestals[c] = float.IsFinite(p) ? Math.Clamp(p, 0f, own[c]) : 0f;
+        }
+        return pedestals;
+    }
+
+    // dark scaled about its pedestal: pedestal + (dark - pedestal) * ratio, so the pedestal stays and only the dark current moves.
     private static float[,] Subtract(float[,] light, float[,] dark, float level, float ratio)
     {
         var h = light.GetLength(0);
