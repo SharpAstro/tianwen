@@ -280,7 +280,11 @@ namespace TianWen.UI.Gui
         public IObjectPictureStore? ObjectPictureStore
         {
             get => _skyMapTab.PictureStore;
-            set => _skyMapTab.PictureStore = value;
+            set
+            {
+                _skyMapTab.PictureStore = value;
+                _plannerTab.PictureStore = value;
+            }
         }
 
         /// <summary>Where the atlas's planet discs get OPAL's maps; see <see cref="VkSkyMapTab.PlanetMapStore"/>.</summary>

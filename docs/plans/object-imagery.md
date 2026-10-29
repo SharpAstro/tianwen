@@ -327,6 +327,20 @@ an object absent from the table gets no link rather than a dead one.
   weather and Moon-phase glyphs too), and `WebEmojiSubsetTests` asks it for every glyph the web draws. The desktop hosts still bundle
   the full 4.99 MB `Noto-COLRv1.ttf`; cutting a desktop subset is #689.
 
+### The planner shows the same picture (#1911)
+
+The planner's details strip shows the selected target's verified lead picture through the same shared pieces
+as the atlas panel (`ObjectInfoPanel.PictureFor`, `BuildPictureSection`, `PlaceLargePicture`, and the host's
+`DrawObjectPicture` hook; `VkObjectPictures` on the desktop), in landscape only: the compact portrait strip
+keeps text only. **The strip keeps its height** (`BaseDetailsPanelHeight`, 120 units) and the picture is fitted
+to it, rather than growing the strip or resizing the image in memory. A taller strip would take the chart's room
+on every target, picture or not, and a resize in memory is not needed: the picture hosts already ask Wikimedia
+for the slot's own pixel width, so a small slot fetches a small thumbnail. The section sits at the strip's right
+end, at the picture's aspect ratio and at most 40 % of the strip, so the text keeps the most; a target with no
+picture lays out as before. A press on the thumbnail opens it large over the whole planner, painted after
+everything else; Escape or a press on the scrim closes it (`PlannerState.PictureExpanded`). The web host follows
+in the next leg of the flight.
+
 ### P2: positioned images on the atlas
 
 Tracked by #878.
