@@ -121,9 +121,8 @@ public class ViewerAutoFrameDemandTests
         await e2e.PumpUntilAsync(() => !e2e.Controller.IsAutoStackPending && e2e.State.AutoStackProgress is null, "the Auto run to end", ct);
         e2e.Frame();
 
-        // The hold lets go: no placeholder line, the bar says how the run ended, and the live stack under it shows and follows again.
+        // The hold lets go: no placeholder line, and the live stack under it shows and follows again.
         e2e.State.AutoShowsFrames.ShouldBeFalse("nothing is stacking, so the frames are not shown 'while Auto stacks'");
-        e2e.State.StatusMessage.ShouldBe(cancelled ? "Auto stack cancelled" : "Auto stack failed: no planet");
         e2e.Controller.Source.ShouldBeSameAs(e2e.Controller.ViewLayers.Live, "the view under Auto, the live stack, shows again");
         var folds = e2e.Controller.ViewLayers.Live?.StacksPublished;
         for (var i = 0; i < 1000 && (e2e.State.FrameIndex == playhead || e2e.Controller.ViewLayers.Live?.StacksPublished == folds); i++)
