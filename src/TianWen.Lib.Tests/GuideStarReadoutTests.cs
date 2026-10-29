@@ -145,10 +145,12 @@ public class GuideStarReadoutTests
         AddStar(frame, 110, 100, 2.0, 28000);
         AddStar(frame, 240, 160, 2.0, 15000);
 
+        var found = string.Join("; ", new GuiderCentroidTracker(GuideStarReadout.Radius).FindStars(frame)
+            .ConvertAll(s => $"({s.X:F1},{s.Y:F1} flux {s.Flux:F0} snr {s.SNR:F1})"));
         var read = GuideStarReadout.Measure(frame, FullScale);
 
         read.ShouldNotBeNull();
-        read.Value.X.ShouldBe(240, 0.3);
+        read.Value.X.ShouldBe(240, 0.3, $"candidates: {found}");
     }
 
     [Fact]
