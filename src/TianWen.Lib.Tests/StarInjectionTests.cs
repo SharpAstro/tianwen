@@ -413,7 +413,7 @@ public class StarInjectionTests(ITestOutputHelper output)
         static FittedStar Row(float x, float y, float amplitude, float localSigma, bool secondPass = false)
             => new FittedStar(x, y, secondPass ? 20 : 100, amplitude, 1f, 0.1f, localSigma, StarFitOutcome.Subtracted, false, false, float.NaN, float.NaN,
                 secondPass, float.NaN, StarFitModel.Moffat, [amplitude]);
-        // Ordinary stars at 0.2 and 0.3; an edge fit with no finite sigma (its centre off covered sky) at 1e12; an unsaturated
+        // Ordinary stars at 0.2 and 0.3; a fit with no finite sigma (its centre outside the frame) at 1e12; an unsaturated
         // star whose amplitude plus its 0.1 sky is past the clip of 1; and a second-pass row of the 0.3 star that diverged too.
         ImmutableArray<FittedStar> catalogue =
         [

@@ -5184,16 +5184,20 @@ starless plate's parameters, not the master's (#1776). Re-stretched, the S2 read
 was not the exporter's, which moved green's master floor on four of the eight sessions (S2's read above, "Corrected").
 Read through the exporter's own master stretch, the injected colours already match real's in every band. The injector
 draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). The pool refuses a
-diverged fit (#1867): a star whose `LocalSigma` is not finite (an edge fit with its centre off covered sky), and an
+diverged fit (#1867): a star whose `LocalSigma` is not finite (a fit with its centre outside the frame; a star on the absent
+ring keeps its sigma), and an
 unsaturated one whose amplitude in any channel is above the frame's clip (the master's unit-scale divisor) less its own
 sky. Neither is drawn, nor carried as a lobe; both still count as sites, and `InjectionPopulation.Refused` says how many.
 The plate builder refuses both halves at the source (#1867): `ClassicalStarRemover` leaves an unsaturated fit
-whose amplitude in any channel is non-finite or above `OvershootMargin` (4) times that channel's brightest covered sample less its sky,
-or whose centre has no local sigma (outside the frame, which only a fit that ran away reaches: the noise map is finite on the
-absent ring, so an ordinary star there keeps its sigma), as `NoFit` before subtracting it, so no
-reader of the catalogue meets it as a Subtracted Moffat. The margin departs from the leg's wording ("above the ceiling less the
-star's sky"): the ceiling is a pixel mean and a Moffat's continuous peak sits above it, at worst about 1.7 times for a sharp
-unsaturated star, so 1x would refuse real stars. A saturated fit centred off canvas is still subtracted, deliberately: an edge-cut
+whose amplitude in any channel is non-finite or above `OvershootMargin` (4) times that channel's own brightest covered sample
+(`AmplitudeOvershoots`, no sky taken off), or whose centre has no local sigma (outside the frame, which only a fit that ran away
+reaches: the noise map is finite on the absent ring, so an ordinary star there keeps its sigma), as `NoFit` before subtracting
+it, so no reader of the catalogue meets it as a Subtracted Moffat. The margin departs from the leg's wording ("above the ceiling
+less the star's sky"): the ceiling is a pixel mean and a Moffat's continuous peak sits above it, at worst about 1.7 times for a
+sharp unsaturated star, so 1x would refuse real stars. The sky is not taken off because the fit's sky is the luminance's: taken
+off a colour channel's ceiling, it left a channel whose brightest sample sat under the others' sky a threshold of 0, and a field
+with unequal channel skies lost nearly every star to NoFit (286 of 297 in #1873's review); against a divergence of 1e12 the
+margin dwarfs any sky. A saturated fit centred off canvas is still subtracted, deliberately: an edge-cut
 star (the Orion master's 700-sigma star, fitted 3 px past the last present column) must leave the plate, and refusing it would
 leave its light there. The injector's own guard stays, for catalogues built before this and read as before (the catalogue format
 is unchanged). **Plates and the export must be
