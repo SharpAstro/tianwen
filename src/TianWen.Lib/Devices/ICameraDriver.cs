@@ -588,7 +588,26 @@ public interface ICameraDriver : IDeviceDriver
             CameraCoolingState newState;
             var needsFurtherRamping = direction.NeedsFurtherRamping(ccdTemp, setpointTemp);
 
-            if (needsFurtherRamping
+            var warmedUp = desiredSetpointTemp.Kind is SetpointTempKind.Ambient && direction is SetupointDirection.Up
+                && ccdTemp >= setpointTemp - CameraReading.WarmUpToleranceC;
+
+            if (warmedUp)
+            {
+                // A warm-up to ambient whose sensor is within CameraReading's tolerance of its target is done, the same line a
+                // client's quit question draws between "warm up" and "nothing to warm": the confirmations below exist for a power
+                // threshold, and a sensor at ambient has nothing left to mitigate. Confirming it three more steps cost every
+                // warm-up 45 s on a warm sensor, which a client's quit waits out.
+                newState = coolingState with
+                {
+                    IsRamping = false,
+                    TargetSetpointReached = true,
+                    IsCoolable = true
+                };
+
+                Logger.LogInformation("Camera {Name} warmed to its setpoint {SetpointTemp:0.00} °C. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%.",
+                    Name, setpointTemp, heatSinkTemp, ccdTemp, coolerPower);
+            }
+            else if (needsFurtherRamping
                 && (double.IsNaN(coolerPower) || !await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) || !direction.ThresholdPowerReached(coolerPower, thresPower))
             )
             {
