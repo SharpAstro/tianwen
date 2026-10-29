@@ -47,7 +47,7 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await Hub.ConnectAsync(device, ct);
 
-        var cooling = (await Client.CoolCameraAsync(device.DeviceUri, -10.4, rampMinutes: null, ct)).Value.ShouldNotBeNull();
+        var cooling = (await Client.CoolCameraAsync(device.DeviceUri, -10.4, maxRateCPerMinute: null, ct)).Value.ShouldNotBeNull();
         cooling.Kind.ShouldBe("cool");
         await UntilAsync("the ramp to switch the cooler on", async token => (await camera.GetCoolerOnAsync(token), "cooler still off"), ct);
 
@@ -140,7 +140,7 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         {
             foreach (var refused in new[]
             {
-                (await Client.CoolCameraAsync(device.DeviceUri, -10, rampMinutes: null, ct)).Error,
+                (await Client.CoolCameraAsync(device.DeviceUri, -10, maxRateCPerMinute: null, ct)).Error,
                 (await Client.WarmCameraAsync(device.DeviceUri, ct)).Error,
                 (await Client.CameraCoolerOffAsync(device.DeviceUri, ct)).Error,
                 (await Client.SetCameraSettingsAsync(new CameraSettingsRequestDto { DeviceUri = device.DeviceUri.ToString(), Bin = 2 }, ct)).Error,
@@ -158,7 +158,7 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var device = new FakeDevice(DeviceType.Focuser, 1);
         await Hub.ConnectAsync(device, ct);
 
-        var refused = await Client.CoolCameraAsync(device.DeviceUri, -10, rampMinutes: null, ct);
+        var refused = await Client.CoolCameraAsync(device.DeviceUri, -10, maxRateCPerMinute: null, ct);
 
         refused.StatusCode.ShouldBe(400);
         refused.Error.ShouldNotBeNull().ShouldContain("not a camera");

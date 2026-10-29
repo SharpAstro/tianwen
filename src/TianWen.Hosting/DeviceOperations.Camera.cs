@@ -34,14 +34,13 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot set its sensor temperature");
         }
-        if (!double.IsFinite(request.SetpointC) || request.RampMinutes is { } minutes && !(minutes > 0 && double.IsFinite(minutes)))
+        if (!double.IsFinite(request.SetpointC) || request.MaxRateCPerMinute is { } rate && !(rate > 0 && double.IsFinite(rate)))
         {
-            return ResponseEnvelope<JobDto>.Fail("A setpoint must be a temperature, and a ramp a positive number of minutes");
+            return ResponseEnvelope<JobDto>.Fail("A setpoint must be a temperature, and a rate a positive number of degrees a minute");
         }
 
         var target = CameraCoolingRamp.TargetOf(request.SetpointC);
-        // RampMinutes is a duration the rate ceiling replaced; the next leg of #1839 retires it from the wire. Ignored here.
-        var ramp = new SessionConfiguration().CooldownMaxRate;
+        var ramp = request.MaxRateCPerMinute ?? new SessionConfiguration().CooldownMaxRate;
         return Start(CoolJob, uri, name, async (step, ct) =>
         {
             step.Report($"Cooling {name} to {target:F0} °C");

@@ -454,10 +454,10 @@ namespace TianWen.RemoteClient
 
         /// <summary>
         /// <c>POST /devices/camera/cool</c> -- cools the camera to <paramref name="setpointC"/> through the session's own
-        /// ramp, as a job in the node (P2 part 3, #929). <paramref name="rampMinutes"/> null takes a session's default.
+        /// ramp, as a job in the node (P2 part 3, #929). <paramref name="maxRateCPerMinute"/> null takes a session's default rate.
         /// </summary>
-        public Task<NodeResult<JobDto>> CoolCameraAsync(Uri deviceUri, double setpointC, double? rampMinutes, CancellationToken cancellationToken) =>
-            SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/cool", new CoolRequestDto { DeviceUri = deviceUri.ToString(), SetpointC = setpointC, RampMinutes = rampMinutes },
+        public Task<NodeResult<JobDto>> CoolCameraAsync(Uri deviceUri, double setpointC, double? maxRateCPerMinute, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/camera/cool", new CoolRequestDto { DeviceUri = deviceUri.ToString(), SetpointC = setpointC, MaxRateCPerMinute = maxRateCPerMinute },
                 HostingJsonContext.Default.CoolRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
         /// <summary>

@@ -690,7 +690,7 @@ namespace TianWen.UI.Abstractions
 
                 // Cooled through the session's own ramp (CameraCoolingRamp), on the node: the one answer to how fast a
                 // sensor may be cooled, where the Equipment tab used to set the setpoint at once.
-                var starting = node.Client.CoolCameraAsync(sig.DeviceUri, sig.SetpointC, rampMinutes: null, cts.Token);
+                var starting = node.Client.CoolCameraAsync(sig.DeviceUri, sig.SetpointC, maxRateCPerMinute: null, cts.Token);
                 Notify(NotificationSeverity.Info, $"Cooling to {sig.SetpointC:F1}\u00b0C");
                 if (await RunNodeJobAsync(node, starting, "Cooling", cts.Token) is { } cooled)
                 {

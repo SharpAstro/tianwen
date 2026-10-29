@@ -626,9 +626,10 @@ connect does: both are profile writes, made through the node's one writer (P3 pa
 P2 part 3 (#929), on the same `DeviceOperations`, every route refusing a camera a run holds (the `Actuate` gate) and
 a device that is not a camera:
 
-- **`POST /api/v1/devices/camera/cool`** (`CoolRequestDto`): a JOB through the session's own ramp
-  (`CameraCoolingRamp`, via `IDeviceHub.CoolToSetpointAsync`), never a jump, on the session's default ramp time
-  unless the request names one. It records the whole-degree TARGET as the camera's cooler intent, which the crash
+- **`POST /api/v1/devices/camera/cool`** (`CoolRequestDto`): a JOB through the session's own rate-limited ramp
+  (`CameraCoolingRamp`, via `IDeviceHub.CoolToSetpointAsync`), never a jump, at the session's default cooling rate (2 °C a minute)
+  unless the request names one (`MaxRateCPerMinute`, finite and positive, #1839; a wire-4 client's old `RampMinutes` is ignored,
+  so `NodeWire.Version` stays). It records the whole-degree TARGET as the camera's cooler intent, which the crash
   journal keeps. The GUI's setpoint today is an immediate command that records nothing; P6 moves it here.
 - **`POST /api/v1/devices/camera/warm`**: the hub's warm-up ramp and cooler off as a job, the camera left connected.
 - **`POST /api/v1/devices/camera/cooler-off`**: at once, no warm-up (`IDeviceHub.CoolerOffAsync`, which the GUI's

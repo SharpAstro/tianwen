@@ -97,7 +97,7 @@ public class EquipmentFlowProcessTests(ITestOutputHelper output)
             new[] { Mount, Camera, Focuser, Wheel }.All(d => pushed.Any(s => new Uri(s.DeviceUri).DeviceKey == d.DeviceKey)), $"{pushed.Count} pushed")), ct);
 
         // The camera: a cool-down is the session's ramp, running in the node; switched off at once, it says so.
-        var cooling = (await client.CoolCameraAsync(Camera, -10, rampMinutes: null, ct)).Value.ShouldNotBeNull();
+        var cooling = (await client.CoolCameraAsync(Camera, -10, maxRateCPerMinute: null, ct)).Value.ShouldNotBeNull();
         await StateAsync(client, Camera, static s => s.Camera is { CoolerOn: true, CoolerIntent: CoolerIntentKind.Cool }, ct);
         (await client.CancelJobAsync(cooling.Id, ct)).IsSuccess.ShouldBeTrue();
         (await EndedAsync(client, cooling, ct)).State.ShouldBe(JobState.Cancelled);
