@@ -121,7 +121,8 @@ public static class GuideStarReadout
             {
                 continue;
             }
-            if (Describe(frame, width, height, star.X, star.Y, fullScale) is { Saturated: false } measured)
+            if (Describe(frame, width, height, star.X, star.Y, fullScale) is { Saturated: false } measured
+                && !HasCompanion(frame, measured))
             {
                 chosen = measured;
                 chosenFlux = star.Flux;
@@ -184,6 +185,41 @@ public static class GuideStarReadout
             return null;
         }
         return read with { X = read.X + x0, Y = read.Y + y0 };
+    }
+
+    /// <summary>
+    /// Whether a second star sits inside the aperture of <paramref name="star"/>: the candidate scan merges peaks closer than the
+    /// aperture, so a doublet arrives as ONE candidate whose centroid lies between its stars. A local maximum at least four
+    /// pixels from the centroid and over a fifth of the star's own height above the sky is a companion.
+    /// </summary>
+    private static bool HasCompanion(float[,] frame, GuideStarMeasurement star)
+    {
+        var height = frame.GetLength(0);
+        var width = frame.GetLength(1);
+        var px = (int)Math.Round(star.X);
+        var py = (int)Math.Round(star.Y);
+        var bg = Background(frame, width, height, px, py);
+        var floor = bg + ((star.Peak - bg) * IsolationFlux);
+        for (var dy = -Radius; dy <= Radius; dy++)
+        {
+            for (var dx = -Radius; dx <= Radius; dx++)
+            {
+                var x = px + dx;
+                var y = py + dy;
+                var rx = x - star.X;
+                var ry = y - star.Y;
+                if (dx * dx + dy * dy > Radius * Radius || rx * rx + ry * ry < 16 || x < 1 || y < 1 || x >= width - 1 || y >= height - 1)
+                {
+                    continue;
+                }
+                var v = frame[y, x];
+                if (v >= floor && v > frame[y - 1, x] && v > frame[y + 1, x] && v > frame[y, x - 1] && v > frame[y, x + 1])
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static bool IsIsolated(List<(double X, double Y, double Flux, double SNR)> stars, int index)
