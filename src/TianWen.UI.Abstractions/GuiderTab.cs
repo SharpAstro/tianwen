@@ -236,8 +236,8 @@ namespace TianWen.UI.Abstractions
             var darksGoing = darks.IsRunning;
             var canTakeDarks = !stoppable && !darksGoing;
             var darksButton = Layout.Builder.Text(darksGoing ? "Stop darks" : "Darks", BaseFontSize * 0.9f, darksGoing || canTakeDarks ? BodyText : DimText,
-                    TextAlign.Center, TextAlign.Center)
-                .WFixed(80f).HStar().Bg(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg);
+                    TextAlign.Center, TextAlign.Center, widthSample: "Stop darks")
+                .PadX(BasePadding).HStar().Bg(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg);
             if (darksGoing || canTakeDarks)
             {
                 darksButton = darksButton.BgHover(GuiTheme.Hover(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg))

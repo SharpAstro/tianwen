@@ -207,6 +207,45 @@ namespace TianWen.Lib.Tests
             starts.Count.ShouldBe(1);
         }
 
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public void GuideDarks_AreOfferedWithNoLoopAndAskTheNodeForExactlyTheLoopsExposure(float dpi)
+        {
+            using var renderer = new RgbaImageRenderer(1600, 800);
+            var bus = new SignalBus();
+            var loop = new GuideLoopController(new SystemTimeProvider(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
+            var tab = LoopTab(renderer, bus, dpi);
+            tab.GuideLoop = loop;
+            var starts = new List<StartGuideDarksSignal>();
+            bus.Subscribe<StartGuideDarksSignal>(signal => starts.Add(signal));
+            var time = new FakeTimeProviderWrapper(SampleStart);
+
+            void Draw() => tab.Render(new LiveSessionState(), new RectF32(0, 0, 1600, 800), time);
+            ClickableRegion[] Regions(string action) => [.. tab.GetRegisteredRegions().Where(r => r.Result is HitResult.ButtonHit hit && hit.Action == action)];
+
+            Draw();
+            var darks = Regions("GuideDarks").ShouldHaveSingleItem();
+            darks.Width.ShouldBeGreaterThan(40f * dpi, "the label fits its painted box");
+            var inc = Regions("GuideDarksCountInc").ShouldHaveSingleItem();
+
+            UiRouting.RoutePress(tab, inc.X + (inc.Width / 2f), inc.Y + (inc.Height / 2f));
+            bus.ProcessPending();
+            loop.Darks.Count.ShouldBe(20);
+
+            Draw();
+            darks = Regions("GuideDarks").ShouldHaveSingleItem();
+            UiRouting.RoutePress(tab, darks.X + (darks.Width / 2f), darks.Y + (darks.Height / 2f));
+            bus.ProcessPending();
+            starts.ShouldBe([new StartGuideDarksSignal(loop.ExposureSeconds, null)]);
+
+            // With the loop running there is nothing to press: the node refuses darks while the camera loops.
+            loop.View.Began(0, null);
+            Draw();
+            Regions("GuideDarks").ShouldBeEmpty();
+        }
+
         private static GuiderTab<RgbaImage> LoopTab(RgbaImageRenderer renderer, SignalBus bus, float dpiScale = 1f)
             => new(renderer)
             {
