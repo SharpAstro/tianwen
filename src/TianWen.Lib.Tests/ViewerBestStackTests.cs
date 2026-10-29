@@ -69,7 +69,7 @@ public class ViewerBestStackTests
         var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
         e2e.Host.HandleDropFile(capture);
         await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
-        e2e.State.AutoSegmentLabel.ShouldBe("Auto");
+        e2e.State.AutoSegmentLabel.ShouldBe("Full");
         bool IsTheTrack(HitResult hit) => hit is HitResult.SliderStateHit { State: var slider } && ReferenceEquals(slider, e2e.Viewer.Scrub);
         await e2e.PumpUntilAsync(() => e2e.Viewer.PaintedRegions().Any(r => IsTheTrack(r.Result)), "the scrub track to be painted", ct);
         var trackX = e2e.Region(IsTheTrack, "the scrub track").X;
@@ -79,20 +79,20 @@ public class ViewerBestStackTests
         await e2e.PumpUntilAsync(() =>
         {
             var label = e2e.State.AutoSegmentLabel;
-            // The scrub track starts where it did at "Auto" whatever the segment says: a stage's word must neither resize the view
+            // The scrub track starts where it did at "Full" whatever the segment says: a stage's word must neither resize the view
             // switch nor push the track off. Read each tick, so it holds for any stage the pump happens to see.
             e2e.Region(IsTheTrack, "the scrub track").X.ShouldBe(trackX, 0.5f, "the scrub track's left edge at " + label);
             if (seen.Count == 0 || seen[^1] != label)
             {
                 seen.Add(label);
             }
-            return label == "Auto" && seen.Count > 1 && !e2e.Controller.IsAutoStackPending;
+            return label == "Full" && seen.Count > 1 && !e2e.Controller.IsAutoStackPending;
         }, "the Auto stack to end", ct, untilTimeout: true);
 
         seen.ShouldContain(l => l.StartsWith("Stacking", StringComparison.Ordinal));
-        seen.ShouldContain(l => !l.StartsWith("Stacking", StringComparison.Ordinal) && l != "Auto" && !l.Contains('%'),
+        seen.ShouldContain(l => !l.StartsWith("Stacking", StringComparison.Ordinal) && l != "Full" && !l.Contains('%'),
             "a stage after Stacking is named, with no percent: " + string.Join(" | ", seen));
-        seen[^1].ShouldBe("Auto");
+        seen[^1].ShouldBe("Full");
     }
 
     [Theory(Timeout = 180_000)]
