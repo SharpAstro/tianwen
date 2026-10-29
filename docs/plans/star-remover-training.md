@@ -5186,21 +5186,22 @@ Read through the exporter's own master stretch, the injected colours already mat
 draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). The pool refuses a
 diverged fit (#1867): a star whose `LocalSigma` is not finite (a fit with its centre outside the frame; a star on the absent
 ring keeps its sigma), and an
-unsaturated one whose amplitude in any channel is above the frame's clip (the master's unit-scale divisor) less its own
-sky. Neither is drawn, nor carried as a lobe; both still count as sites, and `InjectionPopulation.Refused` says how many.
-The plate builder refuses both halves at the source (#1867): `ClassicalStarRemover` leaves an unsaturated fit
-whose amplitude in any channel is non-finite or above `OvershootMargin` (4) times that channel's own brightest covered sample
-(`AmplitudeOvershoots`, no sky taken off), or whose centre has no local sigma (outside the frame, which only a fit that ran away
-reaches: the noise map is finite on the absent ring, so an ordinary star there keeps its sigma), as `NoFit` before subtracting
-it, so no reader of the catalogue meets it as a Subtracted Moffat. The margin departs from the leg's wording ("above the ceiling
-less the star's sky"): the ceiling is a pixel mean and a Moffat's continuous peak sits above it, at worst about 1.7 times for a
-sharp unsaturated star, so 1x would refuse real stars. The sky is not taken off because the fit's sky is the luminance's: taken
-off a colour channel's ceiling, it left a channel whose brightest sample sat under the others' sky a threshold of 0, and a field
-with unequal channel skies lost nearly every star to NoFit (286 of 297 in #1873's review); against a divergence of 1e12 the
-margin dwarfs any sky. A saturated fit centred off canvas is still subtracted, deliberately: an edge-cut
-star (the Orion master's 700-sigma star, fitted 3 px past the last present column) must leave the plate, and refusing it would
-leave its light there. The injector's own guard stays, for catalogues built before this and read as before (the catalogue format
-is unchanged). **Plates and the export must be
+unsaturated one whose amplitude in any channel is above `OvershootMargin` (4) times the frame's clip (the master's unit-scale
+divisor) less its own sky. Neither is drawn, nor carried as a lobe; both still count as sites, and
+`InjectionPopulation.Refused` says how many.
+The plate builder refuses the overshooting half at the source (#1867): `ClassicalStarRemover` leaves an unsaturated fit whose
+amplitude in any channel is non-finite or above `OvershootMargin` (4) times that channel's own brightest covered sample
+(`AmplitudeOvershoots`, no sky taken off) as `NoFit` before subtracting it, and a fitted pair either of whose stars does so stays
+a knot, so no reader of the catalogue meets a diverged fit as a Subtracted Moffat. The margin, in both guards, departs from the
+leg's wording ("above the ceiling less the star's sky"): the ceiling is a pixel mean and a Moffat's continuous peak sits above it,
+at worst about 1.7 times for a sharp unsaturated star, so 1x would refuse real stars. The plate builder takes no sky off because
+the fit's sky is the luminance's: taken off a colour channel's ceiling, it left a channel whose brightest sample sat under the
+luminance sky a threshold of 0, and refused every star with light in it (#1873's review); against a divergence of 1e12 the margin
+dwarfs any sky. A fit centred outside the frame with a sane amplitude is still subtracted, saturated or not, deliberately: on a
+ringless master that is a real star the frame's edge cut (the Orion master's 700-sigma star was fitted 3 px past the last present
+column), and refusing it would leave half a star on the starless plate. Its row's `LocalSigma` is NaN, and that is the marker the
+next reader sees: the injector refuses it. The injector's guard also covers catalogues built before this, read as before (the
+catalogue format is unchanged). **Plates and the export must be
 rebuilt**, and the synthetics review's instruments (`training/star-removal/domain/`) read on that re-export before any
 training run uses it; that re-export is the owner's. A drawn colour is
 therefore a real star's colour at that star's own brightness. An option drawing colours from the real distribution

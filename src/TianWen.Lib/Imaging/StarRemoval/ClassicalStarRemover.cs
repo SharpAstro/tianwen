@@ -42,16 +42,6 @@ public static class ClassicalStarRemover
     // pixel of only 60 percent of its peak (1.7 times); a diverged fit is 1e12 off, so 4 refuses it and never a star.
     internal const double OvershootMargin = 4.0;
 
-    // Whether a fit centred at (x, y) has no local sigma, so its catalogue row's LocalSigma (Describe) is NaN: a centre outside
-    // the frame, which only a fit that ran away reaches. The noise map is finite everywhere inside the frame, the absent ring
-    // included, so an ordinary star on the ring keeps a sigma and is judged as any other; the non-finite pixel is only a guard.
-    internal static bool CentreHasNoLocalSigma(double x, double y, int width, int height, ReadOnlySpan<float> rms)
-    {
-        var cx = (int)Math.Round(x);
-        var cy = (int)Math.Round(y);
-        return !(cx >= 0 && cx < width && cy >= 0 && cy < height) || !float.IsFinite(rms[cy * width + cx]);
-    }
-
     // Whether an unsaturated fit's amplitude in any channel is not a number or above OvershootMargin times that channel's brightest
     // covered sample. Each channel against its own ceiling, with no sky taken off: a luminance sky taken off a colour channel's
     // ceiling left a channel whose brightest sample sat under the other channels' sky a threshold of 0, and refused nearly every star
@@ -913,11 +903,11 @@ public static class ClassicalStarRemover
             // A diverged fit is refused before it is subtracted (#1867): an unsaturated star cannot peak far above its channel's
             // brightest covered sample, so an amplitude past OvershootMargin times that (or not a number) is a fit that ran away
             // (one at 1e12 on a frame's edge once dominated the injector's pool, and subtracting it would have written a huge
-            // hole into the plate). It is left as NoFit, which no reader takes for a star. So is an unsaturated fit centred outside
-            // the frame (no local sigma, and nothing in the catalogue would mark the row); no real star's centre gets there, since
-            // the covered sky starts inside the frame, so that half is a guard for a fit that ran away, pinned on its own rule
-            // (CentreHasNoLocalSigma). A saturated fit centred off canvas stays subtracted: that is a star the frame's edge cut.
-            if (!fit.Saturated && (Overshoots(fit) || HasNoLocalSigma(fit)))
+            // hole into the plate). It is left as NoFit, which no reader takes for a star. A fit centred outside the frame with a sane
+            // amplitude is still subtracted, saturated or not: on a ringless master that is a real star the frame's edge cut, and
+            // leaving it would put half a star on the starless plate. Its row's LocalSigma is NaN, and that is the marker the next
+            // reader sees: the injector refuses a NaN-sigma row from its pool (InjectionPopulation.Diverged).
+            if (!fit.Saturated && Overshoots(fit))
             {
                 fit.Outcome = StarFitOutcome.NoFit;
                 return fit;
@@ -926,8 +916,6 @@ public static class ClassicalStarRemover
             AddModel(fit, -1);
             return fit;
         }
-
-        private bool HasNoLocalSigma(Fit fit) => CentreHasNoLocalSigma(fit.X, fit.Y, _width, _height, _rms);
 
         private bool Overshoots(Fit fit) => AmplitudeOvershoots(fit.ChannelAmplitudes, _fullScale);
 
@@ -2301,6 +2289,12 @@ public static class ClassicalStarRemover
                     fit.ChannelAmplitudes[c] = double.IsFinite(r.A1) ? r.A1 : 0.0;
                     fit.CompanionAmplitudes[c] = double.IsFinite(r.A2) ? r.A2 : 0.0;
                 }
+            }
+            // The pair passes the same overshoot guard as a single fit (#1867): either star past OvershootMargin times its channel's
+            // ceiling is a pair that ran away, not two stars, and the source stays a knot.
+            if (AmplitudeOvershoots(fit.ChannelAmplitudes, _fullScale) || AmplitudeOvershoots(fit.CompanionAmplitudes, _fullScale))
+            {
+                return null;
             }
             fit.Outcome = StarFitOutcome.Subtracted;
             AddModel(fit, -1);

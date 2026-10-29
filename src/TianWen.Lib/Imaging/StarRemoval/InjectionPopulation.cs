@@ -142,7 +142,8 @@ public sealed class InjectionPopulation
     public int AmplitudePool => _amplitudes.Length;
 
     /// <summary>Unsaturated catalogue rows refused as diverged fits (#1867): a LocalSigma that is not finite, or an amplitude
-    /// above the frame's clip less the star's sky. They are in neither the pool nor the carried lobes, and still count as sites.</summary>
+    /// above <see cref="ClassicalStarRemover.OvershootMargin"/> (4) times the frame's clip less the star's sky. They are in neither
+    /// the pool nor the carried lobes, and still count as sites.</summary>
     public int Refused { get; private init; }
 
     /// <summary>Lobes carried by the stars of both pools.</summary>
@@ -182,9 +183,10 @@ public sealed class InjectionPopulation
         => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && s.ChannelAmplitudes.Length == channels
             && s.ChannelAmplitudes.All(float.IsFinite);
 
-    // A diverged fit (#1867): a NaN LocalSigma means its centre was outside the frame (a star on the absent ring keeps its sigma), and an unsaturated star cannot peak above
-    // the frame's clip, so an amplitude in any channel above the clip less the star's own sky is a fit that ran away (one such
-    // edge fit, at 1e12, once dominated the pool's draws). The clip is the master's unit-scale divisor, the full scale the
+    // A diverged fit (#1867): a NaN LocalSigma means its centre was outside the frame (a star on the absent ring keeps its sigma),
+    // and an unsaturated star cannot peak far above the frame's clip, so an amplitude in any channel above OvershootMargin (4)
+    // times the clip less the star's own sky is a fit that ran away (one such edge fit, at 1e12, once dominated the pool's draws).
+    // The margin is the plate builder's: a Moffat's continuous peak sits above its brightest pixel, up to about 1.7 times. The clip is the master's unit-scale divisor, the full scale the
     // exporter divides every amplitude by (so it is 1 once scaled): the channels share it, as the master's unit range does,
     // and MaxValue alone is the observed peak, not saturation. Saturated stars are not asked: their wing amplitude is
     // legitimately past the clip.
