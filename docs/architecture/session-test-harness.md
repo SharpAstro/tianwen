@@ -195,8 +195,9 @@ once from separate classes) and read the Dec RMS tail, since an idle sequential 
 sustained run, the fresh-model run, the dither settle, the cloud-fail wait, the lost-lock and recover waits) now goes
 through `FakeTimeProviderWrapper.PumpUntilAsync`, a pump-until-condition overload beside `PumpUntilCompletedAsync`
 that shares its body (`PumpCoreAsync`) and takes the same progress probe (`GuideFrameCount`). The test helpers are
-`PumpGuiderAsync`, `PumpUntilGuidingAsync` and `PumpForAsync`. The two mount-only loops (the slew and advance checks)
-keep their hand step on purpose: they have no guide loop to pace against and do not set `ExternalTimePump`.
+`PumpGuiderAsync`, `PumpUntilGuidingAsync` and `PumpForAsync`. Four mount-only loops (`Advance(1 s)` then `Task.Delay(1)`)
+remain, in the slew and advance tests: none has a guide loop to pace against and none sets `ExternalTimePump`, so
+there is no loop whose progress a probe could watch. They are left on purpose.
 
 **The first loaded repeat still failed, and showed the real mechanism.** With the cooperative pump and nothing else
 changed, 120 runs of the target test beside twelve CPU burners (each a 2400 s, 40 minute busy loop, all started at once; the
@@ -215,19 +216,29 @@ not enough, so an advance passed over a wake the loop had not yet observed and t
 intervals at once. The skipped wake was not observed, and it cannot be shown without load. The observed fact is only
 the one 26" RA excursion (about 1.7 s of sidereal drift) in each of the two failing loaded runs.
 
-**The change.** `PumpUntilAsync` takes an optional `settleBound`, used for both settle waits of an advance. The
-guider pumps pass 25 ms (`GuideSettleBound`). It costs nothing on an idle runner (the wait ends as soon as the pool
-is quiet) and only waits where the pool is backlogged. The default stays 2 ms for every other caller. No test bound
-was widened: both failures were one excursion, not a distribution to fit a bound to.
+**The change.** `PumpUntilAsync` takes an optional `settleBound`. The pump no longer guesses how long the loop needs:
+after an advance it waits for the guide loop to park again (`WaiterCount` back at its earlier level, which is
+per `FakeTimeProviderWrapper`, so it measures that test's loop only) and ends the wait the moment it does. The guider
+pumps pass `GuideSettleBound` of 1 s, which is only a backstop for a loop that never re-parks, not a pacing value. The
+pool-quiet wait keeps the 2 ms default, since the pool's pending count is process-wide and a neighbouring test would
+otherwise stretch it. This is the "pace the pump to the guide loop itself" option; no bound was derived from a
+measurement, and the earlier 25 ms guess is gone. No test bound was widened (3.0" settle and 5.0" sustained stand).
+A guide-loop test whose loop never re-parks would pay 1 s per advance; none does today.
 
-**Unloaded repeat after the fix: 120 of 120 passed** (a temporary `[Theory]` of 120 runs of the target test, since
-removed; about 7 minutes on an ordinary, unloaded run). That shows no regression and no new unloaded flake. It does
-NOT show the fix works under load, because the unloaded runs never failed even before the fix.
+**What was and was not shown.**
+- No failing at-settle run was ever seen. The original 4.46" settle failure from #1910 never reproduced, so no traced
+  cause exists for it.
+- The only failures observed were the two loaded sustained-phase runs above (5.17" and 5.93"), and a 1.99" Dec
+  outlier in one batch (batch 2) that is unexplained.
+- An unloaded repeat after the first change passed 120 of 120 (a temporary `[Theory]`, since removed). It cannot
+  show the fix works under load, because unloaded runs never failed even before.
+- The re-park pacing was then checked by the leg's own run of `FakeCameraMountCouplingTests` in Release, which passes.
+  That is a regression check, not a loaded repeat.
 
-**OPEN ITEM: the loaded 100-run repeat was NOT run.** This machine is not to be loaded on purpose (no CPU burner, no
-stress or soak loop), so the repeat was not run, and the controller is to accept the fix without it or arrange it
-elsewhere. This section makes no claim, from measurement, that the fixed pump is clean under load. The reasoning for
-the loaded case, which is reasoning and not proof: the settle wait ends as soon as the thread pool is quiet, so a 25 ms
-bound costs nothing on an idle pool and adds waiting only where the pool is backlogged, which is where a 2 ms bound
-would have been overrun. A loaded repeat of the target test (100 runs on a saturated box) is the one check that can
-tell whether 25 ms is enough, and whether the hypothesis above is the cause.
+**The loaded 100-run repeat is waived by the owner and filed as tianwen#1923.** It is to run later on CI, or when
+the owner okays the load. No burner and no loaded repeat were run for this leg. A partial suite-shaped attempt (the
+temporary 100-run theory inside a full functional-suite Release run, `maxParallelThreads` 4, win-x64, 16 cores, no
+burners) was cancelled at about run 77 of 100 when the waiver arrived; the runs seen all passed, and that is not
+counted as the repeat. So the leg is judged by the unloaded repeat, the leg check and the reasoning that the pump now
+waits on the loop's own re-park, and not on a traced cause or a loaded result. Whether the hypothesis above is the
+cause, and whether the re-park pacing holds under load, is for #1923 to answer.

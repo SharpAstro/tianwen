@@ -80,12 +80,12 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
             progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: GuideSettleBound);
 
     /// <summary>
-    /// How long each advance waits for the pool and the guide loop to settle: past the 2 ms default. Hypothesis
-    /// (#1910), not shown: on a saturated runner the guide loop, which waits only through <c>SleepAsync</c>, may not
-    /// have parked again within 2 ms, so an advance could skip over its wake. Two loaded runs each showed one large
-    /// RA excursion; the skipped wake itself was not observed without load.
+    /// How long, in real time, each advance waits for the guide loop to park at its next <c>SleepAsync</c> (#1910).
+    /// The loop always parks again while it runs and the wait ends the moment it does, so the bound is only a
+    /// backstop against a loop that has stopped; it paces the pump to the loop instead of guessing how long a
+    /// starved loop needs.
     /// </summary>
-    private static readonly TimeSpan GuideSettleBound = TimeSpan.FromMilliseconds(25);
+    private static readonly TimeSpan GuideSettleBound = TimeSpan.FromSeconds(1);
 
     /// <summary>Pumps until the guider reports Guiding or raises an error (the calibrate-and-settle wait).</summary>
     private static async Task<TimeSpan> PumpUntilGuidingAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,

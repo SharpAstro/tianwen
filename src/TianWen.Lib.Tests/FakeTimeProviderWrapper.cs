@@ -199,9 +199,11 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// (a guide loop parks at Guiding): advances paced to the loop, with the same progress probe, until
     /// <paramref name="condition"/> holds. The condition is read between advances, after the loop has been
     /// given its turn, so it never races a half-processed frame (#1910). Returns the fake time pumped.
-    /// <paramref name="settleBound"/> is how long it gives the pool and a released sleep to settle before each
-    /// advance (the 2 ms default unless given). A saturated runner may need it longer, so that an advance does not
-    /// pass over a wake the loop has not yet observed (a hypothesis for #1910, not shown without load).
+    /// <paramref name="settleBound"/> is how long, in real time, an advance waits for the loop to park at a new
+    /// <c>SleepAsync</c> after the advance released one (the 2 ms default unless given). The waiter count belongs to
+    /// this provider alone, so unlike the pool's process-wide queue it measures this loop and nothing else: a long
+    /// bound ends the moment the loop re-parks and costs nothing, and only a loop that never parks again pays it.
+    /// The pool-quiet wait keeps its 2 ms bound.
     /// </summary>
     public Task<TimeSpan> PumpUntilAsync(
         Func<bool> condition,
@@ -261,7 +263,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // count above zero regardless. The old pump's 11 ms delays let such work run by accident; without this a
             // loop was overtaken by a hundred advances before it ran once (FakeTimePumpTests' healthy loop saw no
             // tick, #1017's shape). Bounded short: other tests' work shares the pool.
-            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), settle, cancellationToken);
+            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), SettleBound, cancellationToken);
 
             if (isDone() || cancellationToken.IsCancellationRequested)
             {
