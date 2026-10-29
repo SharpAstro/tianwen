@@ -319,7 +319,7 @@ internal sealed class PlanetaryStackSubCommand(
 
         var autoOpt = new Option<bool>("--auto")
         {
-            Description = "AUTO (#817): nothing asked. The capture is identified (its planet, its filter and its telescope, read from its header, its capture program's settings beside it, its file and folder names and its frames, the telescope else the one last given for its camera) and stacked and sharpened at the measured defaults, as the viewer's Auto view does: master_<capture>_auto.fits, its _sharpened and its PNG. --planet, --wavelength (one, for a mono capture), --aperture-mm with --design, or --telescope give what it would read, and a telescope given is remembered for the capture's camera; every other setting is refused.",
+            Description = "AUTO (#817): nothing asked. The capture is identified (its planet, its filter and its telescope, read from its header, its capture program's settings beside it, its file and folder names and its frames, the telescope else the one last given for its camera) and stacked and sharpened at the measured defaults, as the viewer's Full view does: master_<capture>_auto.fits, its _sharpened and its PNG. --planet, --wavelength (one, for a mono capture), --aperture-mm with --design, or --telescope give what it would read, and a telescope given is remembered for the capture's camera; every other setting is refused.",
         };
         var designOpt = PlanetaryMasterScore.DesignOption();
         var halvesOpt = new Option<bool>("--halves")
