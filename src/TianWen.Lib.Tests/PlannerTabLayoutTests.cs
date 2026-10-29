@@ -523,7 +523,9 @@ namespace TianWen.Lib.Tests
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
             tab.Render(BuildState(m31, db), new RectF32(0, 0, 1600, 1000), time);
 
-            var region = tab.GetRegisteredRegions().First(r => r.Result is HitResult.LinkHit);
+            // The strip's picture credit is a link too (to the Commons file page); this is the NAME's.
+            var region = tab.GetRegisteredRegions()
+                .First(r => r.Result is HitResult.LinkHit { Url: var url } && url.StartsWith("https://en.wikipedia.org/", StringComparison.Ordinal));
             var hit = tab.HitTest(region.X + region.Width / 2f, region.Y + region.Height / 2f);
 
             // The verified article, not a page named after the designation (which was M31).
