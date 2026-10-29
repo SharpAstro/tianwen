@@ -120,7 +120,8 @@ namespace TianWen.UI.Abstractions
         private const float BaseTopStripHeight = 28f;
         private const float BaseTimelineHeight = 48f;
         private const float BaseBotStripHeight = 100f;
-        private const float BaseOtaPanelW       = 240f;
+        // 280, not 240: the Preview's mount block (Track, Speed, the moves and Home / Park / Unpark / Set park) shares it.
+        private const float BaseOtaPanelW       = 280f;
         private const float BaseRightPanelW    = 325f;
         private const float BaseGuideRmsH      = 20f;
         private const float BasePadding        = 6f;
