@@ -408,18 +408,30 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Math.Abs(sum / n).ShouldBeLessThan(50.0, "the star's light is off the plate");
     }
 
-    // #1867 review: an UNSATURATED star of an ordinary amplitude (0.2, far under the margin) whose centre is on the absent ring has no
-    // local sigma, and nothing in the catalogue marks the row, so it is not subtracted: no unsaturated Subtracted row is without a sigma.
-    [Fact(Timeout = 300_000)]
-    public async Task AnOrdinaryUnsaturatedStarCentredOffCoveredSkyIsNotSubtracted()
+    // #1867 review: a fit has no local sigma only when its centre is outside the frame, which a real star cannot reach (the covered
+    // sky starts Ring px in), only a fit that ran away; on the absent ring the noise map is finite, so a star there keeps its sigma
+    // and is judged as any other. The guard's own rule is pinned here, since no field can build the case it refuses.
+    [Theory]
+    [InlineData(-1.0, 50.0, true)]     // outside the frame, left
+    [InlineData(50.0, 100.6, true)]    // outside the frame, below (rounds to row 101)
+    [InlineData(5.0, 50.0, false)]     // on the absent ring: the noise map is finite there
+    [InlineData(50.0, 50.0, false)]    // covered sky
+    public void AFitHasNoLocalSigmaOnlyWhenItsCentreIsOutsideTheFrame(double x, double y, bool expected)
     {
-        var field = MakeField(1, extra: [new Injected(Ring - 4.0, 512.0, 0.2, false)]);
-        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+        const int width = 100, height = 101;
+        var rms = Enumerable.Repeat(0.01f, width * height).ToArray();
 
-        foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && !s.Saturated))
-        {
-            float.IsFinite(s.LocalSigma).ShouldBeTrue($"({s.X}, {s.Y}) is an unsaturated Subtracted row with no local sigma");
-        }
+        ClassicalStarRemover.CentreHasNoLocalSigma(x, y, width, height, rms).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void AFitCentredOnANoiseMapHoleHasNoLocalSigma()
+    {
+        const int width = 100, height = 100;
+        var rms = Enumerable.Repeat(0.01f, width * height).ToArray();
+        rms[50 * width + 50] = float.NaN;
+
+        ClassicalStarRemover.CentreHasNoLocalSigma(50.0, 50.0, width, height, rms).ShouldBeTrue();
     }
 
     // #1867 review: the margin is the code's own (4x the covered ceiling less the sky, not the Done-when's 1x); the injector test pins

@@ -5189,7 +5189,8 @@ unsaturated one whose amplitude in any channel is above the frame's clip (the ma
 sky. Neither is drawn, nor carried as a lobe; both still count as sites, and `InjectionPopulation.Refused` says how many.
 The plate builder refuses both halves at the source (#1867): `ClassicalStarRemover` leaves an unsaturated fit
 whose amplitude in any channel is non-finite or above `OvershootMargin` (4) times that channel's brightest covered sample less its sky,
-or whose centre has no local sigma (off the frame, or on a pixel whose noise is not a number), as `NoFit` before subtracting it, so no
+or whose centre has no local sigma (outside the frame, which only a fit that ran away reaches: the noise map is finite on the
+absent ring, so an ordinary star there keeps its sigma), as `NoFit` before subtracting it, so no
 reader of the catalogue meets it as a Subtracted Moffat. The margin departs from the leg's wording ("above the ceiling less the
 star's sky"): the ceiling is a pixel mean and a Moffat's continuous peak sits above it, at worst about 1.7 times for a sharp
 unsaturated star, so 1x would refuse real stars. A saturated fit centred off canvas is still subtracted, deliberately: an edge-cut

@@ -41,6 +41,17 @@ public static class ClassicalStarRemover
     // continuous Moffat peak and the sample is a pixel MEAN, so a sharp star centred on a pixel corner has a brightest
     // pixel of only 60 percent of its peak (1.7 times); a diverged fit is 1e12 off, so 4 refuses it and never a star.
     internal const double OvershootMargin = 4.0;
+
+    // Whether a fit centred at (x, y) has no local sigma, so its catalogue row's LocalSigma (Describe) is NaN: a centre outside
+    // the frame, which only a fit that ran away reaches. The noise map is finite everywhere inside the frame, the absent ring
+    // included, so an ordinary star on the ring keeps a sigma and is judged as any other; the non-finite pixel is only a guard.
+    internal static bool CentreHasNoLocalSigma(double x, double y, int width, int height, ReadOnlySpan<float> rms)
+    {
+        var cx = (int)Math.Round(x);
+        var cy = (int)Math.Round(y);
+        return !(cx >= 0 && cx < width && cy >= 0 && cy < height) || !float.IsFinite(rms[cy * width + cx]);
+    }
+
     private const int MaxFitRadius = 96;
     private const int TileSize = 2 * MaxSubtractRadius;
     private const int RefinementPasses = 2;
@@ -887,7 +898,7 @@ public static class ClassicalStarRemover
             // covered sample less its own sky, so an amplitude past that (or not a number) is a fit that ran away (one at 1e12
             // on a frame's edge once dominated the injector's pool, and subtracting it would have written a huge hole into the
             // plate). It is left as NoFit, which no reader takes for a star, and so is an unsaturated fit whose centre has no local
-            // sigma (off the frame, and nothing in the catalogue would mark the row). A saturated fit centred off canvas
+            // sigma (outside the frame, where nothing in the catalogue would mark the row). A saturated fit centred off canvas
             // stays subtracted: that is a star the frame's edge cut (see OffCanvas).
             if (!fit.Saturated && (Overshoots(fit) || HasNoLocalSigma(fit)))
             {
@@ -899,13 +910,7 @@ public static class ClassicalStarRemover
             return fit;
         }
 
-        // A centre outside the frame, or where the noise map is not a number: the catalogue row's local sigma (Describe) is NaN.
-        private bool HasNoLocalSigma(Fit fit)
-        {
-            var cx = (int)Math.Round(fit.X);
-            var cy = (int)Math.Round(fit.Y);
-            return !(cx >= 0 && cx < _width && cy >= 0 && cy < _height) || !float.IsFinite(_rms[cy * _width + cx]);
-        }
+        private bool HasNoLocalSigma(Fit fit) => CentreHasNoLocalSigma(fit.X, fit.Y, _width, _height, _rms);
 
         // An amplitude in any channel well above the channel's brightest covered sample less the fit's sky, or not a number.
         private bool Overshoots(Fit fit)
