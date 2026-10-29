@@ -211,8 +211,14 @@ guider pumps pass 25 ms (`GuideSettleBound`). It costs nothing on an idle runner
 is quiet) and only waits where the pool is backlogged. The default stays 2 ms for every other caller. No test bound
 was widened: both failures were a skipped tick, not a distribution to fit a bound to.
 
-**Not verified.** The owner's rule is never to load the machine on purpose, so the fixed pump was NOT repeated 100
-times under load, and this section makes no claim that it is now clean. What is established: the unloaded 400 runs
-never failed (above), the loaded pre-fix batch failed 2 of 120 by the mechanism above, and the changed wait is aimed
-at that mechanism. A loaded repeat of the target test (one `[Theory]` of 120 runs beside enough CPU burners to
-saturate the box) remains owed, and it is the one check that can tell whether 25 ms is enough.
+**Unloaded repeat after the fix: 120 of 120 passed** (a temporary `[Theory]` of 120 runs of the target test, since
+removed; about 7 minutes on an ordinary, unloaded run). That shows no regression and no new unloaded flake. It does
+NOT show the fix works under load, because the unloaded runs never failed even before the fix.
+
+**The loaded repeat was NOT run, and why.** The owner's rule is never to load the machine on purpose (no CPU burner,
+no stress or soak loop), and the owner declined a request to make an exception. So this section makes no claim, from
+measurement, that the fixed pump is clean under load. The reasoning for the loaded case: the settle wait ends as soon
+as the thread pool is quiet, so a 25 ms bound costs nothing on an idle pool and adds waiting only where the pool is
+backlogged, which is exactly the saturation that let a coalesced `PeriodicTimer` tick be dropped. A loaded repeat of
+the target test (120 runs beside enough CPU burners to saturate the box) remains owed, and it is the one check that can
+tell whether 25 ms is enough.
