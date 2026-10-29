@@ -76,9 +76,6 @@ public class ResilientCallTests
             return ValueTask.CompletedTask;
         }
 
-#pragma warning disable CS0067 // event is unused, only required to satisfy the interface
-        public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
-#pragma warning restore CS0067
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         public void Dispose() { }
     }

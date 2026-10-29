@@ -97,6 +97,9 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
     public IReadOnlyList<SwitchChannel> Channels => AllChannels;
 
     /// <summary>The latest frame and when it was read, for the tests and the node's telemetry; null before the first.</summary>
+    /// <summary>The status reader of the connection going on, which ends when the port goes away under it; null when there is none.</summary>
+    internal Task? Reader => Volatile.Read(ref _reader);
+
     internal (GeminiPowerBoxStatus Status, DateTimeOffset At)? LatestStatus => Volatile.Read(ref _latest) is { } latest ? (latest.Status, latest.At) : null;
 
     public ValueTask<double> GetValueAsync(int channel, CancellationToken cancellationToken = default)
@@ -257,8 +260,6 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
 
     public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
-
     public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
         if (_connected && _conn is { IsOpen: true })
@@ -315,7 +316,6 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
         }
 
         _connected = true;
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
     }
 
     /// <summary>Asks a query up to <see cref="HandshakeAttempts"/> times, <see cref="HandshakeTimeout"/> each, until it answers.</summary>
@@ -413,11 +413,7 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
     private void Lost(string why)
     {
         Logger.LogWarning("Gemini power box {DeviceId}: lost, {Why}; reconnect to use it again.", device.DeviceId, why);
-        if (_connected)
-        {
-            _connected = false;
-            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
-        }
+        _connected = false;
     }
 
     /// <summary>
@@ -461,7 +457,6 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
     {
         await TearDownAsync().ConfigureAwait(false);
         _connected = false;
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
     }
 
     // A synchronous Dispose cannot await the close: it stops the reader and starts the close, and DisposeAsync waits.

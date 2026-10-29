@@ -254,8 +254,6 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _pulseTarget = new PulseGuideRouter(pulseGuideSource, _camera, mount);
     }
 
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
-
 #pragma warning disable CS0067 // Events required by IGuider interface
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
@@ -288,7 +286,6 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
         Volatile.Write(ref _connected, true);
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
         return ValueTask.CompletedTask;
     }
 
@@ -297,7 +294,6 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         CancelGuideLoop();
         ForceState(GuiderState.Idle);
         Volatile.Write(ref _connected, false);
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
         return ValueTask.CompletedTask;
     }
 
