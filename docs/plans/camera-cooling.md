@@ -65,7 +65,7 @@ the ramp's consecutive-step count, whatever the sensor reads, so the QHY294PROC 
 toward an unreachable +25 C) costs a few steps, not the safety cap. `Session.CoolCamerasToAmbientAsync` passes that constant.
 Pinned by `CameraCoolingRampTests`. 
 **Shipped, the hub side (#1840).** `WarmCameraAsync` runs `CameraCoolingRamp.RunAsync` (Ambient, upward, `WarmUpPowerThreshold`,
-`WarmupRampInterval` as the budget) and keeps the lease check, the no-cooler and cooler-off skips, the intent recorded as Warm
+`WarmupMaxRate` as the ceiling on its rate, #1839) and keeps the lease check, the no-cooler and cooler-off skips, the intent recorded as Warm
 then Off, the cooler switched off at the end (also when the ramp fails) and the optional disconnect. Pinned by
 `EquipmentWarmUpTests` (15 s steps, a held camera refused, a cooler stuck at 0 % ending in a few steps).
 
