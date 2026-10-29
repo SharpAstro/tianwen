@@ -94,9 +94,6 @@ namespace TianWen.UI.Abstractions
             return result < TimeSpan.Zero ? TimeSpan.Zero : result;
         }
 
-        private static TimeSpan ClampMin(TimeSpan ts, TimeSpan min)
-            => ts < min ? min : ts;
-
         private static TimeSpan? StepNullableTimeSpan(TimeSpan? ts, TimeSpan step, TimeSpan initial, bool up)
         {
             if (!ts.HasValue)

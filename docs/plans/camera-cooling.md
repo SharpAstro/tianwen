@@ -36,6 +36,19 @@ Issue: #1839.
 
 **Shipped (#1839).** A step moves the setpoint min(1 °C, rate x step interval) past the sensor, so the ceiling holds on
 the fake clock and a small drop is not slowed. The default of 2 °C a minute is about half the 4.5 °C a minute measured above.
+A planned ramp is drop / rate, and the safety cap is twice that (a 30 °C warm-up plans 15 minutes and is capped at 30).
+
+**A camera that takes whole degrees only is held by time, not by a fraction.** Every vendor SDK behind `DALCameraDriver`
+takes a whole-degree target and truncates a fractional one toward zero, which undoes half a step AWAY from zero (a cool-down
+stalls at 0 °C, a warm-up never leaves it, and above 0 °C the sensor moves a degree a step whatever the rate). So such a
+camera says `ICameraDriver.SetpointResolutionC` (1), and `CameraCoolingRamp` keeps its whole-degree step but holds each setpoint
+for 1 °C / rate minutes, a whole number of step intervals rounded up (2 °C/min: two 15 s steps), still polling every step. The
+setpoint is rounded to the sensor's side of a half degree, never a bare `(int)`. `FakeCameraDriver.MakeWholeDegreeSetpoint`
+quantises exactly as the DAL does, and fake-clock tests cool 20 to -10 and -5 to -10 and warm -10 to 20 and 5 to 20.
+
+The setting is `SessionConfiguration.CooldownMaxRate` / `WarmupMaxRate` (°C per minute): saved in the session file (an older file
+with ramp seconds loads with the default rates, as does a rate of 0 or less), on the node's session config wire, in the cool
+job's optional `MaxRateCPerMinute`, and in the GUI's session rows (0.5 to 10 °C/min in 0.5 steps).
 
 ## One warm-up
 

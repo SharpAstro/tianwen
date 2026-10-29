@@ -559,6 +559,13 @@ public interface ICameraDriver : IDeviceDriver
         && CanSetCoolerOn
         && (CanGetHeatsinkTemperature || CanGetCCDTemperature);
 
+    /// <summary>
+    /// The finest setpoint this camera takes, degrees C: 0 for a continuous one (ASCOM, Alpaca, the fake), 1 for a camera
+    /// whose SDK takes whole degrees (every <c>DALCameraDriver</c>), which a fractional setpoint would be truncated for.
+    /// The cooling ramp holds such a camera to its rate ceiling by timing whole-degree steps, never by a fractional setpoint.
+    /// </summary>
+    double SetpointResolutionC => 0d;
+
     /// <param name="maxStepC">How far one step moves the setpoint past the sensor's own reading, degrees C (a ramp's rate
     /// ceiling times its step interval); a whole degree, the ramp's step before a ceiling, when not given.</param>
     async ValueTask<CameraCoolingState> CoolToSetpointAsync(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState, double maxStepC = 1d, CancellationToken cancellationToken = default)
@@ -613,7 +620,7 @@ public interface ICameraDriver : IDeviceDriver
                 && (double.IsNaN(coolerPower) || !await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) || !direction.ThresholdPowerReached(coolerPower, thresPower))
             )
             {
-                var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp, maxStepC);
+                var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp, maxStepC, SetpointResolutionC >= 1d);
                 await SetSetCCDTemperatureAsync(actualSetpointTemp, cancellationToken);
 
                 // turn cooler on if required

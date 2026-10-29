@@ -409,8 +409,7 @@ internal partial record Session
 
         _currentActivity = "Checking cooler sensor temp\u2026";
         _logger.LogDebug("Init: checking cooler sensor temp");
-        // Short interval: confirming camera is at sensor temp, not a full ramp.
-        // 5 seconds allows cameras to settle after initial power-on.
+        // Confirming the camera is at its sensor temp, not a full ramp; the default warming rate is the ceiling should one step.
         if (!await CoolCamerasToSensorTempAsync(CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute, cancellationToken).ConfigureAwait(false))
         {
             _logger.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");

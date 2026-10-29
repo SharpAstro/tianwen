@@ -105,4 +105,17 @@ public class SessionConfigApiDtoTests
         double.IsNaN(back.SiteLatitude).ShouldBeTrue();
         double.IsNaN(back.SiteLongitude).ShouldBeTrue();
     }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-2")]
+    public void ARateOfZeroOrLessIsTheDefaultRateNeverAFloor(string rate)
+    {
+        var dto = JsonSerializer.Deserialize($"{{\"cooldownMaxRate\":{rate},\"warmupMaxRate\":{rate}}}", HostingJsonContext.Default.SessionConfigApiDto).ShouldNotBeNull();
+
+        var config = dto.ToConfiguration();
+
+        config.CooldownMaxRate.ShouldBe(new SessionConfiguration().CooldownMaxRate);
+        config.WarmupMaxRate.ShouldBe(new SessionConfiguration().WarmupMaxRate);
+    }
 }

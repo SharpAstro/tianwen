@@ -17,7 +17,7 @@ namespace TianWen.Lib.Devices;
 /// </summary>
 public static class CameraCoolingRamp
 {
-    /// <summary>A step every 15 s, as N.I.N.A. does: each step moves a setpoint about one degree.</summary>
+    /// <summary>A step every 15 s, as N.I.N.A. does: each step moves a setpoint at most a degree, and at most what the rate allows.</summary>
     public static readonly TimeSpan StepInterval = TimeSpan.FromSeconds(15);
 
     /// <summary>The cooler power a cool-down stops pushing at: what every session cool-down passes.</summary>
@@ -117,16 +117,40 @@ public static class CameraCoolingRamp
         }
         // The ceiling bounds how far one step may move the setpoint; a rate at or above a degree per step is the old whole degree.
         var maxStepC = MaxStepOf(maxRateCPerMinute);
+        // A camera that takes only whole degrees cannot be given a fractional step: it keeps its whole degree and holds each
+        // setpoint for 1 C / rate minutes, a whole number of StepIntervals (rounded up, so never faster than the ceiling).
+        var stepsPerSetpoint = new int[cameras.Count];
+        var stepC = new double[cameras.Count];
+        var plannedSteps = 0L;
+        for (var i = 0; i < cameras.Count; i++)
+        {
+            if (cameras[i].SetpointResolutionC >= 1d)
+            {
+                stepC[i] = 1d;
+                stepsPerSetpoint[i] = Math.Max(1, (int)Math.Ceiling(1d / (Math.Max(maxRateCPerMinute, 0.01) * StepInterval.TotalMinutes) - 1e-9));
+            }
+            else
+            {
+                stepC[i] = maxStepC;
+                stepsPerSetpoint[i] = 1;
+            }
+            plannedSteps = Math.Max(plannedSteps, (long)Math.Ceiling(maxDelta / stepC[i]) * stepsPerSetpoint[i]);
+        }
         // The time the drop takes at that ceiling, and the cap is twice it: a cooler that lags the setpoint is given room,
         // one that never gets there is still let go.
-        var plannedRampTime = TimeSpan.FromTicks((long)Math.Ceiling(maxDelta / maxStepC) * StepInterval.Ticks);
+        var plannedRampTime = TimeSpan.FromTicks(plannedSteps * StepInterval.Ticks);
 
         var accSleep = TimeSpan.Zero;
+        var iteration = 0;
         do
         {
             for (var i = 0; i < cameras.Count; i++)
             {
-                coolingStates[i] = await cameras[i].CoolToSetpointAsync(target, thresPower, direction, coolingStates[i], maxStepC, cancellationToken);
+                // A whole-degree camera takes a new setpoint only every stepsPerSetpoint steps; the others it is held, and polled.
+                if (iteration % stepsPerSetpoint[i] == 0)
+                {
+                    coolingStates[i] = await cameras[i].CoolToSetpointAsync(target, thresPower, direction, coolingStates[i], stepC[i], cancellationToken);
+                }
                 if (afterStep is not null)
                 {
                     await afterStep(i, cameras[i], cancellationToken);
@@ -143,6 +167,7 @@ public static class CameraCoolingRamp
                 break;
             }
 
+            iteration++;
             accSleep += StepInterval;
             if (accSleep >= plannedRampTime * 2)
             {

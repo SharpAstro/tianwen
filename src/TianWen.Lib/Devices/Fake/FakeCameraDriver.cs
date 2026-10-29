@@ -127,6 +127,16 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// </summary>
     internal void MakeCoolerLag(double maxCPerRead) => _maxCoolerStepPerRead = maxCPerRead;
 
+    private bool _wholeDegreeSetpoint;
+
+    /// <summary>
+    /// Test seam: the camera takes whole degrees only, truncating toward zero exactly as <c>DALCameraDriver</c> does
+    /// (<c>(int)value</c>), so a test can see a ceiling that a fractional setpoint would silently lose.
+    /// </summary>
+    internal void MakeWholeDegreeSetpoint() => _wholeDegreeSetpoint = true;
+
+    public double SetpointResolutionC => _wholeDegreeSetpoint ? 1d : 0d;
+
     /// <summary>Test seam: every setpoint this camera was given, with the sensor's reading when it was given.</summary>
     internal IReadOnlyList<(double SetpointC, double SensorC)> SetpointsGiven => _setpointsGiven;
 
@@ -876,6 +886,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
     {
+        if (_wholeDegreeSetpoint)
+        {
+            value = (int)value;
+        }
         _setpointTemperature = value;
         _setpointsGiven.Add((value, _ccdTemperature));
         return ValueTask.CompletedTask;
