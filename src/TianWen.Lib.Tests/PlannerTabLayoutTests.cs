@@ -633,5 +633,152 @@ namespace TianWen.Lib.Tests
             sig.Dec.ShouldBe(selected.Dec);
             sig.Index.ShouldBe(selected.CatalogIndex);
         }
+
+        /// <summary>Records where the planner asks for a picture, and still draws everything else.</summary>
+        private sealed class PictureCapturingPlanner(RgbaImageRenderer renderer) : PlannerTab<RgbaImage>(renderer)
+        {
+            public List<(ObjectArticleImage Image, RectF32 Rect)> Pictures { get; } = [];
+
+            protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+                => Pictures.Add((image, rect));
+        }
+
+        private const string PictureOpenAction = "ObjectInfoPictureOpen";
+        private const string PictureCloseAction = "ObjectInfoPictureClose";
+
+        private static readonly DateTimeOffset PictureNow = new(2025, 12, 15, 22, 0, 0, TimeSpan.Zero);
+
+        private static async Task<(PictureCapturingPlanner Tab, PlannerState State, RectF32 Content, FakeTimeProviderWrapper Time)>
+            PlannerWithPictureAsync(RgbaImageRenderer renderer, CatalogIndex? index = null, float dpiScale = 1f)
+        {
+            var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+            CatalogUtils.TryGetCleanedUpCatalogName("M31", out var m31).ShouldBeTrue();
+            var tab = new PictureCapturingPlanner(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont() };
+            var state = BuildState(index ?? m31, db);
+            var time = new FakeTimeProviderWrapper(PictureNow);
+            var content = new RectF32(0, 0, renderer.Width, renderer.Height);
+            tab.Render(state, content, time);
+            return (tab, state, content, time);
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task TheDetailsStripShowsTheVerifiedPictureRightOfTheTextAtTheStripsHeight(float dpiScale)
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale);
+
+            var thumbnail = tab.Pictures.ShouldHaveSingleItem().Rect;
+            var details = tab.DetailsRect;
+            var strip = details.Height;
+
+            // The strip did not grow for the picture: a target without one has the same.
+            using (var plain = new RgbaImageRenderer(1600, 1000))
+            {
+                var (noPicture, _, _, _) = await PlannerWithPictureAsync(plain, CatalogIndex.IC1000, dpiScale);
+                noPicture.DetailsRect.Height.ShouldBe(strip, 0.5f);
+                noPicture.PaintedDetailsTextRect.Width.ShouldBe(noPicture.DetailsRect.Width, 0.5f);
+            }
+
+            // At the strip's right end, inside it, with the text keeping the most of it.
+            (thumbnail.X + thumbnail.Width).ShouldBeLessThanOrEqualTo(details.X + details.Width);
+            thumbnail.Y.ShouldBeGreaterThanOrEqualTo(details.Y);
+            (thumbnail.Y + thumbnail.Height).ShouldBeLessThanOrEqualTo(details.Y + details.Height);
+            tab.PaintedDetailsTextRect.Width.ShouldBeGreaterThan(details.Width * 0.6f - 1f);
+            thumbnail.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
+
+            // Every text line fits the column the picture left, not the strip.
+            var fontPath = FontResolver.ResolveSystemFont();
+            var fontSize = GuiTheme.Metrics.BaseFontSize * dpiScale;
+            foreach (var line in tab.PaintedDetailLines.Skip(1))
+            {
+                renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
+                    .ShouldBeLessThanOrEqualTo(tab.PaintedDetailsTextRect.Width - (2f * 6f * dpiScale), line);
+            }
+        }
+
+        [Fact]
+        public async Task ATargetWithNoPictureAndThePortraitStripKeepTheirTextOnly()
+        {
+            var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+            db.TryGetArticle(CatalogIndex.IC1000, out _).ShouldBeFalse("the test needs an object the table does not cover");
+
+            using (var renderer = new RgbaImageRenderer(1600, 1000))
+            {
+                var (tab, state, _, _) = await PlannerWithPictureAsync(renderer, CatalogIndex.IC1000);
+                tab.Pictures.ShouldBeEmpty();
+                tab.GetRegisteredRegions().ShouldNotContain(r => r.Result is HitResult.ButtonHit { Action: PictureOpenAction });
+                state.PictureExpanded.ShouldBeFalse();
+            }
+
+            using (var renderer = new RgbaImageRenderer(390, 844))
+            {
+                var (tab, _, _, _) = await PlannerWithPictureAsync(renderer);
+                tab.Pictures.ShouldBeEmpty("the compact portrait strip keeps text only");
+            }
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task APressOnTheThumbnailOpensItLargeAndEscapeOrTheScrimCloseIt(float dpiScale)
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var (tab, state, content, time) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale);
+            var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), () => { })
+            {
+                Widgets = () => [tab],
+                Unhandled = tab.HandleInput,
+            };
+
+            var thumbnail = tab.Pictures.Single().Rect;
+            router.Handle(new InputEvent.MouseDown(thumbnail.X + (thumbnail.Width / 2f), thumbnail.Y + (thumbnail.Height / 2f)))
+                .ShouldBeTrue();
+            state.PictureExpanded.ShouldBeTrue();
+
+            // The large view is drawn after the strip, inside the content and centred in it.
+            tab.Pictures.Clear();
+            tab.Render(state, content, time);
+            tab.Pictures.Count.ShouldBe(2);
+            var large = tab.Pictures[^1].Rect;
+            large.Width.ShouldBeGreaterThan(thumbnail.Width * 2f);
+            large.X.ShouldBeGreaterThanOrEqualTo(content.X);
+            (large.X + large.Width).ShouldBeLessThanOrEqualTo(content.X + content.Width);
+            (large.Y + large.Height).ShouldBeLessThanOrEqualTo(content.Y + content.Height);
+            (large.X + (large.Width / 2f)).ShouldBe(content.X + (content.Width / 2f), 1f);
+
+            // A press anywhere outside the picture is the scrim, over the list and the chart alike.
+            tab.HitTest(5f, 5f).ShouldBeOfType<HitResult.ButtonHit>().Action.ShouldBe(PictureCloseAction);
+            tab.HitTest(content.Width - 5f, 5f).ShouldBeOfType<HitResult.ButtonHit>().Action.ShouldBe(PictureCloseAction);
+
+            router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue();
+            state.PictureExpanded.ShouldBeFalse();
+
+            // Open again, and close it by the scrim.
+            state.PictureExpanded = true;
+            tab.Render(state, content, time);
+            tab.GetRegisteredRegions()
+                .Last(r => r.Result is HitResult.ButtonHit { Action: PictureCloseAction })
+                .OnClick.ShouldNotBeNull().Invoke(InputModifier.None);
+            state.PictureExpanded.ShouldBeFalse();
+        }
+
+        [Fact]
+        public async Task SelectingATargetWithNoPictureRetiresTheLargeView()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var (tab, state, content, time) = await PlannerWithPictureAsync(renderer);
+            state.PictureExpanded = true;
+
+            // The other target has no catalogue index, so no picture.
+            state.SelectedTargetIndex = tab.FilteredTargets.ToList().FindIndex(t => t.Target.CatalogIndex is null);
+            state.SelectedTargetIndex.ShouldBeGreaterThanOrEqualTo(0);
+            tab.Pictures.Clear();
+            tab.Render(state, content, time);
+
+            state.PictureExpanded.ShouldBeFalse();
+            tab.Pictures.ShouldBeEmpty();
+        }
     }
 }
