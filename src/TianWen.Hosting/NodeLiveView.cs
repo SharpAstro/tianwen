@@ -69,10 +69,12 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
                 return ResponseEnvelope<LiveViewStateDto>.Fail(refusal, 409);
             }
 
-            // The guide camera's darks, if it has any: read once as the loop starts, and applied to every frame it shows (#1915).
+            // The guide camera's darks, if it has any: read once, off the request (building the masters takes seconds), and applied to
+            // every frame shown from the moment they are ready (#1915).
             if (guide)
             {
-                run.UseDarks(guideDarks.For(run.State.Camera));
+                var cameraName = run.State.Camera;
+                run.UseDarks(Task.Run(() => guideDarks.For(cameraName), CancellationToken.None));
             }
 
             if (!await hosted.TryStartAsync(run, profileId))
@@ -159,6 +161,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     private long _size;
     private int _ended;
     private GuideDarkCorrection? _darks;
+    private Task<GuideDarkCorrection?>? _darksLoading;
 
     private readonly Action<string?>? _onFault;
 
@@ -222,7 +225,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
                 BitDepth = Capture.FrameBitDepth,
                 FailureReason = Capture.FailureReason,
                 CanDriveLens = Capture.CanDriveLens,
-                DarksApplied = _darks is not null,
+                DarksApplied = CurrentDarks() is not null,
             };
         }
     }
@@ -244,7 +247,22 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     }
 
     /// <summary>Applies the guide camera's dark library to every frame this view shows; null for none (<see cref="GuideDarkCorrection"/>).</summary>
-    public void UseDarks(GuideDarkCorrection? darks) => Volatile.Write(ref _darks, darks);
+    public void UseDarks(Task<GuideDarkCorrection?> loading) => Volatile.Write(ref _darksLoading, loading);
+
+    // The Task is the hand-off: polled here, never awaited, so no frame waits for the masters (CLAUDE.md, Concurrency).
+    private GuideDarkCorrection? CurrentDarks()
+    {
+        if (Volatile.Read(ref _darks) is { } ready)
+        {
+            return ready;
+        }
+        if (Volatile.Read(ref _darksLoading) is { IsCompletedSuccessfully: true } loaded)
+        {
+            Volatile.Write(ref _darks, loaded.Result);
+            return loaded.Result;
+        }
+        return null;
+    }
 
     /// <summary>Stages each control the client gave, for the capture to take after its next frame.</summary>
     public void Apply(LiveViewControlsDto controls)
@@ -293,7 +311,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
         {
             // The sample is this view's own copy, so the correction may consume it: the node shows the corrected frame, and the
             // guide star's readout and the picture both read it.
-            if (Volatile.Read(ref _darks) is { } darks)
+            if (CurrentDarks() is { } darks)
             {
                 sample = darks.Correct(sample, Capture.AppliedOptions?.Exposure ?? sample.ImageMeta.ExposureDuration,
                     Capture.AppliedOptions?.Gain ?? sample.ImageMeta.Gain);
