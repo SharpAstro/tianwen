@@ -13,12 +13,18 @@ public static class CoolDirectionEx
     /// <summary>
     /// The setpoint of one ramp step: <paramref name="maxStepC"/> past the sensor's own reading, never past
     /// <paramref name="setpointTemp"/>. A whole-degree step (the default) lands on a whole degree as it always has; a
-    /// fractional one, which a rate ceiling asks for, is kept as it is, since rounding it would give back the degree the
-    /// ceiling took away.
+    /// fractional one, which a rate ceiling asks for of a camera that takes a fraction, is kept as it is. A camera that
+    /// takes only whole degrees (<paramref name="wholeDegreeCamera"/>) is always given a whole one, rounded to the sensor's
+    /// side of a half degree, so it moves toward the target and the SDK's truncation has nothing to undo; the ramp holds
+    /// each such setpoint for as long as the rate ceiling asks.
     /// </summary>
-    public static double SetpointTemp(this SetupointDirection direction, double ccdTemp, double setpointTemp, double maxStepC = 1d)
+    public static double SetpointTemp(this SetupointDirection direction, double ccdTemp, double setpointTemp, double maxStepC = 1d, bool wholeDegreeCamera = false)
     {
-        var whole = maxStepC >= 1d;
+        var whole = wholeDegreeCamera || maxStepC >= 1d;
+        if (wholeDegreeCamera)
+        {
+            maxStepC = 1d;
+        }
         var upTemp = whole ? Math.Round(ccdTemp + maxStepC) : ccdTemp + maxStepC;
         var downTemp = whole ? Math.Round(ccdTemp - maxStepC) : ccdTemp - maxStepC;
 

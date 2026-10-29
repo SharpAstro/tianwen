@@ -113,9 +113,10 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
         h.Hub.TryGetConnectedDriver<ICameraDriver>(h.CameraUri, out var camera).ShouldBeTrue();
         await camera.SetCoolerOnAsync(true, ct);
-        // Just below the warm-up line (the heat sink less CameraReading.WarmUpToleranceC): the warm-up is the real ramp, a
-        // degree a CameraCoolingRamp.StepInterval on a real clock, so a deeper cool would time the ramp, not the quit.
-        await camera.SetSetCCDTemperatureAsync(18, ct);
+        // Just below the warm-up line (the heat sink less CameraReading.WarmUpToleranceC): the warm-up is the real ramp, half
+        // a degree a CameraCoolingRamp.StepInterval at the default rate, on a real clock, so a deeper cool would time the ramp,
+        // not the quit.
+        await camera.SetSetCCDTemperatureAsync(18.5, ct);
         await NodeWait.UntilAsync("the node to read the camera below its heat sink", async token =>
         {
             await h.Local.RefreshDevicesNowAsync(token);

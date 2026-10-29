@@ -21,7 +21,9 @@ public sealed class SessionConfigApiDto
 {
     public double? SetpointTemperature { get; init; }
     public SetpointTempKind? SetpointKind { get; init; }
+    /// <summary>The most the sensor may cool per minute, degrees C per minute; absent, zero or negative is the default rate.</summary>
     public double? CooldownMaxRate { get; init; }
+    /// <summary>The most the sensor may warm per minute, degrees C per minute; absent, zero or negative is the default rate.</summary>
     public double? WarmupMaxRate { get; init; }
     public byte? MinHeightAboveHorizon { get; init; }
     public double? DitherPixel { get; init; }
@@ -90,8 +92,8 @@ public sealed class SessionConfigApiDto
             SetpointCCDTemperature = SetpointTemperature is { } setpoint
                 ? new SetpointTemp((sbyte)setpoint, SetpointKind ?? SetpointTempKind.Normal)
                 : d.SetpointCCDTemperature,
-            CooldownMaxRate = CooldownMaxRate ?? d.CooldownMaxRate,
-            WarmupMaxRate = WarmupMaxRate ?? d.WarmupMaxRate,
+            CooldownMaxRate = CooldownMaxRate is > 0 and var cool && double.IsFinite(cool) ? cool : d.CooldownMaxRate,
+            WarmupMaxRate = WarmupMaxRate is > 0 and var warm && double.IsFinite(warm) ? warm : d.WarmupMaxRate,
             MinHeightAboveHorizon = MinHeightAboveHorizon ?? d.MinHeightAboveHorizon,
             DitherPixel = DitherPixel ?? d.DitherPixel,
             SettlePixel = SettlePixel ?? d.SettlePixel,

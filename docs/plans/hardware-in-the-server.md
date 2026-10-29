@@ -311,7 +311,7 @@ server can be trusted with a night at all:
      as a device-model operation in `Devices/*Extensions.cs`. The server does not reference
      `UI.Abstractions`, deliberately. It needs nothing UI-specific; it is camera-only (no park), and
      reaches only hub drivers, which item 11 makes every driver.
-   - `HostOptions.ShutdownTimeout` must cover a warm-up ramp (up to 15 min), and a service manager's own
+   - `HostOptions.ShutdownTimeout` must cover two warm-up ramps, a session's Finalise and the hub's cameras (each plans about 15 min for 30 °C at the 2 °C/min default and is capped at twice that, so `HostedSession.ShutdownBudget` is 60 min, #1839), and a service manager's own
      stop timeout (systemd `TimeoutStopSec`) must be documented to match.
 
 Then the correctness items:
@@ -779,7 +779,7 @@ the GUI stops when the GUI does; one that runs in the server finishes.
 | AI enhance (the viewer's Enhance) | stays CLIENT-side: the GUI and the viewer enhance in their own process, as today. The node keeps `/image/enhance` for other clients (user, 2026-09-25) | it answers 409 while the node holds any device or run (decision 12), so no GPU work runs in the process that owns the rig |
 
 **Slow operations are JOBS, one model for all of them.** Connect (a slow ASCOM driver takes 30 s and
-more), warm and disconnect (a ramp of up to 15 minutes), discovery (minutes over a serial sweep), a
+more), warm and disconnect (a ramp of about 15 minutes at the default rate), discovery (minutes over a serial sweep), a
 preview exposure, solve and sync, and a focuser or mount move each start with a request that answers
 202 and a job id, then finish in the server: `GET /jobs/{id}` is authoritative, a `JOB-PROGRESS` push is
 the latency hint, and `DELETE /jobs/{id}` cancels. It generalises the enhance endpoint's single-flight
@@ -1648,7 +1648,7 @@ AppData root, not `$XDG_RUNTIME_DIR`; the child calls `setsid()` itself instead 
 
 ## Open questions (engineering, not the user's)
 
-- **OS shutdown and logoff give a server seconds, not the 15 minutes a warm-up ramp takes.** What is the
+- **OS shutdown and logoff give a server seconds, not the 15 minutes or more a warm-up ramp takes.** What is the
   least-bad stop: cooler off at once, or leave the cooler running at its setpoint? A server holding a camera
   never exits idle (decision 2), so logoff is still how one with a cooling camera ends, not a corner case. On Windows a process with a
   top-level (hidden) window can hold the shutdown with `ShutdownBlockReasonCreate`, which puts "TianWen:

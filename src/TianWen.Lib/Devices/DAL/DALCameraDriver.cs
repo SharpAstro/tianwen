@@ -969,6 +969,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         }
     }
 
+    /// <summary>The vendor SDKs take a whole-degree target temperature.</summary>
+    public double SetpointResolutionC => 1d;
+
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
     {
         // TODO exception

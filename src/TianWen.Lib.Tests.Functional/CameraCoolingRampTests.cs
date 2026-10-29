@@ -15,7 +15,7 @@ namespace TianWen.Lib.Tests.Functional;
 public class CameraCoolingRampTests(ITestOutputHelper output)
 {
     /// <summary>A degree per 15 s step: the ramp as it was before a ceiling.</summary>
-    private const double Budget = 4.0;
+    private const double FastRate = 4.0;
 
     private static readonly TimeSpan OneStep = CameraCoolingRamp.StepInterval;
     private const double Epsilon = 1e-9;
@@ -27,11 +27,11 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.MakeHeatsinkless(CameraReading.WarmUpFallbackTargetC, sensorCannotPassAmbient: false);
 
-        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Budget, 80, SetupointDirection.Down, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), FastRate, 80, SetupointDirection.Down, ct);
         var cooled = await ctx.Camera.GetCCDTemperatureAsync(ct);
         cooled.ShouldBeLessThan(0);
 
-        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Budget);
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(FastRate);
 
         reached.ShouldBeTrue();
         var warmed = await ctx.Camera.GetCCDTemperatureAsync(ct);
@@ -47,10 +47,10 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         // A cold night: the room is 12 C, so the sensor stalls there at 0 % power, well short of +25 C.
         ctx.Camera.MakeHeatsinkless(12, sensorCannotPassAmbient: true);
 
-        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Budget, 80, SetupointDirection.Down, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), FastRate, 80, SetupointDirection.Down, ct);
 
         var start = ctx.TimeProvider.GetUtcNow();
-        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Budget);
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(FastRate);
         var slept = ctx.TimeProvider.GetUtcNow() - start;
 
         var sensor = await ctx.Camera.GetCCDTemperatureAsync(ct);
@@ -125,7 +125,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         const double rate = 2.0;
-        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Budget, 80, SetupointDirection.Down, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), FastRate, 80, SetupointDirection.Down, ct);
         var coolSteps = ctx.Camera.SetpointsGiven.Count;
 
         var start = ctx.TimeProvider.GetUtcNow();
@@ -140,5 +140,69 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var warming = ctx.Camera.SetpointsGiven.Skip(coolSteps).ToList();
         warming.ShouldNotBeEmpty();
         warming.ShouldAllBe(g => g.SetpointC - g.SensorC <= rate * OneStep.TotalMinutes + Epsilon);
+    }
+
+    /// <summary>#1839: a ceiling that binds on a small drop times it by the rate, not by a fixed wait.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ASmallDropUnderABindingCeilingTakesAboutDropOverRate()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        const double rate = 2.0;
+
+        var start = ctx.TimeProvider.GetUtcNow();
+        var reached = await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(18, SetpointTempKind.Normal), rate, 80, SetupointDirection.Down, ct);
+        var took = ctx.TimeProvider.GetUtcNow() - start;
+
+        output.WriteLine($"2 C drop at {rate} C/min took {took.TotalSeconds:F0} s");
+        reached.ShouldBeTrue();
+        // 2 C at 2 C/min is a minute, then the confirming steps; far from the 10 minutes a fixed ramp time would take.
+        took.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMinutes(1) - OneStep);
+        took.ShouldBeLessThanOrEqualTo(TimeSpan.FromMinutes(1) + 6 * OneStep);
+    }
+
+    /// <summary>
+    /// #1839: a camera that takes whole degrees only (every DAL camera truncates a fractional setpoint toward zero) is held
+    /// to the ceiling by timing whole-degree steps, in both directions and through 0 C, and the ramp still finishes.
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(20, -10, true)]
+    [InlineData(-5, -10, true)]
+    [InlineData(-10, 20, false)]
+    [InlineData(5, 20, false)]
+    public async Task AWholeDegreeCameraIsHeldToTheCeilingThroughZero(int from, int to, bool cooling)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        const double rate = 2.0;
+        ctx.Camera.MakeWholeDegreeSetpoint();
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
+        await ctx.Camera.SetSetCCDTemperatureAsync(from, ct);
+        // The fake follows its setpoint on a read; the heat sink stays where it is, above any target here.
+        for (var read = 0; read < 100 && Math.Abs(await ctx.Camera.GetCCDTemperatureAsync(ct) - from) > Epsilon; read++)
+        {
+        }
+        var givenBefore = ctx.Camera.SetpointsGiven.Count;
+
+        var start = ctx.TimeProvider.GetUtcNow();
+        var reached = cooling
+            ? await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate, 80, SetupointDirection.Down, ct)
+            : await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up, ct);
+        var took = ctx.TimeProvider.GetUtcNow() - start;
+
+        var sensor = await ctx.Camera.GetCCDTemperatureAsync(ct);
+        output.WriteLine($"{from} -> {to} at {rate} C/min took {took.TotalSeconds:F0} s, ends at {sensor:F1} C");
+        reached.ShouldBeTrue();
+        sensor.ShouldBe(to, 0.5);
+        var drop = Math.Abs(to - from);
+        took.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMinutes(drop / rate) - 2 * OneStep);
+        took.ShouldBeLessThanOrEqualTo(TimeSpan.FromMinutes(drop / rate) + 8 * OneStep);
+
+        // No minute moves the sensor more than the rate: each commanded setpoint is a whole degree, at most a degree from
+        // the sensor, and a setpoint is held for 1 / rate minutes before the next.
+        var given = ctx.Camera.SetpointsGiven.Skip(givenBefore).ToList();
+        given.ShouldAllBe(g => g.SetpointC == Math.Round(g.SetpointC));
+        given.ShouldAllBe(g => Math.Abs(g.SensorC - g.SetpointC) <= 1.5 + Epsilon);
+        given.Count.ShouldBeLessThanOrEqualTo((int)Math.Ceiling(took.TotalMinutes * rate) + 1, "a setpoint is held for 1 / rate minutes");
     }
 }
