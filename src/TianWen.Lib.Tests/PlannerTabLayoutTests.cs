@@ -708,7 +708,8 @@ namespace TianWen.Lib.Tests
             {
                 var (tab, state, _, _) = await PlannerWithPictureAsync(renderer, CatalogIndex.IC1000);
                 tab.Pictures.ShouldBeEmpty();
-                tab.GetRegisteredRegions().ShouldNotContain(r => r.Result is HitResult.ButtonHit { Action: PictureOpenAction });
+                tab.GetRegisteredRegions()
+                    .Any(r => r.Result is HitResult.ButtonHit { Action: PictureOpenAction }).ShouldBeFalse();
                 state.PictureExpanded.ShouldBeFalse();
             }
 
