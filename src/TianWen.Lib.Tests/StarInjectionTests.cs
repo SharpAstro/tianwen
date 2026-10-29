@@ -442,16 +442,15 @@ public class StarInjectionTests(ITestOutputHelper output)
         }
     }
 
-    // #1867 review: the margin pinned either side. The clip is 1 and the sky 0.1, so the ceiling less the sky is 0.9; a row just under
-    // OvershootMargin times that is admitted, one just over is refused (at 1x or at 10x the pool would not read 2 and 1).
+    // #1867 review: the margin pinned either side, in literal amplitudes so it holds the 4 itself: the clip is 1 and the sky 0.1, so
+    // the limit is 4 x 0.9 = 3.6; a row at 3.5 is admitted and one at 3.7 refused. At a margin of 1 or 10 the pool would not read 2 and 1.
     [Fact]
     public void TheOvershootMarginAdmitsJustUnderItAndRefusesJustOver()
     {
         static FittedStar Row(float x, float y, float amplitude)
             => new FittedStar(x, y, 100, amplitude, 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, false, false, float.NaN, float.NaN,
                 false, float.NaN, StarFitModel.Moffat, [amplitude]);
-        var ceiling = (float)(ClassicalStarRemover.OvershootMargin * 0.9);
-        ImmutableArray<FittedStar> catalogue = [Row(40, 40, 0.2f), Row(100, 100, ceiling * 0.97f), Row(160, 160, ceiling * 1.03f)];
+        ImmutableArray<FittedStar> catalogue = [Row(40, 40, 0.2f), Row(100, 100, 3.5f), Row(160, 160, 3.7f)];
         var image = Image(256, 0.1f);
 
         var population = InjectionPopulation.Build(catalogue, image, image, 1.0, [(2.5, 3.0)], null, lobes: false);

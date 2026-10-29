@@ -35,7 +35,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
     // smooth glow is not.
-    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null)
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null, double[]? gains = null)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
@@ -93,7 +93,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         }
 
         var planes = new float[channels][,];
-        var gains = channels == 3 ? new[] { 0.8, 1.0, 0.6 } : new[] { 1.0 };
+        gains ??= channels == 3 ? [0.8, 1.0, 0.6] : [1.0];
         for (var c = 0; c < channels; c++)
         {
             float[] plane = [.. truth[c]];
@@ -365,7 +365,8 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     }
 
     // #1867: the field's star beside the absent ring (4 px inside it) is the edge fit. Whatever it came to, no catalogue row is an
-    // unsaturated Subtracted Moffat whose centre is outside the frame (no local sigma) or whose amplitude is past the margin.
+    // unsaturated Subtracted Moffat whose amplitude is past the margin. (A sane fit centred outside the frame stays subtracted with a
+    // NaN LocalSigma, the marker the injector refuses on; ASaturatedStarCutByTheEdgeIsStillSubtracted is the edge-cut case.)
     [Fact(Timeout = 300_000)]
     public async Task ADivergedEdgeFitIsNeverAnUnsaturatedSubtractedMoffat()
     {
@@ -374,7 +375,6 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
         foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && !s.Saturated))
         {
-            float.IsFinite(s.LocalSigma).ShouldBeTrue($"({s.X}, {s.Y}) has no local sigma");
             s.ChannelAmplitudes.All(a => a <= ClassicalStarRemover.OvershootMargin * Clip).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
         }
         Nearest(plate, Ring + 4.0, 500.0, within: 3.0).ShouldNotBeNull();
@@ -408,32 +408,6 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Math.Abs(sum / n).ShouldBeLessThan(50.0, "the star's light is off the plate");
     }
 
-    // #1867 review: a fit has no local sigma only when its centre is outside the frame, which a real star cannot reach (the covered
-    // sky starts Ring px in), only a fit that ran away; on the absent ring the noise map is finite, so a star there keeps its sigma
-    // and is judged as any other. The guard's own rule is pinned here, since no field can build the case it refuses.
-    [Theory]
-    [InlineData(-1.0, 50.0, true)]     // outside the frame, left
-    [InlineData(50.0, 100.6, true)]    // outside the frame, below (rounds to row 101)
-    [InlineData(5.0, 50.0, false)]     // on the absent ring: the noise map is finite there
-    [InlineData(50.0, 50.0, false)]    // covered sky
-    public void AFitHasNoLocalSigmaOnlyWhenItsCentreIsOutsideTheFrame(double x, double y, bool expected)
-    {
-        const int width = 100, height = 101;
-        var rms = Enumerable.Repeat(0.01f, width * height).ToArray();
-
-        ClassicalStarRemover.CentreHasNoLocalSigma(x, y, width, height, rms).ShouldBe(expected);
-    }
-
-    [Fact]
-    public void AFitCentredOnANoiseMapHoleHasNoLocalSigma()
-    {
-        const int width = 100, height = 100;
-        var rms = Enumerable.Repeat(0.01f, width * height).ToArray();
-        rms[50 * width + 50] = float.NaN;
-
-        ClassicalStarRemover.CentreHasNoLocalSigma(50.0, 50.0, width, height, rms).ShouldBeTrue();
-    }
-
     // #1867 review: the plate builder's margin, applied as the builder applies it: each channel against OvershootMargin (4) times its
     // own brightest covered sample, a row just under admitted and one just over refused, in any channel, and a non-number refused.
     [Theory]
@@ -445,12 +419,13 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     public void TheOvershootMarginRefusesJustOverItAndAdmitsJustUnderItPerChannel(double red, double green, bool refused)
         => ClassicalStarRemover.AmplitudeOvershoots([red, green], [0.9f, 0.5f]).ShouldBe(refused);
 
-    // #1873 review: a colour field whose channel skies differ (one channel's brightest sample under another's sky) must still have its
-    // stars subtracted. Compared against the luminance sky, the guard left that channel a threshold of 0 and refused nearly every star.
+    // #1873 review: a colour field with a dim channel, whose brightest covered sample (its sky 0.01 plus its brightest star, 20 x 0.003,
+    // so about 0.07) sits under the luminance sky (the mean of 0.20, 0.08 and 0.01, about 0.097), must still have its stars subtracted.
+    // Compared against the luminance sky, the guard left that channel a threshold of 0 and refused every star with light in it.
     [Fact(Timeout = 300_000)]
     public async Task AColourFieldWithUnequalChannelSkiesStillHasItsStarsSubtracted()
     {
-        var field = MakeField(3, skies: [0.20, 0.08, 0.01]);
+        var field = MakeField(3, skies: [0.20, 0.08, 0.01], gains: [0.8, 1.0, 0.003]);
         var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
 
         var unsaturated = plate.Stars.Where(static s => !s.Saturated && s.Outcome is StarFitOutcome.Subtracted or StarFitOutcome.NoFit).ToArray();
