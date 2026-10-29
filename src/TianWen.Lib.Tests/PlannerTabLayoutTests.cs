@@ -109,11 +109,11 @@ namespace TianWen.Lib.Tests
             tab.PaintedDetailLines.ShouldNotBeEmpty();
 
             var fontPath = FontResolver.ResolveSystemFont();
-            var fontSize = GuiTheme.Metrics.BaseFontSize * scale;
+            var fontSize = GuiTheme.Metrics.BaseFontSize * dpiScale;
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
-                    .ShouldBeLessThanOrEqualTo(tab.DetailsRect.Width - 2f * 6f * dpiScale, line); // 6 = PlannerTab.BasePadding
+                    .ShouldBeLessThanOrEqualTo(tab.DetailsRect.Width - 2f * PlannerTab<RgbaImage>.BasePadding * dpiScale, line);
             }
 
             var coords = tab.PaintedDetailLines.Single(l => l.StartsWith("RA "));
@@ -729,7 +729,7 @@ namespace TianWen.Lib.Tests
             float dpiScale, float interfaceScale, int width)
         {
             var scale = dpiScale * interfaceScale;
-            using var renderer = new RgbaImageRenderer(width, 1000);
+            using var renderer = new RgbaImageRenderer((uint)width, 1000);
             var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale, interfaceScale: interfaceScale);
 
             var thumbnail = tab.Pictures.ShouldHaveSingleItem().Rect;
@@ -737,7 +737,7 @@ namespace TianWen.Lib.Tests
             var strip = details.Height;
 
             // The strip did not grow for the picture: a target without one has the same.
-            using (var plain = new RgbaImageRenderer(width, 1000))
+            using (var plain = new RgbaImageRenderer((uint)width, 1000))
             {
                 var (noPicture, _, _, _) = await PlannerWithPictureAsync(plain, CatalogIndex.IC1000, dpiScale, interfaceScale);
                 noPicture.DetailsRect.Height.ShouldBe(strip, 0.5f);
@@ -768,7 +768,7 @@ namespace TianWen.Lib.Tests
 
             // Every text line fits the column the picture left, not the strip.
             var fontPath = FontResolver.ResolveSystemFont();
-            var fontSize = GuiTheme.Metrics.BaseFontSize * dpiScale;
+            var fontSize = GuiTheme.Metrics.BaseFontSize * scale;
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
