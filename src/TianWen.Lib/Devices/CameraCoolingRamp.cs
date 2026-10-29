@@ -85,8 +85,11 @@ public static class CameraCoolingRamp
             var anyCoolerOn = false;
             foreach (var camera in cameras)
             {
-                var power = await logger.CatchAsync(camera.GetCoolerPowerAsync, cancellationToken, 0.0);
-                if (power > 1)
+                // A camera that cannot say its cooler power may well have the cooler on: ramp it on the sensor.
+                var power = camera.CanGetCoolerPower
+                    ? await logger.CatchAsync(camera.GetCoolerPowerAsync, cancellationToken, double.NaN)
+                    : double.NaN;
+                if (double.IsNaN(power) || power > 1)
                 {
                     anyCoolerOn = true;
                     break;

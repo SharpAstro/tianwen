@@ -118,7 +118,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         _ccdCeiling = sensorCannotPassAmbient ? ambientC : double.PositiveInfinity;
     }
 
-    public bool CanGetCoolerPower { get; } = true;
+    /// <summary>Test seam: <see cref="CanGetCoolerPower"/> false makes the camera one that cannot report its cooler power.</summary>
+    internal void MakeCoolerPowerUnreadable() => CanGetCoolerPower = false;
+
+    public bool CanGetCoolerPower { get; private set; } = true;
 
     public bool CanGetCoolerOn { get; } = true;
 

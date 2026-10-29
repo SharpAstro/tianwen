@@ -66,16 +66,45 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (FakeCameraDriver)await hub.ConnectAsync(device, ct);
         camera.MakeHeatsinkless(ambientC: 18, sensorCannotPassAmbient: true);
-        await camera.SetSetCCDTemperatureAsync(18, ct);
+        // cool the sensor first, so the ramp has a walk up from -10 C and then stalls at the 18 C ambient
+        await camera.SetSetCCDTemperatureAsync(-10, ct);
         await camera.SetCoolerOnAsync(true, ct);
+        for (var i = 0; i < 40; i++) await camera.GetCCDTemperatureAsync(ct);
 
         var sleeps = new List<TimeSpan>();
         await hub.WarmAndCoolerOffAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), ct);
 
-        sleeps.Count.ShouldBeLessThan(10, "a few steps, not the 2x safety cap");
+        // The walk is about 28 steps; the cap is twice the planned 30 steps (60 sleeps). Ending on power adds a few.
+        sleeps.Count.ShouldBeGreaterThan(20, "the ramp walked the sensor up");
+        sleeps.Count.ShouldBeLessThanOrEqualTo(28 + 5 + 1, "the walk, a few steps at no power and the settle, not the 2x safety cap");
         (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
         hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
         intent.ShouldBe(CoolerIntent.Off);
+    }
+
+    /// <summary>
+    /// A cooled camera that cannot report its cooler power (an ASCOM or Alpaca camera with CanGetCoolerPower false) is still
+    /// warmed: the ramp must not read the missing power as "no cooler working" and cut a cold sensor off with no ramp.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ACameraThatCannotReportCoolerPowerIsStillRampedWarm()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var hub = external.BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (FakeCameraDriver)await hub.ConnectAsync(device, ct);
+        camera.MakeCoolerPowerUnreadable();
+        await camera.SetSetCCDTemperatureAsync(-10, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+        for (var i = 0; i < 40; i++) await camera.GetCCDTemperatureAsync(ct);
+
+        var sleeps = new List<TimeSpan>();
+        await hub.WarmAndCoolerOffAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), ct);
+
+        sleeps.Count.ShouldBeGreaterThan(5, "it ramped on the sensor instead of cutting the cooler off cold");
+        sleeps[..^1].ShouldAllBe(s => s == CameraCoolingRamp.StepInterval);
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
     }
 
     [Fact(Timeout = 30_000)]
