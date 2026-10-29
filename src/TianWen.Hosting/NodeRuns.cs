@@ -18,6 +18,7 @@ internal static class NodeRuns
         NodeRunKind.Polar => "Polar alignment is running",
         NodeRunKind.Planetary => "A planetary capture is running",
         NodeRunKind.LiveView => "A live view is running",
+        NodeRunKind.Guiding => "Guiding is running",
         _ => "A run is already going on",
     };
 

@@ -80,6 +80,8 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<NodePlanetary>();
         // A live view in the Preview mode as the node's run (#1111): the planetary capture loop with nothing kept.
         services.AddSingleton<NodeLiveView>();
+        // Calibrating and guiding off that loop (#1915): a run that replaces the guide-camera loop and puts it back.
+        services.AddSingleton<NodeGuiding>();
         services.TryAddSingleton(NodeRunWatchOptions.Default);
         services.AddHostedService<NodeRunWatch>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.

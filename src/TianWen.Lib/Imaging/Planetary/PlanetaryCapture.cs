@@ -1115,41 +1115,69 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             await camera.SetGainAsync(gain, token);
         }
 
-        while (!token.IsCancellationRequested)
+        // An exposure still in flight when the loop ends (a stop, a fault) is aborted as it goes: left exposing, the camera
+        // refuses the next consumer's first exposure, which is what a guide run that replaces a guide-camera loop would meet (#1915).
+        var exposing = false;
+        try
         {
-            await camera.StartExposureAsync(new TimeSpan(Volatile.Read(ref _rapidExposureTicks)), FrameType.Light, token);
-
-            var ready = false;
-            while (!ready)
+            while (!token.IsCancellationRequested)
             {
-                if (token.IsCancellationRequested)
-                {
-                    yield break;
-                }
+                await camera.StartExposureAsync(new TimeSpan(Volatile.Read(ref _rapidExposureTicks)), FrameType.Light, token);
+                exposing = true;
 
-                ready = await camera.GetImageReadyAsync(token);
-                if (!ready)
+                var ready = false;
+                while (!ready)
                 {
-                    var cancelled = false;
-                    try
-                    {
-                        await timeProvider.SleepAsync(_readyPollInterval, token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        cancelled = true;
-                    }
-                    if (cancelled)
+                    if (token.IsCancellationRequested)
                     {
                         yield break;
                     }
+
+                    ready = await camera.GetImageReadyAsync(token);
+                    if (!ready)
+                    {
+                        var cancelled = false;
+                        try
+                        {
+                            await timeProvider.SleepAsync(_readyPollInterval, token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            cancelled = true;
+                        }
+                        if (cancelled)
+                        {
+                            yield break;
+                        }
+                    }
+                }
+
+                var image = await camera.GetImageAsync(token);
+                exposing = false;
+                if (image is not null)
+                {
+                    yield return image;
                 }
             }
-
-            if (await camera.GetImageAsync(token) is { } image)
+        }
+        finally
+        {
+            if (exposing)
             {
-                yield return image;
+                await AbortExposureQuietlyAsync(camera);
             }
+        }
+    }
+
+    private async ValueTask AbortExposureQuietlyAsync(ICameraDriver camera)
+    {
+        try
+        {
+            await camera.AbortExposureAsync(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Aborting {Camera}'s exposure as the capture ended failed", camera.Name);
         }
     }
 

@@ -174,6 +174,15 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     /// <summary>Whether this view streams the guide camera (#1915): its newest frame is then the guider's too (<see cref="NodeFrames.Guider"/>).</summary>
     public bool IsGuideCamera => _guide;
 
+    /// <summary>The binning the view's frames are read out at, so a guide star chosen on one is the same pixel to a guider that takes over.</summary>
+    public short Binning { get; private set; } = 1;
+
+    /// <summary>What the capture streams at now (every live control applied): the exposure a guiding run that replaces the view carries on at.</summary>
+    public TimeSpan? Exposure => Capture.AppliedOptions?.Exposure;
+
+    /// <summary>The gain it streams at, null for the camera's own.</summary>
+    public short? Gain => Capture.AppliedOptions?.Gain;
+
     public NodeRunKind Kind => NodeRunKind.LiveView;
 
     /// <summary>A live view nobody watches is a camera held for nobody.</summary>
@@ -217,6 +226,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
             return false;
         }
         _guide = request.GuideCamera;
+        Binning = request.Bin;
         _otaIndex = _guide ? -1 : request.OtaIndex;
         _camera = Capture.Camera?.Name ?? "";
         // The wheel its stream goes through: a filter change of it is this live view's interlude (INodeStreamingRun). The guide camera has none.

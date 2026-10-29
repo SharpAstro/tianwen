@@ -50,6 +50,8 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(LiveViewRequestDto))]
 [JsonSerializable(typeof(LiveViewControlsDto))]
 [JsonSerializable(typeof(ResponseEnvelope<LiveViewStateDto>))]
+[JsonSerializable(typeof(GuidingRequestDto))]
+[JsonSerializable(typeof(ResponseEnvelope<GuidingStateDto>))]
 [JsonSerializable(typeof(PendingTarget))]
 [JsonSerializable(typeof(Api.CreateProfileRequest))]
 [JsonSerializable(typeof(Api.SetProfileRequest))]

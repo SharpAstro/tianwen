@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -540,6 +541,15 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         if (!tracker.IsAcquired)
         {
+            if (_chosenStar is { } chosen)
+            {
+                // A chosen star is the only one acquisition takes, so a miss says where the stars were instead.
+                var stars = tracker.FindStars(frame.GetChannelArray(0));
+                var nearest = stars.Count == 0 ? double.NaN : stars.Min(s => Math.Sqrt((s.X - chosen.X) * (s.X - chosen.X) + (s.Y - chosen.Y) * (s.Y - chosen.Y)));
+                Logger.LogWarning("Built-in guider: the chosen star at ({X:F1}, {Y:F1}) is not in the calibration frame: {Count} stars found, the nearest {Nearest:F1} px away.",
+                    chosen.X, chosen.Y, stars.Count, nearest);
+            }
+
             // Unpublish BEFORE releasing: the published pointer must never point at a spent frame,
             // even for the two statements this window used to last.
             LastCapturedFrame = null;
