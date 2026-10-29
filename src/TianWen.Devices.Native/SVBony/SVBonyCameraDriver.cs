@@ -30,7 +30,7 @@ internal class SVBonyCameraDriver(SVBonyDevice device, IServiceProvider sp)
     /// Nothing to initialise, since the binding's open already set the stream up and every control that touches a
     /// RAW frame to where it touches nothing; this records the body and anything that open could not set.
     /// </summary>
-    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
     {
         Logger.LogInformation(
             "SVBONY camera {Name} (serial {Serial}): firmware {Firmware}, SDK {Sdk}, {Link}",
