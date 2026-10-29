@@ -75,9 +75,10 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     /// reads belong.
     /// </summary>
     private static Task<TimeSpan> PumpGuiderAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
-        Func<bool> done, TimeSpan maxFakeTime, CancellationToken ct, Func<int, ValueTask>? onIteration = null) =>
+        Func<bool> done, TimeSpan maxFakeTime, CancellationToken ct, Func<int, ValueTask>? onIteration = null,
+        TimeSpan? settleBound = null) =>
         timeProvider.PumpUntilAsync(done, maxFakeTime, onIteration,
-            progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: GuideSettleBound);
+            progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: settleBound ?? GuideSettleBound);
 
     /// <summary>
     /// How long, in real time, each advance waits for the guide loop to park at its next <c>SleepAsync</c> (#1910).
@@ -106,11 +107,11 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
 
     /// <summary>Pumps a fixed span of fake time (or until the guider errors), paced to the loop.</summary>
     private static Task<TimeSpan> PumpForAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
-        TimeSpan span, Func<string?> guidingError, CancellationToken ct)
+        TimeSpan span, Func<string?> guidingError, CancellationToken ct, TimeSpan? settleBound = null)
     {
         var until = timeProvider.GetUtcNow() + span;
         return PumpGuiderAsync(timeProvider, guider, () => timeProvider.GetUtcNow() >= until || guidingError() is not null,
-            span + TimeSpan.FromMinutes(10), ct);
+            span + TimeSpan.FromMinutes(10), ct, settleBound: settleBound);
     }
 
     /// <summary>
@@ -487,7 +488,9 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before the training pump");
 
         // Pump ~1050s so the blend ramp completes and the fresh model trains + saves online.
-        await PumpForAsync(timeProvider, guider, TimeSpan.FromSeconds(1050), () => guidingError, ct);
+        // The long pump takes the pump's own 2 ms re-park wait, not the 1 s backstop: it asserts no tight bound, and
+        // 525 frames each paying a backstop that a timer-woken wake never answers ran past its 180 s timeout.
+        await PumpForAsync(timeProvider, guider, TimeSpan.FromSeconds(1050), () => guidingError, ct, settleBound: TimeSpan.FromMilliseconds(2));
 
         var stats = await guider.GetStatsAsync(ct);
         stats.ShouldNotBeNull();
