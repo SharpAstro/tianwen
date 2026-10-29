@@ -43,14 +43,65 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
     // Pulses go to the mount, which the fake guide camera follows.
     private static readonly Uri Guider = new BuiltInGuiderDevice(new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Mount#Built-in Guider")).DeviceUri;
 
-    // Binned 2 and a short exposure: the fake's whole guide sensor is slow to render at full resolution.
+    // Binned 2: the fake's whole guide sensor is slow to render at full resolution.
     private static readonly LiveViewRequestDto Loop = new LiveViewRequestDto { CameraRole = LiveViewCamera.Guider, ExposureMs = 100, Binning = 2 };
 
     private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
 
-    private async Task<NodeHarness> StartRigAsync(CancellationToken ct, Uri? guider = null, bool withGuideCamera = true)
+    /// <summary>
+    /// The node's clock for a calibration or a guide run, which the test drives (the guider's own end-to-end test does the same): on
+    /// a real clock a calibration is a sweep of mount pulses timed in wall seconds, and a machine busy with other work stretched
+    /// a pulse and lost the star (the first run on a loaded machine failed where three quiet ones passed). The pump is the SOLE
+    /// clock (<see cref="FakeTimeProviderWrapper.ExternalTimePump"/>) and ends with this, after the node is disposed.
+    /// </summary>
+    private sealed class PumpedClock : IAsyncDisposable
     {
-        var node = await NodeHarness.StartAsync(outputHelper, ct, configure: services => services.AddBuiltInGuider());
+        private readonly CancellationTokenSource _stop = new CancellationTokenSource();
+        private readonly Task _pump;
+
+        public PumpedClock()
+        {
+            Clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
+            _pump = Task.Run(async () =>
+            {
+                try
+                {
+                    // A step well under a frame's render, so the mount's drift between two frames stays a pixel or so.
+                    while (!_stop.IsCancellationRequested)
+                    {
+                        Clock.Advance(TimeSpan.FromMilliseconds(100));
+                        await Task.Delay(1, _stop.Token);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // The test is over.
+                }
+            }, CancellationToken.None);
+        }
+
+        public FakeTimeProviderWrapper Clock { get; }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _stop.CancelAsync();
+            await _pump;
+            _stop.Dispose();
+        }
+    }
+
+    private async Task<NodeHarness> StartRigAsync(CancellationToken ct, Uri? guider = null, bool withGuideCamera = true, FakeTimeProviderWrapper? clock = null)
+    {
+        var node = await NodeHarness.StartAsync(outputHelper, ct, configure: services =>
+        {
+            services.AddBuiltInGuider();
+            if (clock is not null)
+            {
+                // The watch that ends a run nobody watches counts the pumped clock, which runs far faster than a person looks.
+                services.AddSingleton<ITimeProvider>(clock);
+                services.AddSingleton(new NodeRunWatchOptions(TimeSpan.FromDays(1), TimeSpan.FromSeconds(1)));
+            }
+        });
         await node.ActivateRigAsync(Camera, Mount, ct, guideCamera: withGuideCamera ? GuideCamera : null, guider: guider ?? Guider);
 
         // Tracking, centred away from the pole, as the guider's own end-to-end test sets the mount up.
@@ -96,16 +147,10 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         }, ct);
         try
         {
-            // The brightest star well inside the frame: a calibration moves the star by tens of pixels either way, and one chosen
-            // at the edge (the brightest of this fake's field can be) is carried off the sensor and lost, which a user's own pick
-            // near an edge would be too.
-            const int Margin = 200;
-            var data = frame.GetChannel(0).Data;
-            var stars = new GuiderCentroidTracker().FindStars(data);
-            var inside = stars.Where(s => s.X >= Margin && s.X < frame.Width - Margin && s.Y >= Margin && s.Y < frame.Height - Margin).ToList();
-            inside.ShouldNotBeEmpty($"the looped guide frame holds a star at least {Margin} px from every edge to choose; it found {stars.Count}");
-            var star = GuideStarReadout.Measure(data, 1f, (inside[0].X, inside[0].Y));
-            star.ShouldNotBeNull("the star found is read out");
+            // The brightest one, as Auto picks it: the fake's field has only a few stars the guider can hold, and a dimmer one is
+            // lost to the noise of one frame or the next.
+            var star = GuideStarReadout.Measure(frame.GetChannel(0).Data, 1f);
+            star.ShouldNotBeNull("the looped guide frame holds a star to choose");
             return (star.Value.X, star.Value.Y);
         }
         finally
@@ -114,9 +159,9 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         }
     }
 
-    private async Task<(TianWenNodeClient Client, NodeHarness Node)> LoopAsync(CancellationToken ct, Uri? guider = null)
+    private async Task<(TianWenNodeClient Client, NodeHarness Node)> LoopAsync(CancellationToken ct, Uri? guider = null, FakeTimeProviderWrapper? clock = null)
     {
-        var node = await StartRigAsync(ct, guider);
+        var node = await StartRigAsync(ct, guider, clock: clock);
         var client = ClientOf(node);
         var started = await client.StartLiveViewAsync(Loop, ct);
         started.IsSuccess.ShouldBeTrue(started.Error);
@@ -128,7 +173,8 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
     public async Task NodeGuidingCalibratesOnDemandAndReportsTheResultThenTheLoopComesBack()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (client, node) = await LoopAsync(ct);
+        await using var pumped = new PumpedClock();
+        var (client, node) = await LoopAsync(ct, clock: pumped.Clock);
         await using var rig = node;
         var star = await PickAStarAsync(client, ct);
 
@@ -162,7 +208,8 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
     public async Task NodeGuidingGuidesFromTheLoopOnTheChosenStarAndProducesSamples()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (client, node) = await LoopAsync(ct);
+        await using var pumped = new PumpedClock();
+        var (client, node) = await LoopAsync(ct, clock: pumped.Clock);
         await using var rig = node;
         var star = await PickAStarAsync(client, ct);
 
