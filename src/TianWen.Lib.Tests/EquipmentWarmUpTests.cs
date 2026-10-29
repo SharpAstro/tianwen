@@ -74,9 +74,10 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
         var sleeps = new List<TimeSpan>();
         await hub.WarmAndCoolerOffAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), ct);
 
-        // The walk is about 28 steps; the cap is twice the planned 30 steps (60 sleeps). Ending on power adds a few.
-        sleeps.Count.ShouldBeGreaterThan(20, "the ramp walked the sensor up");
-        sleeps.Count.ShouldBeLessThanOrEqualTo(28 + 5 + 1, "the walk, a few steps at no power and the settle, not the 2x safety cap");
+        // At the default 2 C/min a step is half a degree: the walk is about 56 steps; the cap is twice the planned 60 steps
+        // (120 sleeps). Ending on power adds a few.
+        sleeps.Count.ShouldBeGreaterThan(40, "the ramp walked the sensor up");
+        sleeps.Count.ShouldBeLessThanOrEqualTo(56 + 5 + 1,"the walk, a few steps at no power and the settle, not the 2x safety cap");
         (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
         hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
         intent.ShouldBe(CoolerIntent.Off);
