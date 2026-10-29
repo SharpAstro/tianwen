@@ -74,7 +74,7 @@ public class GuideDarkLibraryNodeTests(ITestOutputHelper outputHelper)
         var state = await UntilAsync<LiveViewStateDto>("the loop to say it applies the darks", async token =>
         {
             var s = (await client.GetLiveViewAsync(token)).Value;
-            return (s is { FramesReceived: > 0 } ? s : null, s is null ? "none" : $"{s.FramesReceived} frames");
+            return (s is { FramesReceived: > 0, DarksApplied: true } ? s : null, s is null ? "none" : $"{s.FramesReceived} frames, darks applied {s.DarksApplied}");
         }, ct);
         state.DarksApplied.ShouldBeTrue("the library taken a moment ago is the loop's");
         (await client.StopLiveViewAsync(ct)).IsSuccess.ShouldBeTrue();
