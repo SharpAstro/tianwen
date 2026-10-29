@@ -81,7 +81,7 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
 
-        var reached = await hub.CoolToSetpointAsync(device.DeviceUri, -10.4, TimeSpan.FromMinutes(1), external.TimeProvider, NullLogger.Instance, ct);
+        var reached = await hub.CoolToSetpointAsync(device.DeviceUri, -10.4, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider, NullLogger.Instance, ct);
 
         reached.ShouldBeTrue();
         (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue();
@@ -95,7 +95,7 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
     {
         var (external, hub) = Build();
 
-        (await hub.CoolToSetpointAsync(new FakeDevice(DeviceType.Camera, 1).DeviceUri, -10, TimeSpan.FromMinutes(1), external.TimeProvider,
+        (await hub.CoolToSetpointAsync(new FakeDevice(DeviceType.Camera, 1).DeviceUri, -10, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider,
             NullLogger.Instance, TestContext.Current.CancellationToken)).ShouldBeFalse();
     }
 

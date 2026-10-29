@@ -118,6 +118,18 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         _ccdCeiling = sensorCannotPassAmbient ? ambientC : double.PositiveInfinity;
     }
 
+    private double _maxCoolerStepPerRead = 1.0;
+    private readonly List<(double SetpointC, double SensorC)> _setpointsGiven = [];
+
+    /// <summary>
+    /// Test seam: a lagging cooler. The sensor moves at most <paramref name="maxCPerRead"/> degrees toward the setpoint per
+    /// read of its temperature (a degree, the fake's own speed, by default), so a setpoint can run ahead of the sensor.
+    /// </summary>
+    internal void MakeCoolerLag(double maxCPerRead) => _maxCoolerStepPerRead = maxCPerRead;
+
+    /// <summary>Test seam: every setpoint this camera was given, with the sensor's reading when it was given.</summary>
+    internal IReadOnlyList<(double SetpointC, double SensorC)> SetpointsGiven => _setpointsGiven;
+
     /// <summary>Test seam: <see cref="CanGetCoolerPower"/> false makes the camera one that cannot report its cooler power.</summary>
     internal void MakeCoolerPowerUnreadable() => CanGetCoolerPower = false;
 
@@ -824,7 +836,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             var delta = _setpointTemperature - _ccdTemperature;
             if (Math.Abs(delta) > 0.1)
             {
-                _ccdTemperature += Math.Sign(delta) * Math.Min(1.0, Math.Abs(delta));
+                _ccdTemperature += Math.Sign(delta) * Math.Min(_maxCoolerStepPerRead, Math.Abs(delta));
             }
             else
             {
@@ -865,6 +877,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
     {
         _setpointTemperature = value;
+        _setpointsGiven.Add((value, _ccdTemperature));
         return ValueTask.CompletedTask;
     }
 

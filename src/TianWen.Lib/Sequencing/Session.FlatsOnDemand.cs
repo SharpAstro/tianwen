@@ -54,7 +54,7 @@ internal partial record Session
             // Cool to the imaging setpoint so on-demand flats match the light-frame temperature (a no-op on
             // cameras without a cooler). The finaliser warms back to ambient afterwards.
             SetPhase(SessionPhase.Cooling);
-            await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
+            await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownMaxRate, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
 
             SetPhase(SessionPhase.Flats);
             if (Configuration.FlatSource is FlatIlluminationSource.TwilightSky)
@@ -136,7 +136,7 @@ internal partial record Session
 
         _currentActivity = "Checking cooler sensor temp\u2026";
         _logger.LogDebug("Flats: confirming camera cooler sensor temp");
-        if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
+        if (!await CoolCamerasToSensorTempAsync(CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute, cancellationToken).ConfigureAwait(false))
         {
             _logger.LogError("Failed to confirm camera cooler sensor temperature; aborting flat run.");
             return false;
@@ -184,7 +184,7 @@ internal partial record Session
         if (Configuration.WarmCamerasOnSessionEnd)
         {
             _currentActivity = "Warming cameras\u2026";
-            await CatchAsync(_ => CoolCamerasToAmbientAsync(Configuration.WarmupRampInterval), cancellationToken, false).ConfigureAwait(false);
+            await CatchAsync(_ => CoolCamerasToAmbientAsync(Configuration.WarmupMaxRate), cancellationToken, false).ConfigureAwait(false);
         }
 
         if (mountConnected)

@@ -559,7 +559,9 @@ public interface ICameraDriver : IDeviceDriver
         && CanSetCoolerOn
         && (CanGetHeatsinkTemperature || CanGetCCDTemperature);
 
-    async ValueTask<CameraCoolingState> CoolToSetpointAsync(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState, CancellationToken cancellationToken = default)
+    /// <param name="maxStepC">How far one step moves the setpoint past the sensor's own reading, degrees C (a ramp's rate
+    /// ceiling times its step interval); a whole degree, the ramp's step before a ceiling, when not given.</param>
+    async ValueTask<CameraCoolingState> CoolToSetpointAsync(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState, double maxStepC = 1d, CancellationToken cancellationToken = default)
     {
         if (IsCoolable)
         {
@@ -611,7 +613,7 @@ public interface ICameraDriver : IDeviceDriver
                 && (double.IsNaN(coolerPower) || !await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) || !direction.ThresholdPowerReached(coolerPower, thresPower))
             )
             {
-                var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp);
+                var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp, maxStepC);
                 await SetSetCCDTemperatureAsync(actualSetpointTemp, cancellationToken);
 
                 // turn cooler on if required

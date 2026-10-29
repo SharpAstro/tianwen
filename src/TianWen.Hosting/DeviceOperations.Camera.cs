@@ -40,7 +40,8 @@ internal sealed partial class DeviceOperations
         }
 
         var target = CameraCoolingRamp.TargetOf(request.SetpointC);
-        var ramp = request.RampMinutes is { } rampMinutes ? TimeSpan.FromMinutes(rampMinutes) : new SessionConfiguration().CooldownRampInterval;
+        // RampMinutes is a duration the rate ceiling replaced; the next leg of #1839 retires it from the wire. Ignored here.
+        var ramp = new SessionConfiguration().CooldownMaxRate;
         return Start(CoolJob, uri, name, async (step, ct) =>
         {
             step.Report($"Cooling {name} to {target:F0} °C");

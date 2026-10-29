@@ -55,8 +55,8 @@ public static class SessionPersistence
         // Restore configuration
         state.Configuration = new SessionConfiguration(
             SetpointCCDTemperature: new SetpointTemp(dto.SetpointTempC, dto.SetpointTempKind),
-            CooldownRampInterval: TimeSpan.FromSeconds(dto.CooldownRampSeconds),
-            WarmupRampInterval: TimeSpan.FromSeconds(dto.WarmupRampSeconds),
+            CooldownMaxRate: dto.CooldownMaxRate > 0 ? dto.CooldownMaxRate : CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute,
+            WarmupMaxRate: dto.WarmupMaxRate > 0 ? dto.WarmupMaxRate : CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute,
             MinHeightAboveHorizon: dto.MinHeightAboveHorizon,
             DitherPixel: dto.DitherPixel,
             SettlePixel: dto.SettlePixel,
@@ -126,8 +126,8 @@ public static class SessionPersistence
         return new SessionConfigDto(
             SetpointTempC: config.SetpointCCDTemperature.TempC,
             SetpointTempKind: config.SetpointCCDTemperature.Kind,
-            CooldownRampSeconds: config.CooldownRampInterval.TotalSeconds,
-            WarmupRampSeconds: config.WarmupRampInterval.TotalSeconds,
+            CooldownMaxRate: config.CooldownMaxRate,
+            WarmupMaxRate: config.WarmupMaxRate,
             MinHeightAboveHorizon: config.MinHeightAboveHorizon,
             DitherPixel: config.DitherPixel,
             SettlePixel: config.SettlePixel,
@@ -162,8 +162,8 @@ public static class SessionPersistence
 public record SessionConfigDto(
     sbyte SetpointTempC,
     SetpointTempKind SetpointTempKind,
-    double CooldownRampSeconds,
-    double WarmupRampSeconds,
+    double CooldownMaxRate,
+    double WarmupMaxRate,
     byte MinHeightAboveHorizon,
     double DitherPixel,
     double SettlePixel,

@@ -5,8 +5,8 @@ namespace TianWen.Lib.Sequencing;
 
 public record struct SessionConfiguration(
     SetpointTemp SetpointCCDTemperature,
-    TimeSpan CooldownRampInterval,
-    TimeSpan WarmupRampInterval,
+    double CooldownMaxRate,
+    double WarmupMaxRate,
     byte MinHeightAboveHorizon,
     double DitherPixel,
     double SettlePixel,
@@ -285,8 +285,8 @@ public record struct SessionConfiguration(
     /// </remarks>
     public SessionConfiguration() : this(
         SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
-        CooldownRampInterval: TimeSpan.FromMinutes(5),
-        WarmupRampInterval: TimeSpan.FromMinutes(5),
+        CooldownMaxRate: CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute,
+        WarmupMaxRate: CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute,
         MinHeightAboveHorizon: 20,
         DitherPixel: 5.0,
         SettlePixel: 1.0,

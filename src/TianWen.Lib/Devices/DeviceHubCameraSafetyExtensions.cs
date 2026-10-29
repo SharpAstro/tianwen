@@ -116,7 +116,7 @@ public static class DeviceHubCameraSafetyExtensions
         /// crashed (the crash journal, P1 of docs/plans/hardware-in-the-server.md).
         /// </summary>
         /// <returns>True when the setpoint was reached; false when it was not, or the camera is not connected.</returns>
-        public async ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, TimeSpan totalRampTime, ITimeProvider timeProvider, ILogger logger,
+        public async ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, double maxRateCPerMinute, ITimeProvider timeProvider, ILogger logger,
             CancellationToken cancellationToken)
         {
             if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera))
@@ -126,7 +126,7 @@ public static class DeviceHubCameraSafetyExtensions
 
             var target = CameraCoolingRamp.TargetOf(setpointC);
             hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(target));
-            return await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(target, SetpointTempKind.Normal), totalRampTime,
+            return await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(target, SetpointTempKind.Normal), maxRateCPerMinute,
                 CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null, cancellationToken);
         }
 
@@ -309,7 +309,7 @@ public static class DeviceHubCameraSafetyExtensions
         try
         {
             await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient),
-                new SessionConfiguration().WarmupRampInterval, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
+                new SessionConfiguration().WarmupMaxRate, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
                 timeProvider, logger, afterStep: null, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

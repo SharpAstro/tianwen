@@ -14,35 +14,34 @@ internal partial record Session
     /// Idea is that we keep cooler on but only on the currently reached temperature, so we have less cases to manage in the imaging loop.
     /// Assumes that power is switched on.
     /// </summary>
-    /// <param name="rampTime">Interval between temperature checks</param>
+    /// <param name="maxRateCPerMinute">The most the sensor may move per minute, degrees C.</param>
     /// <returns>True if setpoint temperature was reached.</returns>
-    internal ValueTask<bool> CoolCamerasToSensorTempAsync(TimeSpan rampTime, CancellationToken cancellationToken)
-        => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD), rampTime, 0.1, SetupointDirection.Up, cancellationToken);
+    internal ValueTask<bool> CoolCamerasToSensorTempAsync(double maxRateCPerMinute, CancellationToken cancellationToken)
+        => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD), maxRateCPerMinute, 0.1, SetupointDirection.Up, cancellationToken);
 
 
     /// <summary>
     /// Warms cameras back to ambient temperature. Not cancellable; abruptly cutting power
     /// to a cooled sensor risks thermal shock and condensation damage.
     /// </summary>
-    /// <param name="rampTime">Interval between temperature checks</param>
+    /// <param name="maxRateCPerMinute">The most the sensor may move per minute, degrees C.</param>
     /// <returns>True if ambient temperature was reached.</returns>
-    internal ValueTask<bool> CoolCamerasToAmbientAsync(TimeSpan rampTime)
-        => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, CameraCoolingRamp.WarmUpPowerThreshold,SetupointDirection.Up, CancellationToken.None);
+    internal ValueTask<bool> CoolCamerasToAmbientAsync(double maxRateCPerMinute)
+        => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), maxRateCPerMinute, CameraCoolingRamp.WarmUpPowerThreshold,SetupointDirection.Up, CancellationToken.None);
 
     /// <summary>
-    /// Ramps camera cooling/warming to the target temperature over a total time budget.
-    /// Each step adjusts the setpoint by ~1°C, with the sleep interval computed from
-    /// <paramref name="totalRampTime"/> / estimated step count.
+    /// Ramps camera cooling/warming to the target temperature no faster than a maximum rate.
+    /// Each step (<see cref="CameraCoolingRamp.StepInterval"/>) moves the setpoint by at most one degree and at most the rate allows.
     /// </summary>
     /// <param name="desiredSetpointTemp">Desired degrees Celcius setpoint temperature,
     /// if <paramref name="desiredSetpointTemp"/>'s <see cref="SetpointTemp.Kind"/> is <see cref="SetpointTempKind.CCD" /> then sensor temperature is chosen,
     /// if its <see cref="SetpointTempKind.Normal" /> then the temp value is chosen
     /// or else ambient temperature is chosen (if available)</param>
-    /// <param name="totalRampTime">Total time budget for the ramp (not per-step).</param>
+    /// <param name="maxRateCPerMinute">The most the sensor may move per minute, degrees C.</param>
     /// <returns>True if setpoint temperature was reached.</returns>
     internal async ValueTask<bool> CoolCamerasToSetpointAsync(
         SetpointTemp desiredSetpointTemp,
-        TimeSpan totalRampTime,
+        double maxRateCPerMinute,
         double thresPower,
         SetupointDirection direction,
         CancellationToken cancellationToken
@@ -75,7 +74,7 @@ internal partial record Session
         }
 
         // The ramp itself is the one every host uses (CameraCoolingRamp); what is the session's is the telemetry.
-        return await CameraCoolingRamp.RunAsync(cameras, desiredSetpointTemp, totalRampTime, thresPower, direction, _timeProvider, _logger,
+        return await CameraCoolingRamp.RunAsync(cameras, desiredSetpointTemp, maxRateCPerMinute, thresPower, direction, _timeProvider, _logger,
             async (i, driver, ct) =>
             {
                 // Record cooling sample for the live session graph. These run every step (15 s) for the whole ramp

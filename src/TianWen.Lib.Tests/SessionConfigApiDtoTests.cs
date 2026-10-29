@@ -18,8 +18,8 @@ public class SessionConfigApiDtoTests
     // A field added to SessionConfiguration is added here too.
     private static readonly SessionConfiguration EveryFieldSet = new SessionConfiguration(
         SetpointCCDTemperature: new SetpointTemp(-15, SetpointTempKind.CCD),
-        CooldownRampInterval: TimeSpan.FromSeconds(301),
-        WarmupRampInterval: TimeSpan.FromSeconds(302),
+        CooldownMaxRate: 3.25,
+        WarmupMaxRate: 1.75,
         MinHeightAboveHorizon: 25,
         DitherPixel: 6.5,
         SettlePixel: 1.5,

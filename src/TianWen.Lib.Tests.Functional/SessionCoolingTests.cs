@@ -12,6 +12,9 @@ namespace TianWen.Lib.Tests.Functional;
 [Collection("Session")]
 public class SessionCoolingTests(ITestOutputHelper output)
 {
+    /// <summary>A degree per 15 s step: the ramp as it was before a ceiling, so these tests keep their pace.</summary>
+    private const double Rate = 4.0;
+
     [Fact(Timeout = 60_000)]
     public async Task GivenCoolableCameraWhenCoolDownThenReachesSetpoint()
     {
@@ -26,7 +29,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when: cool down to -10°C
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(60),
+            Rate,
             80,
             SetupointDirection.Down,
             ct
@@ -61,7 +64,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
 
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(60),
+            Rate,
             80,
             SetupointDirection.Down,
             ct
@@ -74,7 +77,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when: warm up toward 0°C (a concrete target above cooled temp)
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(0, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(60),
+            Rate,
             0.1,
             SetupointDirection.Up,
             ct
@@ -102,7 +105,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when: start cooling
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(60),
+            Rate,
             80,
             SetupointDirection.Down,
             ct
@@ -121,8 +124,8 @@ public class SessionCoolingTests(ITestOutputHelper output)
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         // when: cancel after 10 fake-time seconds via timer on the FakeTimeProvider.
-        // With totalRampTime=60s for 30°C delta, each step sleeps ~2s of fake time.
-        // 10s allows ~5 steps (5°C cooled) before the cancel timer fires
+        // A step is 15 s of fake time and a degree.
+        // 10s allows no step past the first (1°C cooled) before the cancel timer fires
         // deterministically inside the loop's own Advance call. No Task.Run race.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var cancelTimer = ctx.TimeProvider.CreateTimer(
@@ -139,7 +142,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // return was reachable only under the fake.
         await Should.ThrowAsync<OperationCanceledException>(async () => await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(60),
+            Rate,
             80,
             SetupointDirection.Down,
             cts.Token
@@ -159,7 +162,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         // when: cool to CCD sensor temp (should stabilize at current temp)
-        var reached = await ctx.Session.CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(1), ct);
+        var reached = await ctx.Session.CoolCamerasToSensorTempAsync(Rate, ct);
 
         // then: should reach target quickly since setpoint ≈ current temp
         reached.ShouldBeTrue("should reach sensor temp setpoint");
@@ -179,7 +182,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when: cool to -10°C
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(60),
+            Rate,
             80,
             SetupointDirection.Down,
             ct

@@ -37,21 +37,36 @@ public static class CameraCoolingRamp
     /// </summary>
     public static sbyte TargetOf(double setpointC) => (sbyte)Math.Clamp(Math.Round(setpointC), sbyte.MinValue + 1, sbyte.MaxValue);
 
+    /// <summary>The ceiling a cool-down moves the sensor at, degrees C per minute: gentler than the 4 to 4.5 measured on the QHY294PROC, so a 20 C drop takes about ten minutes.</summary>
+    public const double DefaultCoolingMaxRateCPerMinute = 2.0;
+
+    /// <summary>The ceiling a warm-up moves the sensor at, degrees C per minute.</summary>
+    public const double DefaultWarmingMaxRateCPerMinute = 2.0;
+
+    /// <summary>
+    /// How far one step moves a setpoint past the sensor's reading at <paramref name="maxRateCPerMinute"/>: the rate times
+    /// <see cref="StepInterval"/>, never more than the whole degree a step has always been (a rate of 4 C/min or more is
+    /// today's ramp).
+    /// </summary>
+    public static double MaxStepOf(double maxRateCPerMinute)
+        => Math.Clamp(maxRateCPerMinute * StepInterval.TotalMinutes, 0.01, 1d);
+
     /// <summary>
     /// Ramps every camera in <paramref name="cameras"/> towards <paramref name="target"/> together, a step each per
-    /// <see cref="StepInterval"/>, over at least <paramref name="totalRampTime"/>, and gives up at twice the ramp it
-    /// planned.
+    /// <see cref="StepInterval"/>, moving the sensor no faster than <paramref name="maxRateCPerMinute"/>, and gives up at
+    /// twice the time the drop takes at that rate.
     /// </summary>
     /// <param name="target">The setpoint: <see cref="SetpointTempKind.Normal"/> is its value,
     /// <see cref="SetpointTempKind.CCD"/> the sensor's own temperature, otherwise ambient (where the camera can say).</param>
-    /// <param name="totalRampTime">Total time budget for the ramp (not per step).</param>
+    /// <param name="maxRateCPerMinute">The most the sensor may move per minute, degrees C: a ceiling, so a small drop is never
+    /// stretched to fill a time and a cooler slower than it is not hurried.</param>
     /// <param name="afterStep">Called for each camera (by index) after each of its steps: a session samples its
     /// cooling telemetry here.</param>
     /// <returns>True if every coolable camera reached the setpoint.</returns>
     public static async ValueTask<bool> RunAsync(
         IReadOnlyList<ICameraDriver> cameras,
         SetpointTemp target,
-        TimeSpan totalRampTime,
+        double maxRateCPerMinute,
         double thresPower,
         SetupointDirection direction,
         ITimeProvider timeProvider,
@@ -61,9 +76,7 @@ public static class CameraCoolingRamp
     {
         var coolingStates = new CameraCoolingState[cameras.Count];
 
-        // Estimate step count from initial temperature delta to compute per-step sleep.
-        // CoolToSetpointAsync adjusts by ~1°C per call, so steps ≈ |delta|.
-        // Clamp to reasonable bounds: at least 1s per step, at most totalRampTime.
+        // The size of the drop, from the initial temperature delta: it sets the cap below.
         var maxDelta = 1.0;
         foreach (var camera in cameras)
         {
@@ -102,16 +115,18 @@ public static class CameraCoolingRamp
             }
             maxDelta = 30;
         }
-        var stepCount = Math.Max((int)Math.Ceiling(maxDelta), 1);
-        // Total ramp time = max(the budget asked for, steps x the step interval).
-        var actualRampTime = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks, stepCount * StepInterval.Ticks));
+        // The ceiling bounds how far one step may move the setpoint; a rate at or above a degree per step is the old whole degree.
+        var maxStepC = MaxStepOf(maxRateCPerMinute);
+        // The time the drop takes at that ceiling, and the cap is twice it: a cooler that lags the setpoint is given room,
+        // one that never gets there is still let go.
+        var plannedRampTime = TimeSpan.FromTicks((long)Math.Ceiling(maxDelta / maxStepC) * StepInterval.Ticks);
 
         var accSleep = TimeSpan.Zero;
         do
         {
             for (var i = 0; i < cameras.Count; i++)
             {
-                coolingStates[i] = await cameras[i].CoolToSetpointAsync(target, thresPower, direction, coolingStates[i], cancellationToken);
+                coolingStates[i] = await cameras[i].CoolToSetpointAsync(target, thresPower, direction, coolingStates[i], maxStepC, cancellationToken);
                 if (afterStep is not null)
                 {
                     await afterStep(i, cameras[i], cancellationToken);
@@ -129,10 +144,10 @@ public static class CameraCoolingRamp
             }
 
             accSleep += StepInterval;
-            if (accSleep >= actualRampTime * 2)
+            if (accSleep >= plannedRampTime * 2)
             {
-                logger.LogWarning("Cooling: safety cap reached ({AccSleep} >= 2x {ActualRamp}), exiting ramp loop.",
-                    accSleep, actualRampTime);
+                logger.LogWarning("Cooling: safety cap reached ({AccSleep} >= 2x {PlannedRamp}), exiting ramp loop.",
+                    accSleep, plannedRampTime);
                 break;
             }
 
