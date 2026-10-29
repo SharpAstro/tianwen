@@ -693,11 +693,14 @@ namespace TianWen.Lib.Tests
         {
             using var renderer = new RgbaImageRenderer(1600, 1000) { HostRendersSelectableText = true };
             var (tab, state, content, time) = await PlannerWithPictureAsync(renderer);
-            tab.SelectableTextRegions.Length.ShouldBeGreaterThan(0, "closed, the detail lines are selectable text");
+            var closed = tab.SelectableTextRegions.Length;
+            closed.ShouldBeGreaterThan(0, "closed, the detail lines are selectable text");
+            var lines = tab.SelectableTextRegions.ToArray().Count(r => r.Y >= tab.DetailsRect.Y);
 
             state.PictureExpanded = true;
             tab.Render(state, content, time);
-            tab.SelectableTextRegions.Length.ShouldBe(0);
+            // What the large view itself writes stays selectable above the scrim; the strip's lines are held back.
+            tab.SelectableTextRegions.Length.ShouldBe(closed - lines);
             tab.Pictures.Count.ShouldBe(2);
         }
 
@@ -729,7 +732,9 @@ namespace TianWen.Lib.Tests
             float dpiScale, float interfaceScale, int width)
         {
             var scale = dpiScale * interfaceScale;
-            using var renderer = new RgbaImageRenderer((uint)width, 1000);
+            // Landscape both ways: portrait (H > W) drops the picture from the strip.
+            var height = width >= 1000 ? 1000u : 480u;
+            using var renderer = new RgbaImageRenderer((uint)width, height);
             var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale, interfaceScale: interfaceScale);
 
             var thumbnail = tab.Pictures.ShouldHaveSingleItem().Rect;
@@ -737,7 +742,7 @@ namespace TianWen.Lib.Tests
             var strip = details.Height;
 
             // The strip did not grow for the picture: a target without one has the same.
-            using (var plain = new RgbaImageRenderer((uint)width, 1000))
+            using (var plain = new RgbaImageRenderer((uint)width, height))
             {
                 var (noPicture, _, _, _) = await PlannerWithPictureAsync(plain, CatalogIndex.IC1000, dpiScale, interfaceScale);
                 noPicture.DetailsRect.Height.ShouldBe(strip, 0.5f);
