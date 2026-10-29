@@ -1,58 +1,102 @@
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The out-of-session warm-up ramp (<c>IDeviceHub.WarmAndDisconnectAsync</c>) waits on the
-/// injected <see cref="ITimeProvider"/>, never on the wall clock. It used to call <c>Task.Delay</c>, so
-/// under a fake clock every 2 degree step cost a real 30 s and the ramp could not be tested at all, and
-/// on the real clock it ignored the <c>TIANWEN_NOW</c> anchor every other wait honours.
+/// The out-of-session warm-up (<c>IDeviceHub.WarmAndDisconnectAsync</c>) runs the session's own
+/// <see cref="CameraCoolingRamp"/> and waits on the injected <see cref="ITimeProvider"/>, never on the wall clock. It used
+/// to call <c>Task.Delay</c>, then to step 2 degrees every 30 s of its own, which was a second answer to how fast a sensor
+/// may warm (#1840).
 /// </summary>
 public class EquipmentWarmUpTests(ITestOutputHelper output)
 {
     private static readonly Uri CameraUri = new("Camera://FakeDevice/cam1");
 
-    [Fact(Timeout = 30_000)]
-    public async Task TheRampWaitsOnTheInjectedClockAndThenDisconnects()
+    private static ITimeProvider RecordingClock(List<TimeSpan> sleeps)
     {
-        // A sensor that settles on whatever setpoint it is given, so each step is one read and one sleep.
-        var ccd = -10.0;
-        var camera = Substitute.For<ICameraDriver>();
-        camera.CanSetCCDTemperature.Returns(true);
-        camera.CanGetCoolerOn.Returns(true);
-        camera.CanGetHeatsinkTemperature.Returns(true);
-        camera.GetCoolerOnAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
-        camera.GetHeatSinkTemperatureAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(0.0));
-        camera.GetCCDTemperatureAsync(Arg.Any<CancellationToken>()).Returns(_ => ValueTask.FromResult(ccd));
-        camera.SetSetCCDTemperatureAsync(Arg.Any<double>(), Arg.Any<CancellationToken>())
-            .Returns(call => { ccd = call.ArgAt<double>(0); return ValueTask.CompletedTask; });
-
-        var hub = Substitute.For<IDeviceHub>();
-        hub.TryGetConnectedDriver<ICameraDriver>(CameraUri, out Arg.Any<ICameraDriver?>())
-            .Returns(call => { call[1] = camera; return true; });
-
-        var sleeps = new List<TimeSpan>();
         var clock = Substitute.For<ITimeProvider>();
         clock.SleepAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(call => { sleeps.Add(call.ArgAt<TimeSpan>(0)); return ValueTask.CompletedTask; });
+        return clock;
+    }
 
-        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output),
-            force: false, TestContext.Current.CancellationToken);
+    [Fact(Timeout = 30_000)]
+    public async Task TheRampStepsEveryFifteenSecondsOnTheInjectedClockThenSettlesAndDisconnects()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var hub = external.BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
+        await camera.SetSetCCDTemperatureAsync(-10, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+        // the sensor is taken down to the setpoint first
+        for (var i = 0; i < 40; i++) await camera.GetCCDTemperatureAsync(ct);
 
-        // -10 to within 1 degree of a 0 degree heat sink in 2 degree steps: -8, -6, -4, -2, 0 is five steps,
-        // then the 2 s settle after the cooler goes off.
-        sleeps.ShouldBe([.. Enumerable.Repeat(TimeSpan.FromSeconds(30), 5), TimeSpan.FromSeconds(2)]);
-        await camera.Received(1).SetCoolerOnAsync(false, Arg.Any<CancellationToken>());
-        await hub.Received(1).DisconnectAsync(CameraUri, false, Arg.Any<CancellationToken>());
+        var sleeps = new List<TimeSpan>();
+        await hub.WarmAndDisconnectAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), force: false, ct);
+
+        sleeps.Count.ShouldBeGreaterThan(1);
+        sleeps[^1].ShouldBe(TimeSpan.FromSeconds(2), "the settle after the cooler goes off");
+        sleeps[..^1].ShouldAllBe(s => s == CameraCoolingRamp.StepInterval, "the session's 15 s step, not a ramp of its own");
+        hub.TryGetConnectedDriver<ICameraDriver>(device.DeviceUri, out _).ShouldBeFalse("it disconnects when asked");
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The QHY294PROC case: no heat sink, a cooler at 0 % power below an unreachable +25 C. The ramp ends in a few steps
+    /// rather than at the safety cap.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ACoolerStuckAtNoPowerBelowAnUnreachableTargetEndsInAFewSteps()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var hub = external.BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (FakeCameraDriver)await hub.ConnectAsync(device, ct);
+        camera.MakeHeatsinkless(ambientC: 18, sensorCannotPassAmbient: true);
+        await camera.SetSetCCDTemperatureAsync(18, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+
+        var sleeps = new List<TimeSpan>();
+        await hub.WarmAndCoolerOffAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), ct);
+
+        sleeps.Count.ShouldBeLessThan(10, "a few steps, not the 2x safety cap");
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
+        hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.Off);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ACameraAnotherRunHoldsIsRefusedBeforeTheSetpointIsTouched()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var hub = external.BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
+        await camera.SetSetCCDTemperatureAsync(-10, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+        hub.TryAcquireLease(device.DeviceUri, "the imaging session", out _).ShouldBeTrue();
+
+        var sleeps = new List<TimeSpan>();
+        await Should.ThrowAsync<DeviceLeasedException>(async () =>
+            await hub.WarmAndDisconnectAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), force: false, ct).AsTask());
+
+        sleeps.ShouldBeEmpty();
+        (await camera.GetSetCCDTemperatureAsync(ct)).ShouldBe(-10);
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue();
     }
 
     /// <summary>
@@ -72,11 +116,7 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
             .Returns(call => { call[1] = camera; return true; });
 
         var sleeps = new List<TimeSpan>();
-        var clock = Substitute.For<ITimeProvider>();
-        clock.SleepAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-            .Returns(call => { sleeps.Add(call.ArgAt<TimeSpan>(0)); return ValueTask.CompletedTask; });
-
-        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output),
+        await hub.WarmAndDisconnectAsync(CameraUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output),
             force: false, TestContext.Current.CancellationToken);
 
         sleeps.ShouldBeEmpty("there is no cooler to step, so nothing to wait for");
