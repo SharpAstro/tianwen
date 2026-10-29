@@ -230,14 +230,47 @@ namespace TianWen.UI.Abstractions
                 "+", "GuideLoopGainInc", _ => loop.StepGain(+1),
                 loop.GainLabel, BaseFontSize * 0.85f, loop.Gain.HasValue ? BodyText : DimText, enabled: true);
 
+            // Darks: the node's dark library on the guide camera, offered with nothing looping or guiding (the node refuses it
+            // otherwise, naming the run), and Stop while it is taken. The count is frames per exposure.
+            var darks = loop.Darks;
+            var darksGoing = darks.IsRunning;
+            var canTakeDarks = !stoppable && !darksGoing;
+            var darksButton = Layout.Builder.Text(darksGoing ? "Stop darks" : "Darks", BaseFontSize * 0.9f, darksGoing || canTakeDarks ? BodyText : DimText,
+                    TextAlign.Center, TextAlign.Center)
+                .WFixed(darksGoing ? 80f : 56f).HStar().Bg(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg);
+            if (darksGoing || canTakeDarks)
+            {
+                darksButton = darksButton.BgHover(GuiTheme.Hover(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg))
+                    .Clickable(new HitResult.ButtonHit("GuideDarks"), _ =>
+                    {
+                        if (darksGoing)
+                        {
+                            PostSignal(new StopGuideDarksSignal());
+                        }
+                        else
+                        {
+                            PostSignal(new StartGuideDarksSignal(loop.ExposureSeconds, loop.Gain));
+                        }
+                    });
+            }
+            var darkCount = FormRowLayout.StepperControl(LoopStepperStyle,
+                "-", "GuideDarksCountDec", _ => darks.StepCount(-1),
+                "+", "GuideDarksCountInc", _ => darks.StepCount(+1),
+                $"Darks: {darks.Count}", BaseFontSize * 0.85f, canTakeDarks ? BodyText : DimText, enabled: canTakeDarks);
+
             var loopStatus = view.State is { } s
                 ? running
-                    ? s.FramesPerSecond is { } fps && s.Width > 0 ? $"{fps:0.#} fps  {s.Width}x{s.Height}" : "Starting\u2026"
+                    ? (s.FramesPerSecond is { } fps && s.Width > 0 ? $"{fps:0.#} fps  {s.Width}x{s.Height}" : "Starting\u2026")
+                        + (s.DarksApplied ? "  darks on" : "  no darks")
                     : s.FailureReason ?? ""
                 : "";
             // What the run is doing while it goes on; after it, why it failed, which stays beside the loop it handed back.
             var runStatus = GuiderActions.GuidingStatus(loop.Run.View);
             var status = runGoing ? runStatus : runStatus.Length > 0 ? $"{loopStatus}  {runStatus}".Trim() : loopStatus;
+            if (darks.Status is { Length: > 0 } darksStatus && (darksGoing || !running))
+            {
+                status = darksStatus;
+            }
             // Auto picks the brightest unsaturated isolated star, which a click on the frame overrides; Clear drops the choice.
             var auto = Layout.Builder.Text("Auto", BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
                 .WFixed(56f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
@@ -246,7 +279,7 @@ namespace TianWen.UI.Abstractions
                 .WFixed(56f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
                 .Clickable(new HitResult.ButtonHit("GuideStarClear"), _ => State.ClearSelection());
 
-            var controls = Layout.Builder.HStack(button, calibrate, guide, exposure.WFixed(150f), gain.WFixed(150f), auto, clear,
+            var controls = Layout.Builder.HStack(button, calibrate, guide, exposure.WFixed(150f), gain.WFixed(150f), darksButton, darkCount.WFixed(110f), auto, clear,
                     Layout.Builder.Text(quiet ?? status, BaseFontSize * 0.85f, DimText).Stretch())
                 .WithGap(BasePadding).Pad(BasePadding).Bg(HeaderBg);
 

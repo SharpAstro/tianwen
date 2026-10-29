@@ -284,6 +284,35 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
+            // The guide camera's dark library (#1915): the node's dark library on the guide camera; refused while it loops or guides.
+            guideLoop.Darks.RedrawRequested = () => appState.NeedsRedraw = true;
+
+            bus.Subscribe<StartGuideDarksSignal>(sig =>
+            {
+                if (CommandTargetOrSay("The guide camera's darks") is not { Node: var node }) return;
+
+                RunTracked("StartGuideDarks", "The guide camera's darks failed to start", async ct =>
+                {
+                    if (await guideLoop.Darks.StartAsync(node, sig.ExposureSeconds, sig.Gain, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopGuideDarksSignal>(_ =>
+            {
+                if (CommandTargetOrSay("Stopping the darks") is not { Node: var node }) return;
+
+                RunTracked("StopGuideDarks", "Could not stop the darks", async ct =>
+                {
+                    if (await guideLoop.Darks.StopAsync(node, ct) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
             bus.Subscribe<SaveSnapshotSignal>(sig =>
             {
                 if (CommandTargetOrSay("A snapshot") is not { Node: var node }) return;
