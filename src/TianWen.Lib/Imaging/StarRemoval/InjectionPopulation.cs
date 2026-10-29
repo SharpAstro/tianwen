@@ -275,8 +275,9 @@ public sealed class InjectionPopulation
             .ToArray();
         if (amplitudes.Length == 0)
         {
-            throw new InvalidOperationException(
-                "the plate's catalogue has no unsaturated Moffat-subtracted star with per-channel amplitudes to draw from (a catalogue written before R1 has none)");
+            throw new InvalidOperationException(refused > 0
+                ? $"the plate's catalogue has no unsaturated Moffat-subtracted star to draw from: every candidate ({refused}) was refused as a diverged fit (a NaN local sigma, or an amplitude past the margin)"
+                : "the plate's catalogue has no unsaturated Moffat-subtracted star with per-channel amplitudes to draw from (a catalogue written before R1 has none)");
         }
 
         var planes = new float[channels][];
