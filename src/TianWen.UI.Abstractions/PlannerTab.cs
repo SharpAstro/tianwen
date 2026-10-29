@@ -155,6 +155,7 @@ namespace TianWen.UI.Abstractions
             _targetListRect = ArrangedFills.RectOf(arranged, ListFillKey);
             var detailsRect = ArrangedFills.RectOf(arranged, DetailsFillKey);
             DetailsRect = detailsRect;
+            PaintedDetailsTextRect = default;
             PaintedDetailLines = [];
             _chartRect = ArrangedFills.RectOf(arranged, ChartFillKey);
 
@@ -669,41 +670,55 @@ namespace TianWen.UI.Abstractions
 
             // The selected target's picture takes a section at the strip's right end, at the strip's own height
             // (the strip does not grow for it): a declared split, the text column a Fill beside the section, so the
-            // text's width is the arranged one and never a sum. A target with no picture, and the compact portrait
-            // strip, keep the whole width for text as before.
+            // text's width is the arranged one and never a sum. The section is offered only while the column it
+            // leaves still holds every line of the strip; a narrow strip, a target with no picture and the compact
+            // portrait strip keep the whole width for text as before.
+            // The engine measures a line at the strip's own scale (design-unit font, MeasureContext's DpiScale), so
+            // the fit rule is the one a declared Text node would be laid out by.
+            var measureCtx = MeasureContext();
+            bool Fits(string line, RectF32 column)
+                => Layout.Engine.Measure(Layout.Builder.Text(line, BaseFontSize, DetailsInfoText),
+                    new Layout.Size<float>(float.MaxValue, float.MaxValue), measureCtx).Width <= column.Width - padding * 2f;
+            List<string> LinesFor(RectF32 column)
+                => PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines, line => Fits(line, column));
+
             var text = rect;
+            List<string>? lines = null;
             if (withPicture && SelectedPicture(state) is { } picture)
             {
                 var dpiScale = DpiScale;
                 var pictureH = ObjectInfoPanel.DesignPictureHeightIn(rect.Height / dpiScale);
                 var sectionW = ObjectInfoPanel.DesignPictureSectionWidthFor(
                     in picture, pictureH, (rect.Width / dpiScale) * DetailsPictureMaxShare);
+                // Under the open large view the credit is plain text: a host that draws a link as a DOM anchor
+                // would otherwise leave it above the scrim, taking the press meant to close the view.
                 var split = Layout.Builder.HStack(
                     Layout.Builder.Fill(key: DetailsTextFillKey).WStar().HStar(),
                     ObjectInfoPanel.BuildPictureSection(in picture, PicturePalette, onOpen: () =>
                         {
                             state.PictureExpanded = true;
                             state.NeedsRedraw = true;
-                        }, designPictureHeight: pictureH)
+                        }, designPictureHeight: pictureH, creditLinks: !largePictureOpen)
                         .WFixed(sectionW).HStar());
-                var arranged = RenderLayout(split, rect, drawFill: (fill, slot) =>
+                var arranged = ArrangeLayout(split, rect, measureCtx);
+                var column = ArrangedFills.RectOf(arranged, DetailsTextFillKey);
+                var columnLines = LinesFor(column);
+                // The name line gives way to the Show in atlas button and is not held to the column.
+                if (columnLines.Skip(1).All(line => Fits(line, column)))
                 {
-                    if (fill.Key == ObjectInfoPanel.PictureFillKey)
+                    PaintLayout(arranged, measureCtx, drawFill: (fill, slot) =>
                     {
-                        DrawObjectPicture(in picture, slot);
-                    }
-                });
-                text = ArrangedFills.RectOf(arranged, DetailsTextFillKey);
+                        if (fill.Key == ObjectInfoPanel.PictureFillKey)
+                        {
+                            DrawObjectPicture(in picture, slot);
+                        }
+                    });
+                    text = column;
+                    lines = columnLines;
+                }
             }
+            lines ??= LinesFor(text);
             PaintedDetailsTextRect = text;
-
-            // The engine measures the candidate at the strip's own scale (design-unit font, MeasureContext's
-            // DpiScale), so the fit rule is the one a declared Text node would be laid out by.
-            var infoW = text.Width - padding * 2f;
-            var measureCtx = MeasureContext();
-            var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines,
-                text => Layout.Engine.Measure(Layout.Builder.Text(text, BaseFontSize, DetailsInfoText),
-                    new Layout.Size<float>(float.MaxValue, float.MaxValue), measureCtx).Width <= infoW);
             PaintedDetailLines = lines;
             if (lines.Count == 0)
             {

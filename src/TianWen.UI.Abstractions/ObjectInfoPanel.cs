@@ -496,11 +496,22 @@ namespace TianWen.UI.Abstractions
         /// The slot's design height when the host's room is not the panel's: the planner's details strip fits
         /// the section to its own height. Null is <see cref="DesignPictureHeight"/>, the panel's.
         /// </param>
+        /// <param name="creditLinks">
+        /// False draws the credit as plain text, for a frame where something is painted over the section (the
+        /// planner's open large view): a host that draws a link as a DOM anchor would leave it above that.
+        /// </param>
         public static Layout.Node BuildPictureSection(
-            in ObjectArticleImage image, in PanelPalette palette, Action? onOpen = null, float? designPictureHeight = null)
+            in ObjectArticleImage image, in PanelPalette palette, Action? onOpen = null, float? designPictureHeight = null,
+            bool creditLinks = true)
         {
             var credit = CreditLine(in image);
             var filePage = image.FilePageUrl;
+            var creditText = Layout.Builder.Text(credit, DesignFontSize * 0.8f, palette.DimText, TextAlign.Near, TextAlign.Center)
+                .WStar().HStar();
+            if (creditLinks)
+            {
+                creditText = creditText.Clickable(new HitResult.LinkHit(filePage), cursor: CursorKind.Pointer);
+            }
             var slot = Layout.Builder.Fill(key: PictureFillKey).WStar().HStar().Bg(PictureFrame);
             if (onOpen is not null)
             {
@@ -516,9 +527,7 @@ namespace TianWen.UI.Abstractions
                     .RowH(designPictureHeight ?? DesignPictureHeight(in image)),
                 Layout.Builder.HStack(
                     Layout.Builder.Spacer().WFixed(PictureSectionSideMargin).HStar(),
-                    Layout.Builder.Text(credit, DesignFontSize * 0.8f, palette.DimText, TextAlign.Near, TextAlign.Center)
-                        .WStar().HStar()
-                        .Clickable(new HitResult.LinkHit(filePage), cursor: CursorKind.Pointer),
+                    creditText,
                     Layout.Builder.Spacer().WFixed(PictureSectionSideMargin).HStar())
                     .RowH(DesignRowHeight),
                 Layout.Builder.Spacer().RowH(PictureSectionMargin));
@@ -611,8 +620,8 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The large view's whole placement, which every host paints the same way: the scrim (arranged over
-        /// <paramref name="content"/>), the body (the picture's slot and its credit row, arranged in
+        /// The large view's whole placement, which every host paints the same way: the scrim (arranged over the
+        /// content rect <see cref="PlaceLargePicture"/> was given), the body (the picture's slot and its credit row, arranged in
         /// <paramref name="BodyRect"/>) and the picture's own rect, which is the slot a host's draw hook is handed.
         /// </summary>
         public readonly record struct LargePicturePlacement(Layout.Node Scrim, Layout.Node Body, RectF32 BodyRect);
