@@ -23,6 +23,9 @@ public enum NodeRunKind
 
     /// <summary>A live view in the Preview mode (<c>POST /api/v1/live</c>, #1111).</summary>
     LiveView,
+
+    /// <summary>The guide camera's calibration or guiding outside a session (<c>POST /api/v1/guider/calibrate</c> and <c>/guide</c>, #1915).</summary>
+    Guiding,
 }
 
 /// <summary>
