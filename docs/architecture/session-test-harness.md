@@ -140,3 +140,49 @@ measurements and why a naive `while (pumped < budget) { Advance(); }` loop is wr
 **Never** use `SleepAsync(subExposure)` in a pump loop; it advances fake time even when the `Task.Run`
 hasn't been scheduled yet, causing targets to "set" before imaging starts. `Advance` fires timers
 synchronously; `Task.Delay(1)` yields to the thread pool.
+
+## How much the misaligned-Skywatcher guider settle varies (#1910)
+
+`GivenBuiltInGuiderWithMisalignedSkywatcherAndCameraPulseWhenCalibrateAndGuideThenStaysLockedWhileMountDrifts`
+(`FakeCameraMountCouplingTests`) once settled at `TotalRMS=4.46" RaRMS=0.16" DecRMS=4.46"` on CI (run 40770669522,
+x64 functional leg, PR #1873) against its 3" bound. #1910 asked how often that happens and why.
+
+**Method.** A temporary `[Theory]` ran the unchanged scenario 400 times (two batches of 200) on win-x64, 16 cores,
+Release, `maxParallelThreads: 4`. Each case printed the At-settle statistics, the hand-pump iterations, the fake
+time pumped and the chosen guide star. Batch 1 ran with nothing else on the machine (23 min). Batch 2 ran while a CPU
+burner was meant to keep the box busy, but the burner exited after about 26 of its 50 minutes, so only the first
+part of that batch was loaded (23 min). The cases of one theory share a class and run one after another, so even
+the loaded batch never had four of them contending. The theory is removed again and no seam was added or kept.
+
+**Distribution of the At-settle RMS (arcsec).**
+
+| Batch | Column | min | median | p95 | max | over 3" |
+|---|---|---|---|---|---|---|
+| 1, idle, 200 runs | Total | 0.021 | 0.158 | 0.212 | 0.244 | 0 |
+| | Ra | 0.000 | 0.043 | 0.123 | 0.174 | 0 |
+| | Dec | 0.003 | 0.141 | 0.197 | 0.215 | 0 |
+| 2, partly loaded, 200 runs | Total | 0.012 | 0.062 | 0.186 | 1.987 | 0 |
+| | Ra | 0.001 | 0.049 | 0.120 | 0.175 | 0 |
+| | Dec | 0.002 | 0.029 | 0.162 | 1.987 | 0 |
+
+**What was found.**
+
+- The 4.46" settle did not reproduce in 400 runs. The worst run, 1.99" Dec (batch 2, run 36), is about 8 times the
+  next worst Total of either batch (0.244") and 32 times batch 2's median, so the Dec distribution has a real tail,
+  but it stays under the 3" bound.
+- Suspect 1 (a fixed star field) is wrong as stated: the guide star the loop locks varies run to run (173 distinct
+  positions in 200 idle runs, 138 in the batch 2 runs), clustering near (595, 490), (51, 270) and (198, 305). Odd-star
+  runs settled as well as the rest, and the 1.99" run locked an ordinary star at (586.65, 480.91) with SNR 2710.
+- Suspect 2 (the hand pump's real-time `Task.Delay(1)` yield) is not supported by cadence: the pump needed 434 to 468
+  iterations and 108.5 to 117 s of fake time, and the 1.99" run sat in the middle (444 iterations, 111 s). Batch 2
+  did not need more iterations than batch 1 (median 445 against 448). What was NOT tested is real four-way
+  contention, since the burner died and the cases ran sequentially. The suspect is not cleared, only not shown.
+- `GuideFrameCount` read 1 at settle in every run, so it carries no signal and was not used.
+- Reading: the 4.46" CI settle looks like the far tail of a mostly tight but occasionally spiky Dec distribution
+  on a loaded runner. The 3" bound sits well over ten times above the typical settle. Nothing measured ties a bad run
+  to a frame count, a pump cadence or a star choice, so the cause of the tail itself is not established.
+
+**For the fix leg.** Do not widen the bound to hide it. Drive the scenario with the cooperative
+`PumpUntilCompletedAsync` plus the progress probe (the pump the rest of the suite uses, #1122), which removes the
+dependence on a real-time yield. To judge any fix, repeat the scenario under real contention (several such tests at
+once from separate classes) and read the Dec RMS tail, since an idle sequential batch cannot show it.
