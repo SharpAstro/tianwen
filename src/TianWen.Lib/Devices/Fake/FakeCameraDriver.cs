@@ -127,6 +127,19 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// </summary>
     internal void MakeCoolerLag(double maxCPerRead) => _maxCoolerStepPerRead = maxCPerRead;
 
+    private int _unreadableTemperatureReads;
+    private bool _unreadableTemperatureThrows;
+
+    /// <summary>
+    /// Test seam: the next <paramref name="reads"/> reads of the sensor's temperature fail, thrown as a transient fault when
+    /// <paramref name="throws"/> and answered NaN otherwise; the sensor does not move on such a read.
+    /// </summary>
+    internal void MakeNextTemperatureReadsUnreadable(int reads, bool throws)
+    {
+        _unreadableTemperatureReads = reads;
+        _unreadableTemperatureThrows = throws;
+    }
+
     private bool _wholeDegreeSetpoint;
 
     /// <summary>
@@ -840,6 +853,16 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
     {
+        if (_unreadableTemperatureReads > 0)
+        {
+            _unreadableTemperatureReads--;
+            if (_unreadableTemperatureThrows)
+            {
+                throw new System.IO.IOException("Simulated unreadable sensor temperature (test seam).");
+            }
+            return ValueTask.FromResult(double.NaN);
+        }
+
         if (_coolerOn)
         {
             // Move 1°C toward setpoint per call when cooler is on

@@ -311,7 +311,7 @@ server can be trusted with a night at all:
      as a device-model operation in `Devices/*Extensions.cs`. The server does not reference
      `UI.Abstractions`, deliberately. It needs nothing UI-specific; it is camera-only (no park), and
      reaches only hub drivers, which item 11 makes every driver.
-   - `HostOptions.ShutdownTimeout` must cover two warm-up ramps, a session's Finalise and the hub's cameras (each plans about 15 min for 30 °C at the 2 °C/min default and is capped at twice that, so `HostedSession.ShutdownBudget` is 60 min, #1839), and a service manager's own
+   - `HostOptions.ShutdownTimeout` must cover two warm-up ramps, a session's Finalise and the hub's cameras (each plans about 15 min for 30 °C at the 2 °C/min default and is capped at twice that plus its confirming steps, so `HostedSession.ShutdownBudget` is 60 min, #1839; a slower configured rate can still be cut off), and a service manager's own
      stop timeout (systemd `TimeoutStopSec`) must be documented to match.
 
 Then the correctness items:

@@ -402,8 +402,9 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
      server listens at once, and a start awaits it on the request's token, before draining anything.
      Stopping aborts the run, awaits its `Finalise`, then warms and disconnects the hub's cameras
      (`IDeviceHub.StopConnectedCamerasAsync`, the same tail the GUI's quit runs), inside
-     `HostedSession.ShutdownBudget` (60 min: two capped ramps, #1839, set as `HostOptions.ShutdownTimeout`; the default 30 s cut
-     every warm-up off). **A service manager's own stop timeout must allow as long**: systemd
+     `HostedSession.ShutdownBudget` (60 min, sized for the 2 °C/min default: a 30 °C warm-up plans 15 min and a capped one
+     about 31, #1839; a slower configured rate can still be cut off; set as `HostOptions.ShutdownTimeout`, where the default
+     30 s cut every warm-up off). **A service manager's own stop timeout must allow as long**: systemd
      `TimeoutStopSec=65min`, or it kills the process mid-ramp. **A request that lasts ends as the host starts
      stopping** (`ApplicationStopping`), since the host waits for open requests out of that same budget, and the
      server stops before the node's own services (`WebApplicationBuilder` registers it last): the event socket

@@ -138,13 +138,13 @@ namespace TianWen.UI.Abstractions
                     new ConfigFieldDescriptor(
                         "Cooldown Rate", ConfigFieldKind.FloatStepper, "°C/min",
                         c => $"{c.CooldownMaxRate:0.0}",
-                        c => c with { CooldownMaxRate = Math.Min(c.CooldownMaxRate + 0.5, 10.0) },
-                        c => c with { CooldownMaxRate = Math.Max(c.CooldownMaxRate - 0.5, 0.5) }),
+                        c => c with { CooldownMaxRate = Math.Clamp(c.CooldownMaxRate + 0.5, 0.5, CameraCoolingRamp.FastestMaxRateCPerMinute) },
+                        c => c with { CooldownMaxRate = Math.Clamp(c.CooldownMaxRate - 0.5, 0.5, CameraCoolingRamp.FastestMaxRateCPerMinute) }),
                     new ConfigFieldDescriptor(
                         "Warmup Rate", ConfigFieldKind.FloatStepper, "°C/min",
                         c => $"{c.WarmupMaxRate:0.0}",
-                        c => c with { WarmupMaxRate = Math.Min(c.WarmupMaxRate + 0.5, 10.0) },
-                        c => c with { WarmupMaxRate = Math.Max(c.WarmupMaxRate - 0.5, 0.5) }),
+                        c => c with { WarmupMaxRate = Math.Clamp(c.WarmupMaxRate + 0.5, 0.5, CameraCoolingRamp.FastestMaxRateCPerMinute) },
+                        c => c with { WarmupMaxRate = Math.Clamp(c.WarmupMaxRate - 0.5, 0.5, CameraCoolingRamp.FastestMaxRateCPerMinute) }),
                 ]),
 
                 new ConfigGroup("Guiding",
