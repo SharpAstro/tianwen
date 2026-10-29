@@ -17,6 +17,7 @@
 @using TianWen.Lib.Devices.Weather
 @using TianWen.Lib.Sequencing
 @using TianWen.UI.Abstractions
+@using TianWen.UI.Web.Planner
 @using TianWen.UI.Web.SkyMap
 @using WebGl.Renderer
 @inject ICelestialObjectDB Db
@@ -144,7 +145,7 @@
 
     WebGlRenderer? _webGl;
     WebGlCanvas? _canvas;
-    PlannerTab<WebGlContext>? _tab;
+    WebPlannerTab? _tab;
     WebSkyMapTab? _skyTab;
     // The night calendar, painted over whichever view is on screen while it is open.
     NightCalendarPopover<WebGlContext>? _calendar;
@@ -334,7 +335,7 @@
             // This host mounts a <CanvasTextLayer>, so DrawSelectableText runs skip the glyph raster
             // and surface as real, selectable DOM spans instead (see SyncSelectableTextLayer).
             _webGl.HostRendersSelectableText = true;
-            _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
+            _tab = new WebPlannerTab(_webGl) { Bus = _bus, RequestRepaint = RequestRenderCoalesced };
             // RequestRepaint: an object picture that lands between events paints on the next animation frame.
             _skyTab = new WebSkyMapTab(_webGl)
             {
@@ -2868,6 +2869,7 @@
     public async ValueTask DisposeAsync()
     {
         Nav.LocationChanged -= OnLocationChanged;
+        _tab?.Dispose();
         _testRef?.Dispose();
         _rafRef?.Dispose();
         _docKeysRef?.Dispose();
