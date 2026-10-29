@@ -287,13 +287,15 @@ namespace TianWen.UI.Abstractions
             }
 
             // The right column is there with no frame yet: the guide focuser needs no frame to be moved.
-            var body = Layout.Builder.HStack(camera, Layout.Builder.VStack([.. right]).ColW(BaseProfileWidth + BaseStatsWidth)).Stretch();
+            var body = Layout.Builder.HStack(camera, Layout.Builder.VStack([.. right]).ColW(BaseProfileWidth + BaseStatsWidth));
 
-            // The guide graph, as a session's tab draws it, once the run has steps to draw.
-            var rows = new List<Layout.Node> { controls.RowH(BaseHeaderHeight), body };
-            if (State.GuideSamples.Length >= 2)
+            // The guide graph, as a session's tab draws it, once the run has steps to draw: a fifth of what the header leaves, at
+            // least 80, split by the engine's star weights and never by arithmetic on the pixel rect.
+            var drawsGraph = State.GuideSamples.Length >= 2;
+            var rows = new List<Layout.Node> { controls.RowH(BaseHeaderHeight), drawsGraph ? body.WStar().HStar(4f) : body.Stretch() };
+            if (drawsGraph)
             {
-                rows.Add(Layout.Builder.Fill(key: GraphFillKey).RowH(MathF.Max((contentRect.Height / DpiScale - BaseHeaderHeight) * 0.2f, 80f)));
+                rows.Add(Layout.Builder.Fill(key: GraphFillKey).WStar().HStar(1f, min: 80f));
             }
 
             RenderLayout(Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Bg(ContentBg), contentRect,

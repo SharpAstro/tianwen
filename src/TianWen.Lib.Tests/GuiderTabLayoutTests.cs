@@ -207,10 +207,10 @@ namespace TianWen.Lib.Tests
             starts.Count.ShouldBe(1);
         }
 
-        private static GuiderTab<RgbaImage> LoopTab(RgbaImageRenderer renderer, SignalBus bus)
+        private static GuiderTab<RgbaImage> LoopTab(RgbaImageRenderer renderer, SignalBus bus, float dpiScale = 1f)
             => new(renderer)
             {
-                DpiScale = 1f,
+                DpiScale = dpiScale,
                 FontPath = FontResolver.ResolveSystemFont(),
                 Bus = bus,
                 GuideLoop = new GuideLoopController(new SystemTimeProvider(),
@@ -415,14 +415,20 @@ namespace TianWen.Lib.Tests
         /// place), and the calibration is said in words beside the L it drew on the frame; once it ends the graph goes and the
         /// calibration stays, and a failure is said beside the loop (#1915).
         /// </summary>
-        [Fact]
-        public void Loop_ShowsTheCalibrationInWordsAndTheGuideGraphWhileTheRunGuides()
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public void Loop_ShowsTheCalibrationInWordsAndTheGuideGraphWhileTheRunGuides(float dpiScale)
         {
-            using var renderer = new RgbaImageRenderer(1280, 800);
-            var tab = LoopTab(renderer, new SignalBus());
+            // The same 1280x800 design space at the scale: the graph's height is the engine's split of it, so it stays a fifth
+            // of what the header leaves, and its bottom edge is the content's.
+            var width = (uint)(1280 * dpiScale);
+            var height = (uint)(800 * dpiScale);
+            using var renderer = new RgbaImageRenderer(width, height);
+            var tab = LoopTab(renderer, new SignalBus(), dpiScale);
             var loop = tab.GuideLoop.ShouldNotBeNull();
             var time = new FakeTimeProviderWrapper(SampleStart);
-            void Draw() => tab.Render(new LiveSessionState(), new RectF32(0, 0, 1280, 800), time);
+            void Draw() => tab.Render(new LiveSessionState(), new RectF32(0, 0, width, height), time);
 
             // Looping, never calibrated: the panel says how to get one, and there is no graph.
             loop.View.Began(0, null);
@@ -436,7 +442,9 @@ namespace TianWen.Lib.Tests
             tab.State.GuideSamples.Length.ShouldBe(40);
             tab.State.LastGuideStats.ShouldNotBeNull().TotalRMS.ShouldBe(0.82, 1e-9);
             tab.State.CalibrationOverlay.ShouldNotBeNull().RaSteps.Length.ShouldBe(1);
-            tab.GraphRect.Width.ShouldBe(1280f, 0.5f);
+            tab.GraphRect.Width.ShouldBe(width, 0.5f);
+            tab.GraphRect.Height.ShouldBe(MathF.Max((800f - 32f) * 0.2f, 80f) * dpiScale, 1f);
+            (tab.GraphRect.Y + tab.GraphRect.Height).ShouldBe(height, 1f);
             GuiderActions.GuidingStatus(loop.Run.View).ShouldBe("Guiding  0.82\" RMS");
 
             GuiderActions.CalibrationLines(tab.State.Run.ShouldNotBeNull().Calibration.ShouldNotBeNull()).ShouldBe(
