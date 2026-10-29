@@ -136,18 +136,18 @@ namespace TianWen.UI.Abstractions
             return
             [
                 // CCD setpoint temp is per-camera (shown in Camera Settings panel, not here)
-                new ConfigGroup("Cooling Ramps",
+                new ConfigGroup("Cooling Rates",
                 [
                     new ConfigFieldDescriptor(
-                        "Cooldown Ramp", ConfigFieldKind.TimeSpanStepper, "",
-                        c => FormatTimeSpan(c.CooldownRampInterval),
-                        c => c with { CooldownRampInterval = StepTimeSpan(c.CooldownRampInterval, TimeSpan.FromSeconds(30), true) },
-                        c => c with { CooldownRampInterval = ClampMin(StepTimeSpan(c.CooldownRampInterval, TimeSpan.FromSeconds(30), false), TimeSpan.FromSeconds(20)) }),
+                        "Cooldown Rate", ConfigFieldKind.FloatStepper, "°C/min",
+                        c => $"{c.CooldownMaxRate:0.0}",
+                        c => c with { CooldownMaxRate = Math.Min(c.CooldownMaxRate + 0.5, 10.0) },
+                        c => c with { CooldownMaxRate = Math.Max(c.CooldownMaxRate - 0.5, 0.5) }),
                     new ConfigFieldDescriptor(
-                        "Warmup Ramp", ConfigFieldKind.TimeSpanStepper, "",
-                        c => FormatTimeSpan(c.WarmupRampInterval),
-                        c => c with { WarmupRampInterval = StepTimeSpan(c.WarmupRampInterval, TimeSpan.FromSeconds(30), true) },
-                        c => c with { WarmupRampInterval = ClampMin(StepTimeSpan(c.WarmupRampInterval, TimeSpan.FromSeconds(30), false), TimeSpan.FromSeconds(20)) }),
+                        "Warmup Rate", ConfigFieldKind.FloatStepper, "°C/min",
+                        c => $"{c.WarmupMaxRate:0.0}",
+                        c => c with { WarmupMaxRate = Math.Min(c.WarmupMaxRate + 0.5, 10.0) },
+                        c => c with { WarmupMaxRate = Math.Max(c.WarmupMaxRate - 0.5, 0.5) }),
                 ]),
 
                 new ConfigGroup("Guiding",

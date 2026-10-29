@@ -47,8 +47,8 @@ public class SessionPersistenceTests(ITestOutputHelper output)
         {
             Configuration = new SessionConfiguration(
                 SetpointCCDTemperature: new SetpointTemp(-20, SetpointTempKind.Normal),
-                CooldownRampInterval: TimeSpan.FromMinutes(8),
-                WarmupRampInterval: TimeSpan.FromMinutes(12),
+                CooldownMaxRate: 3.5,
+                WarmupMaxRate: 1.5,
                 MinHeightAboveHorizon: 25,
                 DitherPixel: 3.5,
                 SettlePixel: 0.8,
@@ -79,8 +79,8 @@ public class SessionPersistenceTests(ITestOutputHelper output)
         loaded.ShouldBeTrue();
         var c = restored.Configuration;
         c.SetpointCCDTemperature.TempC.ShouldBe((sbyte)-20);
-        c.CooldownRampInterval.ShouldBe(TimeSpan.FromMinutes(8));
-        c.WarmupRampInterval.ShouldBe(TimeSpan.FromMinutes(12));
+        c.CooldownMaxRate.ShouldBe(3.5);
+        c.WarmupMaxRate.ShouldBe(1.5);
         c.MinHeightAboveHorizon.ShouldBe((byte)25);
         c.DitherPixel.ShouldBe(3.5);
         c.SettlePixel.ShouldBe(0.8);

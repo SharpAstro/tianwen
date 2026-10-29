@@ -10,13 +10,25 @@ public enum SetupointDirection
 
 public static class CoolDirectionEx
 {
-    public static double SetpointTemp(this SetupointDirection direction, double ccdTemp, double setpointTemp) =>
-        direction switch
+    /// <summary>
+    /// The setpoint of one ramp step: <paramref name="maxStepC"/> past the sensor's own reading, never past
+    /// <paramref name="setpointTemp"/>. A whole-degree step (the default) lands on a whole degree as it always has; a
+    /// fractional one, which a rate ceiling asks for, is kept as it is, since rounding it would give back the degree the
+    /// ceiling took away.
+    /// </summary>
+    public static double SetpointTemp(this SetupointDirection direction, double ccdTemp, double setpointTemp, double maxStepC = 1d)
+    {
+        var whole = maxStepC >= 1d;
+        var upTemp = whole ? Math.Round(ccdTemp + maxStepC) : ccdTemp + maxStepC;
+        var downTemp = whole ? Math.Round(ccdTemp - maxStepC) : ccdTemp - maxStepC;
+
+        return direction switch
         {
-            SetupointDirection.Up => Math.Min(Math.Round(ccdTemp + 1), setpointTemp),
-            SetupointDirection.Down => Math.Max(Math.Round(ccdTemp - 1), setpointTemp),
+            SetupointDirection.Up => Math.Min(upTemp, setpointTemp),
+            SetupointDirection.Down => Math.Max(downTemp, setpointTemp),
             _ => setpointTemp
         };
+    }
 
     public static bool NeedsFurtherRamping(this SetupointDirection direction, double ccdTemp, double setpointTemp, double tolerance = 0.1d) =>
         direction switch

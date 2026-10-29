@@ -322,7 +322,7 @@ internal partial record Session
 
         ValueTask<bool> TurnOffCameraCoolingAsync(CancellationToken cancellationToken) =>
             Configuration.WarmCamerasOnSessionEnd
-                ? CoolCamerasToAmbientAsync(Configuration.WarmupRampInterval)
+                ? CoolCamerasToAmbientAsync(Configuration.WarmupMaxRate)
                 : ValueTask.FromResult(true);
     }
 
@@ -411,7 +411,7 @@ internal partial record Session
         _logger.LogDebug("Init: checking cooler sensor temp");
         // Short interval: confirming camera is at sensor temp, not a full ramp.
         // 5 seconds allows cameras to settle after initial power-on.
-        if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
+        if (!await CoolCamerasToSensorTempAsync(CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute, cancellationToken).ConfigureAwait(false))
         {
             _logger.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");
             return false;

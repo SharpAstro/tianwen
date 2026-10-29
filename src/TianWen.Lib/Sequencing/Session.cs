@@ -826,7 +826,7 @@ internal partial record Session(
             if (Configuration.TakeSkyFlatsAtDusk)
             {
                 SetPhase(SessionPhase.Cooling);
-                await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
+                await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownMaxRate, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
 
                 SetPhase(SessionPhase.Flats);
                 await TakeSkyFlatsAsync(TwilightPeriod.Dusk, cancellationToken).ConfigureAwait(false);
@@ -836,7 +836,7 @@ internal partial record Session(
             await WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(cancellationToken).ConfigureAwait(false);
 
             SetPhase(SessionPhase.Cooling);
-            await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
+            await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownMaxRate, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
 
             SetPhase(SessionPhase.RoughFocus);
             if (!await InitialRoughFocusAsync(cancellationToken))

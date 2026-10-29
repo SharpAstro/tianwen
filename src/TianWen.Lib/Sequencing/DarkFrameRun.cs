@@ -138,7 +138,7 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
 
         var target = CameraCoolingRamp.TargetOf(setpointC);
         logger.LogInformation("Cooling {Camera} to {Target} °C before the first frame", camera.Name, target);
-        var reached = await hub.CoolToSetpointAsync(cameraUri, target, new SessionConfiguration().CooldownRampInterval, timeProvider, logger, cancellationToken);
+        var reached = await hub.CoolToSetpointAsync(cameraUri, target, new SessionConfiguration().CooldownMaxRate, timeProvider, logger, cancellationToken);
         var sensorC = await camera.GetCCDTemperatureAsync(cancellationToken);
         if (!reached || !(Math.Abs(sensorC - target) <= SetpointToleranceC))
         {
