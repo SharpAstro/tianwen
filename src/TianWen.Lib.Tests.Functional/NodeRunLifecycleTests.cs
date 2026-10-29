@@ -202,7 +202,10 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
         var hub = _harness.App.Services.GetRequiredService<IDeviceHub>();
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
-        await camera.SetSetCCDTemperatureAsync(-10, ct);
+        // Just below the warm-up line (the heat sink less CameraReading.WarmUpToleranceC): the warm-up is the real ramp, half
+        // a degree a CameraCoolingRamp.StepInterval at the default rate, on a real clock, so a deeper cool would time the ramp,
+        // not the stop.
+        await camera.SetSetCCDTemperatureAsync(18.5, ct);
         await camera.SetCoolerOnAsync(true, ct);
 
         await _harness.App.StopAsync(ct);
