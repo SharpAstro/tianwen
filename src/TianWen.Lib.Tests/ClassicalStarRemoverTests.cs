@@ -364,11 +364,11 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         }
     }
 
-    // #1867: the field's star beside the absent ring (4 px inside it) is the edge fit. Whatever it came to, no catalogue row is an
-    // unsaturated Subtracted Moffat whose amplitude is past the margin. (A sane fit centred outside the frame stays subtracted with a
-    // NaN LocalSigma, the marker the injector refuses on; ASaturatedStarCutByTheEdgeIsStillSubtracted is the edge-cut case.)
+    // #1867: a whole-plate invariant on an ordinary field (nothing on it diverges: its brightest unsaturated star is 0.8 against a
+    // limit of 3.6): no catalogue row is an unsaturated Subtracted Moffat whose amplitude is past the margin, and the star beside the
+    // absent ring is still found. AnUnsaturatedEdgeFitAboveTheCeilingIsNotSubtracted is the test that drives the guard.
     [Fact(Timeout = 300_000)]
-    public async Task ADivergedEdgeFitIsNeverAnUnsaturatedSubtractedMoffat()
+    public async Task NoUnsaturatedSubtractedRowOfAnOrdinaryPlateIsPastTheMargin()
     {
         var field = MakeField(1);
         var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
