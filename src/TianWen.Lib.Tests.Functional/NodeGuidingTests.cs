@@ -242,7 +242,7 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         {
             var refused = await client.StartGuidingAsync(new GuidingRequestDto(), ct);
             refused.StatusCode.ShouldBe(409);
-            refused.Error.ShouldContain("polar alignment");
+            refused.Error.ShouldNotBeNull().ShouldContain("polar alignment");
         }
         await UntilTheLoopAsync(client, "the loop to come back", s => s.Running && s.CameraRole == LiveViewCamera.Guider && s.FramesReceived > 0, ct);
 
