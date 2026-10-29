@@ -61,5 +61,17 @@ public static class PointingStateExtensions
             PointingState.ThroughThePole => PointingState.Normal,
             _ => state
         };
+
+        /// <summary>
+        /// The state as ONE letter for every host that shows it: ASCOM's <c>pierEast</c> / <c>pierWest</c> ("E" / "W"),
+        /// as N.I.N.A. shows it, and empty when unknown. "Through the pole" is the ASCOM name for "W", and read as if the
+        /// mount had flipped when it was only looking east of the meridian.
+        /// </summary>
+        public string PierLetter => state switch
+        {
+            PointingState.Normal => "E",
+            PointingState.ThroughThePole => "W",
+            _ => ""
+        };
     }
 }

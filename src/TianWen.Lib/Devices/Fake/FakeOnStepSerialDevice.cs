@@ -33,10 +33,22 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     /// </summary>
     private static readonly TimeSpan ParkDuration = TimeSpan.FromMilliseconds(300);
 
-    public FakeOnStepSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen)
+    /// <summary>The sky directions a move-axis is running in (<c>e</c>, <c>w</c>, <c>n</c>, <c>s</c>), from <c>:Mx#</c> and <c>:Qx#</c>.</summary>
+    internal System.Collections.Immutable.ImmutableHashSet<char> Moving { get; private set; } = [];
+
+    /// <summary>The last <c>:RA</c> / <c>:RE</c> move rates, in degrees a second; NaN before any.</summary>
+    internal double MoveRateRa { get; private set; } = double.NaN;
+
+    internal double MoveRateDec { get; private set; } = double.NaN;
+
+    /// <summary>See <see cref="DeviceQueryKey.StaleCommandBuffer"/>. Only ever read and written under <c>_lockObj</c>.</summary>
+    private bool _staleCommandBuffer;
+
+    public FakeOnStepSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen, bool staleCommandBuffer = false)
         : base(logger, encoding, timeProvider, siteLatitude, siteLongitude, isOpen)
     {
         _onStepTimeProvider = timeProvider;
+        _staleCommandBuffer = staleCommandBuffer;
     }
 
     /// <summary>
@@ -46,12 +58,29 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     /// </summary>
     protected override bool RequiresExplicitSign => true;
 
+    /// <summary>
+    /// OnStep answers <c>:GD#</c> as <c>sDD*MM:SS</c> (or <c>sDD*MM</c>), never with Meade's <c>\xdf</c> (#1898).
+    /// </summary>
+    protected override char DegreeSign => '*';
+
     private ParkState CurrentParkState => (ParkState)Volatile.Read(ref _parkStateRaw);
 
     private void SetParkState(ParkState state) => Volatile.Write(ref _parkStateRaw, (int)state);
 
     protected override bool TryHandleExtensionCommand(string dataStr)
     {
+        if (_staleCommandBuffer)
+        {
+            // Whatever arrives is read as the tail of the stale command, and its '#' ends both. A real command swallowed
+            // this way is answered with OnStep's '0' for an unknown command, which carries no '#'.
+            _staleCommandBuffer = false;
+            if (dataStr is not "#")
+            {
+                _responseBuffer.Append('0');
+            }
+            return true;
+        }
+
         switch (dataStr)
         {
             case ":GU#":
@@ -94,6 +123,36 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
 
             case ":TK#":
                 _trackingFrequency = 601; // 60.136 Hz king rate (close enough to sidereal)
+                return true;
+
+            case ":Me#" or ":Mw#" or ":Mn#" or ":Ms#":
+                // Recorded, not modelled: the fake's axes do not move under a move-axis.
+                Moving = Moving.Add(dataStr[2]);
+                return true;
+
+            case ":Qe#" or ":Qw#" or ":Qn#" or ":Qs#":
+                Moving = Moving.Remove(dataStr[2]);
+                return true;
+
+            // The clock, acknowledged as the Meade document has it (1 valid, 0 invalid) and with no "Updating Planetary
+            // Data" lines after :SC. The fake's clock is the time provider's, so what is set does not change what it reads back.
+            case [':', 'S', 'C', .., '#']:
+                _responseBuffer.Append(DateTime.TryParseExact(dataStr[3..^1], "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out _) ? '1' : '0');
+                return true;
+
+            case [':', 'S', 'L', .., '#']:
+                _responseBuffer.Append(TimeSpan.TryParseExact(dataStr[3..^1], "hh\\:mm\\:ss", CultureInfo.InvariantCulture, out _) ? '1' : '0');
+                return true;
+
+            case [':', 'R', 'A' or 'E', .., '#'] when double.TryParse(dataStr[3..^1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var degPerSec):
+                if (dataStr[2] is 'A')
+                {
+                    MoveRateRa = degPerSec;
+                }
+                else
+                {
+                    MoveRateDec = degPerSec;
+                }
                 return true;
 
             case ":GX44#":

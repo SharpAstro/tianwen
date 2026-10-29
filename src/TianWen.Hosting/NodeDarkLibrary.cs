@@ -78,7 +78,7 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
         }
         if (jobs.TryGetRunningOn(uri, out var job))
         {
-            return ResponseEnvelope<DarkLibraryStateDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+            return ResponseEnvelope<DarkLibraryStateDto>.Fail(NodeJobs.Busy(name, job), 409);
         }
         if (!DeviceLeaseSet.TryAcquire(hub, [uri], LeaseOwner, out var acquired, out var refusal))
         {

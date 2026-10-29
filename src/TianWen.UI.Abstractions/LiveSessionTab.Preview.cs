@@ -138,17 +138,30 @@ namespace TianWen.UI.Abstractions
 
             // Mount section pinned to the bottom (Dock.Bottom), gated on enough vertical room (mirrors the
             // old "return if the mount strip would eat more than 65% of the height" guard).
-            var mountHpx = (BaseRowHeight * 4 + BasePadding) * dpiScale;
+            // Four rows of status, a gap, the tracking row, the jog's two (speed, N/S/E/W) and the Home/Park row, with the stack's
+            // 2 between each of the nine.
+            const int mountRows = 8;
+            const float mountHDesign = BaseRowHeight * mountRows + JogGap + 2f * 8 + BasePadding * 2 + 1f;
+            var mountHpx = mountHDesign * dpiScale;
             var showMount = rect.Y + rect.Height - mountHpx > rect.Y + rect.Height * 0.35f;
-            const float mountHDesign = BaseRowHeight * 4 + BasePadding * 2 + 1f;
 
             var tree = showMount
                 ? Layout.Builder.Dock(columnsRow, Layout.Builder.Bottom(BuildPreviewMountSection(state), mountHDesign))
                 : columnsRow;
 
             PushClip(rect.X, rect.Y, rect.Width, rect.Height);
-            RenderLayout(tree, rect, drawFill: DispatchOtaPanelFill);
+            var arranged = ArrangeLayout(tree, rect);
+            PaintLayout(arranged, drawFill: DispatchOtaPanelFill);
             PopClip();
+
+            foreach (var node in arranged)
+            {
+                if (node.Node.Hit is HitResult.ButtonHit { Action: TrackingMenuAction })
+                {
+                    _trackingButtonRect = new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
+                }
+            }
+            RenderTrackingMenu(new RectF32(0f, 0f, Renderer.Width, Renderer.Height), fontSize);
         }
 
         /// <summary>
@@ -456,28 +469,106 @@ namespace TianWen.UI.Abstractions
         /// prefixed by a full-width hairline divider (a keyed Fill 1px line). Docked full-width at the panel
         /// bottom by <see cref="RenderPreviewOTAPanels"/>.
         /// </summary>
+        // The Preview's held-move speed, an index into MountJog.SiderealMultiples: 1x, the handset's speed 1. Render-thread only.
+        private int _previewMoveSpeedIdx = 1;
+
+        // The space between the jog's buttons, and between the jog and the status above it.
+        private const float JogGap = 6f;
+
+        // The Tracking stepper's order, N.I.N.A.'s: Stopped, then the rates. Render-thread only, as is the rate last asked for.
+        private static readonly TrackingSpeed[] TrackingChoices = [TrackingSpeed.None, TrackingSpeed.Sidereal, TrackingSpeed.Lunar, TrackingSpeed.Solar, TrackingSpeed.King];
+        private TrackingSpeed _previewTrackingSpeed = TrackingSpeed.Sidereal;
+
+        private static string TrackingLabel(TrackingSpeed speed) => speed is TrackingSpeed.None ? "Stopped" : speed.ToString();
+
+        private const string TrackingMenuAction = "PreviewTrackingMenu";
+
+        // The Tracking choices, opened UP from the button (the mount block sits at the panel's bottom). Where the button was laid
+        // out is remembered as the panel paints, every frame, because a press handler is not handed its node's arranged rect.
+        private readonly DropdownMenuState<TrackingSpeed> _trackingMenu = new();
+        private RectF32 _trackingButtonRect;
+
+        private void OpenTrackingMenu(bool tracking)
+        {
+            if (_trackingMenu.IsOpen)
+            {
+                _trackingMenu.Close();
+                return;
+            }
+            var shown = tracking ? _previewTrackingSpeed : TrackingSpeed.None;
+            var items = ImmutableArray.CreateBuilder<DropdownItem<TrackingSpeed>>(TrackingChoices.Length);
+            foreach (var choice in TrackingChoices)
+            {
+                items.Add(new DropdownItem<TrackingSpeed>(TrackingLabel(choice), choice));
+            }
+            _trackingMenu.Open(_trackingButtonRect.X, _trackingButtonRect.Y, MathF.Max(_trackingButtonRect.Width, 120f * DpiScale),
+                items.MoveToImmutable(), item =>
+                {
+                    if (item.Value is not TrackingSpeed.None)
+                    {
+                        _previewTrackingSpeed = item.Value;
+                    }
+                    PostSignal(new SetMountTrackingSignal(item.Value));
+                });
+            _trackingMenu.HighlightIndex = Array.IndexOf(TrackingChoices, shown);
+        }
+
+        // The Tracking drop-up, painted after the panel so it lies over it; its backdrop dismisses, and Escape comes from being painted.
+        private void RenderTrackingMenu(RectF32 viewport, float fontSize)
+        {
+            if (!_trackingMenu.IsOpen)
+            {
+                return;
+            }
+            var anchor = new RectF32(_trackingMenu.AnchorX, _trackingMenu.AnchorY, _trackingMenu.AnchorWidth, 0f);
+            RenderLayout(
+                Layout.Builder.Dropdown(anchor, _trackingMenu,
+                    fontSize: fontSize,
+                    textColor: BodyText,
+                    background: GuiTheme.Palette.HeaderBg,
+                    highlight: GuiTheme.Hover(GuiTheme.Palette.HeaderBg),
+                    maxHeight: MathF.Max(fontSize, _trackingMenu.AnchorY - viewport.Y),
+                    side: Layout.DockSide.Top),
+                viewport,
+                // Device pixels, as the remembered anchor is.
+                scale: DesignScale.One);
+        }
+
         private Layout.Node BuildPreviewMountSection(LiveSessionState state)
         {
             var ms = state.MountState;
             var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
             var statusText = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
-            var pierLabel = ms.PierSide switch
-            {
-                TianWen.Lib.Devices.PointingState.Normal => "Normal",
-                TianWen.Lib.Devices.PointingState.ThroughThePole => "Through Pole",
-                _ => "?"
-            };
+            var pierLabel = ms.PierSide.PierLetter is { Length: > 0 } letter ? letter : "?";
             // An unknown pointing (no mount connected, or none read yet) says so rather than printing NaN.
             statusText += double.IsNaN(ms.HourAngle) ? $"  Pier: {pierLabel}  HA: --" : $"  Pier: {pierLabel}  HA: {ms.HourAngle:F2}h";
 
-            var content = Layout.Builder.VStack(
+            var jogLook = new MountJogControls.Look(BaseFontSize * 0.85f, BaseRowHeight, JogGap, GuiTheme.NeutralButtonBg,
+                DimText, BodyText, GuiTheme.InkOn(GuiTheme.NeutralButtonBg));
+            var content = Layout.Builder.VStack([
                     Layout.Builder.HStack(
                             Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),
                             Layout.Builder.Text(state.MountDisplayName ?? "Mount", BaseFontSize * 0.85f, HeaderText).WStar().HStar())
                         .RowH(BaseRowHeight),
                     Layout.Builder.Text(double.IsNaN(ms.RightAscension) ? "RA --" : $"RA {ms.RightAscension:F4}h", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
                     Layout.Builder.Text(double.IsNaN(ms.Declination) ? "Dec --" : $"Dec {ms.Declination:F3}\u00b0", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
-                    Layout.Builder.Text(statusText, BaseFontSize * 0.85f, ms.IsSlewing ? StatusSlewing : DimText).RowH(BaseRowHeight))
+                    Layout.Builder.Text(statusText, BaseFontSize * 0.85f, ms.IsSlewing ? StatusSlewing : DimText).RowH(BaseRowHeight),
+                    // The mount moved while a button is held, as on the planetary panel and through the same rows, set off from
+                    // the status above it.
+                    Layout.Builder.Spacer().RowH(JogGap),
+                    // Tracking, as N.I.N.A. offers it: Stopped, or a rate. Stopped is what the mount reports; the rate is the one last
+                    // asked for here, since the state poll carries no rate. A press asks the node, and the row follows the next poll.
+                    MountJogControls.DropdownRow("Track", TrackingLabel(ms.IsTracking ? _previewTrackingSpeed : TrackingSpeed.None),
+                        TrackingMenuAction, () => OpenTrackingMenu(ms.IsTracking), jogLook),
+                    .. MountJogControls.Rows(_previewMoveSpeedIdx, chosen => _previewMoveSpeedIdx = chosen,
+                        s => PostSignal(s), s => PostSignal(s), idPrefix: "Preview", jogLook),
+                    // Where the mount rests: the node refuses what this mount cannot do, in words.
+                    MountJogControls.ButtonRow("PreviewMount", jogLook,
+                        ("Home", "Home", () => PostSignal(new MountPositionSignal(MountPositionCommand.Home))),
+                        ("Park", "Park", () => PostSignal(new MountPositionSignal(MountPositionCommand.Park))),
+                        ("Unpark", "Unpark", () => PostSignal(new MountPositionSignal(MountPositionCommand.Unpark))),
+                        ("Set park", "SetPark", () => PostSignal(new MountPositionSignal(MountPositionCommand.SetPark))))])
+                .WithGap(2f)
                 .Pad(BasePadding);
 
             // Full-width hairline divider above the block (a coloured Box node, not a Fill painter).

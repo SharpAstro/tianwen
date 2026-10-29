@@ -48,7 +48,7 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         }
         if (request.OtaIndex >= 0 && request.OtaIndex < data.OTAs.Length && jobs.TryGetRunningOn(data.OTAs[request.OtaIndex].Camera, out var job))
         {
-            return ResponseEnvelope<PlanetaryStateDto>.Fail($"The camera is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(NodeJobs.Busy("The camera", job), 409);
         }
 
         // The run, and the camera it claims as it prepares, are this start's until the node owns them, and go back on every
@@ -190,7 +190,7 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         {
             if (jobs.TryGetRunningOn(device, out var job))
             {
-                return ResponseEnvelope<PlanetaryStateDto>.Fail($"The sequence needs {device.DeviceKey}: a {job.Kind} of it is running (job {job.Id})", 409);
+                return ResponseEnvelope<PlanetaryStateDto>.Fail($"The sequence needs it, but {NodeJobs.Busy(device.DeviceKey, job)}", 409);
             }
         }
         DeviceLeaseSet? claim = null;
@@ -448,7 +448,7 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         }
         if (jobs.TryGetRunningOn(mountUri, out var moving))
         {
-            return ResponseEnvelope<JobDto>.Fail($"The mount is busy: a {moving.Kind} of it is running (job {moving.Id})", 409);
+            return ResponseEnvelope<JobDto>.Fail(NodeJobs.Busy("The mount", moving), 409);
         }
         var profile = new Profile(profileId, "", data);
         var solution = new TianWen.Lib.Astrometry.WCS(found.RaJ2000, found.DecJ2000);

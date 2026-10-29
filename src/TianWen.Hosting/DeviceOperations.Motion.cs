@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Api;
@@ -22,6 +23,7 @@ internal sealed partial class DeviceOperations
     internal const string SlewJob = "slew";
     internal const string ParkJob = "park";
     internal const string UnparkJob = "unpark";
+    internal const string HomeJob = "home";
     internal const string NudgeJob = "nudge";
 
     /// <summary>How often a job asks a moving device whether it has settled.</summary>
@@ -219,9 +221,18 @@ internal sealed partial class DeviceOperations
         var minAltitude = request.MinAltitudeDegrees ?? 10;
         return Start(SlewJob, uri, name, async (step, ct) =>
         {
-            step.Report($"Slewing to {target}");
             try
             {
+                // The pole of the mount's own hemisphere has no right ascension, so a goto there landed on whatever RA the
+                // mount chose. The move that means "point at the pole" is going home, where the mount can.
+                if (mount.CanFindHome && MountGoto.IsSitesCelestialPole(dec, await mount.GetSiteLatitudeAsync(ct)))
+                {
+                    step.Report($"Going home ({target} is the pole)");
+                    await mount.FindHomeAsync(ct);
+                    return $"{name} is at home, pointing at the pole";
+                }
+
+                step.Report($"Slewing to {target}");
                 var (post, message) = await MountGoto.SlewToJ2000Async(mount, target, ra, dec, request.Index, profile, timeProvider, minAltitude, logger, ct);
                 if (post is not SlewPostCondition.Slewing)
                 {
@@ -299,6 +310,52 @@ internal sealed partial class DeviceOperations
         });
     }
 
+    /// <summary>Sends the mount to its home position (counterweight down, at the pole), as a job that ends when it reports itself there.</summary>
+    public ResponseEnvelope<JobDto> Home(string deviceUri)
+    {
+        if (!TryIdle<IMountDriver>(deviceUri, "mount", out var uri, out var mount, out var refused))
+        {
+            return refused.Value.As<JobDto>();
+        }
+        var name = NameOf(uri);
+        if (!mount.CanFindHome)
+        {
+            return ResponseEnvelope<JobDto>.Fail($"{name} cannot go home by itself");
+        }
+
+        return Start(HomeJob, uri, name, async (step, ct) =>
+        {
+            step.Report("Going home");
+            try
+            {
+                await mount.FindHomeAsync(ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                await mount.AbortSlewAsync(CancellationToken.None);
+                throw;
+            }
+            return $"{name} is at home";
+        });
+    }
+
+    /// <summary>Makes where the mount points now its park position, at once.</summary>
+    public async Task<ResponseEnvelope<string>> SetParkAsync(string deviceUri, CancellationToken cancellationToken)
+    {
+        if (!TryIdle<IMountDriver>(deviceUri, "mount", out var uri, out var mount, out var refused))
+        {
+            return refused.Value.As<string>();
+        }
+        var name = NameOf(uri);
+        if (!mount.CanSetPark)
+        {
+            return ResponseEnvelope<string>.Fail($"{name} cannot set its park position");
+        }
+
+        await mount.SetParkAsync(cancellationToken);
+        return ResponseEnvelope<string>.Ok($"{name}: park position set to where it points now");
+    }
+
     /// <summary>
     /// Nudges the mount by an angle with one guide-rate pulse (<see cref="MountNudge"/>, the one the GUI's buttons and the
     /// planetary recentre use), as a job that ends when the mount reports the pulse done (P6 part 1). A mount whose guide rate
@@ -355,8 +412,18 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<string>.Fail($"{name} cannot switch its tracking");
         }
 
+        if (request.On && request.Speed is { } speed)
+        {
+            if (!mount.TrackingSpeeds.Contains(speed))
+            {
+                return ResponseEnvelope<string>.Fail($"{name} does not track at the {speed} rate");
+            }
+            await mount.SetTrackingSpeedAsync(speed, cancellationToken);
+        }
         await mount.SetTrackingAsync(request.On, cancellationToken);
-        return ResponseEnvelope<string>.Ok($"{name}: tracking {(request.On ? "on" : "off")}");
+        return ResponseEnvelope<string>.Ok(request.On
+            ? $"{name}: tracking{(request.Speed is { } at ? $" at the {at} rate" : "")}"
+            : $"{name}: tracking stopped");
     }
 
     /// <summary>Stops the mount where it is, ending the goto or park job that drives it, if one does.</summary>

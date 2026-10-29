@@ -79,6 +79,11 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot move its {axis} axis");
         }
+        // Past the mount's top speed is the top speed (MountJog.Max asks for "as fast as it goes"); below its slowest stays a refusal.
+        if (Fastest(mount.AxisRates(axis)) is { } fastest && Math.Abs(rate) > fastest)
+        {
+            rate = Math.CopySign(fastest, rate);
+        }
         if (rate != 0 && !InRange(mount.AxisRates(axis), Math.Abs(rate)))
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} does not move its {axis} axis at {Math.Abs(rate)} degrees a second");
@@ -163,6 +168,19 @@ internal sealed partial class DeviceOperations
                 logger.LogError(ex, "Could not stop the {Axis} axis of {Mount} after a move-axis", axis, uri);
             }
         }
+    }
+
+    private static double? Fastest(IReadOnlyList<AxisRate> rates)
+    {
+        double? fastest = null;
+        foreach (var range in rates)
+        {
+            if (fastest is not { } f || range.Maximum > f)
+            {
+                fastest = range.Maximum;
+            }
+        }
+        return fastest;
     }
 
     private static bool InRange(IReadOnlyList<AxisRate> rates, double rate)

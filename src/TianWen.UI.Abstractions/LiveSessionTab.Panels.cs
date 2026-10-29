@@ -227,7 +227,7 @@ namespace TianWen.UI.Abstractions
         {
             var ms = state.MountState;
             var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
-            var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
+            var pierLabel = ms.PierSide.PierLetter;
             var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
             var statusColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
             // Unknown until the session's first poll, or with no mount connected before it (MountState.Unknown): dashes,

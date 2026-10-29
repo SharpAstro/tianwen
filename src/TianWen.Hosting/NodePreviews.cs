@@ -83,7 +83,7 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
         }
         if (jobs.TryGetRunningOn(uri, out var busy))
         {
-            return ResponseEnvelope<JobDto>.Fail($"{name} is busy: a {busy.Kind} of it is running (job {busy.Id})", 409);
+            return ResponseEnvelope<JobDto>.Fail(NodeJobs.Busy(name, busy), 409);
         }
         if (!DeviceLeaseSet.TryAcquire(hub, [uri], LeaseOwner, out var acquired, out var refusal))
         {
@@ -119,7 +119,7 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
             if (!started)
             {
                 // A job got onto the camera between the look above and this start: the lease goes back unused.
-                return ResponseEnvelope<JobDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+                return ResponseEnvelope<JobDto>.Fail(NodeJobs.Busy(name, job), 409);
             }
             claim = null;
             return ResponseEnvelope<JobDto>.Accepted(job);
@@ -214,7 +214,7 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
             }
             if (jobs.TryGetRunningOn(uri, out var busy))
             {
-                return ResponseEnvelope<JobDto>.Fail($"{NameOf(uri)} is busy: a {busy.Kind} of it is running (job {busy.Id})", 409);
+                return ResponseEnvelope<JobDto>.Fail(NodeJobs.Busy(NameOf(uri), busy), 409);
             }
         }
         if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount))
@@ -267,7 +267,7 @@ internal sealed class NodePreviews(IDeviceHub hub, NodeJobs jobs, IHostedSession
 
             if (!started)
             {
-                return ResponseEnvelope<JobDto>.Fail($"{NameOf(mountUri)} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+                return ResponseEnvelope<JobDto>.Fail(NodeJobs.Busy(NameOf(mountUri), job), 409);
             }
             claim = null;
             return ResponseEnvelope<JobDto>.Accepted(job);

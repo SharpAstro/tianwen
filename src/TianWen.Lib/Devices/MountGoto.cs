@@ -15,6 +15,16 @@ namespace TianWen.Lib.Devices;
 /// </summary>
 public static class MountGoto
 {
+    /// <summary>How close to a celestial pole a goto target counts as the pole itself, in degrees of declination.</summary>
+    public const double PoleToleranceDegrees = 0.5;
+
+    /// <summary>
+    /// Whether <paramref name="decDegrees"/> is the celestial pole of the hemisphere <paramref name="siteLatitude"/> is
+    /// in: the pole a mount's home position points at, and one with no right ascension to slew to.
+    /// </summary>
+    public static bool IsSitesCelestialPole(double decDegrees, double siteLatitude)
+        => Math.Abs(decDegrees) >= 90 - PoleToleranceDegrees && Math.Sign(decDegrees) == Math.Sign(siteLatitude);
+
     /// <summary>
     /// Slew a connected mount to a J2000 RA/Dec catalog position. The flow:
     /// <list type="number">

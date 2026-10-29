@@ -41,6 +41,25 @@ public class MeadeLX200ReplyParsingTests
         latitude.ShouldBe(expected, 1e-9);
     }
 
+    // :GD# / :Gd#: OnStep's degree mark is '*', Meade's '\xdf', and Meade marks seconds with ' (#1898).
+    [Theory]
+    [InlineData("-90*00:00", -90d)]
+    [InlineData("+45*30:15", 45.50416666666667d)]
+    [InlineData("-12*34", -12.566666666666666d)]
+    [InlineData("+45ß30'15", 45.50416666666667d)]
+    [InlineData("-90ß00:00", -90d)]
+    [InlineData("-00*30:00", -0.5d)]
+    public void AGDReplyReadsBackAsTheDeclination(string reply, double expected)
+    {
+        MeadeLX200ProtocolMountDriverBase<FakeDevice>.ParseDeclination(reply).ShouldBe(expected, 1e-9);
+    }
+
+    [Fact]
+    public void AGDReplyThatIsNotADeclinationIsNaN()
+    {
+        double.IsNaN(MeadeLX200ProtocolMountDriverBase<FakeDevice>.ParseDeclination("garbage")).ShouldBeTrue();
+    }
+
     // :GG# decimal hours, parsed the same whatever the machine's culture.
     [Theory]
     [InlineData("-05.5", -5.5d)]
