@@ -228,7 +228,7 @@ public sealed class ViewerController(
 
     // The Auto view holds the picture still (#1875) only while it has something to show for it: a run asked for, pending or just ended
     // and not yet taken in, or its master. A run cancelled or failed lets go, and the view under it (Frames or Live) plays on.
-    private bool AutoHolds => state.ShowAuto && state.IsSequence; // REVERT CHECK, not committed
+    private bool AutoHolds => state.ShowAuto && state.IsSequence && (state.AutoViewRequested || _auto.Task is not null || _auto.Layer is not null);
 
     // The Auto view holds and this capture has no Auto master yet: the raw frame at the held playhead shows, never the live
     // rolling stack or an older view as if it were this run's result (#1875).
