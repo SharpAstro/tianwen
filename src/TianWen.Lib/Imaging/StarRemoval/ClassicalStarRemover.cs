@@ -52,6 +52,22 @@ public static class ClassicalStarRemover
         return !(cx >= 0 && cx < width && cy >= 0 && cy < height) || !float.IsFinite(rms[cy * width + cx]);
     }
 
+    // Whether an unsaturated fit's amplitude in any channel is not a number or above OvershootMargin times that channel's brightest
+    // covered sample. Each channel against its own ceiling, with no sky taken off: a luminance sky taken off a colour channel's
+    // ceiling left a channel whose brightest sample sat under the other channels' sky a threshold of 0, and refused nearly every star
+    // of a field with unequal channel skies (#1873's review: 286 of 297 NoFit). The margin dwarfs any sky against a divergence of 1e12.
+    internal static bool AmplitudeOvershoots(ReadOnlySpan<double> amplitudes, ReadOnlySpan<float> fullScale)
+    {
+        for (var c = 0; c < amplitudes.Length; c++)
+        {
+            if (!double.IsFinite(amplitudes[c]) || amplitudes[c] > OvershootMargin * fullScale[c])
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private const int MaxFitRadius = 96;
     private const int TileSize = 2 * MaxSubtractRadius;
     private const int RefinementPasses = 2;
@@ -894,12 +910,13 @@ public static class ClassicalStarRemover
                         : 0.0;
                 }
             }
-            // A diverged fit is refused before it is subtracted (#1867): an unsaturated star cannot peak above the brightest
-            // covered sample less its own sky, so an amplitude past that (or not a number) is a fit that ran away (one at 1e12
-            // on a frame's edge once dominated the injector's pool, and subtracting it would have written a huge hole into the
-            // plate). It is left as NoFit, which no reader takes for a star, and so is an unsaturated fit whose centre has no local
-            // sigma (outside the frame, where nothing in the catalogue would mark the row). A saturated fit centred off canvas
-            // stays subtracted: that is a star the frame's edge cut (see OffCanvas).
+            // A diverged fit is refused before it is subtracted (#1867): an unsaturated star cannot peak far above its channel's
+            // brightest covered sample, so an amplitude past OvershootMargin times that (or not a number) is a fit that ran away
+            // (one at 1e12 on a frame's edge once dominated the injector's pool, and subtracting it would have written a huge
+            // hole into the plate). It is left as NoFit, which no reader takes for a star. So is an unsaturated fit centred outside
+            // the frame (no local sigma, and nothing in the catalogue would mark the row); no real star's centre gets there, since
+            // the covered sky starts inside the frame, so that half is a guard for a fit that ran away, pinned on its own rule
+            // (CentreHasNoLocalSigma). A saturated fit centred off canvas stays subtracted: that is a star the frame's edge cut.
             if (!fit.Saturated && (Overshoots(fit) || HasNoLocalSigma(fit)))
             {
                 fit.Outcome = StarFitOutcome.NoFit;
@@ -912,18 +929,7 @@ public static class ClassicalStarRemover
 
         private bool HasNoLocalSigma(Fit fit) => CentreHasNoLocalSigma(fit.X, fit.Y, _width, _height, _rms);
 
-        // An amplitude in any channel well above the channel's brightest covered sample less the fit's sky, or not a number.
-        private bool Overshoots(Fit fit)
-        {
-            for (var c = 0; c < _channels; c++)
-            {
-                if (!double.IsFinite(fit.ChannelAmplitudes[c]) || fit.ChannelAmplitudes[c] > OvershootMargin * Math.Max(0.0, _fullScale[c] - (double.IsFinite(fit.Sky) ? fit.Sky : 0.0)))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
+        private bool Overshoots(Fit fit) => AmplitudeOvershoots(fit.ChannelAmplitudes, _fullScale);
 
         // A core fainter than its own wings predict is saturated, hard or soft: the wings alone (below half the peak)
         // fitted at the field's PSF, their predicted peak against the observed one. The flat-top test needs five pixels

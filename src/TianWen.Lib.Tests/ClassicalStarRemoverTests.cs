@@ -35,7 +35,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
     // smooth glow is not.
-    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null)
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
@@ -59,7 +59,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                         ? 4 * Sigma * Math.Sin(2 * Math.PI * x / 40.0) * Math.Sin(2 * Math.PI * y / 40.0)
                             * Math.Exp(-((x - 750.0) * (x - 750.0) + (y - 700.0) * (y - 700.0)) / (2 * 100.0 * 100.0))
                         : 0.0;
-                    truth[c][y * Size + x] = (float)(Sky + nebula + gradient + knotValue + ripple + Sigma * cNoise[y * Size + x]);
+                    truth[c][y * Size + x] = (float)((skies?[c] ?? Sky) + nebula + gradient + knotValue + ripple + Sigma * cNoise[y * Size + x]);
                 }
             }
         }
@@ -365,7 +365,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     }
 
     // #1867: the field's star beside the absent ring (4 px inside it) is the edge fit. Whatever it came to, no catalogue row is an
-    // unsaturated Subtracted Moffat whose centre is off covered sky (no local sigma) or whose amplitude is past the clip less its sky.
+    // unsaturated Subtracted Moffat whose centre is outside the frame (no local sigma) or whose amplitude is past the margin.
     [Fact(Timeout = 300_000)]
     public async Task ADivergedEdgeFitIsNeverAnUnsaturatedSubtractedMoffat()
     {
@@ -434,10 +434,32 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         ClassicalStarRemover.CentreHasNoLocalSigma(50.0, 50.0, width, height, rms).ShouldBeTrue();
     }
 
-    // #1867 review: the margin is the code's own (4x the covered ceiling less the sky, not the Done-when's 1x); the injector test pins
-    // the rows just under and just over it, and this pins the number the two share.
-    [Fact]
-    public void TheOvershootMarginIsFourTimesTheCeiling() => ClassicalStarRemover.OvershootMargin.ShouldBe(4.0);
+    // #1867 review: the plate builder's margin, applied as the builder applies it: each channel against OvershootMargin (4) times its
+    // own brightest covered sample, a row just under admitted and one just over refused, in any channel, and a non-number refused.
+    [Theory]
+    [InlineData(3.59, 0.2, false)]   // just under 4 x 0.9 in red
+    [InlineData(3.61, 0.2, true)]    // just over in red
+    [InlineData(0.5, 2.01, true)]    // just over 4 x 0.5 in green, the dimmer channel
+    [InlineData(0.5, 1.99, false)]   // just under in green
+    [InlineData(double.NaN, 0.2, true)]
+    public void TheOvershootMarginRefusesJustOverItAndAdmitsJustUnderItPerChannel(double red, double green, bool refused)
+        => ClassicalStarRemover.AmplitudeOvershoots([red, green], [0.9f, 0.5f]).ShouldBe(refused);
+
+    // #1873 review: a colour field whose channel skies differ (one channel's brightest sample under another's sky) must still have its
+    // stars subtracted. Compared against the luminance sky, the guard left that channel a threshold of 0 and refused nearly every star.
+    [Fact(Timeout = 300_000)]
+    public async Task AColourFieldWithUnequalChannelSkiesStillHasItsStarsSubtracted()
+    {
+        var field = MakeField(3, skies: [0.20, 0.08, 0.01]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var unsaturated = plate.Stars.Where(static s => !s.Saturated && s.Outcome is StarFitOutcome.Subtracted or StarFitOutcome.NoFit).ToArray();
+        var refused = unsaturated.Count(static s => s.Outcome == StarFitOutcome.NoFit);
+        output.WriteLine($"unequal skies: {unsaturated.Length - refused} subtracted, {refused} NoFit");
+
+        unsaturated.Length.ShouldBeGreaterThan(200);
+        refused.ShouldBeLessThan(unsaturated.Length / 20, "an unequal channel sky is not a diverged fit");
+    }
 
     // #1867: an UNSATURATED star whose centre is past the covered sky, its true peak (5.0) far above the clip but only a faint
     // wing (under the clip) seen. Whatever a fit makes of it, it is never an unsaturated Subtracted row over the ceiling.

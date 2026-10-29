@@ -182,7 +182,7 @@ public sealed class InjectionPopulation
         => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && s.ChannelAmplitudes.Length == channels
             && s.ChannelAmplitudes.All(float.IsFinite);
 
-    // A diverged fit (#1867): a NaN LocalSigma means its centre was off covered sky, and an unsaturated star cannot peak above
+    // A diverged fit (#1867): a NaN LocalSigma means its centre was outside the frame (a star on the absent ring keeps its sigma), and an unsaturated star cannot peak above
     // the frame's clip, so an amplitude in any channel above the clip less the star's own sky is a fit that ran away (one such
     // edge fit, at 1e12, once dominated the pool's draws). The clip is the master's unit-scale divisor, the full scale the
     // exporter divides every amplitude by (so it is 1 once scaled): the channels share it, as the master's unit range does,
