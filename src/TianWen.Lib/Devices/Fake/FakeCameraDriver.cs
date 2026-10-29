@@ -104,6 +104,19 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     private double _setpointTemperature = 20.0;
     private bool _coolerOn;
     private double _coolerPower;
+    private bool _hasHeatsink = true;
+    private double _ccdCeiling = double.PositiveInfinity;
+
+    /// <summary>
+    /// Test seam: the camera reports NO heat sink (as QHY and ZWO do) and the room is <paramref name="ambientC"/>;
+    /// with <paramref name="sensorCannotPassAmbient"/> the sensor never reads above it, as a real cooler cannot warm one past ambient.
+    /// </summary>
+    internal void MakeHeatsinkless(double ambientC, bool sensorCannotPassAmbient)
+    {
+        _hasHeatsink = false;
+        _heatsinkTemperature = ambientC;
+        _ccdCeiling = sensorCannotPassAmbient ? ambientC : double.PositiveInfinity;
+    }
 
     public bool CanGetCoolerPower { get; } = true;
 
@@ -815,6 +828,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 _ccdTemperature = _setpointTemperature;
             }
 
+            _ccdTemperature = Math.Min(_ccdTemperature, _ccdCeiling);
+
             // Cooler power proportional to temperature difference from heatsink
             _coolerPower = Math.Clamp((_heatsinkTemperature - _ccdTemperature) / 40.0 * 100.0, 0, 100);
         }
@@ -823,7 +838,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     }
 
     public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(_heatsinkTemperature);
+        => ValueTask.FromResult(_hasHeatsink ? _heatsinkTemperature : double.NaN);
 
     public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_coolerPower);

@@ -39,6 +39,14 @@ becomes the only warm-up, with the hub's lease check (a held camera is refused u
 warming the camera it holds does), its cooler-off at the end, and the cooler intent recorded as Warm then Off.
 Issue: #1840.
 
+**Shipped, the ramp side (#1840).** `CameraCoolingRamp` now does the whole warm-up any host needs. An ambient target with no
+usable heat sink resolves to `CameraReading.WarmUpTargetC(NaN)`, the +25 C fallback, in `ICameraDriver.CoolToSetpointAsync`
+(it was NaN, which made the camera "not coolable", so a session never warmed a heatsinkless camera at all). A warm-up ends
+once the cooler is no longer holding the sensor down: power at or below `CameraCoolingRamp.WarmUpPowerThreshold` (1 %) for
+the ramp's consecutive-step count, whatever the sensor reads, so the QHY294PROC case of 2026-10-26 (15 minutes stepping at 0 %
+toward an unreachable +25 C) costs a few steps, not the safety cap. `Session.CoolCamerasToAmbientAsync` passes that constant.
+Pinned by `CameraCoolingRampTests`. The hub's side (lease check, cooler-off, intent) is still open.
+
 ## The profile's settings everywhere
 
 The node's cool job, the crash journal's recovery and the dark run ramp with the declared default settings, never the ones
