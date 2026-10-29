@@ -360,7 +360,7 @@ jobs:
         dotnet-version: 10.0.x
         # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
-      run: dotnet restore -p:Configuration=$BUILD_CONF
+      run: dotnet restore -p:Configuration=${{ matrix.config }}
       working-directory: src
     - name: Build
       id: build
