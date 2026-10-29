@@ -136,8 +136,10 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
 
     /// <summary>
     /// How long the host may take to stop: a session's Finalise warm-up (cannot be cut short) and then the hub's own
-    /// cameras, one after the other under one token. A warm-up of 30 C at the 2 C/min default plans 15 minutes and is
-    /// capped at twice that, so two capped ramps are an hour (#1839).
+    /// cameras, one after the other under one token. It is sized for the 2 C/min default (#1839): a warm-up of 30 C plans 15
+    /// minutes, and one whose cooler does not follow is let go at about twice that, leaving room for the hub's. A slower
+    /// configured rate is not covered: a session's Finalise warm-up at the GUI's 0.5 C/min floor plans 60 minutes by itself, so
+    /// a host stop can still cut it off.
     /// </summary>
     internal static readonly TimeSpan ShutdownBudget = TimeSpan.FromMinutes(60);
 

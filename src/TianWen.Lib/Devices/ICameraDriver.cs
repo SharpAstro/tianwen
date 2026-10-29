@@ -562,7 +562,11 @@ public interface ICameraDriver : IDeviceDriver
     /// <summary>
     /// The finest setpoint this camera takes, degrees C: 0 for a continuous one (ASCOM, Alpaca, the fake), 1 for a camera
     /// whose SDK takes whole degrees (every <c>DALCameraDriver</c>), which a fractional setpoint would be truncated for.
-    /// The cooling ramp holds such a camera to its rate ceiling by timing whole-degree steps, never by a fractional setpoint.
+    /// The cooling ramp holds such a camera to its rate ceiling by timing whole-degree steps, never by a fractional setpoint,
+    /// and less tightly than a continuous one: its next setpoint is rounded from the sensor's reading, so a sensor half a degree
+    /// behind is given one up to 1.5 C past it for a setpoint's hold (up to 3 C/min over that hold at the 2 C/min default).
+    /// ASCOM and Alpaca answer 0 unchecked: one over a whole-degree SDK that truncates would stall at 0 C as the DAL did, and
+    /// nothing here detects it (#1921).
     /// </summary>
     double SetpointResolutionC => 0d;
 

@@ -22,7 +22,8 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
 {
     private static readonly Uri CameraUri = new("Camera://FakeDevice/cam1");
 
-    private static ITimeProvider RecordingClock(List<TimeSpan> sleeps)
+    /// <summary>A clock whose every sleep returns at once and is recorded in <paramref name="sleeps"/>: what a ramp waited is their sum.</summary>
+    internal static ITimeProvider RecordingClock(List<TimeSpan> sleeps)
     {
         var clock = Substitute.For<ITimeProvider>();
         clock.SleepAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
@@ -75,7 +76,7 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
         await hub.WarmAndCoolerOffAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), ct);
 
         // At the default 2 C/min a step is half a degree: the walk is about 56 steps; the cap is twice the planned 60 steps
-        // (120 sleeps). Ending on power adds a few.
+        // plus the four confirming ones (124 sleeps). Ending on power adds a few.
         sleeps.Count.ShouldBeGreaterThan(40, "the ramp walked the sensor up");
         sleeps.Count.ShouldBeLessThanOrEqualTo(56 + 5 + 1,"the walk, a few steps at no power and the settle, not the 2x safety cap");
         (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();

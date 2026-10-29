@@ -220,7 +220,7 @@ public static class HostedSessionServiceCollectionExtensions
     /// for falling behind, or for a send that timed out), or the host starts stopping.
     /// </summary>
     /// <remarks>
-    /// The host waits for its open requests before it stops, for up to its whole shutdown budget (30 minutes on a node),
+    /// The host waits for its open requests before it stops, for up to its whole shutdown budget (an hour on a node, <c>HostedSession.ShutdownBudget</c>),
     /// and the run's <c>Finalise</c> and the cameras' warm-up share that budget. So a socket that ended only with its client
     /// held every stop with a client attached for all of it (#985). Stopping aborts the socket instead, as the node dying
     /// would: the client reconnects with its usual backoff, and finds the node gone or back.

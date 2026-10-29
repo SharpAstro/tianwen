@@ -217,7 +217,7 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
     [Fact(Timeout = 60_000)]
     public async Task AnAttachedClientNeverHoldsTheHostFromStopping()
     {
-        // The host waits for its open requests for as long as its shutdown budget allows, 30 minutes on a node, and the run's
+        // The host waits for its open requests for as long as its shutdown budget allows, an hour on a node, and the run's
         // Finalise and the cameras' warm-up share that budget (#985): an event socket that ended only with its client held
         // every stop with a client attached for all of it.
         var ct = TestContext.Current.CancellationToken;

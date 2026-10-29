@@ -1,8 +1,14 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using Xunit;
 
 namespace TianWen.Lib.Tests.Functional;
@@ -204,5 +210,192 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         given.ShouldAllBe(g => g.SetpointC == Math.Round(g.SetpointC));
         given.ShouldAllBe(g => Math.Abs(g.SensorC - g.SetpointC) <= 1.5 + Epsilon);
         given.Count.ShouldBeLessThanOrEqualTo((int)Math.Ceiling(took.TotalMinutes * rate) + 1, "a setpoint is held for 1 / rate minutes");
+    }
+
+    public static TheoryData<int, double, bool, SetupointDirection> HealthyRamps()
+    {
+        var data = new TheoryData<int, double, bool, SetupointDirection>();
+        foreach (var direction in (SetupointDirection[])[SetupointDirection.Down, SetupointDirection.Up])
+        {
+            foreach (var wholeDegree in (bool[])[false, true])
+            {
+                foreach (var rate in (double[])[0.5, 2, 10])
+                {
+                    foreach (var drop in (int[])[0, 1, 2, 3, 5])
+                    {
+                        data.Add(drop, rate, wholeDegree, direction);
+                    }
+                }
+            }
+        }
+        return data;
+    }
+
+    /// <summary>
+    /// #1839: a ramp at its target still takes three counting steps and the one that ends it, a setpoint's hold apart on a
+    /// whole-degree camera, so a cap sized from the drop alone cut a small healthy ramp short and logged it as a stuck cooler.
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [MemberData(nameof(HealthyRamps))]
+    public async Task ARampWhoseSensorFollowsEndsOnItsOwnNeverOnTheCap(int drop, double rate, bool wholeDegree, SetupointDirection direction)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await ConnectedCameraAsync(ct);
+        if (wholeDegree)
+        {
+            camera.MakeWholeDegreeSetpoint();
+        }
+        var from = StartOf(direction);
+        await SettleAtAsync(camera, from, ct);
+        var to = direction is SetupointDirection.Down ? from - drop : from + drop;
+        var sleeps = new List<TimeSpan>();
+        var logger = new WarningLogger(FakeExternal.CreateLogger(output));
+
+        var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate,
+            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+
+        var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
+        output.WriteLine($"{from} -> {to} at {rate} C/min, whole degrees {wholeDegree}: {sleeps.Count} steps, {took.TotalSeconds:F0} s");
+        reached.ShouldBeTrue();
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(to, 0.5);
+        logger.Warnings.ShouldNotContain(w => w.Contains("safety cap"), "a ramp whose sensor follows its setpoint ends on its own exit");
+    }
+
+    [Theory(Timeout = 60_000)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ACoolerThatNeverFollowsStillEndsOnTheCap(bool wholeDegree)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await ConnectedCameraAsync(ct);
+        if (wholeDegree)
+        {
+            camera.MakeWholeDegreeSetpoint();
+        }
+        await SettleAtAsync(camera, 10, ct);
+        camera.MakeCoolerLag(0);
+        var sleeps = new List<TimeSpan>();
+        var logger = new WarningLogger(FakeExternal.CreateLogger(output));
+
+        var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(5, SetpointTempKind.Normal), 2.0,
+            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+
+        var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
+        output.WriteLine($"A cooler that never moves was let go after {took.TotalMinutes:F2} min");
+        reached.ShouldBeFalse();
+        logger.Warnings.ShouldContain(w => w.Contains("safety cap"));
+        took.ShouldBeGreaterThanOrEqualTo(CameraCoolingRamp.MinimumSafetyCap - OneStep, "a slow cooler is given a few minutes");
+        took.ShouldBeLessThan(TimeSpan.FromMinutes(30), "and is still let go");
+    }
+
+    /// <summary>
+    /// #1839: a start that cannot be read used to plan a degree, so a whole cool-down was let go after a minute and the
+    /// session went on to image warm.
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnUnreadableStartPlansTheLongDropNotADegree(bool throws)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await ConnectedCameraAsync(ct);
+        await SettleAtAsync(camera, 20, ct);
+        camera.MakeNextTemperatureReadsUnreadable(1, throws);
+        const double rate = 2.0;
+        var sleeps = new List<TimeSpan>();
+        var logger = new WarningLogger(FakeExternal.CreateLogger(output));
+
+        var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(-5, SetpointTempKind.Normal), rate,
+            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+
+        var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
+        output.WriteLine($"25 C drop with an unreadable start took {took.TotalMinutes:F2} min");
+        reached.ShouldBeTrue();
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(-5, 0.5);
+        logger.Warnings.ShouldNotContain(w => w.Contains("safety cap"));
+        took.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMinutes(25 / rate) - OneStep);
+    }
+
+    /// <summary>#1839: a rate that is not finite, or not above zero, is the direction's default, checked once in the ramp for every caller.</summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(double.NaN, SetupointDirection.Down)]
+    [InlineData(double.PositiveInfinity, SetupointDirection.Down)]
+    [InlineData(double.NegativeInfinity, SetupointDirection.Down)]
+    [InlineData(0d, SetupointDirection.Down)]
+    [InlineData(-1d, SetupointDirection.Down)]
+    [InlineData(double.NaN, SetupointDirection.Up)]
+    [InlineData(double.PositiveInfinity, SetupointDirection.Up)]
+    [InlineData(double.NegativeInfinity, SetupointDirection.Up)]
+    [InlineData(0d, SetupointDirection.Up)]
+    [InlineData(-1d, SetupointDirection.Up)]
+    public async Task ARateThatIsNotARateRampsAtTheDefault(double rate, SetupointDirection direction)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await ConnectedCameraAsync(ct);
+        var from = StartOf(direction);
+        await SettleAtAsync(camera, from, ct);
+        const int drop = 5;
+        var to = direction is SetupointDirection.Down ? from - drop : from + drop;
+        var givenBefore = camera.SetpointsGiven.Count;
+        var sleeps = new List<TimeSpan>();
+        var logger = new WarningLogger(FakeExternal.CreateLogger(output));
+
+        var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate,
+            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+
+        var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
+        var defaultRate = CameraCoolingRamp.DefaultMaxRateOf(direction);
+        output.WriteLine($"{rate} C/min {direction}: {drop} C took {took.TotalSeconds:F0} s");
+        reached.ShouldBeTrue();
+        logger.Warnings.ShouldContain(w => w.Contains("not a rate"));
+        var given = camera.SetpointsGiven.Skip(givenBefore).ToList();
+        given.ShouldNotBeEmpty();
+        given.ShouldAllBe(g => double.IsFinite(g.SetpointC), "a NaN rate never becomes a NaN setpoint");
+        given.ShouldAllBe(g => Math.Abs(g.SensorC - g.SetpointC) <= defaultRate * OneStep.TotalMinutes + Epsilon);
+        took.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMinutes(drop / defaultRate) - OneStep);
+        took.ShouldBeLessThanOrEqualTo(TimeSpan.FromMinutes(drop / defaultRate) + 4 * OneStep);
+    }
+
+    /// <summary>Cooling starts above, and warming below, the fake's 20 C heat sink, so the cooler is working throughout.</summary>
+    private static int StartOf(SetupointDirection direction) => direction is SetupointDirection.Down ? 10 : -10;
+
+    private static double ThresholdOf(SetupointDirection direction)
+        => direction is SetupointDirection.Down ? CameraCoolingRamp.CoolDownPowerThreshold : CameraCoolingRamp.WarmUpPowerThreshold;
+
+    private async Task<FakeCameraDriver> ConnectedCameraAsync(CancellationToken cancellationToken)
+    {
+        var hub = new FakeExternal(output).BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        return (FakeCameraDriver)await hub.ConnectAsync(new FakeDevice(DeviceType.Camera, 1), cancellationToken);
+    }
+
+    /// <summary>Takes the sensor to <paramref name="tempC"/> with the cooler on: the fake follows its setpoint a degree a read.</summary>
+    private static async Task SettleAtAsync(FakeCameraDriver camera, int tempC, CancellationToken cancellationToken)
+    {
+        await camera.SetCoolerOnAsync(true, cancellationToken);
+        await camera.SetSetCCDTemperatureAsync(tempC, cancellationToken);
+        for (var read = 0; read < 100 && Math.Abs(await camera.GetCCDTemperatureAsync(cancellationToken) - tempC) > Epsilon; read++)
+        {
+        }
+    }
+
+    /// <summary>Writes to the test's output and keeps every warning, so a test can tell which exit a ramp took.</summary>
+    private sealed class WarningLogger(ILogger inner) : ILogger
+    {
+        private readonly ConcurrentQueue<string> _warnings = new();
+
+        public IReadOnlyCollection<string> Warnings => _warnings;
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => inner.BeginScope(state);
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning)
+            {
+                _warnings.Enqueue(formatter(state, exception));
+            }
+            inner.Log(logLevel, eventId, state, exception, formatter);
+        }
     }
 }
