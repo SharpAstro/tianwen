@@ -44,6 +44,16 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     public event EventHandler<JobDto>? Changed;
 
     /// <summary>
+    /// A refusal because <paramref name="job"/> holds the device, in words, ONE wording for every route: what the job is
+    /// doing now ("On-Step is still slewing to Venus"), or its kind when it has said nothing yet. Never the job's id,
+    /// which tells nobody anything; a client that needs it has the job.
+    /// </summary>
+    public static string Busy(string deviceName, JobDto job)
+        => job.Step is { Length: > 0 } step
+            ? $"{deviceName} is still {char.ToLowerInvariant(step[0])}{step[1..]}"
+            : $"{deviceName} is busy with a {job.Kind}";
+
+    /// <summary>
     /// Starts a job of <paramref name="kind"/>, or answers the one of that kind already running.
     /// </summary>
     /// <param name="work">The job's body. It reports steps through the <see cref="JobStep"/> it is given and

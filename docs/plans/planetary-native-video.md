@@ -45,7 +45,7 @@ Both native drivers mirror its shape exactly:
 
 **Tracked by #813.** ZWO streams through the one `DALCameraDriver` loop ("feat(devices): a DAL camera streams native
 video (#813)"), and so does ToupTek, which joined the DAL after this was written, since ToupTek.SDK 1.2 (#1596). QHY, and
-Player One, which also joined since, do not yet, and until each does it is single-frame. Four plans wait on it: live capture on real hardware, [video-guiding.md](video-guiding.md)
+Player One, which also joined since, do not yet, and until each does it is single-frame. Four plans wait on it: live capture on real hardware, [guiding-improvements.md](guiding-improvements.md)
 (step 0), [camera-collimation.md](camera-collimation.md) (C3), and the video autofocus in
 [focus-tolerance.md](focus-tolerance.md) (F6).
 

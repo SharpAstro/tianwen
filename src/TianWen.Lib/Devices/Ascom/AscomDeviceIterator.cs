@@ -100,6 +100,13 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
                 using var progIdKey = driversKey.OpenSubKey(progId, false);
                 var displayName = progIdKey?.GetValue(null) as string ?? progId;
 
+                if (Platform5Simulators.Contains(progId))
+                {
+                    logger.LogDebug("Skipping ASCOM {Type} {ProgId} ({DisplayName}): a Platform 5 simulator, superseded by ASCOM.Simulator.*",
+                        deviceType, progId, displayName);
+                    continue;
+                }
+
                 if (!IsComServerRegistered(progId, out var reason))
                 {
                     logger.LogDebug("Skipping stale ASCOM {Type} registration {ProgId} ({DisplayName}): {Reason}",
@@ -113,6 +120,16 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
 
         return devices;
     }
+
+    /// <summary>
+    /// The ASCOM Platform 5 simulators, each listed as plain "Simulator" beside its current <c>ASCOM.Simulator.*</c>
+    /// replacement, which the Platform still registers. They speak the first interfaces: <c>FocusSim.Focuser</c> has no
+    /// <c>Connected</c>, only IFocuserV1's <c>Link</c>, and its connect failed with DISP_E_UNKNOWNNAME. Not offered at all,
+    /// rather than half supported.
+    /// </summary>
+    internal static readonly System.Collections.Frozen.FrozenSet<string> Platform5Simulators = System.Collections.Frozen.FrozenSet.ToFrozenSet(
+        ["CCDSimulator.Camera", "DomeSim.Dome", "FilterWheelSim.FilterWheel", "FocusSim.Focuser", "SwitchSim.Switch", "ScopeSim.Telescope"],
+        StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Verifies the ProgID resolves to a CLSID, that the CLSID has an

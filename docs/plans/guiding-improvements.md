@@ -1,4 +1,18 @@
-# Video (MetaGuide-style) Guiding
+# Guiding Improvements
+
+The built-in guider and its panel, milestone `guiding-improvements`. Two parts: the guide panel while NOT guiding
+([Guide panel preview](#guide-panel-preview), #1915), and video (MetaGuide-style) guiding, the rest of this document
+(#362). Renamed from `video-guiding.md` on 2026-10-29, when the panel work joined it.
+
+## Guide panel preview
+
+**Status: NOT STARTED.** Tracked by #1915. The guide panel shows nothing of the guide camera until guiding runs, while
+PHD2 does most of its setup without guiding: loop the guide camera, pick a star, read its HFD / SNR / profile, calibrate
+on demand, take the guide camera's darks, and start guiding from the loop with the star kept. The profile's guide focuser
+gets the live Preview's own focuser controls, reused, so the guide camera is focused against that star readout. Through
+the node, as the main cameras' live view is, so a remote client sees it too.
+
+## Video (MetaGuide-style) guiding
 
 **Status: NOT STARTED; revised 2026-09-25.** Tracked by #362. The revision did three things:
 - It corrected the capture premise: no native camera streams in TianWen today (see "What already exists").

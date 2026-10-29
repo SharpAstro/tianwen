@@ -707,6 +707,24 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/move-axis", new MoveAxisRequestDto { DeviceUri = deviceUri.ToString(), Axis = axis, Rate = rate },
                 HostingJsonContext.Default.MoveAxisRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>POST /devices/mount/tracking</c> -- switches the mount's tracking on, at <paramref name="speed"/> when given, or
+        /// off, at once.
+        /// </summary>
+        public Task<NodeResult<string>> SetMountTrackingAsync(Uri deviceUri, bool on, TrackingSpeed? speed, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/tracking", new MountTrackingRequestDto { DeviceUri = deviceUri.ToString(), On = on, Speed = speed },
+                HostingJsonContext.Default.MountTrackingRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/mount/home</c> -- sends the mount home, as a job that ends when it reports itself there.</summary>
+        public Task<NodeResult<JobDto>> HomeMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/home", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /devices/mount/set-park</c> -- makes where the mount points now its park position, at once.</summary>
+        public Task<NodeResult<string>> SetMountParkAsync(Uri deviceUri, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/set-park", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
+                HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
+
         /// <summary><c>POST /devices/mount/stop</c> -- stops the mount where it is, ending the goto or park job that drives it, if one does.</summary>
         public Task<NodeResult<string>> StopMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/stop", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },

@@ -103,6 +103,12 @@ internal static class DeviceEndpoints
         group.MapPost("/devices/mount/unpark", (DeviceRequestDto request, DeviceOperations devices) =>
             EnvelopeResults.Json(devices.Unpark(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
 
+        group.MapPost("/devices/mount/home", (DeviceRequestDto request, DeviceOperations devices) =>
+            EnvelopeResults.Json(devices.Home(request.DeviceUri), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        group.MapPost("/devices/mount/set-park", async (DeviceRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.SetParkAsync(request.DeviceUri, ct), HostingJsonContext.Default.ResponseEnvelopeString));
+
         group.MapPost("/devices/mount/tracking", async (MountTrackingRequestDto request, DeviceOperations devices, CancellationToken ct) =>
             EnvelopeResults.Json(await devices.SetTrackingAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeString));
 

@@ -75,6 +75,11 @@ internal sealed class SerialProbeService : ISerialProbeService
     // Ports whose I/O ignored its budget this pass: every later pass skips them (each would only hang again).
     private readonly ConcurrentDictionary<string, byte> _unresponsivePorts = new(StringComparer.OrdinalIgnoreCase);
 
+    // Ports whose far end sent anything during this discovery, on any handle (ISerialConnection.HasAnswered). Such a
+    // port is a device, so an I/O it then fails to complete makes it busy for this pass, never unresponsive.
+    private readonly ConcurrentDictionary<string, byte> _answeredPorts = new(StringComparer.OrdinalIgnoreCase);
+
+
     public SerialProbeService(
         ITimeProvider timeProvider,
         IExternal external,
@@ -98,8 +103,22 @@ internal sealed class SerialProbeService : ISerialProbeService
 
     public async ValueTask ProbeAllAsync(CancellationToken cancellationToken)
     {
-        _results.Clear();
+        // Only what is not connected is found afresh. A connected driver's port is never probed (the enumeration leaves it
+        // out), so clearing its match dropped a connected mount from the device list on every Discover.
+        foreach (var (probeName, matches) in _results)
+        {
+            var kept = matches.RemoveAll(m => !_external.IsSerialPortInUse(m.Port));
+            if (kept.IsEmpty)
+            {
+                _results.TryRemove(probeName, out _);
+            }
+            else
+            {
+                _results[probeName] = kept;
+            }
+        }
         _unresponsivePorts.Clear();
+        _answeredPorts.Clear();
 
         if (_probes.Length == 0)
         {
@@ -234,6 +253,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         var candidates = pinned.Where(p => enumeratedSet.Contains(p.Port)).ToArray();
         if (candidates.Length == 0) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+
         // Written concurrently by the per-port onMatch callbacks, read once after the pass has finished.
         var verified = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
         var parallelism = Math.Min(MaxPortParallelism, candidates.Length);
@@ -271,6 +291,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                     entry.Port,
                     probesToRun: matchingProbes,
                     ct,
+
                     isolatePerProbe: Array.Exists(matchingProbes, static p => p.AssertControlLines),
                     onMatch: match =>
                     {
@@ -330,17 +351,43 @@ internal sealed class SerialProbeService : ISerialProbeService
         foreach (var baudGroup in baudGroups)
         {
             if (cancellationToken.IsCancellationRequested) return;
-            if (!await ProbeBaudGroupAsync(port, baudGroup, onMatch, budgetMultiplier, isolatePerProbe, cancellationToken))
+            switch (await ProbeBaudGroupAsync(port, baudGroup, onMatch, budgetMultiplier, isolatePerProbe, cancellationToken))
             {
-                _unresponsivePorts.TryAdd(port, 0);
-                _logger.LogWarning("{Port}: I/O ignored its budget; skipping its remaining probes and every later pass (a virtual port with nobody on the far end never completes).", port);
-                return;
+                case ProbeOutcome.Abandoned:
+                    _unresponsivePorts.TryAdd(port, 0);
+                    _logger.LogWarning("{Port}: I/O ignored its budget; skipping its remaining probes and every later pass (a virtual port with nobody on the far end never completes).", port);
+                    return;
+
+                case ProbeOutcome.Busy:
+                    // The handle holds an I/O the driver never completed, so nothing more goes over it this pass, but
+                    // the port answered earlier and stays in the next pass, which reopens it at a longer budget.
+                    _logger.LogWarning("{Port}: answered earlier, then did not complete an I/O; treating it as a busy device, not a dead port: it stays in every later pass.", port);
+                    return;
+
+                case ProbeOutcome.Matched:
+                    // Nothing more is sent to a port once its device is known: another family's handshake (a Skywatcher
+                    // ":e1\r", a QFOC JSON line, bytes at a foreign baud) is left in an LX200 controller's command buffer,
+                    // which then swallows the next real command. OnStep did, and a connect right after discovery hung (#1898).
+                    _logger.LogInformation("{Port}: matched, skipping its remaining probes.", port);
+                    return;
             }
         }
     }
 
-    /// <returns><see langword="false"/> when the port's I/O ignored a budget and the port must be given up.</returns>
-    private async ValueTask<bool> ProbeBaudGroupAsync(
+    private enum ProbeOutcome { NoMatch, Matched, Abandoned, Busy }
+
+    /// <summary>
+    /// What an I/O the driver never completed means: a port that never answered does not complete I/O at all (the
+    /// Bluetooth listener port), one that answered is a device that was busy. OnStep 4.24 stalled a write for over two
+    /// seconds right after answering <c>:GVN#</c>, and was written off for the whole discovery.
+    /// </summary>
+    private ProbeOutcome GivenUp(string port, ISerialConnection conn)
+        => conn.HasAnswered || _answeredPorts.ContainsKey(port) ? ProbeOutcome.Busy : ProbeOutcome.Abandoned;
+
+    /// <returns><see cref="ProbeOutcome.Abandoned"/> when the port's I/O ignored a budget and the port must be given up,
+    /// <see cref="ProbeOutcome.Busy"/> when it did after answering, <see cref="ProbeOutcome.Matched"/> as soon as one
+    /// probe's match is published.</returns>
+    private async ValueTask<ProbeOutcome> ProbeBaudGroupAsync(
         string port,
         IGrouping<int, ISerialProbe> baudGroup,
         Func<SerialProbeMatch, bool>? onMatch,
@@ -385,14 +432,14 @@ internal sealed class SerialProbeService : ISerialProbeService
             // Shared handle for the whole group: never assert control lines here; toggling DTR on a handle
             // other probes reuse could reset a different DTR-triggered controller on this port.
             conn = await TryOpenAsync(assertControlLines: false);
-            if (conn is null) return true;
+            if (conn is null) return ProbeOutcome.NoMatch;
         }
 
         try
         {
             foreach (var probe in probesToRun)
             {
-                if (cancellationToken.IsCancellationRequested) return true;
+                if (cancellationToken.IsCancellationRequested) return ProbeOutcome.NoMatch;
 
                 // On the shared handle DTR is never asserted, so a probe that REQUIRES it cannot answer here.
                 // Skip it (it gets its own DTR-asserted open on the isolated pass) instead of burning its
@@ -412,9 +459,10 @@ internal sealed class SerialProbeService : ISerialProbeService
 
                 try
                 {
-                    if (!await RunSingleProbeAsync(port, probe, conn, onMatch, budgetMultiplier, cancellationToken))
+                    // Abandoned or busy: this handle holds an I/O the driver never completed, nothing further on it can answer.
+                    if (await RunSingleProbeAsync(port, probe, conn, onMatch, budgetMultiplier, cancellationToken) is not ProbeOutcome.NoMatch and var outcome)
                     {
-                        return false; // this handle's I/O ignores cancellation: nothing further on it can answer
+                        return outcome;
                     }
                 }
                 finally
@@ -427,7 +475,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                 }
             }
 
-            return true;
+            return ProbeOutcome.NoMatch;
         }
         finally
         {
@@ -473,8 +521,10 @@ internal sealed class SerialProbeService : ISerialProbeService
         }
     }
 
-    /// <returns><see langword="false"/> when the attempt's I/O ignored its budget and was abandoned.</returns>
-    private async ValueTask<bool> RunSingleProbeAsync(
+    /// <returns><see cref="ProbeOutcome.Abandoned"/> or <see cref="ProbeOutcome.Busy"/> (see <see cref="GivenUp"/>)
+    /// when the attempt's I/O ignored its budget and was abandoned, <see cref="ProbeOutcome.Matched"/> when its match
+    /// was published.</returns>
+    private async ValueTask<ProbeOutcome> RunSingleProbeAsync(
         string port,
         ISerialProbe probe,
         ISerialConnection conn,
@@ -538,16 +588,16 @@ internal sealed class SerialProbeService : ISerialProbeService
                         // Observe whatever the abandoned task eventually does (an I/O abort once the handle closes).
                         _ = attemptTask.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
                         abandoned = true;
-                        return false;
+                        return GivenUp(port, conn);
                     }
 
                     // The attempt came back, but only because a write inside it gave up on the driver: the
-                    // port does not complete I/O, and "no match" is not what that means. Give the port up.
+                    // port did not complete I/O, and "no match" is not what that means. Give the handle up.
                     if (conn.HasAbandonedIo)
                     {
-                        _logger.LogWarning("{Port} did not complete an I/O the {Probe} probe had to abandon; giving the port up.", port, probe.Name);
+                        _logger.LogWarning("{Port} did not complete an I/O the {Probe} probe had to abandon.", port, probe.Name);
                         abandoned = true;
-                        return false;
+                        return GivenUp(port, conn);
                     }
 
                     if (match is not null)
@@ -560,12 +610,13 @@ internal sealed class SerialProbeService : ISerialProbeService
                         {
                             PublishMatch(probe.Name, match);
                             _logger.LogInformation("Match -> {DeviceUri}", match.DeviceUri);
+                            return ProbeOutcome.Matched;
                         }
-                        return true;
+                        return ProbeOutcome.NoMatch;
                     }
 
                     // Null = no match at the protocol level; no point retrying.
-                    return true;
+                    return ProbeOutcome.NoMatch;
                 }
                 catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
@@ -580,11 +631,11 @@ internal sealed class SerialProbeService : ISerialProbeService
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Probe threw - treating as no-match.");
-                    return true;
+                    return ProbeOutcome.NoMatch;
                 }
             }
 
-            return true; // every attempt timed out: no match, but the port answered its cancellation
+            return ProbeOutcome.NoMatch; // every attempt timed out: no match, but the port answered its cancellation
         }
         finally
         {
@@ -598,6 +649,10 @@ internal sealed class SerialProbeService : ISerialProbeService
             {
                 try { conn.DiscardInBuffer(); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Post-probe drain failed on {Port} [{Probe}]", port, probe.Name); }
+            }
+            if (conn.HasAnswered)
+            {
+                _answeredPorts.TryAdd(port, 0);
             }
             conn.VerboseTag = previousTag;
         }

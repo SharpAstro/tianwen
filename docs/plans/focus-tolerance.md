@@ -8,7 +8,7 @@ non-browser agent, so fetch it with a browser User-Agent.
 
 Companion plans:
 - [camera-collimation.md](camera-collimation.md): the same tolerance judges sensor tilt.
-- [video-guiding.md](video-guiding.md): builds the aligned star stack that a video autofocus would reuse.
+- [guiding-improvements.md](guiding-improvements.md): builds the aligned star stack that a video autofocus would reuse.
 
 Related issues: #579 (temperature-driven refocus, with the coefficients measured from the archive) and #585
 (discrete autofocus triggers, including the guard that suppresses a refocus as the meridian approaches, folded in
@@ -192,7 +192,7 @@ which is the confound #579 found.
 2. Take out what focus cannot change before taking the ratio:
    - Fit the HFD trend against airmass^0.6 and temperature (#579's physical driver), not against time alone.
    - Remove guiding in quadrature, using each sub's own `GUIDERMS`. This needs the synthetic guide samples gone
-     first ([video-guiding.md](video-guiding.md), section 7).
+     first ([guiding-improvements.md](guiding-improvements.md), section 7).
 3. Fire only when the growth attributable to focus exceeds the tolerance by two standard errors of that fit.
 4. Never fire below the resolvable floor. Convert each of these to a tolerance through `t(n)`, and take the largest:
    - one step;
@@ -238,7 +238,7 @@ wrong focal length, aperture or step size in the profile.
 - On an SCT focused by its primary, a step moves the focal plane by a large multiple of the mirror's own travel.
   That is one more reason to keep microns out of every decision.
 
-### F6: video autofocus (needs native video; see video-guiding.md)
+### F6: video autofocus (needs native video; see guiding-improvements.md)
 
 At each rung, capture a second or two of short frames around the brightest stars, and shift-and-add them per star.
 - The aligned stack has the image motion removed, so `a` drops, the V narrows, and `p` is better determined.

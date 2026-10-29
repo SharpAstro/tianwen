@@ -49,7 +49,7 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
         }
         if (request.OtaIndex >= 0 && request.OtaIndex < data.OTAs.Length && jobs.TryGetRunningOn(data.OTAs[request.OtaIndex].Camera, out var job))
         {
-            return ResponseEnvelope<LiveViewStateDto>.Fail($"The camera is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+            return ResponseEnvelope<LiveViewStateDto>.Fail(NodeJobs.Busy("The camera", job), 409);
         }
 
         // The run, and the camera it claims as it prepares, are this start's until the node owns them, and go back on every

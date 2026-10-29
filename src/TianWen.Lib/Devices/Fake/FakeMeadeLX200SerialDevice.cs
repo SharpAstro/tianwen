@@ -361,6 +361,10 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 
             switch (dataStr)
             {
+                case "#":
+                    // A bare terminator ends whatever partial command was pending; this fake keeps none, so nothing to answer.
+                    break;
+
                 case ":GVP#":
                     _responseBuffer.Append("Fake LX200 Mount#");
                     break;
@@ -603,7 +607,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
             _highPrecision ? HoursToHMS(ra, precision: SexagesimalPrecision.Second, modulo24: true) : HoursToHMT(ra));
 
         void RespondDMS(double dec) => _responseBuffer.AppendFormat("{0}#",
-            _highPrecision ? DegreesToDMS(dec, withPlus: false, degreeSign: '\xdf', precision: SexagesimalPrecision.Second) : DegreesToDM(dec));
+            _highPrecision ? DegreesToDMS(dec, withPlus: false, degreeSign: DegreeSign, precision: SexagesimalPrecision.Second) : DegreesToDM(dec));
     }
 
     private double SiderealTime
@@ -673,6 +677,12 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     /// overrides this to be as strict as the firmware it stands in for.
     /// </summary>
     protected virtual bool RequiresExplicitSign => false;
+
+    /// <summary>
+    /// The degree mark this fake answers with in <c>:GD#</c>, <c>:Gd#</c>, <c>:Gt#</c> and <c>:Gg#</c>: Meade's
+    /// <c>\xdf</c>. <see cref="FakeOnStepSerialDevice"/> answers <c>*</c>, as the firmware does (#1898).
+    /// </summary>
+    protected virtual char DegreeSign => '\xdf';
 
     private bool ParseTargetDec(string dataStr)
     {
@@ -865,8 +875,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         }
     }
 
-    private static string DegreesToDM(double degrees)
-        => DegreesToDMS(degrees, withPlus: false, degreeSign: '\xdf', precision: SexagesimalPrecision.Minute);
+    private string DegreesToDM(double degrees)
+        => DegreesToDMS(degrees, withPlus: false, degreeSign: DegreeSign, precision: SexagesimalPrecision.Minute);
 
     private record SlewState(double TargetHAAxis, double TargetDecAxis, double SlewRate, long LastTicks)
     {

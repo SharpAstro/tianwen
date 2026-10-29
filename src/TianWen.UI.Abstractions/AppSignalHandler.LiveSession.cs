@@ -540,6 +540,52 @@ namespace TianWen.UI.Abstractions
             });
             bus.Subscribe<StopMountMoveSignal>(_ => mover.Release());
 
+            // Home, Park and Unpark are the node's jobs, followed to their end and said in the status bar; Set park answers at once.
+            bus.Subscribe<MountPositionSignal>(sig =>
+            {
+                if (CommandTargetOrSay($"{sig.Command}") is not { Node: var node, Profile.Data: { } pdata }) return;
+                if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
+
+                RunTracked($"Mount {sig.Command}", $"Mount {sig.Command} failed", async ct =>
+                {
+                    if (sig.Command is MountPositionCommand.SetPark)
+                    {
+                        var set = await node.Client.SetMountParkAsync(mountUri, ct);
+                        Notify(set.IsSuccess ? NotificationSeverity.Info : NotificationSeverity.Warning,
+                            (set.IsSuccess ? set.Value : set.Error) ?? "Set park");
+                        return;
+                    }
+
+                    var (starting, what) = sig.Command switch
+                    {
+                        MountPositionCommand.Home => (node.Client.HomeMountAsync(mountUri, ct), "Going home"),
+                        MountPositionCommand.Park => (node.Client.ParkMountAsync(mountUri, ct), "Parking"),
+                        _ => (node.Client.UnparkMountAsync(mountUri, ct), "Unparking"),
+                    };
+                    if (await RunNodeJobAsync(node, starting, what, ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? $"{what}: done");
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            // Tracking on or off, through the node, which refuses it on a mount a run holds; the row shows the mount's own
+            // answer on the next state poll, never this request's.
+            bus.Subscribe<SetMountTrackingSignal>(sig =>
+            {
+                if (CommandTargetOrSay("Switching tracking") is not { Node: var node, Profile.Data: { } pdata }) return;
+                if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
+
+                var on = sig.Speed is not TrackingSpeed.None;
+                RunTracked(on ? $"Tracking {sig.Speed}" : "Tracking stopped", "Switching tracking failed", async ct =>
+                {
+                    if (await node.Client.SetMountTrackingAsync(mountUri, on, on ? sig.Speed : null, ct) is { IsSuccess: false } refused)
+                    {
+                        Notify(NotificationSeverity.Warning, refused.Error ?? $"The node did not switch tracking {(on ? $"to {sig.Speed}" : "off")}");
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
             bus.Subscribe<JogMountSignal>(sig =>
             {
                 if (CommandTargetOrSay("A mount nudge") is not { Node: var node, Profile.Data: { } pdata }) return;

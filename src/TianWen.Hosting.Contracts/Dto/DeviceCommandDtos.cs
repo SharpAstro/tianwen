@@ -143,6 +143,9 @@ public sealed class MountTrackingRequestDto
 {
     public required string DeviceUri { get; init; }
     public required bool On { get; init; }
+
+    /// <summary>The rate to track at when <see cref="On"/>; null leaves the mount's own. Numeric on the wire.</summary>
+    public TianWen.Lib.Devices.TrackingSpeed? Speed { get; init; }
 }
 
 /// <summary>

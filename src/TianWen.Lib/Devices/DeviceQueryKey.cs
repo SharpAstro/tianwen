@@ -45,6 +45,13 @@ public enum DeviceQueryKey
     /// poller must still read "slewing" (GSS audit finding 2 for slews). Zero/absent = immediate.
     /// </summary>
     SlewStartLatencyMs,
+
+    /// <summary>
+    /// Fake OnStep only: <c>true</c> opens the port with a partial command already in the controller's command buffer,
+    /// as another program or another family's discovery probe leaves it. The next command is read as its tail and
+    /// answered with OnStep's unterminated <c>0</c>; a bare <c>#</c> ends it harmlessly.
+    /// </summary>
+    StaleCommandBuffer,
     Alignment,
     HasCover,
 
@@ -129,6 +136,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.PolarMisalignmentAltArcmin => "polarMisalignmentAltArcmin",
             DeviceQueryKey.DecPulseGoTo => "decPulseGoto",
             DeviceQueryKey.SlewStartLatencyMs => "slewStartLatencyMs",
+            DeviceQueryKey.StaleCommandBuffer => "staleCommandBuffer",
             DeviceQueryKey.Alignment => "alignment",
             DeviceQueryKey.HasCover => "hasCover",
             DeviceQueryKey.MirrorLockup => "mirrorLockup",

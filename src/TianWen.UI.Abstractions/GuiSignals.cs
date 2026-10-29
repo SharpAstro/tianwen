@@ -478,6 +478,18 @@ public readonly record struct StartMountMoveSignal(GuideDirection Direction, dou
 public readonly record struct StopMountMoveSignal;
 
 /// <summary>
+/// Tracks at <paramref name="Speed"/>, or stops tracking at <see cref="TrackingSpeed.None"/>, through the node (the Preview's
+/// Tracking stepper, Stopped / Sidereal / Lunar / Solar / King, as N.I.N.A. offers it).
+/// </summary>
+public readonly record struct SetMountTrackingSignal(TrackingSpeed Speed);
+
+/// <summary>What the Preview's mount buttons ask of the node.</summary>
+public enum MountPositionCommand { Home, Park, Unpark, SetPark }
+
+/// <summary>Home, Park, Unpark or Set park, through the node (the Preview's mount buttons).</summary>
+public readonly record struct MountPositionSignal(MountPositionCommand Command);
+
+/// <summary>
 /// Open the F3 sky-map search modal. Posted from the sky-map tab's key handler;
 /// subscriber wires up callbacks and lazy-builds the catalog index.
 /// </summary>

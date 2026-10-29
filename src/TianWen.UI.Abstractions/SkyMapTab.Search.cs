@@ -448,6 +448,7 @@ namespace TianWen.UI.Abstractions
                     Goto: () => PostSignal(
                         new SkyMapSlewToObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
                     GotoEnabled: !info.NeverRises,
+                    GotoBusy: State.ActiveSlewTarget is not null ? "Slewing…" : null,
                     ViewInPlanner: () => PostSignal(
                         new ViewInPlannerSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
                     TogglePin: () => PostSignal(

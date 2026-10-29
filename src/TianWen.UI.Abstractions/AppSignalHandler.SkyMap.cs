@@ -223,11 +223,15 @@ namespace TianWen.UI.Abstractions
                 var capturedSig = sig;
                 RunTracked($"Goto {sig.Name}", "Slew failed", async ct =>
                 {
-                    var starting = node.Client.GotoAsync(request, ct);
                     // Surface the slew destination on the sky map (marker + ETA, the latter estimated in the render path
-                    // from the reticle). The signal carries J2000 catalog coords, matching the overlay frame.
+                    // from the reticle) BEFORE the request goes out, and draw it now: the Goto button reads this to say
+                    // "Slewing" on the click, not on the mount's next status poll. The signal carries J2000 catalog
+                    // coords, matching the overlay frame.
                     skyMapState.ActiveSlewTarget = new SlewTargetInfo(capturedSig.Name, capturedSig.RA, capturedSig.Dec);
                     skyMapState.SlewEtaSeconds = double.NaN;
+                    skyMapState.NeedsRedraw = true;
+                    appState.NeedsRedraw = true;
+                    var starting = node.Client.GotoAsync(request, ct);
                     Notify(NotificationSeverity.Info, $"Slewing to {capturedSig.Name}");
                     if (await RunNodeJobAsync(node, starting, $"Slew to {capturedSig.Name}", ct) is { } landed)
                     {

@@ -73,6 +73,8 @@ internal sealed class External(
         return celestialObjectDB;
     }
 
+    public bool IsSerialPortInUse(string port) => _serialConnections.TryGetValue(port, out var connection) && connection.IsOpen;
+
     public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock)
     {
         var described = SerialPorts.Enumerate();

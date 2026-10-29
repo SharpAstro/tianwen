@@ -214,7 +214,7 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IH
             ? ResponseEnvelope<JobDto>.Accepted(job)
             : Busy(name, job).As<JobDto>();
 
-    private static Refusal Busy(string name, JobDto job) => new Refusal($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+    private static Refusal Busy(string name, JobDto job) => new Refusal(NodeJobs.Busy(name, job), 409);
 
     private string NameOf(Uri uri) => hub.TryGetDeviceFromUri(uri, out var device) ? device.DisplayName : uri.ToString();
 

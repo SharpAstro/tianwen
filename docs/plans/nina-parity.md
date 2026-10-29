@@ -37,7 +37,7 @@ otherwise. Don't repeat that here.
 |---|---|---|
 | Built-in guider + PHD2, dithering, calibration, ST-4/camera pulse routing | DONE | CLAUDE.md guiding sections |
 | Neural guide model refinements (pretrained model, wider/deeper MLP, real-time telemetry) | PARTIAL / ongoing | [docs/todo/guider.md](../todo/guider.md) |
-| MetaGuide support (NINA has native MetaMonitor integration; TianWen has neither an external-guider listener nor the video/lucky-guiding technique itself) | NOT STARTED (#362; video capture first, #813) | [video-guiding.md](video-guiding.md) -- covers both halves: supporting MetaGuide as an external guider (UDP telemetry listener, PHD2-shaped `IGuider` may not fit) and adopting its hot-spot/rolling-average technique internally |
+| MetaGuide support (NINA has native MetaMonitor integration; TianWen has neither an external-guider listener nor the video/lucky-guiding technique itself) | NOT STARTED (#362; video capture first, #813) | [guiding-improvements.md](guiding-improvements.md) -- covers both halves: supporting MetaGuide as an external guider (UDP telemetry listener, PHD2-shaped `IGuider` may not fit) and adopting its hot-spot/rolling-average technique internally |
 
 ## Plate solving & polar alignment
 

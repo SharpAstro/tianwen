@@ -693,7 +693,7 @@ internal sealed class TuiLiveSessionTab(
     {
         var ms = LiveState.MountState;
         var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
-        var pier = ms.PierSide is PointingState.Normal ? "E" : ms.PierSide is PointingState.ThroughThePole ? "W" : "";
+        var pier = ms.PierSide.PierLetter;
         _rows.Add(new HeadingRow($"{session.MountDisplayName}  {mountStatus}  {pier}"));
 
         // Unknown until the session's first poll (MountState.Unknown): dashes, never NaN, which the formatters refuse.
