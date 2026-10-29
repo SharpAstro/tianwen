@@ -186,3 +186,33 @@ the loaded batch never had four of them contending. The theory is removed again 
 `PumpUntilCompletedAsync` plus the progress probe (the pump the rest of the suite uses, #1122), which removes the
 dependence on a real-time yield. To judge any fix, repeat the scenario under real contention (several such tests at
 once from separate classes) and read the Dec RMS tail, since an idle sequential batch cannot show it.
+
+### What the fix changed, and what a loaded re-run showed (#1910)
+
+**The hand pump is gone.** Every guide loop in `FakeCameraMountCouplingTests` (the calibration waits, the 175 s
+sustained run, the fresh-model run, the dither settle, the cloud-fail wait, the lost-lock and recover waits) now goes
+through `FakeTimeProviderWrapper.PumpUntilAsync`, a pump-until-condition overload beside `PumpUntilCompletedAsync`
+that shares its body (`PumpCoreAsync`) and takes the same progress probe (`GuideFrameCount`). The test helpers are
+`PumpGuiderAsync`, `PumpUntilGuidingAsync` and `PumpForAsync`. The two mount-only loops (the slew and advance checks)
+keep their hand step on purpose: they have no guide loop to pace against and do not set `ExternalTimePump`.
+
+**The first loaded repeat still failed, and showed the real mechanism.** With the cooperative pump and nothing else
+changed, 120 runs of the target test under twelve CPU burners on win-x64 (16 cores) failed 2 times, both in the
+sustained phase and not at settle: `TotalRMS` 5.17" and 5.93" against the 5" bound (At-settle 0.50" and 0.60", so
+the 3" settle bound held). Both runs carry the same signature, one frame with a single RA excursion of 26.0" (a
+`corrRA` of -859 ms in one) while Dec stayed near 0.35". That is about 1.7 s of sidereal drift, a guide tick that was
+never observed, not a spread in the guider's own behaviour. The cause: the pump gave the pool and a released sleep
+only `SettleBound` (2 ms) to settle before the next advance. The guide loop wakes on a `PeriodicTimer`, which
+coalesces: a tick that fires while its continuation is still queued is dropped. On a saturated runner 2 ms is not
+enough, so the pump advanced over the tick and the next frame saw the mount drift of both intervals at once.
+
+**The change.** `PumpUntilAsync` takes an optional `settleBound`, used for both settle waits of an advance. The
+guider pumps pass 25 ms (`GuideSettleBound`). It costs nothing on an idle runner (the wait ends as soon as the pool
+is quiet) and only waits where the pool is backlogged. The default stays 2 ms for every other caller. No test bound
+was widened: both failures were a skipped tick, not a distribution to fit a bound to.
+
+**Not verified.** The owner's rule is never to load the machine on purpose, so the fixed pump was NOT repeated 100
+times under load, and this section makes no claim that it is now clean. What is established: the unloaded 400 runs
+never failed (above), the loaded pre-fix batch failed 2 of 120 by the mechanism above, and the changed wait is aimed
+at that mechanism. A loaded repeat of the target test (one `[Theory]` of 120 runs beside enough CPU burners to
+saturate the box) remains owed, and it is the one check that can tell whether 25 ms is enough.

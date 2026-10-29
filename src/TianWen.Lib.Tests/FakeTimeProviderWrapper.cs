@@ -199,6 +199,9 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// (a guide loop parks at Guiding): advances paced to the loop, with the same progress probe, until
     /// <paramref name="condition"/> holds. The condition is read between advances, after the loop has been
     /// given its turn, so it never races a half-processed frame (#1910). Returns the fake time pumped.
+    /// <paramref name="settleBound"/> is how long it gives the pool and a released sleep to settle before each
+    /// advance (the 2 ms default unless given): a loop on a coalescing <see cref="System.Threading.PeriodicTimer"/>
+    /// loses a tick whose continuation has not run by the next advance, so a saturated runner needs it longer.
     /// </summary>
     public Task<TimeSpan> PumpUntilAsync(
         Func<bool> condition,
@@ -207,8 +210,9 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         Func<long>? progress = null,
         TimeSpan? finestStep = null,
         TimeSpan? coarsestStep = null,
-        CancellationToken cancellationToken = default)
-        => PumpCoreAsync(condition, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken);
+        CancellationToken cancellationToken = default,
+        TimeSpan? settleBound = null)
+        => PumpCoreAsync(condition, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken, settleBound);
 
     private async Task<TimeSpan> PumpCoreAsync(
         Func<bool> isDone,
@@ -217,8 +221,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         Func<long>? progress = null,
         TimeSpan? finestStep = null,
         TimeSpan? coarsestStep = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TimeSpan? settleBound = null)
     {
+        var settle = settleBound ?? SettleBound;
         var finest = finestStep ?? DefaultFinestStep;
         var coarsest = coarsestStep ?? DefaultCoarsestStep;
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(finest, TimeSpan.Zero, nameof(finestStep));
@@ -255,7 +261,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // count above zero regardless. The old pump's 11 ms delays let such work run by accident; without this a
             // loop was overtaken by a hundred advances before it ran once (FakeTimePumpTests' healthy loop saw no
             // tick, #1017's shape). Bounded short: other tests' work shares the pool.
-            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), SettleBound, cancellationToken);
+            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), settle, cancellationToken);
 
             if (isDone() || cancellationToken.IsCancellationRequested)
             {
@@ -283,7 +289,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // And give what they woke to its turn: a poll that sleeps again parks a new target, which the next step
             // must see or it steps past it. Bounded short, since a sleep that wakes to a timer or to the end of its
             // loop never parks again, and every advance that released one pays the bound.
-            await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), SettleBound, cancellationToken);
+            await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), settle, cancellationToken);
 
             // And never less than a short dwell per advance, yielding. Nothing the pump can observe says that a loop
             // just started, or still being compiled, has reached its first wait: measured, a healthy loop on a

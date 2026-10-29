@@ -82,7 +82,13 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     private static Task<TimeSpan> PumpGuiderAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
         Func<bool> done, TimeSpan maxFakeTime, CancellationToken ct, Func<int, ValueTask>? onIteration = null) =>
         timeProvider.PumpUntilAsync(done, maxFakeTime, onIteration,
-            progress: () => guider.GuideFrameCount, cancellationToken: ct);
+            progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: GuideSettleBound);
+
+    /// <summary>
+    /// How long each advance waits for the pool and the guide loop to settle: past the 2 ms default, which a
+    /// saturated runner overruns, so the loop's coalescing tick is never advanced over unobserved (#1910).
+    /// </summary>
+    private static readonly TimeSpan GuideSettleBound = TimeSpan.FromMilliseconds(25);
 
     /// <summary>Pumps until the guider reports Guiding or raises an error (the calibrate-and-settle wait).</summary>
     private static async Task<TimeSpan> PumpUntilGuidingAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
