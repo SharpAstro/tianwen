@@ -28,7 +28,7 @@ namespace TianWen.UI.Web.Planner
             {
                 RequestRedraw();
                 RequestRepaint?.Invoke();
-            }, null);
+            }, Logger);
             _pictures.Draw(in image, rect);
         }
 

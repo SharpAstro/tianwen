@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
+using NSubstitute;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -108,7 +109,7 @@ namespace TianWen.Lib.Tests
             tab.PaintedDetailLines.ShouldNotBeEmpty();
 
             var fontPath = FontResolver.ResolveSystemFont();
-            var fontSize = GuiTheme.Metrics.BaseFontSize * dpiScale;
+            var fontSize = GuiTheme.Metrics.BaseFontSize * scale;
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
@@ -643,10 +644,6 @@ namespace TianWen.Lib.Tests
 
             protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
                 => Pictures.Add((image, rect));
-
-            /// <summary>Paints a node through the tab's own layout path and returns what it arranged.</summary>
-            public ImmutableArray<Layout.ArrangedNode<float>> Place(Layout.Node node, RectF32 rect)
-                => RenderLayout(node, rect);
         }
 
         /// <summary>
@@ -657,31 +654,51 @@ namespace TianWen.Lib.Tests
         /// than running under the text column; the whole credit is in the large view.
         /// </summary>
         [Fact]
-        public void ALongCreditIsTrimmedToThePictureSectionNotPaintedPastIt()
+        public async Task ALongCreditIsTrimmedToThePictureSectionNotPaintedPastIt()
         {
-            using var renderer = new RgbaImageRenderer(1600, 1000);
-            var tab = new PictureCapturingPlanner(renderer) { FontPath = FontResolver.ResolveSystemFont() };
             var image = new ObjectArticleImage("Example.jpg", "2c", "CC BY-SA 4.0",
                 "Artist Name Up To Forty-Eight Characters Long", "Observatory", AttributionRequired: true, Width: 4000, Height: 3000);
             ObjectInfoPanel.CreditLine(in image).ShouldContain("CC BY-SA 4.0");
+            var db = Substitute.For<ICelestialObjectDB>();
+            db.TryGetArticle(Arg.Any<CatalogIndex>(), out Arg.Any<ObjectArticle>())
+                .Returns(call =>
+                {
+                    call[1] = new ObjectArticle(1u, "Example", image);
+                    return true;
+                });
 
-            var pictureH = ObjectInfoPanel.DesignPictureHeightIn(120f);
-            var sectionW = ObjectInfoPanel.DesignPictureSectionWidthFor(in image, pictureH, 1600f * 0.4f);
-            var section = new RectF32(1000f, 880f, sectionW, 120f);
-            var palette = new ObjectInfoPanel.PanelPalette(
-                default, default, default, GuiTheme.Palette.DimText, default, default, default, default, default, default, default);
-            var arranged = tab.Place(ObjectInfoPanel.BuildPictureSection(in image, in palette, designPictureHeight: pictureH), section);
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, db: db);
 
-            var credit = arranged.Single(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Text t }
-                && t.Value == ObjectInfoPanel.CreditLine(in image));
-            var run = ((Layout.Node.Leaf)credit.Node).Content.ShouldBeOfType<Layout.Content.Text>();
-            run.Trim.ShouldBe(TextTrim.End, "the credit is cut to its rect, never allowed to overhang");
-            credit.Bounds.X.ShouldBeGreaterThanOrEqualTo(section.X);
-            (credit.Bounds.X + credit.Bounds.Width).ShouldBeLessThanOrEqualTo(section.X + section.Width + 0.5f);
+            var credit = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.LinkHit { Url: var url } && url == image.FilePageUrl);
+            var details = tab.DetailsRect;
+            credit.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
+            (credit.X + credit.Width).ShouldBeLessThanOrEqualTo(details.X + details.Width + 0.5f);
+            credit.Y.ShouldBeGreaterThanOrEqualTo(details.Y);
+            (credit.Y + credit.Height).ShouldBeLessThanOrEqualTo(details.Y + details.Height + 0.5f);
 
-            // And the full text really does not fit there, so the trim is doing the work.
-            renderer.MeasureText(run.Value.AsSpan(), FontResolver.ResolveSystemFont(), run.FontSize).Width
-                .ShouldBeGreaterThan(credit.Bounds.Width);
+            // The full text really does not fit there, so the trim is doing the work.
+            renderer.MeasureText(ObjectInfoPanel.CreditLine(in image).AsSpan(), FontResolver.ResolveSystemFont(),
+                    GuiTheme.Metrics.BaseFontSize * 0.8f)
+                .Width.ShouldBeGreaterThan(credit.Width);
+        }
+
+        /// <summary>
+        /// With the large view open the strip's lines are plain raster text under the canvas scrim: a host that renders
+        /// selectable text as DOM spans (the web) would otherwise leave them at full brightness above it.
+        /// </summary>
+        [Fact]
+        public async Task TheStripsSelectableTextIsHeldBackWhileTheLargeViewIsOpen()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000) { HostRendersSelectableText = true };
+            var (tab, state, content, time) = await PlannerWithPictureAsync(renderer);
+            tab.SelectableTextRegions.Length.ShouldBeGreaterThan(0, "closed, the detail lines are selectable text");
+
+            state.PictureExpanded = true;
+            tab.Render(state, content, time);
+            tab.SelectableTextRegions.Length.ShouldBe(0);
+            tab.Pictures.Count.ShouldBe(2);
         }
 
         private const string PictureOpenAction = "ObjectInfoPictureOpen";
@@ -690,11 +707,12 @@ namespace TianWen.Lib.Tests
         private static readonly DateTimeOffset PictureNow = new(2025, 12, 15, 22, 0, 0, TimeSpan.Zero);
 
         private static async Task<(PictureCapturingPlanner Tab, PlannerState State, RectF32 Content, FakeTimeProviderWrapper Time)>
-            PlannerWithPictureAsync(RgbaImageRenderer renderer, CatalogIndex? index = null, float dpiScale = 1f)
+            PlannerWithPictureAsync(RgbaImageRenderer renderer, CatalogIndex? index = null, float dpiScale = 1f,
+                float interfaceScale = 1f, ICelestialObjectDB? db = null)
         {
-            var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+            db ??= await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
             CatalogUtils.TryGetCleanedUpCatalogName("M31", out var m31).ShouldBeTrue();
-            var tab = new PictureCapturingPlanner(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont() };
+            var tab = new PictureCapturingPlanner(renderer) { DpiScale = dpiScale, InterfaceScale = interfaceScale, FontPath = FontResolver.ResolveSystemFont() };
             var state = BuildState(index ?? m31, db);
             var time = new FakeTimeProviderWrapper(PictureNow);
             var content = new RectF32(0, 0, renderer.Width, renderer.Height);
@@ -703,21 +721,25 @@ namespace TianWen.Lib.Tests
         }
 
         [Theory]
-        [InlineData(1f)]
-        [InlineData(1.5f)]
-        public async Task TheDetailsStripShowsTheVerifiedPictureRightOfTheTextAtTheStripsHeight(float dpiScale)
+        [InlineData(1f, 1f, 1600)]
+        [InlineData(1.5f, 1f, 1600)]
+        [InlineData(1.5f, 1.15f, 1600)] // the GUI's planner always carries the interface scale
+        [InlineData(1f, 1f, 640)]       // a narrow strip, where the 40 % cap on the picture section bites
+        public async Task TheDetailsStripShowsTheVerifiedPictureRightOfTheTextAtTheStripsHeight(
+            float dpiScale, float interfaceScale, int width)
         {
-            using var renderer = new RgbaImageRenderer(1600, 1000);
-            var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale);
+            var scale = dpiScale * interfaceScale;
+            using var renderer = new RgbaImageRenderer(width, 1000);
+            var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale, interfaceScale: interfaceScale);
 
             var thumbnail = tab.Pictures.ShouldHaveSingleItem().Rect;
             var details = tab.DetailsRect;
             var strip = details.Height;
 
             // The strip did not grow for the picture: a target without one has the same.
-            using (var plain = new RgbaImageRenderer(1600, 1000))
+            using (var plain = new RgbaImageRenderer(width, 1000))
             {
-                var (noPicture, _, _, _) = await PlannerWithPictureAsync(plain, CatalogIndex.IC1000, dpiScale);
+                var (noPicture, _, _, _) = await PlannerWithPictureAsync(plain, CatalogIndex.IC1000, dpiScale, interfaceScale);
                 noPicture.DetailsRect.Height.ShouldBe(strip, 0.5f);
                 noPicture.PaintedDetailsTextRect.Width.ShouldBe(noPicture.DetailsRect.Width, 0.5f);
             }
@@ -726,8 +748,23 @@ namespace TianWen.Lib.Tests
             (thumbnail.X + thumbnail.Width).ShouldBeLessThanOrEqualTo(details.X + details.Width);
             thumbnail.Y.ShouldBeGreaterThanOrEqualTo(details.Y);
             (thumbnail.Y + thumbnail.Height).ShouldBeLessThanOrEqualTo(details.Y + details.Height);
-            tab.PaintedDetailsTextRect.Width.ShouldBeGreaterThan(details.Width * 0.6f - 1f);
+            tab.PaintedDetailsTextRect.Width.ShouldBeGreaterThan(details.Width * (1f - PlannerTab<RgbaImage>.DetailsPictureMaxShare) - 1f);
             thumbnail.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
+
+            // The thumbnail is the picture's own aspect, and its credit row stays inside the strip, beside the text.
+            var image = tab.Pictures.Single().Image;
+            (thumbnail.Width / thumbnail.Height).ShouldBe((float)image.Width / image.Height, 0.05f);
+            var credit = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.LinkHit { Url: var url } && url == image.FilePageUrl);
+            credit.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width - 0.5f);
+            (credit.X + credit.Width).ShouldBeLessThanOrEqualTo(details.X + details.Width + 0.5f);
+            credit.Y.ShouldBeGreaterThanOrEqualTo(details.Y);
+            (credit.Y + credit.Height).ShouldBeLessThanOrEqualTo(details.Y + details.Height + 0.5f);
+            if (width < 1000)
+            {
+                var sectionW = details.X + details.Width - (tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
+                sectionW.ShouldBe(details.Width * PlannerTab<RgbaImage>.DetailsPictureMaxShare, 1f, "the cap is what sized the section");
+            }
 
             // Every text line fits the column the picture left, not the strip.
             var fontPath = FontResolver.ResolveSystemFont();
@@ -735,7 +772,7 @@ namespace TianWen.Lib.Tests
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
-                    .ShouldBeLessThanOrEqualTo(tab.PaintedDetailsTextRect.Width - (2f * 6f * dpiScale), line);
+                    .ShouldBeLessThanOrEqualTo(tab.PaintedDetailsTextRect.Width - (2f * PlannerTab<RgbaImage>.BasePadding * scale), line);
             }
         }
 

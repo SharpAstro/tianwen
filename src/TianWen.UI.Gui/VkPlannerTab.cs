@@ -260,7 +260,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
 
     protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
     {
-        _pictures ??= new VkObjectPictures(_renderer.Context, RequestRedraw, null) { Store = _pictureStore };
+        _pictures ??= new VkObjectPictures(_renderer.Context, RequestRedraw, Logger) { Store = _pictureStore };
         _pictures.Draw(_renderer, image, rect);
     }
 

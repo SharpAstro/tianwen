@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -18,6 +19,8 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class PlannerTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
+        /// <summary>Where a picture host reports a load it could not finish; set by the host like the atlas's.</summary>
+        public ILogger? Logger { get; set; }
 
         // Layout constants (at 1x scale)
         private const float BaseTargetListWidth    = 330f;
@@ -25,7 +28,7 @@ namespace TianWen.UI.Abstractions
         private static readonly float BaseFontSize     = GuiTheme.Metrics.BaseFontSize;
         private static readonly float BaseHeaderHeight = GuiTheme.Metrics.HeaderHeight;
         private const float BaseItemHeight         = 22f;
-        private const float BasePadding            = 6f;
+        internal const float BasePadding            = 6f;
 
         // Portrait (H > W: phones, narrow windows) reflow constants. The landscape left-list dock
         // would eat most of a narrow screen and squash the chart to a sliver, so portrait stacks
@@ -193,12 +196,14 @@ namespace TianWen.UI.Abstractions
             // entirely (CollapseBelow) -- its Fill leaf is then absent from the arranged tree and the
             // rect comes back empty. Portrait also gets a line budget so the compact strip shows the
             // most important lines at a readable size instead of cramming all of them.
+            // Worked out once so the strip and RenderLargePicture agree on whether the scrim is drawn this frame.
+            var largePictureOpen = state.PictureExpanded && SelectedPicture(state) is not null;
             if (detailsRect.Width > 0f && detailsRect.Height > 0f)
             {
                 var maxLines = portrait
                     ? Math.Max(2, (int)(detailsRect.Height / (fontSize * PortraitDetailsLineHeight)))
                     : int.MaxValue;
-                RenderDetailsPanel(state, detailsRect, fontSize, padding, maxLines, withPicture: !portrait);
+                RenderDetailsPanel(state, detailsRect, fontSize, padding, maxLines, withPicture: !portrait, largePictureOpen);
             }
 
             // Last of everything the tab paints: paint order is z-order for pixels and hit test alike.
@@ -209,7 +214,7 @@ namespace TianWen.UI.Abstractions
         internal const string DetailsTextFillKey = "detailsText";
 
         /// <summary>The widest share of the strip its picture section may take, so the text keeps the most.</summary>
-        private const float DetailsPictureMaxShare = 0.4f;
+        internal const float DetailsPictureMaxShare = 0.4f;
 
         /// <summary>
         /// The colours the picture section and the large view paint with: the credit row's, which is all they take
@@ -653,7 +658,8 @@ namespace TianWen.UI.Abstractions
             RectF32 rect,
             float fontSize, float padding,
             int maxLines = int.MaxValue,
-            bool withPicture = false)
+            bool withPicture = false,
+            bool largePictureOpen = false)
         {
             var fontPath = FontPath;
             RenderLayout(Layout.Builder.Spacer().Bg(DetailsBg), rect);
@@ -756,10 +762,20 @@ namespace TianWen.UI.Abstractions
                 // renders them as real selectable text instead (Renderer.HostRendersSelectableText). The
                 // name line additionally carries the Wikipedia href -> a real <a> on the web host.
                 var lineW = i == 0 ? nameW : text.Width - padding * 2f;
-                DrawSelectableText(line, fontPath,
-                    rect.X + padding, y, lineW, lineH,
-                    fs, color, TextAlign.Near, TextAlign.Center,
-                    i == 0 ? nameHref : null);
+                // Under the large view's canvas scrim the line is plain raster text: a host that draws selectable
+                // text as DOM spans would otherwise leave it at full brightness above the scrim.
+                if (largePictureOpen)
+                {
+                    DrawText(line.AsSpan(), fontPath, rect.X + padding, y, lineW, lineH,
+                        fs, color, TextAlign.Near, TextAlign.Center);
+                }
+                else
+                {
+                    DrawSelectableText(line, fontPath,
+                        rect.X + padding, y, lineW, lineH,
+                        fs, color, TextAlign.Near, TextAlign.Center,
+                        i == 0 ? nameHref : null);
+                }
 
                 // Desktop realization of the same link: register the name as a LinkHit region. The host
                 // owns what a link does -- the SDL/Vulkan chrome opens the OS browser on click; on the web
