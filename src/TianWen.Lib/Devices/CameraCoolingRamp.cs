@@ -87,6 +87,11 @@ public static class CameraCoolingRamp
     /// the default of <paramref name="direction"/> (<see cref="DefaultMaxRateOf"/>).</param>
     /// <param name="afterStep">Called for each camera (by index) after each of its steps: a session samples its
     /// cooling telemetry here.</param>
+    /// <param name="onSensorAmbient">Called once per camera (by index) with the sensor reading taken BEFORE its first
+    /// cooling step, for a downward ramp to a <see cref="SetpointTempKind.Normal"/> target: the ramp knows no hub, so
+    /// the caller records it. A camera whose cooler is already on, or that gives no CCD temperature, is never called for.
+    /// Null skips the sampling altogether, for a ramp whose sensor says nothing about the air (a node cooling a camera
+    /// back after a crash).</param>
     /// <returns>True if every coolable camera reached the setpoint.</returns>
     public static async ValueTask<bool> RunAsync(
         IReadOnlyList<ICameraDriver> cameras,
@@ -97,8 +102,14 @@ public static class CameraCoolingRamp
         ITimeProvider timeProvider,
         ILogger logger,
         Func<int, ICameraDriver, CancellationToken, ValueTask>? afterStep,
+        Func<int, SensorAmbientReading, ValueTask>? onSensorAmbient,
         CancellationToken cancellationToken)
     {
+        if (onSensorAmbient is not null && direction == SetupointDirection.Down && target.Kind == SetpointTempKind.Normal)
+        {
+            await ReadSensorAmbientAsync(cameras, timeProvider, logger, onSensorAmbient, cancellationToken).ConfigureAwait(false);
+        }
+
         var coolingStates = new CameraCoolingState[cameras.Count];
 
         // Checked once here for every caller: a NaN rate would become a NaN setpoint, and one of zero or less an endless ramp.
@@ -227,5 +238,88 @@ public static class CameraCoolingRamp
         } while (true);
 
         return coolingStates.All(state => !(state.IsCoolable ?? false) || (state.TargetSetpointReached ?? false));
+    }
+
+    /// <summary>How often a camera with its cooler off is sampled for its settled sensor reading.</summary>
+    public static readonly TimeSpan AmbientSampleInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The longest the ramp waits for a sensor to settle before it cools anyway: two windows, so a sensor that settles
+    /// late still has a full window, and one that never does costs a bounded two minutes.
+    /// </summary>
+    public static readonly TimeSpan AmbientBudget = SensorAmbientSampler.Window * 2;
+
+    /// <summary>
+    /// Samples each camera whose cooler reads OFF every <see cref="AmbientSampleInterval"/> until every one has settled
+    /// or <see cref="AmbientBudget"/> runs out, and hands each reading out. Sleeps through <see cref="ITimeProvider"/>,
+    /// so a fake clock advances it.
+    /// </summary>
+    private static async ValueTask ReadSensorAmbientAsync(
+        IReadOnlyList<ICameraDriver> cameras, ITimeProvider timeProvider, ILogger logger,
+        Func<int, SensorAmbientReading, ValueTask>? onSensorAmbient, CancellationToken cancellationToken)
+    {
+        var samplers = new SensorAmbientSampler?[cameras.Count];
+        for (var i = 0; i < cameras.Count; i++)
+        {
+            var camera = cameras[i];
+            if (!camera.CanGetCoolerOn || await logger.CatchAsync(camera.GetCoolerOnAsync, cancellationToken, true))
+            {
+                continue; // cooler on, or unreadable: the sensor says nothing about the air around it
+            }
+
+            samplers[i] = new SensorAmbientSampler();
+        }
+
+        var waited = TimeSpan.Zero;
+        while (true)
+        {
+            var allSettled = true;
+            for (var i = 0; i < cameras.Count; i++)
+            {
+                if (samplers[i] is not { Settled: false } sampler)
+                {
+                    continue;
+                }
+
+                var temp = await logger.CatchAsync(cameras[i].GetCCDTemperatureAsync, cancellationToken, double.NaN);
+                if (!double.IsFinite(temp) && sampler.Current is null)
+                {
+                    samplers[i] = null; // gives no CCD temperature: records nothing
+                    continue;
+                }
+
+                allSettled &= sampler.Add(timeProvider.GetUtcNow(), temp);
+            }
+
+            if (allSettled || waited >= AmbientBudget || cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            await timeProvider.SleepAsync(AmbientSampleInterval, cancellationToken).ConfigureAwait(false);
+            waited += AmbientSampleInterval;
+        }
+
+        for (var i = 0; i < cameras.Count; i++)
+        {
+            if (samplers[i] is not { Current: { } reading } sampler)
+            {
+                continue;
+            }
+
+            if (reading.Settled)
+            {
+                logger.LogInformation("Cooling: sensor {Temp:F1} C settled over {Window:F0} s before cooling", reading.TempC, SensorAmbientSampler.Window.TotalSeconds);
+            }
+            else
+            {
+                logger.LogInformation("Cooling: sensor still moving {Spread:F1} C, not taken as ambient", double.IsNaN(sampler.WindowSpreadC) ? 0 : sampler.WindowSpreadC);
+            }
+
+            if (onSensorAmbient is not null)
+            {
+                await onSensorAmbient(i, reading).ConfigureAwait(false);
+            }
+        }
     }
 }

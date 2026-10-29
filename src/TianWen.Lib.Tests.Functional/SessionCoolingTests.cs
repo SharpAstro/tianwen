@@ -56,6 +56,22 @@ public class SessionCoolingTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenSteadySensorWhenCoolDownThenTheSettledReadingBeforeCoolingIsRecordedOnTheHub()
+    {
+        // The sensor rests at 20 C with the cooler off: after the window it is ambient, and a warm-up with no heat sink
+        // can aim at it (#1842).
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), TimeSpan.FromSeconds(60), 80, SetupointDirection.Down, ct);
+
+        ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>()
+            .TryGetPreCoolReading(ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri, out var reading).ShouldBeTrue();
+        reading.Settled.ShouldBeTrue();
+        reading.TempC.ShouldBe(20.0, 0.1, "the sensor before the first cooling step, not a step on the way down");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenCooledCameraWhenWarmUpThenReachesHigherTemp()
     {
         // given: cool camera down first

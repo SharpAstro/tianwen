@@ -116,8 +116,19 @@ public static class DeviceHubCameraSafetyExtensions
         /// crashed (the crash journal, P1 of docs/plans/hardware-in-the-server.md).
         /// </summary>
         /// <returns>True when the setpoint was reached; false when it was not, or the camera is not connected.</returns>
-        public async ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, double maxRateCPerMinute, ITimeProvider timeProvider, ILogger logger,
+        public ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, double maxRateCPerMinute, ITimeProvider timeProvider, ILogger logger,
             CancellationToken cancellationToken)
+            => hub.CoolToSetpointAsync(cameraUri, setpointC, maxRateCPerMinute, timeProvider, logger, readAmbient: true, cancellationToken);
+
+        /// <summary>
+        /// <see cref="CoolToSetpointAsync(Uri, double, double, ITimeProvider, ILogger, CancellationToken)"/>, with the
+        /// sensor read as ambient before the first step (<paramref name="readAmbient"/>) or not. A camera whose cooler is
+        /// off is sampled for about a minute first and the reading recorded (<see cref="IDeviceHub.SetPreCoolReading"/>);
+        /// a node cooling a camera back after a crash passes false, since that sensor is no longer at rest and the
+        /// reading the journal held is the one that counts.
+        /// </summary>
+        public async ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, double maxRateCPerMinute, ITimeProvider timeProvider, ILogger logger,
+            bool readAmbient, CancellationToken cancellationToken)
         {
             if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera))
             {
@@ -127,7 +138,8 @@ public static class DeviceHubCameraSafetyExtensions
             var target = CameraCoolingRamp.TargetOf(setpointC);
             hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(target));
             return await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(target, SetpointTempKind.Normal), maxRateCPerMinute,
-                CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null, cancellationToken);
+                CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null,
+                readAmbient ? (_, reading) => { hub.SetPreCoolReading(cameraUri, reading); return ValueTask.CompletedTask; } : null, cancellationToken);
         }
 
         /// <summary>

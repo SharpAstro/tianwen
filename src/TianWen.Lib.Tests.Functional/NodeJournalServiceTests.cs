@@ -153,6 +153,24 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         }, ct);
 
     [Fact(Timeout = 60_000)]
+    public async Task ARecoveredCameraGetsTheSensorReadingItCooledDownFromBackOnTheHub()
+    {
+        // Off keeps the recovery free of a ramp, so the only thing under test is the reading, put back before the camera
+        // is reported reconnected, for a warm-up with no heat sink to aim at (#1842).
+        var ct = TestContext.Current.CancellationToken;
+        var at = DateTimeOffset.UtcNow.AddMinutes(-30);
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice(Camera, "Fake Camera 1", CoolerIntentKind.Off, null, 12.1, true, at));
+
+        await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+
+        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+
+        hub.TryGetPreCoolReading(new Uri(Camera), out var reading).ShouldBeTrue();
+        reading.ShouldBe(new SensorAmbientReading(12.1, true, at));
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task ABelievedJournalIsActedOnItsDevicesReconnectedAndItsCameraCooledBack()
     {
         var ct = TestContext.Current.CancellationToken;
