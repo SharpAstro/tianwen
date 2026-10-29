@@ -8,6 +8,7 @@ using SharpAstro.Png;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
