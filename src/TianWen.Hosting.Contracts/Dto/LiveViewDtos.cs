@@ -99,4 +99,7 @@ public sealed class LiveViewStateDto
 
     /// <summary>Whether the camera can drive its own lens now (a Canon in its live view): the Near and Far buttons are offered.</summary>
     public bool CanDriveLens { get; init; }
+
+    /// <summary>Whether the frames are shown with the guide camera's dark library applied (#1915): its matching dark subtracted and its bad pixels masked. Only the guide camera's loop has one.</summary>
+    public bool DarksApplied { get; init; }
 }

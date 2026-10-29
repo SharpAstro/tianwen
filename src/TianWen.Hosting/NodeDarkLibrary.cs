@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
@@ -23,7 +25,7 @@ namespace TianWen.Hosting;
 /// then the camera itself, then a job working on it. The camera is LEASED for the whole run, so a device command, a job
 /// or a session asking for it is refused naming the dark library, and the lease goes as the run ends, however it ends.
 /// </remarks>
-internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, DarkFrameRun capture, ILogger<NodeDarkLibrary> logger)
+internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, DarkFrameRun capture, GuideDarkLibrary guideDarks, IExternal external, ILogger<NodeDarkLibrary> logger)
 {
     /// <summary>What the lease on the camera is called, which a refusal names.</summary>
     internal const string LeaseOwner = "dark library";
@@ -31,11 +33,23 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<DarkLibraryStateDto>> StartAsync(DarkLibraryRequestDto request)
     {
-        if (request.Count < 1 || !double.IsFinite(request.ExposureSeconds) || request.ExposureSeconds <= 0 || request.Bin < 1)
+        double[] exposures = request.ExposuresSeconds is { Length: > 0 } listed ? listed : [request.ExposureSeconds];
+        if (request.Count < 1 || exposures.Any(static e => !double.IsFinite(e) || e <= 0) || request.Bin < 1)
         {
             return ResponseEnvelope<DarkLibraryStateDto>.Fail("A dark library takes at least one frame, of a positive exposure, at a binning of 1 or more");
         }
-        if (!Uri.TryCreate(request.DeviceUri, UriKind.Absolute, out var uri))
+        var deviceUri = request.DeviceUri;
+        if (request.CameraRole == LiveViewCamera.Guider && string.IsNullOrEmpty(deviceUri))
+        {
+            // The guide camera is the profile's: a client names the role, not the device.
+            if (hosted.ActiveProfileId is not { } profileId || await Profile.TryReadDataAsync(external, profileId, CancellationToken.None) is not { } data
+                || data.GuiderCamera is not { Scheme: not "none" } guideCamera)
+            {
+                return ResponseEnvelope<DarkLibraryStateDto>.Fail("The active profile has no guide camera to take darks of", 409);
+            }
+            deviceUri = guideCamera.ToString();
+        }
+        if (!Uri.TryCreate(deviceUri, UriKind.Absolute, out var uri))
         {
             return ResponseEnvelope<DarkLibraryStateDto>.Fail($"Not a device URI: {request.DeviceUri}");
         }
@@ -78,9 +92,12 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
         DarkLibraryRun? run = null;
         try
         {
-            var options = new DarkFrameRunOptions(TimeSpan.FromSeconds(request.ExposureSeconds), request.Count, request.Gain, request.Offset,
-                request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark, request.ReadoutMode, request.SetpointC, request.WarmWhenFinished);
-            run = new DarkLibraryRun(capture, hub, name, uri, options, claim, logger);
+            // The guide camera's frames go in its own library, keyed by the driver's name: what its loop and its guiding look up.
+            var libraryFolder = request.CameraRole == LiveViewCamera.Guider ? guideDarks.LibraryFolderOf(camera.Name) : null;
+            var options = new DarkFrameRunOptions(TimeSpan.FromSeconds(exposures[0]), request.Count, request.Gain, request.Offset,
+                request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark, request.ReadoutMode, request.SetpointC, request.WarmWhenFinished,
+                libraryFolder);
+            run = new DarkLibraryRun(capture, hub, name, uri, options, [.. exposures.Select(static e => TimeSpan.FromSeconds(e))], request.CameraRole, claim, logger);
             claim = null;
             if (!await hosted.TryStartAsync(run, hosted.ActiveProfileId ?? Guid.Empty))
             {
@@ -91,7 +108,7 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
             // The node's from here: it disposes the run when the next one replaces it, or as the host stops.
             var started = run;
             run = null;
-            logger.LogInformation("Taking {Count} {Kind} of {Exposure} s with {Camera}", options.Count, options.FrameType, request.ExposureSeconds, name);
+            logger.LogInformation("Taking {Count} {Kind} of {Exposure} s with {Camera}", options.Count, options.FrameType, string.Join(", ", exposures), name);
             return ResponseEnvelope<DarkLibraryStateDto>.Accepted(started.State);
         }
         finally
@@ -126,12 +143,13 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
 
 /// <summary>One dark library, as the node runs it: the camera it holds, and every frame written so far.</summary>
 internal sealed class DarkLibraryRun(DarkFrameRun capture, IDeviceHub hub, string cameraName, Uri deviceUri, DarkFrameRunOptions options,
-    DeviceLeaseSet claim, ILogger logger) : INodeRun, IProgress<DarkFrameCaptured>
+    TimeSpan[] exposures, LiveViewCamera role, DeviceLeaseSet claim, ILogger logger) : INodeRun, IProgress<DarkFrameCaptured>
 {
     private ImmutableArray<DarkLibraryFrameDto> _frames = [];
     private int _ended;
     private volatile bool _stopped;
     private volatile string? _failure;
+    private int _exposureIndex;
 
     public NodeRunKind Kind => NodeRunKind.Darks;
 
@@ -146,7 +164,9 @@ internal sealed class DarkLibraryRun(DarkFrameRun capture, IDeviceHub hub, strin
         Camera = cameraName,
         DeviceUri = deviceUri.ToString(),
         Bias = options.FrameType is FrameType.Bias,
-        ExposureSeconds = options.Exposure.TotalSeconds,
+        ExposureSeconds = exposures[Math.Min(Volatile.Read(ref _exposureIndex), exposures.Length - 1)].TotalSeconds,
+        ExposuresSeconds = [.. exposures.Select(static e => e.TotalSeconds)],
+        CameraRole = role,
         Count = options.Count,
         SetpointC = options.SetpointC,
         Frames = [.. _frames],
@@ -161,7 +181,14 @@ internal sealed class DarkLibraryRun(DarkFrameRun capture, IDeviceHub hub, strin
         {
             // The cool-down, the frames and the warm-up asked for are one body under the one lease: nothing can take the
             // camera, or move its cooler, between the setpoint being reached and the last frame.
-            await capture.RunAsync(hub, deviceUri, options, this, NodeDarkLibrary.LeaseOwner, cancellationToken);
+            // One run per exposure, the cool-down only before the first and the warm-up only after the last, all under the one lease.
+            for (var i = 0; i < exposures.Length; i++)
+            {
+                Volatile.Write(ref _exposureIndex, i);
+                var last = i == exposures.Length - 1;
+                await capture.RunAsync(hub, deviceUri, options with { Exposure = exposures[i], WarmWhenFinished = options.WarmWhenFinished && last, SetpointC = i == 0 ? options.SetpointC : null },
+                    this, NodeDarkLibrary.LeaseOwner, cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

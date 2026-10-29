@@ -16,6 +16,7 @@ public sealed class GuideLoopController
     public GuideLoopController(ITimeProvider timeProvider, ILogger<LiveViewController> logger)
     {
         Run = new GuidingRunController(timeProvider, logger);
+        Darks = new GuideDarksController(timeProvider, logger);
         // The frames are the guider's source, which a guiding run takes over from the loop and gives back, and the watching goes
         // on through the run, so the picture and the Loop button are the same across Calibrate, Guide and Stop (#1915).
         View = new LiveViewController(timeProvider, logger) { PolledFrameSource = FrameSources.Guider, KeepsWatching = Run.KeepsLoopWatching };
@@ -26,6 +27,9 @@ public sealed class GuideLoopController
 
     /// <summary>Calibrating and guiding off the loop (#1915): the node's guiding run, which replaces the loop and puts it back.</summary>
     public GuidingRunController Run { get; }
+
+    /// <summary>The guide camera's dark library, taken from the tab with the loop stopped (#1915).</summary>
+    public GuideDarksController Darks { get; }
 
     /// <summary>The exposure the loop starts at and the stepper shows, in seconds. A guide frame is about a second.</summary>
     public double ExposureSeconds { get; set; } = 1.0;

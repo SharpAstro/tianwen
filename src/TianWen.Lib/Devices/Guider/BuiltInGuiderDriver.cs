@@ -105,9 +105,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         Settling = 4,
     }
 
+    private readonly GuideDarkLibrary? _darks;
+
     public BuiltInGuiderDriver(BuiltInGuiderDevice device, IServiceProvider serviceProvider)
     {
         _device = device;
+        _darks = serviceProvider.GetService<GuideDarkLibrary>();
         External = serviceProvider.GetRequiredService<IExternal>();
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(BuiltInGuiderDriver));
         TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
@@ -535,7 +538,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin(), PreferredStar = _chosenStar };
         _calibrationTracker = tracker;
-        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
+        var frame = await CaptureCorrectedFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         LastCapturedFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
@@ -564,7 +567,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var pollInterval = External.ImageReadyPollInterval;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
+            var f = await CaptureCorrectedFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
             LastCapturedFrame = f;
             return f;
         }
@@ -690,7 +693,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var exposureTime = await ExposureTimeAsync(ct);
         var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin(), PreferredStar = _chosenStar };
         _calibrationTracker = tracker;
-        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
+        var frame = await CaptureCorrectedFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         LastCapturedFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
@@ -704,7 +707,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var pollInterval = External.ImageReadyPollInterval;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
+            var f = await CaptureCorrectedFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
             LastCapturedFrame = f;
             return f;
         }
@@ -791,7 +794,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             var timeProvider = TimeProvider;
             var pollInterval = External.ImageReadyPollInterval;
             async ValueTask<Image> CaptureFrame(CancellationToken token)
-                => await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
+                => await CaptureCorrectedFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
 
             // Guide -> (on divergence) recalibrate -> guide, bounded. Each pass re-acquires a fresh
             // guide star and rebuilds the loop. A neural model that drove the divergence is NOT
@@ -810,7 +813,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 var acquired = false;
                 for (var attempt = 1; attempt <= _maxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
                 {
-                    var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
+                    var frame = await CaptureCorrectedFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
                     tracker.ProcessFrame(frame.GetChannelArray(0));
                     if (tracker.IsAcquired)
                     {
@@ -946,8 +949,15 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     }
 
     /// <summary>
-    /// Captures a single guide frame: start exposure, poll until ready, return pixel data.
+    /// A guide frame with the camera's dark library applied (#1915): the matching dark subtracted and its bad pixels masked,
+    /// in a new frame, before a star is measured, shown or published. The frame as captured when the camera has no library.
     /// </summary>
+    private async ValueTask<Image> CaptureCorrectedFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
+    {
+        var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct);
+        return _darks?.For(camera.Name) is { } correction ? correction.Correct(frame, exposure, frame.ImageMeta.Gain) : frame;
+    }
+
     /// <summary>
     /// Captures a single guide frame via <see cref="ICameraDriver.GetImageAsync"/>.
     /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref; 

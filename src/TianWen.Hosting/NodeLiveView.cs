@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 
@@ -26,7 +27,7 @@ namespace TianWen.Hosting;
 /// <para>It ends by itself once no client has watched it for the detach grace (<see cref="NodeRunWatch"/>).</para>
 /// </remarks>
 internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
-    ITimeProvider timeProvider, ILogger<NodeLiveView> logger)
+    ITimeProvider timeProvider, GuideDarkLibrary guideDarks, ILogger<NodeLiveView> logger)
 {
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<LiveViewStateDto>> StartAsync(LiveViewRequestDto request, CancellationToken cancellationToken)
@@ -66,6 +67,12 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
             if (!run.TryPrepare(capture, data, hub, out var refusal))
             {
                 return ResponseEnvelope<LiveViewStateDto>.Fail(refusal, 409);
+            }
+
+            // The guide camera's darks, if it has any: read once as the loop starts, and applied to every frame it shows (#1915).
+            if (guide)
+            {
+                run.UseDarks(guideDarks.For(run.State.Camera));
             }
 
             if (!await hosted.TryStartAsync(run, profileId))
@@ -151,6 +158,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     // pairs one frame's width with another's height. Zero until the first frame is shown.
     private long _size;
     private int _ended;
+    private GuideDarkCorrection? _darks;
 
     private readonly Action<string?>? _onFault;
 
@@ -214,6 +222,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
                 BitDepth = Capture.FrameBitDepth,
                 FailureReason = Capture.FailureReason,
                 CanDriveLens = Capture.CanDriveLens,
+                DarksApplied = _darks is not null,
             };
         }
     }
@@ -233,6 +242,9 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
         FilterWheel = !_guide && profile.OTAs[request.OtaIndex].FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
         return true;
     }
+
+    /// <summary>Applies the guide camera's dark library to every frame this view shows; null for none (<see cref="GuideDarkCorrection"/>).</summary>
+    public void UseDarks(GuideDarkCorrection? darks) => Volatile.Write(ref _darks, darks);
 
     /// <summary>Stages each control the client gave, for the capture to take after its next frame.</summary>
     public void Apply(LiveViewControlsDto controls)
@@ -279,6 +291,13 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
         Volatile.Write(ref _size, ((long)frame.Width << 32) | (uint)frame.Height);
         if (_live.TrySample(frame, _timeProvider.GetUtcNow(), out var sample))
         {
+            // The sample is this view's own copy, so the correction may consume it: the node shows the corrected frame, and the
+            // guide star's readout and the picture both read it.
+            if (Volatile.Read(ref _darks) is { } darks)
+            {
+                sample = darks.Correct(sample, Capture.AppliedOptions?.Exposure ?? sample.ImageMeta.ExposureDuration,
+                    Capture.AppliedOptions?.Gain ?? sample.ImageMeta.Gain);
+            }
             _frames.Publish(FrameSources.LiveView, sample);
         }
     }

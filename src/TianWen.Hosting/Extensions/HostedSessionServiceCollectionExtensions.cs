@@ -14,6 +14,7 @@ using TianWen.Hosting.Api.NinaV2;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Extensions;
@@ -70,6 +71,7 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<DeviceOperations>();
         // The node's runs that are not a session (P5, #934): a dark library first, through the CLI's own capture.
         services.TryAddSingleton<DarkFrameRun>();
+        services.TryAddSingleton<GuideDarkLibrary>();
         services.AddSingleton<NodeDarkLibrary>();
         // The frame each source shows, whoever took it, and the node's preview exposures outside a session (P5 part 2).
         services.AddSingleton<NodeFrames>();

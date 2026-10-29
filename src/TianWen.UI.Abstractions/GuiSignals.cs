@@ -658,3 +658,12 @@ public readonly record struct StartGuidingSignal(GuideRunMode Mode, double Expos
 
 /// <summary>Stop the guiding run started by <see cref="StartGuidingSignal"/>: the node puts the loop back.</summary>
 public readonly record struct StopGuidingSignal;
+
+/// <summary>
+/// Take the guide camera's dark library (#1915): the node's dark library on the profile's guide camera, at the exposures round
+/// the loop's one and at its gain, <c>Count</c> frames each, which the guide loop and the guiding then subtract.
+/// </summary>
+public readonly record struct StartGuideDarksSignal(double ExposureSeconds, int? Gain = null);
+
+/// <summary>Stop the guide camera's dark library started by <see cref="StartGuideDarksSignal"/> after the frame in hand.</summary>
+public readonly record struct StopGuideDarksSignal;
