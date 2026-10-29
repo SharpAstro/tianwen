@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.Logging;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
@@ -10,10 +11,21 @@ namespace TianWen.UI.Abstractions;
 /// the exposure and gain the tab's steppers set. It shares the controller's frame reader, state poll and staged controls,
 /// never a copy of them.
 /// </summary>
-public sealed class GuideLoopController(ITimeProvider timeProvider, ILogger<LiveViewController> logger)
+public sealed class GuideLoopController
 {
+    public GuideLoopController(ITimeProvider timeProvider, ILogger<LiveViewController> logger)
+    {
+        Run = new GuidingRunController(timeProvider, logger);
+        // The frames are the guider's source, which a guiding run takes over from the loop and gives back, and the watching goes
+        // on through the run, so the picture and the Loop button are the same across Calibrate, Guide and Stop (#1915).
+        View = new LiveViewController(timeProvider, logger) { PolledFrameSource = FrameSources.Guider, KeepsWatching = Run.KeepsLoopWatching };
+    }
+
     /// <summary>The loop's live view: the frames (<see cref="LiveViewController.Source"/>), the node's state, start and stop.</summary>
-    public LiveViewController View { get; } = new LiveViewController(timeProvider, logger);
+    public LiveViewController View { get; }
+
+    /// <summary>Calibrating and guiding off the loop (#1915): the node's guiding run, which replaces the loop and puts it back.</summary>
+    public GuidingRunController Run { get; }
 
     /// <summary>The exposure the loop starts at and the stepper shows, in seconds. A guide frame is about a second.</summary>
     public double ExposureSeconds { get; set; } = 1.0;
@@ -28,7 +40,7 @@ public sealed class GuideLoopController(ITimeProvider timeProvider, ILogger<Live
     public void StepExposure(int direction)
     {
         ExposureSeconds = LiveSessionActions.StepExposure(ExposureSeconds, direction);
-        if (View.IsLive)
+        if (View.IsLive && !Run.IsRunning)
         {
             View.SetExposure(TimeSpan.FromSeconds(ExposureSeconds));
         }
@@ -38,7 +50,7 @@ public sealed class GuideLoopController(ITimeProvider timeProvider, ILogger<Live
     public void StepGain(int direction)
     {
         Gain = Math.Clamp((Gain ?? 0) + direction * GainStep, 0, short.MaxValue);
-        if (View.IsLive)
+        if (View.IsLive && !Run.IsRunning)
         {
             View.SetGain((short)Gain.Value);
         }

@@ -153,6 +153,36 @@ public class GuiderTabState
         }
     }
 
+    /// <summary>The node's guiding run, or its memory of the last (the calibration it holds); null before the node has answered.</summary>
+    public GuidingRunView? Run { get; private set; }
+
+    /// <summary>
+    /// Takes what the node's guiding run reports while no session runs (#1915): the guide steps, the RMS, the star and the
+    /// calibration, in the fields the session's own fill, so the graph, the stats and the camera pane's overlays draw them
+    /// as they draw a session's. Called after <see cref="PollFromLiveState"/>, and only with no session going.
+    /// </summary>
+    public void PollFromRun(GuidingRunView? run)
+    {
+        Run = run;
+        if (run is null || IsRunning)
+        {
+            return;
+        }
+
+        GuideSamples = run.Samples;
+        LastGuideStats = run.Stats;
+        GuiderState = run.GuiderState;
+        GuiderSettleProgress = run.Settle;
+        GuideExposure = run.Exposure;
+        GuideStarPosition = run.StarPosition;
+        GuideStarSNR = run.StarSnr;
+        GuideStarProfile = run.Profile;
+        CalibrationOverlay = run.Overlay;
+    }
+
+    /// <summary>Whether a guiding run goes on and has reached the guiding (settling, guiding, lock lost), where the stats and the graph are the story.</summary>
+    public bool IsGuidingRun => Run is { Running: true, Phase: Hosting.Dto.GuidingPhase.Settling or Hosting.Dto.GuidingPhase.Guiding or Hosting.Dto.GuidingPhase.LostLock };
+
     /// <summary>
     /// Polls guide-relevant fields from the shared live session state. Cheap struct copies.
     /// </summary>

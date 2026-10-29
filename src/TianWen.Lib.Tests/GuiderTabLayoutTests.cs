@@ -6,6 +6,7 @@ using System.IO;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
@@ -277,6 +278,192 @@ namespace TianWen.Lib.Tests
             // No viewer in this test, so the profile pane is what shows the star: its plot rect is laid out.
             Draw();
             tab.ProfilePlotRect.Width.ShouldBeGreaterThan(0f);
+        }
+
+        /// <summary>The node's state of a guiding run (#1915), with the guider's own slice when it goes on: what the tab is handed.</summary>
+        private static GuidingStateDto RunState(bool running, GuidingPhase phase, bool withSteps = false, bool withCalibration = false,
+            string? failure = null)
+        {
+            var steps = ImmutableArray.CreateBuilder<GuideStepDto>();
+            for (var i = 0; withSteps && i < 40; i++)
+            {
+                steps.Add(new GuideStepDto
+                {
+                    Timestamp = SampleStart + TimeSpan.FromSeconds(i),
+                    RaError = Math.Sin(i * 0.3) * 0.8,
+                    DecError = Math.Cos(i * 0.2) * 0.5,
+                    RaCorrectionMs = 40,
+                    DecCorrectionMs = -30,
+                    IsDither = false,
+                    IsSettling = false,
+                });
+            }
+
+            return new GuidingStateDto
+            {
+                Running = running,
+                Mode = GuideRunMode.Guide,
+                Phase = phase,
+                Camera = "Guide cam",
+                FailureReason = failure,
+                Calibration = withCalibration
+                    ? new GuiderCalibrationDto
+                    {
+                        RaAngleDeg = 93.4,
+                        DecAngleDeg = 3.1,
+                        RaRateArcsecPerSec = 12.8,
+                        DecRateArcsecPerSec = 14.2,
+                        OrthogonalityErrorDeg = 0.9,
+                        DurationSeconds = 38,
+                        Overlay = new CalibrationOverlayDto
+                        {
+                            RaOrigin = new CalibrationPointDto { X = 160, Y = 120 },
+                            DecOrigin = new CalibrationPointDto { X = 160, Y = 120 },
+                            RaSteps = [new CalibrationPointDto { X = 180, Y = 121 }],
+                            DecSteps = [new CalibrationPointDto { X = 161, Y = 140 }],
+                            PixelScaleArcsec = 3.8,
+                            CameraAngleRad = 0.05,
+                        },
+                    }
+                    : null,
+                Guider = running
+                    ? new GuiderStateDto
+                    {
+                        State = phase.ToString(),
+                        TotalRMS = 0.82,
+                        RaRMS = 0.55,
+                        DecRMS = 0.61,
+                        PeakRa = 1.6,
+                        PeakDec = 1.3,
+                        GuideExposureSeconds = 1,
+                        RecentSteps = steps.ToImmutable(),
+                        GuideFrameNumber = 7,
+                    }
+                    : null,
+            };
+        }
+
+        /// <summary>
+        /// Calibrate and Guide are offered only while looping with no run going on (the node's run replaces the loop): dimmed
+        /// before the loop and during a run, where the first button ends the RUN, and each sends the star chosen on the loop, or
+        /// none, at the loop's exposure (#1915).
+        /// </summary>
+        [Fact]
+        public void Loop_CalibrateAndGuideAreOfferedOnlyWhileLoopingAndSendTheChosenStar()
+        {
+            using var renderer = new RgbaImageRenderer(1280, 800);
+            var bus = new SignalBus();
+            var tab = LoopTab(renderer, bus);
+            var loop = tab.GuideLoop.ShouldNotBeNull();
+            var time = new FakeTimeProviderWrapper(SampleStart);
+            var starts = new List<StartGuidingSignal>();
+            var loopStops = 0;
+            var runStops = 0;
+            bus.Subscribe<StartGuidingSignal>(signal => starts.Add(signal));
+            bus.Subscribe<StopGuideLoopSignal>(_ => loopStops++);
+            bus.Subscribe<StopGuidingSignal>(_ => runStops++);
+
+            void Draw() => tab.Render(new LiveSessionState(), new RectF32(0, 0, 1280, 800), time);
+            bool Has(string action) => tab.GetRegisteredRegions().Any(r => r.Result is HitResult.ButtonHit hit && hit.Action == action);
+            void Click(string action)
+            {
+                var region = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit hit && hit.Action == action);
+                UiRouting.RoutePress(tab, region.X + (region.Width / 2f), region.Y + (region.Height / 2f));
+                bus.ProcessPending();
+            }
+
+            // Not looping: nothing to calibrate on.
+            Draw();
+            Has("GuideCalibrate").ShouldBeFalse();
+            Has("GuideStart").ShouldBeFalse();
+
+            // Looping, with no star chosen: both are offered and leave the star to the guider.
+            loop.View.Began(0, null);
+            Draw();
+            Has("GuideCalibrate").ShouldBeTrue();
+            Has("GuideStart").ShouldBeTrue();
+            Click("GuideCalibrate");
+            starts.ShouldBe([new StartGuidingSignal(GuideRunMode.Calibrate, loop.ExposureSeconds)]);
+
+            // With a star chosen, Guide sends where it is.
+            tab.State.SelectStar(150, 100);
+            tab.State.UpdateReadout(SourceWithAStar(150.4, 100.6, 0.5f), isNewFrame: false);
+            var chosen = tab.State.Selection.ShouldNotBeNull();
+            Draw();
+            Click("GuideStart");
+            starts.Count.ShouldBe(2);
+            starts[1].ShouldBe(new StartGuidingSignal(GuideRunMode.Guide, loop.ExposureSeconds, null, chosen.X, chosen.Y));
+
+            // A run going on: both are dimmed, and the first button, Stop, ends the run and not the loop.
+            loop.Run.Publish(RunState(running: true, GuidingPhase.Calibrating));
+            Draw();
+            Has("GuideCalibrate").ShouldBeFalse();
+            Has("GuideStart").ShouldBeFalse();
+            Click("GuideLoopToggle");
+            (runStops, loopStops).ShouldBe((1, 0));
+
+            // The run ended and the loop is back: offered again, and the button is the loop's Stop once more.
+            loop.Run.Publish(RunState(running: false, GuidingPhase.Idle));
+            Draw();
+            Has("GuideCalibrate").ShouldBeTrue();
+            Click("GuideLoopToggle");
+            (runStops, loopStops).ShouldBe((1, 1));
+        }
+
+        /// <summary>
+        /// While the run guides, its steps and RMS are drawn as a session's are (the graph pane, the stats panel in the readout's
+        /// place), and the calibration is said in words beside the L it drew on the frame; once it ends the graph goes and the
+        /// calibration stays, and a failure is said beside the loop (#1915).
+        /// </summary>
+        [Fact]
+        public void Loop_ShowsTheCalibrationInWordsAndTheGuideGraphWhileTheRunGuides()
+        {
+            using var renderer = new RgbaImageRenderer(1280, 800);
+            var tab = LoopTab(renderer, new SignalBus());
+            var loop = tab.GuideLoop.ShouldNotBeNull();
+            var time = new FakeTimeProviderWrapper(SampleStart);
+            void Draw() => tab.Render(new LiveSessionState(), new RectF32(0, 0, 1280, 800), time);
+
+            // Looping, never calibrated: the panel says how to get one, and there is no graph.
+            loop.View.Began(0, null);
+            Draw();
+            tab.State.Run.ShouldBeNull();
+            tab.GraphRect.ShouldBe(default(RectF32));
+
+            loop.Run.Publish(RunState(running: true, GuidingPhase.Guiding, withSteps: true, withCalibration: true));
+            Draw();
+            tab.State.IsGuidingRun.ShouldBeTrue();
+            tab.State.GuideSamples.Length.ShouldBe(40);
+            tab.State.LastGuideStats.ShouldNotBeNull().TotalRMS.ShouldBe(0.82, 1e-9);
+            tab.State.CalibrationOverlay.ShouldNotBeNull().RaSteps.Length.ShouldBe(1);
+            tab.GraphRect.Width.ShouldBe(1280f, 0.5f);
+            GuiderActions.GuidingStatus(loop.Run.View).ShouldBe("Guiding  0.82\" RMS");
+
+            GuiderActions.CalibrationLines(tab.State.Run.ShouldNotBeNull().Calibration.ShouldNotBeNull()).ShouldBe(
+            [
+                "RA: 93° at 12.8\"/s",
+                "Dec: 3° at 14.2\"/s",
+                "Axes 0.9° from square",
+                "Took 38 s",
+            ]);
+
+            // Ended: the graph is gone, the calibration is kept, and a failure is said beside the loop.
+            loop.Run.Publish(RunState(running: false, GuidingPhase.Idle, withCalibration: true, failure: "The guider stopped"));
+            Draw();
+            tab.State.IsGuidingRun.ShouldBeFalse();
+            tab.GraphRect.ShouldBe(default(RectF32));
+            tab.State.Run.ShouldNotBeNull().Calibration.ShouldNotBeNull();
+            GuiderActions.GuidingStatus(loop.Run.View).ShouldBe("The guider stopped");
+        }
+
+        [Fact]
+        public void CalibrationLines_SayWhyAnAxisPairThatIsOffSquareIs()
+        {
+            var lines = GuiderActions.CalibrationLines(new GuiderCalibrationDto { OrthogonalityErrorDeg = 12.3, RaAngleDeg = 10, RaRateArcsecPerSec = 7 });
+
+            lines.ShouldContain("Axes 12.3° from square: cone error or camera tilt");
+            lines[0].ShouldBe("RA: 10° at 7.0\"/s");
+            lines[1].ShouldBe("Dec: ? at ?", "an unknown figure is said so, never shown as zero");
         }
 
         [Fact]

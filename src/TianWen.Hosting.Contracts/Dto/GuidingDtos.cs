@@ -116,7 +116,7 @@ public sealed class GuidingStateDto
     public GuidingPhase Phase { get; init; }
 
     /// <summary>The guide camera's name; empty before a run has been asked for.</summary>
-    public string Camera { get; init; } = "";
+    public required string Camera { get; init; }
 
     /// <summary>The star the run was started on, in guide-frame pixels; null when the guider chose.</summary>
     public double? StarX { get; init; }
