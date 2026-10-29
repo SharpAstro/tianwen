@@ -27,7 +27,7 @@ internal partial record Session
     /// <param name="rampTime">Interval between temperature checks</param>
     /// <returns>True if ambient temperature was reached.</returns>
     internal ValueTask<bool> CoolCamerasToAmbientAsync(TimeSpan rampTime)
-        => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, SetupointDirection.Up, CancellationToken.None);
+        => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, CameraCoolingRamp.WarmUpPowerThreshold,SetupointDirection.Up, CancellationToken.None);
 
     /// <summary>
     /// Ramps camera cooling/warming to the target temperature over a total time budget.

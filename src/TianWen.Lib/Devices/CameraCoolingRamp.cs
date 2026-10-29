@@ -24,6 +24,14 @@ public static class CameraCoolingRamp
     public const double CoolDownPowerThreshold = 80;
 
     /// <summary>
+    /// The cooler power (percent) at or below which a warm-up counts the cooler as no longer holding the sensor down: a few
+    /// consecutive steps at it end the ramp whatever the sensor reads. A cooler cannot warm a sensor past ambient, so an
+    /// unreachable target would otherwise step until the safety cap (the QHY294PROC, 2026-10-26: 15 minutes stepping at 0 %
+    /// power toward an unreachable +25 C).
+    /// </summary>
+    public const double WarmUpPowerThreshold = 1;
+
+    /// <summary>
     /// The whole degree a ramp to <paramref name="setpointC"/> drives a sensor to, which is also the cooler intent it
     /// records. <see cref="sbyte.MinValue"/> is the ramp's "no value" for the sensor and ambient kinds, so never a target.
     /// </summary>
