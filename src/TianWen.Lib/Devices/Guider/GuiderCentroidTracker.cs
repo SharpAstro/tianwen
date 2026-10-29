@@ -55,6 +55,13 @@ internal sealed class GuiderCentroidTracker
     public int AcquisitionEdgeMargin { get; set; }
 
     /// <summary>
+    /// A star the user chose (frame pixels): acquisition takes the candidate nearest it within
+    /// <see cref="GuideStarReadout.PickRadius"/> and NO other, so a chosen star that is not there fails the acquisition
+    /// rather than locking a different one (#1915). Null (the default) takes the brightest, as before.
+    /// </summary>
+    public (double X, double Y)? PreferredStar { get; set; }
+
+    /// <summary>
     /// Number of stars currently being tracked.
     /// </summary>
     public int TrackedStarCount => _stars.Count;
@@ -235,6 +242,31 @@ internal sealed class GuiderCentroidTracker
         if (candidates.Count == 0)
         {
             return null;
+        }
+
+        if (PreferredStar is { } chosen)
+        {
+            var nearest = -1;
+            var nearestD2 = (double)GuideStarReadout.PickRadius * GuideStarReadout.PickRadius;
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var dx = candidates[i].X - chosen.X;
+                var dy = candidates[i].Y - chosen.Y;
+                if (dx * dx + dy * dy <= nearestD2)
+                {
+                    nearestD2 = dx * dx + dy * dy;
+                    nearest = i;
+                }
+            }
+            if (nearest < 0)
+            {
+                return null;
+            }
+
+            // The scratch list is refilled by the next scan, so it is narrowed to the one in place.
+            var only = candidates[nearest];
+            candidates.Clear();
+            candidates.Add(only);
         }
 
         // Sort brightest-first, but when an acquisition edge margin is set, prefer stars

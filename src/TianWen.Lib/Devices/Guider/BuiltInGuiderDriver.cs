@@ -31,6 +31,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private volatile Image? _lastFrame;
     private volatile GuiderCentroidTracker? _calibrationTracker;
 
+    // What a start from outside a session asked for (GuideStartOptions): the star the user chose on the looped frame, kept at
+    // the position it last had, and the exposure the loop ran at. Both are cleared by a start that asks for neither, so a
+    // session's guiding never inherits them.
+    private (double X, double Y)? _chosenStar;
+    private TimeSpan? _exposureOverride;
+
     /// <summary>
     /// When true (the default), a detected meridian flip re-orients the stored calibration, because a
     /// flip changes how the sky lies on the sensor and the old calibration no longer describes it.
@@ -317,7 +323,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     }
 
     public ValueTask<TimeSpan> ExposureTimeAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(TimeSpan.FromSeconds(2));
+        => ValueTask.FromResult(_exposureOverride ?? TimeSpan.FromSeconds(2));
 
     public ValueTask<string?> GetActiveProfileNameAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult<string?>(null);
@@ -459,7 +465,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     internal Task? GuideLoopTask => _guideLoopTask;
 
-    public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
+    public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
+        => GuideAsync(settlePixels, settleTime, settleTimeout, default, cancellationToken);
+
+    public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, GuideStartOptions start, CancellationToken cancellationToken)
     {
         if (_pulseTarget is null || _camera is null || _mount is null)
         {
@@ -475,6 +484,8 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _settlePixels = settlePixels;
         _settleTime = settleTime;
         _settleTimeout = settleTimeout;
+        _chosenStar = start.Star;
+        _exposureOverride = start.Exposure;
 
         // Cancel any previous guide loop -- and wait for it to be gone before the camera is reused, or
         // its finally ('_guideLoop = null; ForceState(Idle)') lands on top of the loop started below.
@@ -521,7 +532,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     {
         var exposureTime = await ExposureTimeAsync(ct);
 
-        var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin(), PreferredStar = _chosenStar };
         _calibrationTracker = tracker;
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         LastCapturedFrame = frame;
@@ -555,8 +566,65 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             Logger = Logger,
         };
 
-        return await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, TimeProvider, ct);
+        var result = await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, TimeProvider, ct);
+
+        // The star walked during the sweep, so a chosen one is followed to where it ended: the guide lock that comes next
+        // looks for it there, never at the click, which the sweep may have left further than a pick reaches.
+        if (_chosenStar is not null && tracker.LastResult is { } last)
+        {
+            _chosenStar = (last.X, last.Y);
+        }
+        return result;
     }
+
+    /// <summary>
+    /// Calibrates on the star <paramref name="start"/> names, with bounded retries, and does not guide: the star the user chose
+    /// on the loop is the one measured, the guider is idle after, and a following <see cref="GuideAsync(double, double, double, GuideStartOptions, CancellationToken)"/>
+    /// reuses the result. Runs on the caller's token, which is its stop.
+    /// </summary>
+    public async ValueTask<GuiderCalibrationSummary?> CalibrateAsync(GuideStartOptions start, CancellationToken cancellationToken)
+    {
+        if (_pulseTarget is null || _camera is null || _mount is null)
+        {
+            throw new GuiderException("Built-in guider has not been linked to mount and camera. Call LinkDevices first.");
+        }
+
+        var current = CurrentState;
+        if (current is not GuiderState.Idle and not GuiderState.Looping)
+        {
+            throw new GuiderException($"Cannot calibrate in state {current}");
+        }
+
+        CancelGuideLoop();
+        await WaitForGuideLoopExitAsync().ConfigureAwait(false);
+
+        _chosenStar = start.Star;
+        _exposureOverride = start.Exposure;
+        ForceState(GuiderState.Calibrating);
+        try
+        {
+            if (await CalibrateWithRetryAsync(_pulseTarget, _camera, cancellationToken).ConfigureAwait(false) is not { } calibrated)
+            {
+                Logger.LogWarning("Built-in guider: calibration on demand found no usable guide star or measured nothing the quality gates accept.");
+                return null;
+            }
+
+            _lastCalibration = calibrated;
+            _calibrationPierSide = await ReadPointingStateAsync(_mount, cancellationToken).ConfigureAwait(false);
+            return GuiderCalibrationSummary.From(calibrated, GuiderPixelScale);
+        }
+        finally
+        {
+            _calibrationTracker = null;
+            _chosenStar = null;
+            _exposureOverride = null;
+            ForceState(GuiderState.Idle);
+        }
+    }
+
+    /// <inheritdoc/>
+    public GuiderCalibrationSummary? LastCalibration
+        => _lastCalibration is { } calibration ? GuiderCalibrationSummary.From(calibration, GuiderPixelScale) : null;
 
     /// <summary>
     /// Calibrates with bounded retries. A failed attempt (no usable guide star, or a calibration the
@@ -610,7 +678,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         // Acquire a guide star for validation
         var exposureTime = await ExposureTimeAsync(ct);
-        var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin(), PreferredStar = _chosenStar };
         _calibrationTracker = tracker;
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         LastCapturedFrame = frame;
@@ -728,7 +796,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 // the loop then "guided" on nothing and the UI showed a healthy-looking flatline.
                 // Bounded retries with the same backoff the calibration path uses; give up loudly
                 // rather than guide without a lock.
-                var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
+                var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin(), PreferredStar = _chosenStar };
                 var acquired = false;
                 for (var attempt = 1; attempt <= _maxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
                 {

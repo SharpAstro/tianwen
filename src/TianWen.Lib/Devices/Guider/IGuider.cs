@@ -64,6 +64,34 @@ public interface IGuider : IDeviceDriver
     ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken);
 
     /// <summary>
+    /// <see cref="GuideAsync(double, double, double, CancellationToken)"/> from outside a session, on the star the user chose
+    /// while looping and at the exposure the loop ran at (#1915). A guider that picks its own star (PHD2) refuses a chosen one
+    /// in words rather than guiding on another: a lock that silently differs from the one on screen is the bug this avoids.
+    /// </summary>
+    /// <exception cref="GuiderException">The guider cannot guide on a chosen star.</exception>
+    ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, GuideStartOptions start, CancellationToken cancellationToken)
+        => start.Star is null
+            ? GuideAsync(settlePixels, settleTime, settleTimeout, cancellationToken)
+            : throw new GuiderException($"{Name} chooses its own guide star and cannot guide on the one chosen here: choose it in {Name}");
+
+    /// <summary>
+    /// Calibrates without then guiding, and answers the result as a value (#1915). It returns once the calibration has
+    /// finished, on the star <paramref name="start"/> names; the guider is then idle, and a following
+    /// <see cref="GuideAsync(double, double, double, GuideStartOptions, CancellationToken)"/> reuses the calibration.
+    /// A guider that calibrates only as it starts guiding (PHD2's <c>guide</c> call) refuses in words, never fakes one.
+    /// </summary>
+    /// <returns>What the calibration measured, or null when it failed (no usable star, or a measurement the quality gates reject).</returns>
+    /// <exception cref="GuiderException">The guider cannot calibrate on its own.</exception>
+    ValueTask<GuiderCalibrationSummary?> CalibrateAsync(GuideStartOptions start, CancellationToken cancellationToken)
+        => throw new GuiderException($"{Name} calibrates as it starts guiding: use Guide");
+
+    /// <summary>
+    /// The calibration the guider holds (its own last, or one it loaded and validated); null before one, and for a guider
+    /// that does not expose it.
+    /// </summary>
+    GuiderCalibrationSummary? LastCalibration => null;
+
+    /// <summary>
     /// Dither guiding with the given dither amount and settling parameters. Call <see cref="GetSettleProgressAsync(CancellationToken)"/> or <see cref="IsSettlingAsync(CancellationToken)"/>
     /// periodically to see when settling is complete.
     /// </summary>
