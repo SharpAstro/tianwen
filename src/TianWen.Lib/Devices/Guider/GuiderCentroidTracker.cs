@@ -212,6 +212,22 @@ internal sealed class GuiderCentroidTracker
         }
     }
 
+    /// <summary>
+    /// Every candidate star in <paramref name="frame"/> above <see cref="MinSNR"/>, brightest peak first, found by the
+    /// same scan acquisition uses (<see cref="FindCandidateStars"/>), for a reader that wants to choose among them itself
+    /// (<see cref="GuideStarReadout"/>). A copy: the tracker's own list is scratch.
+    /// </summary>
+    internal List<(double X, double Y, double Flux, double SNR)> FindStars(float[,] frame)
+    {
+        var found = FindCandidateStars(frame, frame.GetLength(1), frame.GetLength(0));
+        var copy = new List<(double X, double Y, double Flux, double SNR)>(found.Count);
+        foreach (var c in found)
+        {
+            copy.Add((c.X, c.Y, c.Flux, c.SNR));
+        }
+        return copy;
+    }
+
     private GuiderCentroidResult? TryAcquire(float[,] frame, int width, int height)
     {
         // Scan full frame for candidate stars

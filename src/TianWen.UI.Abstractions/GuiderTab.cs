@@ -112,7 +112,7 @@ namespace TianWen.UI.Abstractions
 
             if (State.PlaceholderReason is GuiderPlaceholder.NoSession && GuideLoop is { } loop)
             {
-                RenderLoop(loop, contentRect, quiet);
+                RenderLoop(loop, liveState, contentRect, quiet);
                 return;
             }
 
@@ -166,13 +166,16 @@ namespace TianWen.UI.Abstractions
         /// The tab with no session running and a loop to offer (#1915): a header with the Loop / Stop button, the exposure and
         /// the gain, and the guide camera's looped frames below, drawn by the same viewer the session's guide frames are.
         /// </summary>
-        private void RenderLoop(GuideLoopController loop, RectF32 contentRect, string? quiet)
+        private void RenderLoop(GuideLoopController loop, LiveSessionState liveState, RectF32 contentRect, string? quiet)
         {
             var view = loop.View;
-            if (view.Tick())
+            var fresh = view.Tick();
+            if (fresh)
             {
                 _guideState.NeedsTextureUpdate = true;
             }
+            // The chosen star is read in the frame the pane shows, whether or not a viewer is set to draw it.
+            State.UpdateReadout(view.Source, fresh);
             var fontSize = BaseFontSize * DpiScale;
             var source = GuideCameraViewer is not null ? view.Source : null;
 
@@ -205,25 +208,164 @@ namespace TianWen.UI.Abstractions
                     ? s.FramesPerSecond is { } fps && s.Width > 0 ? $"{fps:0.#} fps  {s.Width}x{s.Height}" : "Starting\u2026"
                     : s.FailureReason ?? ""
                 : "";
-            var controls = Layout.Builder.HStack(button, exposure.WFixed(150f), gain.WFixed(150f),
+            // Auto picks the brightest unsaturated isolated star, which a click on the frame overrides; Clear drops the choice.
+            var auto = Layout.Builder.Text("Auto", BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
+                .WFixed(56f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
+                .Clickable(new HitResult.ButtonHit("GuideStarAuto"), _ => State.SelectAutoStar());
+            var clear = Layout.Builder.Text("Clear", BaseFontSize * 0.9f, State.Selection is null ? DimText : BodyText, TextAlign.Center, TextAlign.Center)
+                .WFixed(56f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
+                .Clickable(new HitResult.ButtonHit("GuideStarClear"), _ => State.ClearSelection());
+
+            var controls = Layout.Builder.HStack(button, exposure.WFixed(150f), gain.WFixed(150f), auto, clear,
                     Layout.Builder.Text(quiet ?? status, BaseFontSize * 0.85f, DimText).Stretch())
                 .WithGap(BasePadding).Pad(BasePadding).Bg(HeaderBg);
 
+            // A press on the frame picks the star nearest it, mapped through the viewer that drew the frame.
             var camera = (source is not null
-                    ? Layout.Builder.Fill(key: CameraFillKey)
+                    ? Layout.Builder.Fill(key: CameraFillKey).Pressable(new HitResult.ButtonHit("GuideStarPick"), press =>
+                    {
+                        if (GuideCameraViewer is { } viewer)
+                        {
+                            var (x, y) = viewer.ScreenToFrame(_guideState, press.X, press.Y);
+                            State.SelectStar(x, y);
+                        }
+                        return null;
+                    }, CursorKind.Crosshair)
                     : Layout.Builder.Text(running ? "Waiting for guide frame\u2026" : "Press Loop to look through the guide camera",
                         BaseFontSize, DimText, TextAlign.Center, TextAlign.Center))
                 .Stretch().Bg(CameraBg);
 
-            RenderLayout(Layout.Builder.VStack(controls.RowH(BaseHeaderHeight), camera).Bg(ContentBg), contentRect,
+            var readoutPane = (State.Readout is not null
+                    ? Layout.Builder.Fill(key: ProfileFillKey)
+                    : Layout.Builder.Text("Awaiting data\u2026", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center))
+                .Stretch();
+            var profile = Layout.Builder.VStack(
+                    Layout.Builder.Text("Star Profile", BaseFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Near).WStar(),
+                    readoutPane)
+                .Stretch().Pad(BasePadding).Bg(ProfileBg);
+
+            var right = new List<Layout.Node> { Layout.Builder.HStack(profile, BuildReadoutPanel().ColW(BaseStatsWidth)).Stretch() };
+            if (BuildGuideFocuserPanel(liveState) is { } focuser)
+            {
+                right.Add(focuser);
+            }
+
+            // The right column is there with no frame yet: the guide focuser needs no frame to be moved.
+            var body = Layout.Builder.HStack(camera, Layout.Builder.VStack([.. right]).ColW(BaseProfileWidth + BaseStatsWidth)).Stretch();
+
+            RenderLayout(Layout.Builder.VStack(controls.RowH(BaseHeaderHeight), body).Bg(ContentBg), contentRect,
                 drawFill: (fill, rect) =>
                 {
-                    if (fill.Key == CameraFillKey && source is not null)
+                    switch (fill.Key)
                     {
-                        CameraRect = rect;
-                        RenderGuideCamera(rect, fontSize, source);
+                        case CameraFillKey when source is not null:
+                            CameraRect = rect;
+                            RenderGuideCamera(rect, fontSize, source);
+                            RenderSelection(rect);
+                            break;
+                        case ProfileFillKey when State.Readout is { } star:
+                            ProfilePlotRect = rect;
+                            StarProfilePlotRenderer.Render(Renderer, rect, star.HProfile, star.VProfile, DpiScale, FontPath, fontSize);
+                            break;
                     }
                 });
+        }
+
+        /// <summary>
+        /// The chosen star's readout (#1915): HFD to minimise while focusing, SNR, the peak against the frame's full scale and
+        /// the saturation in words (a clipped star reads sharper than it is, so it is said before it misleads the focus).
+        /// </summary>
+        private Layout.Node BuildReadoutPanel()
+        {
+            var rows = new List<Layout.Node>
+            {
+                StatsPitch(Layout.Builder.Text("Guide Star", BaseFontSize, HeaderText)),
+                Layout.Builder.Spacer().RowH(BaseStatsLineH * 0.2f),
+            };
+
+            if (State.Selection is null)
+            {
+                rows.Add(StatsPitch(Layout.Builder.Text("Click a star in the frame", BaseFontSize * 0.9f, DimText)));
+                rows.Add(StatsPitch(Layout.Builder.Text("or press Auto", BaseFontSize * 0.9f, DimText)));
+            }
+            else if (State.Readout is not { } star)
+            {
+                rows.Add(StatsPitch(Layout.Builder.Text("Star not found", BaseFontSize * 0.9f, AlertText)));
+                rows.Add(StatsPitch(Layout.Builder.Text("Click another, or Auto", BaseFontSize * 0.9f, DimText)));
+            }
+            else
+            {
+                var saturation = star.Saturated ? AlertText : star.PeakFraction >= GuiderActions.NearSaturationShare ? GuiTheme.Palette.Warn : DimText;
+                rows.Add(StatsRow("HFD:", double.IsNaN(star.Hfd) ? "\u2014" : $"{star.Hfd:F2} px"));
+                rows.Add(StatsRow("SNR:", $"{star.Snr:F0}"));
+                rows.Add(StatsRow("Peak:", GuiderActions.PeakText(star)));
+                rows.Add(StatsRow("Position:", $"{star.X:F1}, {star.Y:F1}"));
+                rows.Add(StatsPitch(Layout.Builder.Text(GuiderActions.SaturationWords(star), BaseFontSize * 0.9f, saturation)));
+            }
+
+            return Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Pad(BasePadding).Bg(PanelBg);
+        }
+
+        /// <summary>
+        /// The guide focuser's controls, the Preview's own (<see cref="FocuserControls"/>), only while the profile has one
+        /// assigned and connected; its moves are the Preview's signals aimed at <see cref="FocuserTargets.Guider"/>.
+        /// </summary>
+        private Layout.Node? BuildGuideFocuserPanel(LiveSessionState liveState)
+        {
+            if (State.GuideFocuser is not { } reading)
+            {
+                return null;
+            }
+
+            var rows = new List<Layout.Node>
+            {
+                StatsPitch(Layout.Builder.Text("Guide Focuser", BaseFontSize, HeaderText)),
+            };
+            rows.AddRange(FocuserControls.Rows("Guide", reading, liveState.GuideFocuserGotoInput,
+                delta => PostSignal(new JogFocuserSignal(FocuserTargets.Guider, delta)),
+                position => PostSignal(new GotoFocuserSignal(FocuserTargets.Guider, position)),
+                BaseStatsLineH * 1.2f));
+            return Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Pad(BasePadding).Bg(PanelBg).HAuto();
+        }
+
+        /// <summary>
+        /// The chosen star's mark on the frame: the session's own crosshair (<see cref="DrawGuideStarCrosshair"/>) inside a box of
+        /// the measuring aperture, both placed through the viewer's frame-to-screen mapping and never an origin of this tab's.
+        /// The box turns to the alert colour while the star is clipped.
+        /// </summary>
+        private void RenderSelection(RectF32 rect)
+        {
+            if (GuideCameraViewer is not { } viewer || State.Selection is not { } selection)
+            {
+                return;
+            }
+
+            // The box is the aperture, so one near the frame's edge runs past the pane: clipped to it.
+            PushClip(rect.X, rect.Y, rect.Width, rect.Height);
+
+            var (sx, sy, zoom) = viewer.FrameToScreen(_guideState, selection.X, selection.Y);
+            var half = (int)Math.Round(GuideStarReadout.Radius * zoom);
+            var color = State.Readout is { Saturated: true } ? AlertText : State.Readout is null ? DimText : CrosshairColor;
+            var cx = (int)sx;
+            var cy = (int)sy;
+            DrawLine(cx - half, cy - half, cx + half, cy - half, color);
+            DrawLine(cx + half, cy - half, cx + half, cy + half, color);
+            DrawLine(cx + half, cy + half, cx - half, cy + half, color);
+            DrawLine(cx - half, cy + half, cx - half, cy - half, color);
+            DrawGuideStarCrosshair(cx, cy);
+            PopClip();
+        }
+
+        /// <summary>The small fixed crosshair with a centre gap, on the guide star: the session's mark before guiding, and the chosen star's while looping.</summary>
+        private void DrawGuideStarCrosshair(int cx, int cy)
+        {
+            var crossLen = (int)(15 * DpiScale);
+            var crossGap = (int)(4 * DpiScale);
+
+            FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
+            FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
+            FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
+            FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
         }
 
         /// <summary>
@@ -363,17 +505,17 @@ namespace TianWen.UI.Abstractions
             }
 
             return Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Pad(BasePadding).Bg(PanelBg);
-
-            static Layout.Node StatsRow(string label, string value, RGBAColor32? valueColor = null)
-                => StatsPitch(
-                    Layout.Builder.Text(label, BaseFontSize * 0.9f, DimText).ColW(BaseStatsLabelWidth),
-                    Layout.Builder.Text(value, BaseFontSize * 0.9f, valueColor ?? BodyText).Stretch());
-
-            // The stats are a table with a row PITCH, so each row is a container of that height with its text centred in it:
-            // the text measures its own line box, and nothing here restates it.
-            static Layout.Node StatsPitch(params Layout.Node[] cells)
-                => Layout.Builder.HStack(cells).RowH(BaseStatsLineH).CrossCenter();
         }
+
+        private static Layout.Node StatsRow(string label, string value, RGBAColor32? valueColor = null)
+            => StatsPitch(
+                Layout.Builder.Text(label, BaseFontSize * 0.9f, DimText).ColW(BaseStatsLabelWidth),
+                Layout.Builder.Text(value, BaseFontSize * 0.9f, valueColor ?? BodyText).Stretch());
+
+        // The stats are a table with a row PITCH, so each row is a container of that height with its text centred in it:
+        // the text measures its own line box, and nothing here restates it.
+        private static Layout.Node StatsPitch(params Layout.Node[] cells)
+            => Layout.Builder.HStack(cells).RowH(BaseStatsLineH).CrossCenter();
 
         // Marks drawn ON the guide frame, not on chrome. The image is never recoloured (a sub of a faint
         // thing is already dark), so these sit on pixels whose brightness the theme does not control and
@@ -402,22 +544,18 @@ namespace TianWen.UI.Abstractions
             // anything in the frame samples the channel views; see the remarks there.
             viewer.Render(source, _guideState);
 
-            // Compute image→screen transform for overlays
-            var imgW = source.Width;
-            var imgH = source.Height;
-            var fitScale = Math.Min(rect.Width / imgW, rect.Height / imgH);
-            var drawW = imgW * fitScale;
-            var drawH = imgH * fitScale;
-            var offsetX = rect.X + (rect.Width - drawW) / 2;
-            var offsetY = rect.Y + (rect.Height - drawH) / 2;
+            // Overlays are placed through the viewer's own frame-to-screen mapping (the one the star pick and the
+            // selection box use), never an origin worked out here.
+            var imageCentre = viewer.FrameToScreen(_guideState, (source.Width - 1) / 2.0, (source.Height - 1) / 2.0);
 
             // Guide-star overlay. During guiding, draw a full RA/Dec-aligned
             // reticle (orange RA / blue Dec) spanning the frame with a centre gap
             // so the star stays visible; before guiding, the small fixed crosshair.
             if (State.GuideStarPosition is var (starX, starY))
             {
-                var cx = (int)(offsetX + starX * fitScale);
-                var cy = (int)(offsetY + starY * fitScale);
+                var (screenX, screenY, _) = viewer.FrameToScreen(_guideState, starX, starY);
+                var cx = (int)screenX;
+                var cy = (int)screenY;
 
                 if (State.GuideSamples.Length >= 2 && State.CalibrationOverlay is { } reticleCal)
                 {
@@ -425,13 +563,7 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    var crossLen = (int)(15 * dpiScale);
-                    var crossGap = (int)(4 * dpiScale);
-
-                    FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
-                    FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
-                    FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
-                    FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
+                    DrawGuideStarCrosshair(cx, cy);
                 }
             }
 
@@ -439,8 +571,7 @@ namespace TianWen.UI.Abstractions
             // Hide once guiding is active (guide samples accumulating).
             if (State.CalibrationOverlay is { } cal && State.GuideSamples.Length < 2)
             {
-                RenderCalibrationOverlayOnCamera(cal,
-                    offsetX + drawW / 2, offsetY + drawH / 2);
+                RenderCalibrationOverlayOnCamera(cal, imageCentre.X, imageCentre.Y);
             }
 
             // SNR + frame count in corner

@@ -10,6 +10,23 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class GuiderActions
 {
+    /// <summary>A peak past this share of the full scale is said to be near saturation, ahead of clipping.</summary>
+    public const double NearSaturationShare = 0.8;
+
+    /// <summary>
+    /// What a guide star's peak says about the exposure, in words (#1915): clipped (shorten it), close to clipping, or fine.
+    /// </summary>
+    public static string SaturationWords(GuideStarMeasurement star) => star switch
+    {
+        { Saturated: true } => "Saturated: shorten exposure",
+        { PeakFraction: >= NearSaturationShare } => "Near saturation",
+        _ => "Not saturated",
+    };
+
+    /// <summary>The peak as the readout shows it: the value and its share of the full scale.</summary>
+    public static string PeakText(GuideStarMeasurement star)
+        => double.IsNaN(star.PeakFraction) ? $"{star.Peak:F0}" : $"{star.Peak / star.FullScale * 100:F0}%";
+
     private const string SparkChars = "▁▂▃▄▅▆▇█";
 
     /// <summary>Banner text for each placeholder state.</summary>
