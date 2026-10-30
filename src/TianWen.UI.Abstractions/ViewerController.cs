@@ -135,7 +135,7 @@ public sealed class ViewerController(
     // through (#1314 part 2: the run's layer when its gains were derived, else its sharpened master as written), and what the capture was
     // identified as. The render thread takes both images, or releases them.
     private sealed record AutoStackOutcome(string SharpenedPath, string How, string CapturePath, BestStackLayer? Layer, Image? Sharpened,
-        PlanetaryIdentity Identity);
+        PlanetaryIdentity Identity, int Kept, int Graded);
 
     // The Auto view of the SER on screen, the whole capture identified and stacked (#1314 part 2; A4, #1391; Best folded in, #817), kept
     // so switching back to it stacks nothing again. One run at a time, its result handed back through the task, its progress a percent the
@@ -150,6 +150,9 @@ public sealed class ViewerController(
         // A field, so the stack's thread can write it with Volatile.Write.
         public int Percent;
 
+        // The stage (a PlanetaryStackStage), written the same way, -1 before the run reports one.
+        public int Stage = -1;
+
         // What a finished run says (where it was written and how it was sharpened), held until its view is on screen: the view's texture
         // upload clears the status line, so set at completion it would never be read. Keyed by the capture it stacked.
         public (string Path, string Message)? Note { get; set; }
@@ -157,7 +160,7 @@ public sealed class ViewerController(
         public string? Capture { get; set; }
         public ViewDials? Dials { get; set; }
 
-        public string Name => "Auto stack";
+        public string Name => "Full stack";
     }
 
     private readonly BatchView _auto = new BatchView();
@@ -172,8 +175,14 @@ public sealed class ViewerController(
     /// <summary>How many Auto stacks this controller has started; the switch between views starts none (#1314 rule 7). For tests.</summary>
     internal int AutoStacksStarted { get; private set; }
 
+    /// <summary>A task the next Auto run awaits before it starts its work, so a test can hold the run pending (#1875). For tests.</summary>
+    internal Task? AutoRunGate { get; set; }
+
     /// <summary>How many derivations the sharpening layer has started (#1314 rule 7). For tests.</summary>
     internal int DerivationsStarted => _derivation.Started;
+
+    /// <summary>The balance saturation the last Derive started with (#1880). For tests.</summary>
+    internal double? DerivationSaturation => _derivation.StartedAtSaturation;
 
     /// <summary>The live view's rolling stack and the Auto view's layer, for tests (#1314 part 2, A4 #1391).</summary>
     internal (LiveStackPreviewSource? Live, LiveStackPreviewSource? Auto) ViewLayers => (_liveSource, _auto.Layer);
@@ -189,18 +198,23 @@ public sealed class ViewerController(
         => state.AutoStackRequested
             || state.AutoViewRequested
             || WantsFrame(_auto)
-            || (_auto.Task is not null && Volatile.Read(ref _auto.Percent) / 100.0 != state.AutoStackProgress);
+            || (_auto.Task is not null && (Volatile.Read(ref _auto.Percent) / 100.0 != state.AutoStackProgress
+                || StageOf(_auto) != state.AutoStackStage));
+
+    private static PlanetaryStackStage? StageOf(BatchView batch)
+        => Volatile.Read(ref batch.Stage) is >= 0 and var stage ? (PlanetaryStackStage)stage : null;
 
     private static bool WantsFrame(BatchView batch) => batch.Note is not null || batch.Task is { IsCompleted: true };
 
-    // The raw source: the document (still) or the SerPreviewSource (SER). Always the playback driver -- the
-    // SequencePlayer advances THIS even while the stacked view is shown, so the playhead keeps moving and
-    // the live stack can follow it.
+    // The raw source: the document (still) or the SerPreviewSource (SER). The playback driver -- the
+    // SequencePlayer advances THIS even while the live stacked view is shown, so the playhead keeps moving and
+    // the live stack can follow it; not while the Auto view is up, a still picture (#1875).
     private IPreviewSource? _rawSource;
 
     // The live rolling-window stack over the same SER (null for stills / non-stacked). Built lazily; shown
     // only once it has produced its first master (HasMaster).
     private LiveStackPreviewSource? _liveSource;
+    private bool _autoAwaitedOnShow;
 
     /// <summary>
     /// The source the renderer previews. The raw frame normally; the sharpening layer's master when it is on show
@@ -209,7 +223,16 @@ public sealed class ViewerController(
     /// is the same object as <see cref="Document"/>; for a SER the raw source is a sequence source and <see cref="Document"/> is null.
     /// </summary>
     public IPreviewSource? Source => BatchLayerOnShow is { } batch ? batch
-        : state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+        : AutoAwaitsMaster ? _rawSource
+        : (state.ShowAuto ? state.ShowStacked : state.SharpenLayerOnShow) && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+
+    // The Auto view holds the picture still (#1875) only while it has something to show for it: a run asked for, pending or just ended
+    // and not yet taken in, or its master. A run cancelled or failed lets go, and the view under it (Frames or Live) plays on.
+    private bool AutoHolds => state.ShowAuto && state.IsSequence && (state.AutoViewRequested || _auto.Task is not null || _auto.Layer is not null);
+
+    // The Auto view holds and this capture has no Auto master yet: the raw frame at the held playhead shows, never the live
+    // rolling stack or an older view as if it were this run's result (#1875).
+    private bool AutoAwaitsMaster => AutoHolds && BatchLayerOnShow is null;
 
     // The Auto view's layer, once that view is chosen and its master is built (#1314 part 2); until then the view under it stays.
     private LiveStackPreviewSource? BatchLayerOnShow => state.ShowAuto && state.IsSequence && _auto.Layer is { HasMaster: true } layer ? layer : null;
@@ -314,7 +337,7 @@ public sealed class ViewerController(
                     // here, off the render thread; it stacks lazily once the user toggles to the stacked
                     // view. A failure to open it is non-fatal -- raw playback still works.
                     LiveStackPreviewSource? liveSource = null;
-                    try { liveSource = LiveStackPreviewSource.Open(requestedPath, timeProvider); }
+                    try { liveSource = LiveStackPreviewSource.Open(requestedPath, timeProvider); liveSource.Capture = serSource.Capture; }
                     catch (Exception ex) { logger.LogWarning(ex, "Failed to open live-stack source for {FilePath}", requestedPath); }
 
                     if (loadToken.IsCancellationRequested)
@@ -342,6 +365,7 @@ public sealed class ViewerController(
                     // panel's Auto, read from this capture, its telescope is no longer one set on it (#817), and the Auto view's identity
                     // is read again.
                     (state.PlanetaryBody, state.PlanetaryFilterNm, state.AutoIdentity) = (null, null, null);
+                    state.AutoFrames = null;
                     state.PlanetaryTelescopeSetHere = false;
                     // And the camera it names, which a telescope the panel is set to is remembered for.
                     state.SequenceCamera = PlanetaryIdentification.CameraOf(requestedPath);
@@ -1521,7 +1545,7 @@ public sealed class ViewerController(
             }
             else if (state.SequencePath is null)
             {
-                state.StatusMessage = "Auto stack: open a SER capture first";
+                state.StatusMessage = "Full stack: open a SER capture first";
             }
             else
             {
@@ -1541,9 +1565,16 @@ public sealed class ViewerController(
 
         changed |= TickBatch(_auto);
         var shownProgress = _auto.Task is { IsCompleted: false } ? Volatile.Read(ref _auto.Percent) / 100.0 : (double?)null;
-        if (state.AutoStackProgress != shownProgress)
+        var shownStage = _auto.Task is { IsCompleted: false } ? StageOf(_auto) : null;
+        if (state.AutoStackProgress != shownProgress || state.AutoStackStage != shownStage)
         {
-            state.AutoStackProgress = shownProgress;
+            (state.AutoStackProgress, state.AutoStackStage) = (shownProgress, shownStage);
+            changed = true;
+        }
+        var framesShown = AutoAwaitsMaster;
+        if (state.AutoShowsFrames != framesShown)
+        {
+            state.AutoShowsFrames = framesShown;
             changed = true;
         }
         return changed;
@@ -1580,7 +1611,7 @@ public sealed class ViewerController(
             {
                 AdoptBatch(batch, outcome);
                 batch.Note = (outcome.CapturePath, message);
-                state.AutoIdentity = outcome.Identity;
+                (state.AutoIdentity, state.AutoFrames) = (outcome.Identity, (outcome.Kept, outcome.Graded));
                 // The panel's telescope, where none was set on this capture, shows the one the run read, which the live view's Derive
                 // then takes too; not saved, since nobody set it.
                 if (!state.PlanetaryTelescopeSetHere && outcome.Identity is { ApertureMm: { } usedMm } used)
@@ -1618,17 +1649,32 @@ public sealed class ViewerController(
         var token = batch.Cts.Token;
         AutoStacksStarted++;
         Volatile.Write(ref batch.Percent, 0);
-        state.AutoStackProgress = 0;
-        var progress = new SynchronousProgress<double>(fraction => Volatile.Write(ref batch.Percent, (int)(fraction * 100)));
+        Volatile.Write(ref batch.Stage, (int)PlanetaryStackStage.Stacking);
+        (state.AutoStackProgress, state.AutoStackStage) = (0, PlanetaryStackStage.Stacking);
+        // The stage by name (#1879), and a percent that is Stacking's own, held at 99 through the stages after it, 100 when the last ends.
+        // The percent first, so a tick that sees the new stage never sees the old stage's percent.
+        var progress = new SynchronousProgress<PlanetaryStackProgress>(p =>
+        {
+            if (p.Stage != PlanetaryStackStage.Derotating)
+            {
+                Volatile.Write(ref batch.Percent, p.Stage == PlanetaryStackStage.Stacking ? (int)Math.Min(99, p.Fraction * 100) : p.Fraction >= 1 ? 100 : 99);
+            }
+            Volatile.Write(ref batch.Stage, (int)p.Stage);
+        });
         var directory = Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".";
         // Read here, on the render thread, before the run takes them off it.
         var setHere = state.PlanetaryTelescopeSetHere;
         var given = new PlanetaryIdentityGiven(state.PlanetaryBody, state.PlanetaryFilterNm, setHere ? state.PlanetaryApertureMm : null,
             setHere ? state.PlanetaryDesign : OpticalDesign.Unknown);
-        var (lastMm, lastDesign, strength) = (state.PlanetaryApertureMm, state.PlanetaryDesign, state.PlanetaryStrength);
-        state.StatusMessage = "Auto stack running: the capture identified, then stacked at the measured defaults";
+        var (lastMm, lastDesign, strength, saturation) = (state.PlanetaryApertureMm, state.PlanetaryDesign, state.PlanetaryStrength, state.PlanetaryColourSaturation);
+        var gate = AutoRunGate;
+        state.StatusMessage = "Full stack running: the capture identified, then stacked at the measured defaults";
         batch.Task = Task.Run(async () =>
         {
+            if (gate is not null)
+            {
+                await gate.WaitAsync(token);
+            }
             var identity = await PlanetaryIdentification.IdentifyAsync(capture, given, external, token);
             // Nothing the capture says names a telescope: the viewer's last one, as the Best stack took it.
             if (identity.ApertureMm is null && lastMm is { } mm)
@@ -1636,10 +1682,15 @@ public sealed class ViewerController(
                 identity = identity with { ApertureMm = mm, Design = lastDesign, TelescopeFrom = "the viewer's last telescope" };
             }
             using var stream = SerFrameStream.Open(capture);
-            var result = await PlanetaryBestStack.RunAsync(stream, PlanetaryAuto.OptionsFor(identity) with { Strength = strength }, progress, token);
+            var result = await PlanetaryBestStack.RunAsync(stream, AutoOptions(identity, strength, saturation), progress, token);
+            progress.Report(new PlanetaryStackProgress(PlanetaryStackStage.Writing, 0));
             return Written(result, PlanetaryAuto.OutputPaths(directory, Path.GetFileNameWithoutExtension(capture)), capture, identity);
         }, token);
     }
+
+    // The Auto stack's options: the identity's, with the panel's strength and balance saturation stops (#1880).
+    internal static PlanetaryBestStackOptions AutoOptions(PlanetaryIdentity identity, double strength, double saturation)
+        => PlanetaryAuto.OptionsFor(identity) with { Strength = strength, ColourSaturation = saturation };
 
     // How a finished batch stack was made, in the words its status line shows: the sharpening, the balance when there was one, and the
     // alignment-point cap when it cut the grid, which is silent otherwise (#1412).
@@ -1658,7 +1709,8 @@ public sealed class ViewerController(
         {
             PlanetaryAuto.Write(result, paths);
             handedOn = true;
-            return new AutoStackOutcome(paths.Sharpened, BatchHow(result), capture, result.Layer, result.Layer is null ? result.Sharpened : null, identity);
+            return new AutoStackOutcome(paths.Sharpened, BatchHow(result), capture, result.Layer, result.Layer is null ? result.Sharpened : null, identity,
+                result.Stack.FramesUsed, result.Stack.FramesGraded);
         }
         finally
         {
@@ -1862,6 +1914,14 @@ public sealed class ViewerController(
     /// (a frame was published, or a seek is still resolving). Steady playback between frames returns
     /// false so the loop idles and the GPU/disk go quiet. No-op (false) for a still image.
     /// </summary>
+    /// <remarks>
+    /// The Auto view is a still picture and costs a still frame (#1875): while <see cref="ViewerState.ShowAuto"/> is up, its run going on
+    /// or its master shown, the player neither advances nor decodes (the playhead holds and resumes when another view is chosen, or when the
+    /// run is cancelled or fails, which leaves the view under it playing) and the
+    /// live rolling stack does not follow or re-stack. The loop is then asked for a frame only when a frame's content changed: a master
+    /// published, the on-show layer re-sharpening after a dial change, or the Auto progress label (<see cref="AutoStackWantsFrame"/>,
+    /// the one per-progress wake); never merely because a run is busy.
+    /// </remarks>
     public bool TickPlayback()
     {
         // The RAW source is always the playback driver -- even while the stacked view is shown -- so the
@@ -1886,7 +1946,23 @@ public sealed class ViewerController(
             return false;
         }
 
-        var rawPublished = _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
+        var autoUp = AutoHolds;
+        var rawPublished = !autoUp && _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
+
+        // The strip's statistics follow the shown frame once it settles: measured off-thread, taken here, and the loop kept awake meanwhile.
+        // Only while the transport stands still: a playing SER's shown frame never settles, so polling then would keep the loop from
+        // idling between frames and measure frames nobody reads.
+        var readoutChanged = false;
+        var readoutPending = false;
+        if (raw is SerPreviewSource ser && !state.IsPlaying && !_player.SeekPending)
+        {
+            readoutChanged = ser.PollShownFrameReadout();
+            readoutPending = ser.ReadoutPending;
+            if (readoutChanged)
+            {
+                state.NeedsRedraw = true;
+            }
+        }
 
         // The chosen batch view's layer builds and re-sharpens its one master (#1314 part 2); once it is on show the dials are its own,
         // swapped with the other views' as it comes and goes, and the live stack stops following.
@@ -1906,10 +1982,18 @@ public sealed class ViewerController(
         }
         var bestOnShow = batchLayer is not null;
 
+        // Choosing Auto swaps the picture under it for the held raw frame until the master lands (#1875), and leaving it swaps back.
+        var awaiting = AutoAwaitsMaster;
+        if (awaiting != _autoAwaitedOnShow)
+        {
+            _autoAwaitedOnShow = awaiting;
+            state.NeedsTextureUpdate = true;
+        }
+
         // Live rolling-window stack: consume any finished master first (so the just-completed result is
         // published before we kick the next one), then follow the current playhead. Only runs while the
         // stacked view is requested -- no CPU spent stacking when showing the raw frame.
-        LiveStackPreviewSource? sharpening = batchLayer ?? (state.ShowStacked ? _liveSource : null);
+        LiveStackPreviewSource? sharpening = batchLayer ?? (state.ShowStacked && !autoUp ? _liveSource : null);
         if (sharpening is not null)
         {
             // Push changed wavelet-sharpen params (null = off); the source re-sharpens the cached master
@@ -1930,7 +2014,7 @@ public sealed class ViewerController(
 
         // Upload whichever source is actually on screen. A raw frame advance only re-uploads when the raw
         // frame is shown; a new master always becomes the displayed image (it only publishes while stacked).
-        var showingStacked = bestOnShow || (state.ShowStacked && _liveSource is { HasMaster: true });
+        var showingStacked = bestOnShow || (!awaiting && state.ShowStacked && _liveSource is { HasMaster: true });
         if (rawPublished && !showingStacked)
         {
             state.NeedsTextureUpdate = true;
@@ -1945,11 +2029,12 @@ public sealed class ViewerController(
         // published by TryPublishMaster on a later tick, but the render loop only ticks on input or a
         // timeout -- without this, a re-sharpen kicked by a slider drag would not be displayed until the
         // next mouse event (the "doesn't live adjust while paused" symptom). IsBusy self-clears on publish,
-        // so this briefly spins for the ~task duration, then the loop idles again.
-        // Evaluated before the short-circuiting returns below, or a tick that published would leave the line a master behind.
+        // so this briefly spins for the ~task duration, then the loop idles again. Only a layer on show counts: an Auto run
+        // still building has no master to publish, and its progress wakes the loop through AutoStackWantsFrame (#1875).
+        // Evaluated before the short-circuiting returns below, or a tick that published would leave the built-at line a master behind.
         var builtLineChanged = UpdateLiveStackBuiltLine(bestOnShow);
-        return rawPublished || masterPublished || builtLineChanged || _player.SeekPending
-            || (state.ShowStacked && _liveSource is { IsBusy: true }) || batch?.Layer is { IsBusy: true };
+        return rawPublished || masterPublished || builtLineChanged || readoutChanged || readoutPending || (!autoUp && _player.SeekPending)
+            || (!autoUp && state.ShowStacked && _liveSource is { IsBusy: true }) || batchLayer is { IsBusy: true };
     }
 
     /// <summary>
@@ -2018,7 +2103,11 @@ public sealed class ViewerController(
         {
             state.StretchMode = StretchMode.Planetary;
         }
-        batch.Layer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger);
+        // The capture's own facts are the SER on show's, cached at its open; the layer shows them too.
+        batch.Layer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger)
+        {
+            Capture = string.Equals(state.SequencePath, outcome.CapturePath, StringComparison.OrdinalIgnoreCase) ? _rawSource?.Capture : null,
+        };
         batch.Capture = outcome.CapturePath;
         batch.Dials = derived is { } d
             ? new ViewDials(d.Gains, true, d.Limb, d, true, $"Gains {d.How}")

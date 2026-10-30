@@ -60,7 +60,8 @@ public class DarkFrameRunCoolingTests(ITestOutputHelper output)
         var intents = new List<CoolerIntent>();
         hub.CoolerIntentChanged += (_, _) =>
         {
-            if (hub.TryGetCoolerIntent(device.DeviceUri, out var now))
+            // The event also fires for the sensor reading a cool-down starts from, which is no change of intent.
+            if (hub.TryGetCoolerIntent(device.DeviceUri, out var now) && (intents.Count == 0 || intents[^1] != now))
             {
                 intents.Add(now);
             }

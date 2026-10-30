@@ -63,6 +63,47 @@ public class ViewerTooltipTests
         Differs(Pixels(e2e, band), bare).ShouldBe(0, "the tooltip went with the pointer");
     }
 
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheTransportBarsViewSegmentsShowTheTextOfTheirShortcutRows(float dpiScale)
+    {
+        await using var e2e = ViewerE2E.Start(dpiScale);
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero));
+        e2e.Host.Router.Clock = clock;
+        var capture = ViewerBestStackTests.WriteCapture(System.IO.Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"));
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
+        e2e.State.IsPlaying = false;
+        e2e.Frame();
+
+        (string Action, ViewerShortcut Row)[] segments =
+        [
+            ("ViewFrames", ViewerShortcuts.RawStack),
+            ("ViewLive", ViewerShortcuts.RawStack),
+            ("ViewAuto", ViewerShortcuts.AutoView),
+        ];
+        var image = e2e.Viewer.ImageArea;
+        foreach (var (action, row) in segments)
+        {
+            var segment = e2e.Region(h => h is HitResult.ButtonHit { Action: var a } && a == action, action);
+            e2e.Host.HandlePointer(new InputEvent.MouseMove(image.X + (image.Width / 2f), image.Y + (image.Height / 2f)));
+            e2e.Frame();
+            e2e.Host.HandlePointer(new InputEvent.MouseMove(segment.X + (segment.Width / 2f), segment.Y + (segment.Height / 2f)));
+            e2e.Frame();
+            e2e.Host.Router.Tooltip.ShouldBeNull($"{action}: the pointer has only just arrived");
+            var before = e2e.Pixels();
+
+            clock.Advance(e2e.Host.Router.TooltipDelay);
+            e2e.Frame();
+            e2e.Host.Router.Tooltip.ShouldNotBeNull(action).Text.ShouldBe(row.TooltipText, action);
+            Differs(e2e.Pixels(), before).ShouldBeGreaterThan(0, $"{action}: the tooltip is drawn");
+        }
+        ViewerShortcuts.RawStack.TooltipText.ShouldEndWith(", K");
+        ViewerShortcuts.AutoView.TooltipText.ShouldEndWith(", Shift+K");
+    }
+
     /// <summary>The window's rows <see cref="Top"/> up to <see cref="Bottom"/>, full width.</summary>
     private readonly record struct Band(int Top, int Bottom);
 

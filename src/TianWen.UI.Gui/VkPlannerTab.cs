@@ -1,7 +1,9 @@
 using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Shared;
 using Vortice.Vulkan;
 
 namespace TianWen.UI.Gui;
@@ -236,8 +238,35 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             TextAlign.Center, TextAlign.Near);
     }
 
+    private VkObjectPictures? _pictures;
+    private IObjectPictureStore? _pictureStore;
+
+    /// <summary>
+    /// Where the details strip's pictures come from. Set by the host from its services; unset, the strip keeps
+    /// its picture slot's dark frame and fetches nothing.
+    /// </summary>
+    public IObjectPictureStore? PictureStore
+    {
+        get => _pictureStore;
+        set
+        {
+            _pictureStore = value;
+            if (_pictures is { } pictures)
+            {
+                pictures.Store = value;
+            }
+        }
+    }
+
+    protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+    {
+        _pictures ??= new VkObjectPictures(_renderer.Context, RequestRedraw, Logger) { Store = _pictureStore };
+        _pictures.Draw(_renderer, image, rect);
+    }
+
     public void Dispose()
     {
+        _pictures?.Dispose();
         _chartTexture?.Dispose();
         _deferredDispose?.Dispose();
         _chartRenderer?.Dispose();

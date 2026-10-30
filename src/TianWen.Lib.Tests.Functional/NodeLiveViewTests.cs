@@ -232,7 +232,7 @@ public class NodeLiveViewTests(ITestOutputHelper outputHelper) : IDisposable
         (noOta.StatusCode, noOta.Error).ShouldBe((409, "The profile has no OTA #4"));
 
         // A cool-down ramp takes minutes, and the camera is its job's until it ends.
-        var cooling = (await client.CoolCameraAsync(Camera.DeviceUri, -10, rampMinutes: null, ct)).Value.ShouldNotBeNull();
+        var cooling = (await client.CoolCameraAsync(Camera.DeviceUri, -10, maxRateCPerMinute: null, ct)).Value.ShouldNotBeNull();
         var busy = await client.StartLiveViewAsync(Default, ct);
         busy.StatusCode.ShouldBe(409);
         busy.Error.ShouldNotBeNull().ShouldContain(cooling.Id);

@@ -102,6 +102,7 @@ public sealed class InjectionPopulation
     private ChannelRelation? _ownRelation;
     private LuminosityFunction? _luminosity;
     private PoolStar[] _faintColours = [];
+    private ImmutableArray<OuterHalo> _outerHalo;
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
@@ -140,6 +141,11 @@ public sealed class InjectionPopulation
     /// <summary>Unsaturated stars the brightness is drawn from.</summary>
     public int AmplitudePool => _amplitudes.Length;
 
+    /// <summary>Unsaturated catalogue rows refused as diverged fits (#1867): a LocalSigma that is not finite, or an amplitude
+    /// above <see cref="ClassicalStarRemover.OvershootMargin"/> (4) times the frame's clip less the star's sky. They are in neither
+    /// the pool nor the carried lobes, and still count as sites.</summary>
+    public int Refused { get; private init; }
+
     /// <summary>Lobes carried by the stars of both pools.</summary>
     public int CarriedLobes => _amplitudes.Sum(static s => s.Lobes.Length) + _saturated.Sum(static s => s.Lobes.Length);
 
@@ -177,6 +183,17 @@ public sealed class InjectionPopulation
         => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && s.ChannelAmplitudes.Length == channels
             && s.ChannelAmplitudes.All(float.IsFinite);
 
+    // A diverged fit (#1867): a NaN LocalSigma means its centre was outside the frame (a star on the absent ring keeps its sigma),
+    // and an unsaturated star cannot peak far above the frame's clip, so an amplitude in any channel above OvershootMargin (4)
+    // times the clip less the star's own sky is a fit that ran away (one such edge fit, at 1e12, once dominated the pool's draws).
+    // The margin is the plate builder's: a Moffat's continuous peak sits above its brightest pixel, up to about 1.7 times. The clip is the master's unit-scale divisor, the full scale the
+    // exporter divides every amplitude by (so it is 1 once scaled): the channels share it, as the master's unit range does,
+    // and MaxValue alone is the observed peak, not saturation. Saturated stars are not asked: their wing amplitude is
+    // legitimately past the clip.
+    private static bool Diverged(FittedStar s, double clip)
+        => !float.IsFinite(s.LocalSigma)
+            || (!s.Saturated && s.ChannelAmplitudes.Any(a => a > ClassicalStarRemover.OvershootMargin * Math.Max(0.0, clip - (float.IsFinite(s.Sky) ? s.Sky : 0.0))));
+
     /// <summary>
     /// Reads a master's population. <paramref name="master"/> and <paramref name="plate"/> are the master and its starless
     /// plate as stored (the catalogue's units); <paramref name="scale"/> takes amplitudes and clip levels into the units the
@@ -195,8 +212,12 @@ public sealed class InjectionPopulation
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
         StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null,
-        ChannelWingEnvelope? wingEnvelope = null)
+        ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default)
     {
+        if (!outerHalo.IsDefault && outerHalo.Length != master.ChannelCount)
+        {
+            throw new ArgumentException($"{outerHalo.Length} outer halos for a {master.ChannelCount}-channel master", nameof(outerHalo));
+        }
         if (wingEnvelope is not null && field is null)
         {
             throw new ArgumentException("a wing relation envelope holds the master's field profile; it needs one", nameof(wingEnvelope));
@@ -219,6 +240,7 @@ public sealed class InjectionPopulation
         var fieldFwhm = psf.Average(static p => p.Fwhm);
 
         var sites = catalogue.Where(static s => s.Outcome == StarFitOutcome.Subtracted).Select(static s => ((double)s.X, (double)s.Y)).ToArray();
+        var clip = (double)master.UnitScaleDivisor;
         var parentOf = lobes ? LobeParents(catalogue, LobeReachFwhm * (field?.Luminance.Fwhm ?? fieldFwhm)) : null;
         var carried = new Dictionary<int, List<Lobe>>();
         if (parentOf is not null)
@@ -228,7 +250,7 @@ public sealed class InjectionPopulation
                 var s = catalogue[k];
                 // A claimed row the injector cannot draw (not the field's Moffat, or a channel without an amplitude) is part
                 // of its star all the same: it leaves the pool and the count, and is not drawn.
-                if (parentOf[k] is var p and >= 0 && Usable(s, channels) && s.ChannelAmplitudes.Max() > 0)
+                if (parentOf[k] is var p and >= 0 && Usable(s, channels) && s.ChannelAmplitudes.Max() > 0 && !Diverged(s, clip))
                 {
                     if (!carried.TryGetValue(p, out var list))
                     {
@@ -241,18 +263,21 @@ public sealed class InjectionPopulation
         }
         bool IsLobe(int k) => parentOf is not null && parentOf[k] >= 0;
         ImmutableArray<Lobe> LobesOf(int k) => carried.TryGetValue(k, out var list) ? [.. list] : [];
+        var refused = Enumerable.Range(0, catalogue.Length)
+            .Count(k => Usable(catalogue[k], channels) && !catalogue[k].Saturated && catalogue[k].ChannelAmplitudes.Max() > 0 && Diverged(catalogue[k], clip));
         var countedSites = Enumerable.Range(0, catalogue.Length)
             .Where(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && !IsLobe(k))
             .Select(k => ((double)catalogue[k].X, (double)catalogue[k].Y))
             .ToArray();
         var amplitudes = Enumerable.Range(0, catalogue.Length)
-            .Where(k => catalogue[k] is var s && Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0 && !IsLobe(k))
+            .Where(k => catalogue[k] is var s && Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0 && !IsLobe(k) && !Diverged(s, clip))
             .Select(k => new PoolStar([.. catalogue[k].ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)], [], LobesOf(k), catalogue[k].Significance))
             .ToArray();
         if (amplitudes.Length == 0)
         {
-            throw new InvalidOperationException(
-                "the plate's catalogue has no unsaturated Moffat-subtracted star with per-channel amplitudes to draw from (a catalogue written before R1 has none)");
+            throw new InvalidOperationException(refused > 0
+                ? $"the plate's catalogue has no unsaturated Moffat-subtracted star to draw from: every candidate ({refused}) was refused as a diverged fit (a NaN local sigma, or an amplitude past the margin)"
+                : "the plate's catalogue has no unsaturated Moffat-subtracted star with per-channel amplitudes to draw from (a catalogue written before R1 has none)");
         }
 
         var planes = new float[channels][];
@@ -337,7 +362,7 @@ public sealed class InjectionPopulation
         }
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp };
+            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo };
     }
 
     /// <summary>
@@ -635,6 +660,10 @@ public sealed class InjectionPopulation
                 ? new StarProfile(family, field.Channels[c].Fwhm, field.Channels[c].Beta, q, theta, field.Channels[c].Table, field.Channels[c].TableAlpha,
                     wingLogGains.IsDefault ? 0.0 : wingLogGains[c])
                 : new StarProfile(family, _psf[c].Fwhm, _psf[c].Beta, q, theta));
+            if (!_outerHalo.IsDefault)
+            {
+                profiles[c] = profiles[c] with { Outer = _outerHalo[c] };
+            }
         }
         return profiles.MoveToImmutable();
     }

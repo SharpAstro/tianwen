@@ -130,6 +130,26 @@ public class ViewerWaveletDeriveTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task DeriveTakesTheBalanceSaturationChosenInThePanel(float dpi)
+    {
+        // #1880: the balance's stop goes into the derivation as it starts, as the strength's does.
+        await using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        // A colour capture: a mono source shows no saturation stops.
+        await OpenStackedAsync(e2e, ct, dispersed: true);
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "BalanceSaturationEye" }, "the Eye saturation button"));
+        e2e.Frame();
+
+        PressDerive(e2e);
+        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
+
+        e2e.Controller.DerivationSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task AStopChosenAfterDeriveSwitchesTheDialsAtOnceAndDerivesNothing(float dpi)
     {
         // #1314: one Derive fits every strength stop, so a stop chosen after it puts that stop's gains on the dials in the frame it is
@@ -186,6 +206,32 @@ public class ViewerWaveletDeriveTests
     }
 
     // The synthetic Jupiter capture opened and its stacked view on screen with a master in it.
+    [Theory]
+    [InlineData(0, "Deriving the gains from this master, 0 s so far")]
+    [InlineData(12, "Deriving the gains from this master, 12 s so far")]
+    [InlineData(59, "Deriving the gains from this master, 59 s so far")]
+    [InlineData(60, "Deriving the gains from this master, 1 min 0 s so far")]
+    [InlineData(80, "Deriving the gains from this master, 1 min 20 s so far")]
+    [InlineData(605, "Deriving the gains from this master, 10 min 5 s so far")]
+    public void TheDeriveCaptionReadsTheTimeElapsedSoFar(int seconds, string expected) =>
+        WaveletDerivation.Caption(TimeSpan.FromSeconds(seconds + 0.4)).ShouldBe(expected);
+
+    [Fact]
+    public void TheDeriveCaptionShowsTheStageBeforeTheTimeElapsed()
+    {
+        WaveletDerivation.Caption(TimeSpan.FromSeconds(40.2), TianWen.Lib.Imaging.Planetary.PlanetaryStackStage.Sharpening).ShouldBe("Sharpening, 40 s so far");
+        WaveletDerivation.Caption(TimeSpan.FromSeconds(80), TianWen.Lib.Imaging.Planetary.PlanetaryStackStage.BalancingColour).ShouldBe("Balancing colour, 1 min 20 s so far");
+    }
+
+    [Fact]
+    public void ARunningDerivationsCaptionPromisesNoDuration()
+    {
+        var caption = WaveletDerivation.Caption(TimeSpan.FromSeconds(3));
+
+        caption.ShouldNotContain("about");
+        caption.ShouldNotContain("half a minute");
+    }
+
     internal static async Task OpenStackedAsync(ViewerE2E e2e, System.Threading.CancellationToken ct, bool dispersed = false)
     {
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"), dispersed: dispersed);

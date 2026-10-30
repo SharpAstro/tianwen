@@ -5,6 +5,8 @@ blue's shoulder under Andromeda's bright stars and leave light in the Tarantula'
     3-4.5 px over 2,160 bright isolated stars (profiles.py), in sigma;
   - the held-out Tarantula of 2026-10-17: bright dark-sky stars flat and left, the core residual R/G/B at 0-1.5 px, crowded
     stars flat, Gaia BP 17-19 removed and purity (remover_check2, gaia_remover_check, profiles);
+  - every master: the glow left around bright clipped stars (glow_ring.py: median, p90 and the share above the config's
+    glow_threshold, in the export's stretch and the master's noise sigma; Sagittarius is in score.json only);
   - the Sagittarius Triplet's crowded stars flat (mono, as three planes), and M31's nucleus taken (the guard, at most 5 %).
 Plates are made at one view (how a model ships) into <out root>/<tag>/ and reused when present; a judge's existing
 plates are linked in with --plates. Glue only: every number is parsed from the checks' own output.
@@ -131,16 +133,32 @@ pt = run([py, HERE / 'profiles.py', MASTERS['tarantula'], f'm={plates["tarantula
 score['tarantula']['profile'] = profile_rows(pt, 'm')
 s_txt = run([py, '-I', k2, three(MASTERS['sag']), out / 'check2-sag', f'm={three(plates["sag"])}', '--cli', CLI])
 score['sag'] = check2_rows(s_txt, 'm')
+glow_cfg = cfg.get('glow_threshold', {})
+for k, master, plate in (('andromeda', MASTERS['andromeda'], plates['andromeda']), ('tarantula', MASTERS['tarantula'], plates['tarantula']),
+                         ('sag', three(MASTERS['sag']), three(plates['sag']))):
+    thr = ','.join(str(float(v)) for v in glow_cfg[k])      # a master with no threshold in the config is a KeyError, never a guess
+    g_txt = run([py, '-I', HERE / 'glow_ring.py', master, plate, '--threshold', thr])
+    score[k]['glow'] = {}
+    for m in re.finditer(r'^glow ([RGB]) n (\d+) median ([-\d.]+) p90 ([-\d.]+) above ([\d.]+) %', g_txt, re.M):
+        score[k]['glow'][m[1]] = {'n': int(m[2]), 'median': float(m[3]), 'p90': float(m[4]), 'above': float(m[5])}
+    if sorted(score[k]['glow']) != ['B', 'G', 'R']:
+        raise KeyError(f'glow_ring.py printed no glow line for every channel of {k}; see {out / "score.log"}')
 nuc = run([py, HERE / 'm31_nucleus.py', MASTERS['andromeda'], plates['andromeda']]).strip().splitlines()[-1]
 m = re.search(r'nucleus 0-6 px\s+([+-][\d.]+)% /\s+([+-][\d.]+)% /\s+([+-][\d.]+)%', nuc)
 score['nucleus'] = [float(x) for x in m.groups()]
 (out / 'score.json').write_text(json.dumps(score, indent=1))
+
+def glow_field(d):
+    """median / p90 / share of stars above the threshold, green (the luminance channel), in sigma-pixels and %."""
+    g = d['glow']['G']
+    return f"G {g['median']:.1f}/{g['p90']:.1f} above {g['above']:.0f}%"
+
 
 A, T, S = score['andromeda'], score['tarantula'], score['sag']
 row = (f"{a.tag:>10} | And dark flat {A['dark_flat']:5.1f} dug {A['dark_dug']:5.1f} | blue 1.5-3 {A['profile']['B'][1]:+.2f} "
        f"3-4.5 {A['profile']['B'][2]:+.2f} | Tar dark flat {T['dark_flat']:5.1f} left {T['dark_left']:5.1f} core "
        f"{T['profile']['R'][0]:+.2f}/{T['profile']['G'][0]:+.2f}/{T['profile']['B'][0]:+.2f} | Tar crowded {T['crowded_flat']:5.1f} "
        f"BP17-19 {T['bp1719']:5.1f} purity {T['purity']:.1f} | Sag crowded {S['crowded_flat']:5.1f} | nucleus "
-       f"{'/'.join(f'{x:.1f}' for x in score['nucleus'])} %")
+       f"{'/'.join(f'{x:.1f}' for x in score['nucleus'])} % | And glow {glow_field(A)} | Tar glow {glow_field(T)}")
 (out / 'row.txt').write_text(row + '\n')
 print(row)

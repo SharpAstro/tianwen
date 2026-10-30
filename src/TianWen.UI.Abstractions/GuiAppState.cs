@@ -42,6 +42,20 @@ public readonly record struct NotificationEntry(
         note.Message);
 }
 
+/// <summary>
+/// Where the GUI window is, as far as Back and Forward bring it back: the tab, and the cheap state a tab keeps that a
+/// return should find as it was left (the planner's selected target). Deliberately small: a place is something a person
+/// wants to come back to, not a copy of every tab's state, so a tab's scroll, zoom and field contents are not in it.
+/// </summary>
+/// <param name="Tab">The tab on screen.</param>
+/// <param name="PlannerSelected">
+/// The planner's selected <see cref="Target"/> at that moment, or null with nothing selected. The target and never its
+/// <see cref="PlannerState.SelectedTargetIndex"/>: the index is a row of <see cref="PlannerActions.GetFilteredTargets"/>,
+/// whose rows move whenever a pin, a recompute or a filter changes while the person is away, so a stored index would come
+/// back on whatever target slid under it (the same trap <c>ToggleProposal(followPinnedSelection:)</c> exists for).
+/// </param>
+public readonly record struct GuiPlace(GuiTab Tab, Target? PlannerSelected);
+
 public class GuiAppState
 {
     /// <summary>
@@ -158,7 +172,115 @@ public class GuiAppState
     /// </summary>
     public NodeGrants? NodeGrants { get; set; }
 
-    public GuiTab ActiveTab { get; set; } = GuiTab.Home;
+    private GuiTab _activeTab = GuiTab.Home;
+    private bool _restoringPlace;
+
+    /// <summary>
+    /// Which tab is on screen. THE owner of the window's history (#1821): setting a different tab records the
+    /// <see cref="GuiPlace"/> it leaves on <see cref="History"/> and drops the places forward of it, so a switch from the
+    /// rail, a tab's chord, Ctrl+Tab and a cross-tab jump (Show in atlas, show in planner, a rig's Open) are all recorded
+    /// without any of those writers knowing. A switch the APP makes on its own account counts too (a prompt or the quit
+    /// question bringing the Live Session forward): Back then returns to what the person was doing, as a browser's does
+    /// across a redirect. What is NOT history is a correction rather than a move: <see cref="SetActiveTabWithoutHistory"/>,
+    /// for the forced Equipment tab while no profile exists and the shed-load switch of a degraded render. Going back or
+    /// forward restores through <see cref="TryGoBack"/> and <see cref="TryGoForward"/>, which are never recorded themselves.
+    /// </summary>
+    public GuiTab ActiveTab
+    {
+        get => _activeTab;
+        set
+        {
+            if (_activeTab == value)
+            {
+                return;
+            }
+
+            if (!_restoringPlace)
+            {
+                History.Push(CurrentPlace());
+            }
+
+            _activeTab = value;
+        }
+    }
+
+    /// <summary>Where the window has been: the places a Back returns to, and a Forward comes back to.</summary>
+    public NavigationHistory<GuiPlace> History { get; } = new();
+
+    /// <summary>The planner whose selection a <see cref="GuiPlace"/> carries; attached with the planner's own app state.</summary>
+    internal PlannerState? Planner { get; set; }
+
+    /// <summary>The place the window is at now: the tab on screen and the cheap per-tab state a return should bring back.</summary>
+    public GuiPlace CurrentPlace() => new GuiPlace(_activeTab, SelectedPlannerTarget());
+
+    private Target? SelectedPlannerTarget()
+    {
+        if (Planner is not { } planner)
+        {
+            return null;
+        }
+
+        var filtered = PlannerActions.GetFilteredTargets(planner);
+        var index = planner.SelectedTargetIndex;
+        return index >= 0 && index < filtered.Count ? filtered[index].Target : null;
+    }
+
+    /// <summary>
+    /// Writes <paramref name="tab"/> as the tab on screen WITHOUT recording a move: a correction (the Equipment tab while
+    /// no profile exists, a degraded render leaving the heavy view), which is not somewhere the person went.
+    /// </summary>
+    public void SetActiveTabWithoutHistory(GuiTab tab) => _activeTab = tab;
+
+    /// <summary>Goes back one place, trading the current one for it; false with nothing to go back to.</summary>
+    public bool TryGoBack(out GuiPlace place) => History.Back(CurrentPlace(), out place) && Restore(place);
+
+    /// <summary>Goes forward one place, trading the current one for it; false with nothing to go forward to.</summary>
+    public bool TryGoForward(out GuiPlace place) => History.Forward(CurrentPlace(), out place) && Restore(place);
+
+    private bool Restore(GuiPlace place)
+    {
+        _restoringPlace = true;
+        try
+        {
+            ActiveTab = place.Tab;
+            // Only a place ON the planner owns its selection: a Back or Forward to the atlas must not rewrite the
+            // planner's cursor behind it.
+            if (place.Tab == GuiTab.Planner && Planner is { } planner)
+            {
+                RestorePlannerSelection(planner, place.PlannerSelected);
+            }
+        }
+        finally
+        {
+            _restoringPlace = false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Selects <paramref name="target"/> at its row in the planner's CURRENT list, whichever row that is now
+    /// (<see cref="PlannerActions.IsSameObject"/>, so a planet resolved at another instant is still the same planet).
+    /// A target that is gone leaves the cursor where it is, clamped into the list.
+    /// </summary>
+    private static void RestorePlannerSelection(PlannerState planner, Target? target)
+    {
+        var filtered = PlannerActions.GetFilteredTargets(planner);
+        if (target is { } wanted)
+        {
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                if (PlannerActions.IsSameObject(filtered[i].Target, wanted))
+                {
+                    planner.SelectedTargetIndex = i;
+                    return;
+                }
+            }
+        }
+
+        planner.SelectedTargetIndex = Math.Clamp(planner.SelectedTargetIndex, 0, Math.Max(0, filtered.Count - 1));
+    }
+
     public Profile? ActiveProfile { get; set; }
 
     /// <summary>

@@ -243,8 +243,9 @@ partial class ImageRendererBase<TSurface>
         };
 
         // The finish needs no stars and no other dial: it reads the stretched pixel and the background the stretch has.
-        // Saturation means nothing on a mono frame, so it is dim there and says why.
-        var saturationEnabled = _document?.UnstretchedImage.ChannelCount is >= 3;
+        // Saturation means nothing on a mono frame, so it is dim there and says why. Asked of the picture ON SHOW (a SER has no
+        // document: its raw frame, live stack and full stack are the source), and a mosaic counts, since the GPU demosaics it.
+        var saturationEnabled = _source is { } shown && IsColour(shown);
         _toneContrastSlider.Value = state.FinishContrast;
         _toneContrastSlider.OnChanged = v =>
         {

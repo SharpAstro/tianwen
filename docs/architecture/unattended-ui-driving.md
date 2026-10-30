@@ -47,8 +47,12 @@ screenshot-poll-and-OCR**. Three pieces compose:
    and binds nothing but its loopback command server, so no build path prompts. The sidecar multicasts after reading
    the registry, which finds an app built against an older DIR.Lib (it answers on UDP 47892 on every interface and
    prompts from any new path: a copy, a scratch publish). A sidecar pinned below 7.70 multicasts only and lists no
-   11.21 app. **The inspector needs a build against the sibling SOURCES** (`UseLocalSiblings`): a worktree under
-   `.claude/worktrees/` finds none, so its Debug GUI has no inspector at all and `list_instances` cannot list it. The
+   11.21 app. **The inspector needs a Debug build.** In a normal checkout it comes from the sibling SOURCES
+   (`UseLocalSiblings`); a worktree or flight plane under `.claude/worktrees/` finds no siblings, and its Debug app
+   references the `.Debug` twin packages (`DIR.Lib.Debug`, `Console.Lib.Debug`, `SdlVulkan.Renderer.Debug`, defining
+   `SIBLING_DEBUG_INSPECTORS`; `TianWen.UI.Web` excepted), so it has the inspector too. Proven on 2026-10-29 from a
+   plane: a Debug `tianwen-fits` started local-only was listed by `list_instances` and `press_key Y` flipped
+   `skyBackdrop` with the window unfocused. The
    local-only mode (`TIANWEN_LOCAL_ONLY=1`, which `tools/start-app.ps1` sets) leaves the inspector alone, and
    `DIR_LIB_INSPECTOR_LAN=1`, which turns an 11.21 app's multicast back on for a sidecar on another machine, is never
    needed on this one ([hosting-api.md](hosting-api.md), "Local-only"). It gives six surfaces:

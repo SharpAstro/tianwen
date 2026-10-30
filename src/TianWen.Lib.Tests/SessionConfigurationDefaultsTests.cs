@@ -22,8 +22,8 @@ public class SessionConfigurationDefaultsTests
         // other 51 from their declarations, so record equality pins every one of them at once.
         var declared = new SessionConfiguration(
             SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
-            CooldownRampInterval: TimeSpan.FromMinutes(5),
-            WarmupRampInterval: TimeSpan.FromMinutes(5),
+            CooldownMaxRate: CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute,
+            WarmupMaxRate: CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute,
             MinHeightAboveHorizon: 20,
             DitherPixel: 5.0,
             SettlePixel: 1.0,

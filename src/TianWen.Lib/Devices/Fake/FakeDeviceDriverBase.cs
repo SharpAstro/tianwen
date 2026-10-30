@@ -41,8 +41,6 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IServiceProv
 
     public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
-
     protected virtual void Dispose(bool disposing)
     {
         if (!disposedValue)
@@ -80,8 +78,6 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IServiceProv
         {
             OnConnected();
         }
-
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connected));
     }
 
     /// <summary>Called after the device transitions to connected. Override to initialize state.</summary>

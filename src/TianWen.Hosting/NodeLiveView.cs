@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 
@@ -26,7 +27,7 @@ namespace TianWen.Hosting;
 /// <para>It ends by itself once no client has watched it for the detach grace (<see cref="NodeRunWatch"/>).</para>
 /// </remarks>
 internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
-    ITimeProvider timeProvider, ILogger<NodeLiveView> logger)
+    ITimeProvider timeProvider, GuideDarkLibrary guideDarks, ILogger<NodeLiveView> logger)
 {
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<LiveViewStateDto>> StartAsync(LiveViewRequestDto request, CancellationToken cancellationToken)
@@ -47,7 +48,9 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
         {
             return ResponseEnvelope<LiveViewStateDto>.Fail("The node has no active profile to show a live view of", 409);
         }
-        if (request.OtaIndex >= 0 && request.OtaIndex < data.OTAs.Length && jobs.TryGetRunningOn(data.OTAs[request.OtaIndex].Camera, out var job))
+        var guide = request.CameraRole == LiveViewCamera.Guider;
+        var camera = guide ? data.GuiderCamera : request.OtaIndex >= 0 && request.OtaIndex < data.OTAs.Length ? data.OTAs[request.OtaIndex].Camera : null;
+        if (camera is not null && jobs.TryGetRunningOn(camera, out var job))
         {
             return ResponseEnvelope<LiveViewStateDto>.Fail($"The camera is busy: a {job.Kind} of it is running (job {job.Id})", 409);
         }
@@ -60,10 +63,18 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
         {
             // The whole sensor (a zero window) at the Preview's binning: a Canon's Live View unmagnified, any other camera full frame.
             var capture = new PlanetaryCaptureRequest(request.OtaIndex, TimeSpan.FromMilliseconds(request.ExposureMs), request.Gain, 0, 0,
-                Bin: request.Binning);
+                Bin: request.Binning, GuideCamera: guide);
             if (!run.TryPrepare(capture, data, hub, out var refusal))
             {
                 return ResponseEnvelope<LiveViewStateDto>.Fail(refusal, 409);
+            }
+
+            // The guide camera's darks, if it has any: read once, off the request (building the masters takes seconds), and applied to
+            // every frame shown from the moment they are ready (#1915).
+            if (guide)
+            {
+                var cameraName = run.State.Camera;
+                run.UseDarks(Task.Run(() => guideDarks.For(cameraName), CancellationToken.None));
             }
 
             if (!await hosted.TryStartAsync(run, profileId))
@@ -75,7 +86,7 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
             // The node's from here: it disposes the run when the next one replaces it, or as the host stops.
             var started = run;
             run = null;
-            logger.LogInformation("Live view of {Camera} at {Exposure} ms", started.State.Camera, request.ExposureMs);
+            logger.LogInformation("Live view ({Role}) of {Camera} at {Exposure} ms", request.CameraRole, started.State.Camera, request.ExposureMs);
             return ResponseEnvelope<LiveViewStateDto>.Accepted(started.State);
         }
         finally
@@ -143,11 +154,14 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     private readonly ITimeProvider _timeProvider;
     private readonly FrameSampler _live;
     private int _otaIndex;
+    private bool _guide;
     private string _camera = "";
     // The newest shown frame's size, its width in the high half and its height in the low: one write, so a reader never
     // pairs one frame's width with another's height. Zero until the first frame is shown.
     private long _size;
     private int _ended;
+    private GuideDarkCorrection? _darks;
+    private Task<GuideDarkCorrection?>? _darksLoading;
 
     private readonly Action<string?>? _onFault;
 
@@ -167,6 +181,18 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
 
     /// <inheritdoc/>
     public Uri? FilterWheel { get; private set; }
+
+    /// <summary>Whether this view streams the guide camera (#1915): its newest frame is then the guider's too (<see cref="NodeFrames.Guider"/>).</summary>
+    public bool IsGuideCamera => _guide;
+
+    /// <summary>The binning the view's frames are read out at, so a guide star chosen on one is the same pixel to a guider that takes over.</summary>
+    public short Binning { get; private set; } = 1;
+
+    /// <summary>What the capture streams at now (every live control applied): the exposure a guiding run that replaces the view carries on at.</summary>
+    public TimeSpan? Exposure => Capture.AppliedOptions?.Exposure;
+
+    /// <summary>The gain it streams at, null for the camera's own.</summary>
+    public short? Gain => Capture.AppliedOptions?.Gain;
 
     public NodeRunKind Kind => NodeRunKind.LiveView;
 
@@ -188,6 +214,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
             return new LiveViewStateDto
             {
                 OtaIndex = _otaIndex,
+                CameraRole = _guide ? LiveViewCamera.Guider : LiveViewCamera.Ota,
                 Camera = _camera,
                 Width = (int)(size >> 32),
                 Height = (int)(uint)size,
@@ -198,6 +225,7 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
                 BitDepth = Capture.FrameBitDepth,
                 FailureReason = Capture.FailureReason,
                 CanDriveLens = Capture.CanDriveLens,
+                DarksApplied = CurrentDarks() is not null,
             };
         }
     }
@@ -209,11 +237,31 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
         {
             return false;
         }
-        _otaIndex = request.OtaIndex;
+        _guide = request.GuideCamera;
+        Binning = request.Bin;
+        _otaIndex = _guide ? -1 : request.OtaIndex;
         _camera = Capture.Camera?.Name ?? "";
-        // The wheel its stream goes through: a filter change of it is this live view's interlude (INodeStreamingRun).
-        FilterWheel = profile.OTAs[request.OtaIndex].FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
+        // The wheel its stream goes through: a filter change of it is this live view's interlude (INodeStreamingRun). The guide camera has none.
+        FilterWheel = !_guide && profile.OTAs[request.OtaIndex].FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
         return true;
+    }
+
+    /// <summary>Applies the guide camera's dark library to every frame this view shows; null for none (<see cref="GuideDarkCorrection"/>).</summary>
+    public void UseDarks(Task<GuideDarkCorrection?> loading) => Volatile.Write(ref _darksLoading, loading);
+
+    // The Task is the hand-off: polled here, never awaited, so no frame waits for the masters (CLAUDE.md, Concurrency).
+    private GuideDarkCorrection? CurrentDarks()
+    {
+        if (Volatile.Read(ref _darks) is { } ready)
+        {
+            return ready;
+        }
+        if (Volatile.Read(ref _darksLoading) is { IsCompletedSuccessfully: true } loaded)
+        {
+            Volatile.Write(ref _darks, loaded.Result);
+            return loaded.Result;
+        }
+        return null;
     }
 
     /// <summary>Stages each control the client gave, for the capture to take after its next frame.</summary>
@@ -261,6 +309,13 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
         Volatile.Write(ref _size, ((long)frame.Width << 32) | (uint)frame.Height);
         if (_live.TrySample(frame, _timeProvider.GetUtcNow(), out var sample))
         {
+            // The sample is this view's own copy, so the correction may consume it: the node shows the corrected frame, and the
+            // guide star's readout and the picture both read it.
+            if (CurrentDarks() is { } darks)
+            {
+                sample = darks.Correct(sample, Capture.AppliedOptions?.Exposure ?? sample.ImageMeta.ExposureDuration,
+                    Capture.AppliedOptions?.Gain ?? sample.ImageMeta.Gain);
+            }
             _frames.Publish(FrameSources.LiveView, sample);
         }
     }

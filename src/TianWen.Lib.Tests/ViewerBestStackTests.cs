@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Ser;
@@ -35,7 +36,7 @@ public class ViewerBestStackTests
         await AutoOnShowAsync(e2e, ct);
 
         // What the run did is said once its Auto view is on screen (its upload clears the status line first).
-        await e2e.PumpUntilAsync(() => e2e.State.StatusMessage?.StartsWith("Auto stack:", StringComparison.Ordinal) == true,
+        await e2e.PumpUntilAsync(() => e2e.State.StatusMessage?.StartsWith("Full stack:", StringComparison.Ordinal) == true,
             "the Auto stack's note", ct);
 
         File.Exists(Path.Combine(e2e.Folder, "master_2024-12-15-1256_7-Jupiter_auto.fits")).ShouldBeTrue();
@@ -59,6 +60,44 @@ public class ViewerBestStackTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task TheAutoSegmentNamesTheStageTheRunIsInAndReturnsToAutoWhenDone(float dpi)
+    {
+        // #1879: Stacking with its percent, then a later stage by its word, never a percent frozen at 99.
+        // One design size at both scales, or at 1.5x the controls leave the scrub track no width (#1509).
+        await using var e2e = ViewerE2E.Start(dpi, width: (uint)(1600 * dpi), height: (uint)(1000 * dpi));
+        var ct = TestContext.Current.CancellationToken;
+        var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
+        e2e.State.AutoSegmentLabel.ShouldBe("Full");
+        bool IsTheTrack(HitResult hit) => hit is HitResult.SliderStateHit { State: var slider } && ReferenceEquals(slider, e2e.Viewer.Scrub);
+        await e2e.PumpUntilAsync(() => e2e.Viewer.PaintedRegions().Any(r => IsTheTrack(r.Result)), "the scrub track to be painted", ct);
+        var trackX = e2e.Region(IsTheTrack, "the scrub track").X;
+
+        var seen = new System.Collections.Generic.List<string>();
+        e2e.Key(InputKey.K, InputModifier.Shift);
+        await e2e.PumpUntilAsync(() =>
+        {
+            var label = e2e.State.AutoSegmentLabel;
+            // The scrub track starts where it did at "Full" whatever the segment says: a stage's word must neither resize the view
+            // switch nor push the track off. Read each tick, so it holds for any stage the pump happens to see.
+            e2e.Region(IsTheTrack, "the scrub track").X.ShouldBe(trackX, 0.5f, "the scrub track's left edge at " + label);
+            if (seen.Count == 0 || seen[^1] != label)
+            {
+                seen.Add(label);
+            }
+            return label == "Full" && seen.Count > 1 && !e2e.Controller.IsAutoStackPending;
+        }, "the Auto stack to end", ct, untilTimeout: true);
+
+        seen.ShouldContain(l => l.StartsWith("Stacking", StringComparison.Ordinal));
+        seen.ShouldContain(l => !l.StartsWith("Stacking", StringComparison.Ordinal) && l != "Full" && !l.Contains('%'),
+            "a stage after Stacking is named, with no percent: " + string.Join(" | ", seen));
+        seen[^1].ShouldBe("Full");
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task AStrengthChosenInThePanelTakesTheAutoStackPastTheTruth(float dpi)
     {
         // #1251: the truth by default, a post's look as an option. The panel's strength reaches the run, and its note says so.
@@ -77,7 +116,7 @@ public class ViewerBestStackTests
         // frame may clear it again before the assertion reads it.
         await AutoOnShowAsync(e2e, ct);
         string? note = null;
-        await e2e.PumpUntilAsync(() => (note = e2e.State.StatusMessage)?.StartsWith("Auto stack:", StringComparison.Ordinal) == true,
+        await e2e.PumpUntilAsync(() => (note = e2e.State.StatusMessage)?.StartsWith("Full stack:", StringComparison.Ordinal) == true,
             "the Auto stack's note", ct);
 
         note.ShouldNotBeNull().ShouldContain("strength 2 past the truth");

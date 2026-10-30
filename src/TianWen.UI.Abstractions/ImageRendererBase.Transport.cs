@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -48,8 +49,13 @@ namespace TianWen.UI.Abstractions
         // disk I/O. The scrub track rect is captured for the press/drag -> frame mapping in ScrubAt.
         // -----------------------------------------------------------------------
 
-        /// <summary>The widest label a segment of the view switch takes: the Auto stack's at its end.</summary>
-        private const string ViewSwitchWidestLabel = "Auto 100%";
+        // The view switch's fixed words, named once for the segments and for the width they are sized by.
+        private const string RawLabel = "Raw";
+        private const string LiveLabel = "Live";
+        private const string LivePendingLabel = "Live...";
+        // Every word a segment can take: a live capture offers Raw and Live, a SER also the Full stack's stage words.
+        private static readonly string[] LiveViewLabels = [RawLabel, LiveLabel, LivePendingLabel];
+        private static readonly string[] SerViewLabels = [.. LiveViewLabels, .. ViewerState.AutoSegmentLabels];
 
         /// <summary>The play / pause button's fill, which the bar draws its mark into.</summary>
         private const string PlayPauseFillKey = "PlayPause";
@@ -78,33 +84,44 @@ namespace TianWen.UI.Abstractions
             var btnSize = contentH;
             var ink = RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f);
 
-            // The view switch (#1314 part 2): the frames, the live rolling stack about the playhead, or the whole capture's Auto stack
-            // (A4, #1391; the Best view folded into it, #817), one ButtonGroup labelled Raw / Stack / Auto: "Live" read as the camera's live
-            // video as much as the live stack (the owner, 2026-10-21), so the labels went back to the RAW / STACK toggle's words. "Stack..."
-            // while the live stack's first master is still computing, and the Auto stack's progress on its own segment while it runs (the view under it
-            // stays on show until it ends). Arranged in device pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
-            var stackLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? "Stack..." : "Stack";
-            var autoLabel = state.AutoStackProgress is { } autoDone
-                ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Auto {autoDone * 100:0}%")
-                : "Auto";
-            ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> views =
+            // The view switch (#1314 part 2, #1877): Raw, then a "Stack:" label and its two views, Live (the rolling stack about the playhead)
+            // and Full (the whole capture identified and stacked once, A4 #1391, #817). "Auto" is left to the Enhance panel's choice rows.
+            // "Live..." while the live stack's first master is still computing, and the Full stack's progress on its own segment while it runs
+            // (the view under it stays on show until it ends). Arranged in device pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
+            var liveLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? LivePendingLabel : LiveLabel;
+            var fullLabel = state.AutoSegmentLabel;
+            ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> rawView =
             [
-                new(PlanetaryView.Frames, "Raw") { Hit = new HitResult.ButtonHit("ViewFrames") },
-                new(PlanetaryView.Live, stackLabel) { Hit = new HitResult.ButtonHit("ViewLive") },
-                new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto") },
+                new(PlanetaryView.Frames, RawLabel) { Hit = new HitResult.ButtonHit("ViewFrames"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
             ];
-            // Every segment as wide as the widest label any of them takes, so a running Auto stack never moves the scrub track.
+            ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> stackViews =
+            [
+                new(PlanetaryView.Live, liveLabel) { Hit = new HitResult.ButtonHit("ViewLive"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
+                new(PlanetaryView.Auto, fullLabel) { Hit = new HitResult.ButtonHit("ViewAuto"), Tooltip = ViewerShortcuts.AutoView.TooltipText },
+            ];
+            // Every segment as wide as the widest label any of them takes, so a running Full stack never moves the scrub track.
+            // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Raw and Live only, and its
+            // segments take only those labels' width, never the Full stack's stage words.
+            var live = state.IsLiveCapture;
+            var widestLabels = live ? LiveViewLabels : SerViewLabels;
+            var segmentText = 0f;
+            foreach (var label in widestLabels)
+            {
+                segmentText = MathF.Max(segmentText, MeasureText(label, fs));
+            }
             var viewStyle = PlanetaryChoiceStyle with
             {
                 Gap = pad,
-                SegmentWidth = MeasureText(ViewSwitchWidestLabel, fs) + pad * 2,
+                SegmentWidth = segmentText + pad * 2,
             };
-            // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Raw and Stack only.
-            var live = state.IsLiveCapture;
-            var offered = live ? views[..2] : views;
-            var viewSwitch = Layout.Builder.ButtonGroup(offered, state.PlanetaryView, state.ChoosePlanetaryView, viewStyle, fs);
+            var offered = live ? stackViews[..1] : stackViews;
+            var rawGroup = Layout.Builder.ButtonGroup(rawView, state.PlanetaryView, state.ChoosePlanetaryView, viewStyle, fs);
+            var stackGroup = Layout.Builder.ButtonGroup(offered, state.PlanetaryView, state.ChoosePlanetaryView, viewStyle, fs);
             var controlsCtx = MeasureContext(scale: DesignScale.One);
-            var segmentH = Layout.Engine.Measure(viewSwitch, new Layout.Size<float>(float.MaxValue, btnSize), controlsCtx).Height;
+            var segmentH = Layout.Engine.Measure(rawGroup, new Layout.Size<float>(float.MaxValue, btnSize), controlsCtx).Height;
+            // "Stack:" is a label, not a button: plain text, no region, no hover.
+            var stackCaption = Layout.Builder.Text("Stack:", fs, ink, TextAlign.Near, TextAlign.Center).HFixed(segmentH);
+            var viewSwitch = Layout.Builder.HStack(rawGroup, stackCaption, stackGroup).WithGap(pad);
 
             // Play/pause: the mark of the action a press takes, a triangle when paused and two bars when playing, on a square button as
             // tall as the view switch's segments beside it. A Fill the bar draws, since no IconKind is a transport mark: the family keeps

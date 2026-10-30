@@ -10,11 +10,13 @@ cheap: this plan is about how fast a sensor's temperature is made to change, and
   crash journal's recovery and the dark run. Each step (every 15 s) sets the setpoint one degree past the sensor's own
   reading (`SetupointDirection.SetpointTemp`), so the setpoint never runs ahead of a cooler that cannot keep up, and the
   ramp stops stepping once the cooler passes 80 % power (`CoolDownPowerThreshold`).
-- **Two warm-ups**: the session's, through the same ramp towards ambient (`CoolCamerasToAmbientAsync`), and the hub's,
-  2 °C every 30 s for at most 30 steps then the cooler off (`DeviceHubCameraSafetyExtensions.WarmCameraAsync`), which
-  serves every warm-up outside a session.
-- **Two settings that do not do what they say**: the session tab's `CooldownRampInterval` and `WarmupRampInterval` (5 min
-  each) only cap a ramp, which gives up at twice the budget; neither slows it.
+- **One warm-up**: `CameraCoolingRamp` towards ambient, for the session (`CoolCamerasToAmbientAsync`) and for the hub
+  (`DeviceHubCameraSafetyExtensions.WarmCameraAsync`), which serves every warm-up outside a session. The hub used to step
+  2 °C every 30 s of its own.
+- **Two settings that did not do what they said** (retired by #1839): `CooldownRampInterval` and `WarmupRampInterval` (5 min
+  each) only capped a ramp. They are now `CooldownMaxRate` and `WarmupMaxRate` in °C a minute (default 2), carried by the
+  saved session (an old file with ramp seconds loads the defaults), `SessionConfigApiDto`, the cool request's optional
+  `MaxRateCPerMinute` and the GUI's "Cooling Rates" rows (0.5 °C/min steps, 0.5 to 4).
 
 Measured on the QHY294PROC on 2026-10-26, cooling 16 to 10 °C: 16.0 to 9.4 °C in about 1.5 min, 1.1 to 1.2 °C per 15 s step
 (about 4.5 °C a minute), 0.6 °C under before settling at 10.0, cooler power never above 20 %. The camera reports no heat sink.
@@ -32,12 +34,61 @@ interval settings with a maximum rate for cooling and for warming, in °C a minu
 follows from the rate, without slowing a small one needlessly. Tests run on the fake clock only: no test waits out a ramp.
 Issue: #1839.
 
+**Shipped (#1839).** A step moves the setpoint min(1 °C, rate x step interval) past the sensor, so the ceiling holds on
+the fake clock and a small drop is not slowed; a rate of 4 °C a minute or more is a degree a step, the ramp as it was, so the
+GUI offers nothing faster. The default of 2 °C a minute is about half the 4.5 °C a minute measured above. A planned ramp is
+drop / rate, planned as a 30 °C drop when the sensor's first reading fails. The safety cap is twice the plan plus the four
+steps that confirm the target once there, and never under 5 minutes (a 30 °C warm-up plans 15 minutes and is capped at 31), so
+a ramp whose sensor follows its setpoint always ends on its own exit and only a cooler that does not follow reaches the cap. A
+rate that is not finite, or not above zero, is its direction's default, checked once in `CameraCoolingRamp.RunAsync` for
+every caller.
+
+The ceiling holds less in two places. On a whole-degree camera (below) the next setpoint is rounded from the sensor's
+reading, so a sensor lagging half a degree behind its last setpoint is given one up to 1.5 °C past the reading and held for a
+setpoint's hold: up to 3 °C a minute over that hold at the default, 2 on average across it. And an ASCOM or Alpaca camera says
+`SetpointResolutionC` 0, so it is now sent half-degree setpoints where every setpoint used to be whole: a driver over a
+whole-degree SDK that truncates would stall at 0 °C as the DAL did, and nothing here detects it (the setpoint it reads back
+may only echo what was set). Not checked against a real driver: trying a fractional setpoint on one ASCOM or Alpaca camera is
+#1921.
+
+**A camera that takes whole degrees only is held by time, not by a fraction.** Every vendor SDK behind `DALCameraDriver`
+takes a whole-degree target and truncates a fractional one toward zero, which undoes half a step AWAY from zero (a cool-down
+stalls at 0 °C, a warm-up never leaves it, and above 0 °C the sensor moves a degree a step whatever the rate). So such a
+camera says `ICameraDriver.SetpointResolutionC` (1), and `CameraCoolingRamp` keeps its whole-degree step but holds each setpoint
+for 1 °C / rate minutes, a whole number of step intervals rounded up (2 °C/min: two 15 s steps), still polling every step. The
+setpoint is rounded to the sensor's side of a half degree, never a bare `(int)`. `FakeCameraDriver.MakeWholeDegreeSetpoint`
+quantises exactly as the DAL does, and fake-clock tests cool 20 to -10 and -5 to -10 and warm -10 to 20 and 5 to 20.
+
+The setting is `SessionConfiguration.CooldownMaxRate` / `WarmupMaxRate` (°C per minute): saved in the session file (an older file
+with ramp seconds loads with the default rates, as does a rate of 0 or less), on the node's session config wire, in the cool
+job's optional `MaxRateCPerMinute`, and in the GUI's session rows (0.5 to 4 °C/min in 0.5 steps).
+
 ## One warm-up
 
 The hub's warm-up and the session's are two rules for one act, and a rate can only be honoured by one. The session's ramp
 becomes the only warm-up, with the hub's lease check (a held camera is refused unless its holder asks, as a dark library
 warming the camera it holds does), its cooler-off at the end, and the cooler intent recorded as Warm then Off.
 Issue: #1840.
+
+**Shipped, the ramp side (#1840).** `CameraCoolingRamp` now does the whole warm-up any host needs. An ambient target with no
+usable heat sink resolves to `CameraReading.WarmUpFallbackTargetC`, the +25 C fallback, in `ICameraDriver.CoolToSetpointAsync`
+(it was NaN, which made the camera "not coolable", so a session never warmed a heatsinkless camera at all). The driver knows
+no settled pre-cool reading and resolves an `Ambient` target to nothing else (#1842): the CALLERS apply it, the hub's
+`WarmCameraAsync` and `Session.CoolCamerasToAmbientAsync`, which resolve each camera's target through `WarmUpTarget.Resolve`
+and pass a heat sink as an `Ambient` target and the settled reading or the fallback as a `Normal` one. A caller that passes
+`Ambient` for a camera with no heat sink gets +25 C. A warm-up ends
+once the cooler is no longer holding the sensor down: power at or below `CameraCoolingRamp.WarmUpPowerThreshold` (1 %) for
+the ramp's consecutive-step count, whatever the sensor reads, so the QHY294PROC case of 2026-10-26 (15 minutes stepping at 0 %
+toward an unreachable +25 C) costs a few steps, not the safety cap. `Session.CoolCamerasToAmbientAsync` passes that constant.
+Pinned by `CameraCoolingRampTests`. 
+**Shipped, the hub side (#1840).** `WarmCameraAsync` runs `CameraCoolingRamp.RunAsync` (upward, `WarmUpPowerThreshold`,
+`WarmupMaxRate` as the ceiling on its rate, #1839) and keeps the lease check, the no-cooler and cooler-off skips, the intent recorded as Warm
+then Off, the cooler switched off at the end (also when the ramp fails) and the optional disconnect. Pinned by
+`EquipmentWarmUpTests` (15 s steps, a held camera refused, a cooler stuck at 0 % ending in a few steps). It ran the ramp with
+an `Ambient` target; since #1842 it resolves the target through `WarmUpTarget.Resolve` and skips the ramp for a camera already
+within `CameraReading.WarmUpToleranceC` of it. The session's warm-up draws the same line through `CameraReading.NeedsWarmUpFrom`:
+when no camera needs warming it runs no ramp at all (still recording the Warm intent), since a held camera would otherwise
+take the ramp's three confirming steps, 45 s, on a cooler working above the 1 % exit or one that cannot say its power.
 
 ## The profile's settings everywhere
 
@@ -58,4 +109,21 @@ cap. In order of trust, the target becomes:
 3. a device on the rig that reads ambient once it is operational: a power box's probe, a focuser's temperature, a weather
    device, passed by the orchestration, never driver to driver: #388;
 4. the sensor's own temperature when a cool-down started with the cooler off, ambient plus a little self-heating, kept beside
-   the cooler intent so the crash journal carries it: #1842.
+   the cooler intent so the crash journal carries it: **shipped** (#1842).
+
+### The settled pre-cool reading (#1842)
+
+`SensorAmbientSampler` samples the sensor while the cooler is off and calls the reading SETTLED only when the last
+`Window` (60 s) is full, its spread is within `MaxSpreadC` (0.2 °C) and its trend is within `MaxSlopeCPerMinute`
+(0.1 °C a minute). An unsettled reading is recorded but never sets a target. `WarmUpTarget.Resolve` is the one rule for
+the hub's ramp, the session's warm-up and a client's quit question: heat sink, else the settled reading, else
+`CameraReading.WarmUpFallbackTargetC`, with its source (`WarmUpTargetSource`) said in the log. The node sends the
+resolved target and source in the camera's device-state DTO (`WarmUpTargetC`, `WarmUpTargetSource`, a numeric enum that
+reads as the fallback from an older node), so `CameraDeviceStateDto.ToReading().NeedsWarmUp` agrees with the node's ramp
+and the rig shutdown's progress says where the target came from ("Warming X to 12 C, the sensor before cooling").
+
+The cost a user sees: a cool-down from a camera whose cooler reads off now waits for the sensor to settle before its first
+step (a sample every `CameraCoolingRamp.AmbientSampleInterval`, 5 s, for at most `CameraCoolingRamp.AmbientBudget`, 2
+minutes), in the session, the node's cool job and a dark run alike. It waits for none when the cooler is already on, when
+the sensor gives no temperature, or in the crash journal's recovery, which passes `readAmbient: false` since that sensor is
+no longer at rest and the journal carries the reading that counts.

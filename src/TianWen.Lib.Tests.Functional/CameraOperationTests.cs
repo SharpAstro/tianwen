@@ -38,7 +38,7 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
             return (job is { State: not JobState.Running } ? job : null, job is null ? "not found" : $"{job.State}: {job.Step}");
         }, ct);
 
-    // A ramp of 2 °C steps every 15 s takes minutes from ambient, so this watches it start, sees what it holds, and
+    // A ramp at its default rate takes minutes from ambient, so this watches it start, sees what it holds, and
     // cancels it. The ramp's own arithmetic is CameraCoolingRamp's and pinned there.
     [Fact(Timeout = 60_000)]
     public async Task ACoolDownIsARampTheNodeRunsAndRecordsAsTheCamerasIntent()
@@ -46,10 +46,13 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var ct = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await Hub.ConnectAsync(device, ct);
+        // The cooler on first: from a cooler that is off the node reads the sensor for a minute on the real clock before the
+        // first step (#1842), so this watches for the ramp's first setpoint below the sensor's 20 C instead.
+        await camera.SetCoolerOnAsync(true, ct);
 
-        var cooling = (await Client.CoolCameraAsync(device.DeviceUri, -10.4, rampMinutes: null, ct)).Value.ShouldNotBeNull();
+        var cooling = (await Client.CoolCameraAsync(device.DeviceUri, -10.4, maxRateCPerMinute: null, ct)).Value.ShouldNotBeNull();
         cooling.Kind.ShouldBe("cool");
-        await UntilAsync("the ramp to switch the cooler on", async token => (await camera.GetCoolerOnAsync(token), "cooler still off"), ct);
+        await UntilAsync("the ramp's first step", async token => (await camera.GetSetCCDTemperatureAsync(token) < 20, "setpoint not stepped yet"), ct);
 
         Hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
         intent.ShouldBe(CoolerIntent.CoolTo(-10), "the ramp's whole-degree TARGET, which a crash journal re-establishes");
@@ -68,6 +71,43 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
         Hub.TryGetCoolerIntent(device.DeviceUri, out var off).ShouldBeTrue();
         off.ShouldBe(CoolerIntent.Off);
+    }
+
+    // A rate is degrees a minute and must be one (#1839): zero would never arrive and a negative one runs backwards.
+    [Theory(Timeout = 60_000)]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    public async Task ACoolDownAtARateThatIsNotPositiveIsRefusedAndStartsNoJob(double rate)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (ICameraDriver)await Hub.ConnectAsync(device, ct);
+
+        var refused = await Client.CoolCameraAsync(device.DeviceUri, -10, maxRateCPerMinute: rate, ct);
+
+        refused.StatusCode.ShouldBe(400);
+        refused.Error.ShouldNotBeNull().ShouldContain("rate");
+        (await Client.GetJobsAsync(ct)).Value.ShouldNotBeNull().ShouldNotContain(job => job.Kind == "cool");
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ACoolDownAtANamedRateStartsTheRamp()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (ICameraDriver)await Hub.ConnectAsync(device, ct);
+        // The cooler on first: from a cooler that is off the node reads the sensor for a minute on the real clock before the
+        // first step (#1842), so this watches for the ramp's first setpoint below the sensor's 20 C instead.
+        await camera.SetCoolerOnAsync(true, ct);
+
+        var cooling = (await Client.CoolCameraAsync(device.DeviceUri, -10, maxRateCPerMinute: 4, ct)).Value.ShouldNotBeNull();
+        cooling.Kind.ShouldBe("cool");
+        await UntilAsync("the ramp's first step", async token => (await camera.GetSetCCDTemperatureAsync(token) < 20, "setpoint not stepped yet"), ct);
+
+        (await Client.CancelJobAsync(cooling.Id, ct)).IsSuccess.ShouldBeTrue();
+        (await UntilEndedAsync(cooling.Id, ct)).State.ShouldBe(JobState.Cancelled);
+        (await Client.CameraCoolerOffAsync(device.DeviceUri, ct)).IsSuccess.ShouldBeTrue();
     }
 
     [Fact(Timeout = 60_000)]
@@ -140,7 +180,7 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         {
             foreach (var refused in new[]
             {
-                (await Client.CoolCameraAsync(device.DeviceUri, -10, rampMinutes: null, ct)).Error,
+                (await Client.CoolCameraAsync(device.DeviceUri, -10, maxRateCPerMinute: null, ct)).Error,
                 (await Client.WarmCameraAsync(device.DeviceUri, ct)).Error,
                 (await Client.CameraCoolerOffAsync(device.DeviceUri, ct)).Error,
                 (await Client.SetCameraSettingsAsync(new CameraSettingsRequestDto { DeviceUri = device.DeviceUri.ToString(), Bin = 2 }, ct)).Error,
@@ -158,7 +198,7 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var device = new FakeDevice(DeviceType.Focuser, 1);
         await Hub.ConnectAsync(device, ct);
 
-        var refused = await Client.CoolCameraAsync(device.DeviceUri, -10, rampMinutes: null, ct);
+        var refused = await Client.CoolCameraAsync(device.DeviceUri, -10, maxRateCPerMinute: null, ct);
 
         refused.StatusCode.ShouldBe(400);
         refused.Error.ShouldNotBeNull().ShouldContain("not a camera");

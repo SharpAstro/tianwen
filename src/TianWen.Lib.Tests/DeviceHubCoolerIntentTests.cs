@@ -81,7 +81,7 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
 
-        var reached = await hub.CoolToSetpointAsync(device.DeviceUri, -10.4, TimeSpan.FromMinutes(1), external.TimeProvider, NullLogger.Instance, ct);
+        var reached = await hub.CoolToSetpointAsync(device.DeviceUri, -10.4, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider, NullLogger.Instance, ct);
 
         reached.ShouldBeTrue();
         (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue();
@@ -91,11 +91,74 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task APreCoolReadingIsKeptBesideTheIntentAndForgottenWhenTheCameraGoes()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, hub) = Build();
+        var camera = new FakeDevice(DeviceType.Camera, 1);
+        await hub.ConnectAsync(camera, ct);
+        var changes = 0;
+        hub.CoolerIntentChanged += (_, _) => changes++;
+        var at = new DateTimeOffset(2026, 10, 26, 20, 0, 0, TimeSpan.Zero);
+
+        hub.TryGetPreCoolReading(camera.DeviceUri, out _).ShouldBeFalse();
+        hub.SetPreCoolReading(camera.DeviceUri, new SensorAmbientReading(12.1, true, at));
+        hub.SetPreCoolReading(camera.DeviceUri, new SensorAmbientReading(12.1, true, at));
+        changes.ShouldBe(1, "the same reading again is no change, and no journal write");
+
+        hub.TryGetPreCoolReading(new Uri(camera.DeviceUri + "?port=elsewhere"), out var reading).ShouldBeTrue("the device, not its query");
+        reading.ShouldBe(new SensorAmbientReading(12.1, true, at));
+
+        hub.SetCoolerIntent(camera.DeviceUri, CoolerIntent.CoolTo(-10));
+        hub.SetCoolerIntent(camera.DeviceUri, CoolerIntent.Warm);
+        hub.TryGetPreCoolReading(camera.DeviceUri, out reading).ShouldBeTrue("a change of intent leaves the reading alone");
+        reading.TempC.ShouldBe(12.1);
+
+        hub.SetPreCoolReading(camera.DeviceUri, new SensorAmbientReading(11.0, false, at.AddHours(1)));
+        hub.TryGetPreCoolReading(camera.DeviceUri, out reading).ShouldBeTrue();
+        reading.ShouldBe(new SensorAmbientReading(11.0, false, at.AddHours(1)), "a newer cool-down replaces it");
+
+        await hub.DisconnectAsync(camera.DeviceUri, cancellationToken: ct);
+        hub.TryGetPreCoolReading(camera.DeviceUri, out _).ShouldBeFalse("a camera the hub no longer holds takes its reading with it");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheHubCoolsFromASteadySensorAndRecordsItAsSettled()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (external, hub) = Build();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        await hub.ConnectAsync(device, ct);
+        var started = external.TimeProvider.GetUtcNow();
+
+        await hub.CoolToSetpointAsync(device.DeviceUri, -5, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider, NullLogger.Instance, ct);
+
+        hub.TryGetPreCoolReading(device.DeviceUri, out var reading).ShouldBeTrue("the cooler was off, so the sensor was read first");
+        reading.Settled.ShouldBeTrue();
+        reading.TempC.ShouldBe(20.0, 0.1);
+        (reading.AtUtc - started).ShouldBeGreaterThanOrEqualTo(SensorAmbientSampler.Window);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ACoolDownFromACoolerThatIsAlreadyOnRecordsNoReading()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (external, hub) = Build();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+
+        await hub.CoolToSetpointAsync(device.DeviceUri, -5, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider, NullLogger.Instance, ct);
+
+        hub.TryGetPreCoolReading(device.DeviceUri, out _).ShouldBeFalse("a sensor with the cooler on says nothing about the air around it");
+    }
+
+    [Fact]
     public async Task TheHubCoolsNothingItDoesNotHold()
     {
         var (external, hub) = Build();
 
-        (await hub.CoolToSetpointAsync(new FakeDevice(DeviceType.Camera, 1).DeviceUri, -10, TimeSpan.FromMinutes(1), external.TimeProvider,
+        (await hub.CoolToSetpointAsync(new FakeDevice(DeviceType.Camera, 1).DeviceUri, -10, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider,
             NullLogger.Instance, TestContext.Current.CancellationToken)).ShouldBeFalse();
     }
 

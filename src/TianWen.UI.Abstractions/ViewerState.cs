@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Devices;
 
@@ -594,6 +595,9 @@ public sealed class ViewerState
     /// </summary>
     public TianWen.Lib.Imaging.Planetary.PlanetaryIdentity? AutoIdentity { get; set; }
 
+    /// <summary>The frames the Auto run kept of those it graded, which the info strip shows beside <see cref="AutoIdentity"/>; null until the run ends, and for another capture.</summary>
+    public (int Kept, int Graded)? AutoFrames { get; set; }
+
     /// <summary>A SER's view as the transport's switch shows it: the frames, the live rolling stack, or the Auto stack.</summary>
     public PlanetaryView PlanetaryView => ShowAuto ? PlanetaryView.Auto : ShowStacked ? PlanetaryView.Live : PlanetaryView.Frames;
 
@@ -778,8 +782,25 @@ public sealed class ViewerState
     /// <summary>Set by the Derive button; the controller starts a derivation over the master on show, or ignores it while one runs, and clears it.</summary>
     public bool WaveletDeriveRequested { get; set; }
 
-    /// <summary>True while a derivation runs (about 35 s, in the background). Written by the controller.</summary>
+    /// <summary>True while a derivation runs, in the background. Written by the controller.</summary>
     public bool WaveletDeriving { get; set; }
+
+    /// <summary>The clock reading <see cref="WaveletDerivation"/> was given when it started the derivation running; null when none runs.</summary>
+    public DateTimeOffset? WaveletDeriveStarted { get; set; }
+
+    /// <summary>Time the running derivation has taken, as of the last whole second shown; written by the controller's tick.</summary>
+    public TimeSpan WaveletDeriveElapsed { get; set; }
+
+    // The stage the running derivation reports, as a PlanetaryStackStage's value; -1 before its first report. Written from the derivation's
+    // thread and read by the render thread, one int, so a Volatile hand-off needs no lock.
+    private int _waveletDeriveStage = -1;
+
+    /// <summary>The stage the running derivation is in (<see cref="PlanetaryStackProgress.Words"/> names it), or null before its first report.</summary>
+    public TianWen.Lib.Imaging.Planetary.PlanetaryStackStage? WaveletDeriveStage
+    {
+        get => Volatile.Read(ref _waveletDeriveStage) is var v and >= 0 ? (TianWen.Lib.Imaging.Planetary.PlanetaryStackStage)v : null;
+        set => Volatile.Write(ref _waveletDeriveStage, value is { } stage ? (int)stage : -1);
+    }
 
     /// <summary>What the last derivation did, in words: what the gains were derived for, or why none were. Null before any, and after Reset.</summary>
     public string? WaveletDeriveNote { get; set; }
@@ -813,6 +834,37 @@ public sealed class ViewerState
 
     /// <summary>The Auto stack's progress, 0 to 1, or null when none runs. Written by the controller each tick.</summary>
     public double? AutoStackProgress { get; set; }
+
+    /// <summary>The stage the running Auto stack is in (#1879), or null when none runs. Written by the controller each tick beside <see cref="AutoStackProgress"/>.</summary>
+    public PlanetaryStackStage? AutoStackStage { get; set; }
+
+    /// <summary>
+    /// The Full segment's words: "Full" while none runs, else the stage's short word (<see cref="PlanetaryStackProgress.ShortWords"/>), with the
+    /// percent only for a stage that has one. Every label this can return is in <see cref="AutoSegmentLabels"/>.
+    /// </summary>
+    public string AutoSegmentLabel => AutoStackStage is { } stage
+        ? PlanetaryStackProgress.HasPercent(stage)
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{PlanetaryStackProgress.ShortWords(stage)} {(AutoStackProgress ?? 0) * 100:0}%")
+            : PlanetaryStackProgress.ShortWords(stage)
+        : "Full";
+
+    /// <summary>The widest each stage's label gets, which the view switch sizes its segments to so a running stack never moves the scrub track.</summary>
+    public static IEnumerable<string> AutoSegmentLabels { get; } =
+    [
+        "Full",
+        .. Enum.GetValues<PlanetaryStackStage>().Select(s => PlanetaryStackProgress.HasPercent(s)
+            ? PlanetaryStackProgress.ShortWords(s) + " 100%"
+            : PlanetaryStackProgress.ShortWords(s)),
+    ];
+
+    /// <summary>The one wording of the status bar's line while the Auto view shows the raw frame because its stack is not built yet (#1875).</summary>
+    public const string AutoShowsFramesWording = "Showing the frames while the Full stack runs";
+
+    /// <summary>
+    /// True while the Auto view is chosen and this capture's Auto master does not exist yet, so the raw frame at the held playhead is
+    /// on show, never a previous stack (#1875). Written by the controller each tick; the status bar says <see cref="AutoShowsFramesWording"/>.
+    /// </summary>
+    public bool AutoShowsFrames { get; set; }
 
     /// <summary>
     /// The telescope's aperture, mm, stepped through <see cref="PlanetaryApertures"/> in the planet and telescope panel: the derived sharpening's
@@ -884,6 +936,21 @@ public sealed class ViewerState
     /// viewer runs, not saved, so every launch starts at the truth (the owner's call: the truth by default, more as an option).
     /// </summary>
     public double PlanetaryStrength { get; set; } = 1;
+
+    /// <summary>
+    /// The colour balance's saturation (#1880): <see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourBalance.DefaultSaturation"/>, the
+    /// measured one, unless the panel's stop says <see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourBalance.EyeSaturation"/>. The
+    /// Auto stack and Derive read it as they start (a stop chosen after a Derive applies at the next one: the balance sits in the derived
+    /// limb, not in the stops' gains). Kept while the viewer runs, not saved, as <see cref="PlanetaryStrength"/> is.
+    /// </summary>
+    public double PlanetaryColourSaturation { get; set; } = TianWen.Lib.Imaging.Planetary.PlanetaryColourBalance.DefaultSaturation;
+
+    /// <summary>The panel's balance saturation stop (<see cref="PlanetaryColourSaturation"/>): taken by the next Auto stack and Derive.</summary>
+    public void ChooseColourSaturation(double saturation)
+    {
+        PlanetaryColourSaturation = saturation;
+        NeedsRedraw = true;
+    }
 
     /// <summary>
     /// The colour look on a balanced master of Jupiter or Saturn (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourLook"/>, #1277),

@@ -14,6 +14,7 @@ using TianWen.Hosting.Api.NinaV2;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Extensions;
@@ -70,6 +71,7 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<DeviceOperations>();
         // The node's runs that are not a session (P5, #934): a dark library first, through the CLI's own capture.
         services.TryAddSingleton<DarkFrameRun>();
+        services.TryAddSingleton<GuideDarkLibrary>();
         services.AddSingleton<NodeDarkLibrary>();
         // The frame each source shows, whoever took it, and the node's preview exposures outside a session (P5 part 2).
         services.AddSingleton<NodeFrames>();
@@ -80,6 +82,8 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<NodePlanetary>();
         // A live view in the Preview mode as the node's run (#1111): the planetary capture loop with nothing kept.
         services.AddSingleton<NodeLiveView>();
+        // Calibrating and guiding off that loop (#1915): a run that replaces the guide-camera loop and puts it back.
+        services.AddSingleton<NodeGuiding>();
         services.TryAddSingleton(NodeRunWatchOptions.Default);
         services.AddHostedService<NodeRunWatch>();
         // The node's one profile writer (P3 part 1, #930): every profile write, whoever asked, pushes PROFILE-CHANGED.
@@ -220,7 +224,7 @@ public static class HostedSessionServiceCollectionExtensions
     /// for falling behind, or for a send that timed out), or the host starts stopping.
     /// </summary>
     /// <remarks>
-    /// The host waits for its open requests before it stops, for up to its whole shutdown budget (30 minutes on a node),
+    /// The host waits for its open requests before it stops, for up to its whole shutdown budget (an hour on a node, <c>HostedSession.ShutdownBudget</c>),
     /// and the run's <c>Finalise</c> and the cameras' warm-up share that budget. So a socket that ended only with its client
     /// held every stop with a client attached for all of it (#985). Stopping aborts the socket instead, as the node dying
     /// would: the client reconnects with its usual backoff, and finds the node gone or back.

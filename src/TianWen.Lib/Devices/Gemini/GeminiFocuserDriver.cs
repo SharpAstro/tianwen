@@ -132,8 +132,6 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
 
     public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
-
     public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
         // SerialPort.IsOpen only records that Open() succeeded; a dead USB bridge (unplugged CH34x,
@@ -238,7 +236,6 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
 
         _conn = conn;
         _connected = true;
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
     }
 
     public async ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
@@ -250,7 +247,6 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
             await conn.TryCloseAsync().ConfigureAwait(false);
         }
         _connected = false;
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
     }
 
     // A synchronous Dispose cannot await the close: it starts it, and DisposeAsync is the path that waits.

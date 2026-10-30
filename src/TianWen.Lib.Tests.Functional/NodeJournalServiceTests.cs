@@ -153,6 +153,48 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         }, ct);
 
     [Fact(Timeout = 60_000)]
+    public async Task ARecoveredCameraGetsTheSensorReadingItCooledDownFromBackOnTheHub()
+    {
+        // Off keeps the recovery free of a ramp, so the only thing under test is the reading, put back before the camera
+        // is reported reconnected, for a warm-up with no heat sink to aim at (#1842).
+        var ct = TestContext.Current.CancellationToken;
+        var at = DateTimeOffset.UtcNow.AddMinutes(-30);
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice(Camera, "Fake Camera 1", CoolerIntentKind.Off, null, 12.1, true, at));
+
+        await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+
+        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+
+        hub.TryGetPreCoolReading(new Uri(Camera), out var reading).ShouldBeTrue();
+        reading.ShouldBe(new SensorAmbientReading(12.1, true, at));
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARecoveredWarmUpGoesThroughTheHubWithTheRestoredReadingAndEndsWithTheCoolerOff()
+    {
+        // The recovered Warm runs the hub's one warm-up (WarmAndCoolerOffAsync), which resolves its target from the reading
+        // put back before it starts; the ramp's own end at that reading is EquipmentWarmUpTests', on a camera whose sensor
+        // is cold. The fake here rests at ambient with its cooler off, so what this pins is the order and the outcome.
+        var ct = TestContext.Current.CancellationToken;
+        var at = DateTimeOffset.UtcNow.AddMinutes(-30);
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice(Camera, "Fake Camera 1", CoolerIntentKind.Warm, null, 12.1, true, at));
+
+        await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+
+        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        await UntilAsync("the recovered warm-up to end with the cooler off", token =>
+        {
+            var off = hub.TryGetCoolerIntent(new Uri(Camera), out var intent) && intent == CoolerIntent.Off;
+            return ValueTask.FromResult((off, off ? "off" : "still warming"));
+        }, ct);
+
+        hub.TryGetPreCoolReading(new Uri(Camera), out var reading).ShouldBeTrue();
+        reading.ShouldBe(new SensorAmbientReading(12.1, true, at));
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task ABelievedJournalIsActedOnItsDevicesReconnectedAndItsCameraCooledBack()
     {
         var ct = TestContext.Current.CancellationToken;

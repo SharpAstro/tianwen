@@ -142,7 +142,7 @@ public class DeviceOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         Hub.IsConnected(device.DeviceUri).ShouldBeFalse();
     }
 
-    // The ramp runs in the node, one 2 °C step every 30 s: while it runs the camera is the job's. The same job again joins
+    // The ramp runs in the node, session's own ramp (a step every 15 s): while it runs the camera is the job's. The same job again joins
     // it, another kind is refused naming it, and cancelling it leaves the camera connected where the ramp stopped.
     [Fact(Timeout = 60_000)]
     public async Task AWarmUpHoldsTheCameraUntilItEndsOrIsCancelled()
@@ -167,6 +167,9 @@ public class DeviceOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
         (await UntilEndedAsync(warming.Id, ct)).State.ShouldBe(JobState.Cancelled);
         Hub.IsConnected(device.DeviceUri).ShouldBeTrue("a cancelled warm-up disconnects nothing");
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue("a cancelled warm-up stops where it is and never cuts a cold sensor's cooler");
+        Hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.Warm, "a crash journal must still re-warm it");
 
         // A node stopping warms every cooled camera it holds, which would spend this test's teardown on a ramp.
         await camera.SetCoolerOnAsync(false, ct);

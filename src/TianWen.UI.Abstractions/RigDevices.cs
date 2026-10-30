@@ -36,6 +36,7 @@ public static class RigDevices
         }
         view.ResizePreviewArrays(otas.Count);
         view.PreviewOTATelemetry = otas.MoveToImmutable();
+        view.GuideFocuser = profile.GuiderFocuser is { } guideFocuser ? Connected(devices, guideFocuser)?.Focuser?.ToReading() : null;
 
         if (profile.Mount is not { Scheme: not "none" } mountUri)
         {

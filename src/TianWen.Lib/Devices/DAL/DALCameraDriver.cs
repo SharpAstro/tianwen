@@ -74,7 +74,6 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public DALCameraDriver(TDevice device, IServiceProvider serviceProvider) : base(device, serviceProvider)
     {
-        DeviceConnectedEvent += DALCameraDriver_DeviceConnectedEvent;
     }
 
     private Imaging.AdcResolution? AdcDepth { get; set; }
@@ -581,13 +580,29 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
     }
 
 
-    private void DALCameraDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
+    /// <summary>
+    /// The vendor's own SDK step (<see cref="InitSdkAsync"/>), then the camera read and set up, both inside the connect, so
+    /// an initialisation that throws fails the connect and closes the SDK handle it opened. Run from the connected event,
+    /// as it was, a throw left the handle open and the driver connected: every later connect opened the same camera a
+    /// second time and got an unusable handle (a miniCAM8 that lost its 12 V answered no pixel format at all until the node
+    /// was restarted, 2026-10-29). Sealed, so a vendor cannot override it and skip the set-up: its step is the hook.
+    /// </summary>
+    protected sealed override async ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        if (e.Connected)
+        if (!await InitSdkAsync(cancellationToken))
         {
-            InitCamera();
+            return false;
         }
+
+        InitCamera();
+        return true;
     }
+
+    /// <summary>
+    /// The vendor SDK's own initialisation of an opened camera, run before the camera is read and set up. False refuses the
+    /// connect, which then closes what it opened.
+    /// </summary>
+    protected virtual ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     private void InitCamera()
     {
@@ -622,7 +637,12 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             _ = Interlocked.Exchange(ref _supportedBitDepth, supported);
         }
 
-        var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral).OrderByDescending(x => x.BitSize).First();
+        var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral).OrderByDescending(x => x.BitSize).FirstOrDefault();
+        if (!highestPossibleBitDepth.IsIntegral)
+        {
+            throw new InvalidOperationException(
+                $"{_device.DisplayName} answers no integral pixel format, so its SDK handle is not usable; unplug and reconnect the camera");
+        }
         ReadSensorGeometry(highestPossibleBitDepth, fastReadout: false);
 
         var isCoolerCam = _deviceInfo.HasCooler;
@@ -948,6 +968,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             return ValueTask.FromResult((double)val);
         }
     }
+
+    /// <summary>The vendor SDKs take a whole-degree target temperature.</summary>
+    public double SetpointResolutionC => 1d;
 
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
     {

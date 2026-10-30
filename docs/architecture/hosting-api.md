@@ -402,9 +402,10 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
      server listens at once, and a start awaits it on the request's token, before draining anything.
      Stopping aborts the run, awaits its `Finalise`, then warms and disconnects the hub's cameras
      (`IDeviceHub.StopConnectedCamerasAsync`, the same tail the GUI's quit runs), inside
-     `HostedSession.ShutdownBudget` (30 min, set as `HostOptions.ShutdownTimeout`; the default 30 s cut
-     every warm-up off). **A service manager's own stop timeout must allow as long**: systemd
-     `TimeoutStopSec=35min`, or it kills the process mid-ramp. **A request that lasts ends as the host starts
+     `HostedSession.ShutdownBudget` (60 min, sized for the 2 °C/min default: a 30 °C warm-up plans 15 min and a capped one
+     about 31, #1839; a slower configured rate can still be cut off; set as `HostOptions.ShutdownTimeout`, where the default
+     30 s cut every warm-up off). **A service manager's own stop timeout must allow as long**: systemd
+     `TimeoutStopSec=65min`, or it kills the process mid-ramp. **A request that lasts ends as the host starts
      stopping** (`ApplicationStopping`), since the host waits for open requests out of that same budget, and the
      server stops before the node's own services (`WebApplicationBuilder` registers it last): the event socket
      read only until its client closed, so a stop with the GUI attached waited all 30 minutes and left the
@@ -472,9 +473,26 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
      stack, no recenter, no recording), over the whole sensor at the Preview's binning. It claims only the camera, so the
      focuser and the mount stay free while it runs; its frame is `live` (`FrameSources.LiveView`), sampled and streamed
      as `planetary/live` is, and it ends unwatched as the planetary run does. A still from the camera waits for it to
-     end: the GUI stops it first, since a Canon's Live View and its shutter exclude each other.
+     end: the GUI stops it first, since a Canon's Live View and its shutter exclude each other. Asked for the guide camera
+     (`LiveViewRequestDto.CameraRole = Guider`, #1915) it claims that camera alone, and its frames are also the guider's
+     source (`FrameSources.Guider`).
+   - **Guiding is the fifth** (`POST /api/v1/guider/calibrate`, `POST /api/v1/guider/guide`, `GET` and `DELETE
+     /api/v1/guider/run`, `NodeGuiding`, #1915): the Guider tab's Calibrate, Guide and Stop off the guide-camera loop, with
+     no session. It claims the mount and the guide camera for its life (`DeviceLeaseSet`, owner `guiding`), REPLACES the
+     node's guide-camera loop (the one run it replaces: any other is named, `NodeRuns.AlreadyGoingOn`, a guiding run's
+     own included) carrying the loop's exposure, gain and binning and the client's chosen star (`GuidingRequestDto.StarX`
+     / `StarY`) over, and puts the loop back as it ends: on a stop (the DELETE answers once it has), by itself (a
+     calibration), on a fault, unwatched, and on a start that was refused after the loop had been stopped, which is why
+     everything checkable is checked before. `Calibrate` ends after one calibration and the node keeps the result
+     (`GuidingStateDto.Calibration`: the RA and Dec angles and rates, the orthogonality, the overlay) beside the loop; `Guide`
+     reuses it, or calibrates first. The GET answers the run going on, or the node's memory of the last one; while one goes on
+     it carries the guider as a session's `/guider/info` does (`GuiderStateDto`: state, RMS, the last 300 steps whole each
+     time, the star and its profile), and the run's frames are `FrameSources.Guider`. The POSTs and the DELETE are commands
+     (the node gate lets them through only with control); the GET is a read. PHD2 is refused in words (it owns the
+     camera and chooses its star); through `IGuider`, a guider that cannot calibrate on its own or guide on a chosen star
+     refuses the same way, never guiding on another.
    - **An interactive run stops once nobody watches it** (`INodeRun.EndsUnwatched`, `NodeRunWatch`): polar
-     alignment and a planetary live view are meaningless unseen, so once no client has been PRESENT
+     alignment, a planetary live view and guiding off the loop are meaningless unseen, so once no client has been PRESENT
      (a fresh presence beat, `EventHub.PresentClientCount`, the same rule a prompt waits by) for the detach grace
      (60 s, `NodeRunWatchOptions`), the watch stops it through its own ending and says so in the node's
      notifications. The grace runs from the moment nobody is present, the run's start included; a client back
@@ -610,7 +628,7 @@ settings ride on the query, and a URI's left part cannot be a path segment).
   offered, a camera's cooler and whether it is at work (`GetDisconnectSafetyAsync`) and the run holding the device.
 - **`POST /api/v1/devices/disconnect`** (`DisconnectRequestDto`): refused with a 409 naming the run while one holds
   the device, FIRST; then, unless `SkipWarmUp`, refused while a camera is cold or at work, saying so.
-- **`POST /api/v1/devices/warm-and-disconnect`**: the hub's ramp (`WarmAndDisconnectAsync`) as a job, so a warm-up the
+- **`POST /api/v1/devices/warm-and-disconnect`**: the hub's warm-up (`WarmAndDisconnectAsync`, which runs the session's own `CameraCoolingRamp`) as a job, so a warm-up the
   window started finishes whatever becomes of the window. Cancelling it (`DELETE /jobs/{id}`) stops the ramp where it
   is and disconnects nothing.
 - **`SkipWarmUp` is consent to a COLD disconnect, never to ending a night**: no request gets past a lease, exactly as
@@ -626,9 +644,10 @@ connect does: both are profile writes, made through the node's one writer (P3 pa
 P2 part 3 (#929), on the same `DeviceOperations`, every route refusing a camera a run holds (the `Actuate` gate) and
 a device that is not a camera:
 
-- **`POST /api/v1/devices/camera/cool`** (`CoolRequestDto`): a JOB through the session's own ramp
-  (`CameraCoolingRamp`, via `IDeviceHub.CoolToSetpointAsync`), never a jump, on the session's default ramp time
-  unless the request names one. It records the whole-degree TARGET as the camera's cooler intent, which the crash
+- **`POST /api/v1/devices/camera/cool`** (`CoolRequestDto`): a JOB through the session's own rate-limited ramp
+  (`CameraCoolingRamp`, via `IDeviceHub.CoolToSetpointAsync`), never a jump, at the session's default cooling rate (2 °C a minute)
+  unless the request names one (`MaxRateCPerMinute`, finite and positive, #1839; a wire-4 client's old `RampMinutes` is ignored,
+  so `NodeWire.Version` stays). It records the whole-degree TARGET as the camera's cooler intent, which the crash
   journal keeps. The GUI's setpoint today is an immediate command that records nothing; P6 moves it here.
 - **`POST /api/v1/devices/camera/warm`**: the hub's warm-up ramp and cooler off as a job, the camera left connected.
 - **`POST /api/v1/devices/camera/cooler-off`**: at once, no warm-up (`IDeviceHub.CoolerOffAsync`, which the GUI's

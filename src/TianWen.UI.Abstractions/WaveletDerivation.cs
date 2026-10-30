@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -9,7 +10,7 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// The live view's Derive (#1159, the owner's choice of 2026-10-02): the gains the derived sharpening would use for the master on show
-/// (<see cref="PlanetaryBestStack.DeriveGains"/>), worked out in the background, about 35 s, and seeded into the wavelet sliders, which then
+/// (<see cref="PlanetaryBestStack.DeriveGains"/>), worked out in the background (its cost moves with the master's size, the planet and the machine), and seeded into the wavelet sliders, which then
 /// sharpen every later master with them at the cost of a wavelet pass. ONE for the viewer's stacked view of a SER and the GUI's planetary
 /// capture, so the two derive alike. Seeded sliders sharpen as the batch's floored derived sharpening does, measured equal on every twin
 /// (docs/plans/planetary-restoration.md, "The live view's derived sharpening"), and the limb the derivation fitted is kept
@@ -21,8 +22,27 @@ internal sealed class WaveletDerivation : IDisposable
     private Task<DerivedGains>? _task;
     private int _disposed;
 
+    /// <summary>
+    /// The caption while a derivation runs: what it works on and the time elapsed so far, in whole seconds under a minute, else minutes and
+    /// seconds ("12 s so far", "1 min 20 s so far"). No promise of how long it takes, which moves with the master, the planet and the machine.
+    /// </summary>
+    internal static string Caption(TimeSpan elapsed, PlanetaryStackStage? stage = null)
+    {
+        var total = (long)Math.Max(0, elapsed.TotalSeconds);
+        var shown = total < 60 ? $"{total} s" : $"{total / 60} min {total % 60} s";
+        // The stage's words are PlanetaryStackProgress's, the one place a host takes them from (#1882).
+        var what = stage is { } s ? PlanetaryStackProgress.Words(s) : "Deriving the gains from this master";
+        return $"{what}, {shown} so far";
+    }
+
+    // The stage the caption last showed, so a frame is asked for when it changes and not only on a new second.
+    private PlanetaryStackStage? _shownStage;
+
     /// <summary>How many derivations have started; switching views and stops starts none (#1314 rule 7). For tests.</summary>
     internal int Started { get; private set; }
+
+    /// <summary>The balance saturation the last derivation was started with (#1880). For tests.</summary>
+    internal double? StartedAtSaturation { get; private set; }
 
     /// <summary>
     /// Render thread, each tick of a live view: applies a finished derivation to <paramref name="state"/> (its gains to the sliders, or the
@@ -57,7 +77,26 @@ internal sealed class WaveletDerivation : IDisposable
                 logger.LogWarning(done.Exception?.GetBaseException(), "Deriving the wavelet gains failed");
                 state.WaveletDeriveNote = $"Not derived: {done.Exception?.GetBaseException().Message}";
             }
+            state.WaveletDeriveStarted = null;
+            state.WaveletDeriveStage = null;
+            _shownStage = null;
             state.NeedsRedraw = true;
+        }
+        else if (_task is not null && state.WaveletDeriveStarted is { } started)
+        {
+            // The caption shows whole seconds, so a frame is asked for only when the shown second changes.
+            var elapsed = now - started;
+            if (elapsed < TimeSpan.Zero)
+            {
+                elapsed = TimeSpan.Zero;
+            }
+            var stage = state.WaveletDeriveStage;
+            if ((long)elapsed.TotalSeconds != (long)state.WaveletDeriveElapsed.TotalSeconds || stage != _shownStage)
+            {
+                _shownStage = stage;
+                state.WaveletDeriveElapsed = elapsed;
+                state.NeedsRedraw = true;
+            }
         }
 
         if (!state.WaveletDeriveRequested)
@@ -86,10 +125,19 @@ internal sealed class WaveletDerivation : IDisposable
         var frameTime = source.HasTimestamps ? source.TimestampOf(source.FrameIndex) : DateTimeOffset.MinValue;
         var epoch = frameTime > DateTimeOffset.MinValue ? frameTime : now;
         var strength = state.PlanetaryStrength;
+        var saturation = state.PlanetaryColourSaturation;
 
         state.WaveletDeriving = true;
+        state.WaveletDeriveStarted = now;
+        state.WaveletDeriveElapsed = TimeSpan.Zero;
+        state.WaveletDeriveStage = null;
+        _shownStage = null;
         state.NeedsRedraw = true;
         Started++;
+        // One timer per derivation (TIA1879's), entered by every report; the state takes the stage for the caption, one int, no lock.
+        var timer = new PlanetaryStageTimer();
+        var progress = new StageProgress(timer, state);
+        StartedAtSaturation = saturation;
         var token = _cts.Token;
         _task = Task.Run(async () =>
         {
@@ -99,10 +147,27 @@ internal sealed class WaveletDerivation : IDisposable
                 // The balance through the camera's own matrix, as the batch's (#1279): a live frame names its camera in its Instrument.
                 var camera = await PlanetaryColourBalance.CameraColourAsync(lease.Image.ImageMeta.Instrument, token).ConfigureAwait(false);
                 // Every stop's gains in the one derivation, so a stop chosen after it switches the dials at once (#1314).
-                return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, strength: strength,
-                    stops: PlanetarySharpening.StrengthStops, camera: camera);
+                try
+                {
+                    return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, colourSaturation: saturation, strength: strength,
+                        stops: PlanetarySharpening.StrengthStops, camera: camera, progress: progress);
+                }
+                finally
+                {
+                    // Each finished derivation says where its time went; the open stage runs to now.
+                    logger.LogInformation("Derived the wavelet gains in {Stages}", string.Join(", ", timer.Spent.Select(s => $"{PlanetaryStackProgress.Words(s.Stage)} {s.Elapsed.TotalSeconds:F1} s")));
+                }
             }
         }, token);
+    }
+
+    private sealed class StageProgress(PlanetaryStageTimer timer, ViewerState state) : IProgress<PlanetaryStackProgress>
+    {
+        public void Report(PlanetaryStackProgress value)
+        {
+            timer.Report(value);
+            state.WaveletDeriveStage = value.Stage;
+        }
     }
 
     /// <summary>

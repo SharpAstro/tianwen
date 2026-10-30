@@ -18,8 +18,8 @@ public class SessionConfigApiDtoTests
     // A field added to SessionConfiguration is added here too.
     private static readonly SessionConfiguration EveryFieldSet = new SessionConfiguration(
         SetpointCCDTemperature: new SetpointTemp(-15, SetpointTempKind.CCD),
-        CooldownRampInterval: TimeSpan.FromSeconds(301),
-        WarmupRampInterval: TimeSpan.FromSeconds(302),
+        CooldownMaxRate: 3.25,
+        WarmupMaxRate: 1.75,
         MinHeightAboveHorizon: 25,
         DitherPixel: 6.5,
         SettlePixel: 1.5,
@@ -104,5 +104,18 @@ public class SessionConfigApiDtoTests
 
         double.IsNaN(back.SiteLatitude).ShouldBeTrue();
         double.IsNaN(back.SiteLongitude).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-2")]
+    public void ARateOfZeroOrLessIsTheDefaultRateNeverAFloor(string rate)
+    {
+        var dto = JsonSerializer.Deserialize($"{{\"cooldownMaxRate\":{rate},\"warmupMaxRate\":{rate}}}", HostingJsonContext.Default.SessionConfigApiDto).ShouldNotBeNull();
+
+        var config = dto.ToConfiguration();
+
+        config.CooldownMaxRate.ShouldBe(new SessionConfiguration().CooldownMaxRate);
+        config.WarmupMaxRate.ShouldBe(new SessionConfiguration().WarmupMaxRate);
     }
 }

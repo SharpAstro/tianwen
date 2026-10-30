@@ -22,7 +22,7 @@ namespace TianWen.UI.Shared;
 /// GPU leaked a texture per attempt. A texture evicted in the frame that drew it is safe, because
 /// <see cref="VkTexture.Dispose"/> defers destruction until every frame that could reference it has retired.
 /// </remarks>
-internal sealed class VkObjectPictures : IDisposable
+public sealed class VkObjectPictures : IDisposable
 {
     private readonly ObjectPictureCache<ObjectPicture, VkTexture> _cache;
     private readonly Action _requestRedraw;

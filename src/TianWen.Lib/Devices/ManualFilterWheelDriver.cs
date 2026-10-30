@@ -53,19 +53,15 @@ internal sealed class ManualFilterWheelDriver(ManualFilterWheelDevice device, IS
 
     public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
-
     public ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
         _connected = true;
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
         return ValueTask.CompletedTask;
     }
 
     public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {
         _connected = false;
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
         return ValueTask.CompletedTask;
     }
 

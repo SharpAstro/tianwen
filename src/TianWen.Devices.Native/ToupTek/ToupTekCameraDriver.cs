@@ -37,7 +37,7 @@ internal class ToupTekCameraDriver(ToupTekDevice device, IServiceProvider sp)
     /// misbehaved instead (SharpCap forum, t=8307). A frame problem reported against this log can be
     /// matched to the combination that produced it.
     /// </remarks>
-    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
     {
         Logger.LogInformation(
             "ToupTek camera {Name} (brand {Brand}, serial {Serial}): firmware {Firmware}, SDK {Sdk}, conversion gain {ConversionGain}",

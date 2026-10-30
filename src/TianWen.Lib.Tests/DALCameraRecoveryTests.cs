@@ -189,6 +189,58 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
         state.StartCount.ShouldBe(3);
     }
 
+    [Fact]
+    public async Task ACameraThatAnswersNoPixelFormatFailsItsConnectAndClosesWhatItOpened()
+    {
+        // A miniCAM8 that lost its 12 V answered no pixel format through the handle it was opened with (2026-10-29). The
+        // initialisation that read it ran from the connected event, so its throw left the handle open and the driver
+        // connected, and every reconnect failed the same way until the node was restarted.
+        var time = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, time);
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var state = new FakeCmosState(device.DeviceId) { Formats = [] };
+        var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
+
+        var refused = await Should.ThrowAsync<InvalidOperationException>(
+            camera.ConnectAsync(TestContext.Current.CancellationToken).AsTask());
+
+        refused.Message.ShouldContain("no integral pixel format");
+        camera.Connected.ShouldBeFalse();
+        state.Closes.ShouldBe(state.Opens, "the handle the failed connect opened is closed again");
+
+        state.Formats = [PixelDataFormat.RAW16];
+        await camera.ConnectAsync(TestContext.Current.CancellationToken);
+
+        camera.Connected.ShouldBeTrue("the next connect runs the whole connect again on a fresh handle");
+        state.Opens.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task AVendorsSdkStepRunsFirstAndTheCameraIsSetUpAfterIt()
+    {
+        // Every vendor camera driver overrides the SDK step; when the set-up lived in the method they overrode, a real
+        // camera connected without it (gain and sensor size unread) while this fake, which overrode nothing, passed.
+        var (camera, _, _) = await NewConnectedCameraAsync();
+
+        camera.GainMaxAtSdkInit.ShouldBe(short.MinValue, "the SDK step runs before the camera is read (short.MinValue: not read)");
+        camera.GainMax.ShouldBe((short)100, "and the camera is read after it");
+    }
+
+    [Fact]
+    public async Task ACameraWhoseSdkRefusesItsInitIsNotConnectedAndIsClosed()
+    {
+        var time = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, time);
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var state = new FakeCmosState(device.DeviceId) { RefuseSdkInit = true };
+        var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
+
+        await Should.ThrowAsync<InvalidOperationException>(camera.ConnectAsync(TestContext.Current.CancellationToken).AsTask());
+
+        camera.Connected.ShouldBeFalse();
+        state.Closes.ShouldBe(state.Opens);
+    }
+
     private static async Task LoseOneExposureAsync(TestDalCameraDriver camera, FakeTimeProviderWrapper time)
     {
         await camera.StartExposureAsync(Exposure, cancellationToken: TestContext.Current.CancellationToken);
@@ -250,6 +302,16 @@ internal sealed class TestDalCameraDriver(FakeDevice device, IServiceProvider sp
         return base.DoDisconnectDeviceAsync(connectionId, cancellationToken);
     }
 
+    /// <summary>The gain range the camera had read when the vendor's SDK step ran: unread, if that step came first.</summary>
+    public short? GainMaxAtSdkInit { get; private set; }
+
+    /// <summary>A vendor's own step, overridden as every vendor camera driver overrides it.</summary>
+    protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
+    {
+        GainMaxAtSdkInit = GainMax;
+        return ValueTask.FromResult(!state.RefuseSdkInit);
+    }
+
     public override string? DriverInfo => "Scripted DAL camera";
 
     public override string? Description => "Scripted DAL camera for recovery tests";
@@ -299,7 +361,7 @@ internal sealed class FakeCmosState(string serial)
     public PixelDataFormat Format { get; set; } = PixelDataFormat.RAW16;
 
     /// <summary>The pixel formats the SDK offers; a second one makes the bit depth settable.</summary>
-    public IReadOnlyList<PixelDataFormat> Formats { get; init; } = [PixelDataFormat.RAW16];
+    public IReadOnlyList<PixelDataFormat> Formats { get; set; } = [PixelDataFormat.RAW16];
 
     /// <summary>
     /// The bytes the SDK hands over on a download, exactly as it lays them out (16-bit pixels
@@ -489,6 +551,9 @@ internal sealed class FakeCmosState(string serial)
 
     /// <summary>What a frame call that may not wait answers instead, as an SDK never asked for one might; null to serve as any.</summary>
     public CMOSErrorCode? ErrorAtWaitZero { get; set; }
+
+    /// <summary>A body whose vendor SDK refuses to initialise it after it opened.</summary>
+    public bool RefuseSdkInit { get; set; }
 
     /// <summary>A body that says it can be reset and then refuses to be.</summary>
     public bool RefuseReset { get; set; }

@@ -488,7 +488,7 @@ each where one existed):
 ## An AUTO parameter mode
 
 **Tracked by #817.** A SharpCap-style AUTO mode, the owner's standing wish: the stack chooses its own settings from the
-capture, in the CLI (`planetary stack --auto`) and in the viewer (an Auto view beside Frames and Live, which the Best view folded into), where
+capture, in the CLI (`planetary stack --auto`) and in the viewer (a Full view beside Frames and Live, which the Best view folded into), where
 today it asks for them or takes one default for every night. The owner's goal of 2026-10-09: a fully working auto
 mode in both, on top of the `_post` fidelity the pipeline already reaches.
 
@@ -509,6 +509,20 @@ capture itself.
 **What an AUTO setting is**: the keep fraction, the sharpening (the gains, or the strength and target they are
 derived at), and a colour master's finest-band choice. These move a master's error. The alignment-point count and the
 resampling kernel did not (the 2026-06 study below, #1195).
+
+### The viewer's Auto view is a still picture, and never shows an older stack as its result
+
+(#1875.) While the Full view is chosen the viewer costs a still frame: playback holds and the live rolling stack does not follow.
+Until THIS capture's Auto master exists, the picture is the raw frame at the held playhead (`ViewerController.Source` is the raw
+source, never the live layer or an older Auto layer), whether Auto was chosen from Raw or from Stack with a live master. The status
+bar says so in one wording, `ViewerState.AutoShowsFramesWording` ("Showing the frames while the Full stack runs"), derived from
+`ViewerState.AutoShowsFrames` and cleared when the master is on show. Pinned by `ViewerAutoFrameDemandTests` through `ViewerE2E`
+from both entries at DPI 1 and 1.5.
+
+The hold lasts only while there is something to show for it: a run asked for, pending, or its master. A run cancelled (Shift+K
+while it runs) or failed lets go at once: playback resumes, the live stack under it shows and follows again, the line clears, and the
+bar says how the run ended ("Full stack cancelled", "Full stack failed: ..."). Pinned by
+`AnAutoRunCancelledOrFailedLetsTheViewUnderItPlay`, both exits at DPI 1 and 1.5.
 
 ### A0. Do a twin's best settings carry to another realisation of its night?
 
@@ -660,13 +674,13 @@ unmerged branch, now `tools/planetary-tune`):
 
 ### A4. The surfaces
 
-**Tracked by #1391.** `planetary stack --auto` and `planetary sharpen --auto` in the CLI, and Auto in the viewer's planetary view, which shows
+**Tracked by #1391.** `planetary stack --auto` and `planetary sharpen --auto` in the CLI, and Full in the viewer's planetary view, which shows
 the base model's master at once and the tuned one when its run finishes. One routine for both, as
 `PlanetaryBestStack` is for Best. The viewer half is verified by driving the app through the SDL inspector.
 
 **Built (2026-10-10).** A2 found no tune that carries, so AUTO's settings are the measured defaults and what it adds is
 reading what the capture **is**, nothing asked. One routine, `PlanetaryAuto` (identify, then `PlanetaryBestStack` at the
-defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Auto** view (Raw, Stack, Auto; the Best
+defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Full** view (Raw, Live, Full; the Best
 view folded into it, below). The master says what it was read as (`OBJECT`,
 `TELESCOP`, `APTDIA`, `FILTER`, through `PlanetaryStackOptions.Optics`), which `planetary sharpen --auto` reads back.
 `PlanetaryIdentification` takes each fact from the first source that gives it, and says where in words:
@@ -704,7 +718,7 @@ Meade 16-inch Saturns, the EdgeHD 11 Mars), each read with nothing given:
 - Rule 3 has nothing to show (no tune carries, A2). Rule 4's screenshots are on the PR.
 
 **Best folded into Auto (the owner, 2026-10-11).** The two views ran one routine at one set of defaults and differed only in where
-the planet, filter and telescope came from, so the viewer keeps one, **Auto** (Raw, Stack, Auto; Shift+K opens it):
+the planet, filter and telescope came from, so the viewer keeps one, **Full** (Raw, Live, Full; Shift+K opens it):
 - **The panel's choices are given to the identification** (`PlanetaryIdentityGiven`), as `--planet`, `--wavelength` and
   `--aperture-mm` are on the CLI: the planet and filter when chosen (Auto until then), the telescope only once it is set on the
   capture on show (`ViewerState.PlanetaryTelescopeSetHere`, cleared when another opens).
@@ -802,4 +816,50 @@ The Canon detail in particular is a list of things that fail SILENTLY, so it is 
   cancellation** (a per-work CTS lets a slider preempt an in-flight stack; `StackToAsync` invalidates the
   window on cancel so the next call rebuilds cleanly). `_rawMaster`/`_doc` are render-thread-only (the
   background task hands results back through its `Task<T>`; the project's lock-free hand-off).
+
+## Full stack progress by stage (#1879)
+
+`PlanetaryBestStack.RunAsync` and `PlanetaryAuto.RunAsync` report a `PlanetaryStackProgress` (a `PlanetaryStackStage` and a fraction
+inside it) instead of a percent of frame reads. The stages are Stacking, Derotating (the limb fits and the quarter stacks they read),
+Finishing (normalise, channel limb fits, demosaic, crop), Sharpening and BalancingColour, each reported as it starts, and Writing, which
+only a caller that writes reports. `PlanetaryStackProgress.Words` is the one place the labels live. Rules:
+
+- **Stacking's fraction is loads over the expected loads, and never falls.** A de-rotated run's limb-fit loads are in the estimate
+  (`ExpectedLoads`: one quarter stack of `clamp(n/100, 5, 200)` frames plus two of a quarter of the capture). The stacker reports
+  `Stacking` again once its reference is settled, and from then the count is exact (loads so far plus the kept frames), so a run that
+  was not turned enough to de-rotate corrects its estimate down instead of stalling short of the end.
+- **Stacking reaches 1 only as the next stage starts**, and the last stage ends at 1; nothing is reported after it.
+- **`tianwen planetary stack --auto` prints each stage's wall time to stderr** (`PlanetaryStageTimer`).
+
+### Where the tail went (measured, this desktop: win-x64, 16 cores, GTX 1070)
+
+`tianwen planetary stack --auto` on the 17,934-frame Saturn capture `2023-10-10-1320_8-CK-L-Sat_pipp.ser` (256x160, split CFA, de-rotated;
+8,967 frames kept), stopwatches in the code of main before the change. The progress read 99 percent from the last counted load, which came
+at 1142.3 s of the stack's 1291.8 s and 28,169 loads in all (the estimate counted 27,901, 17,934 graded + 1,000 reference + 8,967 folded: the limb fits made 268 more), and the run took 1707.5 s:
+
+| Step | Seconds |
+|---|---|
+| Grade, north, reference (`PrepareAsync`) | 237.7 |
+| Fold | 904.7 |
+| Finish (normalise, channel limb fits, demosaic, crop) | 149.4 |
+| Sharpen | 237.6 |
+| Balance, layer clone, apply | 177.0 |
+
+So 564 s (a third of the run) happened at 99 percent.
+
+After the change, stage times from the CLI (run of 1675.5 s):
+
+| Stage | Seconds |
+|---|---|
+| Stacking | 994.6 |
+| Fitting the planet's turn (the limb fits and the derotated reference stack of 1,000 frames that runs inside the stage) | 172.3 |
+| Finishing the master | 120.7 |
+| Sharpening | 220.8 |
+| Balancing colour | 166.7 |
+| Writing | 0.3 |
+
+The stages after Stacking add to 680 s, the run no longer sits at 99 percent through them, and Stacking itself now ends at 1 as it
+hands over. The two timings come from separate runs on a busy machine (other jobs queued beside them), so a difference of a few percent
+between them is noise. The step that surprises is Balancing colour: 167 s for a 256x160 master, three quarters of the sharpening's time.
+It is filed as #1887.
 

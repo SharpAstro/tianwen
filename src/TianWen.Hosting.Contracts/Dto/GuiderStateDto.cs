@@ -76,6 +76,48 @@ public sealed class GuiderStateDto
     public static GuiderStateDto FromSession(ISessionTelemetry session) => FromSession(session, guideCursor: 0, out _);
 
     /// <summary>
+    /// Projects a guider a guiding run owns (#1915), with no session to read: <paramref name="state"/> and <paramref name="stats"/>
+    /// are what the run last polled of it (they are asynchronous reads), the rest is read off <paramref name="guider"/> as it
+    /// stands, and <paramref name="samples"/> are the run's recent steps, all of them each time.
+    /// </summary>
+    public static GuiderStateDto FromGuider(IGuider guider, string? state, GuideStats? stats, SettleProgress? settle,
+        ImmutableArray<GuideErrorSample> samples, TimeSpan exposure)
+    {
+        var steps = ImmutableArray.CreateBuilder<GuideStepDto>(samples.Length);
+        foreach (var sample in samples)
+        {
+            steps.Add(GuideStepDto.From(sample));
+        }
+
+        var position = guider.GuideStarPosition;
+        var snr = guider.GuideStarSNR;
+        var profile = guider.GuideStarProfile;
+        return new GuiderStateDto
+        {
+            State = state,
+            TotalRMS = JsonNumber.OrNull(stats?.TotalRMS ?? double.NaN),
+            RaRMS = JsonNumber.OrNull(stats?.RaRMS ?? double.NaN),
+            DecRMS = JsonNumber.OrNull(stats?.DecRMS ?? double.NaN),
+            PeakRa = JsonNumber.OrNull(stats?.PeakRa ?? double.NaN),
+            PeakDec = JsonNumber.OrNull(stats?.PeakDec ?? double.NaN),
+            GuideExposureSeconds = exposure.TotalSeconds,
+            RecentSteps = steps.MoveToImmutable(),
+            GuideStarX = position is { } p ? JsonNumber.OrNull(p.X) : null,
+            GuideStarY = position is { } q ? JsonNumber.OrNull(q.Y) : null,
+            GuideStarSNR = snr is { } s ? JsonNumber.OrNull(s) : null,
+            GuideFrameNumber = guider.LastGuideFrameNumber,
+            LastRaErr = stats?.LastRaErr is { } raErr ? JsonNumber.OrNull(raErr) : null,
+            LastDecErr = stats?.LastDecErr is { } decErr ? JsonNumber.OrNull(decErr) : null,
+            LastRaPulseMs = stats?.LastRaPulseMs is { } raPulse ? JsonNumber.OrNull(raPulse) : null,
+            LastDecPulseMs = stats?.LastDecPulseMs is { } decPulse ? JsonNumber.OrNull(decPulse) : null,
+            Settle = settle is { } progress ? SettleProgressDto.From(progress) : null,
+            StarProfileH = profile is { } hv ? [.. hv.H] : [],
+            StarProfileV = profile is { } vv ? [.. vv.V] : [],
+            Calibration = guider.CalibrationOverlay is { } overlay ? CalibrationOverlayDto.From(overlay) : null,
+        };
+    }
+
+    /// <summary>
     /// Projects the guider slice with only the steps a client lacks (P5b part 7): the steps from the
     /// <paramref name="guideCursor"/>th taken, of those the session still holds. <paramref name="firstSent"/> is the number of
     /// the first step sent, which is where the client's copy continues.
@@ -91,17 +133,7 @@ public sealed class GuiderStateDto
         var steps = ImmutableArray.CreateBuilder<GuideStepDto>(held - skip);
         for (var i = skip; i < held; i++)
         {
-            var s = samples[i];
-            steps.Add(new GuideStepDto
-            {
-                Timestamp = s.Timestamp,
-                RaError = JsonNumber.OrNull(s.RaError),
-                DecError = JsonNumber.OrNull(s.DecError),
-                RaCorrectionMs = JsonNumber.OrNull(s.RaCorrectionMs),
-                DecCorrectionMs = JsonNumber.OrNull(s.DecCorrectionMs),
-                IsDither = s.IsDither,
-                IsSettling = s.IsSettling,
-            });
+            steps.Add(GuideStepDto.From(samples[i]));
         }
 
         return new GuiderStateDto
@@ -218,4 +250,15 @@ public sealed class GuideStepDto
     public double? DecCorrectionMs { get; init; }
     public required bool IsDither { get; init; }
     public required bool IsSettling { get; init; }
+
+    public static GuideStepDto From(GuideErrorSample sample) => new()
+    {
+        Timestamp = sample.Timestamp,
+        RaError = JsonNumber.OrNull(sample.RaError),
+        DecError = JsonNumber.OrNull(sample.DecError),
+        RaCorrectionMs = JsonNumber.OrNull(sample.RaCorrectionMs),
+        DecCorrectionMs = JsonNumber.OrNull(sample.DecCorrectionMs),
+        IsDither = sample.IsDither,
+        IsSettling = sample.IsSettling,
+    };
 }

@@ -36,6 +36,28 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 public static class ClassicalStarRemover
 {
     internal const int MaxSubtractRadius = 128;
+
+    // The factor an unsaturated amplitude may stand over the brightest covered sample less the sky. Amplitude is the
+    // continuous Moffat peak and the sample is a pixel MEAN, so a sharp star centred on a pixel corner has a brightest
+    // pixel of only 60 percent of its peak (1.7 times); a diverged fit is 1e12 off, so 4 refuses it and never a star.
+    internal const double OvershootMargin = 4.0;
+
+    // Whether an unsaturated fit's amplitude in any channel is not a number or above OvershootMargin times that channel's brightest
+    // covered sample. Each channel against its own ceiling, with no sky taken off: a luminance sky taken off a colour channel's
+    // ceiling left a channel whose brightest sample sat under the other channels' sky a threshold of 0, and refused nearly every star
+    // of a field with unequal channel skies (#1873's review: 286 of 297 NoFit). The margin dwarfs any sky against a divergence of 1e12.
+    internal static bool AmplitudeOvershoots(ReadOnlySpan<double> amplitudes, ReadOnlySpan<float> fullScale)
+    {
+        for (var c = 0; c < amplitudes.Length; c++)
+        {
+            if (!double.IsFinite(amplitudes[c]) || amplitudes[c] > OvershootMargin * fullScale[c])
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private const int MaxFitRadius = 96;
     private const int TileSize = 2 * MaxSubtractRadius;
     private const int RefinementPasses = 2;
@@ -878,10 +900,24 @@ public static class ClassicalStarRemover
                         : 0.0;
                 }
             }
+            // A diverged fit is refused before it is subtracted (#1867): an unsaturated star cannot peak far above its channel's
+            // brightest covered sample, so an amplitude past OvershootMargin times that (or not a number) is a fit that ran away
+            // (one at 1e12 on a frame's edge once dominated the injector's pool, and subtracting it would have written a huge
+            // hole into the plate). It is left as NoFit, which no reader takes for a star. A fit centred outside the frame with a sane
+            // amplitude is still subtracted, saturated or not: on a ringless master that is a real star the frame's edge cut, and
+            // leaving it would put half a star on the starless plate. Its row's LocalSigma is NaN, and that is the marker the next
+            // reader sees: the injector refuses a NaN-sigma row from its pool (InjectionPopulation.Diverged).
+            if (!fit.Saturated && Overshoots(fit))
+            {
+                fit.Outcome = StarFitOutcome.NoFit;
+                return fit;
+            }
             fit.Outcome = StarFitOutcome.Subtracted;
             AddModel(fit, -1);
             return fit;
         }
+
+        private bool Overshoots(Fit fit) => AmplitudeOvershoots(fit.ChannelAmplitudes, _fullScale);
 
         // A core fainter than its own wings predict is saturated, hard or soft: the wings alone (below half the peak)
         // fitted at the field's PSF, their predicted peak against the observed one. The flat-top test needs five pixels
@@ -2253,6 +2289,12 @@ public static class ClassicalStarRemover
                     fit.ChannelAmplitudes[c] = double.IsFinite(r.A1) ? r.A1 : 0.0;
                     fit.CompanionAmplitudes[c] = double.IsFinite(r.A2) ? r.A2 : 0.0;
                 }
+            }
+            // The pair passes the same overshoot guard as a single fit (#1867): either star past OvershootMargin times its channel's
+            // ceiling is a pair that ran away, not two stars, and the source stays a knot.
+            if (AmplitudeOvershoots(fit.ChannelAmplitudes, _fullScale) || AmplitudeOvershoots(fit.CompanionAmplitudes, _fullScale))
+            {
+                return null;
             }
             fit.Outcome = StarFitOutcome.Subtracted;
             AddModel(fit, -1);

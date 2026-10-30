@@ -1844,6 +1844,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "can leave every real master's relation (R2s: Andromeda's blue). Draws no random number; the stars moved " +
                           "are counted in each injections.jsonl row's WingClamped. Not with --channel-wing-cut.",
         };
+        var outerHaloOpt = new Option<string>("--outer-halo")
+        {
+            Description = "--mode stars (#1870): a halo-profiles.json (training/star-removal/domain/halo_profile.py); every injected star " +
+                          "gets a second, wide, faint Moffat under its profile, fitted per rig (the master's camera) to that file's " +
+                          "LINEAR clipped-star profiles over 4 to 40 px and scaled with the star's amplitude. A rig the file lacks " +
+                          "draws none, said once. Recorded per star in injections.jsonl (OuterHalo). Off by default.",
+        };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
         {
             Description = "--mode stars: the weakest wing, as a factor of the master's own, that half the draws of a cell give one " +
@@ -1884,7 +1891,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2034,6 +2041,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--clamp-wing-relations reads its envelope off the star-shapes file; it needs --star-shapes");
                 return 1;
             }
+            if (parseResult.GetValue(outerHaloOpt) is { } outerHaloFile
+                && (mode != DatasetDegradationExporter.DegradationMode.Stars || !File.Exists(outerHaloFile)))
+            {
+                consoleHost.WriteError("--outer-halo draws the injected stars' halo; it needs --mode stars and an existing halo-profiles.json");
+                return 1;
+            }
             var channelWingCut = parseResult.GetValue(channelWingCutOpt);
             if (clampWingRelations && channelWingCut is not null)
             {
@@ -2171,6 +2184,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 FaintStarCap: faintCap,
                 StretchFromMaster: stretchFrom == "master",
                 ClampWingRelations: clampWingRelations,
+                OuterHaloPath: parseResult.GetValue(outerHaloOpt),
                 Say: Say);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);

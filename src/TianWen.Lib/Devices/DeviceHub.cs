@@ -38,6 +38,9 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     /// <summary>What each camera's cooler is being asked to do, keyed like <see cref="_connected"/>.</summary>
     private readonly ConcurrentDictionary<string, CoolerIntent> _coolerIntents = new(DeviceUriExtensions.DeviceKeyComparer);
 
+    /// <summary>The sensor reading each camera last cooled down from, keyed like <see cref="_connected"/>.</summary>
+    private readonly ConcurrentDictionary<string, SensorAmbientReading> _preCoolReadings = new(DeviceUriExtensions.DeviceKeyComparer);
+
     public event EventHandler<DeviceConnectedEventArgs>? DeviceStateChanged;
 
     public event EventHandler? CoolerIntentChanged;
@@ -187,6 +190,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
 
             // A camera that is no longer the hub's is no longer the node's to re-establish.
             _coolerIntents.TryRemove(key, out _);
+            _preCoolReadings.TryRemove(key, out _);
 
             try
             {
@@ -307,6 +311,21 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
         logger.LogDebug("DeviceHub: the cooler of {DeviceUri} is asked to {Kind} {Setpoint}", cameraUri, intent.Kind, intent.SetpointC);
         CoolerIntentChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    public void SetPreCoolReading(Uri cameraUri, SensorAmbientReading reading)
+    {
+        var key = cameraUri.DeviceKey;
+        if (_preCoolReadings.TryGetValue(key, out var previous) && previous == reading)
+        {
+            return;
+        }
+
+        _preCoolReadings[key] = reading;
+        logger.LogDebug("DeviceHub: {DeviceUri} cooled down from a sensor at {TempC} C (settled: {Settled})", cameraUri, reading.TempC, reading.Settled);
+        CoolerIntentChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public bool TryGetPreCoolReading(Uri cameraUri, out SensorAmbientReading reading) => _preCoolReadings.TryGetValue(cameraUri.DeviceKey, out reading);
 
     public bool TryGetCoolerIntent(Uri cameraUri, out CoolerIntent intent) => _coolerIntents.TryGetValue(cameraUri.DeviceKey, out intent);
 

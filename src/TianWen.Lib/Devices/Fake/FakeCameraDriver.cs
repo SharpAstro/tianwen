@@ -104,8 +104,58 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     private double _setpointTemperature = 20.0;
     private bool _coolerOn;
     private double _coolerPower;
+    private double _ccdCeiling = double.PositiveInfinity;
 
-    public bool CanGetCoolerPower { get; } = true;
+    /// <summary>
+    /// Test seam: the camera reports NO heat sink (as QHY and ZWO do) and the room is <paramref name="ambientC"/>;
+    /// with <paramref name="sensorCannotPassAmbient"/> the sensor never reads above it, as a real cooler cannot warm one past ambient.
+    /// </summary>
+    internal void MakeHeatsinkless(double ambientC, bool sensorCannotPassAmbient)
+    {
+        HasHeatsink = false;
+        _heatsinkTemperature = ambientC;
+        _ccdCeiling = sensorCannotPassAmbient ? ambientC : double.PositiveInfinity;
+    }
+
+    private double _maxCoolerStepPerRead = 1.0;
+    private readonly List<(double SetpointC, double SensorC)> _setpointsGiven = [];
+
+    /// <summary>
+    /// Test seam: a lagging cooler. The sensor moves at most <paramref name="maxCPerRead"/> degrees toward the setpoint per
+    /// read of its temperature (a degree, the fake's own speed, by default), so a setpoint can run ahead of the sensor.
+    /// </summary>
+    internal void MakeCoolerLag(double maxCPerRead) => _maxCoolerStepPerRead = maxCPerRead;
+
+    private int _unreadableTemperatureReads;
+    private bool _unreadableTemperatureThrows;
+
+    /// <summary>
+    /// Test seam: the next <paramref name="reads"/> reads of the sensor's temperature fail, thrown as a transient fault when
+    /// <paramref name="throws"/> and answered NaN otherwise; the sensor does not move on such a read.
+    /// </summary>
+    internal void MakeNextTemperatureReadsUnreadable(int reads, bool throws)
+    {
+        _unreadableTemperatureReads = reads;
+        _unreadableTemperatureThrows = throws;
+    }
+
+    private bool _wholeDegreeSetpoint;
+
+    /// <summary>
+    /// Test seam: the camera takes whole degrees only, truncating toward zero exactly as <c>DALCameraDriver</c> does
+    /// (<c>(int)value</c>), so a test can see a ceiling that a fractional setpoint would silently lose.
+    /// </summary>
+    internal void MakeWholeDegreeSetpoint() => _wholeDegreeSetpoint = true;
+
+    public double SetpointResolutionC => _wholeDegreeSetpoint ? 1d : 0d;
+
+    /// <summary>Test seam: every setpoint this camera was given, with the sensor's reading when it was given.</summary>
+    internal IReadOnlyList<(double SetpointC, double SensorC)> SetpointsGiven => _setpointsGiven;
+
+    /// <summary>Test seam: <see cref="CanGetCoolerPower"/> false makes the camera one that cannot report its cooler power.</summary>
+    internal void MakeCoolerPowerUnreadable() => CanGetCoolerPower = false;
+
+    public bool CanGetCoolerPower { get; private set; } = true;
 
     public bool CanGetCoolerOn { get; } = true;
 
@@ -115,7 +165,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public bool CanSetCCDTemperature { get; } = true;
 
-    public bool CanGetHeatsinkTemperature { get; } = true;
+    /// <summary>Whether the fake reports a heat-sink temperature; false models a fan-cooled body that gives none (#1842).</summary>
+    public bool HasHeatsink { get; set; } = true;
+
+    public bool CanGetHeatsinkTemperature => HasHeatsink;
 
     public bool CanStopExposure { get; } = true;
 
@@ -802,18 +855,30 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
     {
+        if (_unreadableTemperatureReads > 0)
+        {
+            _unreadableTemperatureReads--;
+            if (_unreadableTemperatureThrows)
+            {
+                throw new System.IO.IOException("Simulated unreadable sensor temperature (test seam).");
+            }
+            return ValueTask.FromResult(double.NaN);
+        }
+
         if (_coolerOn)
         {
             // Move 1°C toward setpoint per call when cooler is on
             var delta = _setpointTemperature - _ccdTemperature;
             if (Math.Abs(delta) > 0.1)
             {
-                _ccdTemperature += Math.Sign(delta) * Math.Min(1.0, Math.Abs(delta));
+                _ccdTemperature += Math.Sign(delta) * Math.Min(_maxCoolerStepPerRead, Math.Abs(delta));
             }
             else
             {
                 _ccdTemperature = _setpointTemperature;
             }
+
+            _ccdTemperature = Math.Min(_ccdTemperature, _ccdCeiling);
 
             // Cooler power proportional to temperature difference from heatsink
             _coolerPower = Math.Clamp((_heatsinkTemperature - _ccdTemperature) / 40.0 * 100.0, 0, 100);
@@ -823,7 +888,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     }
 
     public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(_heatsinkTemperature);
+        => ValueTask.FromResult(HasHeatsink ? _heatsinkTemperature : double.NaN);
 
     public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_coolerPower);
@@ -846,7 +911,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
     {
+        if (_wholeDegreeSetpoint)
+        {
+            value = (int)value;
+        }
         _setpointTemperature = value;
+        _setpointsGiven.Add((value, _ccdTemperature));
         return ValueTask.CompletedTask;
     }
 
@@ -1607,7 +1677,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     internal int VideoBaseSeed { get; set; } = 1234;
 
     /// <inheritdoc/>
-    public bool CanVideoCapture => true;
+    /// <remarks>
+    /// Not the guide camera (#1915): its stream would be the synthetic planet disk above, while the star field the guider
+    /// measures comes only from the exposure path, so a guide-camera loop would show a sky the guider then cannot find. A
+    /// guide camera loops short exposures instead, as any camera without native video does.
+    /// </remarks>
+    public bool CanVideoCapture => !IsGuideCamera;
 
     /// <inheritdoc/>
     // Report ZWO-style alignment (width % 8 == 0, height % 2 == 0, origin on the same steps) so the ROI

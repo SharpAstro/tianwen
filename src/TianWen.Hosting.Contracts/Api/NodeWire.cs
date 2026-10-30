@@ -8,7 +8,10 @@ namespace TianWen.Hosting.Api;
 /// <remarks>
 /// Raise it when a change would make an older client misread a newer node, or the reverse: a route removed or
 /// renamed, a field whose meaning changed, an event a client must handle. Adding an endpoint or an optional
-/// field does not raise it.
+/// field does not raise it. The cooling ramp's rate (#1839) did not: it renamed the session configuration's two ramp times
+/// to <c>CooldownMaxRate</c> / <c>WarmupMaxRate</c> and the cool request's <c>RampMinutes</c> to <c>MaxRateCPerMinute</c>,
+/// all optional, so a side that does not know one reads it absent and ramps at its own default, never a jump; and a
+/// client replaces an idle node of another build anyway.
 /// </remarks>
 public static class NodeWire
 {

@@ -143,6 +143,35 @@ public class PlanetarySharpeningTests
         sliders.Release();
     }
 
+    private sealed class Stages : IProgress<PlanetaryStackProgress>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<PlanetaryStackStage> Seen { get; } = new();
+
+        public void Report(PlanetaryStackProgress value) => Seen.Enqueue(value.Stage);
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task ADerivationReportsItsStagesInOrderOnAColourMaster()
+    {
+        // #1882: the colour alignment's limb fits, then the sharpening (every stop's fit), then the colour balance, each as it starts.
+        var ct = TestContext.Current.CancellationToken;
+        var (_, mono) = NoisyStack();
+        var plane = new float[Size, Size];
+        var span = mono.GetChannelSpan(0);
+        for (var i = 0; i < span.Length; i++)
+        {
+            plane[i / Size, i % Size] = span[i];
+        }
+        var colour = new Image([plane, plane.Copy(), plane.Copy()], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var stages = new Stages();
+
+        var derived = await Task.Run(() => PlanetaryBestStack.DeriveGains(colour, CatalogIndex.Jupiter, Night, Telescope,
+            stops: PlanetarySharpening.StrengthStops, progress: stages), ct);
+
+        derived.Gains.IsDefaultOrEmpty.ShouldBeFalse(derived.How);
+        stages.Seen.ToArray().ShouldBe([PlanetaryStackStage.Finishing, PlanetaryStackStage.Sharpening, PlanetaryStackStage.BalancingColour]);
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task OneDerivationCarriesEveryStopsGainsAsADerivationAtThatStrengthGivesThem()
     {

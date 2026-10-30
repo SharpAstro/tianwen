@@ -6,6 +6,12 @@
     "tarantula": "<path to the held-out Tarantula master of 2026-10-17, FITS, 3 planes, PIXORIG = 1>",
     "sag": "<path to the Sagittarius Triplet master, mono or RGB>"
   },
+  "glow_threshold": {
+    "_comment": "Per master, the share-above threshold of glow_ring.py as [R, G, B] sigma-pixels, fixed ONCE from the INPUT master's own stars (the halo before removal): run `python glow_ring.py <master> --derive-threshold` (0.1 of the input's median annulus excess per channel) and paste its three numbers. Never re-derive it from an arm's plate.",
+    "andromeda": ["<tR>", "<tG>", "<tB>"],
+    "tarantula": ["<tR>", "<tG>", "<tB>"],
+    "sag": ["<tR>", "<tG>", "<tB>"]
+  },
   "arm": {
     "_second_set": "To score on a second set of A's draws and twins (F2's master-stretched ones) without touching the first, copy this file and give the copy NEW folders for random_export, twins_root, eval_root, reports and logs_root: every skip test keys on eval_root/<name>/ and reports/*-<name>.txt, so a folder shared with the first set reads as 'already scored' and is silently skipped. real_export, val_list, plates_root, m31_master and m31_out may stay shared. Keys starting with _ are ignored.",
     "run": "<frozen copy of training/denoise at the arm's commit (r2_infer.py, n2n_export.py)>",

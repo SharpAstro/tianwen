@@ -23,8 +23,6 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     public virtual DeviceType DriverType => _device.DeviceType;
 
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
-
     public IExternal External { get; } = serviceProvider.GetRequiredService<IExternal>();
 
     public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(device.GetType().Name);
@@ -126,8 +124,6 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
                     $"Failed to initialise device {_device.DeviceId} ({_device.DisplayName}): {initFailure?.Message ?? "the device refused its initialisation"}",
                     initFailure);
             }
-
-            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
         }
         finally
         {
@@ -173,7 +169,6 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
             Volatile.Write(ref _connectionId, CONNECTION_ID_UNKNOWN);
             Volatile.Write(ref _connectionState, DISCONNECTED);
-            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
         }
         finally
         {

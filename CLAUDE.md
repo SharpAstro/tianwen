@@ -300,10 +300,12 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
   `tianwen-gui`/`tianwen-server` started straight from `.claude\jobs\<id>\tmp\…` left a firewall prompt (and a rule) per
   folder on this machine. Only a run that tests the LAN itself sets it to 0.
 - **A Debug app is found by the sidecar's `list_instances`, never by a port read off a log.** The `.mcp.json` pins
-  (`SdlVulkan.Renderer.Inspector` 7.73, `Console.Lib.Inspector` 5.10) read DIR.Lib's per-user inspector registry
+  (`SdlVulkan.Renderer.Inspector` 7.76, `Console.Lib.Inspector` 5.12) read DIR.Lib's per-user inspector registry
   (`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers with no socket but its
-  loopback command server) and then multicast, which finds an app below 11.21. **Only a build against the sibling
-  SOURCES has an inspector**, never a worktree's, and nothing on this machine needs `DIR_LIB_INSPECTOR_LAN`.
+  loopback command server) and then multicast, which finds an app below 11.21. **A Debug build has an
+  inspector from the sibling SOURCES in a normal checkout, and in a worktree or plane (no siblings found) from the
+  `.Debug` twin packages** (`DIR.Lib.Debug`, `Console.Lib.Debug`, `SdlVulkan.Renderer.Debug`, pinned at the same
+  MAJOR.MINOR as the plain ones; `TianWen.UI.Web` excepted); Release has none. Nothing on this machine needs `DIR_LIB_INSPECTOR_LAN`.
 - **`ProfileData.SiteLatitude/Longitude` must match the mount URI's `latitude/longitude`** (a split
   site throws "Could not calculate timezone"); canonical wiring
   `SessionTestHelper.CreateSessionAsync(mountPort:"SkyWatcher", latitude, longitude)`.
@@ -921,14 +923,14 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   is de-rotated unasked only past `PlanetaryDerotationOptions.MinimumTurnPx`, its north decided by the run's
   quarters, never the limb fit.
 - **A recorded capture's best stack is `PlanetaryBestStack`, ONE routine for `planetary stack` and `tianwen-fits`'
-  Auto view** (Shift+K, #1159; `DerotationFor`, `Sharpen`, `OutputPaths`, `PupilFor`,
+  Full view** (Shift+K, #1159; `DerotationFor`, `Sharpen`, `OutputPaths`, `PupilFor`,
   `PlanetaryTelescopePersistence`, #1179), which identifies the capture first as `planetary stack --auto` does
   (`PlanetaryAuto`, `PlanetaryIdentification`; the Best view folded in, #817): the panel's choices are GIVEN, a telescope
   only once set on that capture (`PlanetaryTelescopeSetHere`), the viewer's last one only where the capture names none.
   **A master names its planet in `OBJECT` and opens in `StretchMode.Planetary`** (`StretchMode.ForFrame`, ONE rule
   for the viewer, the thumbnail and `tianwen view`). **The batch stack runs on every core with one walk's bits**
   (`ParallelFor.RunBands`, `PlanetaryFrameBatches`): **never split a fold across FRAMES**, whose sum is ordered.
-- **AUTO is ONE routine, `PlanetaryAuto`, for `planetary stack --auto` and the viewer's Auto view** (#1391): the capture
+- **AUTO is ONE routine, `PlanetaryAuto`, for `planetary stack --auto` and the viewer's Full view** (#1391): the capture
   read by `PlanetaryIdentification` (each fact's source said in words, written into the master), then Best at the
   defaults. **The frames only tell Jupiter from Saturn** (a crescent Venus is as elongated as the rings); **a mount's
   pointing and the path that disagree name neither**; a telescope is remembered per CAMERA (`PlanetaryTelescopeMemory`).
@@ -980,7 +982,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     what a limb pixel takes `--limb-fix` / `--limb-floor`. A new limb option joins its family's prefix.
   - **A master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a
     `FixedMaster`), never a second sharpening path; **a Save writes what is on show** (`ShownDocument`); **a
-    SER's view is one switch, Raw / Stack / Auto** (`ViewerState.ChoosePlanetaryView`,
+    SER's view is one switch, Raw / Live / Full** (`ViewerState.ChoosePlanetaryView`,
     `PlanetaryBestStackResult.Layer`); **the derived dials never clamp at a master's peak** (`SliderOptions`,
     `Clamp = false`).
   - **Saturn is sharpened as Jupiter is** (#1184, `ClearRadiiAt` at most 1); **its globe turns under rings that
@@ -992,7 +994,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   - **A colour master of Jupiter or Saturn is balanced to the planet's own colour AFTER the sharpening**
     (`PlanetaryColourBalance`, #1212, `PlanetaryLiveLimb.Balance`; Saturn's globe where its rings leave it clear,
     #1235), never a saturation about grey; **saturation 1.1 by default, the colour contrast the twins' truth says the blur
-    took, 1.4 an option** (`DefaultSaturation`, `EyeSaturation`, `--colour-saturation`, #1664), **and the white point the planet's
+    took, 1.4 an option** (`DefaultSaturation`, `EyeSaturation`, `--colour-saturation`, #1664; the Enhance panel's `Truth 1.1` / `Eye 1.4` stops, `ViewerState.PlanetaryColourSaturation`, taken by the next Full stack and Derive, dim on a mono source, #1880), **and the white point the planet's
     own, grey an option** (`--white-point neutral`, `CBALWP`). **The balance goes through the camera's own matrix by default, found ONCE by the camera the
     master's `INSTRUME` names** (`PlanetaryColourBalance.CameraColourAsync`, `CBALCAM`, #1279; `--colour-matrix none` is the
     balance before): a stack carries its SER's camera into `INSTRUME` (`IPlanetaryFrameStream.Camera`), and a camera with no

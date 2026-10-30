@@ -186,6 +186,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             .AddSingleton<ViewerState>()
             .AddSingleton<PlanetaryCaptureController>()
             .AddSingleton<LiveViewController>()
+            .AddSingleton<GuideLoopController>()
             .AddSingleton(catalog)
             // The planner's start loads the comets beside the catalogue: none, here.
             .AddSingleton(comets)

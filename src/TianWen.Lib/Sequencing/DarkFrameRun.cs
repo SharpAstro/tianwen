@@ -37,6 +37,8 @@ namespace TianWen.Lib.Sequencing;
 /// whatever the sensor is. Dark current doubles about every 6 °C, so a dark is defined by its temperature as much as its exposure.</param>
 /// <param name="WarmWhenFinished">Once the frames are taken, warm the sensor through the hub's ramp and switch its cooler off,
 /// leaving the camera connected. Without it the cooler is left as the run made it, held at the setpoint.</param>
+/// <param name="LibraryFolder">A folder under <c>Darks/</c> (or <c>Bias/</c>) the frames go to instead of the date's alone, which is how a
+/// guide camera's library is told from a main camera's (<see cref="TianWen.Lib.Devices.Guider.GuideDarkLibrary"/>); null for the date's.</param>
 public sealed record DarkFrameRunOptions(
     TimeSpan Exposure,
     int Count,
@@ -46,7 +48,8 @@ public sealed record DarkFrameRunOptions(
     FrameType FrameType = FrameType.Dark,
     string? ReadoutMode = null,
     double? SetpointC = null,
-    bool WarmWhenFinished = false);
+    bool WarmWhenFinished = false,
+    string? LibraryFolder = null);
 
 /// <summary>One captured frame and the state it was captured in.</summary>
 public sealed record DarkFrameCaptured(string Path, DateTimeOffset StartedUtc, double SensorTemperatureC);
@@ -138,7 +141,7 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
 
         var target = CameraCoolingRamp.TargetOf(setpointC);
         logger.LogInformation("Cooling {Camera} to {Target} °C before the first frame", camera.Name, target);
-        var reached = await hub.CoolToSetpointAsync(cameraUri, target, new SessionConfiguration().CooldownRampInterval, timeProvider, logger, cancellationToken);
+        var reached = await hub.CoolToSetpointAsync(cameraUri, target, new SessionConfiguration().CooldownMaxRate, timeProvider, logger, cancellationToken);
         var sensorC = await camera.GetCCDTemperatureAsync(cancellationToken);
         if (!reached || !(Math.Abs(sensorC - target) <= SetpointToleranceC))
         {
@@ -214,6 +217,7 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
         var folder = Path.Combine(
             external.ImageOutputFolder.FullName,
             options.FrameType is FrameType.Bias ? "Bias" : "Darks",
+            options.LibraryFolder ?? "",
             timeProvider.GetUtcNow().ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo));
         Directory.CreateDirectory(folder);
 

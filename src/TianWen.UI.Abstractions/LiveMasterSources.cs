@@ -19,6 +19,12 @@ public interface ILiveMasterSource : IDisposable
     /// <summary>How far the source has got: the stream's frames, or the masters received. The source follows the last.</summary>
     int FrameCount { get; }
 
+    /// <summary>The frames the latest master folded, or null where the source does not say (a master that arrives whole).</summary>
+    int? FramesFolded => null;
+
+    /// <summary>What the capture behind the masters says of itself, cached by the source, or null where there is none.</summary>
+    PreviewCapture? Capture => null;
+
     bool HasTimestamps { get; }
 
     DateTimeOffset? TimestampOf(int index);
@@ -40,6 +46,7 @@ public sealed class StackedMasters : ILiveMasterSource
     private readonly IPlanetaryFrameStream _stream;
     private readonly bool _ownsStream;
     private readonly RollingWindowStacker _stacker;
+    private int _folded = -1;
 
     /// <param name="ownsStream">Whether the stream is disposed with this: a file-backed SER stream scoped to a view is.</param>
     public StackedMasters(IPlanetaryFrameStream stream, RollingWindowOptions? options, bool ownsStream)
@@ -49,7 +56,16 @@ public sealed class StackedMasters : ILiveMasterSource
         _ownsStream = ownsStream;
         _stacker = new RollingWindowStacker(stream, options);
         _ = stream.HasTimestamps;
+        // Read once here, off the render thread, where the timestamp trailer is already warm.
+        var count = stream.FrameCount;
+        var stamped = stream.HasTimestamps && count > 0;
+        var span = stamped ? PreviewCapture.SpanOf(count, stream.TimestampOf) : default;
+        Capture = new PreviewCapture(stream.Camera ?? "", "", "", "", 0, count, span.Earliest, span.Latest, span.FramesPerSecond);
     }
+
+    public PreviewCapture? Capture { get; }
+
+    public int? FramesFolded => Volatile.Read(ref _folded) is var folded and >= 0 ? folded : null;
 
     public int FrameCount => _stream.FrameCount;
 
@@ -57,7 +73,13 @@ public sealed class StackedMasters : ILiveMasterSource
 
     public DateTimeOffset? TimestampOf(int index) => _stream.TimestampOf(index);
 
-    public Task<Image> MasterAtAsync(int playhead, CancellationToken cancellationToken) => _stacker.StackToAsync(playhead, cancellationToken);
+    public async Task<Image> MasterAtAsync(int playhead, CancellationToken cancellationToken)
+    {
+        var master = await _stacker.StackToAsync(playhead, cancellationToken);
+        // Counted where the stacker is idle, so the render thread reads a number and never the window.
+        Volatile.Write(ref _folded, _stacker.FoldedFrameCount);
+        return master;
+    }
 
     public (int Width, int Height, int Channels, SensorType Sensor) ExpectedGeometry
     {

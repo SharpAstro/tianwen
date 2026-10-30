@@ -160,6 +160,47 @@ public class NodeJournalTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task TheJournalCarriesTheSensorReadingACameraCooledDownFromAndItRoundTrips()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var hub = new FakeExternal(output).BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var camera = new FakeDevice(DeviceType.Camera, 1);
+        await hub.ConnectAsync(camera, ct);
+        var at = Boot.AddMinutes(2);
+        hub.SetCoolerIntent(camera.DeviceUri, CoolerIntent.CoolTo(-10));
+        hub.SetPreCoolReading(camera.DeviceUri, new SensorAmbientReading(12.1, true, at));
+
+        var journal = NodeJournal.Of(hub, run: null, session: null, Boot.AddMinutes(5), processId: 99);
+
+        var held = journal.Devices.ShouldHaveSingleItem();
+        held.PreCoolSensorC.ShouldBe(12.1);
+        held.PreCoolSettled.ShouldBe(true);
+        held.PreCoolUtc.ShouldBe(at);
+
+        var json = JsonSerializer.Serialize(journal, NodeJournalJsonContext.Default.NodeJournal);
+        var back = JsonSerializer.Deserialize(json, NodeJournalJsonContext.Default.NodeJournal).ShouldNotBeNull();
+        back.Devices.ShouldHaveSingleItem().ShouldBe(held);
+        back.HoldsTheSameAs(journal).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void AJournalWrittenBeforeTheReadingExistedStillReads()
+    {
+        const string old = """
+            {"version":1,"writtenUtc":"2026-09-20T23:00:00+00:00","processId":7,
+             "devices":[{"deviceUri":"Camera://FakeDevice/FakeCamera1","displayName":"Fake Camera 1","cooler":"Cool","coolerSetpointC":-10}]}
+            """;
+
+        var back = JsonSerializer.Deserialize(old, NodeJournalJsonContext.Default.NodeJournal).ShouldNotBeNull();
+
+        var held = back.Devices.ShouldHaveSingleItem();
+        held.Cooler.ShouldBe(CoolerIntentKind.Cool);
+        held.CoolerSetpointC.ShouldBe(-10);
+        held.PreCoolSensorC.ShouldBeNull();
+        held.PreCoolSettled.ShouldBeNull();
+    }
+
+    [Fact]
     public void TheJournalLivesBesideTheNodesSocketAndLock()
     {
         var socket = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "node.sock");

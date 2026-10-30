@@ -457,8 +457,6 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             Interlocked.Exchange(ref _connection, null)?.Dispose();
             Volatile.Write(ref _guideStarSNR, double.NaN);
         }
-
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
     }
 
     static GuideStats AccumulateGuidingStats(Accum ra, Accum dec) => new()
@@ -1001,8 +999,6 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
 
     protected virtual void OnGuidingErrorEvent(GuidingErrorEventArgs eventArgs) => GuidingErrorEvent?.Invoke(this, eventArgs);
-
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 

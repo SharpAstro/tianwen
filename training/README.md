@@ -168,6 +168,7 @@ What a row says, and the scripts that read it (each also runs alone, `--help` or
 | `core R/G/B` | `profiles.py` | the residual at 0 to 1.5 px, per channel: the light a sharp core leaves |
 | `Tar crowded`, `Sag crowded` | `remover_check2.py` | stars with three or more neighbours within 15 px that come out flat (the Triplet is mono, scored as three copies of its plane) |
 | `BP17-19`, `purity` | `gaia_remover_check.py` | Gaia stars of that magnitude the starless plate no longer holds, and the share of the removed light that lies away from every Gaia star |
+| `And glow` / `Tar glow` | `glow_ring.py` | the glow left around bright clipped stars (#1871), green: the median and p90 over stars of the starless plate's excess over its own 45-60 px ring, summed over the 10-30 px annulus in the export's stretch (the input's `ApplyInputStretch` parameters, covered pixels) and the master's noise sigma, then the share of stars above the master's threshold. Red and blue, and Sagittarius, are in `score.json` (`glow`). **Threshold rule:** fixed ONCE per master from the INPUT's own stars, `glow_ring.py <master> --derive-threshold` (a tenth of the input's median annulus excess, per channel), written into the config's `glow_threshold`, never re-derived from an arm's plate. Every arm's history, the thresholds used and the seed-spread bar: `docs/plans/star-remover-training.md`, "The glow row's history and its bar" (#1871) |
 | `nucleus` | `m31_nucleus.py` | the share of M31's nucleus light (0 to 6 px) the remover took as a star, R/G/B; the guard is at most 5 % |
 
 The guards are round 1's: the nucleus at most 5 % in every channel and purity at most 1.0 %. A row is read against
@@ -178,6 +179,12 @@ canvas ring of a TianWen master is handled in `remover_check2.py` (its fine-scal
 skip every cell it reaches), which the first copy of the Tarantula's check did not do and which moves only its
 cell-level lines, none of them in the row. Run any torch the scorer calls for on the CPU with
 `CUDA_VISIBLE_DEVICES=-1` while a training arm owns the card; the scorer itself needs no GPU.
+
+**The glow threshold is fixed once per master**, from the INPUT's own stars: `python glow_ring.py <master> --derive-threshold`
+prints `glow threshold tR tG tB` (a tenth of the input halo's per-channel median, so a star glows when its plate keeps a
+tenth of a typical halo before removal); paste the numbers into `glow_threshold` in `scorecard.local.json`
+(`scorecard.example.json` shows the key). A master with no threshold there is a `KeyError`, never a zero. Pinned on synthetic
+stars by `test_glow_ring.py` (`python -I star-removal/test_glow_ring.py`).
 
 ### Scoring an arm's weights, and driving a local arm
 
@@ -267,3 +274,8 @@ python star-removal/domain/domain_classifier.py --real <real root> --synthetic s
   the mean and sample standard deviation over seeds (`auc_mean`, `auc_std`), per seed and per camera. Read a change to an export
   against that spread, never a single seed: three seeds at least. `--threads` bounds torch's CPU threads (default 4).
 - The JSON holds only counts and AUCs, no tile data. The tiles themselves are the owner's and never committed.
+- `halo_census.py --store <bake> --synth <synth root> --out census.json` finds the clipped stars (stretched peak at least 0.95) in the
+  training masters and the synthetic tiles; `halo_profile.py profile --census census.json --store <bake> --out halo-profiles.json`
+  measures each one's azimuthal excess over the 45 to 60 px sky ring at r = 0..40 px, per rig, clipped-core group and channel, in
+  linear and stretched units (`table <json> [--rig NAME]` prints it, `check <json>` validates the schema and exits non-zero on a
+  problem). The committed `halo-profiles.json` is the table the injector's outer halo is fitted to (#1870).

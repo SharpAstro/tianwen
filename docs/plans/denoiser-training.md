@@ -461,6 +461,24 @@ minus luminance: 0.31 of its input at 1 px, 0.42 at 32 px). So "matched residual
 or two denoisers that look matched can leave twice the blotches. Read N2N's starless plate the same way, beside NXT's,
 before sizing a chroma step after it (#1804, planned for the in-house N2N path only).
 
+**Read 2026-10-29, and it is twice the blotches** (#1912). The Sculptor master's starless plate (SXT on the linear master),
+each denoiser on its own output, every plate read on the same 8.3 million sky pixels, each band as a share of the plate's
+own (`PlateNoiseByScaleProbe`, `TIANWEN_PLATE_NOISE_DIR`):
+
+| plate | 1 px | 2 px | 4 px | 8 px | 16 px | 32 px | coarse (16+32) |
+|---|---|---|---|---|---|---|---|
+| NXT x1 | 0.162 | 0.164 | 0.175 | 0.204 | 0.296 | 0.490 | 0.370 |
+| NXT x2 | 0.033 | 0.035 | 0.045 | 0.082 | 0.205 | 0.445 | 0.296 |
+| NXT x3 | 0.008 | 0.011 | 0.022 | 0.060 | 0.188 | 0.434 | 0.281 |
+| N2N x1 | 0.034 | 0.083 | 0.192 | 0.321 | 0.569 | 0.886 | 0.689 |
+| N2N x2 | 0.027 | 0.053 | 0.121 | 0.228 | 0.484 | 0.841 | 0.619 |
+
+N2N x1 and NXT x2 are matched at 1 px and N2N leaves 2.3 times the coarse noise, so this campaign's matched-noise
+comparisons, read on a single-pixel MAD, choose on the one scale where N2N looks best: #1912 puts the bands into the
+gate and the frontier. Neither denoiser does much at 32 px, and on this unenhanced plate NXT's pass 2 took only 20 % off
+the coarse noise (the enhanced master of 2026-10-24: 47 %), so the denoise passes' provisional 35 % depends on the input.
+One master, luminance only, and N2N outside its training range (single-sub noise).
+
 ## 4. Experiments, in order
 
 | Step | What | Cost | Decides |

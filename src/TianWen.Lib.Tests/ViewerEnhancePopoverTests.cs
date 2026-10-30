@@ -87,9 +87,9 @@ namespace TianWen.Lib.Tests
             => new((uint)(WindowW * dpiScale), (uint)(designHeight * dpiScale));
 
         private static async Task<(PopoverViewer Viewer, ViewerState State, AstroImageDocument Document)>
-            NewViewerAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct)
+            NewViewerAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct, AstroImageDocument? shown = null)
         {
-            var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+            var document = shown ?? await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
             var viewer = new PopoverViewer(renderer, new SignalBus(), dpiScale)
             {
                 // The bar a host with an AI pipeline offers; the default offer has no Enhance button.
@@ -148,12 +148,12 @@ namespace TianWen.Lib.Tests
         private static Dictionary<string, (float X, float Y)> PlanetaryHits(PopoverViewer viewer)
             => HitsBelowTheBar(viewer, action => action.StartsWith("Planet", StringComparison.Ordinal)
                 || action.StartsWith("Design", StringComparison.Ordinal) || action.StartsWith("Aperture", StringComparison.Ordinal)
-                || action.StartsWith("Strength", StringComparison.Ordinal) || action.StartsWith("Wavelet", StringComparison.Ordinal));
+                || action.StartsWith("Strength", StringComparison.Ordinal) || action.StartsWith("BalanceSaturation", StringComparison.Ordinal) || action.StartsWith("Wavelet", StringComparison.Ordinal));
 
         private static async Task<(PopoverViewer Viewer, ViewerState State, List<(ToolbarAction Action, MouseButton Button)> Presses)>
-            OpenAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct, Action<ViewerState>? arrange = null)
+            OpenAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct, Action<ViewerState>? arrange = null, AstroImageDocument? shown = null)
         {
-            var (viewer, state, document) = await NewViewerAsync(renderer, dpiScale, ct);
+            var (viewer, state, document) = await NewViewerAsync(renderer, dpiScale, ct, shown);
             var presses = new List<(ToolbarAction, MouseButton)>();
             // The host's policy stands in for the controller: what the popover presses is what reaches it.
             viewer.ToolbarPressPolicy = (viewerState, action, button) =>
@@ -378,6 +378,72 @@ namespace TianWen.Lib.Tests
         [Theory]
         [InlineData(1f)]
         [InlineData(1.5f)]
+        public async Task BalanceSaturationStopsShowOnAColourSourceAndChoosingEyeIsKept(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = NewRenderer(dpiScale, TallH);
+            var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+            var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture, document);
+
+            state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation, "the measured one until the panel says otherwise");
+            var hits = PlanetaryHits(viewer);
+            hits.Keys.ShouldContain("BalanceSaturationTruth");
+            hits.Keys.ShouldContain("BalanceSaturationEye");
+
+            Press(viewer, hits["BalanceSaturationEye"].X, hits["BalanceSaturationEye"].Y);
+            state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
+            state.EnhancePopover.IsOpen.ShouldBeTrue("a choice leaves the popover open");
+
+            viewer.Render(document, state);
+            var truth = PlanetaryHits(viewer)["BalanceSaturationTruth"];
+            Press(viewer, truth.X, truth.Y);
+            state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task BalanceSaturationRowIsDimWithItsReasonOnAMonoSource(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var plane = new float[ImageH, ImageW];
+            var image = new Image([plane], BitDepth.Int16, 65535f, 0f, 0f,
+                new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
+                    0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                    RowOrder.TopDown, float.NaN, float.NaN));
+            var mono = await AstroImageDocument.AdoptImageAsync(image, DebayerAlgorithm.None, null, filePath: "mono.fits", cancellationToken: ct);
+            using var renderer = NewRenderer(dpiScale, TallH);
+            var (viewer, _, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture, mono);
+
+            var hits = PlanetaryHits(viewer).Keys;
+            hits.ShouldContain("PlanetJupiter", "the rest of the section is there");
+            hits.ShouldNotContain("BalanceSaturationTruth");
+            hits.ShouldNotContain("BalanceSaturationEye");
+            ImageRendererBase<RgbaImage>.BalanceSaturationMonoReason.ShouldContain("needs a colour source");
+
+            // The reason is on the painted panel, a word to a leaf (the caption wraps).
+            var painted = string.Join(' ', viewer.EnhanceLayoutForTest
+                .Select(n => n.Node)
+                .OfType<Layout.Node.Leaf>()
+                .Select(l => l.Content)
+                .OfType<Layout.Content.Text>()
+                .Select(t => t.Value));
+            painted.ShouldContain(ImageRendererBase<RgbaImage>.BalanceSaturationMonoReason);
+        }
+
+        [Fact]
+        public void BalanceSaturationChosenReachesTheAutoStackOptions()
+        {
+            // The options are the seam: PlanetaryBestStack hands options.ColourSaturation straight to PlanetaryColourBalance.For, whose
+            // cards carry it as CBALSAT (pinned in PlanetaryColourTests), so there is no second place the value can be lost.
+            var identity = new PlanetaryIdentity(null, "", null, null, "", null, OpticalDesign.Unknown, "", null, default);
+            ViewerController.AutoOptions(identity, 1, PlanetaryColourBalance.EyeSaturation).ColourSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
+            ViewerController.AutoOptions(identity, 1, PlanetaryColourBalance.DefaultSaturation).ColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
         public async Task ChoosingThePlanetTheDesignAndTheStrengthInThePopoverSetsThem(float dpiScale)
         {
             var ct = TestContext.Current.CancellationToken;
@@ -419,6 +485,75 @@ namespace TianWen.Lib.Tests
             state.WaveletDerived.ShouldBeFalse();
             state.WaveletDeriveNote.ShouldBeNull();
             state.WaveletGains.ShouldBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
+        }
+
+        /// <summary>The longest sentence a derivation writes: colour balance, a camera's matrix and a telescope read from the folder name (#1878).</summary>
+        private const string LongestDeriveNote = "Gains derived for Saturn through a 406 mm pupil at 610 nm toward the aperture (telescope read from the "
+            + "folder name 2026-10-07_Saturn_C14); balanced to Saturn's colour: gains R 1.005, B 0.887 over green through the Uranus-C's matrix, saturation 1.1";
+
+        /// <summary>The painted rect of the popover's body, read from the region it registers rather than measured again.</summary>
+        private static RectF32 PanelRect(PopoverViewer viewer)
+        {
+            foreach (var region in viewer.GetRegisteredRegions())
+            {
+                if (region.Result is HitResult.ButtonHit { Action: "EnhancePanelBackground" })
+                {
+                    return new RectF32(region.X, region.Y, region.Width, region.Height);
+                }
+            }
+            throw new InvalidOperationException("the Enhance popover registered no body");
+        }
+
+        [Theory]
+        [InlineData(1f, 900u)]
+        [InlineData(1f, 2400u)]
+        [InlineData(1.5f, 900u)]
+        [InlineData(1.5f, 2400u)]
+        public async Task TheDerivationNoteWrapsInsideThePopoverInsteadOfWideningIt(float dpiScale, uint designWidth)
+        {
+            var ct = TestContext.Current.CancellationToken;
+
+            async Task<(RectF32 Panel, float ContentBottom)> PanelWith(string? note)
+            {
+                using var renderer = new RgbaImageRenderer((uint)(designWidth * dpiScale), (uint)(TallH * dpiScale));
+                var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, s =>
+                {
+                    OnAStackedCapture(s);
+                    s.WaveletDerived = true;
+                    s.WaveletDeriveNote = note;
+                });
+                var panel = PanelRect(viewer);
+                var bottom = 0f;
+                foreach (var region in viewer.GetRegisteredRegions())
+                {
+                    if (region.Result is not HitResult.ButtonHit { Action: "EnhancePanelBackground" }
+                        && region.X >= panel.X && region.X < panel.Right && region.Y >= panel.Y)
+                    {
+                        bottom = MathF.Max(bottom, region.Y + region.Height);
+                    }
+                }
+                return (panel, bottom);
+            }
+
+            var bare = await PanelWith(null);
+            var oneLine = await PanelWith("Gains derived.");
+            var noted = await PanelWith(LongestDeriveNote);
+
+            noted.Panel.Width.ShouldBe(bare.Panel.Width, 1f, "a sentence wraps inside the popover's width; it does not set it");
+            noted.Panel.Height.ShouldBeGreaterThan(oneLine.Panel.Height + (2f * 10f * dpiScale), "the note spans more than one line");
+            noted.ContentBottom.ShouldBeLessThanOrEqualTo(noted.Panel.Bottom + 0.5f, "the body is as tall as the wrapped note and the last dial need");
+            noted.Panel.Bottom.ShouldBeLessThanOrEqualTo(TallH * dpiScale, "the popover stays on the window");
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task TheDeepSkyHalfKeepsItsOwnWidthUnderTheCap(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = NewRenderer(dpiScale);
+            var (viewer, _, _) = await OpenAsync(renderer, dpiScale, ct);
+            PanelRect(viewer).Width.ShouldBeLessThanOrEqualTo((ImageRendererBase<RgbaImage>.EnhancePopoverMaxWidth * dpiScale) + 1f, "the deep-sky rows are narrower than the cap, so the cap changes nothing there");
         }
 
         [Fact]

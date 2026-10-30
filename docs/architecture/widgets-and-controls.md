@@ -166,6 +166,14 @@ call `router.AfterPaint()` once the frame is drawn, which is where `BlurIfUnpain
 once-per-open focus request and the tooltip expiry live, all three needing a fact only a finished
 frame has.
 
+**Back and Forward have ONE owner for the history and ONE for the move** (#1821). The history is
+`GuiAppState.ActiveTab`'s setter, which records the place left; `GuiEventHandlerBase` owns `CanGoBack` /
+`CanGoForward` / `GoBack()` / `GoForward()` (as `IGuiNavigation`), and the rail's strip
+(`GuiNavigationStrip`, DIR.Lib's `NavigationStrip` at the top of the rail, `GuiNavigationStrip.BaseHeight` tall),
+Alt+Left / Alt+Right and the mouse's back and forward buttons all call those four. A new way to go back calls
+them, and never a history of its own. The GUI has no shortcut list to extend; the strip's tooltips ("Back
+(Alt+Left)", "Forward (Alt+Right)") are where the keys are said.
+
 ### A press that lands on a clickable region never reaches the tab's own mouse-down
 
 Unchanged, and now the router's rule rather than a host's: the topmost region under the pointer owns

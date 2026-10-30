@@ -559,7 +559,20 @@ public interface ICameraDriver : IDeviceDriver
         && CanSetCoolerOn
         && (CanGetHeatsinkTemperature || CanGetCCDTemperature);
 
-    async ValueTask<CameraCoolingState> CoolToSetpointAsync(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// The finest setpoint this camera takes, degrees C: 0 for a continuous one (ASCOM, Alpaca, the fake), 1 for a camera
+    /// whose SDK takes whole degrees (every <c>DALCameraDriver</c>), which a fractional setpoint would be truncated for.
+    /// The cooling ramp holds such a camera to its rate ceiling by timing whole-degree steps, never by a fractional setpoint,
+    /// and less tightly than a continuous one: its next setpoint is rounded from the sensor's reading, so a sensor half a degree
+    /// behind is given one up to 1.5 C past it for a setpoint's hold (up to 3 C/min over that hold at the 2 C/min default).
+    /// ASCOM and Alpaca answer 0 unchecked: one over a whole-degree SDK that truncates would stall at 0 C as the DAL did, and
+    /// nothing here detects it (#1921).
+    /// </summary>
+    double SetpointResolutionC => 0d;
+
+    /// <param name="maxStepC">How far one step moves the setpoint past the sensor's own reading, degrees C (a ramp's rate
+    /// ceiling times its step interval); a whole degree, the ramp's step before a ceiling, when not given.</param>
+    async ValueTask<CameraCoolingState> CoolToSetpointAsync(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState, double maxStepC = 1d, CancellationToken cancellationToken = default)
     {
         if (IsCoolable)
         {
@@ -576,7 +589,7 @@ public interface ICameraDriver : IDeviceDriver
                 SetpointTempKind.Normal => desiredSetpointTemp.TempC,
                 SetpointTempKind.CCD when hasCCDTemp && hasHeatSinkTemp => Math.Min(ccdTemp, heatSinkOrCCDTemp),
                 SetpointTempKind.CCD when hasCCDTemp && !hasHeatSinkTemp => ccdTemp,
-                SetpointTempKind.Ambient when hasHeatSinkTemp => heatSinkTemp,
+                SetpointTempKind.Ambient => hasHeatSinkTemp ? heatSinkTemp : CameraReading.WarmUpFallbackTargetC,
                 _ => double.NaN
             };
 
@@ -588,11 +601,30 @@ public interface ICameraDriver : IDeviceDriver
             CameraCoolingState newState;
             var needsFurtherRamping = direction.NeedsFurtherRamping(ccdTemp, setpointTemp);
 
-            if (needsFurtherRamping
+            var warmedUp = desiredSetpointTemp.Kind is SetpointTempKind.Ambient && direction is SetupointDirection.Up
+                && ccdTemp >= setpointTemp - CameraReading.WarmUpToleranceC;
+
+            if (warmedUp)
+            {
+                // A warm-up to ambient whose sensor is within CameraReading's tolerance of its target is done, the same line a
+                // client's quit question draws between "warm up" and "nothing to warm": the confirmations below exist for a power
+                // threshold, and a sensor at ambient has nothing left to mitigate. Confirming it three more steps cost every
+                // warm-up 45 s on a warm sensor, which a client's quit waits out.
+                newState = coolingState with
+                {
+                    IsRamping = false,
+                    TargetSetpointReached = true,
+                    IsCoolable = true
+                };
+
+                Logger.LogInformation("Camera {Name} warmed to its setpoint {SetpointTemp:0.00} °C. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%.",
+                    Name, setpointTemp, heatSinkTemp, ccdTemp, coolerPower);
+            }
+            else if (needsFurtherRamping
                 && (double.IsNaN(coolerPower) || !await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) || !direction.ThresholdPowerReached(coolerPower, thresPower))
             )
             {
-                var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp);
+                var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp, maxStepC, SetpointResolutionC >= 1d);
                 await SetSetCCDTemperatureAsync(actualSetpointTemp, cancellationToken);
 
                 // turn cooler on if required

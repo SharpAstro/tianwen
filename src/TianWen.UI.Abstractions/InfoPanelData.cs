@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.UI.Abstractions;
 
@@ -54,26 +55,31 @@ public static class InfoPanelData
         return line;
     }
 
-    public static List<string> GetMetadataLines(IPreviewSource source)
+    public static List<string> GetMetadataLines(IPreviewSource source, ViewerState? state = null)
     {
         var lines = new List<string>();
         var size = $"Size: {source.Width} x {source.Height} x {source.ChannelCount}ch";
+        var capture = source.Capture;
+        // What the Auto run identified, with where each fact was read, said in place of the master's own cards for the same things.
+        var identity = state is { PlanetaryView: PlanetaryView.Auto, AutoIdentity: { } read } ? read : null;
 
         // A source with nothing to say about its frame still has a size.
         if (source.ImageMeta is not { } meta)
         {
             lines.Add(size);
+            AddCaptureLines(lines, capture, hasCamera: false, hasTelescope: identity?.TelescopeName is not null);
+            AddPlanetaryLines(lines, identity, state, source);
             return lines;
         }
 
-        if (!string.IsNullOrEmpty(meta.ObjectName))
+        if (identity is null && !string.IsNullOrEmpty(meta.ObjectName))
         {
             lines.Add($"Object: {meta.ObjectName}");
         }
 
         lines.Add(size);
 
-        if (!string.IsNullOrEmpty(meta.Telescope))
+        if (identity?.TelescopeName is null && !string.IsNullOrEmpty(meta.Telescope))
         {
             lines.Add($"Telescope: {meta.Telescope}");
         }
@@ -122,7 +128,7 @@ public static class InfoPanelData
         {
             lines.Add($"Bin: {meta.BinX}x{meta.BinY}");
         }
-        if (meta.Filter.Name is { Length: > 0 })
+        if (identity is null && meta.Filter.Name is { Length: > 0 })
         {
             // Prefer the RAW header text whenever the canonical name resolved to Unknown.
             // Filter.FromName is anchored, so every descriptive header string an imaging app writes
@@ -147,6 +153,8 @@ public static class InfoPanelData
         {
             lines.Add($"Sensor: {meta.SensorType}");
         }
+        AddCaptureLines(lines, capture, !string.IsNullOrEmpty(meta.Instrument), identity?.TelescopeName is not null || !string.IsNullOrEmpty(meta.Telescope));
+        AddPlanetaryLines(lines, identity, state, source);
         // Light is the default and needs no label; None is the ENUM default, i.e. no IMAGETYP /
         // FRAMETYP card at all (or one that did not map), so printing it renders the literal
         // "Frame: None" -- a sentinel wearing a value's clothes, the same failure as "Gain: -1".
@@ -157,6 +165,92 @@ public static class InfoPanelData
 
         return lines;
     }
+
+    /// <summary>
+    /// The planetary pipeline's facts: what the Auto run read the capture as and where, the frames it kept, and the frames the live
+    /// rolling stack holds. Each is suppressed where it is not known.
+    /// </summary>
+    private static void AddPlanetaryLines(List<string> lines, PlanetaryIdentity? identity, ViewerState? state, IPreviewSource source)
+    {
+        if (identity is not null)
+        {
+            lines.Add(identity.Planet is { } body ? $"Planet: {body} ({identity.PlanetFrom})" : $"Planet: none ({identity.PlanetFrom})");
+            // A colour capture reads each channel at its own wavelength, which the Colour line already says.
+            if (identity.Layout == PlanetaryFrameLayout.Mono)
+            {
+                lines.Add(identity.FilterNm is { } nm
+                    ? string.Create(CultureInfo.InvariantCulture, $"Filter: {identity.Filter ?? "filter"} at {nm:0} nm ({identity.FilterFrom})")
+                    : $"Filter: broadband ({identity.FilterFrom})");
+            }
+            if (identity.TelescopeName is { } telescope)
+            {
+                lines.Add($"Telescope: {telescope} ({identity.TelescopeFrom})");
+            }
+            if (state?.AutoFrames is { Graded: > 0 } frames)
+            {
+                lines.Add($"Kept: {frames.Kept} of {frames.Graded}");
+            }
+        }
+        if (source.FramesFolded is { } folded and > 0)
+        {
+            lines.Add($"Folded: {folded}");
+        }
+    }
+
+    /// <summary>
+    /// A recording's own facts, each suppressed where the file does not carry it. Camera and telescope yield to the frame's
+    /// header where it already said them.
+    /// </summary>
+    private static void AddCaptureLines(List<string> lines, PreviewCapture? capture, bool hasCamera, bool hasTelescope)
+    {
+        if (capture is null)
+        {
+            return;
+        }
+
+        if (!hasTelescope && !string.IsNullOrWhiteSpace(capture.Telescope))
+        {
+            lines.Add($"Telescope: {capture.Telescope}");
+        }
+        if (!hasCamera && !string.IsNullOrWhiteSpace(capture.Instrument))
+        {
+            lines.Add($"Camera: {capture.Instrument}");
+        }
+        if (!string.IsNullOrWhiteSpace(capture.Observer))
+        {
+            lines.Add($"Observer: {capture.Observer}");
+        }
+        if (!string.IsNullOrWhiteSpace(capture.Colour))
+        {
+            lines.Add($"Colour: {capture.Colour}");
+        }
+        if (capture.BitDepth > 0)
+        {
+            lines.Add($"Depth: {capture.BitDepth}-bit");
+        }
+        if (capture.FrameCount > 0)
+        {
+            lines.Add($"Frames: {capture.FrameCount}");
+        }
+        // Earliest and Latest are the earliest and latest TIMES the frames carry, never the first and last frames in file order (#1292).
+        if (capture.Earliest is { } first && capture.Latest is { } last)
+        {
+            var (a, b) = (first.UtcDateTime, last.UtcDateTime);
+            var end = b.ToString(a.Date == b.Date ? "HH:mm:ss" : "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            lines.Add(string.Create(CultureInfo.InvariantCulture, $"Span: {a:yyyy-MM-dd HH:mm:ss} to {end} UTC"));
+        }
+        if (capture.FramesPerSecond is { } fps && fps > 0 && !double.IsNaN(fps))
+        {
+            lines.Add(string.Create(CultureInfo.InvariantCulture, $"Rate: {fps:0.0} fps"));
+        }
+    }
+
+    /// <summary>
+    /// The Statistics section's heading. A SER's table is measured for the shown frame once it settles, and says which frame it
+    /// describes, so a table still on the previous frame is never read as the shown one's.
+    /// </summary>
+    public static string GetStatisticsHeading(IPreviewSource source, bool open) =>
+        $"{(source.StatisticsFrame is { } frame ? $"Statistics (frame {frame + 1})" : "Statistics")} {(open ? "[-]" : "[+]")}";
 
     /// <summary>
     /// The statistics as a TABLE: one header row, then one row per channel with its mean, median, MAD
@@ -177,8 +271,10 @@ public static class InfoPanelData
         var rows = ImmutableArray.CreateBuilder<ImmutableArray<string>>();
         // Keyed on the statistics, not the plane count: a Bayer mosaic carries three (one per photosite
         // colour, taken on the mosaic in place), and they are R, G, B as much as a debayered frame's are.
-        var statistics = source.ChannelStatistics;
+        var statistics = source.MeasuredChannelStatistics;
         var isColour = statistics.Length >= 3;
+        var peaks = source.ChannelPeaks;
+        var hasPeaks = !peaks.IsDefaultOrEmpty;
 
         for (var c = 0; c < statistics.Length; c++)
         {
@@ -188,15 +284,50 @@ public static class InfoPanelData
                 : $"Ch{c}";
             var measured = source.MeasuredPerChannelBackground;
             var bg = c < measured.Length ? measured[c] : measured[0];
-            rows.Add([label, Compact(stats.Mean), Compact(stats.Median), Compact(stats.MAD), Compact(bg)]);
+            var row = ImmutableArray.CreateBuilder<string>(6);
+            row.Add(label);
+            row.Add(Compact(stats.Mean));
+            row.Add(Compact(stats.Median));
+            row.Add(Compact(stats.MAD));
+            row.Add(Compact(bg));
+            if (hasPeaks)
+            {
+                row.Add(PeakCell(c < peaks.Length ? peaks[c] : float.NaN, source.FullScaleAdu));
+            }
+            rows.Add(row.ToImmutable());
         }
 
         if (isColour)
         {
-            rows.Add(["Luma", "", "", "", Compact(source.MeasuredLumaBackground)]);
+            var luma = ImmutableArray.CreateBuilder<string>(6);
+            luma.Add("Luma");
+            luma.Add("");
+            luma.Add("");
+            luma.Add("");
+            luma.Add(Compact(source.MeasuredLumaBackground));
+            if (hasPeaks)
+            {
+                luma.Add("");
+            }
+            rows.Add(luma.ToImmutable());
         }
 
-        return (["", "mean", "med", "MAD", "bg"], rows.ToImmutable());
+        ImmutableArray<string> header = hasPeaks ? ["", "mean", "med", "MAD", "bg", "peak"] : ["", "mean", "med", "MAD", "bg"];
+        return (header, rows.ToImmutable());
+    }
+
+    /// <summary>
+    /// A channel's peak in the source's own counts where it recorded them, else on the unit scale; a peak at full scale is
+    /// marked, since a clipped channel's mean and median understate the light.
+    /// </summary>
+    private static string PeakCell(float peak, float? fullScaleAdu)
+    {
+        if (float.IsNaN(peak))
+        {
+            return "-";
+        }
+        var text = fullScaleAdu is { } scale ? (peak * scale).ToString("F0", CultureInfo.InvariantCulture) : Compact(peak);
+        return peak >= 1f - 1e-6f ? $"{text} clip" : text;
     }
 
     /// <summary>

@@ -82,6 +82,13 @@ namespace TianWen.UI.Gui
             set => _liveSessionTab.LiveView = value;
         }
 
+        /// <summary>The Guider tab's loop of the guide camera (#1915). Set by the host (resolved from DI).</summary>
+        public GuideLoopController? GuideLoop
+        {
+            get => _guiderTab.GuideLoop;
+            set => _guiderTab.GuideLoop = value;
+        }
+
         // Held as the concrete widget base, not as the IPixelWidget the interface exposes, because the
         // cursor query lives on the base: DIR.Lib's IPixelWidget carries HitTest, click dispatch and
         // text-input discovery, but not HitTestCursor. Every tab derives from PixelWidgetBase, so this
@@ -92,6 +99,7 @@ namespace TianWen.UI.Gui
         // hand-placed rects here, which is what makes its click regions the rects it drew instead of a
         // second piece of geometry derived from an index.
         private readonly TabBar<VulkanContext> _sidebar;
+        private readonly GuiNavigationStrip<VulkanContext> _navigationStrip;
 
         // Reused per frame so building the strip allocates nothing: the tab set is fixed (GuiAppState
         // .TabOrder) and only the per-item icon / enabled state varies.
@@ -252,6 +260,13 @@ namespace TianWen.UI.Gui
         public SessionTabState SessionState => _sessionTab.State;
 
         /// <inheritdoc/>
+        public IGuiNavigation? Navigation
+        {
+            get => _navigationStrip.Navigation;
+            set => _navigationStrip.Navigation = value;
+        }
+
+        /// <inheritdoc/>
         public ViewContexts ViewContexts { get; } = new ViewContexts();
 
         /// <summary>The on-screen context's session state -- what the chrome and tabs draw.</summary>
@@ -272,7 +287,11 @@ namespace TianWen.UI.Gui
         public IObjectPictureStore? ObjectPictureStore
         {
             get => _skyMapTab.PictureStore;
-            set => _skyMapTab.PictureStore = value;
+            set
+            {
+                _skyMapTab.PictureStore = value;
+                _plannerTab.PictureStore = value;
+            }
         }
 
         /// <summary>Where the atlas's planet discs get OPAL's maps; see <see cref="VkSkyMapTab.PlanetMapStore"/>.</summary>
@@ -464,7 +483,7 @@ namespace TianWen.UI.Gui
             _renderer = renderer;
             _width = width;
             _height = height;
-            _plannerTab = new VkPlannerTab(renderer) { Bus = bus };
+            _plannerTab = new VkPlannerTab(renderer) { Bus = bus, Logger = logger };
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             _skyMapTab = new VkSkyMapTab(renderer)
@@ -506,15 +525,16 @@ namespace TianWen.UI.Gui
                 CanCloseTabs = false,
                 CanReorderTabs = false,
             };
+            _navigationStrip = new GuiNavigationStrip<VulkanContext>(renderer);
             ShareUiContext(_plannerTab, _equipmentTab, _sessionTab, _skyMapTab,
                            _liveSessionTab, _guiderTab, _notificationsTab, _homeTab,
-                           _guiderViewer, _previewViewer, _planetaryTab, _sidebar, _nightCalendar);
+                           _guiderViewer, _previewViewer, _planetaryTab, _sidebar, _navigationStrip, _nightCalendar);
 
             // The GUI's own chrome a tad larger than the viewers it embeds (GuiTheme.InterfaceScale): this chrome, every tab,
             // the sidebar and the calendar. Not the three viewers (the preview, the guide camera and the planetary view, which
             // IS a viewer with a strip), whose toolbar keeps the size it has in tianwen-fits.
             foreach (var widget in (ReadOnlySpan<PixelWidgetBase<VulkanContext>>)[this, _plannerTab, _equipmentTab, _sessionTab,
-                _skyMapTab, _liveSessionTab, _guiderTab, _notificationsTab, _homeTab, _sidebar, _nightCalendar])
+                _skyMapTab, _liveSessionTab, _guiderTab, _notificationsTab, _homeTab, _sidebar, _navigationStrip, _nightCalendar])
             {
                 widget.InterfaceScale = GuiTheme.InterfaceScale;
             }
@@ -568,7 +588,7 @@ namespace TianWen.UI.Gui
             // it opened, and the Equipment tab says it is connecting.
             if (appState.NeedsAProfile && appState.ActiveTab is not GuiTab.Equipment)
             {
-                appState.ActiveTab = GuiTab.Equipment;
+                appState.SetActiveTabWithoutHistory(GuiTab.Equipment);
             }
 
             BeginFrame();
@@ -620,6 +640,7 @@ namespace TianWen.UI.Gui
                 _children.Add(painted);
             }
             _children.Add(_sidebar);
+            _children.Add(_navigationStrip);
             _children.Add(_nightCalendar);
         }
 
@@ -734,7 +755,10 @@ namespace TianWen.UI.Gui
             _sidebar.IconSize = FontSize * 1.3f;
             // Each rail cell declares its tooltip on its own region now (DIR.Lib's tab strip, opening to the
             // right of the rail), so it reaches the router like any other and RenderTooltip draws it.
-            _sidebar.Render(new RectF32(0f, StatusBarHeight, sw, _height - StatusBarHeight),
+            // Back and Forward sit at the top of the rail, in its own width; the tab cells start below the height the strip itself reports.
+            var stripH = _navigationStrip.Height;
+            _navigationStrip.Render(new RectF32(0f, StatusBarHeight, sw, stripH));
+            _sidebar.Render(new RectF32(0f, StatusBarHeight + stripH, sw, _height - StatusBarHeight - stripH),
                 _sidebarItems, appState.ActiveTab);
         }
 

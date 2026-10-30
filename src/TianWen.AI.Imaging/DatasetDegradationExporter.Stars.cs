@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -121,7 +122,12 @@ public static partial class DatasetDegradationExporter
     public sealed record InjectedStarRow(
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
         bool Saturated, double[]? ClipLevel, bool Lobe = false, double[]? HaloGain = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Faint = false);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Faint = false,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OuterHaloRow[]? OuterHalo = null);
+
+    /// <summary>One channel's outer halo (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>, #1870) as drawn under a star: its
+    /// rig's key, its centre value as a fraction of the star's peak, its scale radius in pixels and its Moffat exponent.</summary>
+    public sealed record OuterHaloRow(string Rig, double Fraction, double AlphaPx, double Beta);
 
     /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
     /// (R2d's D2), the knots its target keeps, the same in every draw of the cell; with channel relations (R2s2), whose
@@ -151,14 +157,39 @@ public static partial class DatasetDegradationExporter
     internal sealed class StarsContext
     {
         internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null,
-            Dictionary<string, StarShapeRow>? shapes = null, ChannelWingCut? wingCut = null, ChannelWingEnvelope? wingEnvelope = null)
+            Dictionary<string, StarShapeRow>? shapes = null, ChannelWingCut? wingCut = null, ChannelWingEnvelope? wingEnvelope = null,
+            OuterHaloFit? outerHalos = null)
         {
+            OuterHalos = outerHalos;
             PlatesDir = platesDir;
             Psf = psf;
             Variation = variation;
             Shapes = shapes;
             WingCut = wingCut;
             WingEnvelope = wingEnvelope;
+        }
+
+        /// <summary>The per-rig outer halos fitted to <see cref="Options.OuterHaloPath"/>, or null for none.</summary>
+        public OuterHaloFit? OuterHalos { get; }
+
+        private readonly ConcurrentDictionary<string, byte> _outerHaloWarned = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// One outer halo per channel for <paramref name="rig"/>, or the default array without the option or for a rig the file
+        /// lacks, which is said once.
+        /// </summary>
+        public ImmutableArray<OuterHalo> OuterHaloFor(string rig, int channels, ILogger? logger)
+        {
+            if (OuterHalos is not { } fit)
+            {
+                return default;
+            }
+            var halos = fit.For(rig, channels);
+            if (halos.IsDefault && _outerHaloWarned.TryAdd(rig, 0))
+            {
+                logger?.LogWarning("[degrade] outer halo: the profile file has no {Channels}-channel reading for rig '{Rig}', so its stars are drawn with none", channels, rig);
+            }
+            return halos;
         }
 
         /// <summary>The channel wing relations the real masters span (<see cref="Options.ClampWingRelations"/>), or null for no clamp.</summary>
@@ -288,7 +319,20 @@ public static partial class DatasetDegradationExporter
                     "[degrade] faint stars: each master's luminosity function extended below its catalogue down to {Floor} sigma, each tile's light under {Limit} sigma capped at {Cap} sigma",
                     faintFloor, LuminosityFunction.DetectionSigma, options.FaintStarCap);
             }
-            return new StarsContext(platesDir, psf, variation, shapes, wingCut, wingEnvelope);
+            OuterHaloFit? outerHalos = null;
+            if (options.OuterHaloPath is { } haloPath)
+            {
+                outerHalos = await OuterHaloFit.ReadAsync(haloPath, cancellationToken);
+                if (outerHalos.Rigs.Count == 0)
+                {
+                    throw new InvalidDataException($"the halo profile file {haloPath} holds no rig with a real clipped-star profile to fit");
+                }
+                foreach (var rig in outerHalos.Rigs.Order(StringComparer.Ordinal))
+                {
+                    logger?.LogInformation("[degrade] outer halo, {Fit}", outerHalos.InWords(rig));
+                }
+            }
+            return new StarsContext(platesDir, psf, variation, shapes, wingCut, wingEnvelope, outerHalos);
         }
 
         public string PlatePath(string sessionId) => Path.Combine(PlatesDir, DatasetTileExporter.Sanitize(sessionId) + "_plate.fits");
@@ -489,7 +533,7 @@ public static partial class DatasetDegradationExporter
                         $"from {b.MinSignificance:F0}: {string.Join(" / ", b.Channels.Select(static c => c.WingGain.ToString("F2", CultureInfo.InvariantCulture)))}"))));
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
-                options.FaintStarFloor, stars.WingEnvelope);
+                options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger));
             if (stars.WingEnvelope is not null && !population.ClampsWingRelations)
             {
                 logger?.LogWarning("[degrade] {Session}: the star-shapes file has no readable {Channels}-channel master, so its stars' wing relation is not clamped",
@@ -531,8 +575,8 @@ public static partial class DatasetDegradationExporter
                 ? f.Channels.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2} + table {p.Table.Length}"))
                 : psf.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2}"));
             logger?.LogInformation(
-                "[degrade] {Session}: {Sites} subtracted sites, {Pool} stars to draw brightness from, {Saturated} saturated, {Moments} measured for elongation; {Family} profile {Psf}",
-                sessionId, population.Sites, population.AmplitudePool, population.SaturatedPool, population.MomentPool, options.Profile,
+                "[degrade] {Session}: {Sites} subtracted sites, {Pool} stars to draw brightness from, {Saturated} saturated, {Moments} measured for elongation, {Refused} diverged fits refused; {Family} profile {Psf}",
+                sessionId, population.Sites, population.AmplitudePool, population.SaturatedPool, population.MomentPool, population.Refused, options.Profile,
                 string.Join(" / ", drawnWith));
 
             var measures = options.MeasureInjection ? new InjectionMeasures(channels) : null;
@@ -828,7 +872,7 @@ public static partial class DatasetDegradationExporter
             Tile: row.Tile, SessionId: sessionId, CellX: cell.X, CellY: cell.Y, Draw: draw,
             Placement: options.Placement.ToString(), Profile: options.Profile.ToString(), Requested: plan.Requested, Placed: plan.Placed,
             SaturatedFallback: plan.SaturatedFallback,
-            Stars: [.. local.Concat(faintLocal).Select(static s => new InjectedStarRow(
+            Stars: [.. local.Concat(faintLocal).Select(s => new InjectedStarRow(
                 s.X, s.Y,
                 [.. s.Amplitudes],
                 [.. s.Profiles.Select(static p => p.FwhmPx)],
@@ -839,7 +883,8 @@ public static partial class DatasetDegradationExporter
                 s.Saturated ? [.. s.ClipLevels] : null,
                 s.Lobe,
                 s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null,
-                s.Faint))],
+                s.Faint,
+                s.Profiles.Any(static p => !p.Outer.IsNone) ? [.. s.Profiles.Select(p => new OuterHaloRow(cell.Camera, p.Outer.Fraction, p.Outer.AlphaPx, p.Outer.Beta))] : null))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))],
             RelationFrom: plan.RelationFrom,

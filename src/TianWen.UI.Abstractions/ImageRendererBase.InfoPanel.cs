@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -33,10 +34,9 @@ namespace TianWen.UI.Abstractions
         /// frame's grade and the Cursor readout at the bottom. It REPORTS and holds no control but the Statistics heading.
         /// </summary>
         /// <remarks>
-        /// <para>The metadata and the statistics read the SOURCE (InfoPanelData), so any source could show them; which do is
-        /// still decided here, a document's only: a SER and the planetary stack show only the Cursor readout (their sharpening
-        /// controls are the Enhance popover's planetary half). A SER's statistics are its first frame's, which a scrub would show under
-        /// every frame, so widening this waits for P3 (docs/plans/live-session-preview.md).</para>
+        /// <para>The metadata and the statistics read the SOURCE (InfoPanelData), so every source shows them; only the Grade
+        /// section is a document's (its sharpening controls are the Enhance popover's planetary half). A SER's statistics
+        /// are the shown frame's once it settles (the heading names the frame the table describes).</para>
         /// <para><b>The Statistics table opens where the strip has the room for it</b> and rolls up to its heading where it
         /// has not: it is the tallest block here and the one most frames never need, so it gives way first. The room is the
         /// engine's measure of the whole strip with the table in it, the Cursor readout's room included even while the
@@ -62,7 +62,7 @@ namespace TianWen.UI.Abstractions
             var rect = new RectF32(panel.X, panel.Y, panel.Width, panel.Height);
 
             var ctx = MeasureContext();
-            var roomy = Layout.Engine.Measure(BuildInfoStrip(source, state, document, statisticsOpen: true, toggle: null),
+            var roomy = Layout.Engine.Measure(BuildInfoStrip(source, state, document, statisticsOpen: true, toggle: null, ctx, rect.Width),
                 new Layout.Size<float>(rect.Width, float.MaxValue), ctx).Height <= rect.Height;
             if (state.InfoPanelStatisticsPinned == roomy)
             {
@@ -74,23 +74,23 @@ namespace TianWen.UI.Abstractions
             {
                 state.InfoPanelStatisticsPinned = !open == roomy ? null : !open;
                 state.NeedsRedraw = true;
-            });
+            }, ctx, rect.Width);
 
             PaintLayout(ArrangeLayout(tree, rect, ctx), ctx, DrawSectionRule);
         }
 
         /// <summary>Test seam: the strip's tree as the painted frame builds it, statistics open, so a test measures it at any width.</summary>
-        internal Layout.Node InfoStripFor(IPreviewSource source, ViewerState state)
-            => BuildInfoStrip(source, state, source as AstroImageDocument, statisticsOpen: true, toggle: null);
+        internal Layout.Node InfoStripFor(IPreviewSource source, ViewerState state, float width)
+            => BuildInfoStrip(source, state, source as AstroImageDocument, statisticsOpen: true, toggle: null, MeasureContext(), width);
 
         /// <summary>Test seam: the engine's measure of <see cref="InfoStripFor"/> in a strip <paramref name="width"/> wide, as the paint measures it.</summary>
         internal Layout.Size<float> MeasureInfoStrip(IPreviewSource source, ViewerState state, float width)
-            => Layout.Engine.Measure(InfoStripFor(source, state), new Layout.Size<float>(width, float.MaxValue), MeasureContext());
+            => Layout.Engine.Measure(InfoStripFor(source, state, width), new Layout.Size<float>(width, float.MaxValue), MeasureContext());
 
         /// <summary>Test seam: how far right of a strip <paramref name="width"/> wide the painted tree reaches (arranged, as the paint places it).</summary>
         internal float InfoStripRightEdge(IPreviewSource source, ViewerState state, float width)
         {
-            var arranged = ArrangeLayout(InfoStripFor(source, state), new RectF32(0f, 0f, width, 100000f), MeasureContext());
+            var arranged = ArrangeLayout(InfoStripFor(source, state, width), new RectF32(0f, 0f, width, 100000f), MeasureContext());
             var right = 0f;
             foreach (var node in arranged)
             {
@@ -103,34 +103,37 @@ namespace TianWen.UI.Abstractions
             return right;
         }
 
+        /// <param name="ctx">The strip's measure context, which decides how the statistics table's columns fall into tables.</param>
+        /// <param name="width">The strip's width on the surface, its padding included.</param>
         private Layout.Node BuildInfoStrip(IPreviewSource source, ViewerState state, AstroImageDocument? document,
-            bool statisticsOpen, Action? toggle)
+            bool statisticsOpen, Action? toggle, PixelMeasureContext<TSurface> ctx, float width)
         {
             var sections = ImmutableArray.CreateBuilder<Layout.Node>();
             var body = ViewerTheme.Palette.BodyText;
 
+            var metadata = ImmutableArray.CreateBuilder<Layout.Node>();
+            metadata.Add(SectionHeading("Metadata"));
+            foreach (var line in InfoPanelData.GetMetadataLines(source, state))
+            {
+                metadata.Add(WrappedText(line, body));
+            }
+            sections.Add(Section(metadata));
+
+            // A table, not lines: the numbers line up on their decimal points in the strip's proportional face. The mark
+            // is text rather than an icon: the equipment tab's convention for the same thing (Advanced [+]).
+            var statistics = ImmutableArray.CreateBuilder<Layout.Node>();
+            statistics.Add(SectionHeading(InfoPanelData.GetStatisticsHeading(source, statisticsOpen),
+                new HitResult.ButtonHit("ToggleStatistics"), toggle));
+            if (statisticsOpen)
+            {
+                var (header, rows) = InfoPanelData.GetStatisticsTable(source);
+                statistics.Add(StatisticsTable(header, rows,
+                    table => Layout.Engine.Measure(InStrip(table), new Layout.Size<float>(float.MaxValue, float.MaxValue), ctx).Width <= width));
+            }
+            sections.Add(Section(statistics));
+
             if (document is not null)
             {
-                var metadata = ImmutableArray.CreateBuilder<Layout.Node>();
-                metadata.Add(SectionHeading("Metadata"));
-                foreach (var line in InfoPanelData.GetMetadataLines(source))
-                {
-                    metadata.Add(WrappedText(line, body));
-                }
-                sections.Add(Section(metadata));
-
-                // A table, not lines: the numbers line up on their decimal points in the strip's proportional face. The mark
-                // is text rather than an icon: the equipment tab's convention for the same thing (Advanced [+]).
-                var statistics = ImmutableArray.CreateBuilder<Layout.Node>();
-                statistics.Add(SectionHeading(statisticsOpen ? "Statistics [-]" : "Statistics [+]",
-                    new HitResult.ButtonHit("ToggleStatistics"), toggle));
-                if (statisticsOpen)
-                {
-                    var (header, rows) = InfoPanelData.GetStatisticsTable(source);
-                    statistics.Add(StatisticsTable(header, rows));
-                }
-                sections.Add(Section(statistics));
-
                 // How this frame compares with the best of its group graded so far (LightGrading): the grade the file list
                 // colours its row by, in numbers, its first line in the grade's colour.
                 if (InfoPanelData.GetGradeReadout(state, document) is { } readout)
@@ -173,8 +176,11 @@ namespace TianWen.UI.Abstractions
             sections.Add(Layout.Builder.Spacer().HStar());
             sections.Add(CursorSection(source, state));
 
-            return Layout.Builder.VStack([.. sections]).WithGap(InfoSectionGap).Pad(BasePanelPadding);
+            return InStrip(Layout.Builder.VStack([.. sections]).WithGap(InfoSectionGap));
         }
+
+        /// <summary>The strip's padding, stated once: the strip itself and the statistics table measured for its break take it.</summary>
+        private static Layout.Node InStrip(Layout.Node content) => content.Pad(BasePanelPadding);
 
         /// <summary>
         /// A section heading: the name, then a hairline rule across the rest of the row (drawn into a fill by
@@ -203,24 +209,50 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// The statistics as columns: the first left-aligned, every other right-aligned, so the numbers line up on their
         /// decimal points in a proportional face, each column as wide as its widest cell, the header row dimmed. Cells are
-        /// never trimmed: a truncated number is a wrong number.
+        /// never trimmed: a truncated number is a wrong number, so the columns go into as few tables as fit across the strip,
+        /// one under the other, each beside the same row labels and without the rows that have nothing in its columns.
         /// </summary>
-        private static Layout.Node StatisticsTable(ImmutableArray<string> header, ImmutableArray<ImmutableArray<string>> rows)
+        /// <param name="fitsAcross">Whether a table fits across the strip, by the engine's measure of it, so the face and the
+        /// numbers on show decide where the table breaks. A column count fixed by hand (five abreast) was measured in the
+        /// platform's monospace face, and the bundled one put a FITS colour frame's five columns 9 units past the strip.</param>
+        private static Layout.Node StatisticsTable(ImmutableArray<string> header, ImmutableArray<ImmutableArray<string>> rows,
+            Func<Layout.Node, bool> fitsAcross)
         {
-            var columns = new Layout.Node[header.Length];
-            for (var c = 0; c < header.Length; c++)
+            var tables = ImmutableArray.CreateBuilder<Layout.Node>();
+            for (var first = 1; first < header.Length;)
             {
-                var align = c == 0 ? TextAlign.Near : TextAlign.Far;
-                var cells = new Layout.Node[rows.Length + 1];
-                cells[0] = Cell(header[c], ViewerTheme.Palette.DimText, align);
-                for (var r = 0; r < rows.Length; r++)
+                // The most of the columns left that fit beside the labels; one at the least, even where that one does not.
+                var count = header.Length - first;
+                var table = Table(header, rows, first, count);
+                while (count > 1 && !fitsAcross(table))
                 {
-                    cells[r + 1] = Cell(c < rows[r].Length ? rows[r][c] : string.Empty, ViewerTheme.Palette.BodyText, align);
+                    table = Table(header, rows, first, --count);
                 }
-                columns[c] = Layout.Builder.VStack(cells).WithGap(InfoLineGap);
+                tables.Add(table);
+                first += count;
             }
+            return tables.Count == 1 ? tables[0] : Layout.Builder.VStack([.. tables]).WithGap(InfoLineGap);
 
-            return Layout.Builder.HStack(columns).WithGap(BaseFontSize * 0.5f);
+            // The label column and `count` columns from `first`.
+            static Layout.Node Table(ImmutableArray<string> header, ImmutableArray<ImmutableArray<string>> rows, int first, int count)
+            {
+                var shown = rows.RemoveAll(row => Enumerable.Range(first, count).All(c => c >= row.Length || string.IsNullOrEmpty(row[c])));
+                var columns = new Layout.Node[count + 1];
+                for (var i = 0; i < columns.Length; i++)
+                {
+                    var c = i == 0 ? 0 : first + i - 1;
+                    var align = c == 0 ? TextAlign.Near : TextAlign.Far;
+                    var cells = new Layout.Node[shown.Length + 1];
+                    cells[0] = Cell(header[c], ViewerTheme.Palette.DimText, align);
+                    for (var r = 0; r < shown.Length; r++)
+                    {
+                        cells[r + 1] = Cell(c < shown[r].Length ? shown[r][c] : string.Empty, ViewerTheme.Palette.BodyText, align);
+                    }
+                    columns[i] = Layout.Builder.VStack(cells).WithGap(InfoLineGap);
+                }
+
+                return Layout.Builder.HStack(columns).WithGap(BaseFontSize * 0.5f);
+            }
 
             static Layout.Node Cell(string text, RGBAColor32 color, TextAlign align)
                 => Layout.Builder.Text(text, BaseFontSize, color, hAlign: align, trim: TextTrim.None).WStar();
@@ -377,7 +409,7 @@ namespace TianWen.UI.Abstractions
                 .CrossCenter()
                 .WStar());
 
-            var caption = state.WaveletDeriving ? "Deriving the gains from this master, about half a minute" : state.WaveletDeriveNote;
+            var caption = state.WaveletDeriving ? WaveletDerivation.Caption(state.WaveletDeriveElapsed, state.WaveletDeriveStage) : state.WaveletDeriveNote;
             if (caption is not null)
             {
                 rows.Add(WrappedText(caption, ViewerTheme.Palette.DimText));

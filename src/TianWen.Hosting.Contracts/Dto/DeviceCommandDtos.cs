@@ -49,8 +49,8 @@ public sealed class CoolRequestDto
     /// <summary>The target, in °C; rounded to a whole degree, as a session's is.</summary>
     public required double SetpointC { get; init; }
 
-    /// <summary>How long the ramp may take, in minutes; null for a session's default.</summary>
-    public double? RampMinutes { get; init; }
+    /// <summary>The fastest the sensor may be cooled, in °C a minute (#1839); null for a session's default rate.</summary>
+    public double? MaxRateCPerMinute { get; init; }
 }
 
 /// <summary>A readout frame in binned sensor pixels: top-left, then size.</summary>
