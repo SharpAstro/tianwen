@@ -172,11 +172,24 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task AnUnsettledReadingStillRampsToTheFallback()
     {
-        var (camera, hub, _, clock) = NoHeatSinkRig(11.5, new SensorAmbientReading(12.0, false, DateTimeOffset.UnixEpoch));
+        // The same sensor at 11.5 C, but the reading before cooling was still moving: not trusted, so the target is the
+        // +25 C fallback and the ramp walks the sensor up rather than ending at once.
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var hub = external.BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (FakeCameraDriver)await hub.ConnectAsync(device, ct);
+        camera.MakeHeatsinkless(ambientC: 18, sensorCannotPassAmbient: true);
+        await camera.SetSetCCDTemperatureAsync(11.5, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+        for (var i = 0; i < 40; i++) await camera.GetCCDTemperatureAsync(ct);
+        hub.SetPreCoolReading(device.DeviceUri, new SensorAmbientReading(12.0, false, DateTimeOffset.UnixEpoch));
 
-        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output), force: false, TestContext.Current.CancellationToken);
+        var sleeps = new List<TimeSpan>();
+        await hub.WarmAndCoolerOffAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), ct);
 
-        await camera.Received().SetSetCCDTemperatureAsync(Arg.Any<double>(), Arg.Any<CancellationToken>());
+        sleeps.Count.ShouldBeGreaterThan(5, "it ramped toward the fallback instead of trusting a reading that was still moving");
+        (await camera.GetSetCCDTemperatureAsync(ct)).ShouldBeGreaterThan(12.0, "stepped past the unsettled reading");
     }
 
     [Fact(Timeout = 30_000)]

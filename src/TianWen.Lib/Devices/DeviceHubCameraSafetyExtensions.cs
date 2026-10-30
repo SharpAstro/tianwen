@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.Devices;
@@ -331,15 +332,25 @@ public static class DeviceHubCameraSafetyExtensions
         var warmTarget = resolved.Source is WarmUpTargetSource.HeatSink
             ? new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient)
             : new SetpointTemp(CameraCoolingRamp.TargetOf(resolved.TempC), SetpointTempKind.Normal);
-        try
+        // A sensor already within CameraReading's tolerance of its target has nothing to warm (the QHYminiCam8M of
+        // 2026-10-27: 11.5 C at 0 % power against a settled 12 C), the same line a client's quit question draws.
+        var current = await logger.CatchAsync(camera.GetCCDTemperatureAsync, cancellationToken, double.NaN);
+        if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink, preCool))
         {
-            await CameraCoolingRamp.RunAsync([camera], warmTarget,
-                new SessionConfiguration().WarmupMaxRate, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
-                timeProvider, logger, afterStep: null, onSensorAmbient: null, targets: null, cancellationToken);
+            logger.LogInformation("Camera {Uri} reads {Current:F1} C, already at its warm-up target", deviceUri, current);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        else
         {
-            logger.LogWarning(ex, "Warm-up ramp failed mid-ramp for {Uri}", deviceUri);
+            try
+            {
+                await CameraCoolingRamp.RunAsync([camera], warmTarget,
+                    new SessionConfiguration().WarmupMaxRate, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
+                    timeProvider, logger, afterStep: null, onSensorAmbient: null, targets: null, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Warm-up ramp failed mid-ramp for {Uri}", deviceUri);
+            }
         }
 
         // A cancelled warm-up stops where it is: the ramp returns normally on a cancelled token, so it is checked here.
