@@ -667,9 +667,10 @@ wait for twilight → `CoolCamerasToSetpointAsync` → `InitialRoughFocusAsync` 
   `PointWithoutGotoAsync`** (`Session.SlewLess.cs`): RA by its own motor, timed and never trusted, Dec by the operator in a
   wait the session ends itself once a solve finds the target. Every slew the session makes asks first, so a new one owes the
   same question. `docs/plans/slew-less-mount.md`.
-- **Nothing unparks a mount by itself** (the owner, 2026-10-30): a goto or Home on a parked mount is REFUSED, naming the Unpark
-  step (`MountGoto.IsParkedAsync`), since unattended unparking moves hardware nobody may be watching (a tiny dome). Unpark is the
-  operator's own command. **Going home is ONE routine, `DeviceOperations.GoHomeAsync`** (the Home button and a goto to the
+- **A goto or Home never unparks a mount** (the owner, 2026-10-30): on a parked mount it is REFUSED, naming the Unpark step
+  (`MountGoto.IsParkedAsync`), since unattended unparking moves hardware nobody may be watching (a tiny dome). Unpark is the
+  operator's own command; **starting a run is the one exception** (`Session` initialisation, a flat run's connect), as N.I.N.A.
+  unparks on sequence start. **Going home is ONE routine, `DeviceOperations.GoHomeAsync`** (the Home button and a goto to the
   site's pole): it asks NO software horizon limit (home is not an observing position, and near the equator the pole sits under
   any limit) and stops tracking on arrival, where an ordinary goto starts it.
 - **Guider calibration slews to HA −0.5h, EAST of the meridian, NOT west** (`CalibrateGuiderAsync`,
