@@ -92,6 +92,9 @@ public static class CameraCoolingRamp
     /// the caller records it. A camera whose cooler is already on, or that gives no CCD temperature, is never called for.
     /// Null skips the sampling altogether, for a ramp whose sensor says nothing about the air (a node cooling a camera
     /// back after a crash).</param>
+    /// <param name="targets">A setpoint for each camera, by index, in place of <paramref name="target"/> for the ramp
+    /// itself: a warm-up aims each camera at its own resolved target (<see cref="WarmUpTarget"/>). Null ramps every
+    /// camera to <paramref name="target"/>.</param>
     /// <returns>True if every coolable camera reached the setpoint.</returns>
     public static async ValueTask<bool> RunAsync(
         IReadOnlyList<ICameraDriver> cameras,
@@ -103,8 +106,11 @@ public static class CameraCoolingRamp
         ILogger logger,
         Func<int, ICameraDriver, CancellationToken, ValueTask>? afterStep,
         Func<int, SensorAmbientReading, ValueTask>? onSensorAmbient,
+        IReadOnlyList<SetpointTemp>? targets,
         CancellationToken cancellationToken)
     {
+        SetpointTemp TargetOfCamera(int i) => targets is { } each ? each[i] : target;
+
         if (onSensorAmbient is not null && direction == SetupointDirection.Down && target.Kind == SetpointTempKind.Normal)
         {
             await ReadSensorAmbientAsync(cameras, timeProvider, logger, onSensorAmbient, cancellationToken).ConfigureAwait(false);
@@ -122,8 +128,12 @@ public static class CameraCoolingRamp
 
         // The size of the drop, from the initial temperature delta: it sets the cap below.
         var maxDelta = 1.0;
-        foreach (var camera in cameras)
+        var anyNotNormal = false;
+        for (var c = 0; c < cameras.Count; c++)
         {
+            var camera = cameras[c];
+            var cameraTarget = TargetOfCamera(c);
+            anyNotNormal |= cameraTarget.Kind is not SetpointTempKind.Normal;
             var ccdTemp = await logger.CatchAsync(camera.GetCCDTemperatureAsync, cancellationToken, double.NaN);
             if (double.IsNaN(ccdTemp))
             {
@@ -136,16 +146,16 @@ public static class CameraCoolingRamp
             }
             else
             {
-                var targetC = target.Kind switch
+                var targetC = cameraTarget.Kind switch
                 {
-                    SetpointTempKind.Normal => (double)target.TempC,
+                    SetpointTempKind.Normal => (double)cameraTarget.TempC,
                     _ => ccdTemp // CCD/Ambient: target will be resolved later, estimate delta = 0
                 };
                 maxDelta = Math.Max(maxDelta, Math.Abs(ccdTemp - targetC));
             }
         }
         // For CCD/Ambient kinds: check if cooler is even on before ramping
-        if (target.Kind is not SetpointTempKind.Normal && maxDelta <= 1)
+        if (anyNotNormal && maxDelta <= 1)
         {
             // Check if any camera's cooler is actually on
             var anyCoolerOn = false;
@@ -207,7 +217,7 @@ public static class CameraCoolingRamp
                 // A whole-degree camera takes a new setpoint only every stepsPerSetpoint steps; the others it is held, and polled.
                 if (iteration % stepsPerSetpoint[i] == 0)
                 {
-                    coolingStates[i] = await cameras[i].CoolToSetpointAsync(target, thresPower, direction, coolingStates[i], stepC[i], cancellationToken);
+                    coolingStates[i] = await cameras[i].CoolToSetpointAsync(TargetOfCamera(i), thresPower, direction, coolingStates[i], stepC[i], cancellationToken);
                 }
                 if (afterStep is not null)
                 {

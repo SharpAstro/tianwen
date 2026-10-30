@@ -26,8 +26,34 @@ internal partial record Session
     /// </summary>
     /// <param name="maxRateCPerMinute">The most the sensor may move per minute, degrees C.</param>
     /// <returns>True if ambient temperature was reached.</returns>
-    internal ValueTask<bool> CoolCamerasToAmbientAsync(double maxRateCPerMinute)
-        => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), maxRateCPerMinute, CameraCoolingRamp.WarmUpPowerThreshold,SetupointDirection.Up, CancellationToken.None);
+    internal async ValueTask<bool> CoolCamerasToAmbientAsync(double maxRateCPerMinute)
+    {
+        // Each camera aims at its own resolved target (WarmUpTarget, the hub's rule too): a camera with no heat sink
+        // used to resolve NaN in the driver and never warm at all.
+        var scopes = Setup.Telescopes.Length;
+        var targets = new SetpointTemp[scopes];
+        var labels = new string[scopes];
+        for (var i = 0; i < scopes; i++)
+        {
+            var camera = Setup.Telescopes[i].Camera;
+            var heatsink = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanGetHeatsinkTemperature, camera.Driver.GetHeatSinkTemperatureAsync, double.NaN, CancellationToken.None);
+            SensorAmbientReading? preCool = DeviceHub is { } hub && hub.TryGetPreCoolReading(camera.Device.DeviceUri, out var recorded) ? recorded : null;
+            var resolved = WarmUpTarget.Resolve(heatsink, preCool);
+            _logger.LogInformation("Warming {Camera} to {TargetC:F1} C: {Source}", camera.Device.DeviceUri, resolved.TempC, resolved.Describe());
+            if (resolved.Source is WarmUpTargetSource.HeatSink)
+            {
+                targets[i] = new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient);
+                labels[i] = "the heat sink";
+            }
+            else
+            {
+                targets[i] = new SetpointTemp(CameraCoolingRamp.TargetOf(resolved.TempC), SetpointTempKind.Normal);
+                labels[i] = resolved.Source is WarmUpTargetSource.SettledSensorBeforeCooling ? "the settled sensor" : "fallback";
+            }
+        }
+
+        return await CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), maxRateCPerMinute, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up, CancellationToken.None, targets, labels).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Ramps camera cooling/warming to the target temperature no faster than a maximum rate.
@@ -44,7 +70,9 @@ internal partial record Session
         double maxRateCPerMinute,
         double thresPower,
         SetupointDirection direction,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        SetpointTemp[]? perCameraTargets = null,
+        string[]? perCameraLabels = null
     )
     {
         var scopes = Setup.Telescopes.Length;
@@ -86,7 +114,8 @@ internal partial record Session
                 if (!double.IsNaN(ccdTemp))
                 {
                     _coolingSamples.Enqueue(new CoolingSample(_timeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
-                    _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {targetLabel} ({(double.IsNaN(power) ? 0 : power):F0}% power)";
+                    var label = perCameraLabels is { } labels && i < labels.Length ? labels[i] : targetLabel;
+                    _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {label} ({(double.IsNaN(power) ? 0 : power):F0}% power)";
                 }
             },
             (i, reading) =>
@@ -94,7 +123,7 @@ internal partial record Session
                 // The sensor a cool-down started from, beside the cooler intent: a warm-up with no heat sink aims at it.
                 DeviceHub?.SetPreCoolReading(Setup.Telescopes[i].Camera.Device.DeviceUri, reading);
                 return ValueTask.CompletedTask;
-            }, cancellationToken).ConfigureAwait(false);
+            }, perCameraTargets, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>What a ramp to <paramref name="target"/> asks of a cooler, or null for one that names no target.</summary>

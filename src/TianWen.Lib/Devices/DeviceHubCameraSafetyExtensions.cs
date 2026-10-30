@@ -139,7 +139,7 @@ public static class DeviceHubCameraSafetyExtensions
             hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(target));
             return await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(target, SetpointTempKind.Normal), maxRateCPerMinute,
                 CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null,
-                readAmbient ? (_, reading) => { hub.SetPreCoolReading(cameraUri, reading); return ValueTask.CompletedTask; } : null, cancellationToken);
+                readAmbient ? (_, reading) => { hub.SetPreCoolReading(cameraUri, reading); return ValueTask.CompletedTask; } : null, targets: null, cancellationToken);
         }
 
         /// <summary>
@@ -316,13 +316,26 @@ public static class DeviceHubCameraSafetyExtensions
         // cool-down back to the setpoint this ramp is leaving.
         hub.SetCoolerIntent(deviceUri, CoolerIntent.Warm);
 
-        // The session's own warm-up, ONE ramp for every host: toward the heat sink (or CameraReading's +25 C fallback),
-        // a step every CameraCoolingRamp.StepInterval, ended by the cooler no longer holding the sensor down.
+        // The session's own warm-up, ONE ramp for every host: toward the camera's resolved target (WarmUpTarget: the heat
+        // sink, else the settled sensor reading from before the cool-down, else CameraReading's +25 C fallback), a step
+        // every CameraCoolingRamp.StepInterval, ended by the cooler no longer holding the sensor down.
+        var heatsink = double.NaN;
+        if (camera.CanGetHeatsinkTemperature)
+        {
+            try { heatsink = await camera.GetHeatSinkTemperatureAsync(cancellationToken); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning(ex, "GetHeatSinkTemperatureAsync failed for {Uri}", deviceUri); }
+        }
+        SensorAmbientReading? preCool = hub.TryGetPreCoolReading(deviceUri, out var recorded) ? recorded : null;
+        var resolved = WarmUpTarget.Resolve(heatsink, preCool);
+        logger.LogInformation("Warming {Uri} to {TargetC:F1} C: {Source}", deviceUri, resolved.TempC, resolved.Describe());
+        var warmTarget = resolved.Source is WarmUpTargetSource.HeatSink
+            ? new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient)
+            : new SetpointTemp(CameraCoolingRamp.TargetOf(resolved.TempC), SetpointTempKind.Normal);
         try
         {
-            await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient),
+            await CameraCoolingRamp.RunAsync([camera], warmTarget,
                 new SessionConfiguration().WarmupMaxRate, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
-                timeProvider, logger, afterStep: null, cancellationToken);
+                timeProvider, logger, afterStep: null, onSensorAmbient: null, targets: null, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
