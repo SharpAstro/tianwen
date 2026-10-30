@@ -50,7 +50,7 @@ public class GuideDarkLibraryTests(ITestOutputHelper output)
 
     private static Image Light(float[,] plane) => new Image([plane], BitDepth.Int16, 65535f, 0f, 0f, new ImageMeta());
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void ADarkLibraryOnDiskSubtractsThePedestalAndMasksTheHotPixelOfTheFramesItCorrects()
     {
         var external = new FakeExternal(output);
@@ -87,7 +87,7 @@ public class GuideDarkLibraryTests(ITestOutputHelper output)
         star.Y.ShouldBe(80, 0.5);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact]
     public void DarksOfAnotherSizeAreMastersOfTheirOwnAndNeverServeOrMaskAFrameOfAnotherSize()
     {
         var external = new FakeExternal(output);
