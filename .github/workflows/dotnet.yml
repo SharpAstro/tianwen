@@ -217,7 +217,7 @@ jobs:
     - name: Validate the macOS bundle templates and assets
       run: bash packaging/macos/build-dmg.sh --validate-only
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore -p:Configuration=$BUILD_CONF
       working-directory: src
     - name: Build
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
@@ -360,7 +360,7 @@ jobs:
         dotnet-version: 10.0.x
         # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore -p:Configuration=${{ matrix.config }}
       working-directory: src
     - name: Build
       id: build
@@ -544,7 +544,7 @@ jobs:
         dotnet-version: 10.0.x
         # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore -p:Configuration=$BUILD_CONF
       working-directory: src
     - name: Build
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
@@ -685,7 +685,7 @@ jobs:
     - name: Restore publishable projects for this RID
       run: |
         for p in TianWen.Cli TianWen.UI.FitsViewer TianWen.UI.Gui TianWen.Server; do
-          dotnet restore "src/$p/$p.csproj" -r ${{ matrix.rid }}
+          dotnet restore "src/$p/$p.csproj" -r ${{ matrix.rid }} -p:Configuration=Release
         done
       shell: bash
     - name: Generate third-party notices for this platform

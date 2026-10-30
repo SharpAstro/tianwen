@@ -575,8 +575,8 @@ public static partial class DatasetDegradationExporter
                 ? f.Channels.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2} + table {p.Table.Length}"))
                 : psf.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2}"));
             logger?.LogInformation(
-                "[degrade] {Session}: {Sites} subtracted sites, {Pool} stars to draw brightness from, {Saturated} saturated, {Moments} measured for elongation; {Family} profile {Psf}",
-                sessionId, population.Sites, population.AmplitudePool, population.SaturatedPool, population.MomentPool, options.Profile,
+                "[degrade] {Session}: {Sites} subtracted sites, {Pool} stars to draw brightness from, {Saturated} saturated, {Moments} measured for elongation, {Refused} diverged fits refused; {Family} profile {Psf}",
+                sessionId, population.Sites, population.AmplitudePool, population.SaturatedPool, population.MomentPool, population.Refused, options.Profile,
                 string.Join(" / ", drawnWith));
 
             var measures = options.MeasureInjection ? new InjectionMeasures(channels) : null;

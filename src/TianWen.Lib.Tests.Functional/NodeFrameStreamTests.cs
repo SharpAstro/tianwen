@@ -195,7 +195,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
     [Fact(Timeout = 60_000)]
     public async Task AnOpenStreamNeverHoldsTheNodeFromStopping()
     {
-        // The host waits for its open requests for as long as its shutdown budget allows, 30 minutes on a node: a stream
+        // The host waits for its open requests for as long as its shutdown budget allows, an hour on a node: a stream
         // that ended only with its client would hold every stop that long.
         var ct = TestContext.Current.CancellationToken;
         var node = await NodeHarness.StartAsync(outputHelper, ct);

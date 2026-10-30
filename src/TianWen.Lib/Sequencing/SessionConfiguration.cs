@@ -3,10 +3,12 @@ using System;
 
 namespace TianWen.Lib.Sequencing;
 
+/// <param name="CooldownMaxRate">The most the sensor may cool per minute during a ramp, in degrees C per minute (#1839).</param>
+/// <param name="WarmupMaxRate">The most the sensor may warm per minute during a ramp, in degrees C per minute (#1839).</param>
 public record struct SessionConfiguration(
     SetpointTemp SetpointCCDTemperature,
-    TimeSpan CooldownRampInterval,
-    TimeSpan WarmupRampInterval,
+    double CooldownMaxRate,
+    double WarmupMaxRate,
     byte MinHeightAboveHorizon,
     double DitherPixel,
     double SettlePixel,
@@ -272,7 +274,7 @@ public record struct SessionConfiguration(
 {
     /// <summary>
     /// Every declared default, with the nine fields that declare none set to the values every host starts
-    /// from: -10 °C, five-minute ramps, 20° above the horizon, a 5 px dither every third frame settling to
+    /// from: -10 °C, 2 °C/min ramp rates, 20° above the horizon, a 5 px dither every third frame settling to
     /// 1 px within 10 s, three guiding tries.
     /// </summary>
     /// <remarks>
@@ -285,8 +287,8 @@ public record struct SessionConfiguration(
     /// </remarks>
     public SessionConfiguration() : this(
         SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
-        CooldownRampInterval: TimeSpan.FromMinutes(5),
-        WarmupRampInterval: TimeSpan.FromMinutes(5),
+        CooldownMaxRate: CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute,
+        WarmupMaxRate: CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute,
         MinHeightAboveHorizon: 20,
         DitherPixel: 5.0,
         SettlePixel: 1.0,

@@ -56,6 +56,12 @@ public class PlannerState : PersistableState<SavePlannerSessionSignal>
     /// <summary>Index of the currently selected target in the merged target list.</summary>
     public int SelectedTargetIndex { get; set; }
 
+    /// <summary>
+    /// True while the selected target's picture is open large over the tab (a press on the details strip's
+    /// thumbnail); Escape or a press on the scrim closes it, and the tab retires it for a selection with no picture.
+    /// </summary>
+    public bool PictureExpanded { get; set; }
+
     /// <summary>Start of astronomical night.</summary>
     public DateTimeOffset AstroDark { get; set; }
 

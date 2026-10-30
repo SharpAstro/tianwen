@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
+using NSubstitute;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -112,7 +113,7 @@ namespace TianWen.Lib.Tests
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
-                    .ShouldBeLessThanOrEqualTo(tab.DetailsRect.Width - 2f * 6f * dpiScale, line); // 6 = PlannerTab.BasePadding
+                    .ShouldBeLessThanOrEqualTo(tab.DetailsRect.Width - 2f * PlannerTab<RgbaImage>.BasePadding * dpiScale, line);
             }
 
             var coords = tab.PaintedDetailLines.Single(l => l.StartsWith("RA "));
@@ -523,7 +524,9 @@ namespace TianWen.Lib.Tests
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
             tab.Render(BuildState(m31, db), new RectF32(0, 0, 1600, 1000), time);
 
-            var region = tab.GetRegisteredRegions().First(r => r.Result is HitResult.LinkHit);
+            // The strip's picture credit is a link too (to the Commons file page); this is the NAME's.
+            var region = tab.GetRegisteredRegions()
+                .First(r => r.Result is HitResult.LinkHit { Url: var url } && url.StartsWith("https://en.wikipedia.org/", StringComparison.Ordinal));
             var hit = tab.HitTest(region.X + region.Width / 2f, region.Y + region.Height / 2f);
 
             // The verified article, not a page named after the designation (which was M31).
@@ -632,6 +635,323 @@ namespace TianWen.Lib.Tests
             sig.RA.ShouldBe(selected.RA);
             sig.Dec.ShouldBe(selected.Dec);
             sig.Index.ShouldBe(selected.CatalogIndex);
+        }
+
+        /// <summary>Records where the planner asks for a picture, and still draws everything else.</summary>
+        private sealed class PictureCapturingPlanner(RgbaImageRenderer renderer) : PlannerTab<RgbaImage>(renderer)
+        {
+            public List<(ObjectArticleImage Image, RectF32 Rect)> Pictures { get; } = [];
+
+            protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+                => Pictures.Add((image, rect));
+        }
+
+        /// <summary>
+        /// <b>A realistic credit stays inside the picture section.</b> The strip's section is narrow (the slot's
+        /// aspect ratio at the strip's height), and a credit like an artist's full name and a licence is far wider
+        /// than it. The credit's run trims its tail to the rect it is arranged in (<c>TextTrim.End</c>, the
+        /// engine's default, which the painter honours), so it ends inside the section with an ellipsis rather
+        /// than running under the text column; the whole credit is in the large view.
+        /// </summary>
+        [Fact]
+        public async Task ALongCreditIsTrimmedToThePictureSectionNotPaintedPastIt()
+        {
+            var image = new ObjectArticleImage("Example.jpg", "2c", "CC BY-SA 4.0",
+                "Artist Name Up To Forty-Eight Characters Long", "Observatory", AttributionRequired: true, Width: 4000, Height: 3000);
+            ObjectInfoPanel.CreditLine(in image).ShouldContain("CC BY-SA 4.0");
+            var db = Substitute.For<ICelestialObjectDB>();
+            db.TryGetArticle(Arg.Any<CatalogIndex>(), out Arg.Any<ObjectArticle>())
+                .Returns(call =>
+                {
+                    call[1] = new ObjectArticle(1u, "Example", image);
+                    return true;
+                });
+
+            using var renderer = new TextCapturingRenderer(1600, 1000);
+            var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, db: db);
+
+            var credit = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.LinkHit { Url: var url } && url == image.FilePageUrl);
+            var details = tab.DetailsRect;
+            credit.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
+            (credit.X + credit.Width).ShouldBeLessThanOrEqualTo(details.X + details.Width + 0.5f);
+            credit.Y.ShouldBeGreaterThanOrEqualTo(details.Y);
+            (credit.Y + credit.Height).ShouldBeLessThanOrEqualTo(details.Y + details.Height + 0.5f);
+
+            // The full text really does not fit there, so the trim is doing the work: the run drawn is cut with an
+            // ellipsis and its ink fits the credit's cell, measured at the size it was painted at.
+            var fontPath = FontResolver.ResolveSystemFont();
+            var paintedSize = ObjectInfoPanel.DesignFontSize * 0.8f * tab.DpiScale;
+            renderer.MeasureText(ObjectInfoPanel.CreditLine(in image).AsSpan(), fontPath, paintedSize)
+                .Width.ShouldBeGreaterThan(credit.Width);
+            var run = renderer.Runs.Single(r => r.Text.StartsWith("Artist", StringComparison.Ordinal));
+            run.Text.ShouldEndWith("…");
+            run.FontSize.ShouldBe(paintedSize, 0.01f);
+            renderer.MeasureText(run.Text.AsSpan(), fontPath, run.FontSize).Width.ShouldBeLessThanOrEqualTo(credit.Width + 0.5f);
+        }
+
+        /// <summary>
+        /// With the large view open the strip's lines are plain raster text under the canvas scrim: a host that renders
+        /// selectable text as DOM spans (the web) would otherwise leave them at full brightness above it.
+        /// </summary>
+        [Fact]
+        public async Task TheStripsSelectableTextIsHeldBackWhileTheLargeViewIsOpen()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000) { HostRendersSelectableText = true };
+            var (tab, state, content, time) = await PlannerWithPictureAsync(renderer);
+            var lines = tab.PaintedDetailLines.ToHashSet();
+            lines.Count.ShouldBeGreaterThan(1);
+            var closed = tab.SelectableTextRegions.ToArray();
+            lines.ShouldBeSubsetOf(closed.Select(r => r.Text), "closed, the detail lines are selectable text");
+            var filePage = tab.Pictures.Single().Image.FilePageUrl;
+            var stripCredit = closed.Single(r => r.Href == filePage);
+            stripCredit.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width - 0.5f,
+                "closed, the strip's credit is a link in its picture section");
+            Func<float, float, bool> atStripCredit = (x, y) => MathF.Abs(x - stripCredit.X) < 0.5f && MathF.Abs(y - stripCredit.Y) < 0.5f;
+
+            state.PictureExpanded = true;
+            tab.Pictures.Clear();
+            tab.Render(state, content, time);
+
+            // Nothing of the strip stays above the scrim: neither its lines nor its credit link, which as a DOM anchor
+            // would take the press meant to close the view. What the large view itself writes (its own credit) stays.
+            var open = tab.SelectableTextRegions.ToArray();
+            open.ShouldNotContain(r => lines.Contains(r.Text));
+            open.ShouldNotContain(r => atStripCredit(r.X, r.Y));
+            tab.GetRegisteredRegions().ShouldNotContain(r => r.Result is HitResult.LinkHit && atStripCredit(r.X, r.Y));
+            open.ShouldContain(r => r.Href == filePage, "the large view's own credit stays a link");
+
+            tab.Pictures.Count.ShouldBe(2, "the strip's thumbnail, then the large view");
+            tab.Pictures[^1].Rect.Width.ShouldBeGreaterThan(tab.Pictures[0].Rect.Width * 2f);
+        }
+
+        private const string PictureOpenAction = "ObjectInfoPictureOpen";
+        private const string PictureCloseAction = "ObjectInfoPictureClose";
+
+        private static readonly DateTimeOffset PictureNow = new(2025, 12, 15, 22, 0, 0, TimeSpan.Zero);
+
+        private static async Task<(PictureCapturingPlanner Tab, PlannerState State, RectF32 Content, FakeTimeProviderWrapper Time)>
+            PlannerWithPictureAsync(RgbaImageRenderer renderer, CatalogIndex? index = null, float dpiScale = 1f,
+                float interfaceScale = 1f, ICelestialObjectDB? db = null)
+        {
+            db ??= await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+            CatalogUtils.TryGetCleanedUpCatalogName("M31", out var m31).ShouldBeTrue();
+            var tab = new PictureCapturingPlanner(renderer) { DpiScale = dpiScale, InterfaceScale = interfaceScale, FontPath = FontResolver.ResolveSystemFont() };
+            var state = BuildState(index ?? m31, db);
+            var time = new FakeTimeProviderWrapper(PictureNow);
+            var content = new RectF32(0, 0, renderer.Width, renderer.Height);
+            tab.Render(state, content, time);
+            return (tab, state, content, time);
+        }
+
+        [Theory]
+        [InlineData(1f, 1f, 1600)]
+        [InlineData(1.5f, 1f, 1600)]
+        [InlineData(1.5f, 1.15f, 1600)] // the GUI's planner always carries the interface scale
+        [InlineData(1f, 1f, 1600, true)] // a panorama, where the 40 % cap on the picture section bites
+        public async Task TheDetailsStripShowsTheVerifiedPictureRightOfTheTextAtTheStripsHeight(
+            float dpiScale, float interfaceScale, int width, bool panorama = false)
+        {
+            var scale = dpiScale * interfaceScale;
+            const uint height = 1000u;
+            using var renderer = new TextCapturingRenderer((uint)width, height);
+            var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale, interfaceScale: interfaceScale,
+                db: panorama ? PanoramaDb() : null);
+
+            var thumbnail = tab.Pictures.ShouldHaveSingleItem().Rect;
+            var details = tab.DetailsRect;
+            var strip = details.Height;
+
+            // The strip did not grow for the picture: a target without one has the same.
+            using (var plain = new RgbaImageRenderer((uint)width, height))
+            {
+                var (noPicture, _, _, _) = await PlannerWithPictureAsync(plain, CatalogIndex.IC1000, dpiScale, interfaceScale);
+                noPicture.DetailsRect.Height.ShouldBe(strip, 0.5f);
+                noPicture.PaintedDetailsTextRect.Width.ShouldBe(noPicture.DetailsRect.Width, 0.5f);
+            }
+
+            // At the strip's right end, inside it, with the text keeping the most of it.
+            (thumbnail.X + thumbnail.Width).ShouldBeLessThanOrEqualTo(details.X + details.Width);
+            thumbnail.Y.ShouldBeGreaterThanOrEqualTo(details.Y);
+            (thumbnail.Y + thumbnail.Height).ShouldBeLessThanOrEqualTo(details.Y + details.Height);
+            tab.PaintedDetailsTextRect.Width.ShouldBeGreaterThan(details.Width * (1f - PlannerTab<RgbaImage>.DetailsPictureMaxShare) - 1f);
+            thumbnail.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
+
+            // The thumbnail takes the strip's height less the section's two 4-unit margins and its credit row.
+            thumbnail.Height.ShouldBe(strip - ((2f * 4f) + ObjectInfoPanel.DesignRowHeight) * scale, 1f);
+
+            // The thumbnail is the picture's own aspect (a capped panorama is fitted inside its slot by the host),
+            // and its credit row stays inside the strip, beside the text.
+            var image = tab.Pictures.Single().Image;
+            if (!panorama)
+            {
+                (thumbnail.Width / thumbnail.Height).ShouldBe((float)image.Width / image.Height, 0.05f);
+            }
+            var credit = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.LinkHit { Url: var url } && url == image.FilePageUrl);
+            credit.X.ShouldBeGreaterThanOrEqualTo(tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width - 0.5f);
+            (credit.X + credit.Width).ShouldBeLessThanOrEqualTo(details.X + details.Width + 0.5f);
+            credit.Y.ShouldBeGreaterThanOrEqualTo(details.Y);
+            (credit.Y + credit.Height).ShouldBeLessThanOrEqualTo(details.Y + details.Height + 0.5f);
+            if (panorama)
+            {
+                var sectionW = details.X + details.Width - (tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width);
+                sectionW.ShouldBe(details.Width * PlannerTab<RgbaImage>.DetailsPictureMaxShare, 1f, "the cap is what sized the section");
+            }
+
+            // The Show in atlas button and the name's link stay in the text column, left of the section.
+            var column = tab.PaintedDetailsTextRect;
+            var button = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
+            (button.X + button.Width).ShouldBeLessThanOrEqualTo(column.X + column.Width + 0.5f);
+            foreach (var link in tab.GetRegisteredRegions()
+                .Where(r => r.Result is HitResult.LinkHit { Url: var url } && url != image.FilePageUrl))
+            {
+                (link.X + link.Width).ShouldBeLessThanOrEqualTo(column.X + column.Width + 0.5f);
+            }
+
+            // Every text line fits the column the picture left, not the strip.
+            AssertDetailLinesFitTheirColumn(tab, renderer);
+        }
+
+        /// <summary>
+        /// <b>A strip too narrow for its lines beside the picture keeps the whole width for text.</b> The section takes up
+        /// to 40 % of the strip and the lines shed nothing but coordinate fields, so in a narrow landscape window (a
+        /// half-screen window on a 150 % laptop, a phone on its side) a photometry line would run under the thumbnail.
+        /// The picture is offered only while its column still holds the strip's lines.
+        /// </summary>
+        [Theory]
+        [InlineData(640u, 480u, 1f, 1f)]
+        [InlineData(960u, 700u, 1.5f, 1.15f)]
+        public async Task ANarrowStripDropsThePictureRatherThanRunTheTextUnderIt(uint width, uint height, float dpiScale, float interfaceScale)
+        {
+            using var renderer = new TextCapturingRenderer(width, height);
+            var (tab, _, _, _) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale, interfaceScale: interfaceScale);
+
+            tab.DetailsRect.Width.ShouldBeGreaterThan(0f);
+            tab.PaintedDetailLines.Count.ShouldBeGreaterThan(1);
+            tab.Pictures.ShouldBeEmpty();
+            tab.GetRegisteredRegions().Any(r => r.Result is HitResult.ButtonHit { Action: PictureOpenAction }).ShouldBeFalse();
+            tab.PaintedDetailsTextRect.Width.ShouldBe(tab.DetailsRect.Width, 0.5f);
+            AssertDetailLinesFitTheirColumn(tab, renderer);
+        }
+
+        /// <summary>
+        /// Every line after the name (which gives way to the Show in atlas button) is drawn with its ink inside the strip's
+        /// text column: read off the runs the renderer was handed, measured at the size each was painted at.
+        /// </summary>
+        private static void AssertDetailLinesFitTheirColumn(PlannerTab<RgbaImage> tab, TextCapturingRenderer renderer)
+        {
+            var columnRight = tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width;
+            foreach (var line in tab.PaintedDetailLines.Skip(1))
+            {
+                var run = renderer.Runs.Last(r => r.Text == line);
+                (run.Rect.UpperLeft.X + renderer.MeasureText(line.AsSpan(), run.Font, run.FontSize).Width)
+                    .ShouldBeLessThanOrEqualTo(columnRight, line);
+            }
+        }
+
+        /// <summary>A catalogue whose every object has a wide panorama for its picture, so the section's 40 % cap sizes it.</summary>
+        private static ICelestialObjectDB PanoramaDb()
+        {
+            var image = new ObjectArticleImage("Panorama.jpg", "2c", "CC0", "Someone", "", AttributionRequired: false, Width: 8000, Height: 1000);
+            var db = Substitute.For<ICelestialObjectDB>();
+            db.TryGetArticle(Arg.Any<CatalogIndex>(), out Arg.Any<ObjectArticle>())
+                .Returns(call =>
+                {
+                    call[1] = new ObjectArticle(1u, "Panorama", image);
+                    return true;
+                });
+            return db;
+        }
+
+        [Fact]
+        public async Task ATargetWithNoPictureAndThePortraitStripKeepTheirTextOnly()
+        {
+            var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+            db.TryGetArticle(CatalogIndex.IC1000, out _).ShouldBeFalse("the test needs an object the table does not cover");
+
+            using (var renderer = new RgbaImageRenderer(1600, 1000))
+            {
+                var (tab, state, _, _) = await PlannerWithPictureAsync(renderer, CatalogIndex.IC1000);
+                tab.Pictures.ShouldBeEmpty();
+                tab.GetRegisteredRegions()
+                    .Any(r => r.Result is HitResult.ButtonHit { Action: PictureOpenAction }).ShouldBeFalse();
+                state.PictureExpanded.ShouldBeFalse();
+            }
+
+            using (var renderer = new RgbaImageRenderer(390, 844))
+            {
+                var (tab, _, _, _) = await PlannerWithPictureAsync(renderer);
+                tab.Pictures.ShouldBeEmpty("the compact portrait strip keeps text only");
+            }
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task APressOnTheThumbnailOpensItLargeAndEscapeOrTheScrimCloseIt(float dpiScale)
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var (tab, state, content, time) = await PlannerWithPictureAsync(renderer, dpiScale: dpiScale);
+            var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), () => { })
+            {
+                Widgets = () => [tab],
+                Unhandled = tab.HandleInput,
+            };
+
+            var thumbnail = tab.Pictures.Single().Rect;
+            router.Handle(new InputEvent.MouseDown(thumbnail.X + (thumbnail.Width / 2f), thumbnail.Y + (thumbnail.Height / 2f)))
+                .ShouldBeTrue();
+            state.PictureExpanded.ShouldBeTrue();
+
+            // The large view is drawn after the strip, inside the content and centred in it.
+            tab.Pictures.Clear();
+            tab.Render(state, content, time);
+            tab.Pictures.Count.ShouldBe(2);
+            var large = tab.Pictures[^1].Rect;
+            large.Width.ShouldBeGreaterThan(thumbnail.Width * 2f);
+            large.X.ShouldBeGreaterThanOrEqualTo(content.X);
+            (large.X + large.Width).ShouldBeLessThanOrEqualTo(content.X + content.Width);
+            (large.Y + large.Height).ShouldBeLessThanOrEqualTo(content.Y + content.Height);
+            (large.X + (large.Width / 2f)).ShouldBe(content.X + (content.Width / 2f), 1f);
+            var expected = ObjectInfoPanel.LargePictureRect(content, tab.Pictures[^1].Image, tab.DpiScale);
+            large.Width.ShouldBe(expected.Width, 1f);
+            large.Height.ShouldBe(expected.Height, 1f);
+
+            // A press anywhere outside the picture is the scrim, over the list, the chart and the strip's thumbnail alike.
+            tab.HitTest(5f, 5f).ShouldBeOfType<HitResult.ButtonHit>().Action.ShouldBe(PictureCloseAction);
+            tab.HitTest(content.Width - 5f, 5f).ShouldBeOfType<HitResult.ButtonHit>().Action.ShouldBe(PictureCloseAction);
+            tab.HitTest(thumbnail.X + (thumbnail.Width / 2f), thumbnail.Y + (thumbnail.Height / 2f))
+                .ShouldBeOfType<HitResult.ButtonHit>().Action.ShouldBe(PictureCloseAction);
+
+            router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue();
+            state.PictureExpanded.ShouldBeFalse();
+
+            // Open again, and close it by the scrim.
+            state.PictureExpanded = true;
+            tab.Render(state, content, time);
+            tab.GetRegisteredRegions()
+                .Last(r => r.Result is HitResult.ButtonHit { Action: PictureCloseAction })
+                .OnClick.ShouldNotBeNull().Invoke(InputModifier.None);
+            state.PictureExpanded.ShouldBeFalse();
+        }
+
+        [Fact]
+        public async Task SelectingATargetWithNoPictureRetiresTheLargeView()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var (tab, state, content, time) = await PlannerWithPictureAsync(renderer);
+            state.PictureExpanded = true;
+
+            // The other target has no catalogue index, so no picture.
+            state.SelectedTargetIndex = tab.FilteredTargets.ToList().FindIndex(t => t.Target.CatalogIndex is null);
+            state.SelectedTargetIndex.ShouldBeGreaterThanOrEqualTo(0);
+            tab.Pictures.Clear();
+            tab.Render(state, content, time);
+
+            state.PictureExpanded.ShouldBeFalse();
+            tab.Pictures.ShouldBeEmpty();
         }
     }
 }

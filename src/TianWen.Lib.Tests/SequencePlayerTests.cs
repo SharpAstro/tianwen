@@ -125,6 +125,24 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void An_fps_change_while_a_frame_decodes_ahead_keeps_playing()
+        {
+            var player = new SequencePlayer();
+            var src = new FakeSequenceSource(600);
+            var state = Playing(600, 30f);
+
+            player.Tick(src, state, 0.0); // starts decode-ahead of frame 1
+            state.PlaybackFps = 1000f;     // the dial moves while it decodes
+            player.Tick(src, state, 0.005);
+            src.CompleteDecode();
+
+            player.Tick(src, state, 0.1).ShouldBeTrue();
+            state.FrameIndex.ShouldBe(1);
+            src.StartedDecodes.ShouldBe(2); // frame 1 decoded once, then frame 2 ahead
+            src.IsDecoding.ShouldBeTrue();
+        }
+
+        [Fact]
         public void Only_one_decode_is_in_flight_at_a_time()
         {
             var player = new SequencePlayer();

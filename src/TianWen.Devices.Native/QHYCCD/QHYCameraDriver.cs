@@ -22,7 +22,7 @@ internal class QHYCameraDriver(QHYDevice device, IServiceProvider sp) : DALCamer
 
     protected override Exception OperationalException(CMOSErrorCode errorCode, string message) => new QHYDriverException($"{errorCode}: {message}");
 
-    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
     {
         if (_deviceInfo.Init())
         {

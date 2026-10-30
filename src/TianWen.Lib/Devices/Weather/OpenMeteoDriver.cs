@@ -72,7 +72,6 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
     public ILogger Logger { get; }
     public ITimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
     public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
@@ -96,13 +95,11 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         }
 
         Volatile.Write(ref _connected, true);
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
     }
 
     public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {
         Volatile.Write(ref _connected, false);
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(false));
         return ValueTask.CompletedTask;
     }
 

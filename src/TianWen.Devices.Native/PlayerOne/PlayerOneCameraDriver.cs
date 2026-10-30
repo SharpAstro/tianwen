@@ -57,5 +57,5 @@ internal class PlayerOneCameraDriver(PlayerOneDevice device, IServiceProvider sp
     /// not documented as safe to call twice, so doing it once inside <c>Open</c> is preferable to
     /// doing it here and risking a second call on a camera discovery already initialised.
     /// </remarks>
-    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+    protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 }

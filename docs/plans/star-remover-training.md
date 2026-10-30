@@ -5183,7 +5183,35 @@ stretch errors made them, and neither is in the star colours. As exported, the e
 starless plate's parameters, not the master's (#1776). Re-stretched, the S2 read used a re-stretch whose absence rule
 was not the exporter's, which moved green's master floor on four of the eight sessions (S2's read above, "Corrected").
 Read through the exporter's own master stretch, the injected colours already match real's in every band. The injector
-draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). A drawn colour is
+draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). The pool refuses a
+diverged fit (#1867): a star whose `LocalSigma` is not finite (a fit with its centre outside the frame; a star on the absent
+ring keeps its sigma), and an
+unsaturated one whose amplitude in any channel is above `OvershootMargin` (4) times the frame's clip (the master's unit-scale
+divisor) less its own sky. Neither is drawn, nor carried as a lobe; both still count as sites, and
+`InjectionPopulation.Refused` says how many.
+The plate builder refuses the overshooting half at the source (#1867): `ClassicalStarRemover` leaves an unsaturated fit whose
+amplitude in any channel is non-finite or above `OvershootMargin` (4) times that channel's own brightest covered sample
+(`AmplitudeOvershoots`, no sky taken off) as `NoFit` before subtracting it, so no reader of the catalogue meets a diverged fit as a
+Subtracted Moffat. A fitted pair passes the same check and stays a knot if either star fails it; that is a backstop, since the
+pair's own acceptance tests (centres within 2.5 FWHM of the wide fit, a cost under it) have not been seen to let one through. The margin, in both guards, departs from the
+leg's wording ("above the ceiling less the star's sky"): the ceiling is a pixel mean and a Moffat's continuous peak sits above it,
+at worst about 1.7 times for a sharp unsaturated star, so 1x would refuse real stars. The margin assumes stars of at least
+about 1 px FWHM: a pixel-integrated beta-3 Moffat on a pixel corner peaks 3.2 to 3.4 times its brightest pixel at 1.0 px and
+4.5 to 4.9 times at 0.8 px (#1873's review), so a fully undersampled field would lose real stars to `NoFit`. None is catalogued:
+over the 201 sessions of the 2026-10-12 bake the sharpest median sub FWHM is 1.60 px and the sharpest single sub 1.56 px
+(`stats/psf-sessions.jsonl`), so a field under 1 px is a new case to measure before it is baked. The plate builder takes no sky off because
+the fit's sky is the luminance's: taken off a colour channel's ceiling, it left a channel whose brightest sample sat under the
+luminance sky a threshold of 0, and refused every star with light in it (#1873's review); against a divergence of 1e12 the margin
+dwarfs any sky. A fit centred outside the frame with a sane amplitude is still subtracted, saturated or not, deliberately: on a
+ringless master that is a real star the frame's edge cut (the Orion master's 700-sigma star was fitted 3 px past the last present
+column), and refusing it would leave half a star on the starless plate. Its row's `LocalSigma` is NaN, and that is the marker the
+next reader sees: the injector refuses it. The one edge case the guard does refuse is deliberate: a star whose core lies off the
+covered sky, fitted to a peak past 4x the covered maximum, reads as unsaturated (no core pixels to flag) and is left as `NoFit`
+(`AnUnsaturatedEdgeFitAboveTheCeilingIsNotSubtracted`), because with no core in the data nothing constrains that amplitude, and a
+subtraction at it is the huge hole this guard exists to stop. The cost is that star's wings left on the plate. The injector's guard also covers catalogues built before this, read as before (the
+catalogue format is unchanged). **Plates and the export must be
+rebuilt**, and the synthetics review's instruments (`training/star-removal/domain/`) read on that re-export before any
+training run uses it; that re-export is the owner's. A drawn colour is
 therefore a real star's colour at that star's own brightness. An option drawing colours from the real distribution
 would draw what the pool already draws. The training session's call (2026-10-23) was to add none.
 

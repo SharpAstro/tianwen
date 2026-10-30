@@ -135,11 +135,13 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     private const int NotificationCapacity = 200;
 
     /// <summary>
-    /// How long the host may take to stop: a session's Finalise (its warm-up ramp is budgeted by the
-    /// configuration, five minutes by default, and cannot be cut short) and then the hub's own cameras,
-    /// whose out-of-session ramp is capped at 15 minutes.
+    /// How long the host may take to stop: a session's Finalise warm-up (cannot be cut short) and then the hub's own
+    /// cameras, one after the other under one token. It is sized for the 2 C/min default (#1839): a warm-up of 30 C plans 15
+    /// minutes, and one whose cooler does not follow is let go at about twice that, leaving room for the hub's. A slower
+    /// configured rate is not covered: a session's Finalise warm-up at the GUI's 0.5 C/min floor plans 60 minutes by itself, so
+    /// a host stop can still cut it off.
     /// </summary>
-    internal static readonly TimeSpan ShutdownBudget = TimeSpan.FromMinutes(30);
+    internal static readonly TimeSpan ShutdownBudget = TimeSpan.FromMinutes(60);
 
     // The node's run, replaced WHOLE by compare-and-swap, so two starts cannot both win and a finished run
     // needs no clearing: the next start swaps it out. A run's body waits until its start has won the swap

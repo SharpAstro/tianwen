@@ -48,6 +48,4 @@ public interface IDeviceDriver : IAsyncDisposable, IDisposable
     /// </summary>
     /// <returns>Awaitable task, if completed, device is dis-connected</returns>
     ValueTask DisconnectAsync(CancellationToken cancellationToken = default);
-
-    event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 }

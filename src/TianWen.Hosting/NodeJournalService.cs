@@ -404,7 +404,7 @@ internal sealed class NodeJournalService(
             case CoolerIntentKind.Cool when setpointC is { } setpoint:
                 logger.LogInformation("Recovering: cooling {Camera} back to {Setpoint} C through the session's ramp", camera, setpoint);
                 hub.SetCoolerIntent(camera, CoolerIntent.CoolTo(CameraCoolingRamp.TargetOf(setpoint)));
-                _ramps.Add(RampAsync(camera, ct => hub.CoolToSetpointAsync(camera, setpoint, new SessionConfiguration().CooldownRampInterval, timeProvider, logger, ct)));
+                _ramps.Add(RampAsync(camera, ct => hub.CoolToSetpointAsync(camera, setpoint, new SessionConfiguration().CooldownMaxRate, timeProvider, logger, ct)));
                 break;
 
             case CoolerIntentKind.Warm:

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -18,6 +19,8 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class PlannerTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
+        /// <summary>Where a picture host reports a load it could not finish; set by the host like the atlas's.</summary>
+        public ILogger? Logger { get; set; }
 
         // Layout constants (at 1x scale)
         private const float BaseTargetListWidth    = 330f;
@@ -25,7 +28,7 @@ namespace TianWen.UI.Abstractions
         private static readonly float BaseFontSize     = GuiTheme.Metrics.BaseFontSize;
         private static readonly float BaseHeaderHeight = GuiTheme.Metrics.HeaderHeight;
         private const float BaseItemHeight         = 22f;
-        private const float BasePadding            = 6f;
+        internal const float BasePadding            = 6f;
 
         // Portrait (H > W: phones, narrow windows) reflow constants. The landscape left-list dock
         // would eat most of a narrow screen and squash the chart to a sliver, so portrait stacks
@@ -152,6 +155,7 @@ namespace TianWen.UI.Abstractions
             _targetListRect = ArrangedFills.RectOf(arranged, ListFillKey);
             var detailsRect = ArrangedFills.RectOf(arranged, DetailsFillKey);
             DetailsRect = detailsRect;
+            PaintedDetailsTextRect = default;
             PaintedDetailLines = [];
             _chartRect = ArrangedFills.RectOf(arranged, ChartFillKey);
 
@@ -193,12 +197,99 @@ namespace TianWen.UI.Abstractions
             // entirely (CollapseBelow) -- its Fill leaf is then absent from the arranged tree and the
             // rect comes back empty. Portrait also gets a line budget so the compact strip shows the
             // most important lines at a readable size instead of cramming all of them.
+            // Worked out once so the strip and RenderLargePicture agree on whether the scrim is drawn this frame.
+            var largePictureOpen = state.PictureExpanded && SelectedPicture(state) is not null;
             if (detailsRect.Width > 0f && detailsRect.Height > 0f)
             {
                 var maxLines = portrait
                     ? Math.Max(2, (int)(detailsRect.Height / (fontSize * PortraitDetailsLineHeight)))
                     : int.MaxValue;
-                RenderDetailsPanel(state, detailsRect, fontSize, padding, maxLines);
+                RenderDetailsPanel(state, detailsRect, fontSize, padding, maxLines, withPicture: !portrait, largePictureOpen);
+            }
+
+            // Last of everything the tab paints: paint order is z-order for pixels and hit test alike.
+            RenderLargePicture(state, contentRect);
+        }
+
+        /// <summary>The key of the details strip's text column, beside the picture section when there is one.</summary>
+        internal const string DetailsTextFillKey = "detailsText";
+
+        /// <summary>The widest share of the strip its picture section may take, so the text keeps the most.</summary>
+        internal const float DetailsPictureMaxShare = 0.4f;
+
+        /// <summary>
+        /// The colours the picture section and the large view paint with: the credit row's, which is all they take
+        /// from a panel palette, and the theme's for the rest, never painted here.
+        /// </summary>
+        private static ObjectInfoPanel.PanelPalette PicturePalette
+            => new(
+                Background: GuiTheme.Palette.PanelBg, Border: GuiTheme.Palette.Separator,
+                Text: GuiTheme.Palette.BodyText, DimText: GuiTheme.Palette.DimText,
+                ButtonText: GuiTheme.Palette.BodyText, GotoBg: FilterBtnBg, DisabledBg: FilterBtnBg,
+                ViewBg: FilterBtnBg, PinBg: FilterBtnBg, UnpinBg: FilterBtnBg, Link: GuiTheme.Palette.Accent);
+
+        /// <summary>
+        /// Draws an object's picture into its slot (the details strip's thumbnail and the large view). The base
+        /// draws nothing, so the slot keeps its dark frame: this renderer-agnostic tab cannot draw an image, and
+        /// the hosts that can override it (a Vulkan texture on the desktop).
+        /// </summary>
+        /// <param name="image">The picture, whose <see cref="ObjectArticleImage.ThumbnailUrl"/> the host fetches.</param>
+        /// <param name="rect">The slot, in surface pixels. Its width is what the host asks Wikimedia for.</param>
+        protected virtual void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
+        {
+        }
+
+        /// <summary>The selected target's verified article picture, or null for none (or no selection).</summary>
+        private ObjectArticleImage? SelectedPicture(PlannerState state)
+            => state.SelectedTargetIndex >= 0 && state.SelectedTargetIndex < _lastFilteredTargets.Count
+                ? ObjectInfoPanel.PictureFor(_lastFilteredTargets[state.SelectedTargetIndex].Target.CatalogIndex, state.ObjectDb)
+                : null;
+
+        /// <summary>
+        /// The selected target's picture open large over the tab, painted AFTER everything else (the same rule and
+        /// the same placement as the atlas's: <see cref="ObjectInfoPanel.PlaceLargePicture"/>). Retired for a
+        /// selection with no picture.
+        /// </summary>
+        private void RenderLargePicture(PlannerState state, RectF32 contentRect)
+        {
+            if (!state.PictureExpanded)
+            {
+                return;
+            }
+
+            if (SelectedPicture(state) is not { } picture)
+            {
+                state.PictureExpanded = false;
+                return;
+            }
+
+            var (scrim, body, bodyRect) = ObjectInfoPanel.PlaceLargePicture(
+                contentRect, in picture, PicturePalette, DpiScale, CollapsePicture);
+            RenderLayout(scrim, contentRect);
+            RenderLayout(body, bodyRect, drawFill: (fill, rect) =>
+            {
+                if (fill.Key == ObjectInfoPanel.LargePictureFillKey)
+                {
+                    DrawObjectPicture(in picture, rect);
+                }
+            });
+        }
+
+        /// <summary>Asks for another frame, for a host whose picture arrives after the frame that asked for it.</summary>
+        protected void RequestRedraw()
+        {
+            if (_state is { } state)
+            {
+                state.NeedsRedraw = true;
+            }
+        }
+
+        private void CollapsePicture()
+        {
+            if (_state is { } state)
+            {
+                state.PictureExpanded = false;
+                state.NeedsRedraw = true;
             }
         }
 
@@ -235,6 +326,9 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The details strip's rect from the last render (empty when it collapsed away).</summary>
         public RectF32 DetailsRect { get; private set; }
+
+        /// <summary>The column the details strip's text had last render: the strip less its picture section, when it has one.</summary>
+        public RectF32 PaintedDetailsTextRect { get; private set; }
 
         /// <summary>The lines the details strip painted last render, so a test reads what was drawn.</summary>
         public IReadOnlyList<string> PaintedDetailLines { get; private set; } = [];
@@ -564,7 +658,9 @@ namespace TianWen.UI.Abstractions
             PlannerState state,
             RectF32 rect,
             float fontSize, float padding,
-            int maxLines = int.MaxValue)
+            int maxLines = int.MaxValue,
+            bool withPicture = false,
+            bool largePictureOpen = false)
         {
             var fontPath = FontPath;
             RenderLayout(Layout.Builder.Spacer().Bg(DetailsBg), rect);
@@ -572,13 +668,57 @@ namespace TianWen.UI.Abstractions
             // Separator line at top
             RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(rect.X, rect.Y, rect.Width, 1f));
 
-            // The engine measures the candidate at the strip's own scale (design-unit font, MeasureContext's
-            // DpiScale), so the fit rule is the one a declared Text node would be laid out by.
-            var infoW = rect.Width - padding * 2f;
+            // The selected target's picture takes a section at the strip's right end, at the strip's own height
+            // (the strip does not grow for it): a declared split, the text column a Fill beside the section, so the
+            // text's width is the arranged one and never a sum. The section is offered only while the column it
+            // leaves still holds every line of the strip; a narrow strip, a target with no picture and the compact
+            // portrait strip keep the whole width for text as before.
+            // The engine measures a line at the strip's own scale (design-unit font, MeasureContext's DpiScale), so
+            // the fit rule is the one a declared Text node would be laid out by.
             var measureCtx = MeasureContext();
-            var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines,
-                text => Layout.Engine.Measure(Layout.Builder.Text(text, BaseFontSize, DetailsInfoText),
-                    new Layout.Size<float>(float.MaxValue, float.MaxValue), measureCtx).Width <= infoW);
+            bool Fits(string line, RectF32 column)
+                => Layout.Engine.Measure(Layout.Builder.Text(line, BaseFontSize, DetailsInfoText),
+                    new Layout.Size<float>(float.MaxValue, float.MaxValue), measureCtx).Width <= column.Width - padding * 2f;
+            List<string> LinesFor(RectF32 column)
+                => PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines, line => Fits(line, column));
+
+            var text = rect;
+            List<string>? lines = null;
+            if (withPicture && SelectedPicture(state) is { } picture)
+            {
+                var dpiScale = DpiScale;
+                var pictureH = ObjectInfoPanel.DesignPictureHeightIn(rect.Height / dpiScale);
+                var sectionW = ObjectInfoPanel.DesignPictureSectionWidthFor(
+                    in picture, pictureH, (rect.Width / dpiScale) * DetailsPictureMaxShare);
+                // Under the open large view the credit is plain text: a host that draws a link as a DOM anchor
+                // would otherwise leave it above the scrim, taking the press meant to close the view.
+                var split = Layout.Builder.HStack(
+                    Layout.Builder.Fill(key: DetailsTextFillKey).WStar().HStar(),
+                    ObjectInfoPanel.BuildPictureSection(in picture, PicturePalette, onOpen: () =>
+                        {
+                            state.PictureExpanded = true;
+                            state.NeedsRedraw = true;
+                        }, designPictureHeight: pictureH, creditLinks: !largePictureOpen)
+                        .WFixed(sectionW).HStar());
+                var arranged = ArrangeLayout(split, rect, measureCtx);
+                var column = ArrangedFills.RectOf(arranged, DetailsTextFillKey);
+                var columnLines = LinesFor(column);
+                // The name line gives way to the Show in atlas button and is not held to the column.
+                if (columnLines.Skip(1).All(line => Fits(line, column)))
+                {
+                    PaintLayout(arranged, measureCtx, drawFill: (fill, slot) =>
+                    {
+                        if (fill.Key == ObjectInfoPanel.PictureFillKey)
+                        {
+                            DrawObjectPicture(in picture, slot);
+                        }
+                    });
+                    text = column;
+                    lines = columnLines;
+                }
+            }
+            lines ??= LinesFor(text);
+            PaintedDetailsTextRect = text;
             PaintedDetailLines = lines;
             if (lines.Count == 0)
             {
@@ -592,7 +732,7 @@ namespace TianWen.UI.Abstractions
 
             // Show in atlas, at the end of the name line: the mirror of the atlas panel's View in Planner,
             // which had no way back (reported 2026-09-28). The name line gives up the width it takes.
-            var nameW = rect.Width - padding * 2f;
+            var nameW = text.Width - padding * 2f;
             var shown = _lastFilteredTargets[state.SelectedTargetIndex].Target;
             var shownType = shown.CatalogIndex is { } shownIdx && state.ObjectDb?.TryLookupByIndex(shownIdx, out var shownObj) == true
                 ? shownObj.ObjectType
@@ -636,11 +776,21 @@ namespace TianWen.UI.Abstractions
                 // photometry). Rasters exactly like DrawText on desktop; on the web a DOM text layer
                 // renders them as real selectable text instead (Renderer.HostRendersSelectableText). The
                 // name line additionally carries the Wikipedia href -> a real <a> on the web host.
-                var lineW = i == 0 ? nameW : rect.Width - padding * 2f;
-                DrawSelectableText(line, fontPath,
-                    rect.X + padding, y, lineW, lineH,
-                    fs, color, TextAlign.Near, TextAlign.Center,
-                    i == 0 ? nameHref : null);
+                var lineW = i == 0 ? nameW : text.Width - padding * 2f;
+                // Under the large view's canvas scrim the line is plain raster text: a host that draws selectable
+                // text as DOM spans would otherwise leave it at full brightness above the scrim.
+                if (largePictureOpen)
+                {
+                    DrawText(line.AsSpan(), fontPath, rect.X + padding, y, lineW, lineH,
+                        fs, color, TextAlign.Near, TextAlign.Center);
+                }
+                else
+                {
+                    DrawSelectableText(line, fontPath,
+                        rect.X + padding, y, lineW, lineH,
+                        fs, color, TextAlign.Near, TextAlign.Center,
+                        i == 0 ? nameHref : null);
+                }
 
                 // Desktop realization of the same link: register the name as a LinkHit region. The host
                 // owns what a link does -- the SDL/Vulkan chrome opens the OS browser on click; on the web
@@ -727,6 +877,13 @@ namespace TianWen.UI.Abstractions
             if (_state is not { } state)
             {
                 return false;
+            }
+
+            // The large picture covers the tab, so Escape retires it before anything else sees the key.
+            if (key == InputKey.Escape && state.PictureExpanded)
+            {
+                CollapsePicture();
+                return true;
             }
 
             // Slider keyboard takes priority (Left/Right/Enter/Escape/Tab when a slider is selected)

@@ -35,7 +35,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
     // smooth glow is not.
-    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false)
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null, double[]? gains = null)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
@@ -59,7 +59,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                         ? 4 * Sigma * Math.Sin(2 * Math.PI * x / 40.0) * Math.Sin(2 * Math.PI * y / 40.0)
                             * Math.Exp(-((x - 750.0) * (x - 750.0) + (y - 700.0) * (y - 700.0)) / (2 * 100.0 * 100.0))
                         : 0.0;
-                    truth[c][y * Size + x] = (float)(Sky + nebula + gradient + knotValue + ripple + Sigma * cNoise[y * Size + x]);
+                    truth[c][y * Size + x] = (float)((skies?[c] ?? Sky) + nebula + gradient + knotValue + ripple + Sigma * cNoise[y * Size + x]);
                 }
             }
         }
@@ -87,9 +87,13 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         {
             stars.Add(new Injected(g.X, g.Y, g.Peak, true));
         }
+        if (extra is not null)
+        {
+            stars.AddRange(extra);
+        }
 
         var planes = new float[channels][,];
-        var gains = channels == 3 ? new[] { 0.8, 1.0, 0.6 } : new[] { 1.0 };
+        gains ??= channels == 3 ? [0.8, 1.0, 0.6] : [1.0];
         for (var c = 0; c < channels; c++)
         {
             float[] plane = [.. truth[c]];
@@ -358,6 +362,102 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                 }
             }
         }
+    }
+
+    // #1867: a whole-plate invariant on an ordinary field (nothing on it diverges: its brightest unsaturated star is 0.8 against a
+    // limit of 3.6): no catalogue row is an unsaturated Subtracted Moffat whose amplitude is past the margin, and the star beside the
+    // absent ring is still found. AnUnsaturatedEdgeFitAboveTheCeilingIsNotSubtracted is the test that drives the guard.
+    [Fact(Timeout = 300_000)]
+    public async Task NoUnsaturatedSubtractedRowOfAnOrdinaryPlateIsPastTheMargin()
+    {
+        var field = MakeField(1);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && !s.Saturated))
+        {
+            s.ChannelAmplitudes.All(a => a <= ClassicalStarRemover.OvershootMargin * Clip).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
+        }
+        Nearest(plate, Ring + 4.0, 500.0, within: 3.0).ShouldNotBeNull();
+    }
+
+    // #1867: a bright SATURATED star cut by the frame's edge (centre just inside the absent ring, only the covered part of its
+    // wings seen) is still taken: an off-canvas centre is where a cut star's true centre lies, never a divergence.
+    [Fact(Timeout = 300_000)]
+    public async Task ASaturatedStarCutByTheEdgeIsStillSubtracted()
+    {
+        var field = MakeField(1, extra: [new Injected(Ring - 1.0, 512.0, 20.0, true)]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var fitted = Nearest(plate, Ring - 1.0, 512.0, 6.0);
+        fitted.ShouldNotBeNull();
+        output.WriteLine($"edge star: {fitted.Value.Outcome} at ({fitted.Value.X:F1}, {fitted.Value.Y:F1}) saturated={fitted.Value.Saturated}");
+        fitted.Value.Outcome.ShouldBe(StarFitOutcome.Subtracted);
+        var truthPlane = field.Truth[0];
+        var platePlane = plate.Plate.GetChannelSpan(0);
+        double sum = 0;
+        var n = 0;
+        for (var y = 512 - 3; y <= 512 + 3; y++)
+        {
+            for (var x = Ring; x < Ring + 6; x++)
+            {
+                sum += (platePlane[y * Size + x] - truthPlane[y * Size + x]) / Sigma;
+                n++;
+            }
+        }
+        output.WriteLine($"plate minus truth beside the edge star {sum / n:F1} sigma a pixel");
+        Math.Abs(sum / n).ShouldBeLessThan(50.0, "the star's light is off the plate");
+    }
+
+    // #1867 review: the plate builder's margin, applied as the builder applies it: each channel against OvershootMargin (4) times its
+    // own brightest covered sample, a row just under admitted and one just over refused, in any channel, and a non-number refused.
+    [Theory]
+    [InlineData(3.59, 0.2, false)]   // just under 4 x 0.9 in red
+    [InlineData(3.61, 0.2, true)]    // just over in red
+    [InlineData(0.5, 2.01, true)]    // just over 4 x 0.5 in green, the dimmer channel
+    [InlineData(0.5, 1.99, false)]   // just under in green
+    [InlineData(double.NaN, 0.2, true)]
+    public void TheOvershootMarginRefusesJustOverItAndAdmitsJustUnderItPerChannel(double red, double green, bool refused)
+        => ClassicalStarRemover.AmplitudeOvershoots([red, green], [0.9f, 0.5f]).ShouldBe(refused);
+
+    // #1873 review: a colour field with a dim channel, whose brightest covered sample (its sky 0.01 plus its brightest star, 20 x 0.003,
+    // so about 0.07) sits under the luminance sky (the mean of 0.20, 0.08 and 0.01, about 0.097), must still have its stars subtracted.
+    // Compared against the luminance sky, the guard left that channel a threshold of 0 and refused every star with light in it.
+    [Fact(Timeout = 300_000)]
+    public async Task AColourFieldWithUnequalChannelSkiesStillHasItsStarsSubtracted()
+    {
+        var field = MakeField(3, skies: [0.20, 0.08, 0.01], gains: [0.8, 1.0, 0.003]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var unsaturated = plate.Stars.Where(static s => !s.Saturated && s.Outcome is StarFitOutcome.Subtracted or StarFitOutcome.NoFit).ToArray();
+        var refused = unsaturated.Count(static s => s.Outcome == StarFitOutcome.NoFit);
+        output.WriteLine($"unequal skies: {unsaturated.Length - refused} subtracted, {refused} NoFit");
+
+        unsaturated.Length.ShouldBeGreaterThan(200);
+        refused.ShouldBeLessThan(unsaturated.Length / 20, "an unequal channel sky is not a diverged fit");
+    }
+
+    // #1867: an UNSATURATED star whose centre is past the covered sky, its true peak (5.0) far above the clip but only a faint
+    // wing (under the clip) seen. Whatever a fit makes of it, it is never an unsaturated Subtracted row over the ceiling.
+    [Fact(Timeout = 300_000)]
+    public async Task AnUnsaturatedEdgeFitAboveTheCeilingIsNotSubtracted()
+    {
+        var field = MakeField(1, extra: [new Injected(Ring - 4.0, 512.0, 5.0, false)]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && !s.Saturated))
+        {
+            s.ChannelAmplitudes.All(a => float.IsFinite(a) && a <= ClassicalStarRemover.OvershootMargin * Clip).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
+        }
+        var near = plate.Stars.Where(s => Math.Abs(s.X - (Ring - 4.0)) < 8 && Math.Abs(s.Y - 512.0) < 8).ToArray();
+        foreach (var s in near)
+        {
+            output.WriteLine($"near the edge: {s.Outcome} ({s.X:F1}, {s.Y:F1}) amp={(s.ChannelAmplitudes.Length > 0 ? s.ChannelAmplitudes[0] : float.NaN):G4} saturated={s.Saturated}");
+        }
+
+        // The diverged fit lands on this star and is kept as NoFit, never as a Subtracted row.
+        near.ShouldNotBeEmpty();
+        near.ShouldAllBe(static s => s.Outcome != StarFitOutcome.Subtracted);
+        near.ShouldContain(static s => s.Outcome == StarFitOutcome.NoFit);
     }
 
     [Fact(Timeout = 300_000)]

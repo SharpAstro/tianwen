@@ -180,7 +180,12 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The picture section's whole design height: margins, the picture and its credit row.</summary>
         public static float DesignPictureSectionHeight(in ObjectArticleImage image)
-            => 4f + DesignPictureHeight(in image) + DesignRowHeight + 4f;
+            => (2f * PictureSectionMargin) + DesignPictureHeight(in image) + DesignRowHeight;
+
+        /// <summary>The picture section's margin above and below, and either side of its slot: the one number its spacers and its sizes read.</summary>
+        private const float PictureSectionMargin = 4f;
+
+        private const float PictureSectionSideMargin = 8f;
 
         /// <summary>
         /// What the panel's buttons DO. A null callback is a button that is not offered.
@@ -485,10 +490,29 @@ namespace TianWen.UI.Abstractions
         /// The credit is a <see cref="HitResult.LinkHit"/> on the node, so the web host renders it as a real
         /// anchor and a desktop host opens it in the browser, from this one declaration.
         /// </remarks>
-        public static Layout.Node BuildPictureSection(in ObjectArticleImage image, in PanelPalette palette, Action? onOpen = null)
+        /// <param name="image">The picture.</param>
+        /// <param name="palette">The panel's colours.</param>
+        /// <param name="onOpen">What a press on the thumbnail does; null leaves it inert.</param>
+        /// <param name="designPictureHeight">
+        /// The slot's design height when the host's room is not the panel's: the planner's details strip fits
+        /// the section to its own height. Null is <see cref="DesignPictureHeight"/>, the panel's.
+        /// </param>
+        /// <param name="creditLinks">
+        /// False draws the credit as plain text, for a frame where something is painted over the section (the
+        /// planner's open large view): a host that draws a link as a DOM anchor would leave it above that.
+        /// </param>
+        public static Layout.Node BuildPictureSection(
+            in ObjectArticleImage image, in PanelPalette palette, Action? onOpen = null, float? designPictureHeight = null,
+            bool creditLinks = true)
         {
             var credit = CreditLine(in image);
             var filePage = image.FilePageUrl;
+            var creditText = Layout.Builder.Text(credit, DesignFontSize * 0.8f, palette.DimText, TextAlign.Near, TextAlign.Center)
+                .WStar().HStar();
+            if (creditLinks)
+            {
+                creditText = creditText.Clickable(new HitResult.LinkHit(filePage), cursor: CursorKind.Pointer);
+            }
             var slot = Layout.Builder.Fill(key: PictureFillKey).WStar().HStar().Bg(PictureFrame);
             if (onOpen is not null)
             {
@@ -496,20 +520,36 @@ namespace TianWen.UI.Abstractions
             }
 
             return Layout.Builder.VStack(
-                Layout.Builder.Spacer().RowH(4f),
+                Layout.Builder.Spacer().RowH(PictureSectionMargin),
                 Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WFixed(8f).HStar(),
+                    Layout.Builder.Spacer().WFixed(PictureSectionSideMargin).HStar(),
                     slot,
-                    Layout.Builder.Spacer().WFixed(8f).HStar())
-                    .RowH(DesignPictureHeight(in image)),
+                    Layout.Builder.Spacer().WFixed(PictureSectionSideMargin).HStar())
+                    .RowH(designPictureHeight ?? DesignPictureHeight(in image)),
                 Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WFixed(8f).HStar(),
-                    Layout.Builder.Text(credit, DesignFontSize * 0.8f, palette.DimText, TextAlign.Near, TextAlign.Center)
-                        .WStar().HStar()
-                        .Clickable(new HitResult.LinkHit(filePage), cursor: CursorKind.Pointer),
-                    Layout.Builder.Spacer().WFixed(8f).HStar())
+                    Layout.Builder.Spacer().WFixed(PictureSectionSideMargin).HStar(),
+                    creditText,
+                    Layout.Builder.Spacer().WFixed(PictureSectionSideMargin).HStar())
                     .RowH(DesignRowHeight),
-                Layout.Builder.Spacer().RowH(4f));
+                Layout.Builder.Spacer().RowH(PictureSectionMargin));
+        }
+
+        /// <summary>
+        /// The picture slot's design height inside a section of <paramref name="sectionDesignHeight"/>: what is left once the
+        /// section's margins and credit row are taken (the inverse of <see cref="DesignPictureSectionHeight"/>).
+        /// </summary>
+        public static float DesignPictureHeightIn(float sectionDesignHeight)
+            => MathF.Max(0f, sectionDesignHeight - (2f * PictureSectionMargin) - DesignRowHeight);
+
+        /// <summary>
+        /// The width of a picture section whose slot is <paramref name="designPictureHeight"/> tall: the slot at the
+        /// picture's own aspect ratio (a panorama or a tall frame is fitted inside it by the host), plus the section's
+        /// 8-unit margins, never more than <paramref name="maxDesignWidth"/>.
+        /// </summary>
+        public static float DesignPictureSectionWidthFor(in ObjectArticleImage image, float designPictureHeight, float maxDesignWidth)
+        {
+            var aspect = image.Width > 0 && image.Height > 0 ? (float)image.Width / image.Height : 4f / 3f;
+            return MathF.Min(maxDesignWidth, (designPictureHeight * aspect) + (2f * PictureSectionSideMargin));
         }
 
         /// <summary>The design height of the media under the rows: the disc section and the picture section, each when shown.</summary>
@@ -578,6 +618,27 @@ namespace TianWen.UI.Abstractions
                 content.X + ((content.Width - w) / 2f),
                 content.Y + ((content.Height - h - creditRow) / 2f),
                 w, h);
+        }
+
+        /// <summary>
+        /// The large view's whole placement, which every host paints the same way: the scrim (arranged over the
+        /// content rect <see cref="PlaceLargePicture"/> was given), the body (the picture's slot and its credit row, arranged in
+        /// <paramref name="BodyRect"/>) and the picture's own rect, which is the slot a host's draw hook is handed.
+        /// </summary>
+        public readonly record struct LargePicturePlacement(Layout.Node Scrim, Layout.Node Body, RectF32 BodyRect);
+
+        /// <summary>
+        /// The large view for <paramref name="content"/>, in one call: <see cref="LargePictureRect"/> and
+        /// <see cref="BuildLargePicture"/> with the pixel and design heights kept apart, and the body's rect including
+        /// its credit row. The atlas, the viewer and the planner each used to repeat this arithmetic.
+        /// </summary>
+        public static LargePicturePlacement PlaceLargePicture(
+            RectF32 content, in ObjectArticleImage image, in PanelPalette palette, float dpiScale, Action close)
+        {
+            var pictureRect = LargePictureRect(content, in image, dpiScale);
+            var (scrim, body) = BuildLargePicture(in image, in palette, pictureRect.Height / dpiScale, close);
+            return new LargePicturePlacement(scrim, body,
+                new RectF32(pictureRect.X, pictureRect.Y, pictureRect.Width, pictureRect.Height + (DesignRowHeight * dpiScale)));
         }
 
         /// <summary>

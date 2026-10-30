@@ -41,29 +41,13 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper);
 
-        int receivedConnect = 0;
-        int receivedDisconnect = 0;
-
         var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal.BuildServiceProvider());
-        mount.DeviceConnectedEvent += (_, e) =>
-        {
-            if (e.Connected)
-            {
-                Interlocked.Increment(ref receivedConnect);
-            }
-            else
-            {
-                Interlocked.Increment(ref receivedDisconnect);
-            }
-        };
 
         // when
         await mount.ConnectAsync(cancellationToken);
 
         // then
         mount.Connected.ShouldBe(true);
-        receivedConnect.ShouldBe(1);
-        receivedDisconnect.ShouldBe(0);
         await Should.NotThrowAsync(async () => await mount.GetSiderealTimeAsync(cancellationToken));
 
         // after
@@ -71,8 +55,6 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
 
         // then
         mount.Connected.ShouldBe(false);
-        receivedConnect.ShouldBe(1);
-        receivedDisconnect.ShouldBe(1);
 
         await Should.ThrowAsync(async () => await mount.GetSiderealTimeAsync(cancellationToken), typeof(InvalidOperationException));
     }

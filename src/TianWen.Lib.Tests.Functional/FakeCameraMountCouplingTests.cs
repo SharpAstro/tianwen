@@ -67,6 +67,67 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Drives fake time through the cooperative pump (<see cref="FakeTimeProviderWrapper.PumpUntilAsync"/>), which
+    /// advances only once the guide loop is parked at a <c>SleepAsync</c> waiter and has had its turn, never a
+    /// fixed 250 ms step per real-time yield (#1910: that hand pump let a starved runner skip the loop's frames
+    /// and the settle then read a spiky Dec). The guide loop never completes, so the pump runs until
+    /// <paramref name="done"/> holds; <paramref name="onIteration"/> runs after each advance, where async driver
+    /// reads belong. Prints what the pump's re-park waits cost, since a run-out pays the whole bound in wall time.
+    /// </summary>
+    private static async Task<TimeSpan> PumpGuiderAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
+        Func<bool> done, TimeSpan maxFakeTime, CancellationToken ct, Func<int, ValueTask>? onIteration = null,
+        TimeSpan? settleBound = null)
+    {
+        var wall = global::System.Diagnostics.Stopwatch.StartNew();
+        var runOutBefore = timeProvider.ReParkWaitsRunOut;
+        var waitedBefore = timeProvider.ReParkWaited;
+        var bound = settleBound ?? GuideSettleBound;
+        var pumped = await timeProvider.PumpUntilAsync(done, maxFakeTime, onIteration,
+            progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: bound);
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"Pump: {pumped.TotalSeconds:F1} s fake in {wall.Elapsed.TotalSeconds:F1} s wall, re-park bound {bound.TotalMilliseconds} ms, " +
+            $"{timeProvider.ReParkWaitsRunOut - runOutBefore} run out, {(timeProvider.ReParkWaited - waitedBefore).TotalSeconds:F1} s in re-park waits");
+        return pumped;
+    }
+
+    /// <summary>
+    /// How long, in real time, each advance waits for the guide loop to park at its next <c>SleepAsync</c> (#1910).
+    /// Measured on win-x64 over about 2,000 re-parks of these tests, unloaded: p99 under 50 ms, the longest 437 ms
+    /// (calibration's first frames), so the 2 ms default cut real re-parks short. 500 ms is above every one measured.
+    /// It is NOT a backstop that never fires: an advance that releases both pulse axes' waits, one of which ends without
+    /// parking again, runs it out every few seconds of fake time (80 to 100 times in the misaligned-Skywatcher test), so
+    /// each test pays about bound x run-outs of wall time. At 1 s the target test took 85 to 92 s of its 120 s
+    /// <c>Timeout</c>; at 500 ms it takes about 50 s. Measurements in docs/architecture/session-test-harness.md.
+    /// </summary>
+    private static readonly TimeSpan GuideSettleBound = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Pumps until the guider reports Guiding or raises an error (the calibrate-and-settle wait).</summary>
+    private static async Task<TimeSpan> PumpUntilGuidingAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
+        Func<string?> guidingError, CancellationToken ct, Func<TimeSpan, ValueTask>? onTick = null)
+    {
+        var guiding = false;
+        var start = timeProvider.GetUtcNow();
+        return await PumpGuiderAsync(timeProvider, guider, () => guiding || guidingError() is not null, TimeSpan.FromMinutes(10), ct,
+            async _ =>
+            {
+                if (onTick is not null)
+                {
+                    await onTick(timeProvider.GetUtcNow() - start);
+                }
+                guiding = await guider.IsGuidingAsync(ct);
+            });
+    }
+
+    /// <summary>Pumps a fixed span of fake time (or until the guider errors), paced to the loop.</summary>
+    private static Task<TimeSpan> PumpForAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
+        TimeSpan span, Func<string?> guidingError, CancellationToken ct, TimeSpan? settleBound = null)
+    {
+        var until = timeProvider.GetUtcNow() + span;
+        return PumpGuiderAsync(timeProvider, guider, () => timeProvider.GetUtcNow() >= until || guidingError() is not null,
+            span + TimeSpan.FromMinutes(10), ct, settleBound: settleBound);
+    }
+
+    /// <summary>
     /// Arm-and-abort an exposure: this triggers the async mount-pointing snapshot in
     /// <see cref="FakeCameraDriver.StartExposureAsync"/> without paying for a rendered
     /// frame (the drift offset is what we assert on, not the pixels).
@@ -213,15 +274,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
 
         // Cooperative time pump: advance fake time so exposures complete and the loop
         // iterates, yielding to the background task between steps. Never SleepAsync here.
-        var increment = TimeSpan.FromMilliseconds(250);
-        var pumped = TimeSpan.Zero;
-        var cap = TimeSpan.FromMinutes(10);
-        while (pumped < cap && guidingError is null && !await guider.IsGuidingAsync(ct))
-        {
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-        }
+        await PumpUntilGuidingAsync(timeProvider, guider, () => guidingError, ct);
 
         // Calibration must have acquired a star, measured rates/angle, and settled --
         // i.e. the built-in guider calibrates cleanly against the misaligned SkyWatcher
@@ -243,11 +296,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         // without ExternalTimePump the guide loop's own SleepAsync calls advanced fake
         // time AND so did the pump, two clocks racing. With a single clock the loop is
         // rock-solid; the GuideLoop itself was never at fault.)
-        for (var i = 0; i < 700 && guidingError is null && !ct.IsCancellationRequested; i++)
-        {
-            timeProvider.Advance(increment);
-            await Task.Delay(1, ct);
-        }
+        await PumpForAsync(timeProvider, guider, TimeSpan.FromSeconds(175), () => guidingError, ct);
         guidingError.ShouldBeNull("guiding must stay healthy while the mount drifts");
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("guiding must stay locked, not fall out");
 
@@ -315,14 +364,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         timeProvider.ExternalTimePump = true;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
 
-        var increment = TimeSpan.FromMilliseconds(250);
-        var pumped = TimeSpan.Zero;
-        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
-        {
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-        }
+        await PumpUntilGuidingAsync(timeProvider, guider, () => guidingError, ct);
         guidingError.ShouldBeNull("calibration must not error");
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before dithering");
 
@@ -332,19 +374,17 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         await guider.DitherAsync(ditherPixels: 3.0, settlePixels: 1.5, settleTime: 3.0, settleTimeout: settleTimeoutSec, cancellationToken: ct);
 
         var settled = false;
-        var pumpedDuringSettle = TimeSpan.Zero;
-        while (pumpedDuringSettle < TimeSpan.FromSeconds(settleTimeoutSec + 30) && guidingError is null)
-        {
-            if (await guider.GetSettleProgressAsync(ct) is { Done: true } progress)
+        SettleProgress? settleProgress = null;
+        var pumpedDuringSettle = await PumpGuiderAsync(timeProvider, guider, () => settled || guidingError is not null,
+            TimeSpan.FromSeconds(settleTimeoutSec + 30), ct, async i =>
             {
-                settled = true;
-                output.WriteLine($"Settled after {pumpedDuringSettle.TotalSeconds:F1}s (dist={progress.Distance:F2}px, settlePx={progress.SettlePx}).");
-                break;
-            }
-            timeProvider.Advance(increment);
-            pumpedDuringSettle += increment;
-            await Task.Delay(1, ct);
-        }
+                if (await guider.GetSettleProgressAsync(ct) is { Done: true } progress)
+                {
+                    settleProgress = progress;
+                    settled = true;
+                }
+            });
+        output.WriteLine($"Settled={settled} after {pumpedDuringSettle.TotalSeconds:F1}s (dist={settleProgress?.Distance:F2}px, settlePx={settleProgress?.SettlePx}).");
 
         guidingError.ShouldBeNull("dither settle must not raise an error");
         settled.ShouldBeTrue("the dither must settle (Done=true) via GetSettleProgressAsync alone, not time out");
@@ -394,22 +434,18 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         timeProvider.ExternalTimePump = true;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
 
-        var increment = TimeSpan.FromMilliseconds(250);
-        var pumped = TimeSpan.Zero;
         var cleared = false;
-        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
+        var pumped = await PumpUntilGuidingAsync(timeProvider, guider, () => guidingError, ct, onTick: elapsed =>
         {
             // The cloud clears a few seconds in -- after the first attempt has failed, during the
             // retry wait -- so the second calibration attempt finds the star.
-            if (!cleared && pumped > TimeSpan.FromSeconds(3))
+            if (!cleared && elapsed > TimeSpan.FromSeconds(3))
             {
                 guideCam.CloudCoverage = 0.0;
                 cleared = true;
             }
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-        }
+            return ValueTask.CompletedTask;
+        });
 
         output.WriteLine($"clearedCloud={cleared} reachedGuiding={await guider.IsGuidingAsync(ct)} guidingError={guidingError ?? "(none)"} pumped={pumped.TotalSeconds:F0}s");
         cleared.ShouldBeTrue("the first attempt must have stayed cloudy long enough that the cloud-clear path was exercised (else the cloud was too weak to block acquisition)");
@@ -461,23 +497,13 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         timeProvider.ExternalTimePump = true;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
 
-        var increment = TimeSpan.FromMilliseconds(250);
-        var pumped = TimeSpan.Zero;
-        var cap = TimeSpan.FromMinutes(10);
-        while (pumped < cap && guidingError is null && !await guider.IsGuidingAsync(ct))
-        {
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-        }
+        await PumpUntilGuidingAsync(timeProvider, guider, () => guidingError, ct);
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before the training pump");
 
         // Pump ~1050s so the blend ramp completes and the fresh model trains + saves online.
-        for (var i = 0; i < 4200 && guidingError is null && !ct.IsCancellationRequested; i++)
-        {
-            timeProvider.Advance(increment);
-            await Task.Delay(1, ct);
-        }
+        // The long pump takes the pump's own 2 ms re-park wait, not the 1 s backstop: it asserts no tight bound, and
+        // 525 frames each paying a backstop that a timer-woken wake never answers ran past its 180 s timeout.
+        await PumpForAsync(timeProvider, guider, TimeSpan.FromSeconds(1050), () => guidingError, ct, settleBound: TimeSpan.FromMilliseconds(2));
 
         var stats = await guider.GetStatsAsync(ct);
         stats.ShouldNotBeNull();
@@ -588,14 +614,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         timeProvider.ExternalTimePump = true;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
 
-        var increment = TimeSpan.FromMilliseconds(250);
-        var pumped = TimeSpan.Zero;
-        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
-        {
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-        }
+        await PumpUntilGuidingAsync(timeProvider, guider, () => guidingError, ct);
         guidingError.ShouldBeNull("the clean first calibration must succeed");
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding so a calibration is cached for reuse");
 
@@ -604,11 +623,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
 
         // Drain the loop's in-flight exposure before restarting; a real session slews for a
         // minute between stop and restart, so the camera is never still Exposing at re-start.
-        for (var i = 0; i < 40; i++)
-        {
-            timeProvider.Advance(increment);
-            await Task.Delay(1, ct);
-        }
+        await PumpForAsync(timeProvider, guider, TimeSpan.FromSeconds(10), () => guidingError, ct);
 
         // Full overcast: CloudCoverage >= 1.0 renders genuinely starless frames (partial
         // cloud attenuation caps at 90% and lets the brightest star through; ST-4
@@ -625,11 +640,8 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         // null at the assert. Awaiting the task also closes the race where GuidingErrorEvent fires
         // before the finally runs ForceState(Idle). The [Fact(Timeout)] is the hard backstop.
         var failTask = guider.GuideLoopTask.ShouldNotBeNull("the second GuideAsync must start a background acquisition loop");
-        while (!failTask.IsCompleted)
-        {
-            timeProvider.Advance(increment);
-            await Task.Delay(1, ct);
-        }
+        await timeProvider.PumpUntilCompletedAsync(failTask, TimeSpan.FromMinutes(10),
+            progress: () => guider.GuideFrameCount, cancellationToken: ct);
         await failTask; // surface any unexpected exception and guarantee the finally (state -> Idle) has run
 
         guidingError.ShouldNotBeNull("starting to guide on a starless field must fail loudly, not flatline");
@@ -674,14 +686,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         timeProvider.ExternalTimePump = true;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
 
-        var increment = TimeSpan.FromMilliseconds(250);
-        var pumped = TimeSpan.Zero;
-        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
-        {
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-        }
+        await PumpUntilGuidingAsync(timeProvider, guider, () => guidingError, ct);
         guidingError.ShouldBeNull();
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before the cloud rolls in");
         (await guider.GetStatusAsync(ct)).AppState.ShouldBe("Guiding");
@@ -692,34 +697,18 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         // physically moves the mount and would read as a GOTO instead.)
         guideCam.CloudCoverage = 1.0;
         string? appState = null;
-        pumped = TimeSpan.Zero;
-        while (pumped < TimeSpan.FromMinutes(3))
+        async ValueTask PumpUntilStateAsync(string wanted)
         {
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-            (appState, _) = await guider.GetStatusAsync(ct);
-            if (appState == "LostLock")
-            {
-                break;
-            }
+            var until = timeProvider.GetUtcNow() + TimeSpan.FromMinutes(3);
+            await PumpGuiderAsync(timeProvider, guider, () => appState == wanted || timeProvider.GetUtcNow() >= until,
+                TimeSpan.FromMinutes(10), ct, async i => (appState, _) = await guider.GetStatusAsync(ct));
         }
+        await PumpUntilStateAsync("LostLock");
         appState.ShouldBe("LostLock", "a starless guide frame must surface as LostLock, not a healthy-looking flatline");
 
         // The cloud clears: the tracker re-acquires and the state returns to Guiding.
         guideCam.CloudCoverage = 0.0;
-        pumped = TimeSpan.Zero;
-        while (pumped < TimeSpan.FromMinutes(3))
-        {
-            timeProvider.Advance(increment);
-            pumped += increment;
-            await Task.Delay(1, ct);
-            (appState, _) = await guider.GetStatusAsync(ct);
-            if (appState == "Guiding")
-            {
-                break;
-            }
-        }
+        await PumpUntilStateAsync("Guiding");
         appState.ShouldBe("Guiding", "once the cloud clears the tracker re-acquires and the lost-lock flag clears");
 
         await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);

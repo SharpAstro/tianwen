@@ -257,20 +257,14 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice();
-        await using var driver = Connected(out _, box);
+        await using var driver = Connected(out var concrete, box);
         await driver.ConnectAsync(ct);
-        var lost = new TaskCompletionSource();
-        driver.DeviceConnectedEvent += (_, e) =>
-        {
-            if (!e.Connected)
-            {
-                lost.TrySetResult();
-            }
-        };
+        var reader = concrete.Reader.ShouldNotBeNull();
 
         box.Unplug();
 
-        await lost.Task.WaitAsync(ct);
+        // The reader ends once it has called the connection lost.
+        await reader.WaitAsync(ct);
         driver.Connected.ShouldBeFalse();
         await Should.ThrowAsync<InvalidOperationException>(async () => await driver.GetValueAsync(Voltage, ct));
         await Should.ThrowAsync<InvalidOperationException>(async () => await driver.SetValueAsync(Dc3, 0, ct));

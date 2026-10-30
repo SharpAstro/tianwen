@@ -283,15 +283,30 @@ public class TiffReadoutTileTests : IDisposable
         TiffReadoutTiles.TryOpen(path, null, out var tiles).ShouldBeTrue();
         tiles.TryRead(2, 10, 10, out _).ShouldBeTrue();
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        // The fewest bytes of several warmed passes (#1928): runtime work that lands on this thread during
+        // one pass (CI read 2120 B on ubuntu-latest, a tier-0 loop's first pass) is not a hit's, while a
+        // real per-hit allocation shows in every pass.
         var sum = 0f;
-        for (var i = 0; i < 1000; i++)
+        long HitPass()
         {
-            tiles.TryRead(2, i % 64, (i / 64) % 64, out var value).ShouldBeTrue();
-            sum += value;
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 1000; i++)
+            {
+                tiles.TryRead(2, i % 64, (i / 64) % 64, out var value).ShouldBeTrue();
+                sum += value;
+            }
+
+            return GC.GetAllocatedBytesForCurrentThread() - before;
         }
 
-        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0L);
+        HitPass();
+        var fewest = long.MaxValue;
+        for (var pass = 0; pass < 5; pass++)
+        {
+            fewest = Math.Min(fewest, HitPass());
+        }
+
+        fewest.ShouldBe(0L, "a read inside a cached tile allocates nothing");
         sum.ShouldBeGreaterThan(0f);
     }
 

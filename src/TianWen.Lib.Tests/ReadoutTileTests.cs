@@ -97,21 +97,43 @@ public class ReadoutTileTests : IDisposable
         FitsReadoutTiles.TryOpen(path, null, out var tiles).ShouldBeTrue();
         tiles.TryRead(0, 3, 3, out _).ShouldBeTrue();
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        // Both halves read the FEWEST bytes of several passes (#1928): runtime work that lands on this
+        // thread during one pass (CI read 2120 B over the hit loop on ubuntu-latest, the long loop's first
+        // pass paying for tier-0 to OSR) is not the cache's, while a real per-hit allocation shows in
+        // every pass and a real per-miss one in every miss, so the guard is no weaker.
         float sum = 0;
-        for (var i = 0; i < 10_000; i++)
+        long HitPass()
         {
-            tiles.TryRead(0, i % FitsReadoutTiles.TileSize, (i / 7) % FitsReadoutTiles.TileSize, out var v).ShouldBeTrue();
-            sum += v;
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 10_000; i++)
+            {
+                tiles.TryRead(0, i % FitsReadoutTiles.TileSize, (i / 7) % FitsReadoutTiles.TileSize, out var v).ShouldBeTrue();
+                sum += v;
+            }
+
+            return GC.GetAllocatedBytesForCurrentThread() - before;
         }
 
-        var hits = GC.GetAllocatedBytesForCurrentThread() - before;
+        HitPass();
+        var hits = long.MaxValue;
+        for (var pass = 0; pass < 5; pass++)
+        {
+            hits = Math.Min(hits, HitPass());
+        }
+
         sum.ShouldNotBe(float.NaN);
         hits.ShouldBe(0, "a read inside a cached tile allocates nothing");
 
-        before = GC.GetAllocatedBytesForCurrentThread();
-        tiles.TryRead(2, 100, 40, out _).ShouldBeTrue();
-        var miss = GC.GetAllocatedBytesForCurrentThread() - before;
+        // A fresh, not yet cached tile per pass (18 tiles, under MaxTiles; none of these is tile (0, 0, 0)).
+        (int Channel, int X, int Y)[] fresh = [(2, 100, 40), (2, 10, 10), (1, 100, 40), (1, 10, 10), (0, 100, 40)];
+        var miss = long.MaxValue;
+        foreach (var (channel, x, y) in fresh)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            tiles.TryRead(channel, x, y, out _).ShouldBeTrue();
+            miss = Math.Min(miss, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
         var tile = FitsReadoutTiles.TileSize * FitsReadoutTiles.TileSize * sizeof(float);
         miss.ShouldBeLessThan(tile + 4096, $"a miss allocates its {tile}-byte tile and a handle, not a plane ({Width * Height * sizeof(float)} B)");
     }

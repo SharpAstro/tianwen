@@ -47,8 +47,8 @@ public class SessionPersistenceTests(ITestOutputHelper output)
         {
             Configuration = new SessionConfiguration(
                 SetpointCCDTemperature: new SetpointTemp(-20, SetpointTempKind.Normal),
-                CooldownRampInterval: TimeSpan.FromMinutes(8),
-                WarmupRampInterval: TimeSpan.FromMinutes(12),
+                CooldownMaxRate: 3.5,
+                WarmupMaxRate: 1.5,
                 MinHeightAboveHorizon: 25,
                 DitherPixel: 3.5,
                 SettlePixel: 0.8,
@@ -79,8 +79,8 @@ public class SessionPersistenceTests(ITestOutputHelper output)
         loaded.ShouldBeTrue();
         var c = restored.Configuration;
         c.SetpointCCDTemperature.TempC.ShouldBe((sbyte)-20);
-        c.CooldownRampInterval.ShouldBe(TimeSpan.FromMinutes(8));
-        c.WarmupRampInterval.ShouldBe(TimeSpan.FromMinutes(12));
+        c.CooldownMaxRate.ShouldBe(3.5);
+        c.WarmupMaxRate.ShouldBe(1.5);
         c.MinHeightAboveHorizon.ShouldBe((byte)25);
         c.DitherPixel.ShouldBe(3.5);
         c.SettlePixel.ShouldBe(0.8);
@@ -99,6 +99,30 @@ public class SessionPersistenceTests(ITestOutputHelper output)
         c.MosaicMargin.ShouldBe(0.15);
         c.ConditionDeteriorationThreshold.ShouldBe(0.7f);
         c.ConditionRecoveryTimeout.ShouldBe(TimeSpan.FromMinutes(20));
+    }
+
+    [Fact]
+    public async Task GivenFileSavedWithRampSecondsWhenLoadThenDefaultRatesNeverZero()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var profile = CreateTestProfile();
+
+        var state = new SessionTabState();
+        state.InitializeFromProfile(profile);
+        await SessionPersistence.SaveAsync(state, profile, external, ct);
+
+        // Rewrite the file as one saved before #1839: ramp seconds, no rate fields.
+        var path = System.IO.Path.Combine(external.AppDataFolder.FullName, "Session", profile.ProfileId.ToString("D") + ".json");
+        var json = await System.IO.File.ReadAllTextAsync(path, ct);
+        var old = System.Text.RegularExpressions.Regex.Replace(json, @"""(Cooldown|Warmup)MaxRate""\s*:\s*[-0-9.eE+]+", m => $"\"{m.Groups[1].Value}RampSeconds\":300");
+        old.ShouldNotBe(json);
+        await System.IO.File.WriteAllTextAsync(path, old, ct);
+
+        var restored = new SessionTabState();
+        (await SessionPersistence.TryLoadAsync(restored, profile, external, ct)).ShouldBeTrue();
+        restored.Configuration.CooldownMaxRate.ShouldBe(CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute);
+        restored.Configuration.WarmupMaxRate.ShouldBe(CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute);
     }
 
     [Fact]

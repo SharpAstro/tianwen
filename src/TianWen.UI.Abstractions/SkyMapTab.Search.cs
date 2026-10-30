@@ -360,16 +360,12 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var dpiScale = DpiScale;
-            var pictureRect = ObjectInfoPanel.LargePictureRect(contentRect, in picture, dpiScale);
             // The same host hook that fills the panel's thumbnail fills this, at a rect big enough that a wider
             // standard thumbnail is asked for.
-            var (scrim, body) = ObjectInfoPanel.BuildLargePicture(
-                in picture, InfoPanelPalette, pictureRect.Height / dpiScale, CollapsePicture);
+            var (scrim, body, bodyRect) = ObjectInfoPanel.PlaceLargePicture(
+                contentRect, in picture, InfoPanelPalette, DpiScale, CollapsePicture);
             RenderLayout(scrim, contentRect);
-            RenderLayout(body,
-                new RectF32(pictureRect.X, pictureRect.Y, pictureRect.Width,
-                    pictureRect.Height + (ObjectInfoPanel.DesignRowHeight * dpiScale)),
+            RenderLayout(body, bodyRect,
                 scale: Scale,
                 drawFill: (fill, rect) =>
                 {

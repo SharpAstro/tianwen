@@ -194,16 +194,13 @@ namespace TianWen.UI.Abstractions
             // it, at a rect big enough that a wider standard thumbnail is asked for.
             if (state.PictureExpanded && options.Picture is { } expanded)
             {
-                var pictureRect = ObjectInfoPanel.LargePictureRect(area, in expanded, dpiScale);
-                var (scrim, body) = ObjectInfoPanel.BuildLargePicture(in expanded, in palette, pictureRect.Height / dpiScale, () =>
+                var (scrim, body, bodyRect) = ObjectInfoPanel.PlaceLargePicture(area, in expanded, in palette, dpiScale, () =>
                 {
                     state.PictureExpanded = false;
                     state.NeedsRedraw = true;
                 });
                 RenderLayout(scrim, area);
-                RenderLayout(body,
-                    new RectF32(pictureRect.X, pictureRect.Y, pictureRect.Width,
-                        pictureRect.Height + (ObjectInfoPanel.DesignRowHeight * dpiScale)),
+                RenderLayout(body, bodyRect,
                     scale: Scale,
                     drawFill: (fill, rect) =>
                     {

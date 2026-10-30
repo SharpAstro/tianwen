@@ -20,8 +20,8 @@ public class MeridianFlipDecisionTests
     {
         return new SessionConfiguration(
             SetpointCCDTemperature: new SetpointTemp(0, SetpointTempKind.CCD),
-            CooldownRampInterval: System.TimeSpan.FromMinutes(1),
-            WarmupRampInterval: System.TimeSpan.FromMinutes(1),
+            CooldownMaxRate: 4.0,
+            WarmupMaxRate: 4.0,
             MinHeightAboveHorizon: 30,
             DitherPixel: 5,
             SettlePixel: 1,

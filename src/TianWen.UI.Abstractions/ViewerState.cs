@@ -847,6 +847,15 @@ public sealed class ViewerState
             : PlanetaryStackProgress.ShortWords(s)),
     ];
 
+    /// <summary>The one wording of the status bar's line while the Auto view shows the raw frame because its stack is not built yet (#1875).</summary>
+    public const string AutoShowsFramesWording = "Showing the frames while Auto stacks";
+
+    /// <summary>
+    /// True while the Auto view is chosen and this capture's Auto master does not exist yet, so the raw frame at the held playhead is
+    /// on show, never a previous stack (#1875). Written by the controller each tick; the status bar says <see cref="AutoShowsFramesWording"/>.
+    /// </summary>
+    public bool AutoShowsFrames { get; set; }
+
     /// <summary>
     /// The telescope's aperture, mm, stepped through <see cref="PlanetaryApertures"/> in the planet and telescope panel: the derived sharpening's
     /// diffraction needs it. Null for no telescope, which sharpens by the preset with the limb kept.

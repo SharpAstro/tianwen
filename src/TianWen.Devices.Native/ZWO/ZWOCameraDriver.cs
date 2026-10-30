@@ -23,7 +23,7 @@ internal class ZWOCameraDriver(ZWODevice device, IServiceProvider sp) : DALCamer
 
     protected override Exception OperationalException(CMOSErrorCode errorCode, string message) => new ZWODriverException((ASI_ERROR_CODE)errorCode, message);
 
-    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    protected override ValueTask<bool> InitSdkAsync(CancellationToken cancellationToken)
     {
         if (ASIInitCamera(_deviceInfo.ID) is ASI_SUCCESS)
         {

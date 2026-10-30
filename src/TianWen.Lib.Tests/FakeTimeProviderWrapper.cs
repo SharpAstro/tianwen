@@ -73,6 +73,17 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     private static readonly TimeSpan MinimumDwell = TimeSpan.FromMilliseconds(1);
 
     /// <summary>
+    /// How many advances of this provider's pumps waited the whole re-park bound without the loop parking again
+    /// (see the <c>settleBound</c> of <see cref="PumpUntilAsync"/>), and the real time spent in those re-park waits
+    /// altogether. A pump whose bound is long pays it on every such advance, so this is what tells a backstop that
+    /// never fires from one that sets the test's wall-clock time (#1910). Read once the pump has returned.
+    /// </summary>
+    public int ReParkWaitsRunOut { get; private set; }
+
+    /// <inheritdoc cref="ReParkWaitsRunOut"/>
+    public TimeSpan ReParkWaited { get; private set; }
+
+    /// <summary>
     /// Waits until <paramref name="done"/> holds or <paramref name="bound"/> has passed, YIELDING between looks, never
     /// sleeping on a timer: a 1 ms <c>Task.Delay</c> is about 11 ms on Windows even with the timer resolution raised,
     /// and two of them per advance were most of what a pumped run cost (#1122: 22 ms of a 22 ms advance, measured).
@@ -184,7 +195,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     ///   failure, so it is reported here, where the counters that say WHICH failure it was are still
     ///   in hand, rather than as a bare <c>IsCompleted</c> assertion downstream that cannot tell a
     ///   stalled loop from a starved one.</exception>
-    public async Task<TimeSpan> PumpUntilCompletedAsync(
+    public Task<TimeSpan> PumpUntilCompletedAsync(
         Task loopTask,
         TimeSpan maxFakeTime,
         Func<int, ValueTask>? onIteration = null,
@@ -192,7 +203,42 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         TimeSpan? finestStep = null,
         TimeSpan? coarsestStep = null,
         CancellationToken cancellationToken = default)
+        => PumpCoreAsync(() => loopTask.IsCompleted, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken);
+
+    /// <summary>
+    /// The same cooperative pump as <see cref="PumpUntilCompletedAsync"/> for a loop that never completes
+    /// (a guide loop parks at Guiding): advances paced to the loop, with the same progress probe, until
+    /// <paramref name="condition"/> holds. The condition is read between advances, after the loop has been
+    /// given its turn, so it never races a half-processed frame (#1910). Returns the fake time pumped.
+    /// <paramref name="settleBound"/> is how long, in real time, an advance waits for the loop to park at a new
+    /// <c>SleepAsync</c> after the advance released one (the 2 ms default unless given). The waiter count belongs to
+    /// this provider alone, so unlike the pool's process-wide queue it measures this loop and nothing else, and the
+    /// wait ends the moment the count is back. It is not always back: an advance that released two parks, one of which
+    /// ends without parking again, pays the whole bound, so a long bound costs wall-clock time on every such advance
+    /// (<see cref="ReParkWaitsRunOut"/> counts them). The pool-quiet wait keeps its 2 ms bound.
+    /// </summary>
+    public Task<TimeSpan> PumpUntilAsync(
+        Func<bool> condition,
+        TimeSpan maxFakeTime,
+        Func<int, ValueTask>? onIteration = null,
+        Func<long>? progress = null,
+        TimeSpan? finestStep = null,
+        TimeSpan? coarsestStep = null,
+        CancellationToken cancellationToken = default,
+        TimeSpan? settleBound = null)
+        => PumpCoreAsync(condition, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken, settleBound);
+
+    private async Task<TimeSpan> PumpCoreAsync(
+        Func<bool> isDone,
+        TimeSpan maxFakeTime,
+        Func<int, ValueTask>? onIteration = null,
+        Func<long>? progress = null,
+        TimeSpan? finestStep = null,
+        TimeSpan? coarsestStep = null,
+        CancellationToken cancellationToken = default,
+        TimeSpan? settleBound = null)
     {
+        var settle = settleBound ?? SettleBound;
         var finest = finestStep ?? DefaultFinestStep;
         var coarsest = coarsestStep ?? DefaultCoarsestStep;
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(finest, TimeSpan.Zero, nameof(finestStep));
@@ -210,7 +256,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         var startProgress = progress?.Invoke() ?? 0L;
         var lastProgress = startProgress;
         var stalledFor = TimeSpan.Zero;
-        while (!loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)
+        while (!isDone() && !cancellationToken.IsCancellationRequested)
         {
             // Pace to the loop: advance only once it is parked at a SleepAsync waiter; while it is
             // doing CPU work (no waiter) wait for it to re-park rather than racing wall-clock.
@@ -222,16 +268,16 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // instead of failing with a diagnosis. Waiting a short while and then advancing anyway
             // costs the paced case nothing (a waiter appears at once) and keeps the loop live for the
             // phases that have no waiter at all.
-            await WaitUntilAsync(() => WaiterCount > 0 || loopTask.IsCompleted, PacingBound, cancellationToken);
+            await WaitUntilAsync(() => WaiterCount > 0 || isDone(), PacingBound, cancellationToken);
 
             // And until the pool has no queued work. What a timer woke (the imaging loop's PeriodicTimer), and a loop
             // just started with Task.Run, are parked on nothing the pump can see, and a parked device keeps the waiter
             // count above zero regardless. The old pump's 11 ms delays let such work run by accident; without this a
             // loop was overtaken by a hundred advances before it ran once (FakeTimePumpTests' healthy loop saw no
             // tick, #1017's shape). Bounded short: other tests' work shares the pool.
-            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || loopTask.IsCompleted, SettleBound, cancellationToken);
+            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), SettleBound, cancellationToken);
 
-            if (loopTask.IsCompleted || cancellationToken.IsCancellationRequested)
+            if (isDone() || cancellationToken.IsCancellationRequested)
             {
                 break;
             }
@@ -247,7 +293,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // due by now, and the clock does not move on until each has left its park. The waiter pacing above
             // cannot do this, since a parked device keeps the count above zero, and a step that lands exactly on a
             // 100 ms poll is worth nothing if the poll then reads the time of the step after it.
-            await WaitUntilAsync(() => !HasReleasedParks() || loopTask.IsCompleted, PacingBound, cancellationToken);
+            await WaitUntilAsync(() => !HasReleasedParks() || isDone(), PacingBound, cancellationToken);
 
             if (onIteration is not null)
             {
@@ -256,14 +302,21 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
 
             // And give what they woke to its turn: a poll that sleeps again parks a new target, which the next step
             // must see or it steps past it. Bounded short, since a sleep that wakes to a timer or to the end of its
-            // loop never parks again, and every advance that released one pays the bound.
-            await WaitUntilAsync(() => WaiterCount >= waitersBefore || loopTask.IsCompleted, SettleBound, cancellationToken);
+            // loop never parks again, and every advance that released one pays the bound. So does an advance that
+            // released two parks of which one ends without parking (one axis's pulse wait while the other's runs on),
+            // which a guide loop does every few seconds of fake time (#1910): the count never climbs back.
+            var reParkStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
+            if (!await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), settle, cancellationToken))
+            {
+                ReParkWaitsRunOut++;
+            }
+            ReParkWaited += global::System.Diagnostics.Stopwatch.GetElapsedTime(reParkStart);
 
             // And never less than a short dwell per advance, yielding. Nothing the pump can observe says that a loop
             // just started, or still being compiled, has reached its first wait: measured, a healthy loop on a
             // PeriodicTimer was overtaken by all hundred advances of a budget, in 18 ms, before it ticked once. The old
             // pump's two 11 ms delays were this dwell by accident; this is it on purpose, at a twentieth of the cost.
-            await WaitUntilAsync(() => loopTask.IsCompleted
+            await WaitUntilAsync(() => isDone()
                 || global::System.Diagnostics.Stopwatch.GetElapsedTime(advancedAt) >= MinimumDwell, MinimumDwell, cancellationToken);
 
             // Charge the budget only while the loop is NOT moving. The probe is read AFTER the wait
