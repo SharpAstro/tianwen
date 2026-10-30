@@ -119,6 +119,16 @@ internal sealed partial class DeviceOperations
             var lapsed = false;
             try
             {
+                // A held move starts sidereal tracking first on a mount that is not tracking (the owner, 2026-10-30): OnStep
+                // ignored moves while not tracking on the bench, and Home stops tracking, so a move after Home did nothing and
+                // said nothing. The mount is left tracking afterwards.
+                if (mount.CanSetTracking && !await mount.IsTrackingAsync(ct))
+                {
+                    step.Report($"Starting {name}'s tracking to move it");
+                    await mount.EnsureTrackingAsync(TrackingSpeed.Sidereal, ct);
+                    step.Report($"Moving {name}'s axes");
+                }
+
                 // The rates as they stand now: a renewal between the request and this may already have changed one.
                 foreach (var moving in Axes)
                 {

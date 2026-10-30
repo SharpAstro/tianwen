@@ -326,6 +326,25 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         (await UntilEndedAsync(max.Id, ct)).State.ShouldBe(JobState.Cancelled);
     }
 
+    // A held move on a mount that is not tracking starts tracking first (the owner, 2026-10-30): after Home, which stops
+    // tracking, OnStep ignored moves, so a move did nothing and said nothing.
+    [Fact(Timeout = 60_000)]
+    public async Task AHeldMoveOnAMountThatIsNotTrackingStartsTrackingFirst()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        (await Client.SetMountTrackingAsync(Mount.DeviceUri, false, ct)).IsSuccess.ShouldBeTrue();
+        (await mount.IsTrackingAsync(ct)).ShouldBeFalse("precondition");
+
+        var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 0.5, ct)).Value.ShouldNotBeNull();
+        await UntilAsync("tracking to start for the move", async token => (await mount.IsTrackingAsync(token), "still not tracking"), ct);
+        (await Client.StopMountAsync(Mount.DeviceUri, ct)).IsSuccess.ShouldBeTrue();
+
+        (await UntilEndedAsync(job.Id, ct)).State.ShouldBe(JobState.Cancelled);
+        (await mount.IsTrackingAsync(ct)).ShouldBeTrue("the mount is left tracking after the move");
+        (await mount.GetTrackingSpeedAsync(ct)).ShouldBe(TrackingSpeed.Sidereal);
+    }
+
     // Nothing unparks a mount by itself (the owner, 2026-10-30): a goto on a parked mount fails saying so, and it stays parked.
     [Fact(Timeout = 60_000)]
     public async Task AGotoOnAParkedMountFailsSayingSoAndNeverUnparksIt()
