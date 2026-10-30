@@ -179,7 +179,8 @@ the Best view folds into Auto, the panel's choices given to it" (#817), "feat
 (planetary): AUTO reads what a capture is and stacks it at the defaults, in the CLI
 and the viewer" (A4, #1391). Shift+K shipped as "Auto view: the whole capture identified
 and stacked once, written beside it (SER)" and K as "Raw / Stack"; from the next release
-they are declared as the "Full stack" and "Raw / Stack: Live" (#1877). The frames tell Jupiter
+they are declared as the "Full stack" and "Raw / Stack: Live" (#1877). The frames tell
+Jupiter
 from Saturn only, so a capture of another planet relies on its path or header to be
 named; the copy says "works out which planet" and is true where it can.
 
