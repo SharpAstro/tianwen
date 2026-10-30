@@ -30,9 +30,11 @@ internal partial record Session
     {
         // Each camera aims at its own resolved target (WarmUpTarget, the hub's rule too), and one already within
         // CameraReading's tolerance of it has nothing to warm, as the hub's WarmCameraAsync decides with the same inputs.
+        var ambient = new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient);
         var scopes = Setup.Telescopes.Length;
         var targets = new SetpointTemp[scopes];
         var labels = new string[scopes];
+        var anyToWarm = false;
         for (var i = 0; i < scopes; i++)
         {
             var camera = Setup.Telescopes[i].Camera;
@@ -46,16 +48,18 @@ internal partial record Session
             var coolerOn = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanGetCoolerOn, camera.Driver.GetCoolerOnAsync, true, CancellationToken.None);
             if (!CameraReading.NeedsWarmUpFrom(coolerOn, current, heatsink, preCool))
             {
-                // Held at the sensor's own reading, so the ramp's steps and its "all at ambient" exit see nothing to do.
+                // Held at the sensor's own reading, which matters only on a rig where another camera ramps: this one then
+                // rides along with that camera's steps.
                 _logger.LogInformation("Camera {Camera} reads {Current:F1} C with its cooler {Cooler}, nothing to warm", camera.Device.DeviceUri, current, coolerOn ? "on" : "off");
                 targets[i] = new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD);
                 labels[i] = "already warm";
                 continue;
             }
 
+            anyToWarm = true;
             if (resolved.Source is WarmUpTargetSource.HeatSink)
             {
-                targets[i] = new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient);
+                targets[i] = ambient;
                 labels[i] = "the heat sink";
             }
             else
@@ -65,7 +69,17 @@ internal partial record Session
             }
         }
 
-        return await CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), maxRateCPerMinute, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up, CancellationToken.None, targets, labels).ConfigureAwait(false);
+        if (!anyToWarm)
+        {
+            // Nothing to warm on any camera, so no ramp at all, as the hub's WarmCameraAsync skips its own: a held sensor
+            // target would still cost the ramp's confirming steps (45 s) on a cooler working above the ramp's power exit,
+            // or one that cannot say its power. The warm-up is still the recorded intent, as a ramp would record it.
+            RecordCoolerIntent(ambient);
+            _logger.LogInformation("Cooling: every camera is already at its warm-up target, skipping the warm-up ramp.");
+            return true;
+        }
+
+        return await CoolCamerasToSetpointAsync(ambient, maxRateCPerMinute, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up, CancellationToken.None, targets, labels).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -90,16 +104,7 @@ internal partial record Session
     {
         var scopes = Setup.Telescopes.Length;
 
-        // The ramp's TARGET is what a node that crashed part-way re-establishes, never the step it had reached
-        // (the crash journal, P1 of docs/plans/hardware-in-the-server.md). Holding at the sensor's own temperature
-        // names no target, so it records nothing.
-        if (DeviceHub is { } hub && IntentOf(desiredSetpointTemp) is { } intent)
-        {
-            for (var i = 0; i < scopes; i++)
-            {
-                hub.SetCoolerIntent(Setup.Telescopes[i].Camera.Device.DeviceUri, intent);
-            }
-        }
+        RecordCoolerIntent(desiredSetpointTemp);
 
         var targetLabel = desiredSetpointTemp.Kind switch
         {
@@ -137,6 +142,22 @@ internal partial record Session
                 DeviceHub?.SetPreCoolReading(Setup.Telescopes[i].Camera.Device.DeviceUri, reading);
                 return ValueTask.CompletedTask;
             }, perCameraTargets, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Records a ramp to <paramref name="target"/> as every camera's cooler intent. The ramp's TARGET is what a node that
+    /// crashed part-way re-establishes, never the step it had reached (the crash journal, P1 of
+    /// docs/plans/hardware-in-the-server.md). Holding at the sensor's own temperature names no target, so it records nothing.
+    /// </summary>
+    private void RecordCoolerIntent(SetpointTemp target)
+    {
+        if (DeviceHub is { } hub && IntentOf(target) is { } intent)
+        {
+            for (var i = 0; i < Setup.Telescopes.Length; i++)
+            {
+                hub.SetCoolerIntent(Setup.Telescopes[i].Camera.Device.DeviceUri, intent);
+            }
+        }
     }
 
     /// <summary>What a ramp to <paramref name="target"/> asks of a cooler, or null for one that names no target.</summary>
