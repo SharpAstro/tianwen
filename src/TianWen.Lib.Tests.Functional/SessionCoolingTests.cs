@@ -146,7 +146,9 @@ public class SessionCoolingTests(ITestOutputHelper output)
         await ctx.Session.CoolCamerasToAmbientAsync(TimeSpan.FromSeconds(60));
 
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
-        temp.ShouldBeGreaterThan(20.0, "an unsettled reading never sets the target, so it warms toward +25 C");
+        // The fake's sensor rests at its 20 C ambient and cannot rise past it, so +25 C shows as 20 C, well above the 5 C
+        // an unsettled reading would have aimed at if it were trusted.
+        temp.ShouldBe(20.0, 1.0, "an unsettled reading never sets the target, so it warms toward +25 C, not the recorded 5 C");
     }
 
     [Fact(Timeout = 60_000)]
