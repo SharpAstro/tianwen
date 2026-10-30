@@ -22,6 +22,18 @@ internal static class MountJogControls
     /// <summary>The widest speed the stepper shows, so it is measured once and never cut.</summary>
     private const string SpeedWidthSample = "128x";
 
+    /// <summary>A tracking choice in words: Stopped, or the rate's name.</summary>
+    public static string TrackingLabel(TrackingSpeed speed) => speed is TrackingSpeed.None ? "Stopped" : speed.ToString();
+
+    /// <summary>
+    /// What the Track row shows: Stopped, or the rate the mount itself reports (<see cref="Lib.Sequencing.MountState.TrackingRate"/>),
+    /// whoever set it, this app, another client or the handset. Null, shown as plain "Tracking", until a rate has been read.
+    /// </summary>
+    public static TrackingSpeed? ShownTrackingRate(Lib.Sequencing.MountState mount) => !mount.IsTracking ? TrackingSpeed.None : mount.TrackingRate;
+
+    /// <summary>The Track row's words for <paramref name="mount"/>.</summary>
+    public static string TrackingRowLabel(Lib.Sequencing.MountState mount) => ShownTrackingRate(mount) is { } shown ? TrackingLabel(shown) : "Tracking";
+
     /// <summary>
     /// The speed row, then the move row. <paramref name="idPrefix"/> keeps each panel's hit ids apart: "MoveSpeedDown",
     /// "MoveSpeedUp" and "MountMoveN" with none.

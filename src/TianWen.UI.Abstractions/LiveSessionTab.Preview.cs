@@ -527,15 +527,10 @@ namespace TianWen.UI.Abstractions
         // The space between the jog's buttons, and between the jog and the status above it.
         private const float JogGap = 6f;
 
-        // The Tracking stepper's order, N.I.N.A.'s: Stopped, then the rates. Render-thread only, as is the rate last asked for.
+        // The Tracking stepper's order, N.I.N.A.'s: Stopped, then the rates.
         private static readonly TrackingSpeed[] TrackingChoices = [TrackingSpeed.None, TrackingSpeed.Sidereal, TrackingSpeed.Lunar, TrackingSpeed.Solar, TrackingSpeed.King];
-        private TrackingSpeed _previewTrackingSpeed = TrackingSpeed.Sidereal;
 
-        // False until this panel has asked for a rate: a mount left at Lunar, or set on the handset, is tracking at a rate the poll
-        // does not carry, so the row says only "Tracking" rather than a Sidereal it cannot know.
-        private bool _previewTrackingSpeedKnown;
-
-        private static string TrackingLabel(TrackingSpeed speed) => speed is TrackingSpeed.None ? "Stopped" : speed.ToString();
+        private static string TrackingLabel(TrackingSpeed speed) => MountJogControls.TrackingLabel(speed);
 
         private const string TrackingMenuAction = "PreviewTrackingMenu";
 
@@ -544,29 +539,21 @@ namespace TianWen.UI.Abstractions
         private readonly DropdownMenuState<TrackingSpeed> _trackingMenu = new();
         private RectF32 _trackingButtonRect;
 
-        private void OpenTrackingMenu(bool tracking)
+        private void OpenTrackingMenu(MountState mount)
         {
             if (_trackingMenu.IsOpen)
             {
                 _trackingMenu.Close();
                 return;
             }
-            TrackingSpeed? shown = !tracking ? TrackingSpeed.None : _previewTrackingSpeedKnown ? _previewTrackingSpeed : null;
+            var shown = MountJogControls.ShownTrackingRate(mount);
             var items = ImmutableArray.CreateBuilder<DropdownItem<TrackingSpeed>>(TrackingChoices.Length);
             foreach (var choice in TrackingChoices)
             {
                 items.Add(new DropdownItem<TrackingSpeed>(TrackingLabel(choice), choice));
             }
             _trackingMenu.Open(_trackingButtonRect.X, _trackingButtonRect.Y, MathF.Max(_trackingButtonRect.Width, 120f * DpiScale),
-                items.MoveToImmutable(), item =>
-                {
-                    if (item.Value is not TrackingSpeed.None)
-                    {
-                        _previewTrackingSpeed = item.Value;
-                        _previewTrackingSpeedKnown = true;
-                    }
-                    PostSignal(new SetMountTrackingSignal(item.Value));
-                });
+                items.MoveToImmutable(), item => PostSignal(new SetMountTrackingSignal(item.Value)));
             _trackingMenu.HighlightIndex = shown is { } now ? Array.IndexOf(TrackingChoices, now) : -1;
         }
 
@@ -613,10 +600,9 @@ namespace TianWen.UI.Abstractions
                     // The mount moved while a button is held, as on the planetary panel and through the same rows, set off from
                     // the status above it.
                     Layout.Builder.Spacer().RowH(JogGap),
-                    // Tracking, as N.I.N.A. offers it: Stopped, or a rate. Stopped is what the mount reports; the rate is the one last
-                    // asked for here, since the state poll carries no rate; until one was, the row says only "Tracking". A press asks the node, and the row follows the next poll.
-                    MountJogControls.DropdownRow("Track", !ms.IsTracking ? TrackingLabel(TrackingSpeed.None) : _previewTrackingSpeedKnown ? TrackingLabel(_previewTrackingSpeed) : "Tracking",
-                        TrackingMenuAction, () => OpenTrackingMenu(ms.IsTracking), jogLook),
+                    // Tracking, as N.I.N.A. offers it: Stopped, or the rate the mount reports. A press asks the node, and the row
+                    // follows the next poll.
+                    MountJogControls.DropdownRow("Track", MountJogControls.TrackingRowLabel(ms), TrackingMenuAction, () => OpenTrackingMenu(ms), jogLook),
                     .. MountJogControls.Rows(_previewMoveSpeedIdx, chosen => _previewMoveSpeedIdx = chosen,
                         s => PostSignal(s), s => PostSignal(s), idPrefix: "Preview", jogLook),
                     // Where the mount rests: the node refuses what this mount cannot do, in words.

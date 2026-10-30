@@ -532,6 +532,10 @@ internal partial record Session(
             // looks for.
             var isSlewing = await PollDriverReadAsync(mount, mount.IsSlewingAsync, _mountState.IsSlewing, cancellationToken);
             var isTracking = await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken);
+            // The rate the mount really tracks at, whoever set it (the Preview's Track row shows it).
+            var trackingRate = isTracking
+                ? (await PollDriverReadAsync(mount, mount.GetTrackingSpeedAsync, _mountState.TrackingRate ?? TrackingSpeed.None, cancellationToken)).OrUnknown()
+                : null;
             // Null on every driver that cannot model its axis (the interface default), carried as NaN like
             // the other unknowns in MountState; the limit falls back to the hour angle for it.
             var primaryAxisAngleDeg = await PollDriverReadAsync(
@@ -550,7 +554,8 @@ internal partial record Session(
                 // On the run's one site. The configured site alone left a run that named none at NaN all
                 // night, which switches the horizon test off (#798).
                 Altitude: SiteContext.AltitudeDegrees(Site?.Latitude ?? double.NaN, hourAngle, dec),
-                PrimaryAxisAngleDeg: primaryAxisAngleDeg);
+                PrimaryAxisAngleDeg: primaryAxisAngleDeg,
+                TrackingRate: trackingRate);
 
             // Accept the reported pier side ONLY on the edge where a slew has just finished. A goto is
             // the only thing in ordinary operation that carries a tube across the pier, so that is the
