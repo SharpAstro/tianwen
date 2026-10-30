@@ -123,7 +123,7 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
         {
             await SetUTCDateAsync(TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             Logger.LogError(ex, "{Device}: could not set the mount's clock; its gotos and limits are wrong until it is", _device.DisplayName);
         }
@@ -132,7 +132,7 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
         {
             await ReadFastestMoveAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             Logger.LogWarning(ex, "{Device}: could not read its top speed; moves stay at or below {Sidereal}x sidereal", _device.DisplayName, FallbackFastestMoveSidereal);
         }

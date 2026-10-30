@@ -41,6 +41,11 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
 
     internal double MoveRateDec { get; private set; } = double.NaN;
 
+    /// <summary>The local date and time of day the last <c>:SC</c> and <c>:SL</c> carried, as sent; null before any.</summary>
+    internal DateTime? ClockDateSent { get; private set; }
+
+    internal TimeSpan? ClockTimeSent { get; private set; }
+
     /// <summary>See <see cref="DeviceQueryKey.StaleCommandBuffer"/>. Only ever read and written under <c>_lockObj</c>.</summary>
     private bool _staleCommandBuffer;
 
@@ -137,11 +142,15 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
             // The clock, acknowledged as the Meade document has it (1 valid, 0 invalid) and with no "Updating Planetary
             // Data" lines after :SC. The fake's clock is the time provider's, so what is set does not change what it reads back.
             case [':', 'S', 'C', .., '#']:
-                _responseBuffer.Append(DateTime.TryParseExact(dataStr[3..^1], "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out _) ? '1' : '0');
+                var dateOk = DateTime.TryParseExact(dataStr[3..^1], "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var sentDate);
+                ClockDateSent = dateOk ? sentDate : null;
+                _responseBuffer.Append(dateOk ? '1' : '0');
                 return true;
 
             case [':', 'S', 'L', .., '#']:
-                _responseBuffer.Append(TimeSpan.TryParseExact(dataStr[3..^1], "hh\\:mm\\:ss", CultureInfo.InvariantCulture, out _) ? '1' : '0');
+                var timeOk = TimeSpan.TryParseExact(dataStr[3..^1], "hh\\:mm\\:ss", CultureInfo.InvariantCulture, out var sentTime);
+                ClockTimeSent = timeOk ? sentTime : null;
+                _responseBuffer.Append(timeOk ? '1' : '0');
                 return true;
 
             case [':', 'R', 'A' or 'E', .., '#'] when double.TryParse(dataStr[3..^1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var degPerSec):
