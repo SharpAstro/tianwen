@@ -190,7 +190,7 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         {
             if (jobs.TryGetRunningOn(device, out var job))
             {
-                return ResponseEnvelope<PlanetaryStateDto>.Fail($"The sequence needs it, but {NodeJobs.Busy(device.DeviceKey, job)}", 409);
+                return ResponseEnvelope<PlanetaryStateDto>.Fail($"The sequence needs it, but {NodeJobs.Busy(hub.TryGetDeviceFromUri(device, out var busyDevice) ? busyDevice.DisplayName : device.ToString(), job)}", 409);
             }
         }
         DeviceLeaseSet? claim = null;

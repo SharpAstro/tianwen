@@ -23,6 +23,9 @@ public static class MountJog
     /// </summary>
     public const double Max = 10_000;
 
+    /// <summary><see cref="Max"/> as a move-axis rate in degrees a second: the one value the node reads as "as fast as it goes".</summary>
+    public static double MaxRateDegPerSec => RateDegPerSec(Max);
+
     /// <summary>A speed in degrees a second, as a move-axis and a mount's axis rates state it.</summary>
     public static double RateDegPerSec(double siderealMultiple) => Constants.SIDEREAL_RATE / 3600.0 * siderealMultiple;
 

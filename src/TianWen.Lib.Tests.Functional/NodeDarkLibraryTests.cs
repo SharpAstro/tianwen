@@ -148,7 +148,7 @@ public class NodeDarkLibraryTests(ITestOutputHelper outputHelper) : IDisposable
 
         var refused = await client.StartDarkLibraryAsync(Request(camera, count: 1), ct);
         refused.StatusCode.ShouldBe(409);
-        refused.Error.ShouldNotBeNull().ShouldContain(cooling.Id);
+        refused.Error.ShouldNotBeNull().ShouldContain("cooling", Case.Insensitive, "the refusal says what holds the device, not a job id");
         node.Node.IsRunning.ShouldBeFalse();
 
         (await client.CancelJobAsync(cooling.Id, ct)).IsSuccess.ShouldBeTrue();

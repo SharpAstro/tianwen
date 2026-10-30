@@ -531,6 +531,10 @@ namespace TianWen.UI.Abstractions
         private static readonly TrackingSpeed[] TrackingChoices = [TrackingSpeed.None, TrackingSpeed.Sidereal, TrackingSpeed.Lunar, TrackingSpeed.Solar, TrackingSpeed.King];
         private TrackingSpeed _previewTrackingSpeed = TrackingSpeed.Sidereal;
 
+        // False until this panel has asked for a rate: a mount left at Lunar, or set on the handset, is tracking at a rate the poll
+        // does not carry, so the row says only "Tracking" rather than a Sidereal it cannot know.
+        private bool _previewTrackingSpeedKnown;
+
         private static string TrackingLabel(TrackingSpeed speed) => speed is TrackingSpeed.None ? "Stopped" : speed.ToString();
 
         private const string TrackingMenuAction = "PreviewTrackingMenu";
@@ -547,7 +551,7 @@ namespace TianWen.UI.Abstractions
                 _trackingMenu.Close();
                 return;
             }
-            var shown = tracking ? _previewTrackingSpeed : TrackingSpeed.None;
+            TrackingSpeed? shown = !tracking ? TrackingSpeed.None : _previewTrackingSpeedKnown ? _previewTrackingSpeed : null;
             var items = ImmutableArray.CreateBuilder<DropdownItem<TrackingSpeed>>(TrackingChoices.Length);
             foreach (var choice in TrackingChoices)
             {
@@ -559,10 +563,11 @@ namespace TianWen.UI.Abstractions
                     if (item.Value is not TrackingSpeed.None)
                     {
                         _previewTrackingSpeed = item.Value;
+                        _previewTrackingSpeedKnown = true;
                     }
                     PostSignal(new SetMountTrackingSignal(item.Value));
                 });
-            _trackingMenu.HighlightIndex = Array.IndexOf(TrackingChoices, shown);
+            _trackingMenu.HighlightIndex = shown is { } now ? Array.IndexOf(TrackingChoices, now) : -1;
         }
 
         // The Tracking drop-up, painted after the panel so it lies over it; its backdrop dismisses, and Escape comes from being painted.
@@ -609,8 +614,8 @@ namespace TianWen.UI.Abstractions
                     // the status above it.
                     Layout.Builder.Spacer().RowH(JogGap),
                     // Tracking, as N.I.N.A. offers it: Stopped, or a rate. Stopped is what the mount reports; the rate is the one last
-                    // asked for here, since the state poll carries no rate. A press asks the node, and the row follows the next poll.
-                    MountJogControls.DropdownRow("Track", TrackingLabel(ms.IsTracking ? _previewTrackingSpeed : TrackingSpeed.None),
+                    // asked for here, since the state poll carries no rate; until one was, the row says only "Tracking". A press asks the node, and the row follows the next poll.
+                    MountJogControls.DropdownRow("Track", !ms.IsTracking ? TrackingLabel(TrackingSpeed.None) : _previewTrackingSpeedKnown ? TrackingLabel(_previewTrackingSpeed) : "Tracking",
                         TrackingMenuAction, () => OpenTrackingMenu(ms.IsTracking), jogLook),
                     .. MountJogControls.Rows(_previewMoveSpeedIdx, chosen => _previewMoveSpeedIdx = chosen,
                         s => PostSignal(s), s => PostSignal(s), idPrefix: "Preview", jogLook),

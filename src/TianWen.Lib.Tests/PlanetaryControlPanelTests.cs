@@ -580,7 +580,7 @@ public class PlanetaryControlPanelTests
     {
         using var rig = new Rigged(1f, capturing: false);
 
-        rig.Press("MoveSpeed2");   // 2x
+        rig.Press("MoveSpeedUp");   // 1x to 2x
         rig.Press("MountMoveW");
 
         rig.Posted.ShouldBe([new StartMountMoveSignal(GuideDirection.West, 2), new StopMountMoveSignal()]);

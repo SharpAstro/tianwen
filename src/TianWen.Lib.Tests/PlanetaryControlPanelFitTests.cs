@@ -33,7 +33,7 @@ public class PlanetaryControlPanelFitTests
         "RoiSizeDec", "RoiSizeInc", "RoiPanLeft", "RoiPanRight", "RoiPanUp", "RoiPanDown",
         "RecenterOff", "RecenterRoi", "RecenterMount", "RecenterBoth", "RecenterDeadbandDec", "RecenterDeadbandInc", "RecenterGainDec",
         "RecenterGainInc",
-        "MoveSpeed0", "MoveSpeed1", "MoveSpeed2", "MoveSpeed3", "MoveSpeed4", "MountMoveN", "MountMoveS", "MountMoveE", "MountMoveW",
+        "MoveSpeedDown", "MoveSpeedUp", "MountMoveN", "MountMoveS", "MountMoveE", "MountMoveW",
         "FocCoarseIn", "FocFineIn", "FocFineOut", "FocCoarseOut",
     ];
 

@@ -48,10 +48,13 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     /// doing now ("On-Step is still slewing to Venus"), or its kind when it has said nothing yet. Never the job's id,
     /// which tells nobody anything; a client that needs it has the job.
     /// </summary>
-    public static string Busy(string deviceName, JobDto job)
-        => job.Step is { Length: > 0 } step
-            ? $"{deviceName} is still {char.ToLowerInvariant(step[0])}{step[1..]}"
-            : $"{deviceName} is busy with a {job.Kind}";
+    public static string Busy(string deviceName, JobDto job) => job.Step switch
+    {
+        // Most steps name the device already ("Cooling Fake Camera 1 to -10"): repeating it would read twice.
+        { Length: > 0 } step when step.Contains(deviceName, StringComparison.Ordinal) => $"{step} is still going on",
+        { Length: > 0 } step => $"{deviceName} is still {char.ToLowerInvariant(step[0])}{step[1..]}",
+        _ => $"{deviceName} is busy with a {job.Kind}"
+    };
 
     /// <summary>
     /// Starts a job of <paramref name="kind"/>, or answers the one of that kind already running.

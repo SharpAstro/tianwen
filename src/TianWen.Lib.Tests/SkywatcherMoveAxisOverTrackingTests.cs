@@ -185,10 +185,16 @@ public class SkywatcherMoveAxisOverTrackingTests(ITestOutputHelper output)
     public async Task EveryHeldButtonSpeedIsOneTheSkywatcherMovesAtExactly()
     {
         // The node refuses a rate outside the mount's AxisRates, compared as doubles: one list, so they cannot disagree.
+        // Max is the one exception: the node clamps it to the mount's top, so it is never compared with the list.
         var (driver, _) = await ConnectAsync(48.2, tracking: false, TestContext.Current.CancellationToken);
 
         foreach (var multiple in MountJog.SiderealMultiples)
         {
+            if (multiple == MountJog.Max)
+            {
+                continue;
+            }
+
             var rate = MountJog.RateDegPerSec(multiple);
             driver.AxisRates(TelescopeAxis.Primary).ShouldContain(r => r.Mininum <= rate && rate <= r.Maximum, $"{multiple}x on RA");
             driver.AxisRates(TelescopeAxis.Seconary).ShouldContain(r => r.Mininum <= rate && rate <= r.Maximum, $"{multiple}x on Dec");

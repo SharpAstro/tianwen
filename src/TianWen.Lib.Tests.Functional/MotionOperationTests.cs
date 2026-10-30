@@ -94,7 +94,7 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
         var second = await Client.MoveFocuserAsync(new FocuserMoveRequestDto { DeviceUri = Focuser.DeviceUri.ToString(), Steps = 10 }, ct);
         second.StatusCode.ShouldBe(409, "a move to another position is not the same move");
-        second.Error.ShouldNotBeNull().ShouldContain(moving.Id);
+        second.Error.ShouldNotBeNull().ShouldContain("moving", Case.Insensitive, "the refusal says what holds the device, not a job id");
 
         (await Client.StopFocuserAsync(Focuser.DeviceUri, ct)).IsSuccess.ShouldBeTrue("a stop is the one command the running job does not refuse");
         (await UntilEndedAsync(moving.Id, ct)).State.ShouldBe(JobState.Cancelled);

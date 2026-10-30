@@ -79,8 +79,9 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot move its {axis} axis");
         }
-        // Past the mount's top speed is the top speed (MountJog.Max asks for "as fast as it goes"); below its slowest stays a refusal.
-        if (Fastest(mount.AxisRates(axis)) is { } fastest && Math.Abs(rate) > fastest)
+        // Only MountJog.Max's own rate means "as fast as it goes" and becomes the mount's top; any other rate past the top is a
+        // wrong unit or a typo, and stays a refusal rather than running hardware at full speed.
+        if (Math.Abs(Math.Abs(rate) - MountJog.MaxRateDegPerSec) < 1e-9 && Fastest(mount.AxisRates(axis)) is { } fastest && Math.Abs(rate) > fastest)
         {
             rate = Math.CopySign(fastest, rate);
         }

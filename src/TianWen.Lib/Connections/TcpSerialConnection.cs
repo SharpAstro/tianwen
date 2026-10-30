@@ -269,6 +269,12 @@ internal sealed class TcpSerialConnection : ISerialConnection
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            // A bound that fired (the caller's timeout) is a read that returned nothing, as SerialConnection answers;
+            // the link is still good, so it stays open.
+            return null;
+        }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
             if (LogVerbose)
@@ -315,6 +321,12 @@ internal sealed class TcpSerialConnection : ISerialConnection
             _readBufferStart += count;
             CompactBufferIfEmpty();
             return result;
+        }
+        catch (OperationCanceledException)
+        {
+            // A bound that fired (the caller's timeout) is a read that returned nothing, as SerialConnection answers;
+            // the link is still good, so it stays open.
+            return null;
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {

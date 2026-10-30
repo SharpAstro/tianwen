@@ -28,6 +28,13 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private volatile bool _highPrecision = false;
     protected volatile int _trackingFrequency = 601; // 60.1 Hz * 10, sidereal tracking rate
     private TimeSpan _utcOffset = TimeSpan.Zero;
+
+    /// <summary>What <c>:GG#</c> answers: the time to ADD to local time to give UTC. A test sets it non-zero to tell a clock set from local time from one set from UTC.</summary>
+    internal TimeSpan UtcOffset
+    {
+        get => _utcOffset;
+        set => _utcOffset = value;
+    }
     private DateTime _localDateTime;
 
     // Mount axis angles (German Equatorial Mount)

@@ -209,7 +209,7 @@ public class NodePolarAlignmentTests(ITestOutputHelper outputHelper) : IDisposab
         var busy = await client.StartPolarAlignmentAsync(Quick, ct);
 
         busy.StatusCode.ShouldBe(409);
-        busy.Error.ShouldNotBeNull().ShouldContain(cooling.Id);
+        busy.Error.ShouldNotBeNull().ShouldContain("cooling", Case.Insensitive, "the refusal says what holds the device, not a job id");
         node.Node.IsRunning.ShouldBeFalse();
         var hub = node.App.Services.GetRequiredService<IDeviceHub>();
         hub.TryGetLease(Camera.DeviceUri, out _).ShouldBeFalse("the claim goes back with the refusal");

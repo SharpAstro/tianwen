@@ -344,7 +344,7 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper) : IDisposable
         var cooling = (await client.CoolCameraAsync(Camera.DeviceUri, -10, maxRateCPerMinute: null, ct)).Value.ShouldNotBeNull();
         var busy = await client.StartPlanetaryAsync(Default, ct);
         busy.StatusCode.ShouldBe(409);
-        busy.Error.ShouldNotBeNull().ShouldContain(cooling.Id);
+        busy.Error.ShouldNotBeNull().ShouldContain("cooling", Case.Insensitive, "the refusal says what holds the device, not a job id");
         (await client.CancelJobAsync(cooling.Id, ct)).IsSuccess.ShouldBeTrue();
 
         node.Node.IsRunning.ShouldBeFalse();

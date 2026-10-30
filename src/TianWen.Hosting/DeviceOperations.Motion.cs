@@ -227,6 +227,12 @@ internal sealed partial class DeviceOperations
                 // mount chose. The move that means "point at the pole" is going home, where the mount can.
                 if (mount.CanFindHome && MountGoto.IsSitesCelestialPole(dec, await mount.GetSiteLatitudeAsync(ct)))
                 {
+                    // As an ordinary goto does (MountGoto.SlewToJ2000Async): a parked mount is unparked first, not refused.
+                    if (mount.CanUnpark && await mount.AtParkAsync(ct))
+                    {
+                        step.Report($"Unparking {name}");
+                        await mount.UnparkAsync(ct);
+                    }
                     step.Report($"Going home ({target} is the pole)");
                     await mount.FindHomeAsync(ct);
                     return $"{name} is at home, pointing at the pole";

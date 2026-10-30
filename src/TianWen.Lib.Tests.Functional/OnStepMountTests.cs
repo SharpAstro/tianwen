@@ -96,6 +96,18 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         mount.TimeIsSetByUs.ShouldBeTrue();
         var mountUtc = (await mount.TryGetUTCDateFromMountAsync(ct)).ShouldNotBeNull();
         (mountUtc - timeProvider.GetUtcNow().UtcDateTime).Duration().ShouldBeLessThan(TimeSpan.FromSeconds(2));
+
+        // What was SENT, not what the fake reads back: the fake's own clock is the time provider's, so the read-back is true
+        // whatever :SC and :SL carried. Melbourne's mount offset (:GG# answers -11, the hours added to local to give UTC) is
+        // non-zero, so a clock sent as UTC, an 11 hour error, cannot pass.
+        var fake = mount.SerialDevice.ShouldBeOfType<FakeOnStepSerialDevice>();
+        fake.UtcOffset = TimeSpan.FromHours(-11);
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+
+        await mount.SetUTCDateAsync(utcNow, ct);
+
+        var sentLocal = fake.ClockDateSent.ShouldNotBeNull().Date + fake.ClockTimeSent.ShouldNotBeNull();
+        (sentLocal - (utcNow - fake.UtcOffset)).Duration().ShouldBeLessThan(TimeSpan.FromSeconds(1), "the local time the offset implies, not UTC");
     }
 
     [Fact(Timeout = 60_000)]
