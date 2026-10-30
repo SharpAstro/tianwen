@@ -64,7 +64,8 @@ what that listing tells users:
     is set from the Tone button. Check ViewerShortcuts still declares exactly
     that; this sentence is itself a correction, so a second drift is costly.
   - Shift+K on a SER capture identifies the planet and the capture, stacks,
-    sharpens and saves the master beside the video; K switches raw and the live stack. The SER bar now reads Raw | Stack: Live / Full.
+    sharpens and saves the master beside the video; K switches raw and the
+    live stack. The SER bar now reads Raw | Stack: Live / Full (#1877).
     The frames tell only Jupiter from Saturn, so "works out which planet" leans
     on the path or header for any other; recheck it if PlanetaryIdentification
     changes.
