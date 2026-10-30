@@ -72,21 +72,34 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     /// fixed 250 ms step per real-time yield (#1910: that hand pump let a starved runner skip the loop's frames
     /// and the settle then read a spiky Dec). The guide loop never completes, so the pump runs until
     /// <paramref name="done"/> holds; <paramref name="onIteration"/> runs after each advance, where async driver
-    /// reads belong.
+    /// reads belong. Prints what the pump's re-park waits cost, since a run-out pays the whole bound in wall time.
     /// </summary>
-    private static Task<TimeSpan> PumpGuiderAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
+    private static async Task<TimeSpan> PumpGuiderAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,
         Func<bool> done, TimeSpan maxFakeTime, CancellationToken ct, Func<int, ValueTask>? onIteration = null,
-        TimeSpan? settleBound = null) =>
-        timeProvider.PumpUntilAsync(done, maxFakeTime, onIteration,
-            progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: settleBound ?? GuideSettleBound);
+        TimeSpan? settleBound = null)
+    {
+        var wall = global::System.Diagnostics.Stopwatch.StartNew();
+        var runOutBefore = timeProvider.ReParkWaitsRunOut;
+        var waitedBefore = timeProvider.ReParkWaited;
+        var bound = settleBound ?? GuideSettleBound;
+        var pumped = await timeProvider.PumpUntilAsync(done, maxFakeTime, onIteration,
+            progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: bound);
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"Pump: {pumped.TotalSeconds:F1} s fake in {wall.Elapsed.TotalSeconds:F1} s wall, re-park bound {bound.TotalMilliseconds} ms, " +
+            $"{timeProvider.ReParkWaitsRunOut - runOutBefore} run out, {(timeProvider.ReParkWaited - waitedBefore).TotalSeconds:F1} s in re-park waits");
+        return pumped;
+    }
 
     /// <summary>
     /// How long, in real time, each advance waits for the guide loop to park at its next <c>SleepAsync</c> (#1910).
-    /// The loop always parks again while it runs and the wait ends the moment it does, so the bound is only a
-    /// backstop against a loop that has stopped; it paces the pump to the loop instead of guessing how long a
-    /// starved loop needs.
+    /// Measured on win-x64 over about 2,000 re-parks of these tests, unloaded: p99 under 50 ms, the longest 437 ms
+    /// (calibration's first frames), so the 2 ms default cut real re-parks short. 500 ms is above every one measured.
+    /// It is NOT a backstop that never fires: an advance that releases both pulse axes' waits, one of which ends without
+    /// parking again, runs it out every few seconds of fake time (80 to 100 times in the misaligned-Skywatcher test), so
+    /// each test pays about bound x run-outs of wall time. At 1 s the target test took 85 to 92 s of its 120 s
+    /// <c>Timeout</c>; at 500 ms it takes about 50 s. Measurements in docs/architecture/session-test-harness.md.
     /// </summary>
-    private static readonly TimeSpan GuideSettleBound = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan GuideSettleBound = TimeSpan.FromMilliseconds(500);
 
     /// <summary>Pumps until the guider reports Guiding or raises an error (the calibrate-and-settle wait).</summary>
     private static async Task<TimeSpan> PumpUntilGuidingAsync(FakeTimeProviderWrapper timeProvider, BuiltInGuiderDriver guider,

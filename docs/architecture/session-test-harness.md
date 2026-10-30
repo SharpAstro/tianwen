@@ -208,22 +208,48 @@ the 3" settle bound held). Both runs carry the same signature, one frame with a 
 `corrRA` of -859 ms in one) while Dec stayed near 0.35". That is about 1.7 s of sidereal drift, a guide tick that was
 never observed, not a spread in the guider's own behaviour.
 
-**The cause is a hypothesis, not shown.** The guide loop waits only through `SleepAsync` (`GuideLoop`); the one
-`PeriodicTimer` in the guider code is the dither settle ticker in `IGuider.cs`, on the real system clock and not the
-fake one, so a coalescing `PeriodicTimer` tick is NOT the mechanism. The supposition is that the pump gave the pool
-and a released sleep only `SettleBound` (2 ms) to settle before the next advance, and on a saturated runner that was
-not enough, so an advance passed over a wake the loop had not yet observed and the next frame saw the drift of both
-intervals at once. The skipped wake was not observed, and it cannot be shown without load. The observed fact is only
-the one 26" RA excursion (about 1.7 s of sidereal drift) in each of the two failing loaded runs.
+**The cause is a hypothesis, now with a measured basis.** The guide loop waits only through `SleepAsync` (`GuideLoop`);
+the one `PeriodicTimer` in the guider code is the dither settle ticker in `IGuider.cs`, on the real system clock and not
+the fake one, so a coalescing `PeriodicTimer` tick is NOT the mechanism. The supposition is that the pump gave a released
+sleep only `SettleBound` (2 ms) to park again before the next advance. Once that ran out, `NextStep` saw only the targets
+already parked (another axis's pulse wait, a device poll) and stepped to the nearest of them, up to the 5 s coarsest step,
+so the loop's next frame saw the drift of a whole skipped interval at once. Go-around 2 timed the re-park itself, unloaded
+(win-x64, 16 cores, Release, the whole class): over about 2,000 re-parks the median is under 0.01 ms, but p90 is 1 to 3 ms,
+p99 4 to 48 ms by test, and the longest 437 ms (calibration's first frames). So 2 ms cut real re-parks short on one advance
+in ten even with nothing else running, which a loaded runner stretches. The skipped wake itself was still not caught in a
+failing run; the 26" RA excursion (about 1.7 s of sidereal drift) in each of the two failing loaded runs is the only trace.
 
-**The change.** `PumpUntilAsync` takes an optional `settleBound`. The pump no longer guesses how long the loop needs:
-after an advance it waits for the guide loop to park again (`WaiterCount` back at its earlier level, which is
-per `FakeTimeProviderWrapper`, so it measures that test's loop only) and ends the wait the moment it does. The guider
-pumps pass `GuideSettleBound` of 1 s, which is only a backstop for a loop that never re-parks, not a pacing value. The
-pool-quiet wait keeps the 2 ms default, since the pool's pending count is process-wide and a neighbouring test would
-otherwise stretch it. This is the "pace the pump to the guide loop itself" option; no bound was derived from a
-measurement, and the earlier 25 ms guess is gone. No test bound was widened (3.0" settle and 5.0" sustained stand).
-A guide-loop test whose loop never re-parks would pay 1 s per advance; none does today.
+**The change.** `PumpUntilAsync` takes an optional `settleBound`. After an advance the pump waits for the loop to park again
+(`WaiterCount` back at its earlier level; the count is per `FakeTimeProviderWrapper`, so it measures that test's loops only)
+and ends the wait the moment it does. The pool-quiet wait keeps the 2 ms default, since the pool's pending count is
+process-wide and a neighbouring test would otherwise stretch it. No test bound was widened (3.0" settle and 5.0" sustained
+stand).
+
+**The guide pumps' bound, and what it costs (go-around 2).** The first version passed `GuideSettleBound` of 1 s and called it
+a backstop that only a stopped loop would pay. That was wrong. `FakeTimeProviderWrapper.ReParkWaitsRunOut` now counts the
+re-park waits that ran to the bound, and the guide pumps print it (`Pump: ... run out`). An advance that releases two parks of
+which one ends without parking again (one pulse axis's wait finishing while the other's runs on) leaves the count one short
+for good, so the wait runs out every few seconds of fake time: 80 to 100 times in the misaligned-Skywatcher test, about 40 per
+110 s calibrate-and-settle pump elsewhere, and nearly all of each test's wall time was those waits. `GuideSettleBound` is now
+500 ms, above every re-park measured (437 ms), which halves that cost. The 1050 s training pump in
+`FreshNeuralModelTrainsStablyAndSavesNewSample` keeps the 2 ms default (about 450 run-outs; at 1 s it ran past its 180 s
+`Timeout`). Every other guide pump uses `GuideSettleBound`. A condition that tells "ended" from "not yet parked" would remove
+the run-outs, but nothing the provider can see makes that distinction.
+
+**Durations, unloaded** (win-x64, 16 cores, Release, `FakeCameraMountCouplingTests` alone, `maxParallelThreads` 4, one run
+each):
+
+| Test | `Timeout` | before (main, hand pump) | 1 s bound | 500 ms bound |
+|---|---|---|---|---|
+| MisalignedSkywatcher ... StaysLockedWhileMountDrifts | 120 s | 19.1 s | 84 to 92 s | 49.6 s |
+| CloudDuringFirstCalibration ... RetrySucceedsAndGuides | 120 s | 10.1 s | 44 to 49 s | 23.7 s |
+| GuidingWhenDither ... SettleCompletesViaGetSettleProgressAlone | 120 s | 6.5 s | 47 to 48 s | 22.4 s |
+| CloudWhenGuidingRestarts ... AcquisitionFailsLoudly | 120 s | 10.5 s | 46 to 47 s | 23.9 s |
+| CloudDuringGuiding ... LostLockAndRecoversOnClear | 120 s | 8.0 s | 38 to 47 s | 18.8 s |
+| FreshNeuralModelTrainsStablyAndSavesNewSample | 180 s | 66.8 s | 4.7 s (2 ms training pump) | 4.7 s |
+
+The paced tests are slower than the hand pump because the hand pump never waited for the loop at all, which is what this
+issue is about. At 500 ms the target test uses about 41 % of its `Timeout` unloaded, against 70 to 77 % at 1 s.
 
 **What was and was not shown.**
 - No failing at-settle run was ever seen. The original 4.46" settle failure from #1910 never reproduced, so no traced
@@ -232,13 +258,10 @@ A guide-loop test whose loop never re-parks would pay 1 s per advance; none does
   outlier in one batch (batch 2) that is unexplained.
 - An unloaded repeat after the first change passed 120 of 120 (a temporary `[Theory]`, since removed). It cannot
   show the fix works under load, because unloaded runs never failed even before.
-- The re-park pacing was then checked by the leg's own run of `FakeCameraMountCouplingTests` in Release, which passes.
-  That is a regression check, not a loaded repeat.
 
-**The loaded 100-run repeat is waived by the owner and filed as tianwen#1923.** It is to run later on CI, or when
-the owner okays the load. No burner and no loaded repeat were run for this leg. A partial suite-shaped attempt (the
-temporary 100-run theory inside a full functional-suite Release run, `maxParallelThreads` 4, win-x64, 16 cores, no
-burners) was cancelled at about run 77 of 100 when the waiver arrived; the runs seen all passed, and that is not
-counted as the repeat. So the leg is judged by the unloaded repeat, the leg check and the reasoning that the pump now
-waits on the loop's own re-park, and not on a traced cause or a loaded result. Whether the hypothesis above is the
-cause, and whether the re-park pacing holds under load, is for #1923 to answer.
+**The loaded repeat.** Not run on this code. Go-around 2 asked the owner (a pilot ring card) to load the machine with
+about 12 single-thread CPU burners for about 45 minutes beside a temporary 100-run theory; no answer had reached the leg
+when it finished, so no burner ran. The repeat stays owed as tianwen#1923 (opened when the owner declined the load in the
+first flight of this leg), together with the question the measure leg left open: whether a loaded failure still shows
+the one-frame 26" RA excursion. Until it runs, the fix rests on the re-park timing above and the unloaded repeat, not on a
+loaded result.
