@@ -27,8 +27,12 @@ public sealed class MountStateDto
     /// <inheritdoc cref="RaJ2000"/>
     public double? PrimaryAxisAngleDeg { get; init; }
 
+    /// <summary>The rate the mount says it tracks at (<see cref="MountState.TrackingRate"/>); null when not tracking or not known.</summary>
+    public TrackingSpeed? TrackingRate { get; init; }
+
     public static MountStateDto FromState(MountState state) => new()
     {
+        TrackingRate = state.TrackingRate,
         RaJ2000 = JsonNumber.OrNull(state.RaJ2000),
         DecJ2000 = JsonNumber.OrNull(state.DecJ2000),
         Altitude = JsonNumber.OrNull(state.Altitude),

@@ -10,8 +10,9 @@ namespace TianWen.Lib.Devices;
 
 /// <summary>
 /// A mount's goto to a J2000 position and the wait for it to land: the ONE goto for every host, the GUI's sky map and a
-/// node's device plane (P2 part 4 of docs/plans/hardware-in-the-server.md, #929), so both apply the same rules (unpark,
-/// the horizon limit, the destination pier side, the tracking rate). Moved here from the GUI's <c>MountActions</c>.
+/// node's device plane (P2 part 4 of docs/plans/hardware-in-the-server.md, #929), so both apply the same rules (a parked
+/// mount refused, never unparked; the horizon limit; the destination pier side; the tracking rate). Moved here from the
+/// GUI's <c>MountActions</c>.
 /// </summary>
 public static class MountGoto
 {
@@ -29,8 +30,7 @@ public static class MountGoto
     /// Slew a connected mount to a J2000 RA/Dec catalog position. The flow:
     /// <list type="number">
     ///   <item>Connected / CanSlewAsync gates: bail cleanly if unsatisfiable.</item>
-    ///   <item>Auto-unpark if <see cref="IMountDriver.CanUnpark"/> and
-    ///   <see cref="IMountDriver.AtParkAsync"/>.</item>
+    ///   <item>A parked mount is refused (<see cref="IsParkedAsync"/>): nothing unparks a mount by itself.</item>
     ///   <item>Build the J2000→native <see cref="TianWen.Lib.Astrometry.SOFA.Transform"/>
     ///   from <paramref name="profile"/> + <paramref name="timeProvider"/> (not from
     ///   the mount). This sidesteps the mount's <c>TryGetTransformAsync</c> path,
@@ -82,26 +82,11 @@ public static class MountGoto
             return (SlewPostCondition.SlewNotPossible, "Mount does not support async slewing");
         }
 
-        // Park handling, only meaningful when the mount supports programmatic Unpark.
-        // Many ASCOM drivers throw on Tracking/Slew while parked, so we auto-unpark first.
-        var wasParked = false;
-        if (mount.CanUnpark)
+        // A parked mount is refused, never unparked: unparking moves hardware nobody may be watching (a tiny dome), so it
+        // is the operator's own Unpark.
+        if (await IsParkedAsync(mount, name, logger, cancellationToken) is { } parked)
         {
-            try
-            {
-                if (await mount.AtParkAsync(cancellationToken))
-                {
-                    await mount.UnparkAsync(cancellationToken);
-                    wasParked = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger?.LogWarning(ex,
-                    "Auto-unpark failed on {Mount} during Goto {Target}", mount.Name, name);
-                return (SlewPostCondition.SlewNotPossible,
-                    $"Mount is parked and auto-unpark failed: {ex.Message}");
-            }
+            return (SlewPostCondition.SlewNotPossible, parked);
         }
 
         // Mounts with neither Park nor Unpark: surface as an informational suffix.
@@ -193,9 +178,30 @@ public static class MountGoto
                     TrackingSpeed.Lunar => " (lunar tracking)",
                     _                   => ""
                 };
-        var parkedNote = wasParked ? " (auto-unparked)" : "";
+        return (SlewPostCondition.Slewing, $"Slewing to {name}{rateNote}{noParkSupportNote}");
+    }
 
-        return (SlewPostCondition.Slewing, $"Slewing to {name}{rateNote}{parkedNote}{noParkSupportNote}");
+    /// <summary>
+    /// Why a goto is refused because the mount is parked, or null when it is not (or cannot say). Nothing unparks a mount
+    /// by itself; the refusal names the Unpark step the operator takes.
+    /// </summary>
+    public static async ValueTask<string?> IsParkedAsync(IMountDriver mount, string name, ILogger? logger, CancellationToken cancellationToken)
+    {
+        if (!mount.CanPark && !mount.CanUnpark)
+        {
+            return null;
+        }
+        try
+        {
+            return await mount.AtParkAsync(cancellationToken)
+                ? $"{mount.Name} is parked: unpark it before slewing to {name}"
+                : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "AtPark failed on {Mount} during Goto {Target}", mount.Name, name);
+            return null;
+        }
     }
 
     /// <summary>

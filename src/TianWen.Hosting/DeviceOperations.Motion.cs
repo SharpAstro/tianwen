@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.Focus;
@@ -196,8 +197,9 @@ internal sealed partial class DeviceOperations
     }
 
     /// <summary>
-    /// Slews the mount to a J2000 position through the one goto every host uses (<see cref="MountGoto"/>: unpark, the
-    /// horizon limit, the destination pier side, the tracking rate), as a job that ends when the mount has landed. The
+    /// Slews the mount to a J2000 position through the one goto every host uses (<see cref="MountGoto"/>: a parked mount
+    /// refused, the horizon limit, the destination pier side, the tracking rate), as a job that ends when the mount has
+    /// landed. A goto to the site's pole goes home instead (<see cref="GoHomeAsync"/>). The
     /// site comes from the active profile, as the GUI's goto takes it from its own; with none there is no goto.
     /// </summary>
     public async Task<ResponseEnvelope<JobDto>> GotoAsync(MountGotoRequestDto request, CancellationToken cancellationToken)
@@ -227,14 +229,8 @@ internal sealed partial class DeviceOperations
                 // mount chose. The move that means "point at the pole" is going home, where the mount can.
                 if (mount.CanFindHome && MountGoto.IsSitesCelestialPole(dec, await mount.GetSiteLatitudeAsync(ct)))
                 {
-                    // As an ordinary goto does (MountGoto.SlewToJ2000Async): a parked mount is unparked first, not refused.
-                    if (mount.CanUnpark && await mount.AtParkAsync(ct))
-                    {
-                        step.Report($"Unparking {name}");
-                        await mount.UnparkAsync(ct);
-                    }
                     step.Report($"Going home ({target} is the pole)");
-                    await mount.FindHomeAsync(ct);
+                    await GoHomeAsync(mount, name, target, ct);
                     return $"{name} is at home, pointing at the pole";
                 }
 
@@ -334,7 +330,7 @@ internal sealed partial class DeviceOperations
             step.Report("Going home");
             try
             {
-                await mount.FindHomeAsync(ct);
+                await GoHomeAsync(mount, name, "home", ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -343,6 +339,27 @@ internal sealed partial class DeviceOperations
             }
             return $"{name} is at home";
         });
+    }
+
+    /// <summary>
+    /// The one way home, for the Home button and a goto to the pole. A parked mount is refused, never unparked (the
+    /// operator unparks). No software horizon limit is asked: home is not an observing position, and near the equator the
+    /// pole sits at or under any limit. Home is a rest position, so tracking stops once the mount is there.
+    /// </summary>
+    private Task GoHomeAsync(IMountDriver mount, string name, string target, CancellationToken ct) => GoHomeAsync(mount, target, logger, ct);
+
+    /// <inheritdoc cref="GoHomeAsync(IMountDriver, string, string, CancellationToken)"/>
+    internal static async Task GoHomeAsync(IMountDriver mount, string target, ILogger? logger, CancellationToken ct)
+    {
+        if (await MountGoto.IsParkedAsync(mount, target, logger, ct) is { } parked)
+        {
+            throw new InvalidOperationException(parked);
+        }
+        await mount.FindHomeAsync(ct);
+        if (mount.CanSetTracking)
+        {
+            await mount.SetTrackingAsync(false, ct);
+        }
     }
 
     /// <summary>Makes where the mount points now its park position, at once.</summary>
