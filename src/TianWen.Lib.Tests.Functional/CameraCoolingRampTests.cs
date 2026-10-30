@@ -252,7 +252,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate,
-            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         output.WriteLine($"{from} -> {to} at {rate} C/min, whole degrees {wholeDegree}: {sleeps.Count} steps, {took.TotalSeconds:F0} s");
@@ -278,7 +278,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(5, SetpointTempKind.Normal), 2.0,
-            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         output.WriteLine($"A cooler that never moves was let go after {took.TotalMinutes:F2} min");
@@ -306,7 +306,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(-5, SetpointTempKind.Normal), rate,
-            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         output.WriteLine($"25 C drop with an unreadable start took {took.TotalMinutes:F2} min");
@@ -341,7 +341,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate,
-            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         var defaultRate = CameraCoolingRamp.DefaultMaxRateOf(direction);

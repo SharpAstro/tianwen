@@ -589,7 +589,7 @@ public interface ICameraDriver : IDeviceDriver
                 SetpointTempKind.Normal => desiredSetpointTemp.TempC,
                 SetpointTempKind.CCD when hasCCDTemp && hasHeatSinkTemp => Math.Min(ccdTemp, heatSinkOrCCDTemp),
                 SetpointTempKind.CCD when hasCCDTemp && !hasHeatSinkTemp => ccdTemp,
-                SetpointTempKind.Ambient => hasHeatSinkTemp ? heatSinkTemp : CameraReading.WarmUpTargetC(double.NaN),
+                SetpointTempKind.Ambient => hasHeatSinkTemp ? heatSinkTemp : CameraReading.WarmUpFallbackTargetC,
                 _ => double.NaN
             };
 

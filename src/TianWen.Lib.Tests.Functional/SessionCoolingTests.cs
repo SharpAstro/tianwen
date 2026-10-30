@@ -63,7 +63,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
-        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), TimeSpan.FromSeconds(60), 80, SetupointDirection.Down, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
 
         ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>()
             .TryGetPreCoolReading(ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri, out var reading).ShouldBeTrue();
@@ -119,10 +119,10 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
         var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
 
-        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), TimeSpan.FromSeconds(60), 80, SetupointDirection.Down, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
         hub.SetPreCoolReading(uri, new SensorAmbientReading(5, Settled: true, ctx.TimeProvider.GetUtcNow()));
 
-        var reached = await ctx.Session.CoolCamerasToAmbientAsync(TimeSpan.FromSeconds(60));
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
 
         reached.ShouldBeTrue();
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
@@ -140,10 +140,10 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
         var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
 
-        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), TimeSpan.FromSeconds(60), 80, SetupointDirection.Down, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
         hub.SetPreCoolReading(uri, new SensorAmbientReading(5, Settled: false, ctx.TimeProvider.GetUtcNow()));
 
-        await ctx.Session.CoolCamerasToAmbientAsync(TimeSpan.FromSeconds(60));
+        await ctx.Session.CoolCamerasToAmbientAsync(Rate);
 
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
         // The fake's sensor rests at its 20 C ambient and cannot rise past it, so +25 C shows as 20 C, well above the 5 C
@@ -159,10 +159,10 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
         var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
 
-        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), TimeSpan.FromSeconds(60), 80, SetupointDirection.Down, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
         hub.SetPreCoolReading(uri, new SensorAmbientReading(5, Settled: true, ctx.TimeProvider.GetUtcNow()));
 
-        await ctx.Session.CoolCamerasToAmbientAsync(TimeSpan.FromSeconds(60));
+        await ctx.Session.CoolCamerasToAmbientAsync(Rate);
 
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
         temp.ShouldBe(20.0, 1.0, "the heat sink's 20 C, not the recorded 5 C");

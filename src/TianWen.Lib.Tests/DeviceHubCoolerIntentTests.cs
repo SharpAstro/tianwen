@@ -131,7 +131,7 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
         await hub.ConnectAsync(device, ct);
         var started = external.TimeProvider.GetUtcNow();
 
-        await hub.CoolToSetpointAsync(device.DeviceUri, -5, TimeSpan.FromMinutes(1), external.TimeProvider, NullLogger.Instance, ct);
+        await hub.CoolToSetpointAsync(device.DeviceUri, -5, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider, NullLogger.Instance, ct);
 
         hub.TryGetPreCoolReading(device.DeviceUri, out var reading).ShouldBeTrue("the cooler was off, so the sensor was read first");
         reading.Settled.ShouldBeTrue();
@@ -148,7 +148,7 @@ public class DeviceHubCoolerIntentTests(ITestOutputHelper output)
         var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
         await camera.SetCoolerOnAsync(true, ct);
 
-        await hub.CoolToSetpointAsync(device.DeviceUri, -5, TimeSpan.FromMinutes(1), external.TimeProvider, NullLogger.Instance, ct);
+        await hub.CoolToSetpointAsync(device.DeviceUri, -5, CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute * 2, external.TimeProvider, NullLogger.Instance, ct);
 
         hub.TryGetPreCoolReading(device.DeviceUri, out _).ShouldBeFalse("a sensor with the cooler on says nothing about the air around it");
     }
