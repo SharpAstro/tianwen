@@ -94,6 +94,10 @@ public class SessionPhaseTests(ITestOutputHelper output)
             phases.Enqueue(e.NewPhase);
         };
 
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for up to two minutes before it ramps
+        // (#1842), and a cancel 3 s into Cooling would then land before any ramp step.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
+
         // Cancel once we've been in Cooling for a few ramp steps
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
         ctx.Session.PhaseChanged += (_, e) =>
@@ -116,6 +120,10 @@ public class SessionPhaseTests(ITestOutputHelper output)
         phaseList.ShouldContain(SessionPhase.Cooling, "should have entered Cooling phase");
         phaseList.ShouldContain(SessionPhase.Aborted, "should have transitioned to Aborted");
         phaseList.ShouldContain(SessionPhase.Finalising, "should have entered Finalising");
+
+        // The ramp had begun to cool the sensor before the abort, so Finalise had a cooled camera to warm.
+        ctx.Session.CoolingSamples.ShouldNotBeEmpty("a ramp step ran before the abort");
+        ctx.Session.CoolingSamples.Min(s => s.TemperatureC).ShouldBeLessThan(20, "the sensor had started down from ambient");
 
         // After Finalise, cooler should be off (warmup completed)
         var coolerOn = await ctx.Camera.GetCoolerOnAsync(ct);
@@ -144,6 +152,10 @@ public class SessionPhaseTests(ITestOutputHelper output)
             )
         };
         await using var ctx = await CreateWinterSessionAsync(observations, ct);
+
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for up to two minutes before it ramps
+        // (#1842), and a cancel 3 s into Cooling would then land before any ramp step.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
 
         // Cancel once we've been in Cooling for a few ramp steps
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);

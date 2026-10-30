@@ -151,6 +151,24 @@ public class SessionCoolingTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkNoReadingAndTheCoolerOffWhenWarmUpThenTheCoolerIsLeftOff()
+    {
+        // A session that failed before its cool-down: no heat sink, nothing recorded, the cooler off and the sensor at 20 C,
+        // under the +25 C fallback. The hub holds such a camera; the session's warm-up must not switch the cooler on to ramp it.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+        (await ctx.Camera.GetCoolerOnAsync(ct)).ShouldBeFalse("the precondition: the cooler was never switched on");
+        var before = ctx.TimeProvider.GetUtcNow();
+
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        reached.ShouldBeTrue();
+        (ctx.TimeProvider.GetUtcNow() - before).ShouldBe(TimeSpan.Zero, "no ramp step was slept");
+        (await ctx.Camera.GetCoolerOnAsync(ct)).ShouldBeFalse("a cooler that was off stays off");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenNoHeatSinkAndAnUnsettledReadingWhenWarmUpThenTheFallbackIsTheTarget()
     {
         var ct = TestContext.Current.CancellationToken;
