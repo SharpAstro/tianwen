@@ -94,7 +94,7 @@ rejects is none at all (`null`, thrown as `InvalidOperationException`); there is
 | `:Te#` / `:Td#` | 1 byte | `1` is success, anything else throws | `SetTrackingAsync` | `:AP#` / `:AL#`, which read no reply |
 | `:hP#` | 1 byte | `1` accepted, then polls `:GU#` | `ParkAsync` | the same `:hP#`, but no reply read and no wait |
 | `:hR#` | 1 byte | `1` accepted, then polls `:GU#` | `UnparkAsync` | nothing: the base throws |
-| `:hQ#` | 1 byte | `1` accepted | `SetParkAsync` (OnStep's own; not on `IMountDriver`) | nothing |
+| `:hQ#` | 1 byte | `1` accepted | `SetParkAsync` (`IMountDriver`, `CanSetPark`) | nothing |
 | `:TQ#` `:TL#` `:TS#` `:TK#` | none read | | `SetTrackingSpeedAsync`: sidereal, lunar, solar, King | the base sends `:TQ#` for solar and has no King |
 | `#` (bare) | none | | first command of a connect | clears a half-sent command a discovery probe of another family left in OnStep's buffer, which would otherwise read `:GVP#` as its tail and swallow it |
 | `:SC` `MM/dd/yy#` then `:SL` `HH:mm:ss#`, with `:GG#` first | 1 byte each: `1` valid, `0` invalid | `1` is success, else throws | `SetUTCDateAsync`, on every connect (a failure is logged, the connect goes on) | the base's `:SL` / `:SG`. The local time is UTC minus the mount's own `:GG#` offset (hours ADDED to local to give UTC), which is left as it is; `:SC` is followed by Meade's "Updating Planetary Data" lines, which are discarded before `:SL`. The TeeSeek's clock sat 11 hours off |
@@ -300,8 +300,6 @@ and the `:St` / `:Sg` bytes of a northern and a southern site.
 - **The step counts reach the guider and are thrown away.** `GetWormPeriodStepsAsync` answers `0` and
   `GuideLoop` computes a periodic-error phase only when it is positive, so on OnStep every guide frame pays
   two extra round trips (`:GX44#`, `:GX45#`) and the phase stays `NaN`.
-- **`CanSetPark` is `true` with nothing to call.** `SetParkAsync` is not on `IMountDriver`, and the Alpaca
-  plane answers `cansetpark` from the flag but has no `setpark` member.
 - **The device id changes with the firmware version**, since it includes the `:GVN#` product number.
 - **A dead TCP link leaves the driver `Connected`.** `TcpSerialConnection` sets `IsOpen = false` on a fault and
   every later read returns `null`, but nothing clears `DeviceDriverBase.Connected`, and `ResilientCall`

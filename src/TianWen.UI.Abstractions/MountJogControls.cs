@@ -76,8 +76,9 @@ internal static class MountJogControls
     {
         var (fontSize, rowHeight, buttonBg, glyphText) = (look.FontSize, look.RowHeight, look.ButtonBg, look.GlyphText);
 
+        // A mark is the baked icon FormRowLayout.StepMark resolves, never a symbol in a text run (font coverage).
         Layout.Node Step(string glyph, string hit, Action press)
-            => Layout.Builder.Text(glyph, fontSize, glyphText, TextAlign.Center, TextAlign.Center)
+            => FormRowLayout.StepMark(glyph, fontSize, glyphText)
                 .WFixed(rowHeight * 1.4f).HStar().Bg(buttonBg).BgHover(GuiTheme.Hover(buttonBg))
                 .Clickable(new HitResult.ButtonHit(hit), _ => press());
 

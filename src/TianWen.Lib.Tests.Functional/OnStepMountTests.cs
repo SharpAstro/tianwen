@@ -24,6 +24,27 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
             ["port"] = "OnStep"
         });
 
+    // OnStep refuses a goto with the :MS# digit ALONE, named by OnStep's own codes ("below the horizon limit", where Meade's
+    // table says "below horizon limit"), and the port takes the next command. The hang this fixed (waiting for Meade's
+    // #-terminated message held the port's lock until the node restarted, #1916) needs a port that BLOCKS on an empty read,
+    // which the fake does not: it answers nothing at once, so this pins the wording and the free port, not the hang.
+    [Theory(Timeout = 60_000)]
+    [InlineData(-37.8743502, 145.1668205, 80.0)]
+    [InlineData(48.2, 16.3, -80.0)]
+    public async Task GivenOnStepWhenAGotoIsRefusedTheRefusalIsInOnStepsWordsAndThePortIsFree(double siteLat, double siteLong, double belowHorizonDec)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = MakeDevice(siteLat, siteLong);
+        var fakeExternal = new FakeExternal(outputHelper);
+        await using var mount = new FakeOnStepMountDriver(device, fakeExternal.BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+
+        var refused = await Should.ThrowAsync<InvalidOperationException>(() => mount.BeginSlewRaDecAsync(6.0, belowHorizonDec, ct).AsTask());
+
+        refused.Message.ShouldContain("below the horizon limit");
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse("the port is free for the next command");
+    }
+
     [Theory(Timeout = 60_000)]
     [InlineData(-37.8743502, 145.1668205)]
     [InlineData(25.28022, 110.29639)]

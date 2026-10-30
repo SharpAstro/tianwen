@@ -66,7 +66,8 @@ public class SessionPersistenceTests(ITestOutputHelper output)
                 MosaicOverlap: 0.3,
                 MosaicMargin: 0.15,
                 ConditionDeteriorationThreshold: 0.7f,
-                ConditionRecoveryTimeout: TimeSpan.FromMinutes(20))
+                ConditionRecoveryTimeout: TimeSpan.FromMinutes(20),
+                UnparkMount: false)
         };
         original.InitializeFromProfile(profile);
 
@@ -99,6 +100,30 @@ public class SessionPersistenceTests(ITestOutputHelper output)
         c.MosaicMargin.ShouldBe(0.15);
         c.ConditionDeteriorationThreshold.ShouldBe(0.7f);
         c.ConditionRecoveryTimeout.ShouldBe(TimeSpan.FromMinutes(20));
+        c.UnparkMount.ShouldBeFalse("Unpark Mount turned off for a small dome must stay off across a restart");
+    }
+
+    [Fact]
+    public async Task GivenFileSavedBeforeUnparkMountWhenLoadThenItStaysOn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var profile = CreateTestProfile();
+
+        var state = new SessionTabState();
+        state.InitializeFromProfile(profile);
+        await SessionPersistence.SaveAsync(state, profile, external, ct);
+
+        // Rewrite the file as one saved before the setting existed: no UnparkMount field.
+        var path = System.IO.Path.Combine(external.AppDataFolder.FullName, "Session", profile.ProfileId.ToString("D") + ".json");
+        var json = await System.IO.File.ReadAllTextAsync(path, ct);
+        var old = System.Text.RegularExpressions.Regex.Replace(json, @",?\s*""UnparkMount""\s*:\s*(true|false)", "");
+        old.ShouldNotBe(json);
+        await System.IO.File.WriteAllTextAsync(path, old, ct);
+
+        var restored = new SessionTabState();
+        (await SessionPersistence.TryLoadAsync(restored, profile, external, ct)).ShouldBeTrue();
+        restored.Configuration.UnparkMount.ShouldBeTrue();
     }
 
     [Fact]

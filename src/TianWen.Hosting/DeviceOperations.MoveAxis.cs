@@ -114,9 +114,8 @@ internal sealed partial class DeviceOperations
         var motion = new AxisMotion(now);
         motion.Set(axis, rate);
         _axisMotions[uri.DeviceKey] = motion;
-        return Start(MoveAxisJob, uri, name, async (step, ct) =>
+        return Start(MoveAxisJob, uri, name, $"Moving {name}'s axes", async (step, ct) =>
         {
-            step.Report($"Moving {name}'s axes");
             var lapsed = false;
             try
             {

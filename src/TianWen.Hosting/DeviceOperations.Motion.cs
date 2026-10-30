@@ -62,9 +62,8 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail($"{name} moves {focuser.TravelInWords}");
         }
 
-        return Start(MoveJob, uri, name, async (step, ct) =>
+        return Start(MoveJob, uri, name, $"Moving {name} to {target}", async (step, ct) =>
         {
-            step.Report($"Moving {name} to {target}");
             try
             {
                 await focuser.BeginMoveAsync(target, ct);
@@ -153,9 +152,8 @@ internal sealed partial class DeviceOperations
 
         var filter = FilterChange.NameOf(filters, position);
         Uri[] moved = focuserUri is { } f ? [uri, f] : [uri];
-        return Start(FilterJob, uri, name, async (step, ct) =>
+        return Start(FilterJob, uri, name, capture is null ? $"Turning {name} to {filter}" : $"Stopping the planetary capture's stream and turning {name} to {filter}", async (step, ct) =>
         {
-            step.Report(capture is null ? $"Turning {name} to {filter}" : $"Stopping the planetary capture's stream and turning {name} to {filter}");
             if (!DeviceLeaseSet.TryAcquire(hub, moved, FilterChangeOwner, out var claim, out var verdict))
             {
                 throw new InvalidOperationException(verdict.Describe());
@@ -221,7 +219,7 @@ internal sealed partial class DeviceOperations
         var name = NameOf(uri);
         var target = request.Name ?? $"RA {ra:F3} h, Dec {dec:F2} deg";
         var minAltitude = request.MinAltitudeDegrees ?? 10;
-        return Start(SlewJob, uri, name, async (step, ct) =>
+        return Start(SlewJob, uri, name, $"Slewing to {target}", async (step, ct) =>
         {
             try
             {
@@ -266,9 +264,8 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot park");
         }
 
-        return Start(ParkJob, uri, name, async (step, ct) =>
+        return Start(ParkJob, uri, name, $"Parking {name}", async (step, ct) =>
         {
-            step.Report($"Parking {name}");
             try
             {
                 await mount.ParkAsync(ct);
@@ -304,9 +301,8 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot unpark");
         }
 
-        return Start(UnparkJob, uri, name, async (step, ct) =>
+        return Start(UnparkJob, uri, name, $"Unparking {name}", async (step, ct) =>
         {
-            step.Report($"Unparking {name}");
             await mount.UnparkAsync(ct);
             return $"{name} unparked";
         });
@@ -325,9 +321,8 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot go home by itself");
         }
 
-        return Start(HomeJob, uri, name, async (step, ct) =>
+        return Start(HomeJob, uri, name, "Going home", async (step, ct) =>
         {
-            step.Report("Going home");
             try
             {
                 await GoHomeAsync(mount, name, "home", ct);
@@ -375,7 +370,16 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<string>.Fail($"{name} cannot set its park position");
         }
 
-        await mount.SetParkAsync(cancellationToken);
+        try
+        {
+            await mount.SetParkAsync(cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A driver that says CanSetPark and then fails answers in words, never a bare 500.
+            logger.LogWarning(ex, "SetPark failed on {Mount}", name);
+            return ResponseEnvelope<string>.Fail($"{name} did not set its park position: {ex.Message}");
+        }
         return ResponseEnvelope<string>.Ok($"{name}: park position set to where it points now");
     }
 
@@ -401,9 +405,8 @@ internal sealed partial class DeviceOperations
         }
 
         var (direction, arcsec) = (request.Direction, request.Arcsec);
-        return Start(NudgeJob, uri, name, async (step, ct) =>
+        return Start(NudgeJob, uri, name, $"Nudging {name} {direction} by {arcsec:F0} arcsec", async (step, ct) =>
         {
-            step.Report($"Nudging {name} {direction} by {arcsec:F0} arcsec");
             if (await MountNudge.PulseArcsecAsync(mount, direction, arcsec, logger: logger, cancellationToken: ct) is not { } pulse)
             {
                 throw new InvalidOperationException($"{name} reports no {direction} guide rate, so no pulse could be sized");

@@ -327,11 +327,6 @@ internal partial record Session
     }
 
     /// <summary>
-    /// Does one-time (per session) initialisation, e.g. connecting, unparking
-    /// </summary>
-    /// <param name="cancellationToken"></param>
-    /// <returns>True if initialisation was successful.</returns>
-    /// <summary>
     /// Why this run may not unpark <paramref name="mount"/>, or null when it may: only a run is ever allowed to, and only with
     /// <see cref="SessionConfiguration.UnparkMount"/> on. A goto or Home never unparks (<c>MountGoto.IsParkedAsync</c>).
     /// </summary>
@@ -371,6 +366,12 @@ internal partial record Session
         return true;
     }
 
+    /// <summary>
+    /// Does one-time (per session) initialisation: connecting, the site, the cameras. A parked mount is only CHECKED here
+    /// (<see cref="ParkedMountRefusal"/>); <see cref="UnparkForRunAsync"/> unparks it at the run's first move.
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns>True if initialisation was successful.</returns>
     internal async ValueTask<bool> InitialisationAsync(CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;

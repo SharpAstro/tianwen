@@ -41,9 +41,8 @@ internal sealed partial class DeviceOperations
 
         var target = CameraCoolingRamp.TargetOf(request.SetpointC);
         var ramp = request.MaxRateCPerMinute ?? new SessionConfiguration().CooldownMaxRate;
-        return Start(CoolJob, uri, name, async (step, ct) =>
+        return Start(CoolJob, uri, name, $"Cooling {name} to {target:F0} °C", async (step, ct) =>
         {
-            step.Report($"Cooling {name} to {target:F0} °C");
             return await hub.CoolToSetpointAsync(uri, target, ramp, timeProvider, logger, ct)
                 ? $"{name} at {target:F0} °C"
                 : $"{name} stopped short of {target:F0} °C";
@@ -59,9 +58,8 @@ internal sealed partial class DeviceOperations
         }
 
         var name = NameOf(uri);
-        return Start(WarmJob, uri, name, async (step, ct) =>
+        return Start(WarmJob, uri, name, $"Warming {name}", async (step, ct) =>
         {
-            step.Report($"Warming {name}");
             await hub.WarmAndCoolerOffAsync(uri, timeProvider, logger, ct);
             return $"Warmed {name}; cooler off";
         });

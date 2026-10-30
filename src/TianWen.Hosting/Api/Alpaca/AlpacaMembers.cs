@@ -138,6 +138,7 @@ namespace TianWen.Hosting.Api.Alpaca
 
             new("park", AlpacaMember.Action(Do<IMountDriver>((m, _, ct) => m.ParkAsync(ct)))),
             new("unpark", AlpacaMember.Action(Do<IMountDriver>((m, _, ct) => m.UnparkAsync(ct)))),
+            new("setpark", AlpacaMember.Action(Do<IMountDriver>((m, _, ct) => m.SetParkAsync(ct)))),
             new("abortslew", AlpacaMember.Action(Do<IMountDriver>((m, _, ct) => m.AbortSlewAsync(ct)))),
             new("slewtocoordinatesasync", AlpacaMember.Action(Do<IMountDriver>((m, p, ct) =>
                 m.BeginSlewRaDecAsync(p.Double("RightAscension"), p.Double("Declination"), ct)))),
