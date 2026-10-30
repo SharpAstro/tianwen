@@ -53,7 +53,6 @@ namespace TianWen.UI.Abstractions
         private const string RawLabel = "Raw";
         private const string LiveLabel = "Live";
         private const string LivePendingLabel = "Live...";
-                
         // Every word a segment can take: a live capture offers Raw and Live, a SER also the Full stack's stage words.
         private static readonly string[] LiveViewLabels = [RawLabel, LiveLabel, LivePendingLabel];
         private static readonly string[] SerViewLabels = [.. LiveViewLabels, .. ViewerState.AutoSegmentLabels];

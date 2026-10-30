@@ -374,6 +374,10 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TheViewSwitchReadsRawStackLiveAndFull()
         {
+            // Auto stays in the Enhance panel's rows; no string naming these views says it.
+            ViewerState.AutoShowsFramesWording.ShouldNotContain("Auto");
+            ViewerShortcuts.AutoView.Description.ShouldNotContain("Auto");
+
             var live = new TextCapturingRenderer(SurfaceW, SurfaceH);
             var (liveViewer, _) = NewSequenceViewer(sequencePath: null, live);
             var liveWords = live.Texts.Select(static t => t.Text).ToArray();

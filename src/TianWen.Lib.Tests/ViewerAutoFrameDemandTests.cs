@@ -41,7 +41,7 @@ public class ViewerAutoFrameDemandTests
         e2e.Frame();
         e2e.Controller.Source.ShouldNotBeNull().ShouldNotBeOfType<LiveStackPreviewSource>("the raw frame, not a previous stack");
         e2e.State.AutoShowsFrames.ShouldBeTrue();
-        ViewerState.AutoShowsFramesWording.ShouldBe("Showing the frames while Auto stacks");
+        ViewerState.AutoShowsFramesWording.ShouldBe("Showing the frames while Full stacks");
 
         var playhead = e2e.State.FrameIndex;
         var raw = e2e.Controller.Source.ShouldBeOfType<SerPreviewSource>();
