@@ -47,7 +47,8 @@ releasing it only after restoring the mount. Every new kind of run owes the same
   nobody to leave the rig to); with a run going on, "Leave the rig running" (the default) or
   "Stop the rig and quit"; with devices connected and no run, "Disconnect" (the default, which the node finishes
   after the window has gone) or "Leave connected", and it says "Warm up and disconnect" only while a camera needs it
-  (`CameraReading.NeedsWarmUp`: its cooler on and its sensor below the heat sink, the rule the node's ramp asks too, so
+  (`CameraReading.NeedsWarmUp`: its cooler on and its sensor below the resolved warm-up target, `WarmUpTarget.Resolve`:
+  the heat sink, else the settled pre-cool sensor reading, else +25 C (#1842); the rule the node's ramp asks too, so
   an uncooled camera is never ramped). The question is `LiveSessionState.QuitDialog`
   on this computer's view, drawn by both Live Session tabs over everything (Enter the default, its letter the
   other, Escape stays). Every quit cancels the host's OWN background work first (a separate token from the

@@ -138,8 +138,9 @@ public static class CameraCoolingRamp
             if (double.IsNaN(ccdTemp))
             {
                 // A start that cannot be read says nothing of the drop: plan the long one, never a degree, or the cap would
-                // let a whole cool-down go after a minute.
-                if (target.Kind is SetpointTempKind.Normal)
+                // let a whole cool-down go after a minute. Keyed on THIS camera's target: a session warm-up passes Ambient
+                // ramp-wide and a Normal target for a camera with no heat sink, which must not be let go after five minutes.
+                if (cameraTarget.Kind is SetpointTempKind.Normal)
                 {
                     maxDelta = Math.Max(maxDelta, UnknownDropC);
                 }

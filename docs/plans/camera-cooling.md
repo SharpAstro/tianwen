@@ -71,7 +71,7 @@ warming the camera it holds does), its cooler-off at the end, and the cooler int
 Issue: #1840.
 
 **Shipped, the ramp side (#1840).** `CameraCoolingRamp` now does the whole warm-up any host needs. An ambient target with no
-usable heat sink resolves to `CameraReading.WarmUpTargetC(NaN)`, the +25 C fallback, in `ICameraDriver.CoolToSetpointAsync`
+usable heat sink resolves through `WarmUpTarget.Resolve` (the settled pre-cool reading, else the +25 C fallback, #1842) in `ICameraDriver.CoolToSetpointAsync`
 (it was NaN, which made the camera "not coolable", so a session never warmed a heatsinkless camera at all). A warm-up ends
 once the cooler is no longer holding the sensor down: power at or below `CameraCoolingRamp.WarmUpPowerThreshold` (1 %) for
 the ramp's consecutive-step count, whatever the sensor reads, so the QHY294PROC case of 2026-10-26 (15 minutes stepping at 0 %

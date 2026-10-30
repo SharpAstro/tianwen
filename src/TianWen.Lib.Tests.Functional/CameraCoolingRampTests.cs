@@ -325,6 +325,35 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         took.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMinutes(25 / rate) - OneStep);
     }
 
+    /// <summary>
+    /// #1842: a session warm-up passes Ambient ramp-wide and a Normal target for a camera with no heat sink. An unreadable
+    /// start on that camera must plan the long walk from ITS target, not the ramp-wide one, or a whole-degree camera warming
+    /// -10 C to +12 C (about 11 minutes at 2 C/min) is let go at the five minute minimum cap, near 0 C.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AnUnreadableStartOnAPerCameraNormalTargetPlansTheLongWalk()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await ConnectedCameraAsync(ct);
+        camera.MakeWholeDegreeSetpoint();
+        camera.MakeHeatsinkless(ambientC: 25, sensorCannotPassAmbient: true);
+        await SettleAtAsync(camera, -10, ct);
+        camera.MakeNextTemperatureReadsUnreadable(1, throws: false);
+        const double rate = 2.0;
+        var sleeps = new List<TimeSpan>();
+        var logger = new WarningLogger(FakeExternal.CreateLogger(output));
+
+        await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rate,
+            CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up, EquipmentWarmUpTests.RecordingClock(sleeps), logger,
+            afterStep: null, onSensorAmbient: null, targets: [new SetpointTemp(12, SetpointTempKind.Normal)], ct);
+
+        var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
+        output.WriteLine($"-10 C to +12 C with an unreadable start took {took.TotalMinutes:F2} min");
+        logger.Warnings.ShouldNotContain(w => w.Contains("safety cap"));
+        took.ShouldBeGreaterThan(CameraCoolingRamp.MinimumSafetyCap + TimeSpan.FromMinutes(3), "well past the five minute minimum cap");
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(12, 1.0, "the sensor reached its target, not let go cold");
+    }
+
     /// <summary>#1839: a rate that is not finite, or not above zero, is the direction's default, checked once in the ramp for every caller.</summary>
     [Theory(Timeout = 60_000)]
     [InlineData(double.NaN, SetupointDirection.Down)]

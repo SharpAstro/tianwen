@@ -41,10 +41,13 @@ internal partial record Session
             var resolved = WarmUpTarget.Resolve(heatsink, preCool);
             _logger.LogInformation("Warming {Camera} to {TargetC:F1} C: {Source}", camera.Device.DeviceUri, resolved.TempC, resolved.Describe());
             var current = await PollDriverReadAsync(camera.Driver, camera.Driver.GetCCDTemperatureAsync, double.NaN, CancellationToken.None);
-            if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink, preCool))
+            // A cooler that reads off is held, never switched on to ramp (the hub's WarmCameraAsync skips it the same way);
+            // one that cannot be read is assumed on, so a cold sensor is never left unwarmed.
+            var coolerOn = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanGetCoolerOn, camera.Driver.GetCoolerOnAsync, true, CancellationToken.None);
+            if (!CameraReading.NeedsWarmUpFrom(coolerOn, current, heatsink, preCool))
             {
                 // Held at the sensor's own reading, so the ramp's steps and its "all at ambient" exit see nothing to do.
-                _logger.LogInformation("Camera {Camera} reads {Current:F1} C, already at its warm-up target", camera.Device.DeviceUri, current);
+                _logger.LogInformation("Camera {Camera} reads {Current:F1} C with its cooler {Cooler}, nothing to warm", camera.Device.DeviceUri, current, coolerOn ? "on" : "off");
                 targets[i] = new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD);
                 labels[i] = "already warm";
                 continue;

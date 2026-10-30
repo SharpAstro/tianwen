@@ -160,13 +160,27 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task ASettledReadingBeforeCoolingEndsTheRampAtOnce()
     {
-        var (camera, hub, sleeps, clock) = NoHeatSinkRig(11.5, new SensorAmbientReading(12.0, true, DateTimeOffset.UnixEpoch));
+        // A real ramp (FakeCameraDriver, not a substitute, whose default interface methods would end any ramp on its first
+        // pass): cooler on, the sensor held at 11.5 C, and 12.0 C settled before cooling. Only the "already at its target"
+        // check keeps the ramp from walking the setpoint toward 12 C.
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var hub = external.BuildServiceProvider().GetRequiredService<IDeviceHub>();
+        var device = new FakeDevice(DeviceType.Camera, 1);
+        var camera = (FakeCameraDriver)await hub.ConnectAsync(device, ct);
+        camera.MakeHeatsinkless(ambientC: 18, sensorCannotPassAmbient: true);
+        await camera.SetSetCCDTemperatureAsync(11.5, ct);
+        await camera.SetCoolerOnAsync(true, ct);
+        for (var i = 0; i < 40; i++) await camera.GetCCDTemperatureAsync(ct);
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(11.5, 0.2, "the sensor sits at its setpoint before the warm-up");
+        hub.SetPreCoolReading(device.DeviceUri, new SensorAmbientReading(12.0, true, DateTimeOffset.UnixEpoch));
 
-        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output), force: false, TestContext.Current.CancellationToken);
+        var sleeps = new List<TimeSpan>();
+        await hub.WarmAndCoolerOffAsync(device.DeviceUri, RecordingClock(sleeps), FakeExternal.CreateLogger(output), ct);
 
         sleeps.ShouldBe([TimeSpan.FromSeconds(2)], "no step to wait for, only the settle after the cooler goes off");
-        await camera.DidNotReceive().SetSetCCDTemperatureAsync(Arg.Any<double>(), Arg.Any<CancellationToken>());
-        await camera.Received(1).SetCoolerOnAsync(false, Arg.Any<CancellationToken>());
+        (await camera.GetSetCCDTemperatureAsync(ct)).ShouldBe(11.5, "the setpoint was never stepped");
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeFalse();
     }
 
     [Fact(Timeout = 30_000)]
