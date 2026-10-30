@@ -32,6 +32,9 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.MakeHeatsinkless(CameraReading.WarmUpFallbackTargetC, sensorCannotPassAmbient: false);
+        // The cooler on before the cool-down, so no sensor reading is taken first (#1842) and nothing better than the
+        // fallback is known.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
 
         await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), FastRate, 80, SetupointDirection.Down, ct);
         var cooled = await ctx.Camera.GetCCDTemperatureAsync(ct);
@@ -78,6 +81,8 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         const double rate = 2.0;
         var maxStep = rate * OneStep.TotalMinutes;
 
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for a minute before it ramps (#1842), and this times the ramp alone.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
         var start = ctx.TimeProvider.GetUtcNow();
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(0, SetpointTempKind.Normal), rate, 80, SetupointDirection.Down, ct);
         var took = ctx.TimeProvider.GetUtcNow() - start;
@@ -97,6 +102,8 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for a minute before it ramps (#1842), and this times the ramp alone.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
         var start = ctx.TimeProvider.GetUtcNow();
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(17, SetpointTempKind.Normal), 10.0, 80, SetupointDirection.Down, ct);
         var took = ctx.TimeProvider.GetUtcNow() - start;
@@ -156,6 +163,8 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         const double rate = 2.0;
 
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for a minute before it ramps (#1842), and this times the ramp alone.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
         var start = ctx.TimeProvider.GetUtcNow();
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(18, SetpointTempKind.Normal), rate, 80, SetupointDirection.Down, ct);
         var took = ctx.TimeProvider.GetUtcNow() - start;
