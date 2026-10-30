@@ -994,7 +994,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   - **A colour master of Jupiter or Saturn is balanced to the planet's own colour AFTER the sharpening**
     (`PlanetaryColourBalance`, #1212, `PlanetaryLiveLimb.Balance`; Saturn's globe where its rings leave it clear,
     #1235), never a saturation about grey; **saturation 1.1 by default, the colour contrast the twins' truth says the blur
-    took, 1.4 an option** (`DefaultSaturation`, `EyeSaturation`, `--colour-saturation`, #1664; the Enhance panel's `Truth 1.1` / `Eye 1.4` stops, `ViewerState.PlanetaryColourSaturation`, taken by the next Auto stack and Derive, dim on a mono source, #1880), **and the white point the planet's
+    took, 1.4 an option** (`DefaultSaturation`, `EyeSaturation`, `--colour-saturation`, #1664; the Enhance panel's `Truth 1.1` / `Eye 1.4` stops, `ViewerState.PlanetaryColourSaturation`, taken by the next Full stack and Derive, dim on a mono source, #1880), **and the white point the planet's
     own, grey an option** (`--white-point neutral`, `CBALWP`). **The balance goes through the camera's own matrix by default, found ONCE by the camera the
     master's `INSTRUME` names** (`PlanetaryColourBalance.CameraColourAsync`, `CBALCAM`, #1279; `--colour-matrix none` is the
     balance before): a stack carries its SER's camera into `INSTRUME` (`IPlanetaryFrameStream.Camera`), and a camera with no

@@ -182,7 +182,8 @@ an addition now has to displace something. Say NO CHANGE and why, if so.
 
 Unreviewed for this release. The queue, unchanged through 10.0.3416: auto-crop to
 the covered area; A/B and blink; Explorer thumbnails for FITS and SER; stacking a
-planetary SER capture in one key (the Full view, named Auto in 10.0.3416, added as a candidate in 10.0.3416).
+planetary SER capture in one key (the Full view, named Auto in 10.0.3416, added as a
+candidate in 10.0.3416).
 
 
 SUBMISSION
