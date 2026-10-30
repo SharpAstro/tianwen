@@ -152,6 +152,12 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// </summary>
     public DateTimeOffset? PublishedAt { get; private set; }
 
+    /// <summary>
+    /// True when the masters follow a stream (a SER's rolling window, or a node's run), false for one master opened as a file
+    /// (<see cref="FixedMaster"/>, the Auto view's layer), which was built at no playhead and has no age worth showing.
+    /// </summary>
+    public bool FollowsStream => _masters is not FixedMaster;
+
     /// <summary>How many published masters were drawn outside the limb a derivation kept (#1201). Render thread only; for tests.</summary>
     internal int MastersDrawnOutsideTheLimb { get; private set; }
 

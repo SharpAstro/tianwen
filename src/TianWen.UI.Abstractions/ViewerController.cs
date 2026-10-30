@@ -1946,8 +1946,34 @@ public sealed class ViewerController(
         // timeout -- without this, a re-sharpen kicked by a slider drag would not be displayed until the
         // next mouse event (the "doesn't live adjust while paused" symptom). IsBusy self-clears on publish,
         // so this briefly spins for the ~task duration, then the loop idles again.
-        return rawPublished || masterPublished || _player.SeekPending
+        // Evaluated before the short-circuiting returns below, or a tick that published would leave the line a master behind.
+        var builtLineChanged = UpdateLiveStackBuiltLine(bestOnShow);
+        return rawPublished || masterPublished || builtLineChanged || _player.SeekPending
             || (state.ShowStacked && _liveSource is { IsBusy: true }) || batch?.Layer is { IsBusy: true };
+    }
+
+    /// <summary>
+    /// Words the live rolling stack's built-at line for the strip (#1881) while that view is on show, and clears it for every other
+    /// (Raw, the Auto view's fixed master). Returns true when the wording changed, which is the only time the strip needs a frame: the
+    /// age rolls on a whole second, then on a whole minute, so an idle strip is redrawn once a second at most and never per frame.
+    /// </summary>
+    private bool UpdateLiveStackBuiltLine(bool bestOnShow)
+    {
+        string? line = null;
+        if (!bestOnShow && state.ShowStacked && _liveSource is { HasMaster: true, FollowsStream: true } live)
+        {
+            var built = live.BuiltFrame;
+            DateTimeOffset? stamp = live.HasTimestamps && built >= 0 && live.TimestampOf(built) is var t && t != DateTimeOffset.MinValue ? t : null;
+            line = InfoPanelData.LiveStackBuiltLine(built, stamp, state.IsSequence ? state.FrameIndex : -1, timeProvider.GetUtcNow(), live.PublishedAt);
+        }
+
+        if (string.Equals(line, state.LiveStackBuiltLine, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        state.LiveStackBuiltLine = line;
+        return true;
     }
 
     // The dials follow the view on show (#1314 part 2): the one leaving keeps what it had, the one coming (a batch view, or null for the

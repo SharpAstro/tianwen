@@ -784,6 +784,13 @@ public sealed class ViewerState
     /// <summary>What the last derivation did, in words: what the gains were derived for, or why none were. Null before any, and after Reset.</summary>
     public string? WaveletDeriveNote { get; set; }
 
+    /// <summary>
+    /// The info strip's one line on the live rolling stack on show: which raw frame its picture was built at and how long ago
+    /// (<see cref="InfoPanelData.LiveStackBuiltLine"/>). Null while another view is on show or no master exists. Written by the
+    /// controller's playback tick, only when its wording changes, so the strip needs no clock of its own.
+    /// </summary>
+    public string? LiveStackBuiltLine { get; set; }
+
     // --- Auto stack (a recorded capture identified and stacked whole, as planetary stack --auto stacks it, #1159, #817) ---
 
     /// <summary>The SER the sequence on screen was opened from; null for any other file. What the Auto stack stacks.</summary>

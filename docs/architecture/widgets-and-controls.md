@@ -518,7 +518,11 @@ toolbar label-width rule: `docs/architecture/widgets-and-controls.md` § The FIT
   RETHROWS a failed load on every frame, so `LoadedCatalog` asks with `TryGet` instead.
 - **The docked info strip REPORTS; it holds no controls.** Statistics collapse to a heading and open as
   a measured-column TABLE (`InfoPanelData.GetStatisticsTable`); controls live in toolbar popovers
-  instead (white balance, tone).
+  instead (white balance, tone). **The live rolling stack adds one wrapped "Live stack" line** (#1881):
+  which raw frame its picture was built at, how far behind the playhead and how old, set on
+  `ViewerState.LiveStackBuiltLine` by the controller's playback tick only while the Live view is on show
+  (never Raw, never the Auto view's `FixedMaster`) and only when its wording changes, so the age costs
+  one redraw a second and the strip needs no clock.
 - **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare.**
   DIR.Lib 10.0 retired the five-obligations-per-panel `IKeyboardClaimant` pattern for a topmost-first
   stack of painted popovers (`WindowUiSettings.PaintedPopovers`). A viewer toolbar button is a node declaring its
