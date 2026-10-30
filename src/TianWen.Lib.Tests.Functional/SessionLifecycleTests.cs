@@ -210,6 +210,46 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine($"Camera: telescope={ctx.Camera.Telescope}, FL={ctx.Camera.FocalLength}, lat={ctx.Camera.Latitude}, lon={ctx.Camera.Longitude}");
     }
 
+    // --- A parked mount: unparked by the run once the wait for dark is over, never during it, and only with UnparkMount on ---
+
+    private static async Task<bool> InitialisationResultAsync(SessionTestContext ctx, CancellationToken ct)
+    {
+        var initTask = ctx.Track(Task.Run(async () => await ctx.Session.InitialisationAsync(ctx.Token), ctx.Token));
+        while (!initTask.IsCompleted && !ct.IsCancellationRequested)
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+        return await initTask;
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AParkedMountStaysParkedThroughInitialisationAndTheRunUnparksItWhenItFirstMovesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await ctx.Mount.ParkAsync(ct);
+
+        (await InitialisationResultAsync(ctx, ct)).ShouldBeTrue();
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeTrue("the evening wait keeps a parked mount parked (a small dome)");
+
+        (await ctx.Session.UnparkForRunAsync(ct)).ShouldBeTrue();
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeFalse("the run unparks it once it first moves it, as N.I.N.A. does on a sequence start");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AParkedMountWithUnparkMountOffEndsTheRunAtItsStartSayingWhy()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, now: WinterNight, configuration: SessionTestHelper.DefaultConfiguration with { UnparkMount = false }, cancellationToken: ct);
+        await ctx.Mount.ParkAsync(ct);
+
+        (await InitialisationResultAsync(ctx, ct)).ShouldBeFalse("a run that may not unpark fails at once, not after hours of waiting for dark");
+        ctx.Session.FailureReason.ShouldNotBeNull().ShouldContain("Unpark Mount is off");
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeTrue();
+    }
+
     /// <summary>
     /// A run's devices connect THROUGH the hub, so a node holds one driver per device (P0b item 11 of
     /// docs/plans/hardware-in-the-server.md, #752). The session connected drivers of its own unless the hub

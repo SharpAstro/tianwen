@@ -808,7 +808,7 @@ internal partial record Session(
                 if (!await InitialisationAsync(cancellationToken))
                 {
                     _logger.LogError("Initialization failed, aborting session.");
-                    _failureReason = "Could not get the equipment ready. Check the log for the step that failed.";
+                    _failureReason ??= "Could not get the equipment ready. Check the log for the step that failed.";
                     SetPhase(SessionPhase.Failed);
                     return;
                 }
@@ -830,6 +830,13 @@ internal partial record Session(
             // when the dusk window has already passed (see TakeSkyFlatsAsync).
             if (Configuration.TakeSkyFlatsAtDusk)
             {
+                // The dusk flats point the mount at the sky, so they are its first move.
+                if (!await UnparkForRunAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    SetPhase(SessionPhase.Failed);
+                    return;
+                }
+
                 SetPhase(SessionPhase.Cooling);
                 await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownMaxRate, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
 
@@ -839,6 +846,13 @@ internal partial record Session(
 
             SetPhase(SessionPhase.WaitingForDark);
             await WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(cancellationToken).ConfigureAwait(false);
+
+            // Unparked only now the wait is over (N.I.N.A. unparks on its sequence start too), never during it.
+            if (!await UnparkForRunAsync(cancellationToken).ConfigureAwait(false))
+            {
+                SetPhase(SessionPhase.Failed);
+                return;
+            }
 
             SetPhase(SessionPhase.Cooling);
             await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownMaxRate, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);

@@ -82,6 +82,7 @@ public sealed class SessionConfigApiDto
     public int? FocusDriftSampleSize { get; init; }
     public int? FocusDriftMinSamples { get; init; }
     public bool? SaveIntermediates { get; init; }
+    public bool? UnparkMount { get; init; }
 
     /// <summary>The configuration: every set field over the declared defaults.</summary>
     public SessionConfiguration ToConfiguration()
@@ -151,6 +152,7 @@ public sealed class SessionConfigApiDto
             FocusDriftSampleSize = FocusDriftSampleSize ?? d.FocusDriftSampleSize,
             FocusDriftMinSamples = FocusDriftMinSamples ?? d.FocusDriftMinSamples,
             SaveIntermediates = SaveIntermediates ?? d.SaveIntermediates,
+            UnparkMount = UnparkMount ?? d.UnparkMount,
         };
     }
 
@@ -219,6 +221,7 @@ public sealed class SessionConfigApiDto
         FocusDriftSampleSize = config.FocusDriftSampleSize,
         FocusDriftMinSamples = config.FocusDriftMinSamples,
         SaveIntermediates = config.SaveIntermediates,
+        UnparkMount = config.UnparkMount,
     };
 
     private static TimeSpan? Seconds(double? seconds) => seconds is { } s ? TimeSpan.FromSeconds(s) : null;

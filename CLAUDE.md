@@ -669,8 +669,10 @@ wait for twilight → `CoolCamerasToSetpointAsync` → `InitialRoughFocusAsync` 
   same question. `docs/plans/slew-less-mount.md`.
 - **A goto or Home never unparks a mount** (the owner, 2026-10-30): on a parked mount it is REFUSED, naming the Unpark step
   (`MountGoto.IsParkedAsync`), since unattended unparking moves hardware nobody may be watching (a tiny dome). Unpark is the
-  operator's own command; **starting a run is the one exception** (`Session` initialisation, a flat run's connect), as N.I.N.A.
-  unparks on sequence start. **Going home is ONE routine, `DeviceOperations.GoHomeAsync`** (the Home button and a goto to the
+  operator's own command. **A run is the one exception, behind `SessionConfiguration.UnparkMount` (on by default, as N.I.N.A.
+  unparks on a sequence start)**: initialisation only CHECKS (and fails at once when the run may not unpark), and
+  `Session.UnparkForRunAsync` unparks at the run's first move, after the wait for dark or before the dusk sky flats, never
+  during the evening wait. **Going home is ONE routine, `DeviceOperations.GoHomeAsync`** (the Home button and a goto to the
   site's pole): it asks NO software horizon limit (home is not an observing position, and near the equator the pole sits under
   any limit) and stops tracking on arrival, where an ordinary goto starts it.
 - **Guider calibration slews to HA −0.5h, EAST of the meridian, NOT west** (`CalibrateGuiderAsync`,

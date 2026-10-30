@@ -269,7 +269,15 @@ public record struct SessionConfiguration(
     /// <para>Costs no exposure time -- every frame here is taken either way -- and roughly
     /// <c>AutoFocusStepCount + 1</c> frames per AF run per OTA plus one or two per target.</para>
     /// </summary>
-    bool SaveIntermediates = false
+    bool SaveIntermediates = false,
+    /// <summary>
+    /// When <c>true</c> (the default, as N.I.N.A. does on a sequence start), a run unparks a parked mount itself, at the
+    /// moment it first needs to move it: once the wait for dark is over, or before the dusk sky flats when
+    /// <see cref="TakeSkyFlatsAtDusk"/> is on. Never earlier, so a mount parked in a small dome stays parked through the
+    /// evening wait. When <c>false</c> a parked mount ends the run at its start, with a reason, since unparking is then
+    /// the operator's own act. A goto or Home never unparks either way (<c>MountGoto.IsParkedAsync</c>).
+    /// </summary>
+    bool UnparkMount = true
 )
 {
     /// <summary>
