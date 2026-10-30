@@ -84,7 +84,8 @@ public static class SessionPersistence
             GuiderRecoveryGrace: dto.GuiderRecoveryGraceMinutes.HasValue
                 ? TimeSpan.FromMinutes(dto.GuiderRecoveryGraceMinutes.Value)
                 : null,
-            SaveIntermediates: dto.SaveIntermediates);
+            SaveIntermediates: dto.SaveIntermediates,
+            UnparkMount: dto.UnparkMount);
 
         // Restore per-OTA camera settings: only if OTA count matches and camera URI matches per slot
         var otas = profile.Data?.OTAs ?? [];
@@ -148,7 +149,8 @@ public static class SessionPersistence
             ConditionRecoveryTimeoutMinutes: config.ConditionRecoveryTimeout?.TotalMinutes,
             GuiderRecoveryGraceMinutes: config.GuiderRecoveryGrace?.TotalMinutes,
             CameraSettings: cameraSettings,
-            SaveIntermediates: config.SaveIntermediates);
+            SaveIntermediates: config.SaveIntermediates,
+            UnparkMount: config.UnparkMount);
     }
 
     private static string GetSessionFilePath(Profile profile, IExternal external)
@@ -184,7 +186,9 @@ public record SessionConfigDto(
     double? ConditionRecoveryTimeoutMinutes,
     PerOtaCameraSettingsDto[] CameraSettings,
     double? GuiderRecoveryGraceMinutes = null,
-    bool SaveIntermediates = false);
+    bool SaveIntermediates = false,
+    // Defaults ON, as SessionConfiguration's does, so a file saved before the setting existed keeps unparking as it did.
+    bool UnparkMount = true);
 
 /// <summary>DTO for per-OTA camera settings.</summary>
 public record PerOtaCameraSettingsDto(sbyte SetpointTempC, int Gain, int Offset, Uri? CameraUri);

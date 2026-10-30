@@ -352,6 +352,12 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
         await PutMethodAsync("park", cancellationToken: cancellationToken);
     }
 
+    /// <summary>Alpaca's <c>setpark</c>: where the mount points now becomes its park position (the Preview's Set park).</summary>
+    public async ValueTask SetParkAsync(CancellationToken cancellationToken)
+    {
+        await PutMethodAsync("setpark", cancellationToken: cancellationToken);
+    }
+
     public async ValueTask UnparkAsync(CancellationToken cancellationToken)
     {
         await PutMethodAsync("unpark", cancellationToken: cancellationToken);
