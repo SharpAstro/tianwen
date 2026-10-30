@@ -142,7 +142,7 @@ public class GuideDarkLibraryTests(ITestOutputHelper output)
 
         // A dark as bright as the whole frame leaves nothing of it, which only the library's correction can do.
         var dark = new float[height, width];
-        Array.Fill(MemoryMarshalSpan(dark), 65000f);
+        MemoryMarshalSpan(dark).Fill(65000f);
         var folder = Path.Combine(library.FolderOf(camera.Name), "2026-06-15");
         Directory.CreateDirectory(folder);
         var meta = new ImageMeta() with
