@@ -1,6 +1,10 @@
 using Shouldly;
 using System;
+using System.Text.Json;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
+using TianWen.RemoteClient;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -53,5 +57,56 @@ public class WarmUpTargetTests
         CameraReading.NeedsWarmUpFrom(coolerOn: true, 11.5, double.NaN, Reading(12.0, settled: true)).ShouldBeFalse();
         CameraReading.NeedsWarmUpFrom(coolerOn: true, 11.5, double.NaN, null).ShouldBeTrue();
         CameraReading.NeedsWarmUpFrom(coolerOn: true, 11.5, double.NaN, Reading(12.0, settled: false)).ShouldBeTrue();
+    }
+
+    // The 2026-10-27 case: a fan-cooled body, no heat sink, the sensor back at the air it started from.
+    private static CameraReading FanCooled(double ccdC, SensorAmbientReading? preCool) => new CameraReading(
+        ccdC, double.NaN, 10, 20, true, CameraState.Idle, true, false, 0, 100, 50, [], 1920, 1080, default) { PreCool = preCool };
+
+    [Fact]
+    public void ASettledReadingReachesTheDtoAndTheClientAgreesWithTheNodeThatNoWarmUpIsNeeded()
+    {
+        var reading = FanCooled(12.0, Reading(12.1, settled: true));
+
+        var dto = CameraDeviceStateDto.FromReading(reading, intent: null);
+
+        dto.WarmUpTargetC.ShouldBe(12.1);
+        dto.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.SettledSensorBeforeCooling);
+        reading.NeedsWarmUp.ShouldBeFalse("the node's ramp");
+        dto.ToReading().NeedsWarmUp.ShouldBeFalse("the client's quit question");
+        FanCooled(-5, Reading(12.1, settled: true)).NeedsWarmUp.ShouldBeTrue();
+        CameraDeviceStateDto.FromReading(FanCooled(-5, Reading(12.1, settled: true)), intent: null).ToReading().NeedsWarmUp.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TheTargetAndItsSourceSurviveTheWire()
+    {
+        var dto = CameraDeviceStateDto.FromReading(FanCooled(12.0, Reading(12.1, settled: true)), intent: null);
+
+        var json = JsonSerializer.Serialize(dto, HostingJsonContext.Default.CameraDeviceStateDto);
+        var read = JsonSerializer.Deserialize(json, HostingJsonContext.Default.CameraDeviceStateDto).ShouldNotBeNull();
+
+        read.WarmUpTargetC.ShouldBe(12.1);
+        read.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.SettledSensorBeforeCooling);
+    }
+
+    [Fact]
+    public void AnOlderNodesCameraReadsAsTheFallback()
+    {
+        var read = JsonSerializer.Deserialize(
+            """{"coolerOn":true,"state":0,"usesGainValue":false,"usesGainMode":false,"gainMin":0,"gainMax":0,"gain":0,"sensorWidth":1,"sensorHeight":1}""",
+            HostingJsonContext.Default.CameraDeviceStateDto).ShouldNotBeNull();
+
+        read.WarmUpTargetC.ShouldBeNull();
+        read.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.Fallback, "a property with a declared default is set, never init");
+        read.ToReading().PreCool.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TheShutdownProgressNamesTheTargetAndWhereItCameFrom()
+    {
+        var dto = CameraDeviceStateDto.FromReading(FanCooled(-5, Reading(12.0, settled: true)), intent: null);
+
+        RigShutdown.WarmingTo(dto).ShouldBe("to 12 C, the sensor before cooling");
     }
 }
