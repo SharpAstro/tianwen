@@ -595,6 +595,9 @@ public sealed class ViewerState
     /// </summary>
     public TianWen.Lib.Imaging.Planetary.PlanetaryIdentity? AutoIdentity { get; set; }
 
+    /// <summary>The frames the Auto run kept of those it graded, which the info strip shows beside <see cref="AutoIdentity"/>; null until the run ends, and for another capture.</summary>
+    public (int Kept, int Graded)? AutoFrames { get; set; }
+
     /// <summary>A SER's view as the transport's switch shows it: the frames, the live rolling stack, or the Auto stack.</summary>
     public PlanetaryView PlanetaryView => ShowAuto ? PlanetaryView.Auto : ShowStacked ? PlanetaryView.Live : PlanetaryView.Frames;
 

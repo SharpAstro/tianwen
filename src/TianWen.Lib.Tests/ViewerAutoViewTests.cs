@@ -45,6 +45,10 @@ public class ViewerAutoViewTests
         e2e.State.WaveletDerived.ShouldBeTrue("its run derived the gains through the telescope it read");
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign).ShouldBe(((int?)254, OpticalDesign.Newtonian), "the panel shows the telescope the run read");
 
+        var strip = InfoPanelData.GetMetadataLines(e2e.Controller.Source.ShouldNotBeNull(), e2e.State);
+        strip.ShouldContain(line => line.StartsWith("Kept: ", StringComparison.Ordinal), "the Auto master's strip says the frames kept of the graded");
+        strip.ShouldContain(line => line.StartsWith("Frames: ", StringComparison.Ordinal), "and keeps the capture's own lines");
+
         // Rule 1: the masters the view wrote are, to the bit, those the routine planetary stack --auto runs writes.
         var viewer = PlanetaryAuto.OutputPaths(e2e.Folder, Path.GetFileNameWithoutExtension(capture));
         var direct = Path.Combine(e2e.Folder, "direct");

@@ -61,6 +61,12 @@ public interface IPreviewSource
     /// </summary>
     float[] MeasuredPerChannelBackground => PerChannelBackground;
 
+    /// <summary>The per-channel statistics of the frame <see cref="StatisticsFrame"/> names, for the statistics table; the source's own statistics by default.</summary>
+    ImageHistogram[] MeasuredChannelStatistics => ChannelStatistics;
+
+    /// <summary>The frame the statistics table describes where that is not always the frame on show (a SER measures the shown frame once it settles); null otherwise.</summary>
+    int? StatisticsFrame => null;
+
     /// <summary>The luminance background measured on this frame; see <see cref="MeasuredPerChannelBackground"/>.</summary>
     float MeasuredLumaBackground => LumaBackground;
 
@@ -70,6 +76,21 @@ public interface IPreviewSource
     /// selected object's panel and the sky behind the frame read it here, so none of them needs a document.
     /// </summary>
     ImageMeta? ImageMeta => null;
+
+    /// <summary>
+    /// What the capture itself says (a SER's header and timestamps), cached by the source when it opened, or null where the
+    /// source is not a recording. The metadata lines read it, so no render ever touches the file.
+    /// </summary>
+    PreviewCapture? Capture => null;
+
+    /// <summary>
+    /// The brightest sample of each statistics channel on the [0, 1] scale the samples are on, for the statistics table's peak
+    /// column, or empty where the source has not measured it. A peak at 1 is a channel that reached the depth's full scale.
+    /// </summary>
+    System.Collections.Immutable.ImmutableArray<float> ChannelPeaks => default;
+
+    /// <summary>The frames the rolling stack holds in its master, where the source is one that folds frames; null otherwise.</summary>
+    int? FramesFolded => null;
 
     /// <summary>
     /// One [0, 1] sample of the current frame, for the pixel readout, which runs on every pointer move. The

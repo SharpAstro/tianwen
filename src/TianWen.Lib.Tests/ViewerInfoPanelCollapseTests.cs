@@ -26,6 +26,10 @@ namespace TianWen.Lib.Tests
     /// button, so the scan finds it; and everything below a rolled-up section moves up by the rows it
     /// no longer draws, which the next heading's y reports. The table's contents are pinned on
     /// <see cref="InfoPanelData.GetStatisticsTable"/> directly.</para>
+    /// <para><b>Drawn in the app's own face, the same file on every runner.</b> The platform's monospace decided where the
+    /// table breaks: a colour frame's five columns fit across the strip in Consolas and not in Linux's DejaVu Sans Mono, so
+    /// on Linux the table went into two and needed 730 design units (770 at 1.5x) where Windows needed 630, and a 700 window
+    /// opened it on one runner only.</para>
     /// </remarks>
     [Collection("UI")]
     public class ViewerInfoPanelCollapseTests
@@ -42,7 +46,7 @@ namespace TianWen.Lib.Tests
                 Width = renderer.Width;
                 Height = renderer.Height;
                 DpiScale = dpiScale;
-                FontPath = FontResolver.ResolveSystemFont();
+                FontPath = OrreryTests.AppFace;
             }
 
             protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
@@ -153,12 +157,13 @@ namespace TianWen.Lib.Tests
 
         /// <summary>
         /// Unpinned, the table opens where the strip has the room for it and everything below, the Cursor readout's room
-        /// included, and rolls up to its heading where it has not; in one frame, at either scale.
+        /// included, and rolls up to its heading where it has not; in one frame, at either scale. In the app's face the open
+        /// table needs 730 design units at 1x and 770 at 1.5x, so 900 has the room and 300 has not.
         /// </summary>
         [Theory]
-        [InlineData(1f, WindowH, true)]
+        [InlineData(1f, 900u, true)]
         [InlineData(1f, 300u, false)]
-        [InlineData(1.5f, WindowH, true)]
+        [InlineData(1.5f, 900u, true)]
         [InlineData(1.5f, 300u, false)]
         public async Task StatisticsOpenWhereTheStripHasTheRoom(float dpiScale, uint designHeight, bool open)
         {
