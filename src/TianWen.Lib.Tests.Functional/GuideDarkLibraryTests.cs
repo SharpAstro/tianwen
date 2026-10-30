@@ -111,7 +111,7 @@ public class GuideDarkLibraryTests(ITestOutputHelper output)
         var bigLight = Flat(160, 120, Pedestal);
         bigLight[10, 10] = 5000f;
         correction.Correct(Light(smallLight), TimeSpan.FromSeconds(1)).GetChannel(0).Data[10, 10].ShouldBeLessThan(10f);
-        correction.Correct(Light(bigLight), TimeSpan.FromSeconds(1)).GetChannel(0).Data[10, 10].ShouldBe(5000f, 6f);
+        correction.Correct(Light(bigLight), TimeSpan.FromSeconds(1)).GetChannel(0).Data[10, 10].ShouldBe(5000f - Pedestal, 6f, "the big frame is not masked there, only dark-subtracted");
     }
 
     [Fact(Timeout = 60_000)]
