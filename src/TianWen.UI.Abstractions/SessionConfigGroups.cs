@@ -195,6 +195,13 @@ namespace TianWen.UI.Abstractions
                         c => FormatNullableTimeSpan(c.MaxWaitForRisingTarget),
                         c => c with { MaxWaitForRisingTarget = StepNullableTimeSpan(c.MaxWaitForRisingTarget, TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15), true) },
                         c => c with { MaxWaitForRisingTarget = StepNullableTimeSpan(c.MaxWaitForRisingTarget, TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15), false) }),
+                    // ON: the run unparks a parked mount once the wait for dark is over (N.I.N.A.'s sequence start); OFF: a
+                    // parked mount ends the run at its start. A goto or Home never unparks either way.
+                    new ConfigFieldDescriptor(
+                        "Unpark Mount", ConfigFieldKind.BoolToggle, "",
+                        c => c.UnparkMount ? "ON" : "OFF",
+                        c => c with { UnparkMount = !c.UnparkMount },
+                        c => c with { UnparkMount = !c.UnparkMount }),
                 ]),
 
                 // The flip settings' first UI. All three in MINUTES of hour angle, the unit the mount safety
