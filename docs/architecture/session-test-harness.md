@@ -260,8 +260,8 @@ issue is about. At 500 ms the target test uses about 41 % of its `Timeout` unloa
   show the fix works under load, because unloaded runs never failed even before.
 
 **The loaded repeat.** Not run on this code. Go-around 2 asked the owner (a pilot ring card) to load the machine with
-about 12 single-thread CPU burners for about 45 minutes beside a temporary 100-run theory; no answer had reached the leg
-when it finished, so no burner ran. The repeat stays owed as tianwen#1923 (opened when the owner declined the load in the
-first flight of this leg), together with the question the measure leg left open: whether a loaded failure still shows
+about 12 single-thread CPU burners for about 45 minutes beside a temporary 100-run theory, and the owner answered no
+(2026-10-30), so no burner ran. The repeat is waived for this leg and moves to tianwen#1923 (opened when the owner first
+declined the load), together with the question the measure leg left open: whether a loaded failure still shows
 the one-frame 26" RA excursion. Until it runs, the fix rests on the re-park timing above and the unloaded repeat, not on a
 loaded result.
