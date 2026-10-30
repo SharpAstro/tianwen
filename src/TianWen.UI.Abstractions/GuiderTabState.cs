@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
@@ -17,6 +18,13 @@ public enum GuiderPlaceholder
     NotGuiding,
     WaitingForGuider
 }
+
+/// <summary>
+/// The guide star chosen on the looped guide camera (#1915): where it was last measured, in frame pixels (0-based, sub-pixel,
+/// the centroid). An immutable value, re-centred on each frame's centroid, which whatever starts guiding on the chosen star
+/// reads (<see cref="GuiderTabState.Selection"/>).
+/// </summary>
+public readonly record struct GuideStarSelection(double X, double Y);
 
 /// <summary>
 /// Shared state for the guider tab. Reads from <see cref="LiveSessionState"/>
@@ -39,7 +47,87 @@ public class GuiderTabState
     public (float[] H, float[] V)? GuideStarProfile { get; private set; }
     public CalibrationOverlayData? CalibrationOverlay { get; private set; }
 
+    /// <summary>What the profile's guide focuser reads (<see cref="LiveSessionState.GuideFocuser"/>); null when none is assigned and connected.</summary>
+    public FocuserReading? GuideFocuser { get; private set; }
+
     public bool NeedsRedraw { get; set; }
+
+    /// <summary>
+    /// The guide star chosen while looping, re-centred on each frame's centroid; null until one is picked. It is kept when the
+    /// star is lost (<see cref="Readout"/> null), so the box stays where the star last was.
+    /// </summary>
+    public GuideStarSelection? Selection { get; private set; }
+
+    /// <summary>What the chosen star reads in the latest looped frame; null with no selection, or when the star is not found.</summary>
+    public GuideStarMeasurement? Readout { get; private set; }
+
+    /// <summary>A press on the frame, to resolve against the next frame (frame pixels); consumed by <see cref="UpdateReadout"/>.</summary>
+    private (double X, double Y)? _pendingPick;
+
+    private bool _pendingAuto;
+
+    /// <summary>Picks the star nearest the frame point <paramref name="x"/>, <paramref name="y"/> (a click, mapped by the viewer).</summary>
+    public void SelectStar(double x, double y)
+    {
+        _pendingPick = (x, y);
+        _pendingAuto = false;
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Picks the brightest unsaturated isolated star (the Auto button).</summary>
+    public void SelectAutoStar()
+    {
+        _pendingAuto = true;
+        _pendingPick = null;
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Drops the selection, its readout and anything not yet resolved.</summary>
+    public void ClearSelection()
+    {
+        _pendingPick = null;
+        _pendingAuto = false;
+        Selection = null;
+        Readout = null;
+        NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Reads the chosen star in the looped <paramref name="source"/>: a pending pick or Auto against the whole frame, else, on
+    /// each <paramref name="isNewFrame"/>, the selection followed into it. A star not found leaves the selection and says so
+    /// through a null <see cref="Readout"/>. The full scale of a preview source is 1: its samples are unit-referred.
+    /// </summary>
+    public void UpdateReadout(IPreviewSource? source, bool isNewFrame)
+    {
+        if (source is not { Width: > 0, Height: > 0 })
+        {
+            return;
+        }
+
+        if (_pendingPick is { } pick)
+        {
+            _pendingPick = null;
+            Readout = GuideStarReadout.Measure(source.GetChannelData(0), source.Width, source.Height, 1f, pick);
+            Selection = Readout is { } picked ? new GuideStarSelection(picked.X, picked.Y) : Selection;
+        }
+        else if (_pendingAuto)
+        {
+            _pendingAuto = false;
+            Readout = GuideStarReadout.Measure(source.GetChannelData(0), source.Width, source.Height, 1f);
+            Selection = Readout is { } auto ? new GuideStarSelection(auto.X, auto.Y) : Selection;
+        }
+        else if (isNewFrame && Selection is { } last)
+        {
+            Readout = GuideStarReadout.Track(source.GetChannelData(0), source.Width, source.Height, 1f, (last.X, last.Y));
+            Selection = Readout is { } tracked ? new GuideStarSelection(tracked.X, tracked.Y) : Selection;
+        }
+        else
+        {
+            return;
+        }
+
+        NeedsRedraw = true;
+    }
 
     /// <summary>
     /// Returns the placeholder reason if guide data cannot be shown, or null if guiding is active.
@@ -65,6 +153,36 @@ public class GuiderTabState
         }
     }
 
+    /// <summary>The node's guiding run, or its memory of the last (the calibration it holds); null before the node has answered.</summary>
+    public GuidingRunView? Run { get; private set; }
+
+    /// <summary>
+    /// Takes what the node's guiding run reports while no session runs (#1915): the guide steps, the RMS, the star and the
+    /// calibration, in the fields the session's own fill, so the graph, the stats and the camera pane's overlays draw them
+    /// as they draw a session's. Called after <see cref="PollFromLiveState"/>, and only with no session going.
+    /// </summary>
+    public void PollFromRun(GuidingRunView? run)
+    {
+        Run = run;
+        if (run is null || IsRunning)
+        {
+            return;
+        }
+
+        GuideSamples = run.Samples;
+        LastGuideStats = run.Stats;
+        GuiderState = run.GuiderState;
+        GuiderSettleProgress = run.Settle;
+        GuideExposure = run.Exposure;
+        GuideStarPosition = run.StarPosition;
+        GuideStarSNR = run.StarSnr;
+        GuideStarProfile = run.Profile;
+        CalibrationOverlay = run.Overlay;
+    }
+
+    /// <summary>Whether a guiding run goes on and has reached the guiding (settling, guiding, lock lost), where the stats and the graph are the story.</summary>
+    public bool IsGuidingRun => Run is { Running: true, Phase: Hosting.Dto.GuidingPhase.Settling or Hosting.Dto.GuidingPhase.Guiding or Hosting.Dto.GuidingPhase.LostLock };
+
     /// <summary>
     /// Polls guide-relevant fields from the shared live session state. Cheap struct copies.
     /// </summary>
@@ -84,5 +202,6 @@ public class GuiderTabState
         GuideStarSNR = live.GuideStarSNR;
         GuideStarProfile = live.GuideStarProfile;
         CalibrationOverlay = live.CalibrationOverlay;
+        GuideFocuser = live.GuideFocuser;
     }
 }

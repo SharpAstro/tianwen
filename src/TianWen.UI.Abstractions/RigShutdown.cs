@@ -127,6 +127,7 @@ public sealed class RigShutdown(ITimeProvider timeProvider, ILogger logger)
         NodeRunKind.Polar => "Restoring the mount after polar alignment",
         NodeRunKind.Planetary => "Stopping the planetary capture",
         NodeRunKind.LiveView => "Stopping the live view",
+        NodeRunKind.Guiding => "Stopping guiding",
         NodeRunKind.Darks => "Stopping the dark library",
         _ => "Stopping the run",
     };
@@ -144,6 +145,8 @@ public sealed class RigShutdown(ITimeProvider timeProvider, ILogger logger)
                 return Of(await client.StopPlanetaryAsync(cancellationToken).ConfigureAwait(false));
             case NodeRunKind.LiveView:
                 return Of(await client.StopLiveViewAsync(cancellationToken).ConfigureAwait(false));
+            case NodeRunKind.Guiding:
+                return Of(await client.StopGuidingAsync(cancellationToken).ConfigureAwait(false));
             case NodeRunKind.Darks:
                 return Of(await client.StopDarkLibraryAsync(cancellationToken).ConfigureAwait(false));
             default:

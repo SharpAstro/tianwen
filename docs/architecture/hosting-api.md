@@ -473,9 +473,26 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
      stack, no recenter, no recording), over the whole sensor at the Preview's binning. It claims only the camera, so the
      focuser and the mount stay free while it runs; its frame is `live` (`FrameSources.LiveView`), sampled and streamed
      as `planetary/live` is, and it ends unwatched as the planetary run does. A still from the camera waits for it to
-     end: the GUI stops it first, since a Canon's Live View and its shutter exclude each other.
+     end: the GUI stops it first, since a Canon's Live View and its shutter exclude each other. Asked for the guide camera
+     (`LiveViewRequestDto.CameraRole = Guider`, #1915) it claims that camera alone, and its frames are also the guider's
+     source (`FrameSources.Guider`).
+   - **Guiding is the fifth** (`POST /api/v1/guider/calibrate`, `POST /api/v1/guider/guide`, `GET` and `DELETE
+     /api/v1/guider/run`, `NodeGuiding`, #1915): the Guider tab's Calibrate, Guide and Stop off the guide-camera loop, with
+     no session. It claims the mount and the guide camera for its life (`DeviceLeaseSet`, owner `guiding`), REPLACES the
+     node's guide-camera loop (the one run it replaces: any other is named, `NodeRuns.AlreadyGoingOn`, a guiding run's
+     own included) carrying the loop's exposure, gain and binning and the client's chosen star (`GuidingRequestDto.StarX`
+     / `StarY`) over, and puts the loop back as it ends: on a stop (the DELETE answers once it has), by itself (a
+     calibration), on a fault, unwatched, and on a start that was refused after the loop had been stopped, which is why
+     everything checkable is checked before. `Calibrate` ends after one calibration and the node keeps the result
+     (`GuidingStateDto.Calibration`: the RA and Dec angles and rates, the orthogonality, the overlay) beside the loop; `Guide`
+     reuses it, or calibrates first. The GET answers the run going on, or the node's memory of the last one; while one goes on
+     it carries the guider as a session's `/guider/info` does (`GuiderStateDto`: state, RMS, the last 300 steps whole each
+     time, the star and its profile), and the run's frames are `FrameSources.Guider`. The POSTs and the DELETE are commands
+     (the node gate lets them through only with control); the GET is a read. PHD2 is refused in words (it owns the
+     camera and chooses its star); through `IGuider`, a guider that cannot calibrate on its own or guide on a chosen star
+     refuses the same way, never guiding on another.
    - **An interactive run stops once nobody watches it** (`INodeRun.EndsUnwatched`, `NodeRunWatch`): polar
-     alignment and a planetary live view are meaningless unseen, so once no client has been PRESENT
+     alignment, a planetary live view and guiding off the loop are meaningless unseen, so once no client has been PRESENT
      (a fresh presence beat, `EventHub.PresentClientCount`, the same rule a prompt waits by) for the detach grace
      (60 s, `NodeRunWatchOptions`), the watch stops it through its own ending and says so in the node's
      notifications. The grace runs from the moment nobody is present, the run's start included; a client back

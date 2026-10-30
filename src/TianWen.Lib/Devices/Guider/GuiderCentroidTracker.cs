@@ -55,6 +55,13 @@ internal sealed class GuiderCentroidTracker
     public int AcquisitionEdgeMargin { get; set; }
 
     /// <summary>
+    /// A star the user chose (frame pixels): acquisition takes the candidate nearest it within
+    /// <see cref="GuideStarReadout.PickRadius"/> and NO other, so a chosen star that is not there fails the acquisition
+    /// rather than locking a different one (#1915). Null (the default) takes the brightest, as before.
+    /// </summary>
+    public (double X, double Y)? PreferredStar { get; set; }
+
+    /// <summary>
     /// Number of stars currently being tracked.
     /// </summary>
     public int TrackedStarCount => _stars.Count;
@@ -212,13 +219,54 @@ internal sealed class GuiderCentroidTracker
         }
     }
 
+    /// <summary>
+    /// Every candidate star in <paramref name="frame"/> above <see cref="MinSNR"/>, brightest peak first, found by the
+    /// same scan acquisition uses (<see cref="FindCandidateStars"/>), for a reader that wants to choose among them itself
+    /// (<see cref="GuideStarReadout"/>). A copy: the tracker's own list is scratch.
+    /// </summary>
+    internal List<(double X, double Y, double Flux, double SNR)> FindStars(float[,] frame)
+    {
+        var found = FindCandidateStars(frame, frame.GetLength(1), frame.GetLength(0));
+        var copy = new List<(double X, double Y, double Flux, double SNR)>(found.Count);
+        foreach (var c in found)
+        {
+            copy.Add((c.X, c.Y, c.Flux, c.SNR));
+        }
+        return copy;
+    }
+
     private GuiderCentroidResult? TryAcquire(float[,] frame, int width, int height)
     {
         // Scan full frame for candidate stars
-        var candidates = FindCandidateStars(frame, width, height);
+        var candidates = FindCandidateStars(frame, width, height, PreferredStar);
         if (candidates.Count == 0)
         {
             return null;
+        }
+
+        if (PreferredStar is { } chosen)
+        {
+            var nearest = -1;
+            var nearestD2 = (double)GuideStarReadout.PickRadius * GuideStarReadout.PickRadius;
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var dx = candidates[i].X - chosen.X;
+                var dy = candidates[i].Y - chosen.Y;
+                if (dx * dx + dy * dy <= nearestD2)
+                {
+                    nearestD2 = dx * dx + dy * dy;
+                    nearest = i;
+                }
+            }
+            if (nearest < 0)
+            {
+                return null;
+            }
+
+            // The scratch list is refilled by the next scan, so it is narrowed to the one in place.
+            var only = candidates[nearest];
+            candidates.Clear();
+            candidates.Add(only);
         }
 
         // Sort brightest-first, but when an acquisition edge margin is set, prefer stars
@@ -281,8 +329,10 @@ internal sealed class GuiderCentroidTracker
         return new GuiderCentroidResult(primary.LastX, primary.LastY, 0, 0, primary.Flux, primary.SNR, _stars.Count);
     }
 
+    /// <param name="near">When set, only peaks within <see cref="GuideStarReadout.PickRadius"/> of it are considered and the scan
+    /// does not stop at a count: a chosen star is found wherever it ranks in the frame, not only among its brightest few.</param>
     /// <returns>The tracker's own candidate list, refilled: valid until the next acquisition.</returns>
-    private List<CandidateStar> FindCandidateStars(float[,] frame, int width, int height)
+    private List<CandidateStar> FindCandidateStars(float[,] frame, int width, int height, (double X, double Y)? near = null)
     {
         var candidates = _candidates;
         candidates.Clear();
@@ -302,6 +352,10 @@ internal sealed class GuiderCentroidTracker
                 if (val > frame[y - 1, x] && val > frame[y + 1, x] &&
                     val > frame[y, x - 1] && val > frame[y, x + 1])
                 {
+                    if (near is { } at && (x - at.X) * (x - at.X) + (y - at.Y) * (y - at.Y) > (double)GuideStarReadout.PickRadius * GuideStarReadout.PickRadius)
+                    {
+                        continue;
+                    }
                     peaks.Add((x, y, val));
                 }
             }
@@ -337,7 +391,7 @@ internal sealed class GuiderCentroidTracker
             }
 
             // Stop early once we have plenty of candidates
-            if (candidates.Count >= _maxStars * 3)
+            if (near is null && candidates.Count >= _maxStars * 3)
             {
                 break;
             }

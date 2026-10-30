@@ -1677,7 +1677,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     internal int VideoBaseSeed { get; set; } = 1234;
 
     /// <inheritdoc/>
-    public bool CanVideoCapture => true;
+    /// <remarks>
+    /// Not the guide camera (#1915): its stream would be the synthetic planet disk above, while the star field the guider
+    /// measures comes only from the exposure path, so a guide-camera loop would show a sky the guider then cannot find. A
+    /// guide camera loops short exposures instead, as any camera without native video does.
+    /// </remarks>
+    public bool CanVideoCapture => !IsGuideCamera;
 
     /// <inheritdoc/>
     // Report ZWO-style alignment (width % 8 == 0, height % 2 == 0, origin on the same steps) so the ROI

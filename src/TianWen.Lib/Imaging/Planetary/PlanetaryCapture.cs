@@ -9,6 +9,7 @@ using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.OpenPHD2;
 using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -24,8 +25,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <param name="HighSpeed">The camera's high-speed readout (<see cref="VideoCaptureOptions.HighSpeedMode"/>); null for on.</param>
 /// <param name="Bin">The binning, which only a whole-sensor window takes (a live view's, at the Preview's binning); a
 /// planetary window is always unbinned.</param>
+/// <param name="GuideCamera">Streams the profile's guide camera (<see cref="ProfileData.GuiderCamera"/>) instead of an OTA's
+/// (<paramref name="OtaIndex"/> is then ignored): the Guider tab's loop (#1915). Refused where the guider owns its camera (PHD2).</param>
 public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exposure, short? Gain, int RoiWidth, int RoiHeight,
-    BitDepth? BitDepth = null, bool? HighSpeed = null, short Bin = 1);
+    BitDepth? BitDepth = null, bool? HighSpeed = null, short Bin = 1, bool GuideCamera = false);
 
 /// <summary>
 /// What a capture's stream runs at, as an interlude starts it again (<see cref="PlanetaryCapture.InterludeAsync"/>): the
@@ -404,24 +407,46 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             refusal = $"A {Name} is already running";
             return false;
         }
-        if (request.OtaIndex < 0 || request.OtaIndex >= profile.OTAs.Length)
+        OTAData? ota = null;
+        Uri cameraUri;
+        if (request.GuideCamera)
         {
-            refusal = $"The profile has no OTA #{request.OtaIndex + 1}";
-            return false;
+            // A URI's host is lower-cased, so the class name is compared without case.
+            if (string.Equals(DeviceBase.DeviceClassOf(profile.Guider), nameof(OpenPHD2GuiderDevice), StringComparison.OrdinalIgnoreCase))
+            {
+                refusal = "PHD2 owns the guide camera, so there is nothing to loop here: loop it in PHD2";
+                return false;
+            }
+            if (profile.GuiderCamera is not { Scheme: not "none" } guideCameraUri)
+            {
+                refusal = "The profile has no guide camera to loop";
+                return false;
+            }
+            cameraUri = guideCameraUri;
         }
-        var ota = profile.OTAs[request.OtaIndex];
-        if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera))
+        else
+        {
+            if (request.OtaIndex < 0 || request.OtaIndex >= profile.OTAs.Length)
+            {
+                refusal = $"The profile has no OTA #{request.OtaIndex + 1}";
+                return false;
+            }
+            var scope = profile.OTAs[request.OtaIndex];
+            ota = scope;
+            cameraUri = scope.Camera;
+        }
+        if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera))
         {
             refusal = $"Connect a camera to start a {Name}";
             return false;
         }
         // What a recording's header says it was taken through (#1179).
-        Volatile.Write(ref _telescopeField, PlanetaryCaptureName.TelescopeField(ota));
+        Volatile.Write(ref _telescopeField, ota is { } through ? PlanetaryCaptureName.TelescopeField(through) : "");
 
         // Claimed for the length of the capture, before the ROI touches the camera: streaming video off a camera a flat
         // run is metering would fight it frame for frame (P0c item 2 of docs/plans/hardware-in-the-server.md). Only the
         // camera: the recenter's nudges ask the gate over the mount instead.
-        if (!DeviceLeaseSet.TryAcquire(hub, [ota.Camera], Name, out var claim, out var verdict))
+        if (!DeviceLeaseSet.TryAcquire(hub, [cameraUri], Name, out var claim, out var verdict))
         {
             refusal = verdict.Describe();
             return false;
@@ -434,7 +459,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             roi = ConfigureRoi(camera, request.RoiWidth, request.RoiHeight, request.Bin);
             if (profile.Mount is { Scheme: not "none" } mountUri && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount))
             {
-                AttachMount(mount, mountUri, hub, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
+                AttachMount(mount, mountUri, hub, ota is { } scope ? CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, scope.FocalLength) : double.NaN);
             }
             else
             {
@@ -1090,41 +1115,69 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             await camera.SetGainAsync(gain, token);
         }
 
-        while (!token.IsCancellationRequested)
+        // An exposure still in flight when the loop ends (a stop, a fault) is aborted as it goes: left exposing, the camera
+        // refuses the next consumer's first exposure, which is what a guide run that replaces a guide-camera loop would meet (#1915).
+        var exposing = false;
+        try
         {
-            await camera.StartExposureAsync(new TimeSpan(Volatile.Read(ref _rapidExposureTicks)), FrameType.Light, token);
-
-            var ready = false;
-            while (!ready)
+            while (!token.IsCancellationRequested)
             {
-                if (token.IsCancellationRequested)
-                {
-                    yield break;
-                }
+                await camera.StartExposureAsync(new TimeSpan(Volatile.Read(ref _rapidExposureTicks)), FrameType.Light, token);
+                exposing = true;
 
-                ready = await camera.GetImageReadyAsync(token);
-                if (!ready)
+                var ready = false;
+                while (!ready)
                 {
-                    var cancelled = false;
-                    try
-                    {
-                        await timeProvider.SleepAsync(_readyPollInterval, token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        cancelled = true;
-                    }
-                    if (cancelled)
+                    if (token.IsCancellationRequested)
                     {
                         yield break;
                     }
+
+                    ready = await camera.GetImageReadyAsync(token);
+                    if (!ready)
+                    {
+                        var cancelled = false;
+                        try
+                        {
+                            await timeProvider.SleepAsync(_readyPollInterval, token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            cancelled = true;
+                        }
+                        if (cancelled)
+                        {
+                            yield break;
+                        }
+                    }
+                }
+
+                var image = await camera.GetImageAsync(token);
+                exposing = false;
+                if (image is not null)
+                {
+                    yield return image;
                 }
             }
-
-            if (await camera.GetImageAsync(token) is { } image)
+        }
+        finally
+        {
+            if (exposing)
             {
-                yield return image;
+                await AbortExposureQuietlyAsync(camera);
             }
+        }
+    }
+
+    private async ValueTask AbortExposureQuietlyAsync(ICameraDriver camera)
+    {
+        try
+        {
+            await camera.AbortExposureAsync(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Aborting {Camera}'s exposure as the capture ended failed", camera.Name);
         }
     }
 

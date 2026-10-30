@@ -46,6 +46,18 @@ public sealed class DarkLibraryRequestDto
     /// <summary>Warm the sensor through the node's ramp and switch its cooler off once the frames are taken (not when the run
     /// is stopped), leaving the camera connected; otherwise the cooler is left held where the run took it.</summary>
     public bool WarmWhenFinished { get; init; }
+
+    /// <summary>
+    /// Which camera of the profile this is (#1915): <see cref="LiveViewCamera.Guider"/> files the frames in the guide camera's
+    /// own dark library, which its loop and its guiding apply; an OTA's camera (the default) keeps the library it always had.
+    /// </summary>
+    public LiveViewCamera CameraRole { get; init; }
+
+    /// <summary>
+    /// Every exposure to take <see cref="Count"/> frames of, in seconds, when there is more than one (a guide camera's library is
+    /// a row per exposure it is looped at). Null or empty takes <see cref="ExposureSeconds"/> alone.
+    /// </summary>
+    public double[]? ExposuresSeconds { get; init; }
 }
 
 /// <summary>
@@ -63,7 +75,13 @@ public sealed class DarkLibraryStateDto
 
     public double ExposureSeconds { get; init; }
 
-    /// <summary>Frames asked for.</summary>
+    /// <summary>Every exposure the run takes, in order (one entry for a single exposure); <see cref="ExposureSeconds"/> is the one in hand.</summary>
+    public double[] ExposuresSeconds { get; set; } = [];
+
+    /// <summary>Whether this is the guide camera's library (<see cref="LiveViewCamera.Guider"/>).</summary>
+    public LiveViewCamera CameraRole { get; init; }
+
+    /// <summary>Frames asked for, per exposure.</summary>
     public int Count { get; init; }
 
     /// <summary>The setpoint the run cools to before its first frame, in °C; null when it shoots at whatever the sensor is.</summary>

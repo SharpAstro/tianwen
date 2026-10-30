@@ -588,6 +588,30 @@ namespace TianWen.RemoteClient
             SendAsync(HttpMethod.Delete, "api/v1/live", null, HostingJsonContext.Default.ResponseEnvelopeLiveViewStateDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>POST /guider/calibrate</c> -- calibrates the guider on the star chosen on the guide-camera loop (#1915), as the node's
+        /// run: it replaces the loop, reports the result in <see cref="GetGuidingAsync"/>, and puts the loop back.
+        /// </summary>
+        public Task<NodeResult<GuidingStateDto>> CalibrateGuiderAsync(GuidingRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/guider/calibrate", request, HostingJsonContext.Default.GuidingRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeGuidingStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /guider/guide</c> -- guides on the chosen star until <see cref="StopGuidingAsync"/>, calibrating first when the
+        /// guider holds no calibration. Replaces the guide-camera loop, which comes back as guiding ends.
+        /// </summary>
+        public Task<NodeResult<GuidingStateDto>> StartGuidingAsync(GuidingRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/guider/guide", request, HostingJsonContext.Default.GuidingRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeGuidingStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /guider/run</c> -- the guiding run going on, or the node's memory of the last one: its calibration and failure.</summary>
+        public Task<NodeResult<GuidingStateDto>> GetGuidingAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/guider/run", HostingJsonContext.Default.ResponseEnvelopeGuidingStateDto, _timeouts.StatePoll, cancellationToken);
+
+        /// <summary><c>DELETE /guider/run</c> -- ends the guiding run going on, answered once it has and the loop is on its way back.</summary>
+        public Task<NodeResult<GuidingStateDto>> StopGuidingAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/guider/run", null, HostingJsonContext.Default.ResponseEnvelopeGuidingStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>POST /preview/ota/{index}/exposure</c> -- a preview exposure with OTA <paramref name="otaIndex"/>'s camera outside a
         /// session, as a job (P5 part 2 of docs/plans/hardware-in-the-server.md). Its frame is then the OTA's, served by
         /// <see cref="GetLatestFrameAsync"/>.

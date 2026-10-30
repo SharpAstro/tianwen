@@ -6,6 +6,7 @@ using System.Threading;
 using DIR.Lib;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
@@ -555,6 +556,15 @@ namespace TianWen.UI.Abstractions
         /// instead of typing the whole number.
         /// </summary>
         public ImmutableArray<TextInputState> FocuserGotoInputs { get; set; } = ImmutableArray<TextInputState>.Empty;
+
+        /// <summary>
+        /// What the profile's guide focuser reads (#1915); null when none is assigned or it is not connected, which is what the
+        /// Guider tab shows its focuser controls on. Laid out from the node's device states (<see cref="RigDevices"/>).
+        /// </summary>
+        public FocuserReading? GuideFocuser { get; set; }
+
+        /// <summary>The guide focuser's goto field, kept across frames like an OTA's in <see cref="FocuserGotoInputs"/>.</summary>
+        public TextInputState GuideFocuserGotoInput { get; } = new TextInputState { Placeholder = "step" };
 
         /// <summary>
         /// Polls the active session and updates cached fields. Call once per frame.

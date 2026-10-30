@@ -185,69 +185,17 @@ namespace TianWen.UI.Abstractions
             rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
 
             // Focuser readout + jog controls (fine +-10, coarse +-100) + goto row
+            // (the one set of controls the Guider tab's guide focuser has too: FocuserControls)
             if (tel.FocuserConnected)
             {
-                var focLabel = $"Foc: {LiveSessionActions.FocusPositionLabel(tel.FocusPosition)}";
-                if (!double.IsNaN(tel.FocuserTempC))
-                {
-                    focLabel += $"  {tel.FocuserTempC:F1}\u00b0C";
-                }
-                if (tel.FocuserIsMoving)
-                {
-                    focLabel += "  \u21c4";
-                }
-                rows.Add(Layout.Builder.Text(focLabel, BaseFontSize, tel.FocuserIsMoving ? StatusSlewing : BodyText).RowH(BaseRowHeight));
-
                 var capturedI = i;
-                var jogBg = GuiTheme.NeutralButtonBg;
-
-                // Jog buttons row: [<<] [<] "10 | 100" [>] [>>] as one HStack.
-                Layout.Node JogBtn(string glyph, string action, int delta) =>
-                    FormRowLayout.StepMark(glyph, BaseFontSize * 0.85f, BodyText)
-                        .WFixed(32f).HStar().Bg(jogBg).BgHover(GuiTheme.Hover(jogBg))
-                        .Clickable(new HitResult.ButtonHit(action), _ => PostSignal(new JogFocuserSignal(capturedI, delta)));
-
-                rows.Add(Layout.Builder.HStack(
-                        JogBtn("\u00ab", $"FocCoarseIn{capturedI}", -100),
-                        JogBtn("\u2039", $"FocFineIn{capturedI}", -10),
-                        Layout.Builder.Text("10 | 100", BaseFontSize * 0.85f * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WStar().HStar(),
-                        JogBtn("\u203a", $"FocFineOut{capturedI}", 10),
-                        JogBtn("\u00bb", $"FocCoarseOut{capturedI}", 100))
-                    .WithGap(2f).RowH(BaseRowHeight));
-
-                // Goto-position row: numeric input pre-filled with the current focuser step + a "Go" button.
-                if (capturedI < state.FocuserGotoInputs.Length)
-                {
-                    var input = state.FocuserGotoInputs[capturedI];
-                    // Pre-filled only with a position the focuser gave: a failed read leaves the field empty.
-                    if (!input.IsActive && string.IsNullOrEmpty(input.Text) && FocuserPositions.IsKnown(tel.FocusPosition))
-                    {
-                        input.Text = tel.FocusPosition.ToString();
-                        input.CursorPos = input.Text.Length;
-                    }
-                    input.OnCommit = text =>
-                    {
-                        if (int.TryParse(text, out var pos))
-                        {
-                            PostSignal(new GotoFocuserSignal(capturedI, pos));
-                        }
-                        return Task.CompletedTask;
-                    };
-
-                    rows.Add(Layout.Builder.HStack(
-                            // One field per OTA, created as the rig reports its focusers.
-                            Layout.Builder.TextInput(input, BaseFontSize * 0.85f).Stretch(),
-                            Layout.Builder.Text("Go", BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                                .WFixed(32f).HStar().Bg(jogBg).BgHover(GuiTheme.Hover(jogBg))
-                                .Clickable(new HitResult.ButtonHit($"FocGoto{capturedI}"), _ =>
-                                {
-                                    if (int.TryParse(input.Text, out var pos))
-                                    {
-                                        PostSignal(new GotoFocuserSignal(capturedI, pos));
-                                    }
-                                }))
-                        .WithGap(4f).RowH(BaseRowHeight));
-                }
+                // One goto field per OTA, created as the rig reports its focusers.
+                rows.AddRange(FocuserControls.Rows(capturedI.ToString(),
+                    new FocuserReading(tel.FocusPosition, tel.FocuserTempC, tel.FocuserIsMoving),
+                    capturedI < state.FocuserGotoInputs.Length ? state.FocuserGotoInputs[capturedI] : null,
+                    delta => PostSignal(new JogFocuserSignal(capturedI, delta)),
+                    pos => PostSignal(new GotoFocuserSignal(capturedI, pos)),
+                    BaseRowHeight));
             }
             else
             {
