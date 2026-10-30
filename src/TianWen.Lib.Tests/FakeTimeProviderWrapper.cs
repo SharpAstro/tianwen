@@ -73,6 +73,17 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     private static readonly TimeSpan MinimumDwell = TimeSpan.FromMilliseconds(1);
 
     /// <summary>
+    /// How many advances of this provider's pumps waited the whole re-park bound without the loop parking again
+    /// (see the <c>settleBound</c> of <see cref="PumpUntilAsync"/>), and the real time spent in those re-park waits
+    /// altogether. A pump whose bound is long pays it on every such advance, so this is what tells a backstop that
+    /// never fires from one that sets the test's wall-clock time (#1910). Read once the pump has returned.
+    /// </summary>
+    public int ReParkWaitsRunOut { get; private set; }
+
+    /// <inheritdoc cref="ReParkWaitsRunOut"/>
+    public TimeSpan ReParkWaited { get; private set; }
+
+    /// <summary>
     /// Waits until <paramref name="done"/> holds or <paramref name="bound"/> has passed, YIELDING between looks, never
     /// sleeping on a timer: a 1 ms <c>Task.Delay</c> is about 11 ms on Windows even with the timer resolution raised,
     /// and two of them per advance were most of what a pumped run cost (#1122: 22 ms of a 22 ms advance, measured).
@@ -201,9 +212,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// given its turn, so it never races a half-processed frame (#1910). Returns the fake time pumped.
     /// <paramref name="settleBound"/> is how long, in real time, an advance waits for the loop to park at a new
     /// <c>SleepAsync</c> after the advance released one (the 2 ms default unless given). The waiter count belongs to
-    /// this provider alone, so unlike the pool's process-wide queue it measures this loop and nothing else: a long
-    /// bound ends the moment the loop re-parks and costs nothing, and only a loop that never parks again pays it.
-    /// The pool-quiet wait keeps its 2 ms bound.
+    /// this provider alone, so unlike the pool's process-wide queue it measures this loop and nothing else, and the
+    /// wait ends the moment the count is back. It is not always back: an advance that released two parks, one of which
+    /// ends without parking again, pays the whole bound, so a long bound costs wall-clock time on every such advance
+    /// (<see cref="ReParkWaitsRunOut"/> counts them). The pool-quiet wait keeps its 2 ms bound.
     /// </summary>
     public Task<TimeSpan> PumpUntilAsync(
         Func<bool> condition,
@@ -290,8 +302,15 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
 
             // And give what they woke to its turn: a poll that sleeps again parks a new target, which the next step
             // must see or it steps past it. Bounded short, since a sleep that wakes to a timer or to the end of its
-            // loop never parks again, and every advance that released one pays the bound.
-            await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), settle, cancellationToken);
+            // loop never parks again, and every advance that released one pays the bound. So does an advance that
+            // released two parks of which one ends without parking (one axis's pulse wait while the other's runs on),
+            // which a guide loop does every few seconds of fake time (#1910): the count never climbs back.
+            var reParkStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
+            if (!await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), settle, cancellationToken))
+            {
+                ReParkWaitsRunOut++;
+            }
+            ReParkWaited += global::System.Diagnostics.Stopwatch.GetElapsedTime(reParkStart);
 
             // And never less than a short dwell per advance, yielding. Nothing the pump can observe says that a loop
             // just started, or still being compiled, has reached its first wait: measured, a healthy loop on a
