@@ -157,7 +157,7 @@ public class GuideDarkCorrectionTests
         correction.MaskedPixels.ShouldBeGreaterThan(0);
 
         var plane = new float[height, width];
-        Array.Fill(System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length), Pedestal);
+        System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length).Fill(Pedestal);
         var frame = new Image([plane], BitDepth.Int16, FullScale, 0f, 0f, new ImageMeta());
 
         correction.Correct(frame, TimeSpan.FromSeconds(1)).ShouldBeSameAs(frame, "neither the dark nor the map has that size");
