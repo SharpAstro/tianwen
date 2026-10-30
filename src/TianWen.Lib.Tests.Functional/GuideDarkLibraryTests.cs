@@ -17,8 +17,12 @@ namespace TianWen.Lib.Tests.Functional;
 /// pixel and a pedestal in the darks are gone from the corrected frame, darks of another size never serve a frame, and the
 /// frame a guider measures is the corrected one.
 /// </summary>
-public class GuideDarkLibraryTests(ITestOutputHelper output)
+public class GuideDarkLibraryTests(ITestOutputHelper output) : IDisposable
 {
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private const string Camera = "Guide Cam";
     private const float Pedestal = 500f;
 
@@ -53,7 +57,7 @@ public class GuideDarkLibraryTests(ITestOutputHelper output)
     [Fact]
     public void ADarkLibraryOnDiskSubtractsThePedestalAndMasksTheHotPixelOfTheFramesItCorrects()
     {
-        var external = new FakeExternal(output);
+        var external = new FakeExternal(output, _folders.Create("guide_darks_"));
         var library = new GuideDarkLibrary(external, NullLogger<GuideDarkLibrary>.Instance);
         library.For(Camera).ShouldBeNull("a camera with no darks has no correction");
 
@@ -90,7 +94,7 @@ public class GuideDarkLibraryTests(ITestOutputHelper output)
     [Fact]
     public void DarksOfAnotherSizeAreMastersOfTheirOwnAndNeverServeOrMaskAFrameOfAnotherSize()
     {
-        var external = new FakeExternal(output);
+        var external = new FakeExternal(output, _folders.Create("guide_darks_"));
         var library = new GuideDarkLibrary(external, NullLogger<GuideDarkLibrary>.Instance);
         var small = Flat(80, 60, Pedestal);
         small[10, 10] = 60000f;
@@ -119,7 +123,7 @@ public class GuideDarkLibraryTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
-        var external = new FakeExternal(output, clock);
+        var external = new FakeExternal(output, clock, _folders.Create("guide_darks_"));
         var library = new GuideDarkLibrary(external, NullLogger<GuideDarkLibrary>.Instance);
         var services = new ServiceCollection()
             .AddSingleton<IExternal>(external)
