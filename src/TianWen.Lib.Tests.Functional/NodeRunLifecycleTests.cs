@@ -39,9 +39,38 @@ namespace TianWen.Lib.Tests.Functional;
 public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 {
     private NodeHarness? _harness;
+    private readonly RampSkippingTimeProvider _clock = new();
 
     [MemberNotNull(nameof(_harness))]
-    public async ValueTask InitializeAsync() => _harness = await NodeHarness.StartAsync(outputHelper, TestContext.Current.CancellationToken);
+    public async ValueTask InitializeAsync() => _harness = await NodeHarness.StartAsync(outputHelper, TestContext.Current.CancellationToken,
+        configure: services => services.AddSingleton<ITimeProvider>(_clock));
+
+    /// <summary>
+    /// The real clock, except that once <see cref="SkipRampSteps"/> is set a sleep as long as a cooling ramp step
+    /// completes at once. The node's own loops (1 s, 5 s) keep waiting as in production.
+    /// </summary>
+    private sealed class RampSkippingTimeProvider : ITimeProvider
+    {
+        private readonly ITimeProvider _real = new SystemTimeProvider();
+
+        public volatile bool SkipRampSteps;
+
+        public DateTimeOffset GetUtcNow() => _real.GetUtcNow();
+        public long GetTimestamp() => _real.GetTimestamp();
+        public long TimestampFrequency => _real.TimestampFrequency;
+        public ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => _real.CreateTimer(callback, state, dueTime, period);
+        public TimeProvider System => _real.System;
+
+        public ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
+        {
+            if (SkipRampSteps && duration >= CameraCoolingRamp.StepInterval)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.CompletedTask;
+            }
+            return _real.SleepAsync(duration, cancellationToken);
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -195,10 +224,15 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
         session.Disposals.ShouldBe(1);
     }
 
+    // The stop waits on the warm-up FINISHING. The ramp sleeps CameraCoolingRamp.StepInterval (15 s) per step on the
+    // harness's real clock, which the node's background loops need, so a camera 4 or more steps from its warm setpoint took
+    // over the 60 s bound on a slow runner (#1924: CI logged steps at 19:49:18, :33, :48 and 19:50:03, then the shutdown
+    // timeout). The test lets the ramp's steps complete at once; the ramp, its steps and the disconnect still all run.
     [Fact(Timeout = 60_000)]
     public async Task StoppingTheHostWarmsAndDisconnectsItsCooledCameras()
     {
         var ct = TestContext.Current.CancellationToken;
+        _clock.SkipRampSteps = true;
         var hub = _harness.App.Services.GetRequiredService<IDeviceHub>();
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await hub.ConnectAsync(device, ct);
