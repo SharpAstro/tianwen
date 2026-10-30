@@ -273,7 +273,7 @@ internal sealed class DeviceStatePoller(
     /// thermometer's last digits differ on every read, so compared in full, every device carrying one was pushed on every
     /// read. The served reading keeps its full precision; only the decision to push rounds.
     /// </summary>
-    private static byte[] CompareBytes(DeviceStateDto state) => JsonSerializer.SerializeToUtf8Bytes(state with
+    internal static byte[] CompareBytes(DeviceStateDto state) => JsonSerializer.SerializeToUtf8Bytes(state with
     {
         ReadUtc = null,
         Camera = state.Camera is { } camera
@@ -282,6 +282,7 @@ internal sealed class DeviceStatePoller(
                 CcdTemperatureC = Shown(camera.CcdTemperatureC, 1),
                 HeatsinkTemperatureC = Shown(camera.HeatsinkTemperatureC, 1),
                 CoolerPowerPercent = Shown(camera.CoolerPowerPercent, 0),
+                WarmUpTargetC = Shown(camera.WarmUpTargetC, 1),
             }
             : null,
         Focuser = state.Focuser is { } focuser ? focuser with { TemperatureC = Shown(focuser.TemperatureC, 1) } : null,
