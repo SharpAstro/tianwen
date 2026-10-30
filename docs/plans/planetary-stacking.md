@@ -674,13 +674,13 @@ unmerged branch, now `tools/planetary-tune`):
 
 ### A4. The surfaces
 
-**Tracked by #1391.** `planetary stack --auto` and `planetary sharpen --auto` in the CLI, and Auto in the viewer's planetary view, which shows
+**Tracked by #1391.** `planetary stack --auto` and `planetary sharpen --auto` in the CLI, and Full in the viewer's planetary view, which shows
 the base model's master at once and the tuned one when its run finishes. One routine for both, as
 `PlanetaryBestStack` is for Best. The viewer half is verified by driving the app through the SDL inspector.
 
 **Built (2026-10-10).** A2 found no tune that carries, so AUTO's settings are the measured defaults and what it adds is
 reading what the capture **is**, nothing asked. One routine, `PlanetaryAuto` (identify, then `PlanetaryBestStack` at the
-defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Auto** view (Raw, Stack, Auto; the Best
+defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Full** view (Raw, Live, Full; the Best
 view folded into it, below). The master says what it was read as (`OBJECT`,
 `TELESCOP`, `APTDIA`, `FILTER`, through `PlanetaryStackOptions.Optics`), which `planetary sharpen --auto` reads back.
 `PlanetaryIdentification` takes each fact from the first source that gives it, and says where in words:
