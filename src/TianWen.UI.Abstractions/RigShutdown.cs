@@ -97,13 +97,26 @@ public sealed class RigShutdown(ITimeProvider timeProvider, ILogger logger)
 
         foreach (var (job, device) in jobs)
         {
-            progress?.Invoke(device.Camera is { } camera && camera.ToReading().NeedsWarmUp ? $"Warming {NameOf(device)}" : $"Disconnecting {NameOf(device)}");
+            progress?.Invoke(device.Camera is { } camera && camera.ToReading().NeedsWarmUp ? $"Warming {NameOf(device)} {WarmingTo(camera)}" : $"Disconnecting {NameOf(device)}");
             var ended = await client.UntilEndedAsync(job, timeProvider, cancellationToken).ConfigureAwait(false);
             if (ended.Value is { State: not JobState.Succeeded } failed)
             {
                 logger.LogWarning("Stopping the rig: {Device} did not stop: {Error}", NameOf(device), failed.Error ?? failed.State.ToString());
             }
         }
+    }
+
+    /// <summary>Where a camera's warm-up is going and why, in plain words, from the node's own resolved target (#1842).</summary>
+    public static string WarmingTo(CameraDeviceStateDto camera)
+    {
+        var target = camera.WarmUpTargetC is { } c ? c : CameraReading.WarmUpFallbackTargetC;
+        var why = camera.WarmUpTargetSource switch
+        {
+            WarmUpTargetSource.HeatSink => "the heat sink",
+            WarmUpTargetSource.SettledSensorBeforeCooling => "the sensor before cooling",
+            _ => "no heat sink or settled reading, so the default"
+        };
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"to {target:F0} C, {why}");
     }
 
     /// <summary>What the stop waits for while the run of <paramref name="kind"/> ends.</summary>

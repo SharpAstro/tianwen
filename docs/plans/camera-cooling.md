@@ -101,4 +101,15 @@ cap. In order of trust, the target becomes:
 3. a device on the rig that reads ambient once it is operational: a power box's probe, a focuser's temperature, a weather
    device, passed by the orchestration, never driver to driver: #388;
 4. the sensor's own temperature when a cool-down started with the cooler off, ambient plus a little self-heating, kept beside
-   the cooler intent so the crash journal carries it: #1842.
+   the cooler intent so the crash journal carries it: **shipped** (#1842).
+
+### The settled pre-cool reading (#1842)
+
+`SensorAmbientSampler` samples the sensor while the cooler is off and calls the reading SETTLED only when the last
+`Window` (60 s) is full, its spread is within `MaxSpreadC` (0.2 °C) and its trend is within `MaxSlopeCPerMinute`
+(0.1 °C a minute). An unsettled reading is recorded but never sets a target. `WarmUpTarget.Resolve` is the one rule for
+the hub's ramp, the session's warm-up and a client's quit question: heat sink, else the settled reading, else
+`CameraReading.WarmUpFallbackTargetC`, with its source (`WarmUpTargetSource`) said in the log. The node sends the
+resolved target and source in the camera's device-state DTO (`WarmUpTargetC`, `WarmUpTargetSource`, a numeric enum that
+reads as the fallback from an older node), so `CameraDeviceStateDto.ToReading().NeedsWarmUp` agrees with the node's ramp
+and the rig shutdown's progress says where the target came from ("Warming X to 12 C, the sensor before cooling").
