@@ -56,7 +56,10 @@ public static class DeviceHubReadingExtensions
                 camera is IVideoCameraDriver { CanVideoCapture: true } video ? video.VideoBitDepths : [],
                 camera.CanFastReadout,
                 readoutModes,
-                readoutMode);
+                readoutMode)
+            {
+                PreCool = hub.TryGetPreCoolReading(cameraUri, out var preCool) ? preCool : null
+            };
         }
 
         /// <summary>The focuser at <paramref name="focuserUri"/> as it reads now, or null when it is not connected.</summary>

@@ -130,6 +130,70 @@ public class EquipmentWarmUpTests(ITestOutputHelper output)
         (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue();
     }
 
+    private static (ICameraDriver Camera, IDeviceHub Hub, List<TimeSpan> Sleeps, ITimeProvider Clock) NoHeatSinkRig(double ccdC, SensorAmbientReading? preCool)
+    {
+        var camera = Substitute.For<ICameraDriver>();
+        camera.CanSetCCDTemperature.Returns(true);
+        camera.CanGetCoolerOn.Returns(true);
+        camera.CanGetHeatsinkTemperature.Returns(false);
+        camera.GetCoolerOnAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        camera.GetCCDTemperatureAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(ccdC));
+
+        var hub = Substitute.For<IDeviceHub>();
+        hub.TryGetConnectedDriver<ICameraDriver>(CameraUri, out Arg.Any<ICameraDriver?>())
+            .Returns(call => { call[1] = camera; return true; });
+        hub.TryGetPreCoolReading(CameraUri, out Arg.Any<SensorAmbientReading>())
+            .Returns(call => { call[1] = preCool ?? default; return preCool is not null; });
+
+        var sleeps = new List<TimeSpan>();
+        var clock = Substitute.For<ITimeProvider>();
+        clock.SleepAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(call => { sleeps.Add(call.ArgAt<TimeSpan>(0)); return ValueTask.CompletedTask; });
+        return (camera, hub, sleeps, clock);
+    }
+
+    /// <summary>
+    /// The 2026-10-27 QHYminiCam8M: no heat sink, a fan that always runs, 12 C settled before cooling, and 11.5 C at 0 %
+    /// power now. It waited out the 15 minute cap for a +25 C it could never reach (#1842).
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ASettledReadingBeforeCoolingEndsTheRampAtOnce()
+    {
+        var (camera, hub, sleeps, clock) = NoHeatSinkRig(11.5, new SensorAmbientReading(12.0, true, DateTimeOffset.UnixEpoch));
+
+        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output), force: false, TestContext.Current.CancellationToken);
+
+        sleeps.ShouldBe([TimeSpan.FromSeconds(2)], "no step to wait for, only the settle after the cooler goes off");
+        await camera.DidNotReceive().SetSetCCDTemperatureAsync(Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await camera.Received(1).SetCoolerOnAsync(false, Arg.Any<CancellationToken>());
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AnUnsettledReadingStillRampsToTheFallback()
+    {
+        var (camera, hub, _, clock) = NoHeatSinkRig(11.5, new SensorAmbientReading(12.0, false, DateTimeOffset.UnixEpoch));
+
+        await hub.WarmAndDisconnectAsync(CameraUri, clock, FakeExternal.CreateLogger(output), force: false, TestContext.Current.CancellationToken);
+
+        await camera.Received().SetSetCCDTemperatureAsync(Arg.Any<double>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task TheSourceOfTheTargetIsLogged()
+    {
+        var (_, hub, _, clock) = NoHeatSinkRig(11.5, new SensorAmbientReading(12.1, true, DateTimeOffset.UnixEpoch));
+        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger>();
+        logger.IsEnabled(Arg.Any<Microsoft.Extensions.Logging.LogLevel>()).Returns(true);
+
+        await hub.WarmAndDisconnectAsync(CameraUri, clock, logger, force: false, TestContext.Current.CancellationToken);
+
+        var messages = logger.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name == nameof(Microsoft.Extensions.Logging.ILogger.Log))
+            .Select(c => c.GetArguments()[2]?.ToString() ?? "")
+            .ToList();
+        messages.ShouldContain(m => m.Contains("12.1") && m.Contains("settled before cooling"));
+    }
+
     /// <summary>
     /// A camera with no cooler (an ASI462MC) disconnects at once. It reads a sensor temperature and ignores a setpoint, so
     /// the ramp used to step toward the +25 °C fallback from a 20 °C room for its whole 15 minute cap, and a quit after a
