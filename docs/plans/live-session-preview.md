@@ -106,8 +106,10 @@ A source that is not a document gains what only needed the picture, as step 1 fo
    `HasPicture`; pinned by `ViewerReadsTheSourceTests`). **It found the planetary view's toolbar dead**: STF, Link,
    Params, Channel, Tone and Fit asked for a document, which its source never is, so six of its eight buttons were
    dim, and a dim button registers no press. They work on any picture now, and the planetary view and a SER gained
-   the pointer's pixel readout. Which sources show the metadata and statistics sections is still a document's
-   only, until step 3 makes it the host's.
+   the pointer's pixel readout. Which sources show the metadata and statistics sections was still a document's
+   only, until step 3 makes it the host's. **Since #1874 the strip reads every source**: a SER shows its header's
+   capture lines and a table with each channel's peak and clip mark, the Live and Auto views add what the planetary
+   pipeline knows; the Grade section stays a document's.
 2. The findings record on the source; `OverrideWcs` removed (**done**, 2026-10-01: `FrameFindings` in Lib, the
    document's `Wcs`, `Stars`, `AverageHFR`, `AverageFWHM` and `IsPlateSolved` cut into its `Findings` in one wave,
    a solve and a detection swapping the record by compare and exchange so neither drops the other's; the live
@@ -120,8 +122,9 @@ A source that is not a document gains what only needed the picture, as step 1 fo
    and needed no new interface: the host's `ToolbarPressPolicy` for a press, the signal for a key, and a key for
    an action only a host runs (Open, Save, the crop, the solve, Enhance) acts only where it is offered; Ctrl+O
    unoffered is swallowed rather than falling through to O. Pinned by `ToolbarOfferTests`. The info panel's
-   metadata and statistics stay a document's: a SER's statistics are its first frame's, so widening them waits
-   for P3.
+   metadata and statistics stayed a document's: a SER's statistics were its first frame's, so widening them waited
+   for P3. Shipped with #1874: a SER's table follows the shown frame once it settles (paused, or after a scrub;
+   measured off the render thread, never during playback), and its heading names the frame it describes.
 4. The preview pane switches its chrome on, with its own host: `RenderMiniViewerToolbar` and the pane's own Solve
    button are deleted (**done**, 2026-10-01). The tab is the viewer's host: `ToolbarOffer.LivePreview`, a
    `ToolbarPressPolicy` that runs the solve for the OTA whose frame is on show (`PlateSolvePreviewSignal`) and leaves

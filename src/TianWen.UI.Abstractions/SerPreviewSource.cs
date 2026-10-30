@@ -41,6 +41,15 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
     private readonly bool _hasTimestamps;
     private readonly ImmutableArray<DateTimeOffset> _timestamps;
 
+    // The statistics, backgrounds and peaks of ONE frame, measured off the render thread (the strip reads the latest finished one).
+    private sealed record ShownReadout(int Frame, ImageHistogram[] Statistics, float[] Background, float LumaBackground, ImmutableArray<float> Peaks);
+
+    private volatile ShownReadout _readout;         // seeded with frame 0 in the constructor
+    private Task<ShownReadout>? _readoutTask;       // in-flight measurement of a settled frame; null when idle
+    private int _readoutTaskFrame = -1;             // the frame _readoutTask measures, which the shown frame may have left since
+    private int _lastPolledFrame = -1;              // the shown frame at the previous poll: a frame that has not moved has settled
+    private int _failedReadoutFrame = -1;
+
     private int _frameIndex = -1;
     private Task<int>? _decodeTask; // in-flight background decode of a frame into _back; null when idle
     private bool _disposed;
@@ -79,6 +88,129 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
         _framesPerSecond = reader.FramesPerSecond;
 
         SelectFrame(0);
+
+        // The header's facts and frame 0's peaks, once, off the render thread (the strip reads these fields only).
+        var header = reader.Header;
+        var span = _hasTimestamps ? PreviewCapture.SpanOf(_timestamps.Length, i => _timestamps[i]) : default;
+        Capture = new PreviewCapture(header.Instrument, header.Telescope, header.Observer, ColourWords(header.ColorId),
+            header.PixelDepthPerPlane, header.FrameCount,
+            span.Earliest, span.Latest, span.FramesPerSecond);
+        _readout = new ShownReadout(0, _statsFrame.ChannelStatistics, _statsFrame.MeasuredPerChannelBackground, _statsFrame.MeasuredLumaBackground,
+            PeaksOf(_front, _statsFrame.ChannelStatistics.Length, sensorType, bayerOffsetX, bayerOffsetY, reader.Width));
+    }
+
+    /// <summary>The frame the statistics table describes: the shown one once its measurement has finished, the last one measured until then.</summary>
+    public int? StatisticsFrame => _readout.Frame;
+
+    /// <summary>True while the shown frame's statistics are still to be measured, so the render loop keeps polling for them.</summary>
+    public bool ReadoutPending => !_disposed && _failedReadoutFrame != _frameIndex && (_readoutTask is not null || _frameIndex != _readout.Frame);
+
+    /// <summary>Test seam: whether a measurement of a shown frame is in flight.</summary>
+    internal bool IsMeasuringReadout => _readoutTask is not null;
+
+    /// <summary>
+    /// Render thread, once per tick: takes a finished measurement, and once the shown frame has stopped moving (the same at two polls,
+    /// no decode in flight) starts measuring it off-thread. Returns true when the table changed and the strip should repaint.
+    /// </summary>
+    public bool PollShownFrameReadout()
+    {
+        var changed = false;
+        if (_readoutTask is { IsCompleted: true } done)
+        {
+            _readoutTask = null;
+            if (done.IsCompletedSuccessfully)
+            {
+                _readout = done.Result;
+                changed = true;
+            }
+            else
+            {
+                _failedReadoutFrame = _readoutTaskFrame;
+            }
+        }
+
+        var shown = _frameIndex;
+        if (_disposed || _readoutTask is not null || IsDecoding || shown == _readout.Frame || shown == _failedReadoutFrame || shown < 0)
+        {
+            _lastPolledFrame = -1;
+            return changed;
+        }
+
+        if (shown != _lastPolledFrame)
+        {
+            _lastPolledFrame = shown;
+            return changed;
+        }
+
+        _readoutTaskFrame = shown;
+        _readoutTask = Task.Run(() => MeasureFrameAsync(shown));
+        return changed;
+    }
+
+    private async Task<ShownReadout> MeasureFrameAsync(int index)
+    {
+        var image = SerImageBridge.ToImage(_reader, index);
+        var document = await AstroImageDocument.AdoptImageAsync(image, DebayerAlgorithm.None);
+
+        var planes = new float[_front.Length][];
+        for (var c = 0; c < planes.Length; c++)
+        {
+            planes[c] = new float[_reader.Width * _reader.Height];
+        }
+        SerImageBridge.FillUnitFloat(_reader, index, new ushort[_reader.SamplesPerFrame], planes);
+        return new ShownReadout(index, document.ChannelStatistics, document.MeasuredPerChannelBackground, document.MeasuredLumaBackground,
+            PeaksOf(planes, document.ChannelStatistics.Length, _sensorType, _bayerOffsetX, _bayerOffsetY, _reader.Width));
+    }
+
+    /// <summary>The capture's header facts, cached at open.</summary>
+    public PreviewCapture Capture { get; }
+
+    /// <summary>The brightest sample per statistics channel of <see cref="StatisticsFrame"/>, on the unit scale.</summary>
+    public ImmutableArray<float> ChannelPeaks => _readout.Peaks;
+
+    ImageHistogram[] IPreviewSource.MeasuredChannelStatistics => _readout.Statistics;
+    float[] IPreviewSource.MeasuredPerChannelBackground => _readout.Background;
+    float IPreviewSource.MeasuredLumaBackground => _readout.LumaBackground;
+
+    private static string ColourWords(SerColorId id) => id switch
+    {
+        SerColorId.Mono => "Mono",
+        SerColorId.Rgb => "RGB",
+        SerColorId.Bgr => "BGR",
+        _ => id.ToString() is ['B', 'a', 'y', 'e', 'r', .. var pattern] ? $"{pattern} Bayer" : id.ToString(),
+    };
+
+    // A mosaic has one plane but three statistics channels (R, G, B by photosite colour), so its peaks are read per photosite colour.
+    private static ImmutableArray<float> PeaksOf(float[][] planes, int statisticsChannels, SensorType sensor, int ox, int oy, int width)
+    {
+        if (sensor is SensorType.RGGB && planes.Length == 1 && statisticsChannels == 3)
+        {
+            var plane = planes[0];
+            var peaks = new float[3];
+            for (var i = 0; i < plane.Length; i++)
+            {
+                var x = (i % width) + ox;
+                var y = (i / width) + oy;
+                var colour = (x & 1) == 0 && (y & 1) == 0 ? 0 : (x & 1) == 1 && (y & 1) == 1 ? 2 : 1;
+                if (plane[i] > peaks[colour])
+                {
+                    peaks[colour] = plane[i];
+                }
+            }
+            return [.. peaks];
+        }
+
+        var result = ImmutableArray.CreateBuilder<float>(planes.Length);
+        foreach (var plane in planes)
+        {
+            var peak = 0f;
+            foreach (var value in plane)
+            {
+                peak = Math.Max(peak, value);
+            }
+            result.Add(peak);
+        }
+        return result.ToImmutable();
     }
 
     /// <summary>Opens a SER file and builds the source, computing frame-0 stretch statistics once.</summary>
@@ -245,7 +377,7 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
         // the reader release to a continuation that runs once the (uncancellable, sub-ms) decode finishes,
         // rather than tearing the mapping out from under it. A caller that must await the drain uses
         // DisposeAsync.
-        if (_decodeTask is { IsCompleted: false } task)
+        if (PendingWork() is { IsCompleted: false } task)
         {
             task.ContinueWith(
                 static (_, s) =>
@@ -278,7 +410,7 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
         }
 
         _disposed = true;
-        if (_decodeTask is { } task)
+        if (PendingWork() is { } task)
         {
             try
             {
@@ -308,6 +440,15 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
         }
         DisposeCore();
     }
+
+    // The decode and the readout both read the mapped file; the reader is released only after both have stopped.
+    private Task? PendingWork() => (_decodeTask, _readoutTask) switch
+    {
+        ({ } d, { } r) => Task.WhenAll(d, r),
+        ({ } d, null) => d,
+        (null, { } r) => r,
+        _ => null,
+    };
 
     // Frees the decode-task reference and the memory-mapped reader. Runs only after any in-flight decode has
     // stopped reading the mapping -- the sync path defers it to the decode's continuation (or runs it inline

@@ -423,6 +423,12 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     float IPreviewSource.SampleAt(int channel, int x, int y) => Img is { } img ? img.SampleAt(channel, x, y) : float.NaN;
     ImageMeta? IPreviewSource.ImageMeta => Img?.ImageMeta;
 
+    /// <summary>The recording the masters came from: set where the host knows it (an Auto stack's capture), else the masters' own.</summary>
+    public PreviewCapture? Capture { get; set; }
+
+    PreviewCapture? IPreviewSource.Capture => Capture ?? _masters.Capture;
+    int? IPreviewSource.FramesFolded => _masters.FramesFolded;
+
     public ImageHistogram[] ChannelStatistics => _doc?.ChannelStatistics ?? [];
     public float[] PerChannelBackground => _doc?.PerChannelBackground ?? [];
     public float LumaBackground => _doc?.LumaBackground ?? 0f;

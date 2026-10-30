@@ -135,7 +135,7 @@ public sealed class ViewerController(
     // through (#1314 part 2: the run's layer when its gains were derived, else its sharpened master as written), and what the capture was
     // identified as. The render thread takes both images, or releases them.
     private sealed record AutoStackOutcome(string SharpenedPath, string How, string CapturePath, BestStackLayer? Layer, Image? Sharpened,
-        PlanetaryIdentity Identity);
+        PlanetaryIdentity Identity, int Kept, int Graded);
 
     // The Auto view of the SER on screen, the whole capture identified and stacked (#1314 part 2; A4, #1391; Best folded in, #817), kept
     // so switching back to it stacks nothing again. One run at a time, its result handed back through the task, its progress a percent the
@@ -337,7 +337,7 @@ public sealed class ViewerController(
                     // here, off the render thread; it stacks lazily once the user toggles to the stacked
                     // view. A failure to open it is non-fatal -- raw playback still works.
                     LiveStackPreviewSource? liveSource = null;
-                    try { liveSource = LiveStackPreviewSource.Open(requestedPath, timeProvider); }
+                    try { liveSource = LiveStackPreviewSource.Open(requestedPath, timeProvider); liveSource.Capture = serSource.Capture; }
                     catch (Exception ex) { logger.LogWarning(ex, "Failed to open live-stack source for {FilePath}", requestedPath); }
 
                     if (loadToken.IsCancellationRequested)
@@ -365,6 +365,7 @@ public sealed class ViewerController(
                     // panel's Auto, read from this capture, its telescope is no longer one set on it (#817), and the Auto view's identity
                     // is read again.
                     (state.PlanetaryBody, state.PlanetaryFilterNm, state.AutoIdentity) = (null, null, null);
+                    state.AutoFrames = null;
                     state.PlanetaryTelescopeSetHere = false;
                     // And the camera it names, which a telescope the panel is set to is remembered for.
                     state.SequenceCamera = PlanetaryIdentification.CameraOf(requestedPath);
@@ -1610,7 +1611,7 @@ public sealed class ViewerController(
             {
                 AdoptBatch(batch, outcome);
                 batch.Note = (outcome.CapturePath, message);
-                state.AutoIdentity = outcome.Identity;
+                (state.AutoIdentity, state.AutoFrames) = (outcome.Identity, (outcome.Kept, outcome.Graded));
                 // The panel's telescope, where none was set on this capture, shows the one the run read, which the live view's Derive
                 // then takes too; not saved, since nobody set it.
                 if (!state.PlanetaryTelescopeSetHere && outcome.Identity is { ApertureMm: { } usedMm } used)
@@ -1708,7 +1709,8 @@ public sealed class ViewerController(
         {
             PlanetaryAuto.Write(result, paths);
             handedOn = true;
-            return new AutoStackOutcome(paths.Sharpened, BatchHow(result), capture, result.Layer, result.Layer is null ? result.Sharpened : null, identity);
+            return new AutoStackOutcome(paths.Sharpened, BatchHow(result), capture, result.Layer, result.Layer is null ? result.Sharpened : null, identity,
+                result.Stack.FramesUsed, result.Stack.FramesGraded);
         }
         finally
         {
@@ -1947,6 +1949,21 @@ public sealed class ViewerController(
         var autoUp = AutoHolds;
         var rawPublished = !autoUp && _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
 
+        // The strip's statistics follow the shown frame once it settles: measured off-thread, taken here, and the loop kept awake meanwhile.
+        // Only while the transport stands still: a playing SER's shown frame never settles, so polling then would keep the loop from
+        // idling between frames and measure frames nobody reads.
+        var readoutChanged = false;
+        var readoutPending = false;
+        if (raw is SerPreviewSource ser && !state.IsPlaying && !_player.SeekPending)
+        {
+            readoutChanged = ser.PollShownFrameReadout();
+            readoutPending = ser.ReadoutPending;
+            if (readoutChanged)
+            {
+                state.NeedsRedraw = true;
+            }
+        }
+
         // The chosen batch view's layer builds and re-sharpens its one master (#1314 part 2); once it is on show the dials are its own,
         // swapped with the other views' as it comes and goes, and the live stack stops following.
         var masterPublished = false;
@@ -2014,7 +2031,7 @@ public sealed class ViewerController(
         // next mouse event (the "doesn't live adjust while paused" symptom). IsBusy self-clears on publish,
         // so this briefly spins for the ~task duration, then the loop idles again. Only a layer on show counts: an Auto run
         // still building has no master to publish, and its progress wakes the loop through AutoStackWantsFrame (#1875).
-        return rawPublished || masterPublished || (!autoUp && _player.SeekPending)
+        return rawPublished || masterPublished || readoutChanged || readoutPending || (!autoUp && _player.SeekPending)
             || (!autoUp && state.ShowStacked && _liveSource is { IsBusy: true }) || batchLayer is { IsBusy: true };
     }
 
@@ -2060,7 +2077,11 @@ public sealed class ViewerController(
         {
             state.StretchMode = StretchMode.Planetary;
         }
-        batch.Layer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger);
+        // The capture's own facts are the SER on show's, cached at its open; the layer shows them too.
+        batch.Layer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger)
+        {
+            Capture = string.Equals(state.SequencePath, outcome.CapturePath, StringComparison.OrdinalIgnoreCase) ? _rawSource?.Capture : null,
+        };
         batch.Capture = outcome.CapturePath;
         batch.Dials = derived is { } d
             ? new ViewDials(d.Gains, true, d.Limb, d, true, $"Gains {d.How}")
