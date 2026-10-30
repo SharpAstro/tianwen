@@ -41,7 +41,7 @@ public class ViewerAutoFrameDemandTests
         e2e.Frame();
         e2e.Controller.Source.ShouldNotBeNull().ShouldNotBeOfType<LiveStackPreviewSource>("the raw frame, not a previous stack");
         e2e.State.AutoShowsFrames.ShouldBeTrue();
-        ViewerState.AutoShowsFramesWording.ShouldBe("Showing the frames while Full stacks");
+        ViewerState.AutoShowsFramesWording.ShouldBe("Showing the frames while the Full stack runs");
 
         var playhead = e2e.State.FrameIndex;
         var raw = e2e.Controller.Source.ShouldBeOfType<SerPreviewSource>();
@@ -122,7 +122,7 @@ public class ViewerAutoFrameDemandTests
         e2e.Frame();
 
         // The hold lets go: no placeholder line, and the live stack under it shows and follows again.
-        e2e.State.AutoShowsFrames.ShouldBeFalse("nothing is stacking, so the frames are not shown 'while Auto stacks'");
+        e2e.State.AutoShowsFrames.ShouldBeFalse("nothing is stacking, so the frames are not shown 'while the Full stack runs'");
         e2e.Controller.Source.ShouldBeSameAs(e2e.Controller.ViewLayers.Live, "the view under Auto, the live stack, shows again");
         var folds = e2e.Controller.ViewLayers.Live?.StacksPublished;
         for (var i = 0; i < 1000 && (e2e.State.FrameIndex == playhead || e2e.Controller.ViewLayers.Live?.StacksPublished == folds); i++)

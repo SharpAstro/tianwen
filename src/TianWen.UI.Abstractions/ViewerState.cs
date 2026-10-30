@@ -848,7 +848,7 @@ public sealed class ViewerState
     ];
 
     /// <summary>The one wording of the status bar's line while the Auto view shows the raw frame because its stack is not built yet (#1875).</summary>
-    public const string AutoShowsFramesWording = "Showing the frames while Full stacks";
+    public const string AutoShowsFramesWording = "Showing the frames while the Full stack runs";
 
     /// <summary>
     /// True while the Auto view is chosen and this capture's Auto master does not exist yet, so the raw frame at the held playhead is
