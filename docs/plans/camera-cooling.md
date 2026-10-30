@@ -71,16 +71,24 @@ warming the camera it holds does), its cooler-off at the end, and the cooler int
 Issue: #1840.
 
 **Shipped, the ramp side (#1840).** `CameraCoolingRamp` now does the whole warm-up any host needs. An ambient target with no
-usable heat sink resolves through `WarmUpTarget.Resolve` (the settled pre-cool reading, else the +25 C fallback, #1842) in `ICameraDriver.CoolToSetpointAsync`
-(it was NaN, which made the camera "not coolable", so a session never warmed a heatsinkless camera at all). A warm-up ends
+usable heat sink resolves to `CameraReading.WarmUpFallbackTargetC`, the +25 C fallback, in `ICameraDriver.CoolToSetpointAsync`
+(it was NaN, which made the camera "not coolable", so a session never warmed a heatsinkless camera at all). The driver knows
+no settled pre-cool reading and resolves an `Ambient` target to nothing else (#1842): the CALLERS apply it, the hub's
+`WarmCameraAsync` and `Session.CoolCamerasToAmbientAsync`, which resolve each camera's target through `WarmUpTarget.Resolve`
+and pass a heat sink as an `Ambient` target and the settled reading or the fallback as a `Normal` one. A caller that passes
+`Ambient` for a camera with no heat sink gets +25 C. A warm-up ends
 once the cooler is no longer holding the sensor down: power at or below `CameraCoolingRamp.WarmUpPowerThreshold` (1 %) for
 the ramp's consecutive-step count, whatever the sensor reads, so the QHY294PROC case of 2026-10-26 (15 minutes stepping at 0 %
 toward an unreachable +25 C) costs a few steps, not the safety cap. `Session.CoolCamerasToAmbientAsync` passes that constant.
 Pinned by `CameraCoolingRampTests`. 
-**Shipped, the hub side (#1840).** `WarmCameraAsync` runs `CameraCoolingRamp.RunAsync` (Ambient, upward, `WarmUpPowerThreshold`,
+**Shipped, the hub side (#1840).** `WarmCameraAsync` runs `CameraCoolingRamp.RunAsync` (upward, `WarmUpPowerThreshold`,
 `WarmupMaxRate` as the ceiling on its rate, #1839) and keeps the lease check, the no-cooler and cooler-off skips, the intent recorded as Warm
 then Off, the cooler switched off at the end (also when the ramp fails) and the optional disconnect. Pinned by
-`EquipmentWarmUpTests` (15 s steps, a held camera refused, a cooler stuck at 0 % ending in a few steps).
+`EquipmentWarmUpTests` (15 s steps, a held camera refused, a cooler stuck at 0 % ending in a few steps). It ran the ramp with
+an `Ambient` target; since #1842 it resolves the target through `WarmUpTarget.Resolve` and skips the ramp for a camera already
+within `CameraReading.WarmUpToleranceC` of it. The session's warm-up draws the same line through `CameraReading.NeedsWarmUpFrom`:
+when no camera needs warming it runs no ramp at all (still recording the Warm intent), since a held camera would otherwise
+take the ramp's three confirming steps, 45 s, on a cooler working above the 1 % exit or one that cannot say its power.
 
 ## The profile's settings everywhere
 
@@ -113,3 +121,9 @@ the hub's ramp, the session's warm-up and a client's quit question: heat sink, e
 resolved target and source in the camera's device-state DTO (`WarmUpTargetC`, `WarmUpTargetSource`, a numeric enum that
 reads as the fallback from an older node), so `CameraDeviceStateDto.ToReading().NeedsWarmUp` agrees with the node's ramp
 and the rig shutdown's progress says where the target came from ("Warming X to 12 C, the sensor before cooling").
+
+The cost a user sees: a cool-down from a camera whose cooler reads off now waits for the sensor to settle before its first
+step (a sample every `CameraCoolingRamp.AmbientSampleInterval`, 5 s, for at most `CameraCoolingRamp.AmbientBudget`, 2
+minutes), in the session, the node's cool job and a dark run alike. It waits for none when the cooler is already on, when
+the sensor gives no temperature, or in the crash journal's recovery, which passes `readAmbient: false` since that sensor is
+no longer at rest and the journal carries the reading that counts.

@@ -132,10 +132,38 @@ public class SessionCoolingTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task GivenNoHeatSinkAndASensorAlreadyAtTheSettledReadingWhenWarmUpThenItEndsAtOnce()
+    public async Task GivenNoHeatSinkACoolerOnAndASensorAlreadyAtTheSettledReadingWhenWarmUpThenItEndsAtOnce()
     {
-        // The 2026-10-27 shape: the sensor sits within a degree under the settled reading with the cooler off. The hub's
-        // warm-up ends at once there; the session's must too, with no ramp step slept.
+        // The 2026-10-27 QHYminiCam8M shape, on the rig of EquipmentWarmUpTests.ASettledReadingBeforeCoolingEndsTheRampAtOnce:
+        // no heat sink, the cooler ON and the sensor held at 11.5 C (the fake reads 16 % power there), 12.0 C settled before
+        // cooling. The hub's warm-up skips its ramp; the session's must too, never taking the ramp's confirming steps.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.MakeHeatsinkless(ambientC: 18, sensorCannotPassAmbient: true);
+        await ctx.Camera.SetSetCCDTemperatureAsync(11.5, ct);
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
+        for (var i = 0; i < 40; i++) await ctx.Camera.GetCCDTemperatureAsync(ct);
+        (await ctx.Camera.GetCCDTemperatureAsync(ct)).ShouldBe(11.5, 0.2, "the sensor sits at its setpoint before the warm-up");
+        (await ctx.Camera.GetCoolerPowerAsync(ct)).ShouldBeGreaterThan(1, "the precondition: a cooler working, so the ramp's own exit would not end it");
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(12.0, Settled: true, ctx.TimeProvider.GetUtcNow()));
+        var before = ctx.TimeProvider.GetUtcNow();
+
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        reached.ShouldBeTrue();
+        (ctx.TimeProvider.GetUtcNow() - before).ShouldBe(TimeSpan.Zero, "no ramp step was slept");
+        (await ctx.Camera.GetSetCCDTemperatureAsync(ct)).ShouldBe(11.5, "the setpoint was never stepped");
+        hub.TryGetCoolerIntent(uri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.Warm, "the warm-up is still recorded, as a ramp would record it");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkASettledReadingAndTheCoolerOffWhenWarmUpThenItEndsAtOnce()
+    {
+        // A cooler-off hold with a settled reading recorded: a cooler that is off has nothing to warm whatever the reading,
+        // so the session's warm-up ends with no ramp step slept, as the hub's does.
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.HasHeatsink = false;
