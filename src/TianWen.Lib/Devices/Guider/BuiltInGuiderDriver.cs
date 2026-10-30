@@ -952,7 +952,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// A guide frame with the camera's dark library applied (#1915): the matching dark subtracted and its bad pixels masked,
     /// in a new frame, before a star is measured, shown or published. The frame as captured when the camera has no library.
     /// </summary>
-    private async ValueTask<Image> CaptureCorrectedFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
+    internal async ValueTask<Image> CaptureCorrectedFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
     {
         var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct);
         return _darks?.For(camera.Name) is { } correction ? correction.Correct(frame, exposure, frame.ImageMeta.Gain) : frame;

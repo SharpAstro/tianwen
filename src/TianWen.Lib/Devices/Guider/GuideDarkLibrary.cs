@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.IO;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -60,55 +61,69 @@ public sealed class GuideDarkLibrary(IExternal external, ILogger<GuideDarkLibrar
 
     private GuideDarkCorrection? Build(IEnumerable<string> paths)
     {
-        // Grouped by the state they were shot in: the exposure to the millisecond, the gain, and the temperature to 2 degrees.
-        var groups = new Dictionary<(long ExposureMs, short Gain, int TempBin), List<Image>>();
-        try
+        // Grouped from the HEADERS alone, by the state they were shot in: the size and channels (a bin 2 dark is no dark of a bin 1
+        // frame), the exposure to the millisecond, the gain, and the temperature to 2 degrees. Only the frames a master uses are
+        // then read, so a folder of many nights is never held in memory at once.
+        var groups = new Dictionary<(int Width, int Height, int Channels, long ExposureMs, short Gain, int TempBin), List<(string Path, double TempC)>>();
+        foreach (var path in paths.OrderBy(static p => p, StringComparer.OrdinalIgnoreCase))
         {
-            foreach (var path in paths.OrderBy(static p => p, StringComparer.OrdinalIgnoreCase))
+            if (!Image.TryReadFitsHeader(path, out var info))
             {
-                if (!Image.TryReadFitsFile(path, out var image) || image is null)
-                {
-                    logger.LogWarning("Guide dark {Path} could not be read", path);
-                    continue;
-                }
-                var meta = image.ImageMeta;
-                if (meta.ExposureDuration <= TimeSpan.Zero)
-                {
-                    image.Release();
-                    continue;
-                }
-                var temp = double.IsFinite(meta.CCDTemperature) ? (int)Math.Round(meta.CCDTemperature / 2.0) : int.MinValue;
-                var key = ((long)Math.Round(meta.ExposureDuration.TotalMilliseconds), (short)meta.Gain, temp);
-                if (!groups.TryGetValue(key, out var list))
-                {
-                    groups[key] = list = [];
-                }
-                list.Add(image);
+                logger.LogWarning("Guide dark {Path} could not be read", path);
+                continue;
             }
-
-            var masters = ImmutableArray.CreateBuilder<GuideDark>();
-            foreach (var (key, frames) in groups)
+            var meta = info.Meta;
+            if (meta.ExposureDuration <= TimeSpan.Zero)
             {
-                var used = frames.Count > MaxFramesPerMaster ? frames[^MaxFramesPerMaster..] : frames;
-                if (Median(used) is { } master)
+                continue;
+            }
+            var temp = double.IsFinite(meta.CCDTemperature) ? (int)Math.Round(meta.CCDTemperature / 2.0) : int.MinValue;
+            var key = (info.Width, info.Height, info.ChannelCount, (long)Math.Round(meta.ExposureDuration.TotalMilliseconds), (short)meta.Gain, temp);
+            if (!groups.TryGetValue(key, out var list))
+            {
+                groups[key] = list = [];
+            }
+            list.Add((path, meta.CCDTemperature));
+        }
+
+        var masters = ImmutableArray.CreateBuilder<GuideDark>();
+        foreach (var (key, files) in groups)
+        {
+            // Paths sort by date folder, so the newest are last.
+            var used = files.Count > MaxFramesPerMaster ? files[^MaxFramesPerMaster..] : files;
+            var frames = new List<Image>(used.Count);
+            try
+            {
+                foreach (var (path, _) in used)
                 {
-                    var temps = used.Select(static f => (double)f.ImageMeta.CCDTemperature).Where(double.IsFinite).ToList();
+                    if (Image.TryReadFitsFile(path, out var image) && image is not null)
+                    {
+                        frames.Add(image);
+                    }
+                    else
+                    {
+                        logger.LogWarning("Guide dark {Path} could not be read", path);
+                    }
+                }
+                if (frames.Count > 0 && Median(frames) is { } master)
+                {
+                    var temps = used.Select(static f => f.TempC).Where(double.IsFinite).ToList();
                     masters.Add(new GuideDark(TimeSpan.FromMilliseconds(key.ExposureMs), key.Gain, temps.Count == 0 ? double.NaN : temps.Average(), master));
                 }
             }
-            return masters.Count == 0 ? null : GuideDarkCorrection.FromDarks(masters.ToImmutable());
-        }
-        finally
-        {
-            foreach (var image in groups.Values.SelectMany(static l => l))
+            finally
             {
-                image.Release();
+                foreach (var image in frames)
+                {
+                    image.Release();
+                }
             }
         }
+        return masters.Count == 0 ? null : GuideDarkCorrection.FromDarks(masters.ToImmutable());
     }
 
-    // The per-pixel median of frames of one shape; a frame of another shape than the first is left out.
-    private static Image? Median(List<Image> frames)
+    /// <summary>The per-pixel median of frames of one shape (a frame of another shape than the first is left out).</summary>
+    internal static Image? Median(List<Image> frames)
     {
         var first = frames[0];
         var same = frames.Where(f => f.Width == first.Width && f.Height == first.Height && f.ChannelCount == first.ChannelCount).ToList();
@@ -126,8 +141,7 @@ public sealed class GuideDarkLibrary(IExternal external, ILogger<GuideDarkLibrar
                     {
                         scratch[i] = planes[i][y, x];
                     }
-                    Array.Sort(scratch);
-                    plane[y, x] = scratch.Length % 2 == 1 ? scratch[scratch.Length / 2] : (scratch[scratch.Length / 2 - 1] + scratch[scratch.Length / 2]) / 2f;
+                    plane[y, x] = StatisticsHelper.MedianFast(scratch);
                 }
             }
             data[c] = plane;
