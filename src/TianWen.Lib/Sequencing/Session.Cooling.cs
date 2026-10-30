@@ -28,8 +28,8 @@ internal partial record Session
     /// <returns>True if ambient temperature was reached.</returns>
     internal async ValueTask<bool> CoolCamerasToAmbientAsync(double maxRateCPerMinute)
     {
-        // Each camera aims at its own resolved target (WarmUpTarget, the hub's rule too): a camera with no heat sink
-        // used to resolve NaN in the driver and never warm at all.
+        // Each camera aims at its own resolved target (WarmUpTarget, the hub's rule too), and one already within
+        // CameraReading's tolerance of it has nothing to warm, as the hub's WarmCameraAsync decides with the same inputs.
         var scopes = Setup.Telescopes.Length;
         var targets = new SetpointTemp[scopes];
         var labels = new string[scopes];
@@ -40,6 +40,16 @@ internal partial record Session
             SensorAmbientReading? preCool = DeviceHub is { } hub && hub.TryGetPreCoolReading(camera.Device.DeviceUri, out var recorded) ? recorded : null;
             var resolved = WarmUpTarget.Resolve(heatsink, preCool);
             _logger.LogInformation("Warming {Camera} to {TargetC:F1} C: {Source}", camera.Device.DeviceUri, resolved.TempC, resolved.Describe());
+            var current = await PollDriverReadAsync(camera.Driver, camera.Driver.GetCCDTemperatureAsync, double.NaN, CancellationToken.None);
+            if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink, preCool))
+            {
+                // Held at the sensor's own reading, so the ramp's steps and its "all at ambient" exit see nothing to do.
+                _logger.LogInformation("Camera {Camera} reads {Current:F1} C, already at its warm-up target", camera.Device.DeviceUri, current);
+                targets[i] = new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD);
+                labels[i] = "already warm";
+                continue;
+            }
+
             if (resolved.Source is WarmUpTargetSource.HeatSink)
             {
                 targets[i] = new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient);

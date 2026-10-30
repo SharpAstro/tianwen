@@ -112,7 +112,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     public async Task GivenNoHeatSinkWhenWarmUpThenTheSettledReadingBeforeCoolingIsTheTarget()
     {
         // The 2026-10-27 case: a fan-cooled body with no heat sink that cooled from a settled 12 C. The session's ambient
-        // warm-up used to resolve NaN in the driver and not warm at all; it now aims at the reading.
+        // warm-up aims at that reading.
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.HasHeatsink = false;
@@ -129,6 +129,25 @@ public class SessionCoolingTests(ITestOutputHelper output)
         temp.ShouldBe(5.0, 1.0, "the settled reading, not the +25 C fallback");
         hub.TryGetCoolerIntent(uri, out var intent).ShouldBeTrue();
         intent.ShouldBe(CoolerIntent.Warm, "a crash mid-warm-up goes on warming, never re-cools");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkAndASensorAlreadyAtTheSettledReadingWhenWarmUpThenItEndsAtOnce()
+    {
+        // The 2026-10-27 shape: the sensor sits within a degree under the settled reading with the cooler off. The hub's
+        // warm-up ends at once there; the session's must too, with no ramp step slept.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(20.5, Settled: true, ctx.TimeProvider.GetUtcNow()));
+        var before = ctx.TimeProvider.GetUtcNow();
+
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        reached.ShouldBeTrue();
+        (ctx.TimeProvider.GetUtcNow() - before).ShouldBe(TimeSpan.Zero, "no ramp step was slept");
     }
 
     [Fact(Timeout = 60_000)]

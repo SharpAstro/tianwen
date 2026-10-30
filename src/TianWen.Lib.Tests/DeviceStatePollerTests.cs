@@ -135,6 +135,22 @@ public class DeviceStatePollerTests
         camera.CoolerIntentSetpointC.ShouldBe(-10);
     }
 
+    // With a heat sink the warm-up target IS its raw reading, so a noisy last digit must not make every read a push.
+    [Fact]
+    public void ANoisyHeatSinkReadingDoesNotMakeTheWarmUpTargetADifference()
+    {
+        DeviceStateDto WithTarget(double target) => new DeviceStateDto
+        {
+            DeviceUri = "Camera://FakeDevice/1",
+            DeviceType = DeviceType.Camera,
+            Connected = true,
+            Camera = new CameraDeviceStateDto { HeatsinkTemperatureC = target, WarmUpTargetC = target },
+        };
+
+        DeviceStatePoller.CompareBytes(WithTarget(18.4412)).ShouldBe(DeviceStatePoller.CompareBytes(WithTarget(18.4437)));
+        DeviceStatePoller.CompareBytes(WithTarget(18.4)).ShouldNotBe(DeviceStatePoller.CompareBytes(WithTarget(18.9)));
+    }
+
     [Fact]
     public void AnotherEventIsNoDeviceState()
     {
