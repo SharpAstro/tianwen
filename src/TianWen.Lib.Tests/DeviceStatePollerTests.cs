@@ -144,7 +144,20 @@ public class DeviceStatePollerTests
             DeviceUri = "Camera://FakeDevice/1",
             DeviceType = DeviceType.Camera,
             Connected = true,
-            Camera = new CameraDeviceStateDto { HeatsinkTemperatureC = target, WarmUpTargetC = target },
+            Camera = new CameraDeviceStateDto
+            {
+                CoolerOn = true,
+                State = CameraState.Idle,
+                UsesGainValue = true,
+                UsesGainMode = false,
+                GainMin = 0,
+                GainMax = 300,
+                Gain = 100,
+                SensorWidth = 6248,
+                SensorHeight = 4176,
+                HeatsinkTemperatureC = target,
+                WarmUpTargetC = target,
+            },
         };
 
         DeviceStatePoller.CompareBytes(WithTarget(18.4412)).ShouldBe(DeviceStatePoller.CompareBytes(WithTarget(18.4437)));
