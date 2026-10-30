@@ -1,7 +1,7 @@
 # Camera Collimation: Measured Live, from the Camera That Images
 
 **Status: NOT STARTED; tracked by #823.** Written 2026-09-25, raised by the user ("real-time collimation, camera based") alongside
-[focus-tolerance.md](focus-tolerance.md) and the speckle-imaging revision of [video-guiding.md](video-guiding.md).
+[focus-tolerance.md](focus-tolerance.md) and the speckle-imaging revision of [guiding-improvements.md](guiding-improvements.md).
 
 **Sources** (saved under `OneDrive\Dokumente\Astro-Info`):
 - the MetaGuide 2024 manual (v6.1.7): chapters 9 and 12 on collimation, 17 on seeing, 27 on collimating at the
@@ -50,7 +50,7 @@ what an offset between the stack's centre of light and its peak would do.
 
 ## Method
 
-1. **The aligned star stack.** This is shared with video guiding and specified in [video-guiding.md](video-guiding.md):
+1. **The aligned star stack.** This is shared with video guiding and specified in [guiding-improvements.md](guiding-improvements.md):
    - an ROI stream around a bright star;
    - a sub-pixel peak position for each frame;
    - a rolling shift-and-add of the frames;
@@ -100,7 +100,7 @@ what an offset between the stack's centre of light and its peak would do.
 - **Capture settings, from MetaGuide:** 10-20 frames per second or more, linear (gamma 1), the peak at about two
   thirds of full scale and never saturated, a red or IR filter, and a star high in the sky.
 - **Frame rate is the Phase D question again.** Every native camera is single-frame in TianWen today (see
-  [video-guiding.md](video-guiding.md)). Until native video lands, the stack runs on the planetary controller's
+  [guiding-improvements.md](guiding-improvements.md)). Until native video lands, the stack runs on the planetary controller's
   short-exposure loop, at whatever rate that reaches.
 
 ## Phasing
@@ -108,7 +108,7 @@ what an offset between the stack's centre of light and its peak would do.
 | Phase | Scope | Needs |
 |---|---|---|
 | C0 | Field analysis (step 5): collimation centre and tilt plane from a sub and from the AutoFocus rungs | nothing new; offline-capable; the field fit is shared with [physical-psf-model.md](physical-psf-model.md) P1 (#1296) |
-| C1 | Aligned stack + radial profile + harmonics (steps 1-2) on the short-exposure loop | the shared stack from video-guiding |
+| C1 | Aligned stack + radial profile + harmonics (steps 1-2) on the short-exposure loop | the shared stack from guiding-improvements |
 | C2 | Live collimation mode: guider re-centring (3) + screw calibration (4) | C1, a UI mode |
 | C3 | Native-video rates | Phase D ([planetary-native-video.md](planetary-native-video.md)) |
 | C4 | Curvature wavefront sensing (6) | research |
