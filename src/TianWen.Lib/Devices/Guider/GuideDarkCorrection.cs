@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -38,34 +40,42 @@ public sealed class GuideDarkCorrection
 
     private const double TemperatureWeightPerC = 0.02;
     private readonly ImmutableArray<GuideDark> _darks;
-    private readonly BitMatrix[]? _badPixels;
+    private readonly Dictionary<(int Width, int Height), BitMatrix[]> _masks;
     private readonly Dictionary<GuideDark, float[]> _levels = [];
 
     /// <param name="darks">The master darks; empty for a correction that masks only.</param>
     /// <param name="badPixels">The union of the darks' masks, one per channel, or null for none.</param>
-    public GuideDarkCorrection(ImmutableArray<GuideDark> darks, BitMatrix[]? badPixels)
+    /// <param name="maskWidth">The width of the frames <paramref name="badPixels"/> describes.</param>
+    /// <param name="maskHeight">Their height.</param>
+    public GuideDarkCorrection(ImmutableArray<GuideDark> darks, BitMatrix[]? badPixels, int maskWidth = 0, int maskHeight = 0)
+        : this(darks, badPixels is null ? [] : new() { [(maskWidth, maskHeight)] = badPixels })
+    {
+    }
+
+    private GuideDarkCorrection(ImmutableArray<GuideDark> darks, Dictionary<(int Width, int Height), BitMatrix[]> masks)
     {
         _darks = darks.IsDefault ? [] : darks;
-        _badPixels = badPixels;
+        _masks = masks;
         foreach (var dark in _darks)
         {
             _levels[dark] = ChannelLevels(dark.Master);
         }
     }
 
-    /// <summary>Builds one from master darks, masking with the rules the stacker's own mask uses.</summary>
+    /// <summary>Builds one from master darks, masking with the rules the stacker's own mask uses. Darks of a size are masked by their own size's map.</summary>
     public static GuideDarkCorrection FromDarks(ImmutableArray<GuideDark> darks)
     {
-        BitMatrix[]? union = null;
+        Dictionary<(int Width, int Height), BitMatrix[]> masks = [];
         foreach (var dark in darks)
         {
             if (BadPixelDetection.BuildMaskFromDark(dark.Master, MaskSigma) is not { } mask)
             {
                 continue;
             }
-            if (union is null)
+            var size = (dark.Master.Width, dark.Master.Height);
+            if (!masks.TryGetValue(size, out var union))
             {
-                union = mask;
+                masks[size] = mask;
                 continue;
             }
             if (union.Length != mask.Length)
@@ -77,14 +87,14 @@ public sealed class GuideDarkCorrection
                 BadPixelAccumulator.UnionInto(union[c], mask[c], dark.Master.Width, dark.Master.Height);
             }
         }
-        return new GuideDarkCorrection(darks, union);
+        return new GuideDarkCorrection(darks, masks);
     }
 
     /// <summary>How many master darks the correction holds.</summary>
     public int DarkCount => _darks.Length;
 
     /// <summary>The photosites masked, summed over channels (0 with no map).</summary>
-    public int MaskedPixels => BadPixelDetection.CountMaskedPixels(_badPixels);
+    public int MaskedPixels => _masks.Values.Sum(BadPixelDetection.CountMaskedPixels);
 
     /// <summary>The dark that serves a frame of this state, or null. Public so a host can say which one it applies.</summary>
     public GuideDark? Find(TimeSpan exposure, short gain, double temperatureC, int width, int height)
@@ -129,7 +139,15 @@ public sealed class GuideDarkCorrection
     public Image Correct(Image frame, TimeSpan exposure, short gain = -1)
     {
         var dark = Find(exposure, gain, frame.ImageMeta.CCDTemperature, frame.Width, frame.Height);
-        var mask = _badPixels is { } m && m.Length == frame.ChannelCount ? m : null;
+        // A dark of another exposure is scaled about a pedestal only a second exposure can tell; with none, only a dark of the
+        // frame's own exposure serves it, and the frame is masked alone.
+        var own = dark is not null && Math.Abs((dark.Exposure - exposure).TotalMilliseconds) < 1;
+        var levels = dark is null || own ? null : PedestalsOf(dark);
+        if (dark is not null && !own && levels is null)
+        {
+            dark = null;
+        }
+        var mask = _masks.TryGetValue((frame.Width, frame.Height), out var m) && m.Length == frame.ChannelCount ? m : null;
         if (dark is null && mask is null)
         {
             return frame;
@@ -138,12 +156,11 @@ public sealed class GuideDarkCorrection
         var current = frame;
         if (dark is not null)
         {
-            var ratio = exposure / dark.Exposure;
-            var levels = PedestalsOf(dark);
+            var ratio = own ? 1.0 : exposure / dark.Exposure;
             var data = new float[frame.ChannelCount][,];
             for (var c = 0; c < data.Length; c++)
             {
-                data[c] = Subtract(frame.GetChannelArray(c), dark.Master.GetChannelArray(c), levels[c], (float)ratio);
+                data[c] = Subtract(frame.GetChannelArray(c), dark.Master.GetChannelArray(c), levels?[c] ?? 0f, (float)ratio);
             }
             current = new Image(data, frame.BitDepth, frame.MaxValue, 0f, frame.Pedestal, frame.ImageMeta, frame.SamplesAreUnitReferred);
         }
@@ -169,8 +186,8 @@ public sealed class GuideDarkCorrection
 
     // The pedestal of each plane of a dark: its level at zero exposure, extrapolated through the library's dark of the same gain
     // and the most different exposure (a dark's median is pedestal PLUS dark current, so it cannot be the pedestal). With no such
-    // partner the pedestal is unknowable and taken as zero, so the whole dark scales.
-    private float[] PedestalsOf(GuideDark dark)
+    // partner the pedestal is unknowable (null) and the dark serves only a frame of its own exposure.
+    private float[]? PedestalsOf(GuideDark dark)
     {
         var own = _levels[dark];
         GuideDark? partner = null;
@@ -188,7 +205,7 @@ public sealed class GuideDarkCorrection
         }
         if (partner is null)
         {
-            return new float[own.Length];
+            return null;
         }
 
         var theirs = _levels[partner];
@@ -241,8 +258,7 @@ public sealed class GuideDarkCorrection
             {
                 continue;
             }
-            sample.Sort();
-            levels[c] = sample[sample.Count / 2];
+            levels[c] = StatisticsHelper.NthSmallest(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sample), sample.Count / 2);
         }
         return levels;
     }

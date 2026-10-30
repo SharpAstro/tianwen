@@ -147,11 +147,16 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         }, ct);
         try
         {
-            // The brightest one, as Auto picks it: the fake's field has only a few stars the guider can hold, and a dimmer one is
-            // lost to the noise of one frame or the next.
-            var star = GuideStarReadout.Measure(frame.GetChannel(0).Data, 1f);
-            star.ShouldNotBeNull("the looped guide frame holds a star to choose");
-            return (star.Value.X, star.Value.Y);
+            // A middle star of the field's candidates, never the brightest: a chosen star must be acquired wherever it ranks, and
+            // the brightest is the one a list capped at the top few would always have held.
+            var plane = frame.GetChannel(0).Data;
+            var measured = new GuiderCentroidTracker(maxStars: 8).FindStars(plane)
+                .Select(c => GuideStarReadout.Measure(plane, 1f, (c.X, c.Y)))
+                .OfType<GuideStarMeasurement>()
+                .ToList();
+            measured.ShouldNotBeEmpty("the looped guide frame holds a star to choose");
+            var star = measured[measured.Count / 2];
+            return (star.X, star.Y);
         }
         finally
         {

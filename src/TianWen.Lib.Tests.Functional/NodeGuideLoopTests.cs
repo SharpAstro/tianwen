@@ -79,6 +79,15 @@ public class NodeGuideLoopTests(ITestOutputHelper outputHelper)
         var steered = await client.SetLiveViewControlsAsync(new LiveViewControlsDto { ExposureMs = 20, Gain = 5 }, ct);
         steered.IsSuccess.ShouldBeTrue(steered.Error);
 
+        // The staged gain reaches the camera after the next frame: read it back off the driver the loop holds.
+        hub.TryGetConnectedDriver<ICameraDriver>(GuideCamera.DeviceUri, out var guideDriver).ShouldBeTrue();
+        var gain = await UntilAsync<string>("the steered gain to reach the guide camera", async token =>
+        {
+            var read = await guideDriver.GetGainAsync(token);
+            return (read == 5 ? "5" : null, $"gain {read}");
+        }, ct);
+        gain.ShouldBe("5");
+
         // A session cannot start over the loop, and says which run is going on.
         var session = await client.StartSessionAsync(null, null, ct);
         (session.StatusCode, session.Error).ShouldBe((409, "A live view is running"));

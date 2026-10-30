@@ -238,7 +238,7 @@ internal sealed class GuiderCentroidTracker
     private GuiderCentroidResult? TryAcquire(float[,] frame, int width, int height)
     {
         // Scan full frame for candidate stars
-        var candidates = FindCandidateStars(frame, width, height);
+        var candidates = FindCandidateStars(frame, width, height, PreferredStar);
         if (candidates.Count == 0)
         {
             return null;
@@ -329,8 +329,10 @@ internal sealed class GuiderCentroidTracker
         return new GuiderCentroidResult(primary.LastX, primary.LastY, 0, 0, primary.Flux, primary.SNR, _stars.Count);
     }
 
+    /// <param name="near">When set, only peaks within <see cref="GuideStarReadout.PickRadius"/> of it are considered and the scan
+    /// does not stop at a count: a chosen star is found wherever it ranks in the frame, not only among its brightest few.</param>
     /// <returns>The tracker's own candidate list, refilled: valid until the next acquisition.</returns>
-    private List<CandidateStar> FindCandidateStars(float[,] frame, int width, int height)
+    private List<CandidateStar> FindCandidateStars(float[,] frame, int width, int height, (double X, double Y)? near = null)
     {
         var candidates = _candidates;
         candidates.Clear();
@@ -350,6 +352,10 @@ internal sealed class GuiderCentroidTracker
                 if (val > frame[y - 1, x] && val > frame[y + 1, x] &&
                     val > frame[y, x - 1] && val > frame[y, x + 1])
                 {
+                    if (near is { } at && (x - at.X) * (x - at.X) + (y - at.Y) * (y - at.Y) > (double)GuideStarReadout.PickRadius * GuideStarReadout.PickRadius)
+                    {
+                        continue;
+                    }
                     peaks.Add((x, y, val));
                 }
             }
@@ -385,7 +391,7 @@ internal sealed class GuiderCentroidTracker
             }
 
             // Stop early once we have plenty of candidates
-            if (candidates.Count >= _maxStars * 3)
+            if (near is null && candidates.Count >= _maxStars * 3)
             {
                 break;
             }

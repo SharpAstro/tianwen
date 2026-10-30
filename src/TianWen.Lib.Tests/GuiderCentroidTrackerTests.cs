@@ -229,6 +229,31 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
         output.WriteLine($"legacy primary X={rLegacy.Value.X:F1}, robust primary X={rRobust.Value.X:F1}");
     }
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void GivenSixStarsWhenAStarOtherThanTheBrightestIsPreferredThenItIsTheOneAcquired(int rank)
+    {
+        const int w = 640, h = 480;
+        var at = new (double X, double Y)[] { (100, 100), (320, 100), (540, 100), (100, 380), (320, 380), (540, 380) };
+        var stars = new ProjectedStar[at.Length];
+        for (var i = 0; i < at.Length; i++)
+        {
+            // Brightness falls with the index, so rank 0 is the brightest.
+            stars[i] = new ProjectedStar(at[i].X, at[i].Y, Magnitude: 5.0 + i * 0.3);
+        }
+        var frame = SyntheticStarFieldRenderer.Render(w, h, 0, stars, exposureSeconds: 2.0);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { PreferredStar = at[rank] };
+        var result = tracker.ProcessFrame(frame);
+
+        tracker.IsAcquired.ShouldBeTrue("a chosen star is found wherever it ranks in the frame");
+        result.ShouldNotBeNull();
+        result.Value.X.ShouldBe(at[rank].X, 2.0);
+        result.Value.Y.ShouldBe(at[rank].Y, 2.0);
+    }
+
     [Fact]
     public void GivenOnlyEdgeStarsWhenAcquireWithEdgeMarginThenStillAcquires()
     {

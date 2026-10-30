@@ -30,16 +30,6 @@ namespace TianWen.UI.Abstractions
         ];
 
         /// <summary>
-        /// The viewport every overlay draws into, from the same placement the picture was drawn with.
-        /// </summary>
-        /// <remarks>
-        /// The origin is the placement's rather than re-derived from the pan, so a display crop moves
-        /// the overlays with the quad; before this each overlay built its own layout from
-        /// <c>Zoom</c> and <c>PanOffset</c>, which is the uncropped frame's geometry. One builder, so
-        /// the markers, the grid, the ring, the star circles and both readouts cannot disagree about
-        /// where pixel (0, 0) is.
-        /// </remarks>
-        /// <summary>
         /// The frame coordinate under a screen point of the last render, through the layout every overlay draws with: for a host
         /// widget that lets the user point at the frame (the Guider tab's star pick, #1915), never its own origin arithmetic.
         /// </summary>
@@ -54,6 +44,16 @@ namespace TianWen.UI.Abstractions
             return (x, y, layout.Zoom);
         }
 
+        /// <summary>
+        /// The viewport every overlay draws into, from the same placement the picture was drawn with.
+        /// </summary>
+        /// <remarks>
+        /// The origin is the placement's rather than re-derived from the pan, so a display crop moves
+        /// the overlays with the quad; before this each overlay built its own layout from
+        /// <c>Zoom</c> and <c>PanOffset</c>, which is the uncropped frame's geometry. One builder, so
+        /// the markers, the grid, the ring, the star circles and both readouts cannot disagree about
+        /// where pixel (0, 0) is.
+        /// </remarks>
         private ViewportLayout CurrentViewportLayout(ViewerState state)
         {
             var area = _layout.ImageArea;

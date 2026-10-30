@@ -129,4 +129,37 @@ public class GuideDarkCorrectionTests
         var otherShape = new Image([new float[Height / 2, Width / 2]], BitDepth.Int16, FullScale, 0f, 0f, new ImageMeta());
         Library(DarkOf(1, Pedestal)).Correct(otherShape, TimeSpan.FromSeconds(1)).ShouldBeSameAs(otherShape);
     }
+
+    [Fact]
+    public void ALibraryOfOneExposureNeverScalesItsPedestalToAnotherExposure()
+    {
+        // 1 s: pedestal 500 plus 100 of dark current. At 3 s only a second exposure could say what part of it scales, so the
+        // frame is masked alone: the sky is left as it is, and a star fainter than the pedestal is not erased.
+        var correction = Library(DarkOf(1, Pedestal + 100));
+        var light = Flat(Pedestal + 300);
+        light[60, 80] += 3000;
+
+        var corrected = correction.Correct(ImageOf(light), TimeSpan.FromSeconds(3));
+
+        corrected.GetChannel(0).Data[60, 80].ShouldBe(Pedestal + 300 + 3000, 3.0, "no dark was taken off, so nothing under-reads the star");
+
+        var own = correction.Correct(ImageOf(light), TimeSpan.FromSeconds(1));
+        own.GetChannel(0).Data[60, 80].ShouldBe(Pedestal + 300 - (Pedestal + 100) + 3000, 3.0, "a dark of the frame's own exposure serves");
+    }
+
+    [Theory]
+    [InlineData(320, 240)]
+    [InlineData(80, 60)]
+    [InlineData(200, 120)]
+    public void AMapOfOneSizeIsNeverAppliedToAFrameOfAnother(int width, int height)
+    {
+        var correction = Library(DarkOf(1, Pedestal, (40, 30, 60000f)));
+        correction.MaskedPixels.ShouldBeGreaterThan(0);
+
+        var plane = new float[height, width];
+        Array.Fill(System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length), Pedestal);
+        var frame = new Image([plane], BitDepth.Int16, FullScale, 0f, 0f, new ImageMeta());
+
+        correction.Correct(frame, TimeSpan.FromSeconds(1)).ShouldBeSameAs(frame, "neither the dark nor the map has that size");
+    }
 }
