@@ -639,3 +639,31 @@ public readonly record struct SkyMapSetViewSignal(
     double? FieldOfViewDeg = null,
     bool? ShowObjectOverlay = null,
     bool? ShowDarkNebulae = null);
+
+/// <summary>
+/// Loop the profile's guide camera on the Guider tab while no session runs (#1915): the node streams it as a live view of
+/// the guide camera and the tab shows its frames, stretched as a session's guide frames are.
+/// </summary>
+public readonly record struct StartGuideLoopSignal(double ExposureSeconds, int? Gain = null);
+
+/// <summary>Stop the guide-camera loop started by <see cref="StartGuideLoopSignal"/>.</summary>
+public readonly record struct StopGuideLoopSignal;
+
+/// <summary>
+/// Calibrate, or calibrate and guide, off the guide-camera loop (#1915): the node's guiding run replaces the loop, on the star
+/// chosen on it (both coordinates, or neither for the guider's own choice) at the loop's exposure and gain, and puts the loop
+/// back as it ends.
+/// </summary>
+public readonly record struct StartGuidingSignal(GuideRunMode Mode, double ExposureSeconds, int? Gain = null, double? StarX = null, double? StarY = null);
+
+/// <summary>Stop the guiding run started by <see cref="StartGuidingSignal"/>: the node puts the loop back.</summary>
+public readonly record struct StopGuidingSignal;
+
+/// <summary>
+/// Take the guide camera's dark library (#1915): the node's dark library on the profile's guide camera, at the exposures round
+/// the loop's one and at its gain, <c>Count</c> frames each, which the guide loop and the guiding then subtract.
+/// </summary>
+public readonly record struct StartGuideDarksSignal(double ExposureSeconds, int? Gain = null);
+
+/// <summary>Stop the guide camera's dark library started by <see cref="StartGuideDarksSignal"/> after the frame in hand.</summary>
+public readonly record struct StopGuideDarksSignal;

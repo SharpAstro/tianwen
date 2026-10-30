@@ -56,6 +56,22 @@ public class SessionCoolingTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenSteadySensorWhenCoolDownThenTheSettledReadingBeforeCoolingIsRecordedOnTheHub()
+    {
+        // The sensor rests at 20 C with the cooler off: after the window it is ambient, and a warm-up with no heat sink
+        // can aim at it (#1842).
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
+
+        ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>()
+            .TryGetPreCoolReading(ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri, out var reading).ShouldBeTrue();
+        reading.Settled.ShouldBeTrue();
+        reading.TempC.ShouldBe(20.0, 0.1, "the sensor before the first cooling step, not a step on the way down");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenCooledCameraWhenWarmUpThenReachesHigherTemp()
     {
         // given: cool camera down first
@@ -90,6 +106,131 @@ public class SessionCoolingTests(ITestOutputHelper output)
         output.WriteLine($"Final CCD temp after warmup: {finalTemp:F1} °C");
         finalTemp.ShouldBe(0.0, 1.0, "temperature should have risen to ~0°C");
         finalTemp.ShouldBeGreaterThan(cooledTemp, "temperature should have risen from cooled state");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkWhenWarmUpThenTheSettledReadingBeforeCoolingIsTheTarget()
+    {
+        // The 2026-10-27 case: a fan-cooled body with no heat sink that cooled from a settled 12 C. The session's ambient
+        // warm-up aims at that reading.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(5, Settled: true, ctx.TimeProvider.GetUtcNow()));
+
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        reached.ShouldBeTrue();
+        var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
+        temp.ShouldBe(5.0, 1.0, "the settled reading, not the +25 C fallback");
+        hub.TryGetCoolerIntent(uri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.Warm, "a crash mid-warm-up goes on warming, never re-cools");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkACoolerOnAndASensorAlreadyAtTheSettledReadingWhenWarmUpThenItEndsAtOnce()
+    {
+        // The 2026-10-27 QHYminiCam8M shape, on the rig of EquipmentWarmUpTests.ASettledReadingBeforeCoolingEndsTheRampAtOnce:
+        // no heat sink, the cooler ON and the sensor held at 11.5 C (the fake reads 16 % power there), 12.0 C settled before
+        // cooling. The hub's warm-up skips its ramp; the session's must too, never taking the ramp's confirming steps.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.MakeHeatsinkless(ambientC: 18, sensorCannotPassAmbient: true);
+        await ctx.Camera.SetSetCCDTemperatureAsync(11.5, ct);
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
+        for (var i = 0; i < 40; i++) await ctx.Camera.GetCCDTemperatureAsync(ct);
+        (await ctx.Camera.GetCCDTemperatureAsync(ct)).ShouldBe(11.5, 0.2, "the sensor sits at its setpoint before the warm-up");
+        (await ctx.Camera.GetCoolerPowerAsync(ct)).ShouldBeGreaterThan(1, "the precondition: a cooler working, so the ramp's own exit would not end it");
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(12.0, Settled: true, ctx.TimeProvider.GetUtcNow()));
+        var before = ctx.TimeProvider.GetUtcNow();
+
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        reached.ShouldBeTrue();
+        (ctx.TimeProvider.GetUtcNow() - before).ShouldBe(TimeSpan.Zero, "no ramp step was slept");
+        (await ctx.Camera.GetSetCCDTemperatureAsync(ct)).ShouldBe(11.5, "the setpoint was never stepped");
+        hub.TryGetCoolerIntent(uri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.Warm, "the warm-up is still recorded, as a ramp would record it");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkASettledReadingAndTheCoolerOffWhenWarmUpThenItEndsAtOnce()
+    {
+        // A cooler-off hold with a settled reading recorded: a cooler that is off has nothing to warm whatever the reading,
+        // so the session's warm-up ends with no ramp step slept, as the hub's does.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(20.5, Settled: true, ctx.TimeProvider.GetUtcNow()));
+        var before = ctx.TimeProvider.GetUtcNow();
+
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        reached.ShouldBeTrue();
+        (ctx.TimeProvider.GetUtcNow() - before).ShouldBe(TimeSpan.Zero, "no ramp step was slept");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkNoReadingAndTheCoolerOffWhenWarmUpThenTheCoolerIsLeftOff()
+    {
+        // A session that failed before its cool-down: no heat sink, nothing recorded, the cooler off and the sensor at 20 C,
+        // under the +25 C fallback. The hub holds such a camera; the session's warm-up must not switch the cooler on to ramp it.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+        (await ctx.Camera.GetCoolerOnAsync(ct)).ShouldBeFalse("the precondition: the cooler was never switched on");
+        var before = ctx.TimeProvider.GetUtcNow();
+
+        var reached = await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        reached.ShouldBeTrue();
+        (ctx.TimeProvider.GetUtcNow() - before).ShouldBe(TimeSpan.Zero, "no ramp step was slept");
+        (await ctx.Camera.GetCoolerOnAsync(ct)).ShouldBeFalse("a cooler that was off stays off");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkAndAnUnsettledReadingWhenWarmUpThenTheFallbackIsTheTarget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(5, Settled: false, ctx.TimeProvider.GetUtcNow()));
+
+        await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
+        // The fake's sensor rests at its 20 C ambient and cannot rise past it, so +25 C shows as 20 C, well above the 5 C
+        // an unsettled reading would have aimed at if it were trusted.
+        temp.ShouldBe(20.0, 1.0, "an unsettled reading never sets the target, so it warms toward +25 C, not the recorded 5 C");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAHeatSinkWhenWarmUpThenItBeatsTheRecordedReading()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(5, Settled: true, ctx.TimeProvider.GetUtcNow()));
+
+        await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
+        temp.ShouldBe(20.0, 1.0, "the heat sink's 20 C, not the recorded 5 C");
     }
 
     [Fact(Timeout = 60_000)]

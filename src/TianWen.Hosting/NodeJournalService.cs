@@ -350,6 +350,11 @@ internal sealed class NodeJournalService(
             }
 
             logger.LogInformation("Recovering: reconnected {Device}", device.DisplayName);
+            // Back on the hub BEFORE the cooling is re-established, so a recovered warm-up can aim at it.
+            if (held.PreCoolSensorC is { } preCool && double.IsFinite(preCool))
+            {
+                hub.SetPreCoolReading(device.DeviceUri, new SensorAmbientReading(preCool, held.PreCoolSettled ?? false, held.PreCoolUtc ?? timeProvider.GetUtcNow()));
+            }
             if (held.Cooler is { } cooler)
             {
                 Recool(device.DeviceUri, cooler, held.CoolerSetpointC);
@@ -404,7 +409,7 @@ internal sealed class NodeJournalService(
             case CoolerIntentKind.Cool when setpointC is { } setpoint:
                 logger.LogInformation("Recovering: cooling {Camera} back to {Setpoint} C through the session's ramp", camera, setpoint);
                 hub.SetCoolerIntent(camera, CoolerIntent.CoolTo(CameraCoolingRamp.TargetOf(setpoint)));
-                _ramps.Add(RampAsync(camera, ct => hub.CoolToSetpointAsync(camera, setpoint, new SessionConfiguration().CooldownMaxRate, timeProvider, logger, ct)));
+                _ramps.Add(RampAsync(camera, ct => hub.CoolToSetpointAsync(camera, setpoint, new SessionConfiguration().CooldownMaxRate, timeProvider, logger, readAmbient: false, ct)));
                 break;
 
             case CoolerIntentKind.Warm:

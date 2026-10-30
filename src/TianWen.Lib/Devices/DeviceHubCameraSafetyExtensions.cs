@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.Devices;
@@ -116,8 +117,19 @@ public static class DeviceHubCameraSafetyExtensions
         /// crashed (the crash journal, P1 of docs/plans/hardware-in-the-server.md).
         /// </summary>
         /// <returns>True when the setpoint was reached; false when it was not, or the camera is not connected.</returns>
-        public async ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, double maxRateCPerMinute, ITimeProvider timeProvider, ILogger logger,
+        public ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, double maxRateCPerMinute, ITimeProvider timeProvider, ILogger logger,
             CancellationToken cancellationToken)
+            => hub.CoolToSetpointAsync(cameraUri, setpointC, maxRateCPerMinute, timeProvider, logger, readAmbient: true, cancellationToken);
+
+        /// <summary>
+        /// <see cref="CoolToSetpointAsync(Uri, double, double, ITimeProvider, ILogger, CancellationToken)"/>, with the
+        /// sensor read as ambient before the first step (<paramref name="readAmbient"/>) or not. A camera whose cooler is
+        /// off is sampled for about a minute first and the reading recorded (<see cref="IDeviceHub.SetPreCoolReading"/>);
+        /// a node cooling a camera back after a crash passes false, since that sensor is no longer at rest and the
+        /// reading the journal held is the one that counts.
+        /// </summary>
+        public async ValueTask<bool> CoolToSetpointAsync(Uri cameraUri, double setpointC, double maxRateCPerMinute, ITimeProvider timeProvider, ILogger logger,
+            bool readAmbient, CancellationToken cancellationToken)
         {
             if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera))
             {
@@ -127,7 +139,8 @@ public static class DeviceHubCameraSafetyExtensions
             var target = CameraCoolingRamp.TargetOf(setpointC);
             hub.SetCoolerIntent(cameraUri, CoolerIntent.CoolTo(target));
             return await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(target, SetpointTempKind.Normal), maxRateCPerMinute,
-                CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null, cancellationToken);
+                CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, timeProvider, logger, afterStep: null,
+                readAmbient ? (_, reading) => { hub.SetPreCoolReading(cameraUri, reading); return ValueTask.CompletedTask; } : null, targets: null, cancellationToken);
         }
 
         /// <summary>
@@ -304,17 +317,40 @@ public static class DeviceHubCameraSafetyExtensions
         // cool-down back to the setpoint this ramp is leaving.
         hub.SetCoolerIntent(deviceUri, CoolerIntent.Warm);
 
-        // The session's own warm-up, ONE ramp for every host: toward the heat sink (or CameraReading's +25 C fallback),
-        // a step every CameraCoolingRamp.StepInterval, ended by the cooler no longer holding the sensor down.
-        try
+        // The session's own warm-up, ONE ramp for every host: toward the camera's resolved target (WarmUpTarget: the heat
+        // sink, else the settled sensor reading from before the cool-down, else CameraReading's +25 C fallback), a step
+        // every CameraCoolingRamp.StepInterval, ended by the cooler no longer holding the sensor down.
+        var heatsink = double.NaN;
+        if (camera.CanGetHeatsinkTemperature)
         {
-            await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient),
-                new SessionConfiguration().WarmupMaxRate, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
-                timeProvider, logger, afterStep: null, cancellationToken);
+            try { heatsink = await camera.GetHeatSinkTemperatureAsync(cancellationToken); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning(ex, "GetHeatSinkTemperatureAsync failed for {Uri}", deviceUri); }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        SensorAmbientReading? preCool = hub.TryGetPreCoolReading(deviceUri, out var recorded) ? recorded : null;
+        var resolved = WarmUpTarget.Resolve(heatsink, preCool);
+        logger.LogInformation("Warming {Uri} to {TargetC:F1} C: {Source}", deviceUri, resolved.TempC, resolved.Describe());
+        var warmTarget = resolved.Source is WarmUpTargetSource.HeatSink
+            ? new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient)
+            : new SetpointTemp(CameraCoolingRamp.TargetOf(resolved.TempC), SetpointTempKind.Normal);
+        // A sensor already within CameraReading's tolerance of its target has nothing to warm (the QHYminiCam8M of
+        // 2026-10-27: 11.5 C at 0 % power against a settled 12 C), the same line a client's quit question draws.
+        var current = await logger.CatchAsync(camera.GetCCDTemperatureAsync, cancellationToken, double.NaN);
+        if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink, preCool))
         {
-            logger.LogWarning(ex, "Warm-up ramp failed mid-ramp for {Uri}", deviceUri);
+            logger.LogInformation("Camera {Uri} reads {Current:F1} C, already at its warm-up target", deviceUri, current);
+        }
+        else
+        {
+            try
+            {
+                await CameraCoolingRamp.RunAsync([camera], warmTarget,
+                    new SessionConfiguration().WarmupMaxRate, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
+                    timeProvider, logger, afterStep: null, onSensorAmbient: null, targets: null, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Warm-up ramp failed mid-ramp for {Uri}", deviceUri);
+            }
         }
 
         // A cancelled warm-up stops where it is: the ramp returns normally on a cancelled token, so it is checked here.

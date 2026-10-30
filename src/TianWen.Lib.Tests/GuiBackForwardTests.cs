@@ -40,6 +40,7 @@ public class GuiBackForwardTests
                 .AddSingleton<ITimeProvider>(new SystemTimeProvider())
                 .AddSingleton(Substitute.For<ICelestialObjectDB>())
                 .AddSingleton<LiveViewController>()
+                .AddSingleton<GuideLoopController>()
                 .AddSingleton<ViewerState>()
                 .AddSingleton<PlanetaryCaptureController>()
                 .BuildServiceProvider();

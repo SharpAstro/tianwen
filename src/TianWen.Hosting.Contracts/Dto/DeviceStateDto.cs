@@ -122,8 +122,24 @@ public sealed record CameraDeviceStateDto
     /// <summary>The readout mode the camera is in, one of <see cref="ReadoutModes"/>; null when it has none to choose.</summary>
     public string? ReadoutMode { get; init; }
 
-    public static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent) => new CameraDeviceStateDto
+    /// <summary>
+    /// Where a warm-up of this camera would take the sensor, as the node resolves it (<see cref="WarmUpTarget.Resolve"/>);
+    /// null from a node before #1842, which a client reads as the fallback.
+    /// </summary>
+    public double? WarmUpTargetC { get; init; }
+
+    /// <summary>
+    /// Which reading set <see cref="WarmUpTargetC"/>; numeric on the wire. Defaults to the fallback, which is what a node
+    /// that does not send it means.
+    /// </summary>
+    public WarmUpTargetSource WarmUpTargetSource { get; set; } = WarmUpTargetSource.Fallback;
+
+    public static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent) => FromReading(reading, intent, WarmUpTarget.Resolve(reading.HeatsinkTemperatureC, reading.PreCool));
+
+    private static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent, WarmUpTarget warmUp) => new CameraDeviceStateDto
     {
+        WarmUpTargetC = DeviceStateDto.Known(warmUp.TempC),
+        WarmUpTargetSource = warmUp.Source,
         CcdTemperatureC = DeviceStateDto.Known(reading.CcdTemperatureC),
         HeatsinkTemperatureC = DeviceStateDto.Known(reading.HeatsinkTemperatureC),
         SetpointC = DeviceStateDto.Known(reading.SetpointC),
@@ -170,7 +186,13 @@ public sealed record CameraDeviceStateDto
         VideoBitDepths: VideoBitDepths is { } depths ? [.. depths] : [],
         CanFastReadout: CanFastReadout,
         ReadoutModes: ReadoutModes is { } readoutModes ? [.. readoutModes] : [],
-        ReadoutMode: ReadoutMode);
+        ReadoutMode: ReadoutMode)
+    {
+        // The node's settled reading crosses as the target and its source; a client resolves NeedsWarmUp through the same rule.
+        PreCool = WarmUpTargetSource == WarmUpTargetSource.SettledSensorBeforeCooling && WarmUpTargetC is { } settled
+            ? new SensorAmbientReading(settled, Settled: true, default)
+            : null
+    };
 }
 
 /// <summary>A camera's region-of-interest rules (<see cref="RoiConstraints"/>), in pixels.</summary>

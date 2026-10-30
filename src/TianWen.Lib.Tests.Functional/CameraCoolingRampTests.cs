@@ -32,6 +32,9 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.MakeHeatsinkless(CameraReading.WarmUpFallbackTargetC, sensorCannotPassAmbient: false);
+        // The cooler on before the cool-down, so no sensor reading is taken first (#1842) and nothing better than the
+        // fallback is known.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
 
         await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), FastRate, 80, SetupointDirection.Down, ct);
         var cooled = await ctx.Camera.GetCCDTemperatureAsync(ct);
@@ -78,6 +81,8 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         const double rate = 2.0;
         var maxStep = rate * OneStep.TotalMinutes;
 
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for a minute before it ramps (#1842), and this times the ramp alone.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
         var start = ctx.TimeProvider.GetUtcNow();
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(0, SetpointTempKind.Normal), rate, 80, SetupointDirection.Down, ct);
         var took = ctx.TimeProvider.GetUtcNow() - start;
@@ -97,6 +102,8 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for a minute before it ramps (#1842), and this times the ramp alone.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
         var start = ctx.TimeProvider.GetUtcNow();
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(17, SetpointTempKind.Normal), 10.0, 80, SetupointDirection.Down, ct);
         var took = ctx.TimeProvider.GetUtcNow() - start;
@@ -156,6 +163,8 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         const double rate = 2.0;
 
+        // The cooler on first: a cool-down from a cooler that is off reads the sensor for a minute before it ramps (#1842), and this times the ramp alone.
+        await ctx.Camera.SetCoolerOnAsync(true, ct);
         var start = ctx.TimeProvider.GetUtcNow();
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(18, SetpointTempKind.Normal), rate, 80, SetupointDirection.Down, ct);
         var took = ctx.TimeProvider.GetUtcNow() - start;
@@ -252,7 +261,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate,
-            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         output.WriteLine($"{from} -> {to} at {rate} C/min, whole degrees {wholeDegree}: {sleeps.Count} steps, {took.TotalSeconds:F0} s");
@@ -278,7 +287,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(5, SetpointTempKind.Normal), 2.0,
-            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         output.WriteLine($"A cooler that never moves was let go after {took.TotalMinutes:F2} min");
@@ -306,7 +315,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(-5, SetpointTempKind.Normal), rate,
-            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            CameraCoolingRamp.CoolDownPowerThreshold, SetupointDirection.Down, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         output.WriteLine($"25 C drop with an unreadable start took {took.TotalMinutes:F2} min");
@@ -314,6 +323,35 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(-5, 0.5);
         logger.Warnings.ShouldNotContain(w => w.Contains("safety cap"));
         took.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMinutes(25 / rate) - OneStep);
+    }
+
+    /// <summary>
+    /// #1842: a session warm-up passes Ambient ramp-wide and a Normal target for a camera with no heat sink. An unreadable
+    /// start on that camera must plan the long walk from ITS target, not the ramp-wide one, or a whole-degree camera warming
+    /// -10 C to +12 C (about 11 minutes at 2 C/min) is let go at the five minute minimum cap, near 0 C.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AnUnreadableStartOnAPerCameraNormalTargetPlansTheLongWalk()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await ConnectedCameraAsync(ct);
+        camera.MakeWholeDegreeSetpoint();
+        camera.MakeHeatsinkless(ambientC: 25, sensorCannotPassAmbient: true);
+        await SettleAtAsync(camera, -10, ct);
+        camera.MakeNextTemperatureReadsUnreadable(1, throws: false);
+        const double rate = 2.0;
+        var sleeps = new List<TimeSpan>();
+        var logger = new WarningLogger(FakeExternal.CreateLogger(output));
+
+        await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rate,
+            CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up, EquipmentWarmUpTests.RecordingClock(sleeps), logger,
+            afterStep: null, onSensorAmbient: null, targets: [new SetpointTemp(12, SetpointTempKind.Normal)], ct);
+
+        var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
+        output.WriteLine($"-10 C to +12 C with an unreadable start took {took.TotalMinutes:F2} min");
+        logger.Warnings.ShouldNotContain(w => w.Contains("safety cap"));
+        took.ShouldBeGreaterThan(CameraCoolingRamp.MinimumSafetyCap + TimeSpan.FromMinutes(3), "well past the five minute minimum cap");
+        (await camera.GetCCDTemperatureAsync(ct)).ShouldBe(12, 1.0, "the sensor reached its target, not let go cold");
     }
 
     /// <summary>#1839: a rate that is not finite, or not above zero, is the direction's default, checked once in the ramp for every caller.</summary>
@@ -341,7 +379,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var logger = new WarningLogger(FakeExternal.CreateLogger(output));
 
         var reached = await CameraCoolingRamp.RunAsync([camera], new SetpointTemp((sbyte)to, SetpointTempKind.Normal), rate,
-            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, ct);
+            ThresholdOf(direction), direction, EquipmentWarmUpTests.RecordingClock(sleeps), logger, afterStep: null, onSensorAmbient: null, targets: null, ct);
 
         var took = TimeSpan.FromTicks(sleeps.Sum(s => s.Ticks));
         var defaultRate = CameraCoolingRamp.DefaultMaxRateOf(direction);

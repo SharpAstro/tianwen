@@ -52,6 +52,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
                 .AddSingleton<ViewerState>()
                 .AddSingleton<PlanetaryCaptureController>()
                 .AddSingleton<LiveViewController>()
+                .AddSingleton<GuideLoopController>()
                 .AddSingleton(catalog)
                 .BuildServiceProvider();
             AppState = new GuiAppState { PeerTable = peers };

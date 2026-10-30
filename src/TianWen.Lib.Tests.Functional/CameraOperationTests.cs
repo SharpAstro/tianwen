@@ -46,10 +46,13 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var ct = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await Hub.ConnectAsync(device, ct);
+        // The cooler on first: from a cooler that is off the node reads the sensor for a minute on the real clock before the
+        // first step (#1842), so this watches for the ramp's first setpoint below the sensor's 20 C instead.
+        await camera.SetCoolerOnAsync(true, ct);
 
         var cooling = (await Client.CoolCameraAsync(device.DeviceUri, -10.4, maxRateCPerMinute: null, ct)).Value.ShouldNotBeNull();
         cooling.Kind.ShouldBe("cool");
-        await UntilAsync("the ramp to switch the cooler on", async token => (await camera.GetCoolerOnAsync(token), "cooler still off"), ct);
+        await UntilAsync("the ramp's first step", async token => (await camera.GetSetCCDTemperatureAsync(token) < 20, "setpoint not stepped yet"), ct);
 
         Hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
         intent.ShouldBe(CoolerIntent.CoolTo(-10), "the ramp's whole-degree TARGET, which a crash journal re-establishes");
@@ -94,10 +97,13 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var ct = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Camera, 1);
         var camera = (ICameraDriver)await Hub.ConnectAsync(device, ct);
+        // The cooler on first: from a cooler that is off the node reads the sensor for a minute on the real clock before the
+        // first step (#1842), so this watches for the ramp's first setpoint below the sensor's 20 C instead.
+        await camera.SetCoolerOnAsync(true, ct);
 
         var cooling = (await Client.CoolCameraAsync(device.DeviceUri, -10, maxRateCPerMinute: 4, ct)).Value.ShouldNotBeNull();
         cooling.Kind.ShouldBe("cool");
-        await UntilAsync("the ramp to switch the cooler on", async token => (await camera.GetCoolerOnAsync(token), "cooler still off"), ct);
+        await UntilAsync("the ramp's first step", async token => (await camera.GetSetCCDTemperatureAsync(token) < 20, "setpoint not stepped yet"), ct);
 
         (await Client.CancelJobAsync(cooling.Id, ct)).IsSuccess.ShouldBeTrue();
         (await UntilEndedAsync(cooling.Id, ct)).State.ShouldBe(JobState.Cancelled);

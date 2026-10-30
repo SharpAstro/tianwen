@@ -104,7 +104,6 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     private double _setpointTemperature = 20.0;
     private bool _coolerOn;
     private double _coolerPower;
-    private bool _hasHeatsink = true;
     private double _ccdCeiling = double.PositiveInfinity;
 
     /// <summary>
@@ -113,7 +112,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// </summary>
     internal void MakeHeatsinkless(double ambientC, bool sensorCannotPassAmbient)
     {
-        _hasHeatsink = false;
+        HasHeatsink = false;
         _heatsinkTemperature = ambientC;
         _ccdCeiling = sensorCannotPassAmbient ? ambientC : double.PositiveInfinity;
     }
@@ -166,7 +165,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public bool CanSetCCDTemperature { get; } = true;
 
-    public bool CanGetHeatsinkTemperature { get; } = true;
+    /// <summary>Whether the fake reports a heat-sink temperature; false models a fan-cooled body that gives none (#1842).</summary>
+    public bool HasHeatsink { get; set; } = true;
+
+    public bool CanGetHeatsinkTemperature => HasHeatsink;
 
     public bool CanStopExposure { get; } = true;
 
@@ -886,7 +888,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     }
 
     public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(_hasHeatsink ? _heatsinkTemperature : double.NaN);
+        => ValueTask.FromResult(HasHeatsink ? _heatsinkTemperature : double.NaN);
 
     public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_coolerPower);
@@ -1675,7 +1677,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     internal int VideoBaseSeed { get; set; } = 1234;
 
     /// <inheritdoc/>
-    public bool CanVideoCapture => true;
+    /// <remarks>
+    /// Not the guide camera (#1915): its stream would be the synthetic planet disk above, while the star field the guider
+    /// measures comes only from the exposure path, so a guide-camera loop would show a sky the guider then cannot find. A
+    /// guide camera loops short exposures instead, as any camera without native video does.
+    /// </remarks>
+    public bool CanVideoCapture => !IsGuideCamera;
 
     /// <inheritdoc/>
     // Report ZWO-style alignment (width % 8 == 0, height % 2 == 0, origin on the same steps) so the ROI

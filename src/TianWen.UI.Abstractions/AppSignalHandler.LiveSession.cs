@@ -215,6 +215,104 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            // The Guider tab's loop of the guide camera (#1915): the same live view run, asked for the guide camera.
+            var guideLoop = sp.GetRequiredService<GuideLoopController>();
+            guideLoop.View.RedrawRequested = () => appState.NeedsRedraw = true;
+
+            bus.Subscribe<StartGuideLoopSignal>(sig =>
+            {
+                if (CommandTargetOrSay("A guide camera loop") is not { Node: var node }) return;
+
+                RunTracked("StartGuideLoop", "The guide camera loop failed to start", async ct =>
+                {
+                    var request = new LiveViewRequestDto
+                    {
+                        CameraRole = LiveViewCamera.Guider,
+                        ExposureMs = sig.ExposureSeconds * 1000.0,
+                        Gain = sig.Gain is { } g ? (short)g : null,
+                    };
+                    if (await guideLoop.View.StartAsync(node, request, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                        return;
+                    }
+
+                    // The calibration the node's guider already holds, shown beside the loop before any run of this window's.
+                    await guideLoop.Run.RefreshAsync(node, ct);
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopGuideLoopSignal>(_ =>
+            {
+                guideLoop.View.Stop();
+                appState.NeedsRedraw = true;
+            });
+
+            // Calibrating and guiding off that loop (#1915): the node's run replaces the loop, on the chosen star, and puts it back.
+            guideLoop.Run.RedrawRequested = () => appState.NeedsRedraw = true;
+
+            bus.Subscribe<StartGuidingSignal>(sig =>
+            {
+                if (CommandTargetOrSay(sig.Mode is GuideRunMode.Calibrate ? "Calibrating the guider" : "Guiding") is not { Node: var node }) return;
+
+                RunTracked("StartGuiding", "Guiding failed to start", async ct =>
+                {
+                    var request = new GuidingRequestDto
+                    {
+                        StarX = sig.StarX,
+                        StarY = sig.StarY,
+                        ExposureMs = sig.ExposureSeconds * 1000.0,
+                        Gain = sig.Gain is { } g ? (short)g : null,
+                    };
+                    if (await guideLoop.Run.StartAsync(node, sig.Mode, request, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopGuidingSignal>(_ =>
+            {
+                if (CommandTargetOrSay("Stopping guiding") is not { Node: var node }) return;
+
+                RunTracked("StopGuiding", "Could not stop guiding", async ct =>
+                {
+                    if (await guideLoop.Run.StopAsync(node, ct) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            // The guide camera's dark library (#1915): the node's dark library on the guide camera; refused while it loops or guides.
+            guideLoop.Darks.RedrawRequested = () => appState.NeedsRedraw = true;
+
+            bus.Subscribe<StartGuideDarksSignal>(sig =>
+            {
+                if (CommandTargetOrSay("The guide camera's darks") is not { Node: var node }) return;
+
+                RunTracked("StartGuideDarks", "The guide camera's darks failed to start", async ct =>
+                {
+                    if (await guideLoop.Darks.StartAsync(node, sig.ExposureSeconds, sig.Gain, shutdownToken) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopGuideDarksSignal>(_ =>
+            {
+                if (CommandTargetOrSay("Stopping the darks") is not { Node: var node }) return;
+
+                RunTracked("StopGuideDarks", "Could not stop the darks", async ct =>
+                {
+                    if (await guideLoop.Darks.StopAsync(node, ct) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
             bus.Subscribe<SaveSnapshotSignal>(sig =>
             {
                 if (CommandTargetOrSay("A snapshot") is not { Node: var node }) return;
