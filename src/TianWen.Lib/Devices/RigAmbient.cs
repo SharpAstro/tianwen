@@ -49,9 +49,10 @@ public static class RigAmbient
     /// The rig ambient for the camera at <paramref name="cameraUri"/> outside a session, which has no single active profile: read
     /// from the first discovered profile whose OTA names this camera (by device key, as <c>MountLimitWatcher</c> finds a mount's
     /// profile), from that OTA's connected focuser, then the profile's connected weather device. NaN when the camera is in no
-    /// profile, no source is connected, or <paramref name="discovery"/> is null.
+    /// profile, no source is connected, or <paramref name="discovery"/> is null. With <paramref name="skipLeased"/> a source a
+    /// run holds is not read (a reader outside the run must not touch a device the run reads), and counts as no reading.
     /// </summary>
-    public static ValueTask<double> ForCameraAsync(IDeviceHub hub, IDeviceDiscovery? discovery, Uri cameraUri, CancellationToken cancellationToken)
+    public static ValueTask<double> ForCameraAsync(IDeviceHub hub, IDeviceDiscovery? discovery, Uri cameraUri, CancellationToken cancellationToken, bool skipLeased = false)
     {
         if (discovery is null)
         {
@@ -73,12 +74,12 @@ public static class RigAmbient
                 }
 
                 var sources = new List<Func<CancellationToken, ValueTask<double>>>(2);
-                if (ota.Focuser is { } focuserUri && hub.TryGetConnectedDriver<IFocuserDriver>(focuserUri, out var focuser))
+                if (ota.Focuser is { } focuserUri && !(skipLeased && hub.TryGetLease(focuserUri, out _)) && hub.TryGetConnectedDriver<IFocuserDriver>(focuserUri, out var focuser))
                 {
                     sources.Add(ct => focuser.GetTemperatureAsync(ct));
                 }
 
-                if (data.Weather is { } weatherUri && hub.TryGetConnectedDriver<IWeatherDriver>(weatherUri, out var weather))
+                if (data.Weather is { } weatherUri && !(skipLeased && hub.TryGetLease(weatherUri, out _)) && hub.TryGetConnectedDriver<IWeatherDriver>(weatherUri, out var weather))
                 {
                     sources.Add(_ => ValueTask.FromResult(weather.Temperature));
                 }
