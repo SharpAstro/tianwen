@@ -254,7 +254,7 @@ internal sealed class DeviceStatePoller(
     internal static async ValueTask<CameraDeviceStateDto> CameraStateAsync(IDeviceHub hub, IDeviceDiscovery? discovery, Uri cameraUri,
         CameraReading reading, CoolerIntent? intent, CancellationToken cancellationToken)
     {
-        if (!double.IsFinite(reading.HeatsinkTemperatureC))
+        if (discovery is null && !double.IsFinite(reading.HeatsinkTemperatureC))
         {
             var ambient = await RigAmbient.ForCameraAsync(hub, discovery, cameraUri, cancellationToken, skipLeased: true);
             reading = reading with { RigAmbientC = double.IsFinite(ambient) ? ambient : null };
