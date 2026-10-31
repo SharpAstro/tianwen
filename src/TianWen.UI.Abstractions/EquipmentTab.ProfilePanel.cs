@@ -365,8 +365,12 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Text("Save Site", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
                             .WFixed(72f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                             .Clickable(new HitResult.ButtonHit("SaveSite"), _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text)),
+                        // Leaves the editor as Escape does: the fields share one cancel, which drops a held site too.
+                        Layout.Builder.Text("Cancel", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                            .WFixed(72f).HStar().Bg(ConfirmCancelBg).BgHover(GuiTheme.Hover(ConfirmCancelBg))
+                            .Clickable(new HitResult.ButtonHit("CancelSite"), _ => State.LatitudeInput.OnCancel?.Invoke()),
                         Layout.Builder.Spacer().Stretch())
-                    .RowH(BaseButtonHeight);
+                    .WithGap(4f).RowH(BaseButtonHeight);
 
                 var editor = Layout.Builder.VStack(
                         // Latitude takes the keyboard as the editor opens: a declaration on the field, where
