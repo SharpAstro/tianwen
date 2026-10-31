@@ -51,8 +51,9 @@ internal sealed class ViewerE2E : IAsyncDisposable
         State = new ViewerState();
         Tracker = new BackgroundTaskTracker();
         FileDialog = Substitute.For<IFileDialogs>();
+        Clock = new FakeTimeProviderWrapper();
         Controller = new ViewerController(State, new DocumentCache(), FileDialog,
-            Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(), Tracker,
+            Substitute.For<IPlateSolverFactory>(), Clock, Tracker,
             NullLogger<ViewerController>.Instance, external);
         // The bar tianwen-fits offers (Program.cs): the Enhance button is where the planetary sharpening lives (#1345).
         Viewer = new Surface(_renderer, Bus) { DpiScale = dpiScale, Offer = ToolbarOffer.FileViewer.With(ToolbarAction.Enhance) };
@@ -73,6 +74,9 @@ internal sealed class ViewerE2E : IAsyncDisposable
     }
 
     internal Surface Viewer { get; }
+
+    /// <summary>The controller's clock, which a test advances to age what the viewer words by time.</summary>
+    internal FakeTimeProviderWrapper Clock { get; }
 
     internal ViewerState State { get; }
 

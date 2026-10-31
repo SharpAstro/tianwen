@@ -79,6 +79,30 @@ namespace TianWen.UI.Abstractions
             PaintLayout(ArrangeLayout(tree, rect, ctx), ctx, DrawSectionRule);
         }
 
+        /// <summary>Test seam: the strip's tree as the painted frame builds it, statistics open, so a test measures it at any width.</summary>
+        internal Layout.Node InfoStripFor(IPreviewSource source, ViewerState state, float width)
+            => BuildInfoStrip(source, state, source as AstroImageDocument, statisticsOpen: true, toggle: null, MeasureContext(), width);
+
+        /// <summary>Test seam: the engine's measure of <see cref="InfoStripFor"/> in a strip <paramref name="width"/> wide, as the paint measures it.</summary>
+        internal Layout.Size<float> MeasureInfoStrip(IPreviewSource source, ViewerState state, float width)
+            => Layout.Engine.Measure(InfoStripFor(source, state, width), new Layout.Size<float>(width, float.MaxValue), MeasureContext());
+
+        /// <summary>Test seam: how far right of a strip <paramref name="width"/> wide the painted tree reaches (arranged, as the paint places it).</summary>
+        internal float InfoStripRightEdge(IPreviewSource source, ViewerState state, float width)
+        {
+            var arranged = ArrangeLayout(InfoStripFor(source, state, width), new RectF32(0f, 0f, width, 100000f), MeasureContext());
+            var right = 0f;
+            foreach (var node in arranged)
+            {
+                // The containers fill the strip by construction; what can run past its edge is a word or a row inside them.
+                if (node.Bounds.Width < width)
+                {
+                    right = Math.Max(right, node.Bounds.X + node.Bounds.Width);
+                }
+            }
+            return right;
+        }
+
         /// <param name="ctx">The strip's measure context, which decides how the statistics table's columns fall into tables.</param>
         /// <param name="width">The strip's width on the surface, its padding included.</param>
         private Layout.Node BuildInfoStrip(IPreviewSource source, ViewerState state, AstroImageDocument? document,
@@ -133,6 +157,13 @@ namespace TianWen.UI.Abstractions
                     }
                     sections.Add(Section(grade));
                 }
+            }
+
+            // The live rolling stack's picture is some frames behind the playhead and some seconds old: one line saying so, worded by
+            // the controller (ViewerState.LiveStackBuiltLine) and set only for the Live view, never the Auto view or Raw.
+            if (state.LiveStackBuiltLine is { } builtLine && source is LiveStackPreviewSource { FollowsStream: true })
+            {
+                sections.Add(Section([SectionHeading("Live stack"), WrappedText(builtLine, body)]));
             }
 
             // The white-balance sliders and the selection used to be sections here: a toolbar popover now

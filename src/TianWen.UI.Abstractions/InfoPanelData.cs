@@ -13,6 +13,48 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class InfoPanelData
 {
+    /// <summary>
+    /// One line saying which raw frame the live stack's picture was built at and how stale it is, or null before the first master
+    /// (<paramref name="builtFrame"/> below 0). Frames are 0-based in, 1-based out, as the transport counter shows them; each part
+    /// is dropped when unknown (no capture timestamp, no playhead, no publish instant).
+    /// </summary>
+    /// <param name="builtFrame">0-based raw frame index the shown master was built at, -1 when none.</param>
+    /// <param name="builtTimestamp">The built frame's capture time (a SER timestamp), or null.</param>
+    /// <param name="playhead">0-based raw playhead, or -1 when there is none.</param>
+    /// <param name="now">The current wall clock, from the caller's time provider.</param>
+    /// <param name="publishedAt">When the master was published, or null.</param>
+    public static string? LiveStackBuiltLine(int builtFrame, DateTimeOffset? builtTimestamp, int playhead, DateTimeOffset now, DateTimeOffset? publishedAt)
+    {
+        if (builtFrame < 0)
+        {
+            return null;
+        }
+
+        var line = $"Live stack: built at frame {(builtFrame + 1).ToString(CultureInfo.InvariantCulture)}";
+        if (builtTimestamp is { } stamp)
+        {
+            line += $" ({stamp.UtcDateTime.ToString("HH:mm:ss.f", CultureInfo.InvariantCulture)} UT)";
+        }
+
+        if (playhead >= 0)
+        {
+            var behind = playhead - builtFrame;
+            line += behind > 0
+                ? $", {behind.ToString(CultureInfo.InvariantCulture)} {(behind == 1 ? "frame" : "frames")} behind the playhead"
+                : ", at the playhead";
+        }
+
+        if (publishedAt is { } at)
+        {
+            var seconds = Math.Max(0, (long)(now - at).TotalSeconds);
+            line += seconds < 60
+                ? $", updated {seconds.ToString(CultureInfo.InvariantCulture)} s ago"
+                : $", updated {(seconds / 60).ToString(CultureInfo.InvariantCulture)} min ago";
+        }
+
+        return line;
+    }
+
     public static List<string> GetMetadataLines(IPreviewSource source, ViewerState? state = null)
     {
         var lines = new List<string>();
