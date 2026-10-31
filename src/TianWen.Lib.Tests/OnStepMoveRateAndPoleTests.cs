@@ -18,7 +18,7 @@ public class OnStepMoveRateAndPoleTests
     [InlineData("47.408333", "50.000", 1.7578)]
     [InlineData("2.0", "1000", 2.0833)]
     [InlineData("1", "240", 17.3611)]
-    [InlineData("47.408333", "1.000", 87.8906)]
+    [InlineData("47.408333", "1.000", 87.8889)]
     public void FastestMoveIsTheConfiguredTopRateOverTheSiderealStepRate(string gxe6, string gx92, double expectedDegPerSec)
         => OnStepMountDriver<FakeDevice>.FastestMoveDegPerSec(gxe6, gx92).ShouldNotBeNull().ShouldBe(expectedDegPerSec, 1e-3);
 
