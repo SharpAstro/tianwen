@@ -78,8 +78,15 @@ public class InfoPanelLiveStackViewerTests
             // The strip is 300 design units wide in the app; 160 is a narrow one. Every word and row is arranged inside the strip.
             var wideWidth = e2e.Viewer.ScaledInfoPanelWidth;
             var narrowWidth = 160f * dpi;
-            e2e.Viewer.InfoStripRightEdge(live, e2e.State, narrowWidth).ShouldBeLessThanOrEqualTo(narrowWidth, "a narrow strip wraps the line, it never runs past its edge");
-            e2e.Viewer.InfoStripRightEdge(live, e2e.State, wideWidth).ShouldBeLessThanOrEqualTo(wideWidth);
+            // Other content may be wider than a narrow strip on a platform whose font measures wider (arm64 CI); the line must add nothing past that.
+            var narrowEdge = e2e.Viewer.InfoStripRightEdge(live, e2e.State, narrowWidth);
+            var wideEdge = e2e.Viewer.InfoStripRightEdge(live, e2e.State, wideWidth);
+            e2e.State.LiveStackBuiltLine = null;
+            var narrowBareEdge = e2e.Viewer.InfoStripRightEdge(live, e2e.State, narrowWidth);
+            var wideBareEdge = e2e.Viewer.InfoStripRightEdge(live, e2e.State, wideWidth);
+            e2e.State.LiveStackBuiltLine = line;
+            narrowEdge.ShouldBeLessThanOrEqualTo(Math.Max(narrowWidth, narrowBareEdge), "a narrow strip wraps the line, it never runs past its edge");
+            wideEdge.ShouldBeLessThanOrEqualTo(Math.Max(wideWidth, wideBareEdge));
 
             // And it wraps onto more rows the narrower the strip is.
             var narrowHeight = e2e.Viewer.MeasureInfoStrip(live, e2e.State, narrowWidth).Height;
