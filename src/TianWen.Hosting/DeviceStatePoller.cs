@@ -37,7 +37,8 @@ internal sealed class DeviceStatePoller(
     IHostedSession hosted,
     IExternal external,
     ITimeProvider timeProvider,
-    ILogger<DeviceStatePoller> logger) : BackgroundService
+    ILogger<DeviceStatePoller> logger,
+    IDeviceDiscovery? discovery = null) : BackgroundService
 {
     /// <summary>How often the poller looks at what is due.</summary>
     internal static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(250);
@@ -208,7 +209,7 @@ internal sealed class DeviceStatePoller(
             case DeviceType.Camera:
                 var camera = await hub.ReadCameraAsync(uri, logger, cancellationToken);
                 var intent = hub.TryGetCoolerIntent(uri, out var coolerIntent) ? coolerIntent : (CoolerIntent?)null;
-                state = With(current, readUtc, camera: camera is { } c ? CameraDeviceStateDto.FromReading(c, intent) : null);
+                state = With(current, readUtc, camera: camera is { } c ? await CameraStateAsync(hub, discovery, uri, c, intent, cancellationToken) : null);
                 break;
 
             case DeviceType.Focuser:
@@ -242,6 +243,24 @@ internal sealed class DeviceStatePoller(
                 break;
         }
         return (state, steadySince);
+    }
+
+    /// <summary>
+    /// A camera's published state, its warm-up target resolved as the node's own ramp resolves it (<see cref="WarmUpTarget.Resolve"/>):
+    /// for a camera with no heat sink, with the rig's ambient read from the profile holding it (<see cref="RigAmbient.ForCameraAsync"/>),
+    /// so a client's <see cref="CameraReading.NeedsWarmUp"/> agrees with the ramp. The rig's focuser and weather device are read here
+    /// too, so a source a run holds is skipped (rule 11: the node never reads a device a run holds), counting as no reading.
+    /// </summary>
+    internal static async ValueTask<CameraDeviceStateDto> CameraStateAsync(IDeviceHub hub, IDeviceDiscovery? discovery, Uri cameraUri,
+        CameraReading reading, CoolerIntent? intent, CancellationToken cancellationToken)
+    {
+        if (!double.IsFinite(reading.HeatsinkTemperatureC))
+        {
+            var ambient = await RigAmbient.ForCameraAsync(hub, discovery, cameraUri, cancellationToken, skipLeased: true);
+            reading = reading with { RigAmbientC = double.IsFinite(ambient) ? ambient : null };
+        }
+
+        return CameraDeviceStateDto.FromReading(reading, intent);
     }
 
     private static DeviceStateDto With(DeviceStateDto current, DateTimeOffset readUtc,

@@ -44,7 +44,7 @@ public readonly record struct CameraReading(
     public const double WarmUpToleranceC = 1.0;
 
     /// <summary>Whether a warm-up has anything to do for this camera (<see cref="NeedsWarmUpFrom"/>).</summary>
-    public bool NeedsWarmUp => NeedsWarmUpFrom(CoolerOn, CcdTemperatureC, HeatsinkTemperatureC, PreCool);
+    public bool NeedsWarmUp => NeedsWarmUpFrom(CoolerOn, CcdTemperatureC, HeatsinkTemperatureC, PreCool, RigAmbientC ?? double.NaN);
 
     /// <summary>The range a temperature reading must lie in to be believed (the range the cooling ramp has always used).</summary>
     public static bool IsPlausibleTemperatureC(double temperatureC) => double.IsFinite(temperatureC) && temperatureC is >= -40 and <= 50;
@@ -54,6 +54,13 @@ public readonly record struct CameraReading(
     /// null is "none known", which resolves to the fallback.
     /// </summary>
     public SensorAmbientReading? PreCool { get; init; }
+
+    /// <summary>
+    /// The rig's own ambient (<see cref="RigAmbient"/>: focuser, weather device) for a camera with no heat sink, when the reader
+    /// knows it (the node's poller does); null is "none known". Nullable, never NaN, so that <c>default(CameraReading)</c> and a
+    /// reading built without it both say unknown.
+    /// </summary>
+    public double? RigAmbientC { get; init; }
 
     /// <summary>
     /// Whether a warm-up has anything to do: the cooler is on and the sensor is below where the ramp takes it

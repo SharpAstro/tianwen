@@ -67,11 +67,11 @@ public class DeviceHubWarmUpAmbientTests(ITestOutputHelper output)
         double.IsNaN(await RigAmbient.ForCameraAsync(hub, null, other.DeviceUri, ct)).ShouldBeTrue();
     }
 
-    private static Profile ProfileOf(Uri camera, Uri? focuser, Uri? weather)
+    internal static Profile ProfileOf(Uri camera, Uri? focuser, Uri? weather)
         => new(Guid.NewGuid(), "Rig", new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri,
             [new OTAData("OTA", 500, camera, null, focuser, null, null, null)], Weather: weather));
 
-    private static IDeviceDiscovery DiscoveryOf(Profile profile)
+    internal static IDeviceDiscovery DiscoveryOf(Profile profile)
     {
         var discovery = Substitute.For<IDeviceDiscovery>();
         discovery.RegisteredDevices(DeviceType.Profile).Returns([profile]);

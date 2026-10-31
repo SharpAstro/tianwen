@@ -20,7 +20,8 @@ public enum WarmUpTargetSource : byte
 
 /// <summary>
 /// Where a warm-up takes the sensor, and which reading said so. ONE rule for the hub's ramp (and so the crash journal's
-/// recovered warm-up), the session's warm-up and a client's quit question: the heat sink when the camera gives one,
+/// recovered warm-up), the session's warm-up and a client's quit question (the node publishes its resolved target and source, and
+/// <c>CameraDeviceStateDto.ToReading</c> hands them back to <see cref="CameraReading.NeedsWarmUp"/>): the heat sink when the camera gives one,
 /// else the rig's own ambient (<see cref="RigAmbient"/>), else the SETTLED sensor reading its cool-down started from (a fan-cooled body with no heat sink rests at the air
 /// around it), else <see cref="CameraReading.WarmUpFallbackTargetC"/>. An unsettled reading never sets the target.
 /// </summary>
