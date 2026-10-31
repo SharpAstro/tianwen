@@ -225,7 +225,7 @@ internal sealed partial class DeviceOperations
             {
                 // The pole of the mount's own hemisphere has no right ascension, so a goto there landed on whatever RA the
                 // mount chose. The move that means "point at the pole" is going home, where the mount can.
-                if (mount.CanFindHome && MountGoto.IsSitesCelestialPole(dec, await mount.GetSiteLatitudeAsync(ct)))
+                if (mount.CanFindHome && Math.Abs(dec) >= 90 - MountGoto.PoleToleranceDegrees && MountGoto.IsSitesCelestialPole(dec, await mount.GetSiteLatitudeAsync(ct)))
                 {
                     step.Report($"Going home ({target} is the pole)");
                     await GoHomeAsync(mount, name, target, ct);

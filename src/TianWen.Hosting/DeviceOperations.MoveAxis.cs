@@ -125,7 +125,10 @@ internal sealed partial class DeviceOperations
                 if (mount.CanSetTracking && !await mount.IsTrackingAsync(ct))
                 {
                     step.Report($"Starting {name}'s tracking to move it");
-                    await mount.EnsureTrackingAsync(TrackingSpeed.Sidereal, ct);
+                    if (!await mount.EnsureTrackingAsync(TrackingSpeed.Sidereal, ct))
+                    {
+                        throw new InvalidOperationException($"{name} did not start tracking, so its axes were not moved");
+                    }
                     step.Report($"Moving {name}'s axes");
                 }
 

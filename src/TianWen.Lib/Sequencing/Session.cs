@@ -830,18 +830,15 @@ internal partial record Session(
             // when the dusk window has already passed (see TakeSkyFlatsAsync).
             if (Configuration.TakeSkyFlatsAtDusk)
             {
-                // The dusk flats point the mount at the sky, so they are its first move.
-                if (!await UnparkForRunAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    SetPhase(SessionPhase.Failed);
-                    return;
-                }
-
                 SetPhase(SessionPhase.Cooling);
                 await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownMaxRate, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
 
                 SetPhase(SessionPhase.Flats);
-                await TakeSkyFlatsAsync(TwilightPeriod.Dusk, cancellationToken).ConfigureAwait(false);
+                if (!await TakeSkyFlatsAsync(TwilightPeriod.Dusk, cancellationToken).ConfigureAwait(false))
+                {
+                    SetPhase(SessionPhase.Failed);
+                    return;
+                }
             }
 
             SetPhase(SessionPhase.WaitingForDark);

@@ -98,6 +98,25 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenAJogBeforeAndAfterASouthernSitePushTheRaDirectionFollowsTheNewHemisphere()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(48.2, 16.3), new FakeExternal(outputHelper).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+        var fake = mount.SerialDevice.ShouldBeOfType<FakeOnStepSerialDevice>();
+
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0.5, ct);
+        fake.Moving.ToArray().ShouldBe(new[] { 'w' }, "north: a positive RA rate is west");
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0, ct);
+
+        await mount.SetSiteLatitudeAsync(-37.9, ct);
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0.5, ct);
+
+        fake.Moving.ToArray().ShouldBe(new[] { 'e' }, "the push made the site southern, and the cached hemisphere must not outlive it");
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0, ct);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenOnStepWhenConnectingItsClockIsSetAndReadsBackOurs()
     {
         // The TeeSeek's OnStep sat 11 hours off and refused a goto to Venus, high in the west, as below the horizon:

@@ -60,7 +60,10 @@ internal partial record Session
             if (Configuration.FlatSource is FlatIlluminationSource.TwilightSky)
             {
                 // Direct call so the caller-chosen period is honoured (TakeFlatsAsync would default to Dawn).
-                await TakeSkyFlatsAsync(skyFlatPeriod, cancellationToken).ConfigureAwait(false);
+                if (!await TakeSkyFlatsAsync(skyFlatPeriod, cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogWarning("Sky flats skipped: {Reason}", _failureReason);
+                }
             }
             else
             {
