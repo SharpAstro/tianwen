@@ -97,6 +97,96 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         fake.Moving.ShouldBeEmpty();
     }
 
+    private static FakeDevice MakeDeviceWithHome(string homeOutcome)
+        => new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        {
+            ["latitude"] = Convert.ToString(48.2),
+            ["longitude"] = Convert.ToString(16.3),
+            ["port"] = "OnStep",
+            ["homeOutcome"] = homeOutcome
+        });
+
+    // The connect reads :GXE6# then :GX92# and works the mount's own top rate out of them, where every test before ran on the
+    // 48x fallback because the fake answered neither.
+    [Fact(Timeout = 60_000)]
+    public async Task GivenOnStepWhenConnectingTheTopMoveRateIsTheMountsOwnNotTheFallback()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(48.2, 16.3), new FakeExternal(outputHelper).BuildServiceProvider());
+
+        await mount.ConnectAsync(ct);
+
+        var commands = mount.SerialDevice.ShouldNotBeNull().Commands.ToList();
+        var gxe6 = commands.IndexOf(":GXE6#");
+        gxe6.ShouldBeGreaterThanOrEqualTo(0);
+        commands.IndexOf(":GX92#").ShouldBeGreaterThan(gxe6);
+        var top = mount.AxisRates(TelescopeAxis.Primary).ShouldHaveSingleItem().Maximum;
+        top.ShouldBe(1.7578, 1e-3, "the fake's 11378 steps a degree and 50 us a step: 422x sidereal");
+        top.ShouldNotBe(MountJog.RateDegPerSec(OnStepMountDriver<FakeDevice>.FallbackFastestMoveSidereal), "not the 48x fallback");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenOnStepWhenSentHomeItPollsUntilTheHomeFlagAndTheCommandAnswersNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper();
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(48.2, 16.3), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+        mount.CanFindHome.ShouldBeTrue();
+
+        await mount.FindHomeAsync(ct);
+
+        var commands = mount.SerialDevice.ShouldNotBeNull().Commands.ToList();
+        var home = commands.IndexOf(":hC#");
+        home.ShouldBeGreaterThanOrEqualTo(0);
+        commands.Skip(home + 1).Count(c => c is ":GU#").ShouldBeGreaterThanOrEqualTo(2, "it was still on its way at the first poll");
+        (await mount.AtParkAsync(ct)).ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenOnStepWhenHomeFailsTheFailureFlagEndsItWithAnError()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper();
+        await using var mount = new FakeOnStepMountDriver(MakeDeviceWithHome("fail"), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+
+        var failed = await Should.ThrowAsync<InvalidOperationException>(() => mount.FindHomeAsync(ct).AsTask());
+
+        failed.Message.ShouldContain("failure going home");
+    }
+
+    // 240 s of FAKE time: the session's time pump rules (the fake clock's SleepAsync advances it), no wall clock in the test.
+    [Fact(Timeout = 60_000)]
+    public async Task GivenOnStepThatNeverArrivesHomeItGivesUpAfterTwoHundredAndFortySeconds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper();
+        await using var mount = new FakeOnStepMountDriver(MakeDeviceWithHome("never"), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+        var started = timeProvider.GetUtcNow();
+
+        var timedOut = await Should.ThrowAsync<TimeoutException>(() => mount.FindHomeAsync(ct).AsTask());
+
+        timedOut.Message.ShouldContain("240 s");
+        (timeProvider.GetUtcNow() - started).ShouldBeGreaterThanOrEqualTo(TimeSpan.FromSeconds(240));
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAParkedOnStepSendingItHomeIsRefusedAndNothingIsSent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper();
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(48.2, 16.3), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+        await mount.ParkAsync(ct);
+
+        var refused = await Should.ThrowAsync<InvalidOperationException>(() => mount.FindHomeAsync(ct).AsTask());
+
+        refused.Message.ShouldContain("is parked");
+        mount.SerialDevice.ShouldNotBeNull().Commands.ShouldNotContain(":hC#");
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task GivenAJogBeforeAndAfterASouthernSitePushTheRaDirectionFollowsTheNewHemisphere()
     {

@@ -3,6 +3,7 @@ using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
@@ -248,7 +249,10 @@ public class MountActionsTests
             mount.FindHomeAsync(Arg.Any<CancellationToken>());
             mount.SetTrackingAsync(false, Arg.Any<CancellationToken>());
         });
-        await mount.DidNotReceiveWithAnyArgs().TryTransformJ2000ToMountNativeAsync(default!, default, default, default, default);
+        // Read off the recorded calls by NAME: a verification on the default-interface method's own signature
+        // (DidNotReceiveWithAnyArgs, with a null Transform) passed whatever was called, so it asserted nothing.
+        mount.ReceivedCalls().Select(call => call.GetMethodInfo().Name).ShouldNotContain(nameof(IMountDriver.TryTransformJ2000ToMountNativeAsync),
+            "going home transforms no coordinates: the pole has no altitude to check");
         await mount.DidNotReceive().UnparkAsync(Arg.Any<CancellationToken>());
     }
 

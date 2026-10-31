@@ -154,6 +154,31 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         fake.SiteLatitudeReads.ShouldBe(reads, "a Dec away from a pole needs no site");
     }
 
+    // The pole of the site's own hemisphere has no right ascension: on a mount that can find home a goto there IS going
+    // home. Any other Dec, and the other hemisphere's pole, is an ordinary slew.
+    [Theory(Timeout = 60_000)]
+    [InlineData(90.0, 1, "is at home")]
+    [InlineData(89.7, 1, "is at home")]
+    [InlineData(40.0, 0, null)]
+    [InlineData(-90.0, 0, null)]
+    public async Task AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot(double dec, int expectedHomeCalls, string? expectedStep)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fake = (await Hub.ConnectAsync(Mount, ct)).ShouldBeOfType<FakeMountDriver>();
+        fake.CanFindHome = true;
+        await ActiveRigAsync(ct); // site latitude 48.2: north
+
+        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = 0, DecJ2000 = dec }, ct)).Value.ShouldNotBeNull();
+        var ended = await UntilEndedAsync(job.Id, ct);
+
+        fake.FindHomeCalls.ShouldBe(expectedHomeCalls);
+        if (expectedStep is not null)
+        {
+            ended.State.ShouldBe(JobState.Succeeded, ended.Error);
+            ended.Step.ShouldNotBeNull().ShouldContain(expectedStep);
+        }
+    }
+
     // What only the mount's geometry can answer fails the job with its reason, rather than being a request refusal.
     [Fact(Timeout = 60_000)]
     public async Task AGotoBelowTheHorizonFailsSayingSo()

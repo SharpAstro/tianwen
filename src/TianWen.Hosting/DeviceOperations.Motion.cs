@@ -351,6 +351,7 @@ internal sealed partial class DeviceOperations
             throw new InvalidOperationException(parked);
         }
         await mount.FindHomeAsync(ct);
+        _ = await mount.TryTransformJ2000ToMountNativeAsync(null!, 0, 0, false, ct); // MUTATION
         if (mount.CanSetTracking)
         {
             await mount.SetTrackingAsync(false, ct);
