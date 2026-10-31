@@ -169,4 +169,36 @@ public class NodeIdleExitTests
         rig.After(Grace);
         rig.Exits.ShouldBe(1);
     }
+
+    [Fact]
+    public void Time_the_computer_slept_is_not_spent_grace()
+    {
+        // 2026-10-31: idle as the machine hibernated, the node woke 25 minutes later, took them as the grace and exited
+        // before the window still open on it could beat again.
+        var rig = new Rig();
+
+        rig.After(TimeSpan.Zero);
+        rig.After(TimeSpan.FromSeconds(14));
+        rig.After(TimeSpan.FromMinutes(25));
+        rig.Exits.ShouldBe(0, "the first look after a sleep starts the grace again");
+
+        rig.After(Grace - TimeSpan.FromSeconds(1));
+        rig.Exits.ShouldBe(0, "the window has a whole grace to beat again");
+        rig.After(TimeSpan.FromSeconds(1));
+        rig.Exits.ShouldBe(1, "and with nothing using it, it still exits");
+    }
+
+    [Fact]
+    public void A_client_that_beats_after_the_sleep_keeps_it()
+    {
+        var rig = new Rig();
+
+        rig.After(TimeSpan.Zero);
+        rig.After(TimeSpan.FromMinutes(25));
+        rig.ABeatNow();
+        rig.After(TimeSpan.FromSeconds(2));
+        rig.After(Grace);
+
+        rig.Exits.ShouldBe(0);
+    }
 }

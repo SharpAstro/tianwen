@@ -144,6 +144,8 @@ public static class DeviceHubReadingExtensions
             var pier = await logger.CatchAsync(mount.GetSideOfPierAsync, cancellationToken);
             // Asked only of a tracking mount; None from one that tracks is a read that failed, so unknown.
             var rate = tracking ? (await logger.CatchAsync(mount.GetTrackingSpeedAsync, cancellationToken, TrackingSpeed.None)).OrUnknown() : null;
+            var atHome = await logger.CatchAsync(mount.AtHomeAsync, cancellationToken);
+            var atPark = await logger.CatchAsync(mount.AtParkAsync, cancellationToken);
 
             var (raJ2000, decJ2000) = (double.NaN, double.NaN);
             if (!double.IsNaN(ra) && !double.IsNaN(dec))
@@ -160,7 +162,7 @@ public static class DeviceHubReadingExtensions
                 }
             }
 
-            return new MountState(ra, dec, ha, pier, slewing, tracking, raJ2000, decJ2000, TrackingRate: rate);
+            return new MountState(ra, dec, ha, pier, slewing, tracking, raJ2000, decJ2000, TrackingRate: rate, AtHome: atHome, AtPark: atPark);
         }
     }
 }

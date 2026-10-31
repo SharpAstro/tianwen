@@ -387,6 +387,10 @@ probing rules in full (moved from CLAUDE.md, 2026-10-09)").
   (`DiscoverOnlyDeviceType(type)`; only an uncompleted WRITE raises `ISerialConnection.HasAbandonedIo`, a READ
   timeout never does). **A Bluetooth port whose far end can never be an instrument is not probed at all**
   (`SerialProbeExclusion`, `SerialPortInfo.Bluetooth`); a pinned port is verified whatever it is.
+- **Every read on an `ISerialConnection` ends at its `ReplyTimeout`** (5 s unless a driver raises it; serial, TCP and UDP
+  alike): a device that stops answering fails the read instead of holding the port lock for ever, which wedged a disconnect
+  and its node for 14 minutes (an AZ-GTi power-cycled while connected). A reply that waits on motion raises it (the QHY
+  serial wheel, 60 s); never make it infinite.
 - **Serial I/O is the Serial.Lib sibling's, and closing a connection is asynchronous** (`SerialConnection` only
   adapts it; `ISerialConnection` closes through `TryCloseAsync`, a synchronous `Dispose` uses `CloseInBackground`
   and never waits). A new transport guarantee goes into Serial.Lib with a test there, never into the adapter:
@@ -1277,7 +1281,9 @@ the session plane", "Invariants 7-13 in full"); the node's lifetime and version 
    only after `--after-crash <pid>` or when younger than `MachineBoot`, ACTED on, never a run resumed
    (`NodeKeeper.CrashLoopWindow`); **a new place that commands a cooler owes `IDeviceHub.SetCoolerIntent`**, and
    there is **ONE cooling ramp, `CameraCoolingRamp`.** **A node a client started exits a minute after nothing uses
-   it** (`NodeIdleExit`, `--idle-exit`; a test whose clients do not beat gives its node a long one, `KeptNode`), and
+   it** (`NodeIdleExit`, `--idle-exit`; a test whose clients do not beat gives its node a long one, `KeptNode`; **time the
+   computer slept is not idle time**, and a window whose node stops answering finds or starts it again,
+   `MaybeReconnectLocalNode`), and
    **a client replaces an idle, unattended node of another BUILD, not only another wire** (`IsAnotherBuild`).
 11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`** (GUI polls and
    `DeviceStatePoller`), and **the node never reads a device a run holds**. `DEVICE-STATE` is pushed on a change

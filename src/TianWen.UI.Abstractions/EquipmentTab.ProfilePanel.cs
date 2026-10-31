@@ -297,6 +297,36 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// The question a held site asks (<see cref="EquipmentTabState.HeldSite"/>): it is in the other hemisphere and the
+        /// connected mount is not at home, where its axes would read as the mirror of where it points. Home it (unparking
+        /// first when it is parked away from home), save the site without giving it to the mount, or cancel. Once the mount
+        /// reads at home, Save Site goes straight through.
+        /// </summary>
+        private Layout.Node BuildHeldSite(SiteCoordinates held)
+        {
+            var hemisphere = held.Latitude >= 0 ? "northern" : "southern";
+            Layout.Node Button(string label, string hit, RGBAColor32 fill, Action press)
+                => Layout.Builder.Text(label, BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(120f).HStar().Bg(fill).BgHover(GuiTheme.Hover(fill))
+                    .Clickable(new HitResult.ButtonHit(hit), _ => press());
+
+            var home = State.HeldSiteMountParked
+                ? Button("Unpark + home", "HeldSiteUnparkHome", CreateButton, () => PostSignal(new MountPositionSignal(MountPositionCommand.UnparkThenHome)))
+                : Button("Go home", "HeldSiteHome", CreateButton, () => PostSignal(new MountPositionSignal(MountPositionCommand.Home)));
+
+            return Layout.Builder.VStack(
+                    Layout.Builder.Text($"  The {hemisphere} site needs the mount at home first;", BaseFontSize * 0.85f, BodyText).RowH(BaseItemHeight),
+                    Layout.Builder.Text("  away from home it would read the mirror of where it points.", BaseFontSize * 0.85f, DimText).RowH(BaseItemHeight),
+                    Layout.Builder.HStack(
+                            home,
+                            Button("Save anyway", "HeldSiteSaveAnyway", GuiTheme.CautionButtonBg, () => PostSignal(new HeldSiteSignal(HeldSiteChoice.SaveAnyway))),
+                            Button("Cancel", "HeldSiteCancel", ConfirmCancelBg, () => PostSignal(new HeldSiteSignal(HeldSiteChoice.Cancel))),
+                            Layout.Builder.Spacer().Stretch())
+                        .WithGap(4f).RowH(BaseButtonHeight))
+                .WithGap(2f).WStar();
+        }
+
         /// <summary>Site latitude/longitude/elevation block: edit fields, a display row, or a "set site" button.</summary>
         private Layout.Node BuildSite(ProfileData pd)
         {
@@ -335,10 +365,14 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Text("Save Site", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
                             .WFixed(72f).HStar().Bg(CreateButton).BgHover(GuiTheme.Hover(CreateButton))
                             .Clickable(new HitResult.ButtonHit("SaveSite"), _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text)),
+                        // Leaves the editor as Escape does: the fields share one cancel, which drops a held site too.
+                        Layout.Builder.Text("Cancel", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                            .WFixed(72f).HStar().Bg(ConfirmCancelBg).BgHover(GuiTheme.Hover(ConfirmCancelBg))
+                            .Clickable(new HitResult.ButtonHit("CancelSite"), _ => State.LatitudeInput.OnCancel?.Invoke()),
                         Layout.Builder.Spacer().Stretch())
-                    .RowH(BaseButtonHeight);
+                    .WithGap(4f).RowH(BaseButtonHeight);
 
-                return Layout.Builder.VStack(
+                var editor = Layout.Builder.VStack(
                         // Latitude takes the keyboard as the editor opens: a declaration on the field, where
                         // EditSiteSignal's handler used to post an activate signal by hand (#1491).
                         InputRow("  Lat:", State.LatitudeInput, focusOnOpen: true),
@@ -347,6 +381,8 @@ namespace TianWen.UI.Abstractions
                         tieRow,
                         saveRow)
                     .WithGap(2f).WStar();
+
+                return State.HeldSite is { } held ? Layout.Builder.VStack(editor, BuildHeldSite(held)).WithGap(2f).WStar() : editor;
             }
 
             if (site.HasValue)

@@ -383,9 +383,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// <remarks>
     /// One fresh <c>:j</c> round trip, the same read <see cref="GetAxisPositionAsync"/> makes, converted
     /// with the conventions <see cref="SkyToSteps"/> and <see cref="StepsToRa"/> already own: the RA
-    /// angle is negated in the south (the motor runs the other way, <c>axisHours = 6 - HA</c>) so that
-    /// positive is the tracking direction from home in both hemispheres; the Dec angle needs no such
-    /// correction because <see cref="StepsToDec"/>'s mirror already keeps the straight half positive.
+    /// angle is negated in the south (the motor runs the other way, <c>axisHours = -6 - HA</c>) so that
+    /// positive is the tracking direction from home in both hemispheres; the Dec angle is the encoder's own,
+    /// positive in the straight half and negative through the pole in both.
     /// Refreshes the cached position as a side effect, like every other read. Alt-az has no such axes.
     /// </remarks>
     public async ValueTask<double?> GetAxisAngleAsync(TelescopeAxis axis, CancellationToken cancellationToken)
@@ -562,16 +562,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // and a stale value that happens to match the target produces delta=0 in
         // SlewAxisToAsync, which silently no-ops the slew; exactly the "sometimes
         // doesn't react" symptom.
-        var raResp = await SendAndReceiveAsync('j', '1', null, cancellationToken);
-        if (SkywatcherProtocol.TryParseResponse(raResp, out var raData) && raData.Length >= 6)
-        {
-            _posRa = SkywatcherProtocol.DecodePosition(raData.AsSpan(0, 6));
-        }
-        var decResp = await SendAndReceiveAsync('j', '2', null, cancellationToken);
-        if (SkywatcherProtocol.TryParseResponse(decResp, out var decData) && decData.Length >= 6)
-        {
-            _posDec = SkywatcherProtocol.DecodePosition(decData.AsSpan(0, 6));
-        }
+        await ReadPositionsAsync(cancellationToken);
 
         var (targetRaSteps, targetDecSteps) = SkyToSteps(ra, dec, pointingState);
 
@@ -638,7 +629,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // straight solution for a mount that has flipped (or sits at home), the through-the-pole one
         // for a mount that has not. Choosing by the target's hour angle here would teleport the model
         // across the pier on every plate-solve sync of an unflipped rig.
-        var pointingState = IsThroughThePole(_posDec) ? PointingState.ThroughThePole : PointingState.Normal;
+        // At home the Dec encoder sits on the boundary (or a step either side of it), so neither half is where the
+        // mount is: take the counterweight-down one a goto would, which in the south is no longer the half the
+        // boundary reads as.
+        var pointingState = IsNearZero(_posDec, _cprDec)
+            ? await DestinationSideOfPierAsync(ra, dec, cancellationToken)
+            : IsThroughThePole(_posDec) ? PointingState.ThroughThePole : PointingState.Normal;
         var (raSteps, decSteps) = SkyToSteps(ra, dec, pointingState);
 
         // Set encoder positions
@@ -1221,7 +1217,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var ha = CoordinateUtils.ConditionHA(transform.LocalSiderealTime - ra);
-        return ValueTask.FromResult(ha >= 0 ? PointingState.Normal : PointingState.ThroughThePole);
+        // The counterweight-down solution: west of the meridian is the straight one in the north, and the through-the-pole
+        // one in the south, where the RA axis reads the other way round (GSS AxesMountToApp, see StepsToRa).
+        var west = ha >= 0;
+        return ValueTask.FromResult(west != IsSouthernHemisphere ? PointingState.Normal : PointingState.ThroughThePole);
     }
 
     #endregion
@@ -1231,45 +1230,39 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_siteLatitude);
 
-    public async ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
+    public ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
     {
         _siteLatitude = latitude;
-        await MaybeSyncToPoleAfterSiteSetAsync(cancellationToken);
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_siteLongitude);
 
-    public async ValueTask SetSiteLongitudeAsync(double longitude, CancellationToken cancellationToken)
+    public ValueTask SetSiteLongitudeAsync(double longitude, CancellationToken cancellationToken)
     {
         _siteLongitude = longitude;
-        await MaybeSyncToPoleAfterSiteSetAsync(cancellationToken);
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>
-    /// If the encoder is still at raw home (0,0), i.e. the user just connected and the
-    /// mount has not been moved: push a sync to (LST, ±90°) so the driver reports a
-    /// sensible "parked at the pole" position. The original DoConnectDeviceAsync init
-    /// also runs this block, but at that stage <c>_siteLatitude</c> is still NaN
-    /// (profile-driven reconcile pushes lat/lon AFTER connect), so the sync gets skipped
-    /// and the mount is reported as Dec=+90 / HA=6h regardless of hemisphere.
-    /// Triggering it here picks up the moment when site coords actually land.
+    /// At home: the encoders at their power-on zero, which IS home (counterweight down, the scope at the pole). Nothing syncs
+    /// it to a sky position: <see cref="StepsToRa"/> and <see cref="StepsToDec"/> already read zero as HA 6 h and the pole
+    /// of the site's hemisphere. A "parked at the pole" sync to (LST, +-90) used to run on connect and on every site set,
+    /// and it declared HA 0 h where the axis stands at HA 6 h: it wrote the RA encoder a quarter turn off, so every goto
+    /// after it turned 90 degrees too far (2026-10-31: an AZ-GTi in Melbourne, sent 1.1 h east of the meridian, turned 164
+    /// degrees of RA for 74 and finished counterweight-up). With nothing written, a site that changes hemisphere needs no
+    /// re-home either: zero reads as the new hemisphere's pole. "At zero" is within <see cref="HomeToleranceArcsec"/>, never
+    /// exactly zero: a board's goto can stop a step short and will not make a one-step goto, so an AZ-GTi sent home stood
+    /// one Dec step (0.6") off it, failed all three of <see cref="FindHomeAsync"/>'s passes, and read as away from home.
     /// </summary>
-    private async ValueTask MaybeSyncToPoleAfterSiteSetAsync(CancellationToken cancellationToken)
-    {
-        if (!Connected) return;
-        // "Parked at the pole" is an equatorial reporting convenience. In alt-az the home IS the raw
-        // encoder zero (az 0 = north, alt 0 = horizontal), so there is nothing to sync, and an RA/Dec
-        // sync is refused in alt-az anyway. Skip it so setting the site never fails for an alt-az mount.
-        if (_alignmentMode == AlignmentMode.AltAz) return;
-        if (_cprRa == 0 || _cprDec == 0) return;
-        if (double.IsNaN(_siteLatitude) || double.IsNaN(_siteLongitude)) return;
-        if (_posRa != 0 || _posDec != 0) return;
+    private bool IsAtHome => IsNearZero(_posRa, _cprRa) && IsNearZero(_posDec, _cprDec);
 
-        var poleDec = _siteLatitude >= 0 ? 90.0 : -90.0;
-        var lst = await GetSiderealTimeAsync(cancellationToken);
-        await SyncRaDecAsync(lst, poleDec, cancellationToken);
-    }
+    /// <summary>How far from encoder zero an axis may stand and still be at home: far below anything an eye or a frame sees.</summary>
+    internal const double HomeToleranceArcsec = 10.0;
+
+    private static bool IsNearZero(int steps, uint cpr)
+        => cpr > 0 ? Math.Abs((double)steps / cpr * 1_296_000.0) <= HomeToleranceArcsec : steps == 0;
 
     public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(double.IsNaN(_siteElevation) ? 0.0 : _siteElevation);
@@ -1297,7 +1290,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     #region Park
 
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_posRa == 0 && _posDec == 0);
+        => ValueTask.FromResult(IsAtHome);
 
     public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_isParked);
@@ -1322,6 +1315,73 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     {
         _isParked = false;
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Home is the power-on position, encoder zero (counterweight down, at the pole): a Synta board has no home sensor, so it
+    /// is where the mount stood when it was switched on, and the slew there is the park's own. Equatorial only, where home is
+    /// that position; alt-az has none to go to.
+    /// </summary>
+    public bool CanFindHome => _alignmentMode != AlignmentMode.AltAz;
+
+    /// <summary>The longest <see cref="FindHomeAsync"/> waits for one slew home: half a turn at the slowest board's goto rate.</summary>
+    private static readonly TimeSpan HomeSlewTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Slews both axes to encoder zero and returns once the encoders read it, with both axes stopped. A board that resumes
+    /// tracking after a goto (#638) has moved RA off zero by the time it answers, so each pass stops the axes and reads them
+    /// again, and slews what is left; three passes, and a mount still not home is said to be.
+    /// </summary>
+    public async ValueTask FindHomeAsync(CancellationToken cancellationToken)
+    {
+        EnsureEquatorialAlignment("Going home");
+        // Home is an ENCODER position, not a sky one: disarm any pending iterative-goto refinement, as the park does.
+        _gotoTargetRa = double.NaN;
+        for (var pass = 0; pass < 3; pass++)
+        {
+            await StopAxisAndWaitAsync('1', cancellationToken);
+            await StopAxisAndWaitAsync('2', cancellationToken);
+            await ReadPositionsAsync(cancellationToken);
+            if (IsAtHome)
+            {
+                return;
+            }
+            await SlewAxisToAsync('1', _posRa, 0, cancellationToken);
+            await SlewAxisToAsync('2', _posDec, 0, cancellationToken);
+            await WaitForGotoToEndAsync(cancellationToken);
+        }
+        throw new InvalidOperationException(
+            $"{Name} did not reach home: its encoders read {_posRa} and {_posDec} steps from it after three slews");
+    }
+
+    /// <summary>Waits until neither axis is slewing (running and not tracking), up to <see cref="HomeSlewTimeout"/>.</summary>
+    private async ValueTask WaitForGotoToEndAsync(CancellationToken cancellationToken)
+    {
+        var poll = TimeSpan.FromMilliseconds(250);
+        for (var waited = TimeSpan.Zero; waited < HomeSlewTimeout; waited += poll)
+        {
+            await TimeProvider.SleepAsync(poll, cancellationToken);
+            var ra = await QueryAxisStatusAsync('1', cancellationToken);
+            var dec = await QueryAxisStatusAsync('2', cancellationToken);
+            if (!(ra.IsRunning && !ra.IsTracking) && !(dec.IsRunning && !dec.IsTracking))
+            {
+                return;
+            }
+        }
+        throw new TimeoutException($"{Name} was still slewing home after {HomeSlewTimeout.TotalMinutes:0} minutes");
+    }
+
+    /// <summary>Reads both encoders into the cached positions; an unanswered read leaves its axis's cache as it was.</summary>
+    private async ValueTask ReadPositionsAsync(CancellationToken cancellationToken)
+    {
+        if (SkywatcherProtocol.TryParseResponse(await SendAndReceiveAsync('j', '1', null, cancellationToken), out var ra) && ra.Length >= 6)
+        {
+            _posRa = SkywatcherProtocol.DecodePosition(ra.AsSpan(0, 6));
+        }
+        if (SkywatcherProtocol.TryParseResponse(await SendAndReceiveAsync('j', '2', null, cancellationToken), out var dec) && dec.Length >= 6)
+        {
+            _posDec = SkywatcherProtocol.DecodePosition(dec.AsSpan(0, 6));
+        }
     }
 
     #endregion
@@ -1480,13 +1540,6 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             // Read site coordinates from URI
             await GetSiteLatitudeAsync(cancellationToken);
             await GetSiteLongitudeAsync(cancellationToken);
-
-            // If encoder is at home (0,0), assume pointing at the pole (standard park position)
-            if (_posRa == 0 && _posDec == 0 && !double.IsNaN(_siteLatitude))
-            {
-                var poleDec = _siteLatitude >= 0 ? 90.0 : -90.0;
-                await SyncRaDecAsync(await GetSiderealTimeAsync(cancellationToken), poleDec, cancellationToken);
-            }
 
             return true;
         }
@@ -1717,11 +1770,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     /// <summary>
     /// Convert encoder steps to RA hours.
-    /// Home position (steps=0) corresponds to HA=6h (counterweight-down, scope at pole),
-    /// matching the GSServer GermanPolar convention where HomeAxisX=90°.
-    /// North: HA = steps / CPR * 24 + 6; south: HA = 6 - steps / CPR * 24 (the axis
-    /// mapping mirrors below the equator, GSS Axes.AxesAppToMount a[0] = 180 - a[0],
-    /// matching the physically reversed tracking direction). Through the pole the same RA axis
+    /// Home position (steps=0) is counterweight-down with the scope at the pole, GSServer's HomeAxisX=90°.
+    /// North: HA = 6 + steps / CPR * 24; south: HA = -6 - steps / CPR * 24, GSS AxesMountToApp's
+    /// <c>a[0] = -a[0]</c> for a SkyWatcher (home reads HA 6 h north, -6 h south; HA rises as the RA
+    /// encoder falls in the south, the reversed tracking direction). Through the pole the same RA axis
     /// angle is looking 12 h away, so the Dec encoder decides which (GSS Axes.AxesXyToRaDec:
     /// <c>if (Y &gt; 90) RA += 180</c>). Then RA = LST - HA.
     /// </summary>
@@ -1733,7 +1785,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
         var axisHours = (double)raSteps / _cprRa * 24.0;
-        var ha = IsSouthernHemisphere ? 6.0 - axisHours : 6.0 + axisHours;
+        // GSS AxesMountToApp for a SkyWatcher GEM: the app RA axis is 90 deg + the turn in the north and -(90 deg + the
+        // turn) in the south. This read 6 h - turn in the south, 12 h off GSS: on 2026-10-31 an AZ-GTi in Melbourne sent
+        // to the zenith turned its axes by the right amounts and pointed 14 degrees below the southern horizon.
+        var ha = IsSouthernHemisphere ? -6.0 - axisHours : 6.0 + axisHours;
         if (IsThroughThePole(decSteps))
         {
             ha -= 12.0;
@@ -1762,7 +1817,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// <summary>
     /// Convert a sky position to encoder steps in the given axis solution. Inverse of
     /// <see cref="StepsToRa"/> / <see cref="StepsToDec"/>: the straight solution is
-    /// steps = (HA - 6) / 24 * CPR and (90 - dec) / 360 * CPR north ((6 - HA) and (dec + 90) south);
+    /// steps = (HA - 6) / 24 * CPR and (90 - dec) / 360 * CPR north ((-6 - HA) and (dec + 90) south);
     /// through the pole the RA axis is 12 h further round and the Dec axis is the same angle the
     /// negative way from home (GSS Axes.RaDecToAxesXy: <c>X += 180; Y = 180 - Y</c>).
     /// <paramref name="pointingState"/> is a CHOICE and is made by the caller -- a goto from the
@@ -1783,7 +1838,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             ha += 12.0;
         }
-        var axisHours = IsSouthernHemisphere ? 6.0 - ha : ha - 6.0;
+        // The inverse of StepsToRa, folded into one turn either way: the through-the-pole HA is 12 h on, and the pier choice
+        // (DestinationSideOfPierAsync) keeps the counterweight-down turn within +-6 h of home.
+        var axisHours = CoordinateUtils.ConditionHA(IsSouthernHemisphere ? -6.0 - ha : ha - 6.0);
         var raSteps = (int)Math.Round(axisHours / 24.0 * _cprRa);
 
         var axisDegrees = IsSouthernHemisphere ? dec + 90.0 : 90.0 - dec;

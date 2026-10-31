@@ -414,8 +414,7 @@ The driver is equatorial-only; this plan covers making alt-az *safe* (shipped) t
   - `AltAz` is **report-only**: `GetAlignmentAsync` returns it and pier reads return `Unknown`, but
     `BeginSlewRaDecAsync` / `SyncRaDecAsync` / `SetTrackingAsync(true)` are **refused** via
     `SkywatcherMountDriverBase.EnsureEquatorialAlignment` (throws `NotSupportedException`).
-    `MaybeSyncToPoleAfterSiteSetAsync` is skipped for alt-az (home is the raw encoder zero, az 0
-    / alt 0, not the equatorial pole).
+    Home is the raw encoder zero in every alignment (az 0 / alt 0 in alt-az), and nothing syncs it.
   - Meridian flip is now **GEM-only**: `ImagingLoopAsync` reads `AlignmentMode.GermanPolar` and
     fork/AltAz skip the whole flip cycle (PR #47). Pinned by the `Polar`/`AltAz` `[Theory]` in
     `SessionObservationLoopTests` (`MeridianFlipCount == 0`).

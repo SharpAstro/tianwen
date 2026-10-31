@@ -29,6 +29,11 @@ internal sealed record NodeIdleExitOptions(TimeSpan Grace, TimeSpan Poll)
 /// as a node always did. Nor does one started by hand, or one sharing the rig on the LAN, which serves clients it cannot
 /// count. <b>Present means a fresh presence BEAT</b> (<see cref="EventHub.PresentClientCount"/>), the rule a prompt waits by
 /// and <see cref="NodeRunWatch"/> stops an unwatched run by.</para>
+/// <para><b>Time the node was not running is not idle time.</b> A look that comes more than a grace after the one before
+/// means the process was suspended (the computer slept or hibernated), and its clients with it, so the grace starts again
+/// from that look. Measured on 2026-10-31: a node that went idle as the machine hibernated took the 25 minutes asleep as
+/// spent grace and exited the second it woke, before the window that was still open could beat again, and the window was
+/// left polling a node that was gone.</para>
 /// <para>What it replaced: a node stayed until logoff. Measured on 2026-09-30, one held a Canon's session (so nothing else
 /// could use the camera), locked every build of the tree it ran from, and served a burst with the previous build's code,
 /// since a client of the same wire version attaches to it without a word.</para>
@@ -39,6 +44,7 @@ internal sealed class NodeIdleExit(NodeRole role, NodeListening listening, IDevi
 {
     // Touched only by the loop.
     private DateTimeOffset? _idleSince;
+    private DateTimeOffset? _lastLook;
     private bool _exiting;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -88,6 +94,9 @@ internal sealed class NodeIdleExit(NodeRole role, NodeListening listening, IDevi
         }
 
         var now = timeProvider.GetUtcNow();
+        var asleep = _lastLook is { } last && now - last > options.Grace ? now - last : (TimeSpan?)null;
+        _lastLook = now;
+
         if (InUse() is { } use)
         {
             if (_idleSince is not null)
@@ -103,6 +112,13 @@ internal sealed class NodeIdleExit(NodeRole role, NodeListening listening, IDevi
             _idleSince = now;
             logger.LogInformation("Nothing is using this node (no client, device, run or job); it exits in {Grace} s unless that changes",
                 options.Grace.TotalSeconds);
+            return;
+        }
+        if (asleep is { } gap)
+        {
+            _idleSince = now;
+            logger.LogInformation("The node was not running for {Gap} (the computer slept?); it exits in {Grace} s unless something uses it",
+                gap, options.Grace.TotalSeconds);
             return;
         }
         if (now - since < options.Grace)

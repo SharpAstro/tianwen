@@ -654,6 +654,20 @@ namespace TianWen.UI.Abstractions
                         return;
                     }
 
+                    if (sig.Command is MountPositionCommand.UnparkThenHome)
+                    {
+                        // Home is refused on a parked mount, so the two run in turn, the second only once the first is done.
+                        if (await RunNodeJobAsync(node, node.Client.UnparkMountAsync(mountUri, ct), "Unparking", ct) is null)
+                        {
+                            return;
+                        }
+                        if (await RunNodeJobAsync(node, node.Client.HomeMountAsync(mountUri, ct), "Going home", ct) is { } homed)
+                        {
+                            Notify(NotificationSeverity.Info, homed.Step ?? "Going home: done");
+                        }
+                        return;
+                    }
+
                     var (starting, what) = sig.Command switch
                     {
                         MountPositionCommand.Home => (node.Client.HomeMountAsync(mountUri, ct), "Going home"),

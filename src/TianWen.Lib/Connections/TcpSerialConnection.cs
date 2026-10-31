@@ -106,6 +106,9 @@ internal sealed class TcpSerialConnection : ISerialConnection
 
     public bool IsOpen { get; private set; }
 
+    /// <inheritdoc />
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     public Encoding Encoding { get; }
 
     /// <inheritdoc />
@@ -404,7 +407,11 @@ internal sealed class TcpSerialConnection : ISerialConnection
             Array.Resize(ref _readBuffer, _readBuffer.Length * 2);
         }
 
-        var n = await _stream.ReadAsync(_readBuffer.AsMemory(_readBufferEnd), cancellationToken);
+        // A device that stops answering ends the read at ReplyTimeout, as on a serial port; the callers read the cancel as
+        // a read that returned nothing.
+        using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        reply.CancelAfter(ReplyTimeout);
+        var n = await _stream.ReadAsync(_readBuffer.AsMemory(_readBufferEnd), reply.Token);
         if (n <= 0)
         {
             // Peer closed the connection.

@@ -21,6 +21,26 @@ public sealed record SiteCoordinates(double Latitude, double Longitude, double? 
         => latitude is { } lat && longitude is { } lon && !double.IsNaN(lat) && !double.IsNaN(lon)
             ? new SiteCoordinates(lat, lon, elevation is { } e && !double.IsNaN(e) ? e : null)
             : null;
+
+    /// <summary>Whether <paramref name="other"/> is on the same side of the equator (the equator counts as north).</summary>
+    public bool SameHemisphereAs(SiteCoordinates other) => Latitude >= 0 == other.Latitude >= 0;
+}
+
+/// <summary>
+/// A site in the other hemisphere refused for a mount that is not at home (<see cref="MountSiteExtensions"/>): its axes would
+/// read as the mirror of where it points. Worded for the user: home the mount, then give it the site.
+/// </summary>
+public sealed class MountSiteHemisphereException(SiteCoordinates current, SiteCoordinates site)
+    : InvalidOperationException($"The mount is not at home, so it keeps its site ({Describe(current)}): {Describe(site)} is in the other hemisphere, "
+        + "and away from home the mount would read its position as the mirror of where it points. Send it home, then save the site again.")
+{
+    /// <summary>The site the mount has.</summary>
+    public SiteCoordinates Current { get; } = current;
+
+    /// <summary>The site it was refused.</summary>
+    public SiteCoordinates Site { get; } = site;
+
+    private static string Describe(SiteCoordinates s) => $"{Math.Abs(s.Latitude):F1}{(s.Latitude >= 0 ? "N" : "S")}";
 }
 
 /// <summary>Whose site a reconcile settled on.</summary>
@@ -112,9 +132,22 @@ public static class MountSiteExtensions
             return new SiteCoordinates(latitude, longitude, double.IsNaN(elevation) ? null : elevation);
         }
 
-        /// <summary>Gives the mount <paramref name="site"/>; the elevation only when the site has one.</summary>
+        /// <summary>
+        /// Gives the mount <paramref name="site"/>; the elevation only when the site has one. A site in the OTHER hemisphere
+        /// from the one the mount has is given only while the mount is at home: a mount reads its axes through its site's
+        /// hemisphere (a Skywatcher mirrors its whole axis mapping below the equator), so anywhere else the same axes would
+        /// suddenly read as the mirror of where the tube points, and the next goto would go there. At home both readings are
+        /// the pole, so nothing jumps. A mount with no site yet has nothing to compare.
+        /// </summary>
+        /// <exception cref="MountSiteHemisphereException">The hemisphere changes and the mount is not at home.</exception>
         public async ValueTask SetSiteAsync(SiteCoordinates site, CancellationToken cancellationToken)
         {
+            if (await mount.GetSiteAsync(cancellationToken).ConfigureAwait(false) is { } current
+                && !current.SameHemisphereAs(site)
+                && !await mount.AtHomeAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new MountSiteHemisphereException(current, site);
+            }
             await mount.SetSiteLatitudeAsync(site.Latitude, cancellationToken).ConfigureAwait(false);
             await mount.SetSiteLongitudeAsync(site.Longitude, cancellationToken).ConfigureAwait(false);
             if (site.Elevation is { } elevation)

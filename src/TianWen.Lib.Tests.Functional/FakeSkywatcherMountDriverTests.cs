@@ -601,13 +601,14 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     public async Task GivenHomedMountThenPointingStateIsNormal()
     {
         // GSS SideOfPier: |Y| < 90.0000000001 -> pierEast, so the home boundary is INCLUSIVE: a mount that
-        // has never moved reports the Normal state, and the connect-time pole sync round-trips to HA 0
-        // (a through-the-pole reading there would add 12 h to it).
+        // has never moved reports the Normal state, at HA 6 h, counterweight down (a through-the-pole reading
+        // there would add 12 h to it). Nothing syncs home to HA 0 any more: that wrote the RA encoder a quarter
+        // turn off and sent every later goto 90 degrees too far (2026-10-31).
         var ct = TestContext.Current.CancellationToken;
         var (mount, _) = await CreateConnectedMountAsync(ct);
 
         (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal);
-        (await mount.GetHourAngleAsync(ct)).ShouldBe(0.0, 1e-3);
+        (await mount.GetHourAngleAsync(ct)).ShouldBe(6.0, 1e-3);
         (await mount.GetDeclinationAsync(ct)).ShouldBe(90.0, 1e-3);
     }
 
@@ -827,15 +828,15 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task GivenHomedMountThenAxisAnglesAreMinus90AndZero()
+    public async Task GivenHomedMountThenBothAxisAnglesAreZero()
     {
-        // After the connect-time pole sync the RA axis sits a quarter turn short of the
-        // counterweight-down home (HA 0 in the Normal state = (0 - 6 h) x 15 = -90 deg: counterweight
-        // horizontal), and the Dec axis is on the pole.
+        // Home is encoder zero: the RA axis counterweight down (HA 6 h in the Normal state = (6 - 6 h) x 15 = 0 deg)
+        // and the Dec axis on the pole. A connect-time pole sync used to declare HA 0 there and this test pinned
+        // its -90 deg, the counterweight-horizontal reading of a mount standing counterweight down.
         var ct = TestContext.Current.CancellationToken;
         var (mount, _) = await CreateConnectedMountAsync(ct);
 
-        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(-90.0, 0.01);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(0.0, 0.01);
         (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(0.0, 0.01);
     }
 
@@ -863,15 +864,17 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenSouthernMountThenThePrimaryAxisAngleIsHemisphereCorrected()
     {
-        // The southern motor runs the other way (axisHours = 6 - HA), so the raw encoder sign is
-        // mirrored. The reported angle is not: (HA - 6 h) x 15 in the Normal state in BOTH hemispheres,
-        // which is what lets the meridian limit read |angle| - 90 without knowing where it is.
+        // The southern motor runs the other way (axisHours = -6 h - HA, GSS AxesMountToApp), so the raw encoder sign is
+        // mirrored. The reported RA angle is not: positive is the tracking direction from home in both hemispheres, so
+        // the meridian limit reads |angle| - 90 without knowing where it is. In the south a target WEST of the meridian
+        // is reached counterweight down through the pole, so the Dec axis turns the negative way there.
         var ct = TestContext.Current.CancellationToken;
         var (mount, _) = await CreateConnectedMountAsync(ct, latitude: -33.9, longitude: 18.4);
         await mount.SyncRaDecAsync(await RaAtHourAngleAsync(mount, 2.0, ct), -45.0, ct);
 
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole);
         (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe((2.0 - 6.0) * 15.0, 0.01);
-        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(45.0, 0.01);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(-45.0, 0.01);
     }
 
     [Fact(Timeout = 60_000)]

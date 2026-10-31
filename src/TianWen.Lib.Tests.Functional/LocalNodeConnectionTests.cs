@@ -111,6 +111,50 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         local.ProfileRevision.ShouldNotBeNull("an edit names the revision the profile was read at");
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task AWindowWhoseNodeWentFindsItsNodeAgain()
+    {
+        // 2026-10-31: the node exited across a hibernate, and the window polled a socket nobody answered until it was closed.
+        var ct = TestContext.Current.CancellationToken;
+        var socketPath = NewSocketPath();
+        var rig = new Profile(Guid.NewGuid(), "The rig", Siteless);
+        await using var client = new Client(outputHelper);
+
+        string firstNodeId;
+        await using (var first = await NodeHarness.StartAsync(outputHelper, ct, socketPath: socketPath))
+        {
+            await rig.SaveAsync(first.External, ct);
+            await client.ConnectAsync(socketPath, requestedProfile: null, ct);
+            firstNodeId = client.AppState.LocalNode.ShouldNotBeNull(client.AppState.LocalNodeProblem).Node.NodeId;
+        }
+
+        // Nothing answers: the window lets the lost node go and, finding none on a named socket (which starts no node), says why.
+        while (client.AppState.LocalNodeProblem is null)
+        {
+            client.Handler.PollPreviewTelemetry();
+            await Task.Delay(50, ct);
+        }
+        client.AppState.LocalNode.ShouldBeNull();
+
+        // A node comes back, as a launcher starts one: the retry finds it.
+        await using var second = await NodeHarness.StartAsync(outputHelper, ct, socketPath: socketPath);
+        await rig.SaveAsync(second.External, ct);
+        while (client.AppState.LocalNode is null)
+        {
+            client.Handler.PollPreviewTelemetry();
+            await Task.Delay(50, ct);
+        }
+
+        var local = client.AppState.LocalNode.ShouldNotBeNull();
+        local.Node.NodeId.ShouldNotBe(firstNodeId);
+        client.AppState.LocalNodeProblem.ShouldBeNull();
+        client.Contexts.Local.Mirror.ShouldBeSameAs(local.Mirror, "the new connection took over the local view");
+        client.AppState.ActiveProfile.ShouldNotBeNull().ProfileId.ShouldBe(rig.ProfileId);
+        (await local.Client.GetActiveProfileAsync(ct)).Value.ShouldNotBeNull().ProfileId
+            .ShouldBe(rig.ProfileId, "the profile on show is made the new node's");
+        client.AppState.Notifications.ShouldContain(n => n.Message.Contains("stopped answering"));
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task AWindowOnANodeOfTheOtherModeIsToldSo()
     {

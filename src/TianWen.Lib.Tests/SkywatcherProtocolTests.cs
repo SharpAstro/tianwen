@@ -176,24 +176,25 @@ public class SkywatcherProtocolTests
     [Fact]
     public void TryParseFirmwareResponse_EQ6R_ParsesCorrectly()
     {
-        // EQ6 (model 0x00), firmware 3.39
-        // Board=0x00, minor=39 (0x27), major=3 (0x03)
-        // LE encoded: byte0=0x00, byte1=0x27, byte2=0x03 → "002703"
-        var result = SkywatcherProtocol.TryParseFirmwareResponse("002703", out var info);
+        // EQ6 (mount code 0x00), firmware 3.39, in wire order major, minor, mount code: 0x03, 0x27, 0x00 -> "032700"
+        var result = SkywatcherProtocol.TryParseFirmwareResponse("032700", out var info);
         result.ShouldBeTrue();
         info.MountModel.ShouldBe(SkywatcherMountModel.Eq6);
         info.VersionString.ShouldBe("3.39");
+        info.IntVersion.ShouldBe(0x032700);
     }
 
     [Fact]
     public void TryParseFirmwareResponse_AzGTi_ParsesCorrectly()
     {
-        // AZ-GTi (model 0xA5), firmware 3.40
-        // LE: byte0=0xA5, byte1=0x28, byte2=0x03 → "A52803"
-        var result = SkywatcherProtocol.TryParseFirmwareResponse("A52803", out var info);
+        // The bench AZ-GTi (EQ mode, USB) answered exactly this on 2026-10-31: firmware 3.40, mount code 0xA5. The order
+        // this test pinned before (mount code first) read it as an EQ3 with firmware 165.40.
+        var result = SkywatcherProtocol.TryParseFirmwareResponse("0328A5", out var info);
         result.ShouldBeTrue();
         info.MountModel.ShouldBe(SkywatcherMountModel.AzGTi);
         info.VersionString.ShouldBe("3.40");
+        info.IntVersion.ShouldBe(0x0328A5);
+        SkywatcherProtocol.SupportsAdvancedCommands(info.IntVersion, info.MountModel).ShouldBeTrue("3.40 is the first AZ-GTi firmware with them");
     }
 
     [Fact]
@@ -291,11 +292,11 @@ public class SkywatcherProtocolTests
     [Fact]
     public void SupportsAdvancedCommands_AzGTi_RequiresHigherVersion()
     {
-        // AZ-GTi (0xA5): needs >= 3.40
-        // intVersion for AzGTi 3.40: (0xA5 << 16) | (40 << 8) | 3 = 0xA52803
-        var threshold = ((int)SkywatcherMountModel.AzGTi << 16) | (40 << 8) | 3;
-        SkywatcherProtocol.SupportsAdvancedCommands(threshold + 1, SkywatcherMountModel.AzGTi).ShouldBeTrue();
-        SkywatcherProtocol.SupportsAdvancedCommands(threshold, SkywatcherMountModel.AzGTi).ShouldBeFalse();
+        // AZ-GTi (0xA5): needs >= 3.40. IntVersion is major, minor, mount code: 3.40 is 0x0328A5, 3.39 is 0x0327A5.
+        var v340 = (3 << 16) | (40 << 8) | (int)SkywatcherMountModel.AzGTi;
+        var v339 = (3 << 16) | (39 << 8) | (int)SkywatcherMountModel.AzGTi;
+        SkywatcherProtocol.SupportsAdvancedCommands(v340, SkywatcherMountModel.AzGTi).ShouldBeTrue();
+        SkywatcherProtocol.SupportsAdvancedCommands(v339, SkywatcherMountModel.AzGTi).ShouldBeFalse();
     }
 
     [Fact]

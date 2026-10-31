@@ -16,6 +16,8 @@ namespace TianWen.Lib.Devices.Fake;
 /// </summary>
 internal class FakeSkywatcherSerialDevice : ISerialConnection
 {
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly StringBuilder _responseBuffer = new();
@@ -109,6 +111,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
             lock (_lockObj)
             {
                 return (_raRunning, _raDirection == 0, _raHighSpeed, _raSlewDegPerSec);
+            }
+        }
+    }
+
+    /// <summary>The encoders as the board holds them, for tests: steps from home on each axis (home is 0, 0).</summary>
+    internal (int Ra, int Dec) Steps
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                return (_posRa, _posDec);
             }
         }
     }
@@ -392,9 +406,9 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
             {
                 case 'e': // Firmware query
                 {
-                    // Response: board version byte, minor, major (LE encoded)
-                    // boardVersion=MODEL, minor=FIRMWARE_MINOR, major=FIRMWARE_MAJOR
-                    var fwBytes = (uint)((int)MOUNT_MODEL | (FIRMWARE_MINOR << 8) | (FIRMWARE_MAJOR << 16));
+                    // Response in wire order major, minor, mount code (LE encoded), as a real mount sends it: an AZ-GTi
+                    // with firmware 3.40 answers =0328A5.
+                    var fwBytes = (uint)(FIRMWARE_MAJOR | (FIRMWARE_MINOR << 8) | ((int)MOUNT_MODEL << 16));
                     _responseBuffer.Append('=');
                     _responseBuffer.Append(SkywatcherProtocol.EncodeUInt24(fwBytes));
                     _responseBuffer.Append('\r');

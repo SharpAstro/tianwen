@@ -16,6 +16,23 @@ namespace TianWen.UI.Abstractions
         private int _plannerStarted;
 
         /// <summary>
+        /// How many device reads in a row this computer's node may leave unanswered (one every two seconds) before the app
+        /// takes it as gone and finds or starts it again (<see cref="ReconnectLocalNodeAsync"/>).
+        /// </summary>
+        internal const int LocalNodeGoneAfterUnansweredReads = 3;
+
+        /// <summary>How often finding the node again is retried while it cannot be found or started.</summary>
+        internal static readonly TimeSpan LocalNodeRetryInterval = TimeSpan.FromSeconds(10);
+
+        // What the first connect was asked with, for finding the node again; null until ConnectLocalNodeAsync has run.
+        private LocalNodeOptions? _localNodeOptions;
+        private bool _localNodeIncludeFake;
+        // 1 while a reconnect runs: one at a time.
+        private int _localNodeReconnecting;
+        // Timestamp of the last failed reconnect while the node is lost, 0 while it is not lost.
+        private long _localNodeLostRetryTicks;
+
+        /// <summary>
         /// Finds this computer's node, or starts one, and connects the local view to it (P6 of
         /// docs/plans/hardware-in-the-server.md, #936): from here the node holds this computer's devices and runs its sessions,
         /// and the app reads them from it as it reads any rig's (<see cref="LocalNodeConnection"/>). The node's active profile
@@ -30,6 +47,8 @@ namespace TianWen.UI.Abstractions
         public async Task ConnectLocalNodeAsync(LocalNodeOptions options, string? requestedProfile, bool includeFake,
             CancellationToken cancellationToken)
         {
+            _localNodeOptions = options;
+            _localNodeIncludeFake = includeFake;
             var (connection, message) = await LocalNodeConnection.FindOrStartAsync(
                 _contexts, _appState, options, _appState.NodeGrants, _timeProvider, _logger, cancellationToken).ConfigureAwait(false);
             if (connection is null)
@@ -82,6 +101,69 @@ namespace TianWen.UI.Abstractions
             }
             await LoadSessionConfigAsync(cancellationToken).ConfigureAwait(false);
             _appState.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Finds this computer's node again, or starts one, once the node it was connected to stops answering: a node that
+        /// crashed, or one that exited idle across a sleep (2026-10-31: the window then polled a node that was gone until it
+        /// was closed). For the frame poll to call (<see cref="PollNodeDevices"/>), one at a time. The lost connection is let
+        /// go first, since the new one takes over the local view; the profile on show is made the new node's, and a node that
+        /// cannot be found or started is retried every <see cref="LocalNodeRetryInterval"/>, the window saying why meanwhile.
+        /// </summary>
+        private void MaybeReconnectLocalNode()
+        {
+            if (_localNodeOptions is not { } options)
+            {
+                return;
+            }
+            var local = _appState.LocalNode;
+            var lostTicks = Volatile.Read(ref _localNodeLostRetryTicks);
+            var due = local is { UnansweredDeviceReads: >= LocalNodeGoneAfterUnansweredReads }
+                || local is null && lostTicks != 0 && _timeProvider.GetElapsedTime(lostTicks) >= LocalNodeRetryInterval;
+            if (!due || Interlocked.CompareExchange(ref _localNodeReconnecting, 1, 0) != 0)
+            {
+                return;
+            }
+            RunTracked("ReconnectLocalNode", "Could not reach this computer's node again",
+                ct => ReconnectLocalNodeAsync(local, options, ct),
+                onFinally: () => Volatile.Write(ref _localNodeReconnecting, 0));
+        }
+
+        private async Task ReconnectLocalNodeAsync(LocalNodeConnection? lost, LocalNodeOptions options, CancellationToken cancellationToken)
+        {
+            var profileId = _appState.ActiveProfile?.ProfileId;
+            if (lost is not null)
+            {
+                _logger.LogWarning("This computer's node {NodeId} stopped answering; finding or starting it again", lost.Node.NodeId);
+                _appState.LocalNode = null;
+                await lost.DisposeAsync().ConfigureAwait(false);
+                Notify(NotificationSeverity.Warning, "This computer's node stopped answering; finding or starting it again");
+            }
+
+            var (connection, message) = await LocalNodeConnection.FindOrStartAsync(
+                _contexts, _appState, options, _appState.NodeGrants, _timeProvider, _logger, cancellationToken).ConfigureAwait(false);
+            if (connection is null)
+            {
+                Volatile.Write(ref _localNodeLostRetryTicks, _timeProvider.GetTimestamp());
+                _appState.LocalNodeProblem = message;
+                _appState.NeedsRedraw = true;
+                if (lost is not null)
+                {
+                    Notify(NotificationSeverity.Error, $"This computer's rig cannot be used: {message}");
+                }
+                return;
+            }
+
+            await ChooseLocalProfileAsync(connection.Client, profileId?.ToString(), cancellationToken).ConfigureAwait(false);
+            await connection.MaybeRefreshProfileAsync(cancellationToken).ConfigureAwait(false);
+            _appState.LocalNode = connection;
+            _appState.LocalNodeProblem = null;
+            Volatile.Write(ref _localNodeLostRetryTicks, 0);
+            _appState.NeedsRedraw = true;
+            Notify(NotificationSeverity.Info, $"This computer's node answers again: {message}");
+
+            // The node may be a new one, which has discovered nothing yet: what the Equipment tab lists comes from this.
+            _bus.Post(new DiscoverDevicesSignal(IncludeFake: _localNodeIncludeFake || _appState.ActiveProfile?.Data is { ReferencesAnyFakeDevice: true }));
         }
 
         /// <summary>

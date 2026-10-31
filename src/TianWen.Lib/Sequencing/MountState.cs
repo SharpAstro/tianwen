@@ -42,7 +42,14 @@ public readonly record struct MountState(
     /// app, another client or the handset. Null when it was not read or the driver could not say; the Preview then
     /// shows plain "Tracking" rather than a rate it cannot know.
     /// </summary>
-    TrackingSpeed? TrackingRate = null)
+    TrackingSpeed? TrackingRate = null,
+    /// <summary>
+    /// Whether the mount says it is at home (<see cref="IMountDriver.AtHomeAsync"/>); false when it was not read. A site in
+    /// the other hemisphere goes to a mount only while it is (<see cref="MountSiteExtensions"/>).
+    /// </summary>
+    bool AtHome = false,
+    /// <summary>Whether the mount says it is parked (<see cref="IMountDriver.AtParkAsync"/>); false when it was not read.</summary>
+    bool AtPark = false)
 {
     /// <summary>
     /// No pointing known: no mount connected, or none read yet. NaN, never <c>default</c>, which reads as a real pointing at

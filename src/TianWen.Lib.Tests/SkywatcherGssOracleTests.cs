@@ -167,11 +167,15 @@ public class SkywatcherGssOracleTests(ITestOutputHelper output)
 
             reply[0].ShouldBe(entry.Reply[0], $"ok/error prefix for {entry.Cmd} ({entry.Scenario})");
             reply.Length.ShouldBe(entry.Reply.Length, $"reply shape for {entry.Cmd} ({entry.Scenario})");
-            if (entry.Cmd[1] is 'e' or 'a' or 'b' or 'g' or 's')
+            if (entry.Cmd[1] is 'a' or 'b' or 'g' or 's')
             {
-                // Static mount parameters: both fakes are the same canned EQ6.
+                // Static mount parameters: both fakes are the same canned mount.
                 reply.ShouldBe(entry.Reply, $"static query {entry.Cmd}");
             }
+            // :e is held to its shape only. The oracle's scripted port answered =002703, meant as an EQ6 on 3.39 but in
+            // the wire order GSServer and INDI read (major, minor, mount code; a real AZ-GTi answers =0328A5) that is an
+            // EQ3 on firmware 0.39, so the recorded session is GSS believing that. Re-recording needs the GSServer
+            // checkout; until then the fake answers its EQ6 3.39 correctly (=032700) and only the shape is compared.
 
             if (entry.Cmd[1] == 'J')
             {

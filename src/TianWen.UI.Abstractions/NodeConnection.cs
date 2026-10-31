@@ -55,6 +55,7 @@ public abstract class NodeConnection : IAsyncDisposable
     private string? _profileRevision;
     private long _devicesCheckedTicks;
     private int _devicesRefreshInFlight;
+    private int _unansweredDeviceReads;
     private ImmutableDictionary<string, DeviceStateDto> _devices = ImmutableDictionary<string, DeviceStateDto>.Empty.WithComparers(DeviceUriExtensions.DeviceKeyComparer);
     private ImmutableArray<NodeDevice> _listed = [];
 
@@ -111,6 +112,12 @@ public abstract class NodeConnection : IAsyncDisposable
     /// with a request. Keyed by the hub's identity rule (scheme, host and path, <see cref="DeviceBase.SameDevice"/>).
     /// </summary>
     public ImmutableDictionary<string, DeviceStateDto> Devices => Volatile.Read(ref _devices);
+
+    /// <summary>
+    /// How many device reads in a row the node did not answer at all (no connection, or no reply within the budget), 0 once
+    /// one is answered. For the host to tell a node that has gone from one that is quiet (<see cref="MaybeRefreshDevicesAsync"/>).
+    /// </summary>
+    public int UnansweredDeviceReads => Volatile.Read(ref _unansweredDeviceReads);
 
     /// <summary>What the node holds of the device <paramref name="deviceUri"/> names, or null when it holds nothing of it.</summary>
     public DeviceStateDto? Device(Uri deviceUri) => Devices.TryGetValue(KeyOf(deviceUri), out var device) ? device : null;
@@ -400,8 +407,13 @@ public abstract class NodeConnection : IAsyncDisposable
             {
                 // Most often the node is quiet, which the view already says: keep the last reading shown.
                 Logger.LogDebug("Could not read the devices of {Name}: {Error}", Name, result.Error);
+                if (result.StatusCode == (int)System.Net.HttpStatusCode.ServiceUnavailable)
+                {
+                    Interlocked.Increment(ref _unansweredDeviceReads);
+                }
                 return false;
             }
+            Volatile.Write(ref _unansweredDeviceReads, 0);
             Volatile.Write(ref _devices, Keyed(devices));
             LayOutIdleDevices();
             return true;

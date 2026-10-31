@@ -50,12 +50,17 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
 
     public override string? Description => "QHY QHYCFW3 serial protocol driver";
 
+    /// <summary>The longest a reply may take: a move is answered on arrival, and a full turn of a CFW3 takes seconds.</summary>
+    internal static readonly TimeSpan MoveReplyTimeout = TimeSpan.FromSeconds(60);
+
     protected override async Task<(bool Success, int ConnectionId, QHYSerialFilterWheelInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         try
         {
             if (await _device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, CFW_BAUD, Encoding.ASCII, cancellationToken) is { IsOpen: true } conn)
             {
+                // A move is answered when the wheel ARRIVES, so a reply may take a whole turn of the wheel.
+                conn.ReplyTimeout = MoveReplyTimeout;
                 return (true, CONNECTION_ID_EXCLUSIVE, new QHYSerialFilterWheelInfo(conn));
             }
         }
