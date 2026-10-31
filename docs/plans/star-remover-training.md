@@ -4076,7 +4076,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | R3c | filed after R3b's read | the winner plus a teacher rebuilt from R3a's two seeds (E7, 8 views) | its read | R3b |
 | R3d | filed after F4 and F5's gates | the winner on the export with whatever F4 and F5 adopted | its read | R3c |
 | R3e | only if R3d plateaus | a larger net on a T4 | its read | R3d |
-| R3f | #1867 | R2w's recipe on synth13: synth11's export from a binary with #1867's injector guard, so no diverged catalogued star is drawn (the plates unchanged); **pre-registered 2026-10-30**, "R3f" | its read on F2's scorecard beside both R2w seeds | R2w seed 1 |
+| R3f | #1867 | R2w's recipe on synth13: synth11's export from a binary with #1867's injector guard, so no diverged catalogued star is drawn (the plates unchanged); **pre-registered 2026-10-30**, "R3f"; **KILLED 2026-10-31** (flat 92.9, dug 3.0, M42 45.2) | its read on F2's scorecard beside both R2w seeds | R2w seed 1 |
 
 **Why R3a has no teacher.** It isolates what R2t's recipe does on the master's stretch against R2w (R2i's recipe on the
 same stretch), and its two seeds are then both the bright-band spread and E7's members, so the teacher question costs no
@@ -4717,7 +4717,7 @@ nucleus or the SMC, and every arm against R2w is read against both seeds.
 #1867 refuses a diverged catalogued star at the injector (`InjectionPopulation`: a non-finite `LocalSigma`, or an unsaturated
 amplitude past `OvershootMargin` (4) times the frame's clip in any channel). synth11 was exported before it, so its draws carry
 those stars at amplitudes no real star has. R3f is R2w's recipe exactly (seed 0) on **synth13**, synth11's export command from a
-binary at main (`11f7f96e2`), on synth11's plates: the guard is the one difference. Rebuilding the plates is #1867's other half
+binary at main as of #1915, on synth11's plates: the guard is the one difference. Rebuilding the plates is #1867's other half
 (about 13 hours) and is not in this arm. Scored as R2w seed 1 was. The run is `C:/temp/e2/r3f-driver.ps1` (export, train, score),
 the pre-registration `C:/temp/e2/r3f.prereg`.
 
@@ -4727,6 +4727,26 @@ the pre-registration `C:/temp/e2/r3f.prereg`.
 - **Adopt** when P1 and P2 hold. **Kill** when flat falls under 95.6 or dug rises over 2.14 (worse than both seeds). Between, it is
   inside R2w's own spread and reads as no measurable change; the plates are then the next lever, not a second seed of this arm.
 - Reported beside it: how many catalogued stars the guard refused (`InjectionPopulation.Refused`), and M42.
+
+**Read (2026-10-31): KILLED on both rules.** Stopped converged at step 136,000 (best held-out 5.94e-6 at 88,000, 6.8 hours), scored on the
+320 real master tiles beside R2w's two seeds:
+
+| 100-1000 sigma, 4215 stars | R3f | R2w s0 | R2w s1 |
+|---|---|---|---|
+| flat \|<1\| | **92.88** | 95.61 | 96.01 |
+| light >+1 | 4.08 | 2.63 | 1.85 |
+| dug <-1 | **3.04** | 1.76 | 2.14 |
+| M42 flat | 45.2 | 71.4 | 74.6 |
+| SMC flat | 63.9 | 79.4 | 91.8 |
+
+Every session moves the same way: Lobster's dug share rises from under 0.5 % to 1 to 2 % a channel, HIP 80609's to 4 to 7 %, and
+M42 leaves half its bright stars lit (52 % against 24 to 27 %). Refusing the impossible-amplitude draws did not teach the model
+cleaner surroundings; it removed the brightest examples it learned bright-star removal from, and the 5-20 sigma flat fell too
+(93.6 against 94.3 / 95.2). P3 was not read: the scorer's ring step failed on its baselines (`ring_annulus.py` took the
+comma-joined list as one arm), and the nucleus step runs after it; neither changes a verdict both kill rules already give. The
+export logs carry no `Refused` count, so how many stars the guard took out is unmeasured. Per the pre-registration, the plates
+(#1867's other half, about 13 hours) are the next lever, not a second seed of this arm; and the guard should be read again WITH
+rebuilt plates before it is kept in the export.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
