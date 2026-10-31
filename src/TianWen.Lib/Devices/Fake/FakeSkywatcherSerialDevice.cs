@@ -392,9 +392,9 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
             {
                 case 'e': // Firmware query
                 {
-                    // Response: board version byte, minor, major (LE encoded)
-                    // boardVersion=MODEL, minor=FIRMWARE_MINOR, major=FIRMWARE_MAJOR
-                    var fwBytes = (uint)((int)MOUNT_MODEL | (FIRMWARE_MINOR << 8) | (FIRMWARE_MAJOR << 16));
+                    // Response in wire order major, minor, mount code (LE encoded), as a real mount sends it: an AZ-GTi
+                    // with firmware 3.40 answers =0328A5.
+                    var fwBytes = (uint)(FIRMWARE_MAJOR | (FIRMWARE_MINOR << 8) | ((int)MOUNT_MODEL << 16));
                     _responseBuffer.Append('=');
                     _responseBuffer.Append(SkywatcherProtocol.EncodeUInt24(fwBytes));
                     _responseBuffer.Append('\r');
