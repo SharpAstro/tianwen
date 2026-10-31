@@ -219,6 +219,69 @@ The four older drag flags beside it (`IsResizingFileList`, `WhiteBalanceDragChan
 `IsScrubbing`) are the same shape and are the remaining conversions; the file-list divider additionally
 needs a `dividerOnClick` on `Layout.Builder.Split`, since DIR.Lib paints that one.
 
+## The button says when it cannot compare (#1883)
+
+A planetary view has no pre-enhance pixels, no crop and no pin, so A | B used to be a press that drew nothing.
+`SplitCompareController.AvailabilityOf(mode, hasBeforePixels, hasCrop)` is the ONE availability rule per mode
+(`BeforePixels` needs retained pixels, `CropExtent` a crop, `PinnedSettings` a pin or a pending pin) and answers
+available or a plain-language reason. `ResolveDividerX` (is a divider drawn) and `ButtonState` (what a press
+would do: `ModeOnPress` picks by `Toggle`'s own precedence) both read it, so the divider and the button cannot
+disagree. When nothing differs, the button is drawn in the toolbar's disabled look with the reason as its
+declared tooltip, and stays pressable, since a press still pins; the reason says to move a dial after pinning,
+enhance or crop. Pinned by `ViewerSplitTests` at DPI 1 and 1.5. The planetary modes themselves (sharpened vs
+unsharpened, raw vs stack, Live vs Full) are the rest of #1883.
+
+## A planetary stack compares the sharpening: Unsharpened | Sharpened (#1883)
+
+On a planetary stack view, Live or Full (a `LiveStackPreviewSource`, which is what implements `IUnsharpenedPreview`), the sharpening is the
+enhance, and the question A | B answers is what it did. `SplitCompare.Unsharpened` is the mode `Toggle` picks there, ahead of retained
+before-pixels and pinned settings, whenever sharpening is on (`SplitCompareController.StackCompares`). Its left half is the master as
+stacked, its right the sharpened one on show, **both under the live display settings**, so the Enhance dials move only the right half's
+pixels. Labels: "Unsharpened" and "Sharpened".
+
+- **It reuses the before slots, and only those.** The unsharpened master goes into them through `TryUploadBeforeImageChannel`
+  (`VkFitsImagePipeline.TryUploadBeforeChannel`), from `PrepareFrame` and nowhere else. A same-size master is overwritten in place as a
+  live upload is; a different size gets a new texture and the old one goes through `VulkanContext.DeferDestroy`. A set the pipeline
+  did not upload (an enhance's retained pixels) is released first, never written over (its format may be 8-bit).
+- **It is uploaded once per master, never per dial move.** `IUnsharpenedPreview.UnsharpenedGeneration` moves only when the stack
+  publishes a new master; `SetSharpen` re-sharpens off the cached raw master and leaves the unsharpened document, and its generation,
+  alone. The widget keys its upload on (source, generation, channel view), so a Live to Full switch, which may count generations
+  alike, still uploads.
+- **It is built only while wanted.** `WantUnsharpened(true)` is said each frame the split is on in this mode; with it off, or the
+  view off the stack, the stack lets its copy go and the before slots are released. Its scale is the sharpened master's divisor
+  (`ScaleToFullScaleInPlace(display.UnitScaleDivisor)`), so the halves differ by the sharpening and not by a peak the sharpening moved.
+- **It says when it compares nothing** (the section above): sharpening off is a dim button with the reason as its tooltip, and the
+  view leaving the stack (Raw) turns the split off, as a stale before is dropped.
+- **Known limit:** the unsharpened master is the stack as it came, before the colour alignment and the limb drawing that belong to the
+  sharpened view (`PlanetaryLiveLimb`), so a colour master's halves can differ by those as well as by the wavelets.
+
+## A planetary stack compares what stacking bought: Raw | Stack (#1883)
+
+`SplitCompare.RawVsStack`: the left half is the capture's frame at the playhead, the right the stack, both under the live display
+settings. It needs the stack's frames in hand, so only a stack over a capture's own SER offers it (`IRawFramePreview.CanShowRaw`: a
+`StackedMasters`, never a node's masters nor a master opened as a file, whose dim option says so). A press picks it by itself only
+where the sharpening is off and there is nothing else to compare; with sharpening on, Unsharpened stays the default.
+
+- **The disk is placed by the stack's own registration, never a centre of mass.** `PlanetaryRawFrame.LoadPlacedAsync` loads the frame,
+  demosaics it as a master is (`PlanetaryMaster.MergeAndDemosaicAsync`, so a split-CFA frame lands on the master's full grid), and
+  registers it onto the stack's master with `GlobalAligner` (`FromReference` over the master, `Estimate` of the frame): the call
+  `RollingWindowStacker` makes for every frame it folds, tile size and correlation choice included. The frame is sampled at
+  `(x + Dx, y + Dy)`, so it is DRAWN `(-Dx, -Dy)` from the stack's origin (`IRawFramePreview.RawOffset`). A frame whose size is not
+  the master's is not placed (no common grid), and the option dims with the frames-not-in-hand reason.
+- **One draw path.** The comparison quad is the live quad with its origin moved by `SplitCompareController.ComparisonOffset`
+  times the scale; the left half is then bounded to the live quad as the crop case is. Same size, same scale, only the origin moves.
+- **Built once per (frame, stack), only while wanted.** `LiveStackPreviewSource.WantRaw` loads off the render thread in a task of its
+  own (apart from the stack task, which it never preempts), keyed on (playhead, stacks published); a frame that cannot be placed is
+  asked again only when the playhead or the stack moves. `RawGeneration` moves per published frame, and the widget re-uploads into the
+  before slots on a new generation only. The frame is put on the scale the display master is shown on (`Built.DisplayDivisor`).
+  Disposal waits for this task as it does for the stack's, since both read the stream.
+- **The choice** is a `Layout.Builder.ButtonGroup` under the labels, declared only while the split is on over a stack view
+  (`RenderPlanetaryChoice`): "Sharpening" (Unsharpened | Sharpened) and "Raw | Stack". An option that cannot compare is dimmed with its
+  `AvailabilityOf` reason, the rule the divider and the A | B button read. The choice is the controller's `Mode`, per viewer, never saved.
+- **Known limits:** the raw frame is demosaiced on the CPU as a master is (MHC), where the viewer's Raw view runs the GPU demosaic of
+  the chosen algorithm, so the two can differ in fine colour; and the stack on show lags the playhead by one stack, so while the
+  playhead plays the frame is registered against the master that is on show, not the one being built.
+
 ## Invariants (set now, before code exists)
 
 - **The before is a texture set, not a document.** Never keep a second `AstroImageDocument` alive
@@ -266,3 +329,37 @@ needs a `dividerOnClick` on `Layout.Builder.Split`, since DIR.Lib paints that on
 - [gpu-stretch-tests.md](gpu-stretch-tests.md) -- the GPU readback harness P0's test should join.
 - [layout-driven-ui.md](layout-driven-ui.md) -- the divider is an interactive control, so it keeps
   its own arranged rect under that plan's DoD.
+
+## A capture's two stacks compare: Live | Full (#1883)
+
+`SplitCompare.LiveVsFull`: the Live rolling stack against the Full stack (the Auto view's, #1877's names). Whichever is on show is the right
+half, the other the left, so from the Live view the labels read "Full | Live" and from the Full view "Live | Full". Both are sharpened by
+the same routine with the dials on show (`SetSharpen`, handed to the other layer by `ViewerController.TickPeers`; never a second
+sharpening path), under the live display settings.
+
+### The three planetary comparisons and how each is chosen
+
+| Comparison | Left | Right | Offered when | Chosen |
+|---|---|---|---|---|
+| Sharpening (`Unsharpened`) | master as stacked | sharpened master | a stack is on show with sharpening on | the default of a press |
+| Raw \| Stack (`RawVsStack`) | the frame at the playhead | the stack | the stack is over a capture's own frames | the row, or a press where nothing else compares |
+| Live \| Full (`LiveVsFull`) | the other stack | the stack on show | the other stack exists | the row only |
+
+The row is a `Layout.Builder.ButtonGroup` under the half labels (`RenderPlanetaryChoice`), declared only while the split is on over a stack
+view. An option that cannot compare is dimmed with its `AvailabilityOf` reason, the one rule the divider and the A | B button read; Live | Full
+says to build the Full stack (Auto, Shift+K) or open the capture where its Full master sits beside it.
+
+- **"Exists" means built this session, or beside the SER.** The Auto view's layer counts once built; otherwise
+  `PlanetaryAuto.OutputPaths(dir, name).Master` beside the SER counts, probed once per capture off the render thread (never a `File.Exists`
+  per frame). Choosing the option with only the file in hand reads that master as a layer of its own (`FixedMaster`, off the render thread,
+  held beside the Auto view's and dropped with the capture); the divider waits for it as it waits for any second image.
+- **The disks coincide by the same placement rule as Raw | Stack**: `PlanetaryRawFrame.RegisterOnto` (`GlobalAligner` of the other
+  master's disk onto this one's, the registration a stack gives a frame), never a centre of mass. It reads the two linear masters, which
+  need not be the same size (a Full master is cropped to where 0.95 of its frames reached), so the left quad is drawn at its own size, its
+  origin moved by `ComparisonOffset`, and bounded to the live quad.
+- **Built once per change.** `LiveStackPreviewSource.WantPeer` registers off the render thread, keyed on (this stack's stacks published,
+  the other's); `PeerGeneration` moves when the other layer publishes (a new stack, or a re-sharpen as a dial moves) and the widget
+  re-uploads into the before slots on a new generation only. Nothing is placed, held or driven while the comparison is not chosen.
+- **Known limits:** the two masters are each shown on their own display scale, so a Live and a Full master that differ in peak level are
+  not matched in brightness beyond what the shared stretch does; the Full master read from its file is the linear master, so its sharpening
+  uses the dials on show and not the derivation its run made.

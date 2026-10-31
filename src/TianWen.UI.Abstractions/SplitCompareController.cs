@@ -67,6 +67,56 @@ namespace TianWen.UI.Abstractions
         /// <summary>True when the split is showing.</summary>
         public bool IsOn => Fraction is not null;
 
+        /// <summary>True while a planetary stack is on show (a source that can show its master unsharpened). Restated by the
+        /// widget each frame, like the track.</summary>
+        public bool OnStackView { get; set; }
+
+        /// <summary>True while that stack is sharpened, so there is an unsharpened master to compare it with.</summary>
+        public bool SharpeningOn { get; set; }
+
+        /// <summary>True when <see cref="SplitCompare.Unsharpened"/> has two halves that differ: a stack on show, sharpened.</summary>
+        public bool StackCompares => OnStackView && SharpeningOn;
+
+        /// <summary>True when the stack on show is over a capture's own frames, so <see cref="SplitCompare.RawVsStack"/> has a raw frame to show.</summary>
+        public bool RawAvailable { get; set; }
+
+        /// <summary>True when the OTHER stack of the capture exists (Live while Full is on show and the reverse), so <see cref="SplitCompare.LiveVsFull"/> has a second master to show.</summary>
+        public bool PeerAvailable { get; set; }
+
+        /// <summary>What the view on show is called in a Live | Full comparison (the right half): "Live" or "Full".</summary>
+        public string OwnName { get; set; } = "Live";
+
+        /// <summary>What the other stack is called (the left half).</summary>
+        public string PeerName { get; set; } = "Full";
+
+        /// <summary>
+        /// Where the left half's pixels are drawn from the right half's origin, in image pixels: the raw frame's placement on the stack's
+        /// disk (<see cref="SplitCompare.RawVsStack"/>), zero for every other mode but <see cref="SplitCompare.LiveVsFull"/>, where it places the other stack's disk on this one's. Set by the widget with the pixels it uploads.
+        /// </summary>
+        public (float X, float Y) ComparisonOffset { get; set; }
+
+        /// <summary>The planetary comparisons a stack view offers, in the order the choice lists them: Unsharpened first, the default.</summary>
+        public static ReadOnlySpan<SplitCompare> PlanetaryChoices => [SplitCompare.Unsharpened, SplitCompare.RawVsStack, SplitCompare.LiveVsFull];
+
+        /// <summary>
+        /// Picks which planetary comparison the open split shows. A no-op unless the split is on over a stack view: the choice is this
+        /// control's state, per viewer, and never saved. An option that cannot compare is still chosen (its reason is shown by
+        /// <see cref="AvailabilityOf"/>), so the dimmed state says why instead of the press doing nothing.
+        /// </summary>
+        public void ChoosePlanetary(SplitCompare mode)
+        {
+            if (IsOn && OnStackView && mode is SplitCompare.Unsharpened or SplitCompare.RawVsStack or SplitCompare.LiveVsFull)
+            {
+                Mode = mode;
+            }
+        }
+
+        private const string RawUnavailableReason = "Nothing to compare: this stack's frames are not in hand here (a node's masters, or a master opened as a file). Open the capture's SER (Shift+K).";
+
+        private const string PeerUnavailableReason = "Nothing to compare: the other stack does not exist yet. Build the Full stack (Auto, Shift+K), or open the capture where its Full master is beside it.";
+
+        private const string SharpeningOffReason = "Nothing to compare: sharpening is off, so the master is shown as stacked. Turn sharpening on (Enhance) to compare it with the unsharpened master.";
+
         /// <summary>Restates the track the divider slides along. Call from the paint that draws it.</summary>
         public void SetTrack(in RectF32 track) => _track = track;
 
@@ -173,7 +223,18 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            if (hasBeforePixels)
+            if (StackCompares)
+            {
+                // On a planetary stack the sharpening IS the enhance, and the question is what it did. The before slots on such a
+                // view are this mode's own, so retained pixels never outrank it.
+                Mode = SplitCompare.Unsharpened;
+            }
+            else if (RawCompares(hasBeforePixels, hasCrop))
+            {
+                // A stack with no sharpening: what stacking bought is the question left.
+                Mode = SplitCompare.RawVsStack;
+            }
+            else if (hasBeforePixels)
             {
                 Mode = SplitCompare.BeforePixels;
             }
@@ -279,6 +340,66 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Whether a comparison mode has what it needs, and when it has not, why in plain words. The ONE rule:
+        /// <see cref="ResolveDividerX"/> (is a divider drawn) and the toolbar's A | B button (is it dim, and what
+        /// its tooltip says) both read it, so the two can never disagree.
+        /// </summary>
+        public (bool Available, string? Reason) AvailabilityOf(SplitCompare mode, bool hasBeforePixels, bool hasCrop)
+            => mode switch
+            {
+                SplitCompare.BeforePixels => hasBeforePixels
+                    ? (true, null)
+                    : (false, "Nothing to compare: no pre-enhance pixels are kept. Enhance the image first."),
+                SplitCompare.CropExtent => hasCrop
+                    ? (true, null)
+                    : (false, "Nothing to compare: the image is not cropped. Crop it first (Shift+C)."),
+                SplitCompare.Unsharpened => !OnStackView
+                    ? (false, "Nothing to compare: only a planetary stack view has an unsharpened master. Open one (Shift+K).")
+                    : SharpeningOn ? (true, null) : (false, SharpeningOffReason),
+                SplitCompare.RawVsStack => !OnStackView
+                    ? (false, "Nothing to compare: only a planetary stack view has a raw frame to compare with. Open one (Shift+K).")
+                    : RawAvailable ? (true, null) : (false, RawUnavailableReason),
+                SplitCompare.LiveVsFull => !OnStackView
+                    ? (false, "Nothing to compare: only a planetary stack view has a Live and a Full stack to compare. Open one (Shift+K).")
+                    : PeerAvailable ? (true, null) : (false, PeerUnavailableReason),
+                _ => Pinned is not null || _pinRequested
+                    ? (true, null)
+                    : (false, "Nothing is pinned yet: pin the display settings (right-click or Shift+A), then move a dial."),
+            };
+
+        /// <summary>The mode <see cref="Toggle"/> picks when pressed with the split off, by the same precedence.</summary>
+        public static SplitCompare ModeOnPress(bool hasBeforePixels, bool hasCrop, bool stackCompares = false, bool rawCompares = false)
+            => stackCompares ? SplitCompare.Unsharpened
+                : rawCompares ? SplitCompare.RawVsStack
+                : hasBeforePixels ? SplitCompare.BeforePixels : hasCrop ? SplitCompare.CropExtent : SplitCompare.PinnedSettings;
+
+        // A stack with nothing else to compare, and its raw frame in hand: a press compares the frame with the stack.
+        private bool RawCompares(bool hasBeforePixels, bool hasCrop) => OnStackView && RawAvailable && !hasBeforePixels && !hasCrop;
+
+        /// <summary>
+        /// What the A | B button says in advance. <c>Compares</c> is true when a press (or the open split) shows two
+        /// halves that differ; otherwise <c>Reason</c> says what to do. A split that is on is judged by its own mode;
+        /// one that is off by what a press would pick, where pinning compares identical halves until a dial moves.
+        /// </summary>
+        public (bool Compares, string? Reason) ButtonState(bool hasBeforePixels, bool hasCrop)
+        {
+            if (IsOn)
+            {
+                var (available, reason) = AvailabilityOf(Mode, hasBeforePixels, hasCrop);
+                return (available, reason);
+            }
+
+            if (OnStackView && !SharpeningOn && !RawAvailable && !hasBeforePixels && !hasCrop)
+            {
+                return (false, SharpeningOffReason);
+            }
+
+            return ModeOnPress(hasBeforePixels, hasCrop, StackCompares, RawCompares(hasBeforePixels, hasCrop)) is SplitCompare.PinnedSettings
+                ? (false, "Nothing to compare yet: a press pins the display settings, then move a dial (stretch, white balance, boost) to see the difference. Enhancing or cropping also gives something to compare.")
+                : (true, null);
+        }
+
+        /// <summary>
         /// The divider's X in surface pixels, or <c>null</c> when the split is off or cannot be shown.
         /// </summary>
         /// <param name="hasBeforePixels">Whether the backend is holding pre-enhance pixels.</param>
@@ -290,15 +411,15 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
-            // Each mode has its own precondition, and a mode whose precondition fails must not draw a
-            // divider: two identical halves with a line between them is indistinguishable from a bug.
-            var available = Mode switch
+            // Each mode has its own precondition (AvailabilityOf), and a mode whose precondition fails must
+            // not draw a divider: two identical halves with a line between them is indistinguishable from a bug.
+            if (!AvailabilityOf(Mode, hasBeforePixels, hasCrop).Available)
             {
-                SplitCompare.BeforePixels => hasBeforePixels,
-                SplitCompare.CropExtent => hasCrop,
-                _ => Pinned is not null,
-            };
-            if (!available)
+                return null;
+            }
+
+            // Its left half is uploaded by the widget's next frame after the press; until then both halves would be the live one.
+            if (Mode is SplitCompare.Unsharpened or SplitCompare.RawVsStack or SplitCompare.LiveVsFull && !hasBeforePixels)
             {
                 return null;
             }
@@ -315,10 +436,10 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The rendition the left half draws with, given the one being displayed live.</summary>
         public DisplayRendition ComparisonRendition(in DisplayRendition live)
-            => Mode is SplitCompare.BeforePixels or SplitCompare.CropExtent ? live : Pinned ?? live;
+            => Mode is SplitCompare.BeforePixels or SplitCompare.CropExtent or SplitCompare.Unsharpened or SplitCompare.RawVsStack or SplitCompare.LiveVsFull ? live : Pinned ?? live;
 
         /// <summary>Whether the left half samples the retained pixels rather than the live ones.</summary>
-        public bool ComparesPixels => Mode is SplitCompare.BeforePixels;
+        public bool ComparesPixels => Mode is SplitCompare.BeforePixels or SplitCompare.Unsharpened or SplitCompare.RawVsStack or SplitCompare.LiveVsFull;
 
         /// <summary>
         /// Whether the left half is the same pixels WITHOUT the display crop. The one mode whose halves
@@ -353,6 +474,24 @@ namespace TianWen.UI.Abstractions
                 // Names the axis, which here is the FRAME rather than the pixels: same data, same dials,
                 // one side showing what the crop took off.
                 return ("Uncropped", "Cropped");
+            }
+
+            if (Mode is SplitCompare.Unsharpened)
+            {
+                // The sharpening is the difference, and the display settings are the live ones on both halves, as for BeforePixels.
+                return ("Unsharpened", "Sharpened");
+            }
+
+            if (Mode is SplitCompare.RawVsStack)
+            {
+                // What stacking bought: the one frame at the playhead against the stack, under the same display settings.
+                return ("Raw", "Stack");
+            }
+
+            if (Mode is SplitCompare.LiveVsFull)
+            {
+                // The two stacks of one capture, each sharpened by the same dials: the other is the left half, the one on show the right.
+                return (PeerName, OwnName);
             }
 
             if (Mode is SplitCompare.BeforePixels)

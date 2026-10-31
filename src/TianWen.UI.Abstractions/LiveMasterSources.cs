@@ -41,11 +41,12 @@ public interface ILiveMasterSource : IDisposable
 /// the stream's timestamp trailer, so the transport bar's per-frame <see cref="TimestampOf"/> reads hit the warm cache
 /// instead of a file-tail seek on the UI thread.
 /// </summary>
-public sealed class StackedMasters : ILiveMasterSource
+public sealed class StackedMasters : ILiveMasterSource, IRawFrameMasters
 {
     private readonly IPlanetaryFrameStream _stream;
     private readonly bool _ownsStream;
     private readonly RollingWindowStacker _stacker;
+    private readonly RollingWindowOptions? _options;
     private int _folded = -1;
 
     /// <param name="ownsStream">Whether the stream is disposed with this: a file-backed SER stream scoped to a view is.</param>
@@ -54,6 +55,7 @@ public sealed class StackedMasters : ILiveMasterSource
         ArgumentNullException.ThrowIfNull(stream);
         _stream = stream;
         _ownsStream = ownsStream;
+        _options = options;
         _stacker = new RollingWindowStacker(stream, options);
         _ = stream.HasTimestamps;
         // Read once here, off the render thread, where the timestamp trailer is already warm.
@@ -80,6 +82,9 @@ public sealed class StackedMasters : ILiveMasterSource
         Volatile.Write(ref _folded, _stacker.FoldedFrameCount);
         return master;
     }
+
+    public Task<PlanetaryPlacedFrame?> PlacedFrameAsync(int index, Image stackMaster, CancellationToken cancellationToken)
+        => PlanetaryRawFrame.LoadPlacedAsync(_stream, index, stackMaster, _options, cancellationToken);
 
     public (int Width, int Height, int Channels, SensorType Sensor) ExpectedGeometry
     {

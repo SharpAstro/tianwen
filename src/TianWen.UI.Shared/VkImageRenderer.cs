@@ -439,6 +439,10 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     /// <inheritdoc/>
     public override void ReleaseBeforeImageTextures() => _fitsPipeline.ReleaseBeforeChannels();
 
+    /// <inheritdoc/>
+    public override bool TryUploadBeforeImageChannel(ReadOnlySpan<float> data, int slot, int width, int height)
+        => _fitsPipeline.TryUploadBeforeChannel(data, slot, width, height);
+
     protected override void RenderHistogramQuad(StretchUniforms stretch,
         HistogramDisplay histogram, ViewerState state,
         float left, float top, float right, float bottom, uint projW, uint projH)

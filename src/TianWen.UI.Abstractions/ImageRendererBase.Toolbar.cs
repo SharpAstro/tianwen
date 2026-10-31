@@ -69,7 +69,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>One toolbar button, already positioned.</summary>
         private readonly record struct ToolbarButtonBox(
-            string Label, ToolbarAction Action, float MarkWidth, RectF32 Rect, bool Enabled, bool Active);
+            string Label, ToolbarAction Action, float MarkWidth, RectF32 Rect, bool Enabled, bool Active, bool Pressable);
 
         /// <summary>
         /// A button whose label and width are known but whose position is not yet. Measured once per
@@ -302,9 +302,18 @@ namespace TianWen.UI.Abstractions
 
         private void AddToolbarBox(in ToolbarMeasure measure, in RectF32 rect,
             AstroImageDocument? document, ViewerState state)
-            => _toolbarBoxes.Add(new ToolbarButtonBox(measure.Label, measure.Action, measure.MarkWidth, rect,
-                IsToolbarButtonEnabled(measure.Action, document),
-                IsToolbarButtonActive(measure.Action, document, state)));
+        {
+            var enabled = IsToolbarButtonEnabled(measure.Action, document);
+            // A | B with nothing to compare is drawn DIM (the toolbar's disabled look) but stays pressable: a press
+            // still pins, and the tooltip says what to do next (SplitCompareController.ButtonState).
+            var dimButPressable = enabled && measure.Action is ToolbarAction.Compare && !CompareState.Compares;
+            _toolbarBoxes.Add(new ToolbarButtonBox(measure.Label, measure.Action, measure.MarkWidth, rect,
+                enabled && !dimButPressable,
+                IsToolbarButtonActive(measure.Action, document, state),
+                enabled));
+        }
+
+        private (bool Compares, string? Reason) CompareState => Split.ButtonState(HasBeforeImageTextures, _cropActive);
 
         /// <summary>Resolves a button's label and the width it needs. The one place a button width is
         /// computed.</summary>
@@ -473,15 +482,16 @@ namespace TianWen.UI.Abstractions
                 : Layout.Builder.HStack(label);
             row = row.PadX(ButtonPaddingH).Stretch();
 
-            if (!box.Enabled)
+            if (!box.Pressable)
             {
                 return row.Bg(ToolbarButtonDisabledBg);
             }
 
             var action = box.Action;
-            // Active + lit is the brightest selection blue (ViewerTheme's selected role).
-            row = row.Bg(box.Active ? ToolbarButtonActiveBg : ToolbarButtonBg)
-                .BgHover(box.Active ? ViewerTheme.Palette.Selection : ToolbarButtonHoverBg)
+            // Active + lit is the brightest selection blue (ViewerTheme's selected role); a dim-but-pressable
+            // button keeps the disabled fill and no hover wash, since only its press (a pin) still acts.
+            row = (box.Enabled ? row.Bg(box.Active ? ToolbarButtonActiveBg : ToolbarButtonBg) : row.Bg(ToolbarButtonDisabledBg))
+                .BgHover(!box.Enabled ? ToolbarButtonDisabledBg : box.Active ? ViewerTheme.Palette.Selection : ToolbarButtonHoverBg)
                 .Pressable(new HitResult.ButtonHit(action.ToString()), press =>
                 {
                     PressToolbarButton(state, action, press.Button);
@@ -490,7 +500,7 @@ namespace TianWen.UI.Abstractions
 
             // The tooltip is the node's too, so the router decides when it is due (after its hover delay, never
             // under an open popover) and the host's one painter draws it (Layout.Builder.Tooltip, #1446).
-            return GetToolbarButtonTooltip(action, state, _document, Findings) is { Length: > 0 } tip
+            return ToolbarTooltip(action, state) is { Length: > 0 } tip
                 ? row.WithTooltip(tip)
                 : row;
         }
@@ -1231,7 +1241,16 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The tooltip a button takes for this state. Test seam: the tooltip is declared on the node and shown after a hover.</summary>
         internal string? ToolbarTooltipForTest(ToolbarAction action, ViewerState state)
-            => GetToolbarButtonTooltip(action, state, _document, Findings);
+            => ToolbarTooltip(action, state);
+
+        /// <summary>A button's tooltip: its usual one, but A | B says why it compares nothing while it cannot.</summary>
+        private string? ToolbarTooltip(ToolbarAction action, ViewerState state)
+            => action is ToolbarAction.Compare && IsToolbarButtonEnabled(action, _document) && CompareState is { Compares: false, Reason: { } why }
+                ? why
+                : GetToolbarButtonTooltip(action, state, _document, Findings);
+
+        /// <summary>Whether A | B is drawn dim for want of anything to compare. Test seam.</summary>
+        internal bool CompareDimForTest => IsToolbarButtonEnabled(ToolbarAction.Compare, _document) && !CompareState.Compares;
 
         private void DrawToolbarMark(ToolbarAction action, float x, float btnY, float btnH,
             ViewerState state, RGBAColor32 ink, bool enabled)
@@ -2309,7 +2328,7 @@ namespace TianWen.UI.Abstractions
                 // highlight already says it. "Before" stays named, because that is a different thing
                 // being compared (the pre-enhance pixels) rather than the same thing at other settings.
                 // The split mark says "A/B", so the label keeps only that word, and is otherwise empty.
-                ToolbarAction.Compare when Split.ComparesPixels && Split.IsOn => "Before",
+                ToolbarAction.Compare when Split.Mode is SplitCompare.BeforePixels && Split.IsOn => "Before",
                 ToolbarAction.Compare => string.Empty,
                 _ => baseLabel,
             };

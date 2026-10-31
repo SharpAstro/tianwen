@@ -35,7 +35,7 @@ namespace TianWen.UI.Abstractions;
 /// stream's frame reads) exclusively while running.
 /// </para>
 /// </summary>
-public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsyncDisposable
+public sealed class LiveStackPreviewSource : IPreviewSource, IUnsharpenedPreview, IRawFramePreview, IPeerStackPreview, IDisposable, IAsyncDisposable
 {
     // Where the masters come from: a stack integrated here, or the node's (ILiveMasterSource).
     private readonly ILiveMasterSource _masters;
@@ -92,7 +92,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     // Drawn whether the display was drawn outside it, Aligned whether its colours were moved onto green first, Looked whether a colour
     // look went on last.
     private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, Image Display, int Playhead, bool Stacked, PlanetaryLiveLimb? Limb, PlanetaryLiveLimb? From,
-        bool Drawn, bool Aligned, bool Looked);
+        bool Drawn, bool Aligned, bool Looked, AstroImageDocument? Unsharpened = null, float DisplayDivisor = 1f);
 
     /// <summary>
     /// Shows the masters of <paramref name="masters"/>: a stack integrated here (<see cref="StackedMasters"/>, a SER file's
@@ -139,6 +139,263 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// wavelet gains reads (<see cref="WaveletDerivation"/>), which takes a lease on it for its run. Render thread only.
     /// </summary>
     internal Image? RawMaster => _rawMaster;
+
+    // --- IUnsharpenedPreview (#1883): the master as stacked, for A | B's "Unsharpened | Sharpened" ---
+
+    private AstroImageDocument? _unsharpened;  // the stacked master with no sharpening, on the display master's scale; null = not built or not wanted
+    private bool _wantUnsharpened;
+    private int _unsharpenedGeneration;
+
+    /// <inheritdoc />
+    public bool SharpeningOn => _requestedSharpen is not null;
+
+    /// <inheritdoc />
+    public IPreviewSource? Unsharpened => _unsharpened;
+
+    /// <inheritdoc />
+    public int UnsharpenedGeneration => _unsharpenedGeneration;
+
+    /// <inheritdoc />
+    public void WantUnsharpened(bool wanted)
+    {
+        _wantUnsharpened = wanted;
+        if (!wanted)
+        {
+            _unsharpened = null; // a view nobody compares keeps no second master
+            return;
+        }
+
+        // Wanted with a master stacked and none built (switched on after it): one cheap pass off the cached master builds it. Never
+        // while a task is held (running, or done and not yet published), whose result carries it, and never preempting a stack.
+        if (_unsharpened is null && _rawMaster is not null && _stackTask is null)
+        {
+            _sharpenDirty = true;
+            StartIfIdle();
+        }
+    }
+
+    // --- IRawFramePreview (#1883): the playhead's frame on the stack's grid, for A | B's "Raw | Stack" ---
+
+    private AstroImageDocument? _raw;           // the frame at the playhead, on the display master's scale; null = not built or not wanted
+    private (float X, float Y) _rawOffset;
+    private int _rawGeneration;
+    private Task<(AstroImageDocument Doc, float X, float Y)?>? _rawTask; // single in-flight frame load, apart from the stack task
+    private (int Frame, int Stacks)? _rawAttempt;                        // what was last asked for, so a frame that cannot be placed is not retried each tick
+    private CancellationTokenSource? _rawCts;
+    private float _displayDivisor = 1f;         // what the latest display master was scaled down by (1 when it was unit-referred already)
+
+    /// <inheritdoc />
+    public bool CanShowRaw => _masters is IRawFrameMasters && _rawMaster is not null;
+
+    /// <inheritdoc />
+    public IPreviewSource? Raw => _raw;
+
+    /// <inheritdoc />
+    public int RawGeneration => _rawGeneration;
+
+    /// <inheritdoc />
+    public (float X, float Y) RawOffset => _rawOffset;
+
+    /// <inheritdoc />
+    public void WantRaw(bool wanted)
+    {
+        if (!wanted)
+        {
+            _raw = null; // a view nobody compares keeps no second image
+            _rawAttempt = null;
+            _rawCts?.Cancel();
+            if (_rawTask is { IsCompleted: true })
+            {
+                _rawTask = null;
+            }
+            return;
+        }
+
+        if (_rawTask is { IsCompleted: true } done)
+        {
+            _rawTask = null;
+            if (done.IsCompletedSuccessfully && done.Result is { } built)
+            {
+                _raw = built.Doc;
+                _rawOffset = (built.X, built.Y);
+                _rawGeneration++;
+            }
+        }
+
+        // One load at a time, for the playhead's frame against the stack on show; a frame that could not be placed is asked again only
+        // when the playhead or the stack moves.
+        if (_rawTask is not null || _disposed || _masters is not IRawFrameMasters frames || _rawMaster is not { } master)
+        {
+            return;
+        }
+
+        (int Frame, int Stacks) key = (_target, StacksPublished);
+        if (_rawAttempt == key)
+        {
+            return;
+        }
+
+        _rawAttempt = key;
+        _rawCts?.Dispose();
+        var cts = _rawCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        var token = cts.Token;
+        var divisor = _displayDivisor;
+        var path = _path;
+        _rawTask = Task.Run<(AstroImageDocument Doc, float X, float Y)?>(async () =>
+        {
+            if (await frames.PlacedFrameAsync(key.Frame, master, token).ConfigureAwait(false) is not { } placed)
+            {
+                return null;
+            }
+
+            var frame = placed.Frame;
+            if (divisor != 1f)
+            {
+                frame = frame.ScaleToFullScaleInPlace(divisor); // the scale the stack is shown on, or the halves differ in level
+            }
+            var doc = await AstroImageDocument.AdoptImageAsync(frame, DebayerAlgorithm.None, filePath: path, cancellationToken: token).ConfigureAwait(false);
+            return (doc, (float)-placed.Dx, (float)-placed.Dy);
+        }, token);
+    }
+
+    // --- IPeerStackPreview (#1883): the other stack of the capture (Live | Full), for A | B's "Live | Full" ---
+
+    private LiveStackPreviewSource? _peer;      // the other view's layer, owned by the controller; never disposed here
+    private string _ownName = "Live";
+    private string _peerName = "Full";
+    private bool _peerKnown;
+    private bool _wantPeer;
+    private bool _peerPlaced;                   // _peerOffset belongs to the stacks on show
+    private (float X, float Y) _peerOffset;
+    private int _peerGeneration;
+    private int _peerSeenPublished;
+    private Task<(float X, float Y)?>? _peerTask; // the registration of the peer's master onto this one, apart from the stack task
+    private (int Own, int Peer)? _peerAttempt;    // the stacks it was last asked for, so a pair that cannot be placed is not retried each tick
+    private CancellationTokenSource? _peerCts;
+
+    /// <summary>How many masters this source has published, a stack or a re-sharpen alike. Render thread only.</summary>
+    internal int PublishedCount { get; private set; }
+
+    /// <summary>
+    /// Names this view and the other stack of the capture in a comparison, and says whether that stack exists (<paramref name="known"/>:
+    /// built this session or beside the SER). <paramref name="peer"/> is its layer once it has one, null while it is only a file
+    /// waiting to be read. The controller calls it each tick; the layers stay the controller's.
+    /// </summary>
+    internal void AttachPeer(LiveStackPreviewSource? peer, bool known, string ownName, string peerName)
+    {
+        if (!ReferenceEquals(_peer, peer))
+        {
+            _peer = peer;
+            _peerPlaced = false;
+            _peerAttempt = null;
+            _peerSeenPublished = 0;
+            _peerCts?.Cancel();
+        }
+        (_peerKnown, _ownName, _peerName) = (known, ownName, peerName);
+    }
+
+    /// <inheritdoc />
+    public string OwnName => _ownName;
+
+    /// <inheritdoc />
+    public string PeerName => _peerName;
+
+    /// <inheritdoc />
+    public bool PeerKnown => _peerKnown || _peer is not null;
+
+    /// <inheritdoc />
+    public bool CanShowPeer => _peer is { HasMaster: true } && _rawMaster is not null;
+
+    /// <inheritdoc />
+    public IPreviewSource? Peer => _wantPeer && _peerPlaced ? _peer : null;
+
+    /// <inheritdoc />
+    public int PeerGeneration => _peerGeneration;
+
+    /// <inheritdoc />
+    public (float X, float Y) PeerOffset => _peerOffset;
+
+    /// <inheritdoc />
+    public bool PeerWanted => _wantPeer;
+
+    /// <inheritdoc />
+    public void WantPeer(bool wanted)
+    {
+        _wantPeer = wanted;
+        if (!wanted)
+        {
+            _peerPlaced = false; // a view nobody compares keeps no placement
+            _peerAttempt = null;
+            _peerSeenPublished = 0;
+            _peerCts?.Cancel();
+            if (_peerTask is { IsCompleted: true })
+            {
+                _peerTask = null;
+            }
+            return;
+        }
+
+        if (_peerTask is { IsCompleted: true } done)
+        {
+            _peerTask = null;
+            if (done.IsCompletedSuccessfully && done.Result is { } placed)
+            {
+                _peerOffset = placed;
+                _peerPlaced = true;
+                _peerGeneration++;
+            }
+        }
+
+        if (_peer is not { HasMaster: true } peer)
+        {
+            return;
+        }
+
+        // The peer re-sharpens as the dials move (the controller hands it the same ones): its pixels changed, the placement did not.
+        if (_peerPlaced && peer.PublishedCount != _peerSeenPublished)
+        {
+            _peerGeneration++;
+        }
+        _peerSeenPublished = peer.PublishedCount;
+
+        if (_peerTask is not null || _disposed || _rawMaster is not { } own || peer._rawMaster is not { } theirs)
+        {
+            return;
+        }
+
+        (int Own, int Peer) key = (StacksPublished, peer.StacksPublished);
+        if (_peerAttempt == key)
+        {
+            return;
+        }
+
+        _peerAttempt = key;
+        _peerCts?.Dispose();
+        var cts = _peerCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        var token = cts.Token;
+        _peerTask = Task.Run<(float X, float Y)?>(() =>
+        {
+            // Both masters leased for the run: a stack replacing one releases it, and this reads it off the render thread.
+            if (!own.TryLease(out var ownLease))
+            {
+                return null;
+            }
+            using (ownLease)
+            {
+                if (!theirs.TryLease(out var theirLease))
+                {
+                    return null;
+                }
+                using (theirLease)
+                {
+                    token.ThrowIfCancellationRequested();
+                    // The peer's disk onto this master's, as a frame is placed on a stack: the same registration, so the planet coincides.
+                    var shift = PlanetaryRawFrame.RegisterOnto(theirLease.Image, ownLease.Image, options: null);
+                    return ((float)-shift.Dx, (float)-shift.Dy);
+                }
+            }
+        }, token);
+    }
 
     /// <summary>
     /// The playhead (0-based raw frame index) the shown master was built at, or -1 before the first master (the same value as
@@ -245,6 +502,16 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
                 _builtRaw = b.Playhead;
                 StacksPublished++;
             }
+            if (b.Unsharpened is { } unsharpened)
+            {
+                _unsharpened = unsharpened;
+                _unsharpenedGeneration++;
+            }
+            else if (b.Stacked)
+            {
+                _unsharpened = null; // a new master with none built beside it: the old one is of a master that is gone
+            }
+            _displayDivisor = b.DisplayDivisor;
             _doc = b.Doc;
             _displayMaster = b.Display;
             _built = b.Playhead;
@@ -266,6 +533,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
                 MastersLooked++;
             }
             published = true;
+            PublishedCount++;
         }
         // else: cancelled (preempted) or faulted -> drop it. A cancelled stack invalidated its window, so
         // its next StackToAsync rebuilds; the live view self-heals rather than wedging.
@@ -353,6 +621,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         var limb = _limb;
         var look = _requestedLook;
         var rawForSharpen = _rawMaster;                       // captured on the render thread; immutable snapshot
+        var buildUnsharpened = _wantUnsharpened && (doStack || _unsharpened is null); // a sharpen-only pass leaves a built one as it is
         var resultPlayhead = doStack ? target : _builtRaw;     // a sharpen-only result keeps the displayed playhead
         _sharpenDirty = false;
         _inFlightIsStack = doStack;
@@ -411,13 +680,29 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             }
             moved?.Release();
 
+            // The master as stacked, shown beside the sharpened one (#1883): a fresh copy (identity gains), put on the SCALE THE DISPLAY
+            // MASTER IS ABOUT TO BE, or the halves would differ in level by what the sharpening did to the peak. Built only when wanted.
+            AstroImageDocument? unsharpened = null;
+            if (buildUnsharpened)
+            {
+                var plain = WaveletSharpen.Sharpen(raw, IdentitySharpen);
+                if (!display.HasUnitScalePeak)
+                {
+                    plain = plain.ScaleToFullScaleInPlace(display.UnitScaleDivisor);
+                }
+                unsharpened = await AstroImageDocument.AdoptImageAsync(plain, DebayerAlgorithm.None, filePath: _path, cancellationToken: token).ConfigureAwait(false);
+            }
+
+            // What AdoptImageAsync is about to divide the display master by, which the playhead's raw frame is put on too (#1883).
+            var displayDivisor = display.HasUnitScalePeak ? 1f : display.UnitScaleDivisor;
+
             // Adopt the (linear, [0,1]) display master into a stats-bearing document off the render thread;
             // None = no CPU debayer (already RGB / mono).
             var doc = await AstroImageDocument.AdoptImageAsync(display, DebayerAlgorithm.None, filePath: _path, cancellationToken: token).ConfigureAwait(false);
             // `display` is normalised to [0,1] in place by AdoptImageAsync and its arrays are now owned by
             // `doc`; we retain it read-only as the display master (a mini viewer renders it; doc renders the
             // same pixels via IPreviewSource).
-            return new Built(doc, raw, display, resultPlayhead, doStack, followed, limb, drawnOutside, Aligned: moved is not null, Looked: lookedOn);
+            return new Built(doc, raw, display, resultPlayhead, doStack, followed, limb, drawnOutside, Aligned: moved is not null, Looked: lookedOn, Unsharpened: unsharpened, DisplayDivisor: displayDivisor);
         }, token);
     }
 
@@ -489,7 +774,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         // done and we free inline. If one is still in flight (e.g. at FITS-viewer shutdown), defer the
         // resource release to a continuation that runs once the (now-cancelled) stack unwinds, rather than
         // tearing the stream out from under it. A caller that must await the drain uses DisposeAsync.
-        if (_stackTask is { IsCompleted: false } task)
+        if (InFlight() is { } task)
         {
             task.ContinueWith(
                 static (_, s) =>
@@ -504,6 +789,18 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         {
             DisposeCore();
         }
+    }
+
+    // The background stack and the raw frame's load, whichever are still running: both read the stream, which neither may be torn out from under.
+    private Task? InFlight()
+    {
+        return (_stackTask, _rawTask) switch
+        {
+            ({ IsCompleted: false } stack, { IsCompleted: false } raw) => Task.WhenAll(stack, raw),
+            ({ IsCompleted: false } stack, _) => stack,
+            (_, { IsCompleted: false } raw) => raw,
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -521,7 +818,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
 
         _disposed = true;
         _cts.Cancel(); // cancels the linked per-work CTS too; the stacker loops poll it and unwind
-        if (_stackTask is { } task)
+        if (InFlight() is { } task)
         {
             try
             {
