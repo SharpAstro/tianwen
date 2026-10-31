@@ -601,13 +601,14 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     public async Task GivenHomedMountThenPointingStateIsNormal()
     {
         // GSS SideOfPier: |Y| < 90.0000000001 -> pierEast, so the home boundary is INCLUSIVE: a mount that
-        // has never moved reports the Normal state, and the connect-time pole sync round-trips to HA 0
-        // (a through-the-pole reading there would add 12 h to it).
+        // has never moved reports the Normal state, at HA 6 h, counterweight down (a through-the-pole reading
+        // there would add 12 h to it). Nothing syncs home to HA 0 any more: that wrote the RA encoder a quarter
+        // turn off and sent every later goto 90 degrees too far (2026-10-31).
         var ct = TestContext.Current.CancellationToken;
         var (mount, _) = await CreateConnectedMountAsync(ct);
 
         (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal);
-        (await mount.GetHourAngleAsync(ct)).ShouldBe(0.0, 1e-3);
+        (await mount.GetHourAngleAsync(ct)).ShouldBe(6.0, 1e-3);
         (await mount.GetDeclinationAsync(ct)).ShouldBe(90.0, 1e-3);
     }
 
@@ -827,15 +828,15 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task GivenHomedMountThenAxisAnglesAreMinus90AndZero()
+    public async Task GivenHomedMountThenBothAxisAnglesAreZero()
     {
-        // After the connect-time pole sync the RA axis sits a quarter turn short of the
-        // counterweight-down home (HA 0 in the Normal state = (0 - 6 h) x 15 = -90 deg: counterweight
-        // horizontal), and the Dec axis is on the pole.
+        // Home is encoder zero: the RA axis counterweight down (HA 6 h in the Normal state = (6 - 6 h) x 15 = 0 deg)
+        // and the Dec axis on the pole. A connect-time pole sync used to declare HA 0 there and this test pinned
+        // its -90 deg, the counterweight-horizontal reading of a mount standing counterweight down.
         var ct = TestContext.Current.CancellationToken;
         var (mount, _) = await CreateConnectedMountAsync(ct);
 
-        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(-90.0, 0.01);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(0.0, 0.01);
         (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(0.0, 0.01);
     }
 

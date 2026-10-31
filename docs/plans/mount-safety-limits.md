@@ -442,7 +442,7 @@ hemispheres, which is exactly the mapping `MountLimits.Evaluate` assumes. Five d
   and `StepsToDec` takes the magnitude of the folded axis angle, so a Dec axis wound past half a turn
   reads as the mirror it physically is.
 - **The home boundary is INCLUSIVE, Normal** -- GSS `|Y| < 90.0000000001` -- so a mount that has
-  never moved is Normal and the connect-time pole sync round-trips to HA 0 rather than 12 h.
+  never moved is Normal and reads HA 6 h (counterweight down) rather than 18 h.
 - **The flip is the next goto, exactly as in GSS.** Nothing flips while tracking; the session's
   re-slew to the same target now chooses the Normal solution and the mount physically flips.
   `pierSideChanged` is a real signal on this driver for the first time.
