@@ -40,6 +40,9 @@ if (-not $RealStarBaselines.Count -and $arm.real_star_baselines) { $RealStarBase
 $wantedBaselines = @($RealStarBaselines | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $RealStarBaselines = @($wantedBaselines | Where-Object { $_ -ne $Name -and ($_ -eq 'input' -or (Test-Path "$($arm.eval_root)/$_/on-real-val/outputs.jsonl")) })
 if (-not $RingBaselines.Count -and $arm.ring_baselines) { $RingBaselines = @($arm.ring_baselines) }
+# Split on commas as the real-star list is: through `pwsh -File` a comma list arrives as ONE string, and the ring step took
+# 'a,b,c' for one arm's folder (R3f's score, 2026-10-31, failed there and never reached the nucleus).
+$RingBaselines = @($RingBaselines | ForEach-Object { $_ -split ',' } | Where-Object { $_ -and $_ -ne $Name })
 if (-not $NucleusReference -and $arm.nucleus_reference) { $NucleusReference = $arm.nucleus_reference }
 
 $cache = Split-Path $Weights -Parent
