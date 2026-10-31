@@ -1277,7 +1277,9 @@ the session plane", "Invariants 7-13 in full"); the node's lifetime and version 
    only after `--after-crash <pid>` or when younger than `MachineBoot`, ACTED on, never a run resumed
    (`NodeKeeper.CrashLoopWindow`); **a new place that commands a cooler owes `IDeviceHub.SetCoolerIntent`**, and
    there is **ONE cooling ramp, `CameraCoolingRamp`.** **A node a client started exits a minute after nothing uses
-   it** (`NodeIdleExit`, `--idle-exit`; a test whose clients do not beat gives its node a long one, `KeptNode`), and
+   it** (`NodeIdleExit`, `--idle-exit`; a test whose clients do not beat gives its node a long one, `KeptNode`; **time the
+   computer slept is not idle time**, and a window whose node stops answering finds or starts it again,
+   `MaybeReconnectLocalNode`), and
    **a client replaces an idle, unattended node of another BUILD, not only another wire** (`IsAnotherBuild`).
 11. **A device is read through ONE set of readers, `DeviceHubReadingExtensions`** (GUI polls and
    `DeviceStatePoller`), and **the node never reads a device a run holds**. `DEVICE-STATE` is pushed on a change
