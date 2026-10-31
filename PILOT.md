@@ -9,9 +9,11 @@ needs to plan, build, check and land.
 - A plane is a git worktree at `<repo>/.claude/worktrees/<code>` on `flight/<code>`. Work and commit only there. Do not
   push, open a PR or merge; the controller lands the flight. Leave nothing uncommitted, and put scratch output
   outside the plane.
-- Sibling clones are not yours. The `UseLocal*` switches compile sibling SharpAstro source (`DIR.Lib`, `Console.Lib`,
-  `SdlVulkan.Renderer` and others) when the clone sits beside this repo, so a change there reaches this build with no
-  version bump. A change that spans repos is not a step of this plane: name it and leave it.
+- Sibling clones are not yours, and a plane cannot see them. `UseLocalSiblings` looks for each sibling two levels above
+  `src/` (`..\..\DIR.Lib` and the rest), which from a plane is `.claude/worktrees/`, where none lives, so it resolves
+  to nothing and the plane restores the pinned packages, as CI does. A change to a sibling (`DIR.Lib`, `Console.Lib`,
+  `SdlVulkan.Renderer` and others) therefore cannot be built or tested here, and a green plane check says nothing about
+  sibling source. A change that spans repos is its own flight: name it and leave it.
 - No device, mount, camera or GUI window is reachable from a plane. Hardware behaviour is checked through the fake
   drivers and the simulator tests; a window is checked by the CPU-rendered tests. A live run is the controller's.
 - Never wait with a job that sleeps or polls: use `pilot leg wait --for-file <path>` and end the turn. Long builds
