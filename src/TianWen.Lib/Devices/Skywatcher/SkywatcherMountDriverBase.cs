@@ -629,9 +629,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // straight solution for a mount that has flipped (or sits at home), the through-the-pole one
         // for a mount that has not. Choosing by the target's hour angle here would teleport the model
         // across the pier on every plate-solve sync of an unflipped rig.
-        // At home the Dec encoder sits exactly on the boundary, so neither half is where the mount is: take the
-        // counterweight-down one a goto would, which in the south is no longer the half the boundary reads as.
-        var pointingState = _posDec == 0
+        // At home the Dec encoder sits on the boundary (or a step either side of it), so neither half is where the
+        // mount is: take the counterweight-down one a goto would, which in the south is no longer the half the
+        // boundary reads as.
+        var pointingState = IsNearZero(_posDec, _cprDec)
             ? await DestinationSideOfPierAsync(ra, dec, cancellationToken)
             : IsThroughThePole(_posDec) ? PointingState.ThroughThePole : PointingState.Normal;
         var (raSteps, decSteps) = SkyToSteps(ra, dec, pointingState);
@@ -1251,9 +1252,17 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// and it declared HA 0 h where the axis stands at HA 6 h: it wrote the RA encoder a quarter turn off, so every goto
     /// after it turned 90 degrees too far (2026-10-31: an AZ-GTi in Melbourne, sent 1.1 h east of the meridian, turned 164
     /// degrees of RA for 74 and finished counterweight-up). With nothing written, a site that changes hemisphere needs no
-    /// re-home either: zero reads as the new hemisphere's pole.
+    /// re-home either: zero reads as the new hemisphere's pole. "At zero" is within <see cref="HomeToleranceArcsec"/>, never
+    /// exactly zero: a board's goto can stop a step short and will not make a one-step goto, so an AZ-GTi sent home stood
+    /// one Dec step (0.6") off it, failed all three of <see cref="FindHomeAsync"/>'s passes, and read as away from home.
     /// </summary>
-    private bool IsAtHome => _posRa == 0 && _posDec == 0;
+    private bool IsAtHome => IsNearZero(_posRa, _cprRa) && IsNearZero(_posDec, _cprDec);
+
+    /// <summary>How far from encoder zero an axis may stand and still be at home: far below anything an eye or a frame sees.</summary>
+    internal const double HomeToleranceArcsec = 10.0;
+
+    private static bool IsNearZero(int steps, uint cpr)
+        => cpr > 0 ? Math.Abs((double)steps / cpr * 1_296_000.0) <= HomeToleranceArcsec : steps == 0;
 
     public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(double.IsNaN(_siteElevation) ? 0.0 : _siteElevation);

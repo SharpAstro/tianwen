@@ -2,6 +2,7 @@ using Shouldly;
 using System;
 using System.Collections.Specialized;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
@@ -135,6 +136,35 @@ public class SkywatcherHomeSiteTests(ITestOutputHelper output)
 
         (await driver.GetSiteLatitudeAsync(ct)).ShouldBe(Melbourne);
         (await driver.GetDeclinationAsync(ct)).ShouldBe(-90.0, 1e-6);
+    }
+
+    [Theory(Timeout = 30_000)]
+    [InlineData(Melbourne, 145.1775, 1)]
+    [InlineData(Melbourne, 145.1775, -1)]
+    [InlineData(Vienna, 16.3, 1)]
+    public async Task AMountAStepOffZeroIsAtHome(double latitude, double longitude, int decSteps)
+    {
+        // An AZ-GTi sent home stopped one Dec step (0.6") short and would not make a one-step goto: Home failed all three
+        // passes and the site editor held a hemisphere change for a mount standing at home (2026-10-31).
+        var ct = TestContext.Current.CancellationToken;
+        var (driver, board, _) = await ConnectAsync(latitude, longitude, ct);
+        await SetDecEncoderAsync(board, decSteps, ct);
+        await driver.GetDeclinationAsync(ct);
+        board.Steps.ShouldBe((0, decSteps), "premise: a step off zero");
+
+        (await driver.AtHomeAsync(ct)).ShouldBeTrue();
+        await driver.FindHomeAsync(ct);
+        await driver.SetSiteAsync(new SiteCoordinates(-latitude, longitude), ct);
+        (await driver.GetSiteLatitudeAsync(ct)).ShouldBe(-latitude, "a site in the other hemisphere goes to a mount at home");
+    }
+
+    /// <summary>Writes the board's Dec encoder as a client's <c>:E2</c> does (the wire's 0x800000 is zero).</summary>
+    private static async Task SetDecEncoderAsync(FakeSkywatcherSerialDevice board, int steps, CancellationToken ct)
+    {
+        var wire = 0x800000 + steps;
+        var cmd = $":E2{wire & 0xFF:X2}{(wire >> 8) & 0xFF:X2}{(wire >> 16) & 0xFF:X2}\r";
+        (await board.TryWriteAsync(Encoding.ASCII.GetBytes(cmd), ct)).ShouldBeTrue();
+        (await board.TryReadTerminatedAsync("\r"u8.ToArray(), ct)).ShouldBe("=");
     }
 
     [Theory(Timeout = 30_000)]
