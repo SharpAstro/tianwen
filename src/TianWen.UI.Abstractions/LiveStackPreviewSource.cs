@@ -140,6 +140,24 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// </summary>
     internal Image? RawMaster => _rawMaster;
 
+    /// <summary>
+    /// The playhead (0-based raw frame index) the shown master was built at, or -1 before the first master (the same value as
+    /// <see cref="FrameIndex"/>). Render thread only.
+    /// </summary>
+    public int BuiltFrame => _built;
+
+    /// <summary>
+    /// When the shown master was published, read from the source's <see cref="ITimeProvider"/> (wall clock, UTC), or null before the
+    /// first master. A sharpen-only republish moves it too, since the picture on show was made then. Render thread only.
+    /// </summary>
+    public DateTimeOffset? PublishedAt { get; private set; }
+
+    /// <summary>
+    /// True when the masters follow a stream (a SER's rolling window, or a node's run), false for one master opened as a file
+    /// (<see cref="FixedMaster"/>, the Auto view's layer), which was built at no playhead and has no age worth showing.
+    /// </summary>
+    public bool FollowsStream => _masters is not FixedMaster;
+
     /// <summary>How many published masters were drawn outside the limb a derivation kept (#1201). Render thread only; for tests.</summary>
     internal int MastersDrawnOutsideTheLimb { get; private set; }
 
@@ -230,6 +248,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             _doc = b.Doc;
             _displayMaster = b.Display;
             _built = b.Playhead;
+            PublishedAt = _timeProvider.GetUtcNow();
             if (ReferenceEquals(b.From, _limb))
             {
                 _limb = b.Limb;
