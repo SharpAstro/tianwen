@@ -864,15 +864,17 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenSouthernMountThenThePrimaryAxisAngleIsHemisphereCorrected()
     {
-        // The southern motor runs the other way (axisHours = 6 - HA), so the raw encoder sign is
-        // mirrored. The reported angle is not: (HA - 6 h) x 15 in the Normal state in BOTH hemispheres,
-        // which is what lets the meridian limit read |angle| - 90 without knowing where it is.
+        // The southern motor runs the other way (axisHours = -6 h - HA, GSS AxesMountToApp), so the raw encoder sign is
+        // mirrored. The reported RA angle is not: positive is the tracking direction from home in both hemispheres, so
+        // the meridian limit reads |angle| - 90 without knowing where it is. In the south a target WEST of the meridian
+        // is reached counterweight down through the pole, so the Dec axis turns the negative way there.
         var ct = TestContext.Current.CancellationToken;
         var (mount, _) = await CreateConnectedMountAsync(ct, latitude: -33.9, longitude: 18.4);
         await mount.SyncRaDecAsync(await RaAtHourAngleAsync(mount, 2.0, ct), -45.0, ct);
 
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole);
         (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe((2.0 - 6.0) * 15.0, 0.01);
-        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(45.0, 0.01);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(-45.0, 0.01);
     }
 
     [Fact(Timeout = 60_000)]
