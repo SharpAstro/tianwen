@@ -23,6 +23,16 @@ public class EquipmentTabState
     public TextInputState LongitudeInput { get; } = new() { Placeholder = "Longitude (e.g. 16.3)" };
     public TextInputState ElevationInput { get; } = new() { Placeholder = "Elevation m (e.g. 200)" };
 
+    /// <summary>
+    /// A site held back because it is in the other hemisphere and the connected mount is not at home
+    /// (<see cref="EquipmentActions.SiteNeedsMountHome"/>): the editor asks to home the mount, save anyway or cancel. Null
+    /// otherwise. One reference write from the handler, read by the render thread.
+    /// </summary>
+    public SiteCoordinates? HeldSite { get; set; }
+
+    /// <summary>Whether the mount was parked (away from home) when <see cref="HeldSite"/> was held: homing it unparks first.</summary>
+    public bool HeldSiteMountParked { get; set; }
+
     // Mount safety limits (docs/plans/mount-safety-limits.md, P1). The four numbers are text inputs saved
     // together like the site; the on/off switch and the two responses are buttons that save at once.
     public bool IsEditingMountLimits { get; set; }
