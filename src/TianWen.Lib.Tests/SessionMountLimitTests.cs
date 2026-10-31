@@ -272,16 +272,17 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         var ctx = await SessionTestHelper.CreateSessionAsync(
             output, mountPort: "SkyWatcher", mountLimits: StopTrackingPastTheMeridian, cancellationToken: ct);
         // What InitialisationAsync does before the first poll (Session.Lifecycle.cs): push the site to
-        // the mount. Until it lands, the SkyWatcher driver reports raw home as HA = +6 h, through the
-        // pole -- which the meridian test would read as 6 h past the limit -- and on landing it re-syncs
-        // home to (LST, pole), HA = 0. A poll before the site is set cannot build a J2000 transform
-        // either, so the session never issues one; a mount connected with NO site at all is the
-        // residual edge only the sessionless watcher can see.
+        // the mount. Home is encoder zero, read as HA = +6 h at the site's pole, as it physically is
+        // (counterweight down); the mount's own axis angle decides the limit there, so no verdict. It
+        // used to be re-synced to (LST, pole), HA = 0, which wrote the RA encoder a quarter turn off and
+        // sent every later goto 90 degrees too far (2026-10-31). A poll before the site is set cannot
+        // build a J2000 transform either, so the session never issues one; a mount connected with NO
+        // site at all is the residual edge only the sessionless watcher can see.
         await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
         await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
         await ctx.Mount.SetTrackingAsync(true, ct);
         (await ctx.Mount.GetDeclinationAsync(ct)).ShouldBe(90.0, tolerance: 0.01, "premise: parked at the pole");
-        (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBe(0.0, tolerance: 1e-3, "premise: home re-synced to the meridian once the site landed");
+        (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBe(6.0, tolerance: 1e-3, "premise: home is HA 6 h, counterweight down, nothing re-synced");
 
         await ctx.Session.PollDeviceStatesAsync(ct);
 
