@@ -74,7 +74,7 @@ driver cannot tell them apart, which is fact 1 of #810.
 
 | Cmd | Axis | Data | Reply, as parsed | Used by |
 |-----|------|------|------------------|---------|
-| `:e` | 1 | none | 24-bit: byte 0 mount model (`SkywatcherMountModel`), byte 1 minor, byte 2 major; `VersionString` = `major.minor` (`TryParseFirmwareResponse`) | `InitDeviceAsync`, both discovery paths |
+| `:e` | 1 | none | 24-bit: byte 0 major, byte 1 minor, byte 2 the mount code (`SkywatcherMountModel`), as GSServer and INDI read it; `VersionString` = `major.minor`, `IntVersion` = `major << 16 \| minor << 8 \| code` (`TryParseFirmwareResponse`). A real AZ-GTi (EQ mode, USB) answers `=0328A5`: firmware 3.40, code 0xA5. The order before 2026-10-31 read that as an EQ3 on firmware 165.40 | `InitDeviceAsync`, both discovery paths |
 | `:q` | 1 | `010000` | six flag nibbles in order (`ParseCapabilities`) | `InitDeviceAsync`; kept in `_capabilities`, read nowhere |
 | `:a` | 1, 2 | none | counts per revolution; RA forced to 78848 on 80GT/114GT (`OverrideGearRatio`) | `InitDeviceAsync` |
 | `:b` | 1 | none | timer frequency, used for both axes | `InitDeviceAsync` |

@@ -79,7 +79,7 @@ namespace GssOracle
 
             switch (c)
             {
-                case 'e': return "=002703";            // EQ6, fw 3.39
+                case 'e': return "=002703";            // meant as EQ6 3.39, but read as GSS/INDI read it (major, minor, mount code) an EQ3 on 0.39; EQ6 3.39 is =032700. Kept so the recorded transcript stays reproducible
                 case 'a': return "=00B289";            // CPR 9024000 = 0x89B200 (LE hex)
                 case 'b': return "=60E316";            // timer freq 1500000
                 case 'g': return "=10";                // high-speed ratio 16

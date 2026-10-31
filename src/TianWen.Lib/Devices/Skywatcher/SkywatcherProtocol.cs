@@ -36,7 +36,7 @@ internal enum SkywatcherMountModel
 
 /// <summary>
 /// Firmware info parsed from the :e response.
-/// IntVersion = (modelByte &lt;&lt; 16) | (minor &lt;&lt; 8) | major.
+/// IntVersion = (major &lt;&lt; 16) | (minor &lt;&lt; 8) | mountCode (GSServer's MCVersion).
 /// </summary>
 internal readonly record struct SkywatcherFirmwareInfo(SkywatcherMountModel MountModel, int IntVersion, string VersionString);
 
@@ -237,22 +237,23 @@ internal static class SkywatcherProtocol
 
     /// <summary>
     /// Parse firmware response from :e command.
-    /// Response data: 6 hex chars representing 3 bytes: [boardVersion, minor, major].
-    /// IntVersion = (boardVersion &lt;&lt; 16) | (minor &lt;&lt; 8) | major.
-    /// MountModel is the high nibble of boardVersion.
+    /// Response data: 6 hex chars, 3 bytes in wire order [major, minor, mount code], as GSServer and INDI read them: a
+    /// real AZ-GTi answers <c>=0328A5</c>, firmware 3.40, mount code 0xA5 (on the bench, 2026-10-31; the order this
+    /// replaced read it as an EQ3 with firmware 165.40).
+    /// IntVersion = (major &lt;&lt; 16) | (minor &lt;&lt; 8) | mountCode, the number GSServer's MCVersion holds.
     /// </summary>
     internal static bool TryParseFirmwareResponse(string responseData, out SkywatcherFirmwareInfo info)
     {
         if (responseData.Length >= 6)
         {
             var raw = DecodeUInt24(responseData.AsSpan(0, 6));
-            // raw bytes: b0=boardVersion, b1=minor, b2=major (little-endian decode)
-            var boardVersion = (int)(raw & 0xFF);
+            // raw bytes in wire order (little-endian decode): b0 = major, b1 = minor, b2 = the mount code
+            var major = (int)(raw & 0xFF);
             var minor = (int)((raw >> 8) & 0xFF);
-            var major = (int)((raw >> 16) & 0xFF);
+            var mountCode = (int)((raw >> 16) & 0xFF);
 
-            var mountModel = (SkywatcherMountModel)boardVersion;
-            var intVersion = (boardVersion << 16) | (minor << 8) | major;
+            var mountModel = (SkywatcherMountModel)mountCode;
+            var intVersion = (major << 16) | (minor << 8) | mountCode;
             var versionString = $"{major}.{minor:D2}";
 
             info = new SkywatcherFirmwareInfo(mountModel, intVersion, versionString);
@@ -317,10 +318,10 @@ internal static class SkywatcherProtocol
             return false;
         }
 
-        // AZ-GTi requires >= 3.40
+        // AZ-GTi requires >= 3.40 (IntVersion is major, minor, mount code)
         if (mountModel == SkywatcherMountModel.AzGTi)
         {
-            return intVersion > (((int)SkywatcherMountModel.AzGTi << 16) | (40 << 8) | 3);
+            return intVersion >= ((3 << 16) | (40 << 8) | (int)SkywatcherMountModel.AzGTi);
         }
 
         // General: > 0x032200 (fw > 3.22 on any mount)
