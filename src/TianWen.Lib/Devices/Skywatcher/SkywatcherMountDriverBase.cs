@@ -39,6 +39,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     // Axis state
     private int _posRa; // encoder steps relative to home (0x800000)
     private int _posDec;
+    // The encoder steps the "at home, pointing at the pole" sync wrote (SyncToPoleFromHomeAsync), null when none did or
+    // another sync has since said where the mount is. While the encoders still read exactly these, the mount has not moved
+    // from home, so it is still at home and a new site may re-home it.
+    private (int Ra, int Dec)? _poleSyncedSteps;
     private volatile bool _isSlewingRa;
     private volatile bool _isSlewingDec;
     private bool _isParked;
@@ -638,6 +642,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // straight solution for a mount that has flipped (or sits at home), the through-the-pole one
         // for a mount that has not. Choosing by the target's hour angle here would teleport the model
         // across the pier on every plate-solve sync of an unflipped rig.
+        _poleSyncedSteps = null;
         var pointingState = IsThroughThePole(_posDec) ? PointingState.ThroughThePole : PointingState.Normal;
         var (raSteps, decSteps) = SkyToSteps(ra, dec, pointingState);
 
@@ -1247,9 +1252,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     }
 
     /// <summary>
-    /// If the encoder is still at raw home (0,0), i.e. the user just connected and the
-    /// mount has not been moved: push a sync to (LST, ±90°) so the driver reports a
-    /// sensible "parked at the pole" position. The original DoConnectDeviceAsync init
+    /// If the mount is still at home (the encoders at raw zero, or still where an earlier home sync put them), i.e. the
+    /// user just connected and the mount has not been moved: push a sync to (LST, ±90°) so the driver reports a
+    /// sensible "at home, pointing at the pole" position. A site that arrives after an earlier one re-homes it: the home
+    /// sync of the first site wrote the encoders, and on 2026-10-31 an AZ-GTi connected under a profile still holding a
+    /// Vienna site kept pointing at the north pole after the site was corrected to Melbourne, where it pointed south. The original DoConnectDeviceAsync init
     /// also runs this block, but at that stage <c>_siteLatitude</c> is still NaN
     /// (profile-driven reconcile pushes lat/lon AFTER connect), so the sync gets skipped
     /// and the mount is reported as Dec=+90 / HA=6h regardless of hemisphere.
@@ -1264,11 +1271,32 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         if (_alignmentMode == AlignmentMode.AltAz) return;
         if (_cprRa == 0 || _cprDec == 0) return;
         if (double.IsNaN(_siteLatitude) || double.IsNaN(_siteLongitude)) return;
-        if (_posRa != 0 || _posDec != 0) return;
+        if (!IsAtHome) return;
+
+        await SyncToPoleFromHomeAsync(cancellationToken);
+    }
+
+    /// <summary>At home: the encoders at their power-on zero, or exactly where the home sync put them.</summary>
+    private bool IsAtHome => _posRa == 0 && _posDec == 0 || _poleSyncedSteps == (_posRa, _posDec);
+
+    /// <summary>
+    /// Says the mount, at home, points at the pole of the site's hemisphere: the encoders go back to raw zero first (what
+    /// they read at power-on, so a second site starts from the same place as the first), then the sync, whose steps are
+    /// remembered so the mount still counts as at home until it moves.
+    /// </summary>
+    private async ValueTask SyncToPoleFromHomeAsync(CancellationToken cancellationToken)
+    {
+        if (_posRa != 0 || _posDec != 0)
+        {
+            await SendCommandAsync('E', '1', SkywatcherProtocol.EncodePosition(0), cancellationToken);
+            await SendCommandAsync('E', '2', SkywatcherProtocol.EncodePosition(0), cancellationToken);
+            _posRa = 0;
+            _posDec = 0;
+        }
 
         var poleDec = _siteLatitude >= 0 ? 90.0 : -90.0;
-        var lst = await GetSiderealTimeAsync(cancellationToken);
-        await SyncRaDecAsync(lst, poleDec, cancellationToken);
+        await SyncRaDecAsync(await GetSiderealTimeAsync(cancellationToken), poleDec, cancellationToken);
+        _poleSyncedSteps = (_posRa, _posDec);
     }
 
     public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken)
@@ -1297,7 +1325,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     #region Park
 
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_posRa == 0 && _posDec == 0);
+        => ValueTask.FromResult(IsAtHome);
 
     public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_isParked);
@@ -1482,10 +1510,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             await GetSiteLongitudeAsync(cancellationToken);
 
             // If encoder is at home (0,0), assume pointing at the pole (standard park position)
-            if (_posRa == 0 && _posDec == 0 && !double.IsNaN(_siteLatitude))
+            if (_posRa == 0 && _posDec == 0 && !double.IsNaN(_siteLatitude) && _alignmentMode != AlignmentMode.AltAz)
             {
-                var poleDec = _siteLatitude >= 0 ? 90.0 : -90.0;
-                await SyncRaDecAsync(await GetSiderealTimeAsync(cancellationToken), poleDec, cancellationToken);
+                await SyncToPoleFromHomeAsync(cancellationToken);
             }
 
             return true;
