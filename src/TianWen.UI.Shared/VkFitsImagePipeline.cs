@@ -173,6 +173,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private readonly int[] _beforeHeight = new int[ChannelCount];
     private long _beforeChannelBytes;
 
+    // True while the before slots hold textures UPLOADED here (an unsharpened master), as TryUploadBeforeChannel makes them: always
+    // R32Sfloat, unlike a retained live set, whose format is whatever the live upload chose.
+    private bool _beforeUploaded;
+
     // Histogram textures (3x R32F stored as 512×1 2D)
     private readonly VkImage[] _histImages = new VkImage[ChannelCount];
     private readonly VkDeviceMemory[] _histMemories = new VkDeviceMemory[ChannelCount];
@@ -616,6 +620,75 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     }
 
     /// <summary>
+    /// Uploads one plane into before slot <paramref name="channel"/>, for a before that is not the live set's own outgoing pixels (an
+    /// unsharpened master, #1883). The first upload after anything else held the slots releases that set; the next of the same
+    /// size overwrites in place, as a live upload does. A slot of a different size gets a new texture and the old one goes through
+    /// <c>VulkanContext.DeferDestroy</c>, never destroyed while a frame in flight may sample it. Render thread, outside recording.
+    /// </summary>
+    /// <returns>False when the device is out of memory: the before slots are then empty.</returns>
+    public bool TryUploadBeforeChannel(ReadOnlySpan<float> data, int channel, int width, int height)
+    {
+        if ((uint)channel >= ChannelCount)
+            throw new ArgumentOutOfRangeException(nameof(channel));
+
+        if (!_beforeUploaded)
+        {
+            ReleaseBeforeChannels();
+        }
+
+        var byteSize = (ulong)(data.Length * sizeof(float));
+        EnsureStagingBuffer(byteSize);
+        CopyToStaging(data, byteSize);
+
+        if (_beforeViews[channel] == VkImageView.Null || _beforeWidth[channel] != width || _beforeHeight[channel] != height)
+        {
+            if (_beforeViews[channel] != VkImageView.Null)
+            {
+                _ctx.DeferDestroy(view: _beforeViews[channel], image: _beforeImages[channel], memory: _beforeMemories[channel]);
+                _beforeViews[channel] = VkImageView.Null;
+                _beforeImages[channel] = VkImage.Null;
+                _beforeMemories[channel] = VkDeviceMemory.Null;
+                _beforeWidth[channel] = 0;
+                _beforeHeight[channel] = 0;
+            }
+
+            try
+            {
+                CreateSampledTexture(width, height, VkFormat.R32Sfloat, out _beforeImages[channel], out _beforeMemories[channel],
+                    out _beforeViews[channel], out _);
+            }
+            catch (VkException)
+            {
+                // A cache, like every before set: the live image keeps the memory.
+                ReleaseBeforeChannels();
+                return false;
+            }
+
+            _beforeWidth[channel] = width;
+            _beforeHeight[channel] = height;
+            SamplerViewsChanged();
+        }
+
+        UploadToImage(_beforeImages[channel], (uint)width, (uint)height, byteSize, VkFormat.R32Sfloat);
+
+        // The pressure declared is what the slots hold now: swap the old figure for the new.
+        long bytes = 0;
+        for (var i = 0; i < ChannelCount; i++)
+        {
+            bytes += (long)_beforeWidth[i] * _beforeHeight[i] * sizeof(float);
+        }
+        if (_beforeChannelBytes > 0)
+        {
+            GC.RemoveMemoryPressure(_beforeChannelBytes);
+        }
+        GC.AddMemoryPressure(bytes);
+        _beforeChannelBytes = bytes;
+        _beforeUploaded = true;
+        HasBeforeChannels = true;
+        return true;
+    }
+
+    /// <summary>
     /// Frees the retained before textures. Safe to call when nothing is retained. Call on the render
     /// thread, outside command-buffer recording.
     /// </summary>
@@ -644,6 +717,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         }
         _beforeChannelBytes = 0;
         HasBeforeChannels = false;
+        _beforeUploaded = false;
 
         // The before sets are rewritten per slot at draw time from whatever is retained then (the live
         // views when nothing is), so nothing is written here. That also removes the teardown trap this

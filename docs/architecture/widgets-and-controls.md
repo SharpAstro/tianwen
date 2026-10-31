@@ -495,6 +495,15 @@ toolbar label-width rule: `docs/architecture/widgets-and-controls.md` § The FIT
   what the curve solves from) and `CollectChannelHistograms` (the frame's own levels, what the panel and
   overlay draw) are two collectors on purpose, for the same reason. Detail moved to
   `docs/architecture/widgets-and-controls.md`.
+- **A | B on a planetary stack compares the sharpening** (`SplitCompare.Unsharpened`, #1883): the stack's unsharpened master goes
+  into the before slots once per master (`IUnsharpenedPreview.UnsharpenedGeneration`, never on a dial move), from `PrepareFrame`
+  only, and is built only while the split asks for it. `docs/plans/before-after-slider.md`, "A planetary stack compares the sharpening".
+- **A | B on a stack also compares Raw | Stack** (`SplitCompare.RawVsStack`, #1883): the playhead's frame is drawn where the
+  stack's own registration puts its disk (`PlanetaryRawFrame`, `GlobalAligner`), never from a centre of mass, and a declared
+  `ButtonGroup` over the split chooses between the planetary comparisons. `docs/plans/before-after-slider.md`, "Raw | Stack".
+- **And Live | Full** (`SplitCompare.LiveVsFull`, #1883): the capture's other stack is the left half, placed by the same
+  registration (`PlanetaryRawFrame.RegisterOnto`) and sharpened by the same routine; offered only once the Full master exists, built or
+  beside the SER. `docs/plans/before-after-slider.md`, "Live | Full".
 - **GPU resource lifetime**: `docs/architecture/viewer-gpu-lifetime.md`. Never call
   `UploadDocumentTextures` outside `PrepareFrame`; never destroy a bound Vulkan object or write a shared
   descriptor set from an upload path (`VulkanContext.DeferDestroy`); a resize is its own GPU-lifetime
