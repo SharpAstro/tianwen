@@ -124,6 +124,38 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine($"After cooldown: {tempAfterCooldown:F1}°C, ambient={ambientTemp}°C");
     }
 
+    // A camera with no heat sink (a QHY or ZWO body) used to answer NaN to an ambient setpoint, so a session never warmed it.
+    [Theory(Timeout = 120_000)]
+    [InlineData(true, 15.0)]   // the OTA's focuser (FakeFocuserDriver base temperature)
+    [InlineData(false, 12.5)]  // no focuser: the profile's weather device (FakeWeatherDriver)
+    public async Task GivenCameraWithoutHeatSinkWhenWarmUpThenItWarmsTowardTheRigAmbient(bool withFocuser, double expectedTargetC)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+
+        var session = ctx.Session;
+        if (!withFocuser)
+        {
+            var ota = session.Setup.Telescopes[0] with { Focuser = null };
+            session = session with { Setup = session.Setup with { Telescopes = [ota] } };
+        }
+
+        (await session.ReadRigAmbientAsync(session.Setup.Telescopes[0], ct)).ShouldBe(expectedTargetC, 0.01);
+
+        await session.CoolCamerasToSetpointAsync(
+            new SetpointTemp(-10, SetpointTempKind.Normal),
+            CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute * 2, 80, SetupointDirection.Down, ct);
+        (await ctx.Camera.GetCCDTemperatureAsync(ct)).ShouldBeLessThan(0);
+
+        var result = await session.CoolCamerasToAmbientAsync(CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute * 2);
+
+        result.ShouldBeTrue();
+        var warmed = await ctx.Camera.GetCCDTemperatureAsync(ct);
+        output.WriteLine($"Warmed to {warmed:F1} C, rig ambient {expectedTargetC} C");
+        warmed.ShouldBe(expectedTargetC, 1.5, "the warm-up aims for the rig's ambient, not NaN (nothing) and not +25 C");
+    }
+
     // --- CalibrateGuiderAsync ---
 
     // Both hemispheres: Vienna (northern) and Melbourne (southern). The calibration must slew

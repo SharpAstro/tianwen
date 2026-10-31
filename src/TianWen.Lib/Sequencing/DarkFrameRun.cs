@@ -71,7 +71,7 @@ public sealed record DarkFrameCaptured(string Path, DateTimeOffset StartedUtc, d
 /// statement about what was shot. The run reports the observed spread so a caller can see whether the
 /// set is one library row or several.</para>
 /// </remarks>
-public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider, ILogger<DarkFrameRun> logger)
+public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider, ILogger<DarkFrameRun> logger, IDeviceDiscovery? discovery = null)
 {
     /// <summary>
     /// How often the frame-ready flag is polled. Short enough not to add meaningfully to a long
@@ -118,8 +118,8 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
         {
             logger.LogInformation("Warming {Camera} as asked, now the frames are taken", camera.Name);
             await (heldAs is { } holder
-                ? hub.WarmAndCoolerOffAsync(cameraUri, timeProvider, logger, holder, cancellationToken)
-                : hub.WarmAndCoolerOffAsync(cameraUri, timeProvider, logger, cancellationToken));
+                ? hub.WarmAndCoolerOffAsync(cameraUri, timeProvider, logger, holder, cancellationToken, discovery)
+                : hub.WarmAndCoolerOffAsync(cameraUri, timeProvider, logger, cancellationToken, discovery));
         }
 
         return captured;

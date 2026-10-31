@@ -92,23 +92,23 @@ public static class DeviceHubCameraSafetyExtensions
         /// </summary>
         /// <param name="force">Disconnect even if a run owns the camera. Reserved for the shutdown path;
         /// see <see cref="IDeviceHub.DisconnectAsync"/>.</param>
-        public ValueTask WarmAndDisconnectAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool force, CancellationToken cancellationToken)
-            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: true, force, heldBy: null, cancellationToken);
+        public ValueTask WarmAndDisconnectAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool force, CancellationToken cancellationToken, IDeviceDiscovery? discovery = null)
+            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: true, force, heldBy: null, discovery, cancellationToken);
 
         /// <summary>
         /// The warm-up ramp and cooler off without disconnecting, so the camera stays available to cool
         /// again. The same condensation reasoning as <see cref="WarmAndDisconnectAsync"/>.
         /// </summary>
-        public ValueTask WarmAndCoolerOffAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
-            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, heldBy: null, cancellationToken);
+        public ValueTask WarmAndCoolerOffAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken, IDeviceDiscovery? discovery = null)
+            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, heldBy: null, discovery, cancellationToken);
 
         /// <summary>
         /// <see cref="WarmAndCoolerOffAsync(Uri, ITimeProvider, ILogger, CancellationToken)"/> by the run that holds the camera,
         /// as a dark library asked to warm when finished does: <paramref name="heldBy"/> is its lease's
         /// <see cref="DeviceLease.OwnerLabel"/>, and a camera held by anyone else is still refused.
         /// </summary>
-        public ValueTask WarmAndCoolerOffAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, string heldBy, CancellationToken cancellationToken)
-            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, heldBy, cancellationToken);
+        public ValueTask WarmAndCoolerOffAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, string heldBy, CancellationToken cancellationToken, IDeviceDiscovery? discovery = null)
+            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, heldBy, discovery, cancellationToken);
 
         /// <summary>
         /// Cools the camera at <paramref name="cameraUri"/> to <paramref name="setpointC"/> (rounded to a whole degree)
@@ -209,7 +209,7 @@ public static class DeviceHubCameraSafetyExtensions
         /// </remarks>
         /// <param name="progress">A one-line status as it goes (how many cameras, which one it warms).
         /// Called from whichever thread the stop is on.</param>
-        public async Task StopConnectedCamerasAsync(ITimeProvider timeProvider, ILogger logger, Action<string>? progress = null)
+        public async Task StopConnectedCamerasAsync(ITimeProvider timeProvider, ILogger logger, Action<string>? progress = null, IDeviceDiscovery? discovery = null)
         {
             var cameras = new List<(Uri Uri, string Name)>();
             foreach (var (uri, driver) in hub.ConnectedDevices)
@@ -229,13 +229,13 @@ public static class DeviceHubCameraSafetyExtensions
             var stops = new Task[cameras.Count];
             for (var i = 0; i < cameras.Count; i++)
             {
-                stops[i] = StopCameraAsync(hub, cameras[i].Uri, cameras[i].Name, timeProvider, logger, progress);
+                stops[i] = StopCameraAsync(hub, cameras[i].Uri, cameras[i].Name, timeProvider, logger, progress, discovery);
             }
             await Task.WhenAll(stops);
         }
     }
 
-    private static async Task StopCameraAsync(IDeviceHub hub, Uri uri, string name, ITimeProvider timeProvider, ILogger logger, Action<string>? progress)
+    private static async Task StopCameraAsync(IDeviceHub hub, Uri uri, string name, ITimeProvider timeProvider, ILogger logger, Action<string>? progress, IDeviceDiscovery? discovery)
     {
         try
         {
@@ -246,7 +246,7 @@ public static class DeviceHubCameraSafetyExtensions
             else
             {
                 progress?.Invoke($"Warming {name}");
-                await hub.WarmAndDisconnectAsync(uri, timeProvider, logger, force: true, CancellationToken.None);
+                await hub.WarmAndDisconnectAsync(uri, timeProvider, logger, force: true, CancellationToken.None, discovery);
             }
         }
         catch (Exception ex)
@@ -258,7 +258,7 @@ public static class DeviceHubCameraSafetyExtensions
     // Warms through CameraCoolingRamp (the session's own warm-up), then turns the cooler off and, when asked, disconnects.
     private static async ValueTask WarmCameraAsync(
         IDeviceHub hub, Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool disconnectAfter, bool force, string? heldBy,
-        CancellationToken cancellationToken)
+        IDeviceDiscovery? discovery, CancellationToken cancellationToken)
     {
         // A camera a run holds is the run's to warm (its Finalise does, a dark library through heldBy). Refused BEFORE
         // the ramp: the ramp used to run first, and only the disconnect at its end was refused, so a run's cooled camera
@@ -327,7 +327,9 @@ public static class DeviceHubCameraSafetyExtensions
             catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning(ex, "GetHeatSinkTemperatureAsync failed for {Uri}", deviceUri); }
         }
         SensorAmbientReading? preCool = hub.TryGetPreCoolReading(deviceUri, out var recorded) ? recorded : null;
-        var resolved = WarmUpTarget.Resolve(heatsink, preCool);
+        // The rig's own ambient (RigAmbient) is a target source for a camera with no heat sink, read from the profile holding it.
+        var rigAmbient = double.IsFinite(heatsink) ? double.NaN : await RigAmbient.ForCameraAsync(hub, discovery, deviceUri, cancellationToken);
+        var resolved = WarmUpTarget.Resolve(heatsink, preCool, rigAmbient);
         logger.LogInformation("Warming {Uri} to {TargetC:F1} C: {Source}", deviceUri, resolved.TempC, resolved.Describe());
         var warmTarget = resolved.Source is WarmUpTargetSource.HeatSink
             ? new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient)
@@ -335,7 +337,7 @@ public static class DeviceHubCameraSafetyExtensions
         // A sensor already within CameraReading's tolerance of its target has nothing to warm (the QHYminiCam8M of
         // 2026-10-27: 11.5 C at 0 % power against a settled 12 C), the same line a client's quit question draws.
         var current = await logger.CatchAsync(camera.GetCCDTemperatureAsync, cancellationToken, double.NaN);
-        if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink, preCool))
+        if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink, preCool, rigAmbient))
         {
             logger.LogInformation("Camera {Uri} reads {Current:F1} C, already at its warm-up target", deviceUri, current);
         }
