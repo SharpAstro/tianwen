@@ -116,6 +116,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.HasHeatsink = false;
+        await ctx.WithoutRigAmbientAsync();
         var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
         var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
 
@@ -140,6 +141,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.MakeHeatsinkless(ambientC: 18, sensorCannotPassAmbient: true);
+        await ctx.WithoutRigAmbientAsync();
         await ctx.Camera.SetSetCCDTemperatureAsync(11.5, ct);
         await ctx.Camera.SetCoolerOnAsync(true, ct);
         for (var i = 0; i < 40; i++) await ctx.Camera.GetCCDTemperatureAsync(ct);
@@ -167,6 +169,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.HasHeatsink = false;
+        await ctx.WithoutRigAmbientAsync();
         var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
         var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
         hub.SetPreCoolReading(uri, new SensorAmbientReading(20.5, Settled: true, ctx.TimeProvider.GetUtcNow()));
@@ -186,6 +189,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.HasHeatsink = false;
+        await ctx.WithoutRigAmbientAsync();
         (await ctx.Camera.GetCoolerOnAsync(ct)).ShouldBeFalse("the precondition: the cooler was never switched on");
         var before = ctx.TimeProvider.GetUtcNow();
 
@@ -202,6 +206,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.HasHeatsink = false;
+        await ctx.WithoutRigAmbientAsync();
         var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
         var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
 
@@ -214,6 +219,24 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // The fake's sensor rests at its 20 C ambient and cannot rise past it, so +25 C shows as 20 C, well above the 5 C
         // an unsettled reading would have aimed at if it were trusted.
         temp.ShouldBe(20.0, 1.0, "an unsettled reading never sets the target, so it warms toward +25 C, not the recorded 5 C");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoHeatSinkAndARigAmbientWhenWarmUpThenTheAmbientBeatsTheSettledReading()
+    {
+        // Rung 1 of the ladder (the rig's ambient: the fake focuser reads 15 C) over rung 2 (a settled 5 C saved before cooling).
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        ctx.Camera.HasHeatsink = false;
+        var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
+        var uri = ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri;
+
+        await ctx.Session.CoolCamerasToSetpointAsync(new SetpointTemp(-10, SetpointTempKind.Normal), Rate, 80, SetupointDirection.Down, ct);
+        hub.SetPreCoolReading(uri, new SensorAmbientReading(5, Settled: true, ctx.TimeProvider.GetUtcNow()));
+
+        await ctx.Session.CoolCamerasToAmbientAsync(Rate);
+
+        (await ctx.Camera.GetCCDTemperatureAsync(ct)).ShouldBe(15.0, 1.0, "the rig's ambient, not the settled 5 C");
     }
 
     [Fact(Timeout = 60_000)]

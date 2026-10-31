@@ -46,6 +46,9 @@ public readonly record struct CameraReading(
     /// <summary>Whether a warm-up has anything to do for this camera (<see cref="NeedsWarmUpFrom"/>).</summary>
     public bool NeedsWarmUp => NeedsWarmUpFrom(CoolerOn, CcdTemperatureC, HeatsinkTemperatureC, PreCool);
 
+    /// <summary>The range a temperature reading must lie in to be believed (the range the cooling ramp has always used).</summary>
+    public static bool IsPlausibleTemperatureC(double temperatureC) => double.IsFinite(temperatureC) && temperatureC is >= -40 and <= 50;
+
     /// <summary>
     /// The settled sensor reading this camera's last cool-down started from, when the reader knows it (the hub does);
     /// null is "none known", which resolves to the fallback.
@@ -59,9 +62,9 @@ public readonly record struct CameraReading(
     /// whose cooler is off, has nothing to warm (the ZWO live check, 2026-09-28). A sensor giving no temperature counts as
     /// cold, since over-waiting is safer than a thermal shock.
     /// </summary>
-    public static bool NeedsWarmUpFrom(bool coolerOn, double ccdTemperatureC, double heatsinkTemperatureC, SensorAmbientReading? preCool = null)
+    public static bool NeedsWarmUpFrom(bool coolerOn, double ccdTemperatureC, double heatsinkTemperatureC, SensorAmbientReading? preCool = null, double rigAmbientC = double.NaN)
     {
-        return coolerOn && !(ccdTemperatureC >= WarmUpTarget.Resolve(heatsinkTemperatureC, preCool).TempC - WarmUpToleranceC);
+        return coolerOn && !(ccdTemperatureC >= WarmUpTarget.Resolve(heatsinkTemperatureC, preCool, rigAmbientC).TempC - WarmUpToleranceC);
     }
 }
 

@@ -60,7 +60,7 @@ internal sealed partial class DeviceOperations
         var name = NameOf(uri);
         return Start(WarmJob, uri, name, $"Warming {name}", async (step, ct) =>
         {
-            await hub.WarmAndCoolerOffAsync(uri, timeProvider, logger, ct);
+            await hub.WarmAndCoolerOffAsync(uri, timeProvider, logger, ct, discovery);
             return $"Warmed {name}; cooler off";
         });
     }

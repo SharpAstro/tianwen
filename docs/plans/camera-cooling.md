@@ -107,7 +107,11 @@ cap. In order of trust, the target becomes:
 2. the camera's own environment sensor, where the SDK has one (ToupTek's `TOUPCAM_OPTION_ENV_HT`, which the DAL does not
    pass on yet): #1843;
 3. a device on the rig that reads ambient once it is operational: a power box's probe, a focuser's temperature, a weather
-   device, passed by the orchestration, never driver to driver: #388;
+   device, passed by the orchestration, never driver to driver: #388. Shipped for the focuser and the weather device: the
+   session reads the OTA's focuser temperature, else the profile's weather device (`Session.ReadRigAmbientAsync`), and every
+   node warm-up (the warm job, a disconnect, the crash journal's recovery, a dark run, the node's shutdown) reads the same
+   from the first discovered profile whose OTA names the camera (`RigAmbient.ForCameraAsync`), so a camera with no heat sink
+   on a cold night stops at ambient. A power box joins the list once a profile holds power boxes: #1734;
 4. the sensor's own temperature when a cool-down started with the cooler off, ambient plus a little self-heating, kept beside
    the cooler intent so the crash journal carries it: **shipped** (#1842).
 
