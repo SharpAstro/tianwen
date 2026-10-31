@@ -306,6 +306,10 @@ Tests: `SkywatcherProtocolTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRe
   and return as though stopped (left deliberately, finding 3 of the audit).
 - **`CanSetSideOfPier` is false although `SetSideOfPierAsync` is implemented**, so a caller that honours
   the capability never uses it (#636).
+- **Home** (`FindHomeAsync`, equatorial only) is the power-on position, step 0: a Synta board has no home sensor. It stops
+  both axes, reads the encoders, slews both to 0 and waits for the slew to end, up to three passes (a board that resumes
+  tracking after a goto has moved RA off 0 by then), and returns only with both reading 0; a goto to the site's pole is
+  this move.
 - **Park** drives to step 0 from cached positions and reads parked before it arrives; on a board that
   resumes tracking after a goto (#638), as the fake does, RA tracks away from the park position.
 - **Axis convention:** step 0 is hour angle 6 h at the pole, counterweight down. The pole sync that declared hour angle 0

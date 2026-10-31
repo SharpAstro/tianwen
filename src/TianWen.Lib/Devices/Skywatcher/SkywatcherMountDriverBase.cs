@@ -562,16 +562,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // and a stale value that happens to match the target produces delta=0 in
         // SlewAxisToAsync, which silently no-ops the slew; exactly the "sometimes
         // doesn't react" symptom.
-        var raResp = await SendAndReceiveAsync('j', '1', null, cancellationToken);
-        if (SkywatcherProtocol.TryParseResponse(raResp, out var raData) && raData.Length >= 6)
-        {
-            _posRa = SkywatcherProtocol.DecodePosition(raData.AsSpan(0, 6));
-        }
-        var decResp = await SendAndReceiveAsync('j', '2', null, cancellationToken);
-        if (SkywatcherProtocol.TryParseResponse(decResp, out var decData) && decData.Length >= 6)
-        {
-            _posDec = SkywatcherProtocol.DecodePosition(decData.AsSpan(0, 6));
-        }
+        await ReadPositionsAsync(cancellationToken);
 
         var (targetRaSteps, targetDecSteps) = SkyToSteps(ra, dec, pointingState);
 
@@ -1308,6 +1299,73 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     {
         _isParked = false;
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Home is the power-on position, encoder zero (counterweight down, at the pole): a Synta board has no home sensor, so it
+    /// is where the mount stood when it was switched on, and the slew there is the park's own. Equatorial only, where home is
+    /// that position; alt-az has none to go to.
+    /// </summary>
+    public bool CanFindHome => _alignmentMode != AlignmentMode.AltAz;
+
+    /// <summary>The longest <see cref="FindHomeAsync"/> waits for one slew home: half a turn at the slowest board's goto rate.</summary>
+    private static readonly TimeSpan HomeSlewTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Slews both axes to encoder zero and returns once the encoders read it, with both axes stopped. A board that resumes
+    /// tracking after a goto (#638) has moved RA off zero by the time it answers, so each pass stops the axes and reads them
+    /// again, and slews what is left; three passes, and a mount still not home is said to be.
+    /// </summary>
+    public async ValueTask FindHomeAsync(CancellationToken cancellationToken)
+    {
+        EnsureEquatorialAlignment("Going home");
+        // Home is an ENCODER position, not a sky one: disarm any pending iterative-goto refinement, as the park does.
+        _gotoTargetRa = double.NaN;
+        for (var pass = 0; pass < 3; pass++)
+        {
+            await StopAxisAndWaitAsync('1', cancellationToken);
+            await StopAxisAndWaitAsync('2', cancellationToken);
+            await ReadPositionsAsync(cancellationToken);
+            if (IsAtHome)
+            {
+                return;
+            }
+            await SlewAxisToAsync('1', _posRa, 0, cancellationToken);
+            await SlewAxisToAsync('2', _posDec, 0, cancellationToken);
+            await WaitForGotoToEndAsync(cancellationToken);
+        }
+        throw new InvalidOperationException(
+            $"{Name} did not reach home: its encoders read {_posRa} and {_posDec} steps from it after three slews");
+    }
+
+    /// <summary>Waits until neither axis is slewing (running and not tracking), up to <see cref="HomeSlewTimeout"/>.</summary>
+    private async ValueTask WaitForGotoToEndAsync(CancellationToken cancellationToken)
+    {
+        var poll = TimeSpan.FromMilliseconds(250);
+        for (var waited = TimeSpan.Zero; waited < HomeSlewTimeout; waited += poll)
+        {
+            await TimeProvider.SleepAsync(poll, cancellationToken);
+            var ra = await QueryAxisStatusAsync('1', cancellationToken);
+            var dec = await QueryAxisStatusAsync('2', cancellationToken);
+            if (!(ra.IsRunning && !ra.IsTracking) && !(dec.IsRunning && !dec.IsTracking))
+            {
+                return;
+            }
+        }
+        throw new TimeoutException($"{Name} was still slewing home after {HomeSlewTimeout.TotalMinutes:0} minutes");
+    }
+
+    /// <summary>Reads both encoders into the cached positions; an unanswered read leaves its axis's cache as it was.</summary>
+    private async ValueTask ReadPositionsAsync(CancellationToken cancellationToken)
+    {
+        if (SkywatcherProtocol.TryParseResponse(await SendAndReceiveAsync('j', '1', null, cancellationToken), out var ra) && ra.Length >= 6)
+        {
+            _posRa = SkywatcherProtocol.DecodePosition(ra.AsSpan(0, 6));
+        }
+        if (SkywatcherProtocol.TryParseResponse(await SendAndReceiveAsync('j', '2', null, cancellationToken), out var dec) && dec.Length >= 6)
+        {
+            _posDec = SkywatcherProtocol.DecodePosition(dec.AsSpan(0, 6));
+        }
     }
 
     #endregion
