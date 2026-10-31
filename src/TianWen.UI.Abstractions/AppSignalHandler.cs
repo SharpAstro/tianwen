@@ -401,6 +401,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void PollNodeDevices()
         {
+            MaybeReconnectLocalNode();
             if (_appState.LocalNode is { DevicesRefreshDue: true } local)
             {
                 RefreshDevicesOf(local, LocalNodeName);
