@@ -129,6 +129,14 @@ public static class EquipmentActions
     public static ProfileData SetOagOtaIndex(ProfileData data, int otaIndex)
         => data with { OAG_OTA_Index = otaIndex };
 
+    /// <summary>
+    /// Whether <paramref name="site"/> must wait for the mount to be at home: it is in the other hemisphere from the profile's
+    /// site, and the connected mount (<paramref name="mount"/>, null when none is connected or read) says it is not at home.
+    /// The mount would refuse it anyway (<see cref="MountSiteExtensions"/>); this lets the editor ask first.
+    /// </summary>
+    public static bool SiteNeedsMountHome(ProfileData data, SiteCoordinates site, Hosting.Dto.MountDeviceStateDto? mount)
+        => data.Site is { } current && !current.SameHemisphereAs(site) && mount is { AtHome: false };
+
     public static ProfileData SetSite(ProfileData data, double lat, double lon, double? elevation = null)
         => data with { SiteLatitude = lat, SiteLongitude = lon, SiteElevation = elevation };
 

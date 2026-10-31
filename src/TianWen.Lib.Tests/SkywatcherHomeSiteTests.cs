@@ -95,4 +95,45 @@ public class SkywatcherHomeSiteTests(ITestOutputHelper output)
         (await driver.AtHomeAsync(ct)).ShouldBeTrue();
         board.Steps.ShouldBe((0, 0));
     }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ASiteInTheOtherHemisphereIsRefusedForAMountAwayFromHome()
+    {
+        // Away from home the same axes would read as the mirror of where the tube points, and the next goto would go there.
+        var ct = TestContext.Current.CancellationToken;
+        var (driver, board, _) = await ConnectAsync(Vienna, 16.3, ct);
+        await driver.SyncRaDecAsync(5.5, 30.0, ct);
+        var before = board.Steps;
+
+        var refused = await Should.ThrowAsync<MountSiteHemisphereException>(
+            async () => await driver.SetSiteAsync(new SiteCoordinates(Melbourne, 145.1775), ct));
+
+        refused.Message.ShouldContain("not at home");
+        (await driver.GetSiteLatitudeAsync(ct)).ShouldBe(Vienna, "the mount keeps its site");
+        board.Steps.ShouldBe(before);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ASiteInTheSameHemisphereGoesToAMountAnywhere()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (driver, _, _) = await ConnectAsync(Vienna, 16.3, ct);
+        await driver.SyncRaDecAsync(5.5, 30.0, ct);
+
+        await driver.SetSiteAsync(new SiteCoordinates(52.5, 13.4), ct);
+
+        (await driver.GetSiteLatitudeAsync(ct)).ShouldBe(52.5);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ASiteInTheOtherHemisphereGoesToAMountAtHome()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (driver, _, _) = await ConnectAsync(Vienna, 16.3, ct);
+
+        await driver.SetSiteAsync(new SiteCoordinates(Melbourne, 145.1775), ct);
+
+        (await driver.GetSiteLatitudeAsync(ct)).ShouldBe(Melbourne);
+        (await driver.GetDeclinationAsync(ct)).ShouldBe(-90.0, 1e-6);
+    }
 }

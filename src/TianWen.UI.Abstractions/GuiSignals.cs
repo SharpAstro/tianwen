@@ -484,10 +484,16 @@ public readonly record struct StopMountMoveSignal;
 public readonly record struct SetMountTrackingSignal(TrackingSpeed Speed);
 
 /// <summary>What the Preview's mount buttons ask of the node.</summary>
-public enum MountPositionCommand { Home, Park, Unpark, SetPark }
+public enum MountPositionCommand { Home, Park, Unpark, SetPark, UnparkThenHome }
 
-/// <summary>Home, Park, Unpark or Set park, through the node (the Preview's mount buttons).</summary>
+/// <summary>Home, Park, Unpark or Set park, through the node (the Preview's mount buttons); UnparkThenHome runs the two in turn.</summary>
 public readonly record struct MountPositionSignal(MountPositionCommand Command);
+
+/// <summary>What to do with a site held for a mount away from home (<see cref="EquipmentTabState.HeldSite"/>).</summary>
+public enum HeldSiteChoice { SaveAnyway, Cancel }
+
+/// <summary>The site editor's answer to a held site.</summary>
+public readonly record struct HeldSiteSignal(HeldSiteChoice Choice);
 
 /// <summary>
 /// Open the F3 sky-map search modal. Posted from the sky-map tab's key handler;

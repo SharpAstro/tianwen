@@ -230,6 +230,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     public async ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
     {
+        if (rate != 0) _atHome = false;
         if (!Connected)
         {
             throw new InvalidOperationException("Mount is not connected");
@@ -335,6 +336,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     public async ValueTask SetTrackingAsync(bool tracking, CancellationToken cancellationToken)
     {
+        if (tracking) _atHome = false;
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         if (tracking && RefusesTracking)
         {
@@ -358,8 +360,13 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         return ValueTask.CompletedTask;
     }
 
+    // At home (counterweight down at the pole) from the start and after a park (this fake parks at home, as UnparkAsync's
+    // position says); any command that turns an axis takes it away, and a site set changes neither. A site in
+    // the other hemisphere goes to a mount only while it is at home (MountSiteExtensions).
+    private bool _atHome = true;
+
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(false);
+        => ValueTask.FromResult(_atHome);
 
     private bool _isParked;
 
@@ -370,6 +377,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     {
         _isTracking = false;
         _isParked = true;
+        _atHome = true;
         return ValueTask.CompletedTask;
     }
 
@@ -513,6 +521,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     public async ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
+        _atHome = false;
         if (!Connected)
         {
             throw new InvalidOperationException("Mount is not connected");
@@ -599,6 +608,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     public async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
+        _atHome = false;
         if (!Connected)
         {
             throw new InvalidOperationException("Mount is not connected");
@@ -680,6 +690,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     public async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
+        _atHome = false;
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         _ra = ra;
         _dec = dec;
@@ -786,7 +797,13 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public async ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
     {
         _siteLatitude = latitude;
-        // Home position: counterweight-down at pole, HA=6h (standard GEM park)
+        // A site moves no axis. Only a mount still at home reads differently: home is the new site's pole, counterweight down
+        // at HA 6 h. Anywhere else the position stays as it is (MountSiteExtensions refuses a site in the other hemisphere
+        // there, where a real mount would read the mirror of where it points).
+        if (!_atHome)
+        {
+            return;
+        }
         _dec = latitude >= 0 ? 90.0 : -90.0;
         IMountDriver self = this;
         if (await self.TryGetTransformAsync(cancellationToken) is { } transform)
