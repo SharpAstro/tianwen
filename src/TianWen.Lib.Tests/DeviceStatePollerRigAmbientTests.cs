@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,9 +24,8 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
 
     private sealed record Rig(IDeviceHub Hub, FakeDevice CameraDevice, FakeDevice FocuserDevice, IDeviceDiscovery Discovery);
 
-    private async Task<Rig> BuildAsync(bool heatsink)
+    private async Task<Rig> BuildAsync(bool heatsink, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
         var hub = new FakeExternal(output).BuildServiceProvider().GetRequiredService<IDeviceHub>();
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
@@ -42,9 +42,8 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
         return new Rig(hub, cameraDevice, focuserDevice, discovery);
     }
 
-    private static async Task<CameraDeviceStateDto> PublishedAsync(Rig rig, IDeviceDiscovery? discovery)
+    private static async Task<CameraDeviceStateDto> PublishedAsync(Rig rig, IDeviceDiscovery? discovery, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
         var reading = (await rig.Hub.ReadCameraAsync(rig.CameraDevice.DeviceUri, NullLogger.Instance, ct)).ShouldNotBeNull();
         return await DeviceStatePoller.CameraStateAsync(rig.Hub, discovery, rig.CameraDevice.DeviceUri, reading, null, ct);
     }
@@ -52,9 +51,10 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task ACameraWithoutAHeatSinkPublishesTheFocusersReadingAsItsTarget()
     {
-        var rig = await BuildAsync(heatsink: false);
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await BuildAsync(heatsink: false, ct);
 
-        var published = await PublishedAsync(rig, rig.Discovery);
+        var published = await PublishedAsync(rig, rig.Discovery, ct);
 
         published.WarmUpTargetC.ShouldBe(FocuserC);
         published.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.RigAmbient);
@@ -63,9 +63,10 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task AClientReadsTheNodesTargetBackSoTheQuitQuestionAgrees()
     {
-        var rig = await BuildAsync(heatsink: false);
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await BuildAsync(heatsink: false, ct);
 
-        var reading = (await PublishedAsync(rig, rig.Discovery)).ToReading();
+        var reading = (await PublishedAsync(rig, rig.Discovery, ct)).ToReading();
 
         (reading with { CcdTemperatureC = FocuserC }).NeedsWarmUp.ShouldBeFalse("a sensor at the rig's ambient is warm");
         (reading with { CcdTemperatureC = FocuserC - 10 }).NeedsWarmUp.ShouldBeTrue("a sensor well below it is cold");
@@ -75,8 +76,9 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task TheSourceSurvivesTheWire()
     {
-        var rig = await BuildAsync(heatsink: false);
-        var published = await PublishedAsync(rig, rig.Discovery);
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await BuildAsync(heatsink: false, ct);
+        var published = await PublishedAsync(rig, rig.Discovery, ct);
 
         var json = JsonSerializer.Serialize(published, HostingJsonContext.Default.CameraDeviceStateDto);
         var read = JsonSerializer.Deserialize(json, HostingJsonContext.Default.CameraDeviceStateDto).ShouldNotBeNull();
@@ -89,9 +91,10 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task ACameraWithAHeatSinkStillPublishesTheHeatSink()
     {
-        var rig = await BuildAsync(heatsink: true);
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await BuildAsync(heatsink: true, ct);
 
-        var published = await PublishedAsync(rig, rig.Discovery);
+        var published = await PublishedAsync(rig, rig.Discovery, ct);
 
         published.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.HeatSink);
         published.WarmUpTargetC.ShouldNotBe(FocuserC);
@@ -100,9 +103,10 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task WithNoDiscoveryTheTargetFallsBackAsBefore()
     {
-        var rig = await BuildAsync(heatsink: false);
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await BuildAsync(heatsink: false, ct);
 
-        var published = await PublishedAsync(rig, discovery: null);
+        var published = await PublishedAsync(rig, discovery: null, ct);
 
         published.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.Fallback);
         published.WarmUpTargetC.ShouldBe(CameraReading.WarmUpFallbackTargetC);
@@ -111,11 +115,12 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task ACameraInNoProfileFallsBackAsBefore()
     {
-        var rig = await BuildAsync(heatsink: false);
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await BuildAsync(heatsink: false, ct);
         var other = DeviceHubWarmUpAmbientTests.DiscoveryOf(
             DeviceHubWarmUpAmbientTests.ProfileOf(new FakeDevice(DeviceType.Camera, 9).DeviceUri, rig.FocuserDevice.DeviceUri, null));
 
-        var published = await PublishedAsync(rig, other);
+        var published = await PublishedAsync(rig, other, ct);
 
         published.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.Fallback);
     }
@@ -123,11 +128,12 @@ public class DeviceStatePollerRigAmbientTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task AFocuserARunHoldsIsNotRead()
     {
-        var rig = await BuildAsync(heatsink: false);
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await BuildAsync(heatsink: false, ct);
         rig.Hub.TryAcquireLease(rig.FocuserDevice.DeviceUri, "Session run", out var lease).ShouldBeTrue();
         using (lease)
         {
-            var published = await PublishedAsync(rig, rig.Discovery);
+            var published = await PublishedAsync(rig, rig.Discovery, ct);
 
             published.WarmUpTargetSource.ShouldBe(WarmUpTargetSource.Fallback, "the node never reads a device a run holds");
         }
