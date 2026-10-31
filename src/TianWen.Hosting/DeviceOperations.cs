@@ -49,9 +49,8 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IH
         }
 
         var name = device.DisplayName;
-        return Start(ConnectJob, device.DeviceUri, name, async (step, ct) =>
+        return Start(ConnectJob, device.DeviceUri, name, $"Connecting {name}", async (step, ct) =>
         {
-            step.Report($"Connecting {name}");
             await hub.ConnectAsync(device, ct);
             return await WriteConnectIntoProfileAsync(device, ct) is { } noted ? $"Connected {name}; {noted}" : $"Connected {name}";
         });
@@ -96,9 +95,8 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IH
             return ResponseEnvelope<JobDto>.Fail($"{name} {Unsafe(safety)}: warm it first (warm-and-disconnect), or disconnect it skipping the warm-up", 409);
         }
 
-        return Start(DisconnectJob, uri, name, async (step, ct) =>
+        return Start(DisconnectJob, uri, name, $"Disconnecting {name}", async (step, ct) =>
         {
-            step.Report($"Disconnecting {name}");
             await hub.DisconnectAsync(uri, force: false, ct);
             return $"Disconnected {name}";
         });
@@ -116,9 +114,8 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IH
         }
 
         var name = NameOf(uri);
-        return Start(WarmAndDisconnectJob, uri, name, async (step, ct) =>
+        return Start(WarmAndDisconnectJob, uri, name, $"Warming {name}", async (step, ct) =>
         {
-            step.Report($"Warming {name}");
             await hub.WarmAndDisconnectAsync(uri, timeProvider, logger, force: false, ct);
             return $"Warmed and disconnected {name}";
         });
@@ -209,12 +206,13 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IH
     }
 
     /// <summary>Starts the job on the device, joins the same one already running, or refuses one of another kind.</summary>
-    private ResponseEnvelope<JobDto> Start(string kind, Uri uri, string name, Func<NodeJobs.JobStep, CancellationToken, Task<string?>> work)
-        => jobs.TryStartOrJoin(kind, uri, work, out var job)
+    // The first step is published with the job (NodeJobs.TryStartOrJoin), so a request racing the start reads the activity.
+    private ResponseEnvelope<JobDto> Start(string kind, Uri uri, string name, string firstStep, Func<NodeJobs.JobStep, CancellationToken, Task<string?>> work)
+        => jobs.TryStartOrJoin(kind, uri, firstStep, work, out var job)
             ? ResponseEnvelope<JobDto>.Accepted(job)
             : Busy(name, job).As<JobDto>();
 
-    private static Refusal Busy(string name, JobDto job) => new Refusal($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+    private static Refusal Busy(string name, JobDto job) => new Refusal(NodeJobs.Busy(name, job), 409);
 
     private string NameOf(Uri uri) => hub.TryGetDeviceFromUri(uri, out var device) ? device.DisplayName : uri.ToString();
 

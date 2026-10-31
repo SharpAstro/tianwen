@@ -1,6 +1,8 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.Focus;
@@ -22,6 +24,7 @@ internal sealed partial class DeviceOperations
     internal const string SlewJob = "slew";
     internal const string ParkJob = "park";
     internal const string UnparkJob = "unpark";
+    internal const string HomeJob = "home";
     internal const string NudgeJob = "nudge";
 
     /// <summary>How often a job asks a moving device whether it has settled.</summary>
@@ -59,9 +62,8 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail($"{name} moves {focuser.TravelInWords}");
         }
 
-        return Start(MoveJob, uri, name, async (step, ct) =>
+        return Start(MoveJob, uri, name, $"Moving {name} to {target}", async (step, ct) =>
         {
-            step.Report($"Moving {name} to {target}");
             try
             {
                 await focuser.BeginMoveAsync(target, ct);
@@ -150,9 +152,8 @@ internal sealed partial class DeviceOperations
 
         var filter = FilterChange.NameOf(filters, position);
         Uri[] moved = focuserUri is { } f ? [uri, f] : [uri];
-        return Start(FilterJob, uri, name, async (step, ct) =>
+        return Start(FilterJob, uri, name, capture is null ? $"Turning {name} to {filter}" : $"Stopping the planetary capture's stream and turning {name} to {filter}", async (step, ct) =>
         {
-            step.Report(capture is null ? $"Turning {name} to {filter}" : $"Stopping the planetary capture's stream and turning {name} to {filter}");
             if (!DeviceLeaseSet.TryAcquire(hub, moved, FilterChangeOwner, out var claim, out var verdict))
             {
                 throw new InvalidOperationException(verdict.Describe());
@@ -194,8 +195,9 @@ internal sealed partial class DeviceOperations
     }
 
     /// <summary>
-    /// Slews the mount to a J2000 position through the one goto every host uses (<see cref="MountGoto"/>: unpark, the
-    /// horizon limit, the destination pier side, the tracking rate), as a job that ends when the mount has landed. The
+    /// Slews the mount to a J2000 position through the one goto every host uses (<see cref="MountGoto"/>: a parked mount
+    /// refused, the horizon limit, the destination pier side, the tracking rate), as a job that ends when the mount has
+    /// landed. A goto to the site's pole goes home instead (<see cref="GoHomeAsync"/>). The
     /// site comes from the active profile, as the GUI's goto takes it from its own; with none there is no goto.
     /// </summary>
     public async Task<ResponseEnvelope<JobDto>> GotoAsync(MountGotoRequestDto request, CancellationToken cancellationToken)
@@ -217,11 +219,20 @@ internal sealed partial class DeviceOperations
         var name = NameOf(uri);
         var target = request.Name ?? $"RA {ra:F3} h, Dec {dec:F2} deg";
         var minAltitude = request.MinAltitudeDegrees ?? 10;
-        return Start(SlewJob, uri, name, async (step, ct) =>
+        return Start(SlewJob, uri, name, $"Slewing to {target}", async (step, ct) =>
         {
-            step.Report($"Slewing to {target}");
             try
             {
+                // The pole of the mount's own hemisphere has no right ascension, so a goto there landed on whatever RA the
+                // mount chose. The move that means "point at the pole" is going home, where the mount can.
+                if (mount.CanFindHome && MountGoto.IsSitesCelestialPole(dec, await mount.GetSiteLatitudeAsync(ct)))
+                {
+                    step.Report($"Going home ({target} is the pole)");
+                    await GoHomeAsync(mount, name, target, ct);
+                    return $"{name} is at home, pointing at the pole";
+                }
+
+                step.Report($"Slewing to {target}");
                 var (post, message) = await MountGoto.SlewToJ2000Async(mount, target, ra, dec, request.Index, profile, timeProvider, minAltitude, logger, ct);
                 if (post is not SlewPostCondition.Slewing)
                 {
@@ -253,9 +264,8 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot park");
         }
 
-        return Start(ParkJob, uri, name, async (step, ct) =>
+        return Start(ParkJob, uri, name, $"Parking {name}", async (step, ct) =>
         {
-            step.Report($"Parking {name}");
             try
             {
                 await mount.ParkAsync(ct);
@@ -291,12 +301,86 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot unpark");
         }
 
-        return Start(UnparkJob, uri, name, async (step, ct) =>
+        return Start(UnparkJob, uri, name, $"Unparking {name}", async (step, ct) =>
         {
-            step.Report($"Unparking {name}");
             await mount.UnparkAsync(ct);
             return $"{name} unparked";
         });
+    }
+
+    /// <summary>Sends the mount to its home position (counterweight down, at the pole), as a job that ends when it reports itself there.</summary>
+    public ResponseEnvelope<JobDto> Home(string deviceUri)
+    {
+        if (!TryIdle<IMountDriver>(deviceUri, "mount", out var uri, out var mount, out var refused))
+        {
+            return refused.Value.As<JobDto>();
+        }
+        var name = NameOf(uri);
+        if (!mount.CanFindHome)
+        {
+            return ResponseEnvelope<JobDto>.Fail($"{name} cannot go home by itself");
+        }
+
+        return Start(HomeJob, uri, name, "Going home", async (step, ct) =>
+        {
+            try
+            {
+                await GoHomeAsync(mount, name, "home", ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                await mount.AbortSlewAsync(CancellationToken.None);
+                throw;
+            }
+            return $"{name} is at home";
+        });
+    }
+
+    /// <summary>
+    /// The one way home, for the Home button and a goto to the pole. A parked mount is refused, never unparked (the
+    /// operator unparks). No software horizon limit is asked: home is not an observing position, and near the equator the
+    /// pole sits at or under any limit. Home is a rest position, so tracking stops once the mount is there.
+    /// </summary>
+    private Task GoHomeAsync(IMountDriver mount, string name, string target, CancellationToken ct) => GoHomeAsync(mount, target, logger, ct);
+
+    /// <inheritdoc cref="GoHomeAsync(IMountDriver, string, string, CancellationToken)"/>
+    internal static async Task GoHomeAsync(IMountDriver mount, string target, ILogger? logger, CancellationToken ct)
+    {
+        if (await MountGoto.IsParkedAsync(mount, target, logger, ct) is { } parked)
+        {
+            throw new InvalidOperationException(parked);
+        }
+        await mount.FindHomeAsync(ct);
+        if (mount.CanSetTracking)
+        {
+            await mount.SetTrackingAsync(false, ct);
+        }
+    }
+
+    /// <summary>Makes where the mount points now its park position, at once.</summary>
+    public async Task<ResponseEnvelope<string>> SetParkAsync(string deviceUri, CancellationToken cancellationToken)
+    {
+        if (!TryIdle<IMountDriver>(deviceUri, "mount", out var uri, out var mount, out var refused))
+        {
+            return refused.Value.As<string>();
+        }
+        var name = NameOf(uri);
+        if (!mount.CanSetPark)
+        {
+            return ResponseEnvelope<string>.Fail($"{name} cannot set its park position");
+        }
+
+        try
+        {
+            await mount.SetParkAsync(cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A driver that says CanSetPark and then fails answers in words, never a bare 500.
+            logger.LogWarning(ex, "SetPark failed on {Mount}", name);
+            return ResponseEnvelope<string>.Fail($"{name} did not set its park position: {ex.Message}");
+        }
+        return ResponseEnvelope<string>.Ok($"{name}: park position set to where it points now");
     }
 
     /// <summary>
@@ -321,9 +405,8 @@ internal sealed partial class DeviceOperations
         }
 
         var (direction, arcsec) = (request.Direction, request.Arcsec);
-        return Start(NudgeJob, uri, name, async (step, ct) =>
+        return Start(NudgeJob, uri, name, $"Nudging {name} {direction} by {arcsec:F0} arcsec", async (step, ct) =>
         {
-            step.Report($"Nudging {name} {direction} by {arcsec:F0} arcsec");
             if (await MountNudge.PulseArcsecAsync(mount, direction, arcsec, logger: logger, cancellationToken: ct) is not { } pulse)
             {
                 throw new InvalidOperationException($"{name} reports no {direction} guide rate, so no pulse could be sized");
@@ -355,8 +438,18 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<string>.Fail($"{name} cannot switch its tracking");
         }
 
+        if (request.On && request.Speed is { } speed)
+        {
+            if (!mount.TrackingSpeeds.Contains(speed))
+            {
+                return ResponseEnvelope<string>.Fail($"{name} does not track at the {speed} rate");
+            }
+            await mount.SetTrackingSpeedAsync(speed, cancellationToken);
+        }
         await mount.SetTrackingAsync(request.On, cancellationToken);
-        return ResponseEnvelope<string>.Ok($"{name}: tracking {(request.On ? "on" : "off")}");
+        return ResponseEnvelope<string>.Ok(request.On
+            ? $"{name}: tracking{(request.Speed is { } at ? $" at the {at} rate" : "")}"
+            : $"{name}: tracking stopped");
     }
 
     /// <summary>Stops the mount where it is, ending the goto or park job that drives it, if one does.</summary>

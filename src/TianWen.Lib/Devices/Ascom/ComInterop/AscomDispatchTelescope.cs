@@ -67,6 +67,7 @@ internal sealed partial class AscomDispatchTelescope : IDisposable
     // Methods
     public partial void Park();
     public partial void Unpark();
+    public partial void SetPark();
     public partial void AbortSlew();
     public partial void SlewToCoordinatesAsync(double RightAscension, double Declination);
     public partial void SyncToCoordinates(double RightAscension, double Declination);

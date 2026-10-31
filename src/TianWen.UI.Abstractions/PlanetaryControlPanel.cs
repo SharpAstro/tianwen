@@ -354,22 +354,9 @@ public sealed class PlanetaryControlPanel
         }
         // The mount moved while a button is held (the owner, 2026-10-20), at a speed in multiples of sidereal: the slow ones ride
         // on tracking as a guide pulse does, so a held button never leaves the mount untracked.
-        var speedStyle = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
-        var speeds = new Layout.ButtonGroupOption<int>[MountJog.SiderealMultiples.Length];
-        for (var i = 0; i < speeds.Length; i++)
-        {
-            speeds[i] = new Layout.ButtonGroupOption<int>(i, SpeedLabel(MountJog.SiderealMultiples[i])) { Hit = new HitResult.ButtonHit($"MoveSpeed{i}") };
-        }
-        rows.Add(Layout.Builder.ButtonGroup<int>(speeds, _moveSpeedIdx, chosen => _moveSpeedIdx = chosen, speedStyle, PanelFontSize * 0.9f)
-            .RowH(BaseRowHeight));
-        var speed = MountJog.SiderealMultiples[_moveSpeedIdx];
-        rows.Add(Layout.Builder.HStack(
-                RowLabel("Move"),
-                MountMoveButton("N", "MountMoveN", GuideDirection.North, speed, bus),
-                MountMoveButton("S", "MountMoveS", GuideDirection.South, speed, bus),
-                MountMoveButton("E", "MountMoveE", GuideDirection.East, speed, bus),
-                MountMoveButton("W", "MountMoveW", GuideDirection.West, speed, bus))
-            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+        rows.AddRange(MountJogControls.Rows(_moveSpeedIdx, chosen => _moveSpeedIdx = chosen,
+            s => bus?.Post(s), s => bus?.Post(s), idPrefix: "",
+            new MountJogControls.Look(PanelFontSize, BaseRowHeight, BaseGap, StepBtnBg, DimText, HeaderText, ButtonText, LabelWidthSample)));
 
         // --- Find section (#1684): the planet the capture is for, and where the mount really points, from a full-sensor still the
         // node solves, blind where nothing local can. A focal length off the profile's is offered, never written unasked; the sync
@@ -770,19 +757,8 @@ public sealed class PlanetaryControlPanel
             .RowH(BaseRowHeight);
     }
 
-    // A mount move button: the press starts the move and holds it, the release (wherever the pointer is let go) stops it.
-    private static Layout.Node MountMoveButton(string glyph, string id, GuideDirection direction, double speed, SignalBus? bus)
-        => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
-            .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
-            .Pressable(new HitResult.ButtonHit(id), _ =>
-            {
-                bus?.Post(new StartMountMoveSignal(direction, speed));
-                return new DragCapture(static _ => { }, _ => bus?.Post(new StopMountMoveSignal()));
-            });
-
     // "0.5x", "1x", "32x": a speed as the choice shows it.
-    internal static string SpeedLabel(double multiple)
-        => multiple.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "x";
+    internal static string SpeedLabel(double multiple) => MountJogControls.SpeedLabel(multiple);
 
     // The recenter the panel shows, handed to the capture (staged only when it changed).
     private void PushRecenter(NodePlanetaryCapture capture)

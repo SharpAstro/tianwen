@@ -66,7 +66,7 @@ internal sealed class NodePolarAlignment(IDeviceHub hub, NodeJobs jobs, IHostedS
                 if (jobs.TryGetRunningOn(device, out var job))
                 {
                     var name = hub.TryGetDeviceFromUri(device, out var busy) ? busy.DisplayName : device.ToString();
-                    return ResponseEnvelope<PolarStateDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
+                    return ResponseEnvelope<PolarStateDto>.Fail(NodeJobs.Busy(name, job), 409);
                 }
             }
 

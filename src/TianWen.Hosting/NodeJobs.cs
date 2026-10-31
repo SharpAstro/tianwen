@@ -44,6 +44,19 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     public event EventHandler<JobDto>? Changed;
 
     /// <summary>
+    /// A refusal because <paramref name="job"/> holds the device, in words, ONE wording for every route: what the job is
+    /// doing now ("On-Step is still slewing to Venus"), or its kind when it has said nothing yet. Never the job's id,
+    /// which tells nobody anything; a client that needs it has the job.
+    /// </summary>
+    public static string Busy(string deviceName, JobDto job) => job.Step switch
+    {
+        // Most steps name the device already ("Cooling Fake Camera 1 to -10"): repeating it would read twice.
+        { Length: > 0 } step when step.Contains(deviceName, StringComparison.Ordinal) => $"{step} is still going on",
+        { Length: > 0 } step => $"{deviceName} is still {char.ToLowerInvariant(step[0])}{step[1..]}",
+        _ => $"{deviceName} is busy with a {job.Kind}"
+    };
+
+    /// <summary>
     /// Starts a job of <paramref name="kind"/>, or answers the one of that kind already running.
     /// </summary>
     /// <param name="work">The job's body. It reports steps through the <see cref="JobStep"/> it is given and
@@ -51,7 +64,7 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     public JobDto StartOrJoin(string kind, Func<JobStep, CancellationToken, Task<string?>> work)
     {
         // The slot is the kind itself, so whatever holds it is of this kind, and this only ever starts or joins.
-        TryStartOrJoin(kind, slot: kind, deviceUri: null, work, joins: true, out var job);
+        TryStartOrJoin(kind, slot: kind, deviceUri: null, firstStep: null, work, joins: true, out var job);
         return job;
     }
 
@@ -63,7 +76,16 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     /// <returns>False when a job of another kind holds the device; <paramref name="job"/> is then that job, which a
     /// refusal names.</returns>
     public bool TryStartOrJoin(string kind, Uri deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
-        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), work, joins: true, out job);
+        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), firstStep: null, work, joins: true, out job);
+
+    /// <summary>
+    /// As <see cref="TryStartOrJoin(string, Uri, Func{JobStep, CancellationToken, Task{string?}}, out JobDto)"/>, with the
+    /// job's first step published WITH the job: a request that lands before the body has run then reads what it is doing
+    /// (<see cref="Busy"/>), never its bare kind. The body reported that step from inside its <c>Task.Run</c>, so a second
+    /// request racing the start read "busy with a cool" where the job was cooling (#1916's review, CI).
+    /// </summary>
+    public bool TryStartOrJoin(string kind, Uri deviceUri, string firstStep, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
+        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), firstStep, work, joins: true, out job);
 
     /// <summary>
     /// Starts a job of <paramref name="kind"/> on the device, and ONLY starts one: any job already running on it, of this
@@ -73,18 +95,18 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
     /// </summary>
     /// <returns>False when a job holds the device; <paramref name="job"/> is then that job, which a refusal names.</returns>
     public bool TryStart(string kind, Uri deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
-        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), work, joins: false, out job);
+        => TryStartOrJoin(kind, deviceUri.DeviceKey, deviceUri.ToString(), firstStep: null, work, joins: false, out job);
 
     /// <summary>
     /// As <see cref="TryStart(string, Uri, Func{JobStep, CancellationToken, Task{string?}}, out JobDto)"/>, on a slot that
     /// is not a device: what a job holds that no device is, such as the frame of one OTA a solve reads.
     /// </summary>
     public bool TryStart(string kind, string slot, Func<JobStep, CancellationToken, Task<string?>> work, out JobDto job)
-        => TryStartOrJoin(kind, slot, deviceUri: null, work, joins: false, out job);
+        => TryStartOrJoin(kind, slot, deviceUri: null, firstStep: null, work, joins: false, out job);
 
-    private bool TryStartOrJoin(string kind, string slot, string? deviceUri, Func<JobStep, CancellationToken, Task<string?>> work, bool joins, out JobDto job)
+    private bool TryStartOrJoin(string kind, string slot, string? deviceUri, string? firstStep, Func<JobStep, CancellationToken, Task<string?>> work, bool joins, out JobDto job)
     {
-        var started = new Job(Guid.NewGuid().ToString("N"), kind, slot, deviceUri, timeProvider.GetUtcNow());
+        var started = new Job(Guid.NewGuid().ToString("N"), kind, slot, deviceUri, timeProvider.GetUtcNow(), firstStep);
 
         // The job is published before any of its work runs, so of two racing starts only the one whose job got in runs
         // anything, and the other answers with that job. A loop, not a retry by recursion: the job holding the slot can
@@ -253,10 +275,10 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
         public void Report(string step) => _jobs.Report(_job, step);
     }
 
-    internal sealed class Job(string id, string kind, string slot, string? deviceUri, DateTimeOffset startedUtc)
+    internal sealed class Job(string id, string kind, string slot, string? deviceUri, DateTimeOffset startedUtc, string? firstStep = null)
     {
         // A reference, so a write is atomic and a reader always sees a whole snapshot.
-        private volatile JobDto _snapshot = new JobDto { Id = id, Kind = kind, DeviceUri = deviceUri, State = JobState.Running, StartedUtc = startedUtc };
+        private volatile JobDto _snapshot = new JobDto { Id = id, Kind = kind, DeviceUri = deviceUri, State = JobState.Running, StartedUtc = startedUtc, Step = firstStep };
 
         public string Id { get; } = id;
 

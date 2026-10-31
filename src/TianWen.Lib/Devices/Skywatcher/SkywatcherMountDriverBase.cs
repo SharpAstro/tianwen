@@ -227,6 +227,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         new AxisRate(MountJog.RateDegPerSec(8)),        // 8x
         new AxisRate(SIDEREAL_RATE / 3600.0 * 16),      // 16x
         new AxisRate(MountJog.RateDegPerSec(32)),       // 32x (slew)
+        new AxisRate(MountJog.RateDegPerSec(64)),       // 64x
+        new AxisRate(MountJog.RateDegPerSec(128)),      // 128x
         new AxisRate(3.0),                               // ~720x (fast slew)
     ];
 

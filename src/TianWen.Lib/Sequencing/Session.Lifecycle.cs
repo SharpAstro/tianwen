@@ -327,7 +327,48 @@ internal partial record Session
     }
 
     /// <summary>
-    /// Does one-time (per session) initialisation, e.g. connecting, unparking
+    /// Why this run may not unpark <paramref name="mount"/>, or null when it may: only a run is ever allowed to, and only with
+    /// <see cref="SessionConfiguration.UnparkMount"/> on. A goto or Home never unparks (<c>MountGoto.IsParkedAsync</c>).
+    /// </summary>
+    private string? ParkedMountRefusal(IMountDriver mount)
+        => !Configuration.UnparkMount
+            ? "The mount is parked, and this session is set not to unpark it (Unpark Mount is off). Unpark it, or turn the setting on."
+            : !mount.CanUnpark
+                ? "The mount is parked and cannot be unparked from here. Unpark it at the mount."
+                : null;
+
+    /// <summary>
+    /// Unparks a parked mount at the moment the run first moves it: after the wait for dark, or before the dusk sky flats
+    /// (<see cref="SessionConfiguration.UnparkMount"/>). False, with <see cref="FailureReason"/> set, when the run may not
+    /// or the mount would not. A mount that is not parked is left as it is.
+    /// </summary>
+    internal async ValueTask<bool> UnparkForRunAsync(CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount.Driver;
+        if (!await mount.AtParkAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return true;
+        }
+        if (ParkedMountRefusal(mount) is { } refusal)
+        {
+            _logger.LogError("Mount {Mount}: {Refusal}", Setup.Mount, refusal);
+            _failureReason = refusal;
+            return false;
+        }
+
+        _currentActivity = "Unparking mount…";
+        _logger.LogInformation("Unparking mount {Mount} for the run", Setup.Mount);
+        if (!await CatchAsync(mount.UnparkAsync, cancellationToken).ConfigureAwait(false))
+        {
+            _failureReason = "The mount is parked and did not unpark. Check it, then start again.";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Does one-time (per session) initialisation: connecting, the site, the cameras. A parked mount is only CHECKED here
+    /// (<see cref="ParkedMountRefusal"/>); <see cref="UnparkForRunAsync"/> unparks it at the run's first move.
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns>True if initialisation was successful.</returns>
@@ -366,11 +407,14 @@ internal partial record Session
             builtIn.PointingStateOracle = GetSideOfPierAsync;
         }
 
+        // Only CHECKED here: a parked mount is unparked later, once the run first moves it (UnparkForRunAsync, after the wait
+        // for dark), so a mount parked in a small dome stays parked through the evening. A run that will not be allowed to
+        // unpark it fails now, not hours later.
         _logger.LogDebug("Init: checking park state");
-        if (await mount.Driver.AtParkAsync(cancellationToken)
-            && (!mount.Driver.CanUnpark || !await CatchAsync(mount.Driver.UnparkAsync, cancellationToken).ConfigureAwait(false)))
+        if (await mount.Driver.AtParkAsync(cancellationToken) && ParkedMountRefusal(mount.Driver) is { } refusal)
         {
-            _logger.LogError("Mount {Mount} is parked but cannot be unparked. Aborting.", mount);
+            _logger.LogError("Mount {Mount}: {Refusal}. Aborting.", mount, refusal);
+            _failureReason = refusal;
             return false;
         }
 

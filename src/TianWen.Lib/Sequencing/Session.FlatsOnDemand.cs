@@ -118,10 +118,10 @@ internal partial record Session
             // run: without one, the sky-flat gate proceeds without its solar check.
             await CatchAsync(ct => SettleSiteAsync(mount.Driver, ct), cancellationToken).ConfigureAwait(false);
 
-            if (await mount.Driver.AtParkAsync(cancellationToken).ConfigureAwait(false)
-                && (!mount.Driver.CanUnpark || !await CatchAsync(mount.Driver.UnparkAsync, cancellationToken).ConfigureAwait(false)))
+            // A flat run moves the mount at once, so its start is where it unparks (SessionConfiguration.UnparkMount).
+            if (!await UnparkForRunAsync(cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("Mount is parked and cannot be unparked; cannot take sky-flats.");
+                _logger.LogError("Mount is parked and was not unparked; cannot take sky-flats.");
                 return false;
             }
         }

@@ -94,7 +94,7 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
         var second = await Client.MoveFocuserAsync(new FocuserMoveRequestDto { DeviceUri = Focuser.DeviceUri.ToString(), Steps = 10 }, ct);
         second.StatusCode.ShouldBe(409, "a move to another position is not the same move");
-        second.Error.ShouldNotBeNull().ShouldContain(moving.Id);
+        second.Error.ShouldNotBeNull().ShouldContain("moving", Case.Insensitive, "the refusal says what holds the device, not a job id");
 
         (await Client.StopFocuserAsync(Focuser.DeviceUri, ct)).IsSuccess.ShouldBeTrue("a stop is the one command the running job does not refuse");
         (await UntilEndedAsync(moving.Id, ct)).State.ShouldBe(JobState.Cancelled);
@@ -308,6 +308,77 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
         (await UntilEndedAsync(job.Id, ct)).State.ShouldBe(JobState.Cancelled);
         (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
+    }
+
+    // Only MountJog.Max ("as fast as it goes") becomes the axis's top; any other rate past the top is a wrong unit or a typo,
+    // refused rather than run at full speed.
+    [Fact(Timeout = 60_000)]
+    public async Task OnlyMaxIsClampedToTheAxisTopAndARateJustPastTheTopIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        var top = mount.AxisRates(TelescopeAxis.Primary)[0].Maximum;
+
+        (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, top * 1.2, ct)).StatusCode.ShouldBe(400, "a rate past the top that is not Max");
+
+        var max = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, MountJog.MaxRateDegPerSec, ct)).Value.ShouldNotBeNull("Max runs at the axis's top");
+        (await Client.StopMountAsync(Mount.DeviceUri, ct)).IsSuccess.ShouldBeTrue();
+        (await UntilEndedAsync(max.Id, ct)).State.ShouldBe(JobState.Cancelled);
+    }
+
+    // A held move on a mount that is not tracking starts tracking first (the owner, 2026-10-30): after Home, which stops
+    // tracking, OnStep ignored moves, so a move did nothing and said nothing.
+    [Fact(Timeout = 60_000)]
+    public async Task AHeldMoveOnAMountThatIsNotTrackingStartsTrackingFirst()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        (await Client.SetMountTrackingAsync(Mount.DeviceUri, false, ct)).IsSuccess.ShouldBeTrue();
+        (await mount.IsTrackingAsync(ct)).ShouldBeFalse("precondition");
+
+        var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 0.5, ct)).Value.ShouldNotBeNull();
+        await UntilAsync("tracking to start for the move", async token => (await mount.IsTrackingAsync(token), "still not tracking"), ct);
+        (await Client.StopMountAsync(Mount.DeviceUri, ct)).IsSuccess.ShouldBeTrue();
+
+        (await UntilEndedAsync(job.Id, ct)).State.ShouldBe(JobState.Cancelled);
+        (await mount.IsTrackingAsync(ct)).ShouldBeTrue("the mount is left tracking after the move");
+        (await mount.GetTrackingSpeedAsync(ct)).ShouldBe(TrackingSpeed.Sidereal);
+    }
+
+    // Nothing unparks a mount by itself (the owner, 2026-10-30): a goto on a parked mount fails saying so, and it stays parked.
+    [Fact(Timeout = 60_000)]
+    public async Task AGotoOnAParkedMountFailsSayingSoAndNeverUnparksIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        await ActiveRigAsync(ct);
+        var park = (await Client.ParkMountAsync(Mount.DeviceUri, ct)).Value.ShouldNotBeNull();
+        (await UntilEndedAsync(park.Id, ct)).State.ShouldBe(JobState.Succeeded);
+
+        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = await mount.GetRightAscensionAsync(ct), DecJ2000 = 85, Name = "near the pole" }, ct)).Value.ShouldNotBeNull();
+
+        var failed = await UntilEndedAsync(job.Id, ct);
+        failed.State.ShouldBe(JobState.Failed);
+        failed.Error.ShouldNotBeNull().ShouldContain("is parked: unpark it");
+        (await mount.AtParkAsync(ct)).ShouldBeTrue("a goto never unparks");
+    }
+
+    // Tracking at a named rate, and what a mount that cannot go home or set its park answers: words, never a 500.
+    [Fact(Timeout = 60_000)]
+    public async Task TrackingTakesANamedRateAndHomeAndSetParkRefuseInWordsWhereTheMountCannot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+
+        (await Client.SetMountTrackingAsync(Mount.DeviceUri, true, TrackingSpeed.Lunar, ct)).IsSuccess.ShouldBeTrue();
+        (await mount.IsTrackingAsync(ct)).ShouldBeTrue();
+        (await mount.GetTrackingSpeedAsync(ct)).ShouldBe(TrackingSpeed.Lunar);
+
+        var home = await Client.HomeMountAsync(Mount.DeviceUri, ct);
+        (home.StatusCode, home.Error).ShouldBe((400, $"{mount.Name} cannot go home by itself"));
+        var setPark = await Client.SetMountParkAsync(Mount.DeviceUri, ct);
+        setPark.StatusCode.ShouldBe(400);
+        setPark.Error.ShouldNotBeNull().ShouldContain("cannot set its park position");
     }
 
     // The session-scoped routes from before the device plane answered 404 with no session; re-pointed at it, they reach

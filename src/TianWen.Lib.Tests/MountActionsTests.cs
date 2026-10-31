@@ -10,6 +10,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -170,15 +171,18 @@ public class MountActionsTests
     // ── Park / Unpark handling ──
 
     [Fact]
-    public async Task SlewToJ2000Async_WhenParkedAndCanUnpark_AutoUnparksAndAnnotates()
+    public async Task SlewToJ2000Async_WhenParked_RefusesAndNeverUnparks()
     {
+        // Nothing unparks a mount by itself: unparking moves hardware nobody may be watching (a tiny dome).
         var mount = SetupMount(new[] { TrackingSpeed.Sidereal }, canPark: true, canUnpark: true, atPark: true);
 
         var (post, msg) = await InvokeAsync(mount, "M31", NonSolarSystem);
 
-        post.ShouldBe(SlewPostCondition.Slewing);
-        msg.ShouldBe("Slewing to M31 (auto-unparked)");
-        await mount.Received(1).UnparkAsync(Arg.Any<CancellationToken>());
+        post.ShouldBe(SlewPostCondition.SlewNotPossible);
+        msg.ShouldContain("is parked: unpark it before slewing to M31");
+        await mount.DidNotReceive().UnparkAsync(Arg.Any<CancellationToken>());
+        await mount.DidNotReceive().EnsureTrackingAsync(Arg.Any<TrackingSpeed>(), Arg.Any<CancellationToken>());
+        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -212,19 +216,56 @@ public class MountActionsTests
         msg.ShouldBe("Slewing to M31 (mount has no park/unpark support)");
     }
 
+    // ── Going home (the Home button and a goto to the pole, DeviceOperations.GoHomeAsync) ──
+
     [Fact]
-    public async Task SlewToJ2000Async_WhenUnparkThrows_ReturnsSlewNotPossibleWithContext()
+    public async Task GoingHomeOnAParkedMountIsRefusedAndNeverUnparks()
     {
         var mount = SetupMount(new[] { TrackingSpeed.Sidereal }, canPark: true, canUnpark: true, atPark: true);
-        mount.UnparkAsync(Arg.Any<CancellationToken>())
-            .Returns(_ => ValueTask.FromException(new InvalidOperationException("mount refused unpark")));
+        mount.CanFindHome.Returns(true);
 
-        var (post, msg) = await InvokeAsync(mount, "M31", NonSolarSystem);
+        var refused = await Should.ThrowAsync<InvalidOperationException>(
+            () => TianWen.Hosting.DeviceOperations.GoHomeAsync(mount, "home", null, TestContext.Current.CancellationToken));
 
-        post.ShouldBe(SlewPostCondition.SlewNotPossible);
-        msg.ShouldContain("parked");
-        msg.ShouldContain("mount refused unpark");
-        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
+        refused.Message.ShouldContain("is parked: unpark it");
+        await mount.DidNotReceive().UnparkAsync(Arg.Any<CancellationToken>());
+        await mount.DidNotReceive().FindHomeAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GoingHomeStopsTrackingAndAsksNoHorizonLimit()
+    {
+        // Home is a rest position, not an observing one: tracking stops there, and nothing transforms the pole to an
+        // altitude, so a site near the equator (the pole at or under any limit) still goes home.
+        var mount = SetupMount(new[] { TrackingSpeed.Sidereal }, altDeg: -1);
+        mount.CanFindHome.Returns(true);
+        mount.CanSetTracking.Returns(true);
+
+        await TianWen.Hosting.DeviceOperations.GoHomeAsync(mount, "home", null, TestContext.Current.CancellationToken);
+
+        Received.InOrder(() =>
+        {
+            mount.FindHomeAsync(Arg.Any<CancellationToken>());
+            mount.SetTrackingAsync(false, Arg.Any<CancellationToken>());
+        });
+        await mount.DidNotReceiveWithAnyArgs().TryTransformJ2000ToMountNativeAsync(default!, default, default, default, default);
+        await mount.DidNotReceive().UnparkAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ── The Preview's Track row reads the rate the mount reports ──
+
+    [Theory]
+    [InlineData(false, null, "Stopped")]
+    [InlineData(false, TrackingSpeed.Lunar, "Stopped")]
+    [InlineData(true, null, "Tracking")]
+    [InlineData(true, TrackingSpeed.Lunar, "Lunar")]
+    [InlineData(true, TrackingSpeed.Sidereal, "Sidereal")]
+    public void TheTrackRowShowsTheRateTheMountReportsNeverOneItCannotKnow(bool tracking, TrackingSpeed? rate, string shown)
+    {
+        // A mount left at Lunar, or set on its handset, reads Lunar; before a rate has been read the row says only "Tracking".
+        var state = MountState.Unknown with { IsTracking = tracking, TrackingRate = rate };
+
+        MountJogControls.TrackingRowLabel(state).ShouldBe(shown);
     }
 
     // ── Helpers ──

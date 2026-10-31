@@ -94,8 +94,15 @@ rejects is none at all (`null`, thrown as `InvalidOperationException`); there is
 | `:Te#` / `:Td#` | 1 byte | `1` is success, anything else throws | `SetTrackingAsync` | `:AP#` / `:AL#`, which read no reply |
 | `:hP#` | 1 byte | `1` accepted, then polls `:GU#` | `ParkAsync` | the same `:hP#`, but no reply read and no wait |
 | `:hR#` | 1 byte | `1` accepted, then polls `:GU#` | `UnparkAsync` | nothing: the base throws |
-| `:hQ#` | 1 byte | `1` accepted | `SetParkAsync` (OnStep's own; not on `IMountDriver`) | nothing |
+| `:hQ#` | 1 byte | `1` accepted | `SetParkAsync` (`IMountDriver`, `CanSetPark`) | nothing |
 | `:TQ#` `:TL#` `:TS#` `:TK#` | none read | | `SetTrackingSpeedAsync`: sidereal, lunar, solar, King | the base sends `:TQ#` for solar and has no King |
+| `#` (bare) | none | | first command of a connect | clears a half-sent command a discovery probe of another family left in OnStep's buffer, which would otherwise read `:GVP#` as its tail and swallow it |
+| `:SC` `MM/dd/yy#` then `:SL` `HH:mm:ss#`, with `:GG#` first | 1 byte each: `1` valid, `0` invalid | `1` is success, else throws | `SetUTCDateAsync`, on every connect (a failure is logged, the connect goes on) | the base's `:SL` / `:SG`. The local time is UTC minus the mount's own `:GG#` offset (hours ADDED to local to give UTC), which is left as it is; `:SC` is followed by Meade's "Updating Planetary Data" lines, which are discarded before `:SL`. The TeeSeek's clock sat 11 hours off |
+| `:Mn#` `:Ms#` `:Me#` `:Mw#` / `:Qn#` `:Qs#` `:Qe#` `:Qw#` | none read | | `MoveAxisAsync` | the base's step-rate jog; a start never sends a `:Q` first (a `:Qw#` just before `:Me#` left the TeeSeek's axis standing), a rate of 0 sends the `:Q` |
+| `:RAd.dddddddd#` / `:REd.dddddddd#` | none read | | `MoveAxisAsync` | the axis's rate in degrees a second, exactly as asked (the ASCOM OnStep driver's way); `:R0#` to `:R9#` did not move the TeeSeek's 4.24 |
+| `:GXE6#` then `:GX92#` | `#`-terminated number each | `1000000 / :GX92# / :GXE6# / 240`, degrees a second | `AxisRates` top, read once on connect (2 s bound each: a firmware that does not know them never answers, which is not a lost reply) | a fixed 48x sidereal when either is missing. 1.88 deg/s on the TeeSeek |
+| `:hC#`, then `:GU#` | none, then flags | polls until `H` (at home), `F` or 240 s | `FindHomeAsync` | nothing: the base has no home. Refused with "is parked" on a parked mount, and so is the node's goto at the pole: nothing unparks a mount by itself. Tracking is stopped once home |
+| `:MS#` refusal | one digit, no `#` and no message | `1` below the horizon limit, `2` above the overhead limit, `3` standby, `4` parked, `5` goto in progress, `6` outside the limits, `7` hardware fault, `8` already moving | the goto's refusal in words | Meade sends the digit then a `#`-terminated message; waiting for it held the port's lock for good and the mount read "busy" until the node restarted |
 | `:GX44#` / `:GX45#` | `#`-terminated integer | `long.TryParse` (invariant), else `null` | `GetAxisPositionAsync`, axis 1 / axis 2; the tertiary axis answers `null` with no query | the interface default `null` |
 
 ### `:Sd` and `:St` need their sign
@@ -214,11 +221,17 @@ no retry, no reconnect and no fault count. **X** marks a violation of #810.
 | `ParkAsync` | `:hP#`, then the `:GU#` poll | `InvalidOperationException` | `InvalidOperationException`, for the ack or a poll (**X**, wrong type) | ack: `InvalidOperationException`; poll: keeps polling, then `TimeoutException` at 60 s |
 | `UnparkAsync` | `:hR#`, then the `:GU#` poll | `InvalidOperationException` | as `ParkAsync` (**X**, wrong type) | ack: `InvalidOperationException`; poll: returns at once, "unparked" (**X**) |
 | `GetAxisPositionAsync` | `:GX44#` / `:GX45#` | `null` | `null` (**X**) | `null` (**X**) |
+| `SetUTCDateAsync` | `:GG#`, `:SC`, `:SL`, then the clock read back | `InvalidOperationException` | `InvalidOperationException` | refused: `InvalidOperationException` naming the digit; read back more than a minute out: a warning |
+| `CanMoveAxis`, `AxisRates` | none (from the connect's `:GXE6#` / `:GX92#`) | | | primary and secondary only; a quarter of sidereal to the mount's top |
+| `MoveAxisAsync` | `:RAd#` / `:REd#`, then `:Mx#`; `:Qx#` to stop | `InvalidOperationException` | a lost reply is recovered with the bare `#` | n/a |
+| `CanFindHome`, `FindHomeAsync` | `:hC#`, then the `:GU#` poll for `H` | `InvalidOperationException` | `InvalidOperationException` | `TimeoutException` at 240 s; `F` throws |
+| `SetParkAsync` | `:hQ#` | `InvalidOperationException` | `InvalidOperationException` | refused: `InvalidOperationException` |
 
 "Not connected" departs from #810 too: the `:GU#` reads throw where #810 keeps a neutral value (the base's
 helpers return `null` from a closed port, which `GetStatusAsync` throws on, and the base's `SendAsync` throws
-on an open port whose driver is not `Connected`). Over WiFi a caller's cancellation mid-read escapes all of
-them as `OperationCanceledException`.
+on an open port whose driver is not `Connected`). Over WiFi a read that a caller's bound cancels answers `null`
+as a serial port does (`TcpSerialConnection`, `TcpSerialConnectionTests`), so a lost reply is recovered the same way
+on both transports; only the caller's own token escapes as `OperationCanceledException`.
 
 **Everything else is the LX200 base, unchanged.** Five inherited members behave in ways worth knowing on OnStep:
 
@@ -263,8 +276,8 @@ and the `:St` / `:Sg` bytes of a northern and a southern site.
 
 ## Deliberately not replicated, and out of scope
 
-- **No jog and no guide-rate control.** `MoveAxisAsync` throws and `CanSetGuideRates` is `false`, both from
-  the base; OnStep's `:Mn#` / `:Ms#` / `:Me#` / `:Mw#` jogs and its `:Rn#` / `:GX90#` guide rates are #542.
+- **No guide-rate control.** `CanSetGuideRates` is `false`, from the base; OnStep's `:Rn#` / `:GX90#` guide
+  rates are #542. The jog (`:Mx#` with `:RAd.d#` / `:REd.d#`) is mapped above.
 - **No axis model.** `:GX44#` / `:GX45#` are passed through raw; `GetAxisAngleAsync` stays `null` until a real
   controller has been read at home and at known hour angles (#648), so the mount limits use the hour-angle
   tier on OnStep.
@@ -280,15 +293,13 @@ and the `:St` / `:Sg` bytes of a northern and a southern site.
   slewing", which hides the stop `Session.DetectDriverEnforcedStop` exists to see and ends an unpark wait
   early; `:Gm#` and `:GX4n#` return neutral values while connected; every missing reply throws
   `InvalidOperationException`, which the session never retries.
-- **#648, the axis angle**, and **#542**, the rest: jog and guide rates; an mDNS fallback to an ephemeral port
+- **#648, the axis angle**, and **#542**, the rest: guide rates; an mDNS fallback to an ephemeral port
   when Bonjour or Avahi owns 5353 (today WiFi discovery then silently finds nothing, common on macOS); SRV
   parsing for a non-default port; an "add unseen device" dialog for a WiFi mount that does not advertise
   mDNS (general form: #674); tests for `EquipmentActions.ReconcileAllProfilesAsync`.
 - **The step counts reach the guider and are thrown away.** `GetWormPeriodStepsAsync` answers `0` and
   `GuideLoop` computes a periodic-error phase only when it is positive, so on OnStep every guide frame pays
   two extra round trips (`:GX44#`, `:GX45#`) and the phase stays `NaN`.
-- **`CanSetPark` is `true` with nothing to call.** `SetParkAsync` is not on `IMountDriver`, and the Alpaca
-  plane answers `cansetpark` from the flag but has no `setpark` member.
 - **The device id changes with the firmware version**, since it includes the `:GVN#` product number.
 - **A dead TCP link leaves the driver `Connected`.** `TcpSerialConnection` sets `IsOpen = false` on a fault and
   every later read returns `null`, but nothing clears `DeviceDriverBase.Connected`, and `ResilientCall`

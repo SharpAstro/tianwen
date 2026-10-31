@@ -52,6 +52,18 @@ public interface IMountDriver : IDeviceDriver
 
     bool CanUnpark { get; }
 
+    /// <summary>
+    /// Whether the mount can go to its home position by itself: counterweight down, pointing at the celestial pole. A goto
+    /// to the pole is that move (<see cref="MountGoto.IsSitesCelestialPole"/>), since a pole has no right ascension.
+    /// </summary>
+    bool CanFindHome => false;
+
+    /// <summary>Goes to the home position and returns once the mount reports itself there.</summary>
+    ValueTask FindHomeAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("This mount cannot go home by itself");
+
+    /// <summary>Makes where the mount points now its park position, where <see cref="CanSetPark"/>.</summary>
+    ValueTask SetParkAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("This mount cannot set its park position");
+
     bool CanSlew { get; }
 
     bool CanSlewAsync { get; }

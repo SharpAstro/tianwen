@@ -76,7 +76,8 @@ public class SessionConfigApiDtoTests
         FlatSkySunAltitudeDarkDeg: -12,
         FocusDriftSampleSize: 40,
         FocusDriftMinSamples: 6,
-        SaveIntermediates: true);
+        SaveIntermediates: true,
+        UnparkMount: false);
 
     [Fact]
     public void EveryFieldSurvivesTheWire()

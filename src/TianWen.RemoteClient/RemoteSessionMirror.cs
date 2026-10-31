@@ -1436,7 +1436,8 @@ namespace TianWen.RemoteClient
                     JsonNumber.FromWire(m.RaJ2000),
                     JsonNumber.FromWire(m.DecJ2000),
                     JsonNumber.FromWire(m.Altitude),
-                    JsonNumber.FromWire(m.PrimaryAxisAngleDeg));
+                    JsonNumber.FromWire(m.PrimaryAxisAngleDeg),
+                    m.TrackingRate);
             }
         }
 

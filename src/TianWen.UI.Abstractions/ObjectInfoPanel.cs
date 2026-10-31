@@ -218,6 +218,7 @@ namespace TianWen.UI.Abstractions
             Action? Close = null,
             Action? Goto = null,
             bool GotoEnabled = true,
+            string? GotoBusy = null,
             Action? ViewInPlanner = null,
             Action? TogglePin = null,
             bool IsPinned = false,
@@ -733,10 +734,12 @@ namespace TianWen.UI.Abstractions
 
             if (actions.Goto is { } go)
             {
+                // While a goto runs the button says so and takes no press: a second one was refused by the node as busy.
+                var canGo = actions.GotoEnabled && actions.GotoBusy is null;
                 var node = Sized(Layout.Builder
-                    .Text("Goto", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center), 90f).HStar()
-                    .Bg(actions.GotoEnabled ? palette.GotoBg : palette.DisabledBg);
-                if (actions.GotoEnabled)
+                    .Text(actions.GotoBusy ?? "Goto", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center), 90f).HStar()
+                    .Bg(canGo ? palette.GotoBg : palette.DisabledBg);
+                if (canGo)
                 {
                     node = node.Clickable(new HitResult.ButtonHit("ObjectInfoGoto"), _ => go())
                         .BgHover(ButtonHover(palette.GotoBg, in palette));

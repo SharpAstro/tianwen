@@ -264,6 +264,19 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         }
     }
 
+    /// <summary>ASCOM's <c>SetPark</c>: where the mount points now becomes its park position (the Preview's Set park).</summary>
+    public ValueTask SetParkAsync(CancellationToken cancellationToken)
+    {
+        if (Connected && CanSetPark)
+        {
+            return SafeValueTask(() => _telescope.SetPark());
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to execute {nameof(SetParkAsync)} connected={Connected}");
+        }
+    }
+
     public ValueTask UnparkAsync(CancellationToken cancellationToken)
     {
         if (Connected && CanUnpark)

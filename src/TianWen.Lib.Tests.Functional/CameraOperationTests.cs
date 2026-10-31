@@ -60,7 +60,7 @@ public class CameraOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         // While the ramp runs the camera is the job's: an immediate command would fight it.
         var coolerOff = await Client.CameraCoolerOffAsync(device.DeviceUri, ct);
         coolerOff.StatusCode.ShouldBe(409);
-        coolerOff.Error.ShouldNotBeNull().ShouldContain(cooling.Id);
+        coolerOff.Error.ShouldNotBeNull().ShouldContain("cooling", Case.Insensitive, "the refusal says what holds the device, not a job id");
         (await Client.SetCameraSettingsAsync(new CameraSettingsRequestDto { DeviceUri = device.DeviceUri.ToString(), Bin = 2 }, ct)).StatusCode.ShouldBe(409);
 
         (await Client.CancelJobAsync(cooling.Id, ct)).IsSuccess.ShouldBeTrue();

@@ -79,6 +79,12 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot move its {axis} axis");
         }
+        // Only MountJog.Max's own rate means "as fast as it goes" and becomes the mount's top; any other rate past the top is a
+        // wrong unit or a typo, and stays a refusal rather than running hardware at full speed.
+        if (Math.Abs(Math.Abs(rate) - MountJog.MaxRateDegPerSec) < 1e-9 && Fastest(mount.AxisRates(axis)) is { } fastest && Math.Abs(rate) > fastest)
+        {
+            rate = Math.CopySign(fastest, rate);
+        }
         if (rate != 0 && !InRange(mount.AxisRates(axis), Math.Abs(rate)))
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} does not move its {axis} axis at {Math.Abs(rate)} degrees a second");
@@ -108,12 +114,21 @@ internal sealed partial class DeviceOperations
         var motion = new AxisMotion(now);
         motion.Set(axis, rate);
         _axisMotions[uri.DeviceKey] = motion;
-        return Start(MoveAxisJob, uri, name, async (step, ct) =>
+        return Start(MoveAxisJob, uri, name, $"Moving {name}'s axes", async (step, ct) =>
         {
-            step.Report($"Moving {name}'s axes");
             var lapsed = false;
             try
             {
+                // A held move starts sidereal tracking first on a mount that is not tracking (the owner, 2026-10-30): OnStep
+                // ignored moves while not tracking on the bench, and Home stops tracking, so a move after Home did nothing and
+                // said nothing. The mount is left tracking afterwards.
+                if (mount.CanSetTracking && !await mount.IsTrackingAsync(ct))
+                {
+                    step.Report($"Starting {name}'s tracking to move it");
+                    await mount.EnsureTrackingAsync(TrackingSpeed.Sidereal, ct);
+                    step.Report($"Moving {name}'s axes");
+                }
+
                 // The rates as they stand now: a renewal between the request and this may already have changed one.
                 foreach (var moving in Axes)
                 {
@@ -163,6 +178,19 @@ internal sealed partial class DeviceOperations
                 logger.LogError(ex, "Could not stop the {Axis} axis of {Mount} after a move-axis", axis, uri);
             }
         }
+    }
+
+    private static double? Fastest(IReadOnlyList<AxisRate> rates)
+    {
+        double? fastest = null;
+        foreach (var range in rates)
+        {
+            if (fastest is not { } f || range.Maximum > f)
+            {
+                fastest = range.Maximum;
+            }
+        }
+        return fastest;
     }
 
     private static bool InRange(IReadOnlyList<AxisRate> rates, double rate)

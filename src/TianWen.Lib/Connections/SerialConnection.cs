@@ -78,6 +78,13 @@ internal sealed class SerialConnection : ISerialConnection
     /// <inheritdoc />
     public bool HasAbandonedIo => _port.HasAbandonedIo;
 
+    // Set by any read that returned bytes; never cleared. Read from the probe service while an abandoned read may
+    // still be running, hence volatile.
+    private volatile bool _hasAnswered;
+
+    /// <inheritdoc />
+    public bool HasAnswered => _hasAnswered;
+
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
     public async ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
@@ -114,12 +121,14 @@ internal sealed class SerialConnection : ISerialConnection
         try
         {
             var bytesRead = await _port.ReadTerminatedAsync(message, terminators, cancellationToken).ConfigureAwait(false);
+            _hasAnswered = true;
             // The terminator is consumed, not stored; shown as a marker so e.g. LX200 "On-Step#" reads as the wire did.
             LogTraffic("<--", Render(message.Span[..bytesRead]) + "<term>");
             return bytesRead;
         }
         catch (SerialFramingException ex)
         {
+            _hasAnswered |= ex.Received.Length > 0;
             _logger.LogWarning("Terminator (any of {Terminators}) not found in message from serial device on serial port {Port} ({Received})",
                 Render(terminators.Span), DisplayName, Render(ex.Received.Span));
             return -1;
@@ -147,6 +156,7 @@ internal sealed class SerialConnection : ISerialConnection
         try
         {
             await _port.ReadExactlyAsync(message, cancellationToken).ConfigureAwait(false);
+            _hasAnswered = true;
             LogTraffic("<--", $"{Render(message.Span)} ({message.Length})");
             return true;
         }
@@ -168,6 +178,7 @@ internal sealed class SerialConnection : ISerialConnection
         try
         {
             var n = _port.DiscardInput(drained);
+            _hasAnswered |= n > 0;
             if (n > 0 && LogVerbose)
             {
                 LogTraffic("<--", $"(drained {n} byte(s): {Render(drained[..n])})");

@@ -283,8 +283,12 @@ public sealed record MountDeviceStateDto
     public required bool IsTracking { get; init; }
     public MountLimitDto? Limit { get; init; }
 
+    /// <summary>The rate the mount says it tracks at (<see cref="MountState.TrackingRate"/>); null when not tracking or not known.</summary>
+    public TrackingSpeed? TrackingRate { get; init; }
+
     public static MountDeviceStateDto FromState(MountState state, MountLimitVerdict? verdict) => new MountDeviceStateDto
     {
+        TrackingRate = state.TrackingRate,
         RightAscension = DeviceStateDto.Known(state.RightAscension),
         Declination = DeviceStateDto.Known(state.Declination),
         HourAngle = DeviceStateDto.Known(state.HourAngle),
@@ -308,7 +312,8 @@ public sealed record MountDeviceStateDto
         IsSlewing: IsSlewing,
         IsTracking: IsTracking,
         RaJ2000: RaJ2000 ?? double.NaN,
-        DecJ2000: DecJ2000 ?? double.NaN);
+        DecJ2000: DecJ2000 ?? double.NaN,
+        TrackingRate: TrackingRate);
 }
 
 /// <summary>What a cover or flat panel reads (<see cref="CoverReading"/>): the flap, the light and its brightness.</summary>

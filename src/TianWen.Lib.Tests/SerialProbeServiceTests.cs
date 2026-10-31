@@ -64,6 +64,29 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task AMatchedPortIsSentNothingByTheProbesAfterIt()
+    {
+        // OnStep keeps another family's handshake (a Skywatcher ":e1\r", bytes at a foreign baud) in its command buffer
+        // and swallows the next real command with it: a connect right after discovery hung on its first :GVP#.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        var ran = new List<string>();
+        var onStep = StubProbe.Sync("OnStep", baud: 9600, match: (port, _) =>
+        {
+            ran.Add("OnStep");
+            return new SerialProbeMatch(port, new Uri("Mount://OnStepDevice/id"));
+        });
+        var sameBaud = StubProbe.Sync("QFOC", baud: 9600, match: (_, _) => { ran.Add("QFOC"); return null; });
+        var otherBaud = StubProbe.Sync("Skywatcher", baud: 115200, match: (_, _) => { ran.Add("Skywatcher"); return null; });
+        var service = BuildService(external, output, onStep, sameBaud, otherBaud);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        ran.ShouldBe(["OnStep"]);
+        external.OpenCalls.ShouldHaveSingleItem().Baud.ShouldBe(9600);
+        service.ResultsFor("OnStep").ShouldHaveSingleItem();
+    }
+
+    [Fact]
     public async Task WithTwoProbesDifferentBaudPortIsOpenedPerBaud()
     {
         // Single-pass ladder: pass 2 retry for unmatched ports is tested separately.
@@ -186,6 +209,21 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         secondRan.ShouldBe(0, "the port is given up after the probe whose I/O was abandoned");
         service.ResultsFor("Next").ShouldBeEmpty();
         external.OpenCalls.Count.ShouldBe(1, "one open at 9600; no 115200 open and no pass-2 retry");
+    }
+
+    [Fact]
+    public async Task APortThatAnsweredAndThenStalledIsTriedAgainOnTheNextPass()
+    {
+        // OnStep 4.24 answered :GVP# and :GVN#, then stopped reading for over two seconds and a write was abandoned.
+        // The port was written off for the whole discovery, as if it were a Bluetooth port with nobody there.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"], FirstOpensAbandonIo = 1, ConnectionsAnswer = true };
+        var onStep = StubProbe.Sync("OnStep", baud: 9600, match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://OnStepDevice/id")));
+        var service = BuildService(external, output, StubPinnedPortsProvider.Empty, passBudgetMultipliers: [1.0, 2.0], onStep);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        service.ResultsFor("OnStep").ShouldHaveSingleItem("pass 2 reopens the busy port and finds the mount");
+        external.OpenCalls.Count.ShouldBe(2, "pass 1's handle is given up, pass 2 opens the port again");
     }
 
     [Fact]
@@ -537,12 +575,22 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         /// <summary>When set, every connection handed out reports <see cref="ISerialConnection.HasAbandonedIo"/>.</summary>
         public bool ConnectionsAbandonIo { get; set; }
 
+        /// <summary>How many of the first opens hand out a connection that abandons its I/O, the later ones not.</summary>
+        public int FirstOpensAbandonIo { get; set; }
+
+        /// <summary>When set, every connection handed out reports <see cref="ISerialConnection.HasAnswered"/>.</summary>
+        public bool ConnectionsAnswer { get; set; }
+
+        private int _opens;
+
         public override ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
         {
             OpenCalls.Add((address, baud, assertControlLines));
+            var open = Interlocked.Increment(ref _opens);
             ISerialConnection conn = new StubSerialConnection(address, baud, encoding)
             {
-                HasAbandonedIo = ConnectionsAbandonIo,
+                HasAbandonedIo = ConnectionsAbandonIo || open <= FirstOpensAbandonIo,
+                HasAnswered = ConnectionsAnswer,
                 ControlLinesAsserted = assertControlLines,
             };
             return ValueTask.FromResult(conn);
@@ -609,6 +657,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public bool IsOpen { get; private set; } = true;
         public Encoding Encoding => encoding;
         public bool HasAbandonedIo { get; init; }
+        public bool HasAnswered { get; init; }
 
         /// <summary>Whether the service opened this handle with DTR + RTS asserted.</summary>
         public bool ControlLinesAsserted { get; init; }

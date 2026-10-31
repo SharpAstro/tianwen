@@ -161,7 +161,7 @@ public class DeviceOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         (await Client.WarmAndDisconnectDeviceAsync(device.DeviceUri, ct)).Value.ShouldNotBeNull().Id.ShouldBe(warming.Id, "the same warm-up, joined");
         var busy = await Client.DisconnectDeviceAsync(device.DeviceUri, skipWarmUp: true, ct);
         busy.StatusCode.ShouldBe(409);
-        busy.Error.ShouldNotBeNull().ShouldContain(warming.Id);
+        busy.Error.ShouldNotBeNull().ShouldContain("warming", Case.Insensitive, "the refusal says what holds the device, not a job id");
 
         (await Client.CancelJobAsync(warming.Id, ct)).IsSuccess.ShouldBeTrue();
 

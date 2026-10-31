@@ -62,6 +62,15 @@ public interface ISerialConnection : IAsyncDisposable
     bool HasAbandonedIo => false;
 
     /// <summary>
+    /// True once the far end has sent anything on this connection: a read returned bytes, or bytes were found while
+    /// discarding input. A port that has answered is a device, so an I/O it later fails to complete means the device
+    /// was BUSY (OnStep 4.24 stops reading for seconds at a time, and a write waits behind it), not that the port is
+    /// dead; <see cref="Devices.Discovery.SerialProbeService"/> tries such a port again rather than giving it up.
+    /// Default false; in-memory fakes need not track it.
+    /// </summary>
+    bool HasAnswered => false;
+
+    /// <summary>
     /// Closes the connection. Asynchronous because a close can have to wait for the driver to give up I/O it is
     /// holding; bounded by the transport, so it always returns. False when the close had to be abandoned (the next
     /// open of the port may find it busy).

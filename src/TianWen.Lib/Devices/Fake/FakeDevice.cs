@@ -152,7 +152,8 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
                 => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true, SlewStartLatency),
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "OnStep", StringComparison.OrdinalIgnoreCase)
-                => new FakeOnStepSerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
+                => new FakeOnStepSerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true,
+                    staleCommandBuffer: string.Equals(Query.QueryValue(DeviceQueryKey.StaleCommandBuffer), "true", StringComparison.OrdinalIgnoreCase)),
             DeviceType.Mount
                 => new FakeMeadeLX200SerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
             _ => null

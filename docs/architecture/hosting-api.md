@@ -691,8 +691,10 @@ the position, the mount has landed or reports itself parked), and cancelling it 
   after its start returns. A mount with no guide rate on that axis fails the job saying so: `MountNudge` returns the pulse
   it issued, or null, so no caller reports a nudge that did not happen.
 - **The goto is the GUI's own**, `MountGoto` in Lib (lifted out of the GUI's `MountActions`, whose solve and sync
-  and nudge followed it, as `MountSolveSync` and `MountNudge`): unpark, the J2000 to mount transform at the ACTIVE PROFILE's site, the horizon limit, the
-  destination pier side, the tracking rate. With no active profile there is no site, and no goto (409). What only
+  and nudge followed it, as `MountSolveSync` and `MountNudge`): a parked mount REFUSED, never unparked (`MountGoto.IsParkedAsync`), the J2000
+  to mount transform at the ACTIVE PROFILE's site, the horizon limit, the destination pier side, the tracking rate. A goto to the
+  site's pole goes home instead (`DeviceOperations.GoHomeAsync`, also the Home button): refused when parked, no software horizon
+  limit (home is not an observing position, and near the equator the pole sits under any limit), tracking stopped on arrival. With no active profile there is no site, and no goto (409). What only
   the mount's geometry can answer (below the horizon, a pier side it cannot reach) FAILS the job with its reason,
   where a lease, a busy device or a bad request is refused before any job.
 - **A second move while one runs is refused (409), not joined**: a move to another position is not the same move,

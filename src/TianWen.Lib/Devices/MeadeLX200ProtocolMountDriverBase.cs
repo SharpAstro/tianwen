@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers.Text;
 using System.Collections.Generic;
@@ -65,19 +65,69 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public virtual bool CanUnpark => false;
 
+    // Declared here, not only as the interface's defaults, so that a subclass's override is the one IMountDriver calls.
+    public virtual bool CanFindHome => false;
+
+    public virtual ValueTask FindHomeAsync(CancellationToken cancellationToken)
+        => throw new InvalidOperationException($"{_device.DisplayName} cannot go home by itself");
+
+    public virtual ValueTask SetParkAsync(CancellationToken cancellationToken)
+        => throw new InvalidOperationException($"{_device.DisplayName} cannot set its park position");
+
     public bool CanSlew => false;
 
     public bool CanSlewAsync => true;
 
     public bool CanSync => true;
 
-    public bool CanMoveAxis(TelescopeAxis axis) => false;
+    // Not offered on the plain LX200 family yet: the LX85 cannot answer which side of the pier it is on. A subclass that
+    // moves its axes overrides CanMoveAxis, AxisRates and MoveRateCommandFor; the moving itself is the protocol's own.
+    public virtual bool CanMoveAxis(TelescopeAxis axis) => false;
 
-    public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => [];
+    public virtual IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => [];
 
-    public ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
+    /// <summary>The command that sets <paramref name="axis"/>'s move rate to <paramref name="rateDegPerSec"/>, never faster.</summary>
+    protected virtual ReadOnlyMemory<byte> MoveRateCommandFor(TelescopeAxis axis, double rateDegPerSec)
+        => throw new InvalidOperationException("Moving axis directly is not supported");
+
+    protected static readonly ReadOnlyMemory<byte> MeCommand = "Me"u8.ToArray();
+    protected static readonly ReadOnlyMemory<byte> MwCommand = "Mw"u8.ToArray();
+    protected static readonly ReadOnlyMemory<byte> MnCommand = "Mn"u8.ToArray();
+    protected static readonly ReadOnlyMemory<byte> MsCommand = "Ms"u8.ToArray();
+    protected static readonly ReadOnlyMemory<byte> QeCommand = "Qe"u8.ToArray();
+    protected static readonly ReadOnlyMemory<byte> QwCommand = "Qw"u8.ToArray();
+    protected static readonly ReadOnlyMemory<byte> QnCommand = "Qn"u8.ToArray();
+    protected static readonly ReadOnlyMemory<byte> QsCommand = "Qs"u8.ToArray();
+
+    /// <summary>
+    /// Moves the axis by the LX200 sky-direction commands, or stops it at 0. The sign is <see cref="MountJog"/>'s: on
+    /// the primary axis positive runs along the hemisphere's tracking, which is West (<c>:Mw#</c>), on the secondary
+    /// positive is North (<c>:Mn#</c>). The rate is set before every move rather than remembered, since the handset can
+    /// change it in between. A stop sends both of the axis's stops, whichever way it was moving. A start sends NO stop
+    /// first, as the ASCOM OnStep driver does not: on the TeeSeek's OnStep 4.24 a <c>:Qw#</c> just before <c>:Me#</c>
+    /// left the axis standing, the move apparently dropped while the stop decelerated.
+    /// </summary>
+    public virtual async ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
     {
-        throw new InvalidOperationException("Moving axis directly is not supported");
+        if (!CanMoveAxis(axis))
+        {
+            throw new InvalidOperationException($"{_device.DisplayName} cannot move its {axis} axis");
+        }
+
+        if (rate == 0)
+        {
+            var (stopA, stopB) = axis is TelescopeAxis.Primary ? (QeCommand, QwCommand) : (QnCommand, QsCommand);
+            await SendWithoutResponseAsync(stopA, cancellationToken);
+            await SendWithoutResponseAsync(stopB, cancellationToken);
+            return;
+        }
+
+        var move = axis is TelescopeAxis.Primary
+            ? (rate > 0) != await IsSouthernHemisphereAsync(cancellationToken) ? MwCommand : MeCommand
+            : rate > 0 ? MnCommand : MsCommand;
+
+        await SendWithoutResponseAsync(MoveRateCommandFor(axis, Math.Abs(rate)), cancellationToken);
+        await SendWithoutResponseAsync(move, cancellationToken);
     }
 
     private static readonly ReadOnlyMemory<byte> GTCommand = "GT"u8.ToArray();
@@ -215,7 +265,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return DateTime.SpecifyKind(localDate.Add(localTime).Add(utcOffset), DateTimeKind.Utc);
     }
 
-    public async ValueTask SetUTCDateAsync(DateTime value, CancellationToken cancellationToken)
+    // OnStep overrides this with the spec's acks and its own :SG; the Meade path stays as it is until the LX85 is
+    // retested on the bench (#1907): it reads :SL/:SC's '1' as failure, which the Meade document calls valid.
+    public virtual async ValueTask SetUTCDateAsync(DateTime value, CancellationToken cancellationToken)
     {
         var utcOffset = await GetUtcCorrectionAsync(cancellationToken);
         if (!(value is { Kind: DateTimeKind.Utc } utcDate) || _deviceInfo.SerialDevice is not { IsOpen: true } port)
@@ -294,7 +346,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     }
 
     private static readonly ReadOnlyMemory<byte> GGCommand = "GG"u8.ToArray();
-    private async ValueTask<TimeSpan> GetUtcCorrectionAsync(CancellationToken cancellationToken)
+    protected async ValueTask<TimeSpan> GetUtcCorrectionAsync(CancellationToken cancellationToken)
     {
         // :GG# Get UTC offset time
         // Returns: sHH# or sHH.H#
@@ -322,7 +374,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return false;
     }
 
-    public bool TimeIsSetByUs { get; private set; }
+    public bool TimeIsSetByUs { get; protected set; }
 
     /// <summary>
     /// Calculates side of per (as we do not have this information from the mount itself),
@@ -514,10 +566,18 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         {
             throw new InvalidOperationException($"No response received for declination query target={target}");
         }
-        var dec = DMSToDegree(response.Replace('\xdf', ':'));
+        var dec = ParseDeclination(response);
 
         return (dec, response.Length >= 7);
     }
+
+    /// <summary>
+    /// Parses a <c>:GD#</c> / <c>:Gd#</c> reply, <c>sDD*MM</c> or <c>sDD*MM:SS</c>, into degrees, NaN when it is not one.
+    /// The degree mark is Meade's <c>\xdf</c> or OnStep's <c>*</c> (also <c>\xb0</c>), the seconds mark <c>:</c> or
+    /// Meade's <c>'</c> (#1898: OnStep's <c>*</c> was read as NaN).
+    /// </summary>
+    internal static double ParseDeclination(string reply)
+        => DMSToDegree(reply.Replace('\xdf', ':').Replace('*', ':').Replace('\xb0', ':').Replace('\'', ':'));
 
 
     /// <summary>
@@ -716,7 +776,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return sideOfPier;
     }
 
-    private async ValueTask<bool> IsSouthernHemisphereAsync(CancellationToken cancellationToken)
+    protected async ValueTask<bool> IsSouthernHemisphereAsync(CancellationToken cancellationToken)
         => _isSouthernHemisphere ??= await GetSiteLatitudeAsync(cancellationToken) < 0;
 
     public async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
@@ -822,7 +882,12 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         {
             using var @lock = await port.WaitAsync(cancellationToken);
             await SendAsync(port, SlewCommand, cancellationToken);
-            var response = await port.TryReadExactlyAsync(1, cancellationToken);
+
+            // Bounded as every reply is: this read holds the port's lock, so a reply that never comes used to leave every
+            // other command queued behind it for good.
+            using var timeout = new CancellationTokenSource(ReplyTimeout, global::System.TimeProvider.System);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+            var response = await port.TryReadExactlyAsync(1, linked.Token);
 
             if (response is "0")
             {
@@ -830,29 +895,43 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
                 Logger.LogTrace("Slewing to {RA},{Dec}", HoursToHMS(ra), DegreesToDMS(dec));
 #endif
             }
-            else if (response is { Length: 1 }
-                && byte.TryParse(response[0..1], out var reasonCode)
-                && (await port.TryReadTerminatedAsync(Terminators, cancellationToken) is { } reasonMessage)
-            )
+            else if (response is { Length: 1 } && byte.TryParse(response, out var reasonCode))
             {
-                var reason = reasonCode switch
-                {
-                    1 => "below horizon limit",
-                    2 => "above hight limit",
-                    _ => $"unknown reason {reasonCode}: {reasonMessage}"
-                };
-
-                throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={reasonCode}{reasonMessage}");
+                var reasonMessage = await ReadSlewRefusalMessageAsync(port, linked.Token);
+                throw new InvalidOperationException($"{_device.DisplayName} refused the goto to {HoursToHMS(ra)},{DegreesToDMS(dec)}: {DescribeSlewRefusal(reasonCode, reasonMessage)}");
             }
             else
             {
-                throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to an unrecognized response: {response}");
+                if (response is null && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    await RecoverFromLostReplyAsync(port, SlewCommand, cancellationToken);
+                }
+                throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to an unrecognized response: {response ?? "nothing"}");
             }
         }
         else
         {
             throw new InvalidOperationException("Serial port is not connected");
         }
+    }
+
+    /// <summary>
+    /// What follows the digit of a refused <c>:MS#</c>. Meade sends a message ending in <c>#</c>
+    /// (<c>1Object Below Horizon#</c>); OnStep sends the digit alone and overrides this.
+    /// </summary>
+    protected virtual ValueTask<string?> ReadSlewRefusalMessageAsync(ISerialConnection port, CancellationToken cancellationToken)
+        => port.TryReadTerminatedAsync(Terminators, cancellationToken);
+
+    /// <summary>A refused <c>:MS#</c>'s digit, and the message after it if any, in words.</summary>
+    protected virtual string DescribeSlewRefusal(byte reasonCode, string? reasonMessage)
+    {
+        var reason = reasonCode switch
+        {
+            1 => "below horizon limit",
+            2 => "above high limit",
+            _ => $"unknown reason {reasonCode}"
+        };
+        return reasonMessage is { Length: > 0 } ? $"{reason} ({reasonMessage})" : reason;
     }
 
     private readonly ReadOnlyMemory<byte> QCommand = "Q"u8.ToArray();
@@ -962,12 +1041,21 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     {
         try
         {
+            // Start from an empty command buffer whatever was sent before us, so the first :GVP# is read as itself.
+            if (_deviceInfo.SerialDevice is { IsOpen: true } port)
+            {
+                using var @lock = await port.WaitAsync(cancellationToken);
+                await ClearCommandBufferAsync(port, cancellationToken);
+            }
+
             var name = await SendAndReceiveAsync(GVPCommand, cancellationToken);
 
             var fw = await SendAndReceiveAsync(GVNCommand, cancellationToken);
 
             if (name is not { } || fw is not { })
             {
+                Logger.LogError("{Device} did not identify itself (:GVP# answered {Name}, :GVN# answered {Firmware}); giving the connect up",
+                    _device.DisplayName, name ?? "nothing", fw ?? "nothing");
                 return false;
             }
 
@@ -1015,7 +1103,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     private static readonly ReadOnlyMemory<byte> Terminators = "#\0"u8.ToArray();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    protected async ValueTask<string?> SendAndReceiveAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+    protected async ValueTask<string?> SendAndReceiveAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken, TimeSpan? replyTimeout = null)
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
@@ -1023,7 +1111,14 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             await SendAsync(port, command, cancellationToken);
 
-            return await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+            using var timeout = new CancellationTokenSource(replyTimeout ?? ReplyTimeout, global::System.TimeProvider.System);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+            var reply = await port.TryReadTerminatedAsync(Terminators, linked.Token);
+            if (reply is null && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                await RecoverFromLostReplyAsync(port, command, cancellationToken);
+            }
+            return reply;
         }
 
         return null;
@@ -1038,7 +1133,14 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             await SendAsync(port, command, cancellationToken);
 
-            return await port.TryReadTerminatedRawAsync(response, Terminators, cancellationToken);
+            using var timeout = new CancellationTokenSource(ReplyTimeout, global::System.TimeProvider.System);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+            var bytesRead = await port.TryReadTerminatedRawAsync(response, Terminators, linked.Token);
+            if (bytesRead < 0 && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                await RecoverFromLostReplyAsync(port, command, cancellationToken);
+            }
+            return bytesRead;
         }
 
         return -1;
@@ -1053,10 +1155,51 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             await SendAsync(port, command, cancellationToken);
 
-            return await port.TryReadExactlyAsync(count, cancellationToken);
+            using var timeout = new CancellationTokenSource(ReplyTimeout, global::System.TimeProvider.System);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+            var reply = await port.TryReadExactlyAsync(count, linked.Token);
+            if (reply is null && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                await RecoverFromLostReplyAsync(port, command, cancellationToken);
+            }
+            return reply;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// How long any reply is waited for. A lost reply used to wait for ever on the caller's token, holding the port's
+    /// lock, so one swallowed command hung a connect for good (#1898). Generous, but never for ever: an OnStep can be slow to boot, 4.24 was seen taking 2.5 s over a
+    /// <c>:GP#</c>, and an Autostar's <c>:SC#</c> answers its "Updating planetary data" lines slowly. It bounds a real
+    /// wait on a real port, so it runs on the BCL's wall clock, never the injected one: under a fake clock nothing would advance it.
+    /// </summary>
+    internal static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(25);
+
+    /// <summary>How long a bare <c>#</c> is given to produce whatever the controller answers to it.</summary>
+    private static readonly TimeSpan ClearCommandBufferSettle = TimeSpan.FromMilliseconds(100);
+
+    private static readonly ReadOnlyMemory<byte> BareTerminator = "#"u8.ToArray();
+
+    /// <summary>
+    /// Ends whatever partial command the controller is holding and drops what it answers. Bytes another program, or a
+    /// discovery probe of another family, left behind (a Skywatcher <c>:e1\r</c>, bytes at a foreign baud) sit in an
+    /// LX200 controller's command buffer until a <c>#</c>, so the next real command is read as part of them and
+    /// answered with OnStep's unterminated <c>0</c>, or nothing. Assumes the port's lock is held.
+    /// </summary>
+    private async ValueTask ClearCommandBufferAsync(ISerialConnection port, CancellationToken cancellationToken)
+    {
+        port.DiscardInBuffer();
+        await port.TryWriteAsync(BareTerminator, cancellationToken);
+        await TimeProvider.SleepAsync(ClearCommandBufferSettle, cancellationToken);
+        port.DiscardInBuffer();
+    }
+
+    private async ValueTask RecoverFromLostReplyAsync(ISerialConnection port, ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+    {
+        Logger.LogWarning("No reply to :{Command}# from {Device} within {Timeout}; clearing the mount's command buffer",
+            _encoding.GetString(command.Span), _device.DisplayName, ReplyTimeout);
+        await ClearCommandBufferAsync(port, cancellationToken);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]

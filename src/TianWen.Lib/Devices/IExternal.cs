@@ -156,6 +156,12 @@ public interface IExternal
     string? ReasonNotToProbeSerialPort(string port) => null;
 
     /// <summary>
+    /// Whether a connection this process opened holds <paramref name="port"/>: a connected driver's port, which
+    /// <see cref="EnumerateAvailableSerialPorts"/> leaves out so no discovery disturbs it. Unlike a port that is gone.
+    /// </summary>
+    bool IsSerialPortInUse(string port) => false;
+
+    /// <summary>
     /// Opens a serial-style connection (RS-232 / USB-to-serial) asynchronously. The
     /// underlying BCL <c>SerialPort.Open</c> is synchronous and does not yield, so
     /// implementations typically offload the open onto the thread pool via

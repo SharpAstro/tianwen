@@ -194,6 +194,12 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
                 case ":hR#": IsParked = false; return "1";
                 case ":hQ#": return "1";
                 case ":Gm#": return IsParked ? "N" : "E";
+                // The clock a connect sets and reads back: an OnStep at UTC, acknowledging :SC and :SL with 1.
+                case ":GG#": return "+00#";
+                case ":GL#": return System.DateTime.UtcNow.ToString("HH:mm:ss#", System.Globalization.CultureInfo.InvariantCulture);
+                case ":GC#": return System.DateTime.UtcNow.ToString("MM/dd/yy#", System.Globalization.CultureInfo.InvariantCulture);
+                case [':', 'S', 'C', .., '#']: return "1";
+                case [':', 'S', 'L', .., '#']: return "1";
                 default: return null;
             }
         }
