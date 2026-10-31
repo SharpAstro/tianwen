@@ -670,6 +670,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
         if (response is "1")
         {
+            // The hemisphere is read off this latitude, so a cached answer from before the push is stale.
+            _isSouthernHemisphere = null;
             Logger.LogInformation("Updated site latitude to {Degrees}", latitude);
         }
         else

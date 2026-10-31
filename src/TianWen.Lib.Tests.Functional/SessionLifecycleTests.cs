@@ -282,6 +282,20 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         (await ctx.Mount.AtParkAsync(ct)).ShouldBeTrue();
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task DuskFlatsWithTheWindowAlreadyPastLeaveAParkedMountParked()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, now: WinterNight, configuration: SessionTestHelper.DefaultConfiguration with { TakeSkyFlatsAtDusk = true }, cancellationToken: ct);
+        await ctx.Mount.ParkAsync(ct);
+
+        // WinterNight is after dusk, so the window is past: the block skips before it moves the mount.
+        (await ctx.Session.TakeSkyFlatsAsync(TwilightPeriod.Dusk, ct)).ShouldBeTrue();
+
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeTrue("a skipped dusk block never moves, so never unparks, the mount");
+    }
+
     /// <summary>
     /// A run's devices connect THROUGH the hub, so a node holds one driver per device (P0b item 11 of
     /// docs/plans/hardware-in-the-server.md, #752). The session connected drivers of its own unless the hub

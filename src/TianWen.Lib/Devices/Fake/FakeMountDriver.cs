@@ -324,6 +324,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     /// <summary>How many slews <see cref="SlewFault"/> refused.</summary>
     internal int RefusedSlewCount { get; private set; }
 
+    /// <summary>Test seam: a mount that ignores a request to start tracking, as one that will not track does.</summary>
+    internal bool RefusesTracking { get; set; }
+
     public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(Alignment);
 
@@ -333,6 +336,10 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public async ValueTask SetTrackingAsync(bool tracking, CancellationToken cancellationToken)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
+        if (tracking && RefusesTracking)
+        {
+            return;
+        }
         if (tracking && !_isTracking)
         {
             // Disturbances accumulate from when tracking starts (a fresh field), so re-base the
@@ -755,8 +762,17 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     // --- Site ---
 
+    /// <summary>Test seam: how many times the site latitude was read.</summary>
+    internal int SiteLatitudeReads { get; private set; }
+
+    /// <summary>Test seam: the fake advertises <see cref="IMountDriver.CanFindHome"/> only when asked.</summary>
+    public bool CanFindHome { get; internal set; }
+
     public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_siteLatitude);
+    {
+        SiteLatitudeReads++;
+        return ValueTask.FromResult(_siteLatitude);
+    }
 
     public async ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
     {

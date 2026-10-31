@@ -48,7 +48,7 @@ internal partial record Session
     /// sky ramps into band. Tracking is left off; <c>Finalise</c> (dawn) or the subsequent slew (dusk) handles
     /// the mount afterwards.
     /// </remarks>
-    internal async ValueTask TakeSkyFlatsAsync(TwilightPeriod period, CancellationToken cancellationToken)
+    internal async ValueTask<bool> TakeSkyFlatsAsync(TwilightPeriod period, CancellationToken cancellationToken)
     {
         var cfg = Configuration;
         var target = cfg.FlatTargetAduFraction;
@@ -76,7 +76,7 @@ internal partial record Session
         if (await IsSkyFlatWindowPastAsync(period, cfg.FlatSkySunAltitudeBrightDeg, cfg.FlatSkySunAltitudeDarkDeg, cancellationToken).ConfigureAwait(false))
         {
             _logger.LogWarning("Sky-flat window for {Period} has already passed; skipping sky flats.", period);
-            return;
+            return true;
         }
 
         // A mount that cannot goto cannot reach the patch of sky a twilight flat needs; the calibrator path is unaffected
@@ -84,7 +84,13 @@ internal partial record Session
         if (MountPointsWithoutGoto)
         {
             _logger.LogWarning("The mount cannot goto, so it cannot point near the zenith for {Period} sky flats; skipping them.", period);
-            return;
+            return true;
+        }
+
+        // The slew is the run's first move of the mount (idempotent: dawn and the on-demand run have unparked already).
+        if (!await UnparkForRunAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return false;
         }
 
         // Point near the zenith, tilted toward the anti-solar sky (west at dawn, east at dusk) to minimise
@@ -142,6 +148,7 @@ internal partial record Session
         }
 
         _logger.LogInformation("Sky-flat acquisition complete ({Period}).", period);
+        return true;
     }
 
     /// <summary>

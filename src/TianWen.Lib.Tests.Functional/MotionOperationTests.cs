@@ -138,6 +138,22 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         (await mount.GetDeclinationAsync(ct)).ShouldBe(85, 0.01);
     }
 
+    // Only a goto at a pole asks the site latitude (to tell the mount's own pole): any other Dec never reads it.
+    [Fact(Timeout = 60_000)]
+    public async Task AGotoAwayFromThePoleNeverReadsTheSiteLatitude()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fake = (await Hub.ConnectAsync(Mount, ct)).ShouldBeOfType<FakeMountDriver>();
+        fake.CanFindHome = true;
+        await ActiveRigAsync(ct);
+        var reads = fake.SiteLatitudeReads;
+
+        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = 0, DecJ2000 = 40 }, ct)).Value.ShouldNotBeNull();
+        await UntilEndedAsync(job.Id, ct);
+
+        fake.SiteLatitudeReads.ShouldBe(reads, "a Dec away from a pole needs no site");
+    }
+
     // What only the mount's geometry can answer fails the job with its reason, rather than being a request refusal.
     [Fact(Timeout = 60_000)]
     public async Task AGotoBelowTheHorizonFailsSayingSo()
@@ -343,6 +359,24 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         (await UntilEndedAsync(job.Id, ct)).State.ShouldBe(JobState.Cancelled);
         (await mount.IsTrackingAsync(ct)).ShouldBeTrue("the mount is left tracking after the move");
         (await mount.GetTrackingSpeedAsync(ct)).ShouldBe(TrackingSpeed.Sidereal);
+    }
+
+    // A mount that will not start tracking fails the held move naming why, and no axis is commanded.
+    [Fact(Timeout = 60_000)]
+    public async Task AHeldMoveOnAMountThatWillNotTrackFailsNamingItAndMovesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = (IMountDriver)await Hub.ConnectAsync(Mount, ct);
+        var fake = mount.ShouldBeOfType<FakeMountDriver>();
+        (await Client.SetMountTrackingAsync(Mount.DeviceUri, false, ct)).IsSuccess.ShouldBeTrue();
+        fake.RefusesTracking = true;
+
+        var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 0.5, ct)).Value.ShouldNotBeNull();
+
+        var failed = await UntilEndedAsync(job.Id, ct);
+        failed.State.ShouldBe(JobState.Failed);
+        failed.Error.ShouldNotBeNull().ShouldContain("did not start tracking");
+        (await fake.IsTrackingAsync(ct)).ShouldBeFalse();
     }
 
     // Nothing unparks a mount by itself (the owner, 2026-10-30): a goto on a parked mount fails saying so, and it stays parked.

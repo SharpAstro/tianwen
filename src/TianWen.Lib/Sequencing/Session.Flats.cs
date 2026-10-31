@@ -38,7 +38,11 @@ internal partial record Session
     {
         if (Configuration.FlatSource is FlatIlluminationSource.TwilightSky)
         {
-            await TakeSkyFlatsAsync(TwilightPeriod.Dawn, cancellationToken).ConfigureAwait(false);
+            // A refused unpark is logged and recorded in FailureReason by UnparkForRunAsync; the flats are then skipped.
+            if (!await TakeSkyFlatsAsync(TwilightPeriod.Dawn, cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogWarning("Dawn sky flats skipped: {Reason}", _failureReason);
+            }
             return;
         }
 
