@@ -136,4 +136,36 @@ public class SkywatcherHomeSiteTests(ITestOutputHelper output)
         (await driver.GetSiteLatitudeAsync(ct)).ShouldBe(Melbourne);
         (await driver.GetDeclinationAsync(ct)).ShouldBe(-90.0, 1e-6);
     }
+
+    [Theory(Timeout = 30_000)]
+    [InlineData(Melbourne, 145.1775)]
+    [InlineData(Vienna, 16.3)]
+    public async Task HomeSlewsBothAxesBackToThePowerOnPositionAndStops(double latitude, double longitude)
+    {
+        // A Synta board has no home sensor: home is where it was switched on, encoder zero, and Home goes back there.
+        var ct = TestContext.Current.CancellationToken;
+        var (driver, board, clock) = await ConnectAsync(latitude, longitude, ct);
+        driver.CanFindHome.ShouldBeTrue();
+        var lst = await driver.GetSiderealTimeAsync(ct);
+        await driver.SetTrackingAsync(true, ct);
+        await driver.BeginSlewRaDecAsync(CoordinateUtils.ConditionRA(lst + 1.1), 0.0, ct);
+        for (var i = 0; i < 60 && await driver.IsSlewingAsync(ct); i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+        }
+        board.Steps.ShouldNotBe((0, 0), "premise: the goto took it away from home");
+
+        var home = driver.FindHomeAsync(ct).AsTask();
+        while (!home.IsCompleted)
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await Task.Yield();
+        }
+        await home;
+
+        board.Steps.ShouldBe((0, 0));
+        (await driver.AtHomeAsync(ct)).ShouldBeTrue();
+        board.RaMotion.Running.ShouldBeFalse("stopped at home, tracking included");
+        (await driver.GetDeclinationAsync(ct)).ShouldBe(Math.Sign(latitude) * 90.0, 1e-6);
+    }
 }
