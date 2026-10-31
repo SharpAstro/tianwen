@@ -86,7 +86,7 @@ namespace TianWen.UI.Abstractions
 
             // Site inputs share a commit: save site on Enter from any of the three fields.
             // Parse/validate + the mount push live in EquipmentActions; this routes.
-            Func<Task> saveSite = async () =>
+            Func<bool, Task> saveSite = async anyway =>
             {
                 if (appState.ActiveProfile is not { } siteProfile)
                 {
@@ -102,6 +102,18 @@ namespace TianWen.UI.Abstractions
                 }
 
                 var sData = siteProfile.Data ?? ProfileData.Empty;
+
+                // A site in the other hemisphere waits for the mount to be at home: the editor stays open and asks.
+                var mountState = _contexts.Active.IsLocal && sData.Mount is { } siteMount ? _appState.LocalNode?.Device(siteMount)?.Mount : null;
+                if (!anyway && EquipmentActions.SiteNeedsMountHome(sData, new SiteCoordinates(sLat, sLon, sElev), mountState))
+                {
+                    eqState.HeldSite = new SiteCoordinates(sLat, sLon, sElev);
+                    eqState.HeldSiteMountParked = mountState is { AtPark: true };
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+                eqState.HeldSite = null;
+
                 var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
                 var updatedSite = siteProfile.WithData(newSiteData);
                 eqState.IsEditingSite = false;
@@ -138,13 +150,26 @@ namespace TianWen.UI.Abstractions
             // focused at a time, so the signal covers whichever of the three it is.
             Action cancelSite = () =>
             {
+                eqState.HeldSite = null;
                 eqState.IsEditingSite = false;
                 bus.Post(new DeactivateTextInputSignal());
             };
 
-            eqState.LatitudeInput.OnCommit = _ => saveSite();
-            eqState.LongitudeInput.OnCommit = _ => saveSite();
-            eqState.ElevationInput.OnCommit = _ => saveSite();
+            eqState.LatitudeInput.OnCommit = _ => saveSite(false);
+            eqState.LongitudeInput.OnCommit = _ => saveSite(false);
+            eqState.ElevationInput.OnCommit = _ => saveSite(false);
+            bus.Subscribe<HeldSiteSignal>(async sig =>
+            {
+                if (sig.Choice is HeldSiteChoice.SaveAnyway)
+                {
+                    await saveSite(true);
+                }
+                else
+                {
+                    eqState.HeldSite = null;
+                    appState.NeedsRedraw = true;
+                }
+            });
             eqState.LatitudeInput.OnCancel = cancelSite;
             eqState.LongitudeInput.OnCancel = cancelSite;
             eqState.ElevationInput.OnCancel = cancelSite;

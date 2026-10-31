@@ -288,6 +288,12 @@ public sealed record MountDeviceStateDto
     /// <summary>The rate the mount says it tracks at (<see cref="MountState.TrackingRate"/>); null when not tracking or not known.</summary>
     public TrackingSpeed? TrackingRate { get; init; }
 
+    /// <summary>Whether the mount says it is at home (<see cref="MountState.AtHome"/>).</summary>
+    public bool AtHome { get; init; }
+
+    /// <summary>Whether the mount says it is parked (<see cref="MountState.AtPark"/>).</summary>
+    public bool AtPark { get; init; }
+
     public static MountDeviceStateDto FromState(MountState state, MountLimitVerdict? verdict) => new MountDeviceStateDto
     {
         TrackingRate = state.TrackingRate,
@@ -299,6 +305,8 @@ public sealed record MountDeviceStateDto
         PierSide = state.PierSide,
         IsSlewing = state.IsSlewing,
         IsTracking = state.IsTracking,
+        AtHome = state.AtHome,
+        AtPark = state.AtPark,
         Limit = verdict is { } v ? MountLimitDto.FromVerdict(v) : null,
     };
 
@@ -315,7 +323,9 @@ public sealed record MountDeviceStateDto
         IsTracking: IsTracking,
         RaJ2000: RaJ2000 ?? double.NaN,
         DecJ2000: DecJ2000 ?? double.NaN,
-        TrackingRate: TrackingRate);
+        TrackingRate: TrackingRate,
+        AtHome: AtHome,
+        AtPark: AtPark);
 }
 
 /// <summary>What a cover or flat panel reads (<see cref="CoverReading"/>): the flap, the light and its brightness.</summary>
