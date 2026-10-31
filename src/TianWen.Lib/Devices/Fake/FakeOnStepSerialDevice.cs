@@ -13,7 +13,9 @@ namespace TianWen.Lib.Devices.Fake;
 /// pier-side), <c>:hP#</c>/<c>:hR#</c>/<c>:hQ#</c> (park / unpark / set-park with
 /// 0/1 response codes and the realistic <c>p</c>→<c>I</c>→<c>P</c> state
 /// transition), <c>:Te#</c>/<c>:Td#</c> (tracking on/off with response), and
-/// <c>:TK#</c>/<c>:TS#</c> (King / Solar tracking rates).
+/// <c>:TK#</c>/<c>:TS#</c> (King / Solar tracking rates), <c>:hC#</c> (return home, answers nothing, raises the
+/// <c>H</c> flag in <c>:GU#</c> a moment later, see <see cref="DeviceQueryKey.HomeOutcome"/>) and the two configuration reads
+/// the driver works its top move rate from, <c>:GXE6#</c> and <c>:GX92#</c>.
 /// </summary>
 internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
 {
@@ -26,6 +28,19 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     // volatile keyword (passing a volatile field by ref is what triggers CS0420).
     private int _parkStateRaw = (int)ParkState.NotParked;
     private ITimer? _parkTimer;
+
+    /// <summary>The <c>H</c> flag of <c>:GU#</c>: the mount is at its home position.</summary>
+    private bool _atHome;
+
+    private ITimer? _homeTimer;
+
+    /// <summary>What <c>:hC#</c> comes to: <see cref="HomeReached"/>, <see cref="HomeFails"/> or <see cref="HomeNever"/>; see <see cref="DeviceQueryKey.HomeOutcome"/>.</summary>
+    private readonly string _homeOutcome;
+
+    internal const string HomeReached = "reached", HomeFails = "fail", HomeNever = "never";
+
+    /// <summary>Fake time <c>:hC#</c> takes to reach home, long enough for the driver's 250 ms poll to see the mount on its way.</summary>
+    private static readonly TimeSpan HomeDuration = TimeSpan.FromMilliseconds(600);
 
     /// <summary>
     /// Fake time it takes the mount to "complete" parking. Short enough that the
@@ -49,11 +64,12 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     /// <summary>See <see cref="DeviceQueryKey.StaleCommandBuffer"/>. Only ever read and written under <c>_lockObj</c>.</summary>
     private bool _staleCommandBuffer;
 
-    public FakeOnStepSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen, bool staleCommandBuffer = false)
+    public FakeOnStepSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen, bool staleCommandBuffer = false, string? homeOutcome = null)
         : base(logger, encoding, timeProvider, siteLatitude, siteLongitude, isOpen)
     {
         _onStepTimeProvider = timeProvider;
         _staleCommandBuffer = staleCommandBuffer;
+        _homeOutcome = homeOutcome?.ToLowerInvariant() ?? HomeReached;
     }
 
     /// <summary>
@@ -104,6 +120,22 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
             case ":hR#":
                 Unpark();
                 _responseBuffer.Append('1');
+                return true;
+
+            case ":hC#":
+                // Answers nothing, as OnStep's :hC# does; progress is read from :GU#.
+                BeginHome();
+                return true;
+
+            case ":GXE6#":
+                // Steps per sidereal second on axis 1 (OnStep's stepsPerSecondAxis1, six decimals), NOT steps per degree
+                // (that is :GXE4# / :GXE5#): the sky turns 1/240 degree a second.
+                _responseBuffer.Append((StepsPerDegree / 240.0).ToString("F6", CultureInfo.InvariantCulture)).Append('#');
+                return true;
+
+            case ":GX92#":
+                // The configured top rate, microseconds a step (OnStep's maxRate / 16, three decimals).
+                _responseBuffer.Append(MaxRateMicrosecondsPerStep.ToString("F3", CultureInfo.InvariantCulture)).Append('#');
                 return true;
 
             case ":hQ#":
@@ -180,6 +212,9 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
         }
     }
 
+    /// <summary>The top rate <c>:GX92#</c> answers, microseconds a step: with the drive below it is 1.76 degrees a second (422x sidereal).</summary>
+    internal const double MaxRateMicrosecondsPerStep = 50.0;
+
     /// <summary>
     /// Simulated drive ratio at the output (sky) axis: 11,378 steps per degree, matching
     /// a typical TeeSeek-class harmonic mount:
@@ -188,8 +223,9 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     ///   <item><description>80:1 harmonic strain-wave reducer → 4,096,000 microsteps per 360° sky rotation</description></item>
     ///   <item><description>4,096,000 ÷ 360 ≈ <b>11,378 steps/°</b></description></item>
     /// </list>
-    /// That gives ~0.32" per step at the sky: consistent with what real OnStep harmonic
-    /// mounts report in their <c>:GXE6#</c> configuration query. Downstream users of
+    /// That gives ~0.32" per step at the sky. OnStep reports this as <c>:GXE4#</c> / <c>:GXE5#</c> (steps per degree
+    /// on each axis); <c>:GXE6#</c> is the steps a SIDEREAL SECOND takes (OnStep's <c>stepsPerSecondAxis1</c>), which is
+    /// this over 240. Downstream users of
     /// <see cref="GetAxisPositionAsync"/> (e.g. neural-guider PE feature engineering)
     /// see realistic, monotonically changing encoder values.
     /// </summary>
@@ -220,6 +256,11 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
         }
 
         // Park state: exactly one of p / I / P / F.
+        if (_atHome)
+        {
+            _responseBuffer.Append('H');
+        }
+
         _responseBuffer.Append(CurrentParkState switch
         {
             ParkState.NotParked => 'p',
@@ -246,6 +287,7 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     {
         // Stop any in-flight slew immediately (real OnStep does this too)
         _isSlewing = false;
+        _atHome = false;
         SetParkState(ParkState.Parking);
 
         // Schedule the transition to Parked. Fake-time-aware via _onStepTimeProvider:
@@ -265,6 +307,35 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
             },
             state: null,
             dueTime: ParkDuration,
+            period: Timeout.InfiniteTimeSpan))?.Dispose();
+    }
+
+    private void BeginHome()
+    {
+        _isSlewing = false;
+        _atHome = false;
+        if (_homeOutcome is HomeNever)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref _homeTimer, _onStepTimeProvider.CreateTimer(
+            _ =>
+            {
+                lock (_lockObj)
+                {
+                    if (_homeOutcome is HomeFails)
+                    {
+                        SetParkState(ParkState.Failed);
+                    }
+                    else
+                    {
+                        _atHome = true;
+                    }
+                }
+            },
+            state: null,
+            dueTime: HomeDuration,
             period: Timeout.InfiniteTimeSpan))?.Dispose();
     }
 

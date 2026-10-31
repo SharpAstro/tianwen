@@ -768,6 +768,15 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     /// <summary>Test seam: the fake advertises <see cref="IMountDriver.CanFindHome"/> only when asked.</summary>
     public bool CanFindHome { get; internal set; }
 
+    /// <summary>Test seam: how many times the mount was sent home (the fake does not move; it only counts).</summary>
+    internal int FindHomeCalls { get; private set; }
+
+    public ValueTask FindHomeAsync(CancellationToken cancellationToken)
+    {
+        FindHomeCalls++;
+        return ValueTask.CompletedTask;
+    }
+
     public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
     {
         SiteLatitudeReads++;

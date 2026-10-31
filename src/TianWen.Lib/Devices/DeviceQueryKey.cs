@@ -52,6 +52,12 @@ public enum DeviceQueryKey
     /// answered with OnStep's unterminated <c>0</c>; a bare <c>#</c> ends it harmlessly.
     /// </summary>
     StaleCommandBuffer,
+
+    /// <summary>
+    /// Fake OnStep only: what <c>:hC#</c> (return home) comes to: <c>reached</c> (default, the <c>H</c> flag in <c>:GU#</c>
+    /// after a moment), <c>fail</c> (the <c>F</c> flag) or <c>never</c> (neither, so the driver's timeout is what ends it).
+    /// </summary>
+    HomeOutcome,
     Alignment,
     HasCover,
 
@@ -137,6 +143,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.DecPulseGoTo => "decPulseGoto",
             DeviceQueryKey.SlewStartLatencyMs => "slewStartLatencyMs",
             DeviceQueryKey.StaleCommandBuffer => "staleCommandBuffer",
+            DeviceQueryKey.HomeOutcome => "homeOutcome",
             DeviceQueryKey.Alignment => "alignment",
             DeviceQueryKey.HasCover => "hasCover",
             DeviceQueryKey.MirrorLockup => "mirrorLockup",
