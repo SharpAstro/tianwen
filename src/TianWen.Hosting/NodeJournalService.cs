@@ -69,7 +69,8 @@ internal sealed class NodeJournalService(
     IExternal external,
     ITimeProvider timeProvider,
     IHostApplicationLifetime lifetime,
-    ILogger<NodeJournalService> logger) : IHostedService, IDisposable
+    ILogger<NodeJournalService> logger,
+    IDeviceDiscovery? discovery = null) : IHostedService, IDisposable
 {
     /// <summary>How often the journal is checked for what changed without raising anything.</summary>
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
@@ -417,7 +418,7 @@ internal sealed class NodeJournalService(
                 hub.SetCoolerIntent(camera, CoolerIntent.Warm);
                 _ramps.Add(RampAsync(camera, async ct =>
                 {
-                    await hub.WarmAndCoolerOffAsync(camera, timeProvider, logger, ct);
+                    await hub.WarmAndCoolerOffAsync(camera, timeProvider, logger, ct, discovery);
                     return true;
                 }));
                 break;

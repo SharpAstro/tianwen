@@ -23,7 +23,8 @@ namespace TianWen.Hosting;
 /// <c>JOB-PROGRESS</c>.
 /// </remarks>
 internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, IExternal external, NodeProfiles profiles,
-    ICredentialStore credentials, ITimeProvider timeProvider, ILogger<DeviceOperations> logger)
+    ICredentialStore credentials, ITimeProvider timeProvider, ILogger<DeviceOperations> logger,
+    IDeviceDiscovery? discovery = null)
 {
     /// <summary>The <see cref="JobDto.Kind"/> of each job.</summary>
     internal const string ConnectJob = "connect";
@@ -116,7 +117,7 @@ internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IH
         var name = NameOf(uri);
         return Start(WarmAndDisconnectJob, uri, name, $"Warming {name}", async (step, ct) =>
         {
-            await hub.WarmAndDisconnectAsync(uri, timeProvider, logger, force: false, ct);
+            await hub.WarmAndDisconnectAsync(uri, timeProvider, logger, force: false, ct, discovery);
             return $"Warmed and disconnected {name}";
         });
     }

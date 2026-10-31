@@ -44,7 +44,10 @@ public readonly record struct CameraReading(
     public const double WarmUpToleranceC = 1.0;
 
     /// <summary>Whether a warm-up has anything to do for this camera (<see cref="NeedsWarmUpFrom"/>).</summary>
-    public bool NeedsWarmUp => NeedsWarmUpFrom(CoolerOn, CcdTemperatureC, HeatsinkTemperatureC, PreCool);
+    public bool NeedsWarmUp => NeedsWarmUpFrom(CoolerOn, CcdTemperatureC, HeatsinkTemperatureC, PreCool, RigAmbientC ?? double.NaN);
+
+    /// <summary>The range a temperature reading must lie in to be believed (the range the cooling ramp has always used).</summary>
+    public static bool IsPlausibleTemperatureC(double temperatureC) => double.IsFinite(temperatureC) && temperatureC is >= -40 and <= 50;
 
     /// <summary>
     /// The settled sensor reading this camera's last cool-down started from, when the reader knows it (the hub does);
@@ -53,15 +56,22 @@ public readonly record struct CameraReading(
     public SensorAmbientReading? PreCool { get; init; }
 
     /// <summary>
+    /// The rig's own ambient (<see cref="RigAmbient"/>: focuser, weather device) for a camera with no heat sink, when the reader
+    /// knows it (the node's poller does); null is "none known". Nullable, never NaN, so that <c>default(CameraReading)</c> and a
+    /// reading built without it both say unknown.
+    /// </summary>
+    public double? RigAmbientC { get; init; }
+
+    /// <summary>
     /// Whether a warm-up has anything to do: the cooler is on and the sensor is below where the ramp takes it
     /// (<see cref="WarmUpTarget.Resolve"/>) by more than <see cref="WarmUpToleranceC"/>. ONE rule for the node's
     /// ramp and a client's quit question, which says "warm up" only when a camera needs it: a camera with no cooler, or one
     /// whose cooler is off, has nothing to warm (the ZWO live check, 2026-09-28). A sensor giving no temperature counts as
     /// cold, since over-waiting is safer than a thermal shock.
     /// </summary>
-    public static bool NeedsWarmUpFrom(bool coolerOn, double ccdTemperatureC, double heatsinkTemperatureC, SensorAmbientReading? preCool = null)
+    public static bool NeedsWarmUpFrom(bool coolerOn, double ccdTemperatureC, double heatsinkTemperatureC, SensorAmbientReading? preCool = null, double rigAmbientC = double.NaN)
     {
-        return coolerOn && !(ccdTemperatureC >= WarmUpTarget.Resolve(heatsinkTemperatureC, preCool).TempC - WarmUpToleranceC);
+        return coolerOn && !(ccdTemperatureC >= WarmUpTarget.Resolve(heatsinkTemperatureC, preCool, rigAmbientC).TempC - WarmUpToleranceC);
     }
 }
 

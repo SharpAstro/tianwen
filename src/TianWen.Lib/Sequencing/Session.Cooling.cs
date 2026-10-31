@@ -40,13 +40,15 @@ internal partial record Session
             var camera = Setup.Telescopes[i].Camera;
             var heatsink = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanGetHeatsinkTemperature, camera.Driver.GetHeatSinkTemperatureAsync, double.NaN, CancellationToken.None);
             SensorAmbientReading? preCool = DeviceHub is { } hub && hub.TryGetPreCoolReading(camera.Device.DeviceUri, out var recorded) ? recorded : null;
-            var resolved = WarmUpTarget.Resolve(heatsink, preCool);
+            // The rig's own ambient (focuser, then weather) is the target's source for a camera with no heat sink, read here, never driver to driver.
+            var rigAmbient = double.IsFinite(heatsink) ? double.NaN : await ReadRigAmbientAsync(Setup.Telescopes[i], CancellationToken.None);
+            var resolved = WarmUpTarget.Resolve(heatsink, preCool, rigAmbient);
             _logger.LogInformation("Warming {Camera} to {TargetC:F1} C: {Source}", camera.Device.DeviceUri, resolved.TempC, resolved.Describe());
             var current = await PollDriverReadAsync(camera.Driver, camera.Driver.GetCCDTemperatureAsync, double.NaN, CancellationToken.None);
             // A cooler that reads off is held, never switched on to ramp (the hub's WarmCameraAsync skips it the same way);
             // one that cannot be read is assumed on, so a cold sensor is never left unwarmed.
             var coolerOn = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanGetCoolerOn, camera.Driver.GetCoolerOnAsync, true, CancellationToken.None);
-            if (!CameraReading.NeedsWarmUpFrom(coolerOn, current, heatsink, preCool))
+            if (!CameraReading.NeedsWarmUpFrom(coolerOn, current, heatsink, preCool, rigAmbient))
             {
                 // Held at the sensor's own reading, which matters only on a rig where another camera ramps: this one then
                 // rides along with that camera's steps.
@@ -65,7 +67,12 @@ internal partial record Session
             else
             {
                 targets[i] = new SetpointTemp(CameraCoolingRamp.TargetOf(resolved.TempC), SetpointTempKind.Normal);
-                labels[i] = resolved.Source is WarmUpTargetSource.SettledSensorBeforeCooling ? "the settled sensor" : "fallback";
+                labels[i] = resolved.Source switch
+                {
+                    WarmUpTargetSource.RigAmbient => "the rig's ambient",
+                    WarmUpTargetSource.SettledSensorBeforeCooling => "the settled sensor",
+                    _ => "fallback"
+                };
             }
         }
 
@@ -158,6 +165,28 @@ internal partial record Session
                 hub.SetCoolerIntent(Setup.Telescopes[i].Camera.Device.DeviceUri, intent);
             }
         }
+    }
+
+    /// <summary>
+    /// The rig's ambient for one OTA's camera (<see cref="RigAmbient"/>), most trusted first: the OTA's focuser
+    /// temperature, then the profile's weather device. NaN when neither answers. A power box's ambient channel is one more
+    /// entry here once a profile holds power boxes (#1734).
+    /// </summary>
+    internal ValueTask<double> ReadRigAmbientAsync(OTA telescope, CancellationToken cancellationToken)
+    {
+        var sources = new System.Collections.Generic.List<Func<CancellationToken, ValueTask<double>>>(2);
+
+        if (telescope.Focuser?.Driver is { Connected: true } focuser)
+        {
+            sources.Add(ct => PollDriverReadAsync(focuser, focuser.GetTemperatureAsync, double.NaN, ct));
+        }
+
+        if (Setup.Weather?.Driver is { Connected: true } weather)
+        {
+            sources.Add(_ => ValueTask.FromResult(weather.Temperature));
+        }
+
+        return RigAmbient.FirstPlausibleAsync(sources, cancellationToken);
     }
 
     /// <summary>What a ramp to <paramref name="target"/> asks of a cooler, or null for one that names no target.</summary>

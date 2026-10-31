@@ -397,6 +397,7 @@ internal record DualOTATestContext(
     public Task<T> Track<T>(Task<T> task) => _work.Track(task);
 
     public ValueTask DisposeAsync() => _work.DisposeAsync();
+
 }
 
 /// <summary>
@@ -443,6 +444,19 @@ internal record SessionTestContext(
     public Task<T> Track<T>(Task<T> task) => _work.Track(task);
 
     public ValueTask DisposeAsync() => _work.DisposeAsync();
+
+    /// <summary>
+    /// Takes the rig's ambient sources away (the focuser, then the profile's weather device, as the warm-up reads them), so a
+    /// warm-up test pins the settled-reading and fallback rungs of <see cref="WarmUpTarget.Resolve"/> and not the first one.
+    /// </summary>
+    public async ValueTask WithoutRigAmbientAsync()
+    {
+        await Focuser.DisconnectAsync(TestCancellation);
+        if (Session.Setup.Weather?.Driver is { Connected: true } weather)
+        {
+            await weather.DisconnectAsync(TestCancellation);
+        }
+    }
 }
 
 /// <summary>

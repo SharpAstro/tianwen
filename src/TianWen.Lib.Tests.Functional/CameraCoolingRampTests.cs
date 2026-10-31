@@ -32,6 +32,7 @@ public class CameraCoolingRampTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.Camera.MakeHeatsinkless(CameraReading.WarmUpFallbackTargetC, sensorCannotPassAmbient: false);
+        await ctx.WithoutRigAmbientAsync();
         // The cooler on before the cool-down, so no sensor reading is taken first (#1842) and nothing better than the
         // fallback is known.
         await ctx.Camera.SetCoolerOnAsync(true, ct);

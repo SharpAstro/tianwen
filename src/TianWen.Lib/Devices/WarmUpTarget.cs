@@ -12,22 +12,31 @@ public enum WarmUpTargetSource : byte
     SettledSensorBeforeCooling,
 
     /// <summary><see cref="CameraReading.WarmUpFallbackTargetC"/>: no heat sink and no settled reading.</summary>
-    Fallback
+    Fallback,
+
+    /// <summary>The rig's own ambient reading (<see cref="RigAmbient"/>: focuser, weather device), for a camera with no heat sink.</summary>
+    RigAmbient
 }
 
 /// <summary>
 /// Where a warm-up takes the sensor, and which reading said so. ONE rule for the hub's ramp (and so the crash journal's
-/// recovered warm-up), the session's warm-up and a client's quit question: the heat sink when the camera gives one,
-/// else the SETTLED sensor reading its cool-down started from (a fan-cooled body with no heat sink rests at the air
+/// recovered warm-up), the session's warm-up and a client's quit question (the node publishes its resolved target and source, and
+/// <c>CameraDeviceStateDto.ToReading</c> hands them back to <see cref="CameraReading.NeedsWarmUp"/>): the heat sink when the camera gives one,
+/// else the rig's own ambient (<see cref="RigAmbient"/>), else the SETTLED sensor reading its cool-down started from (a fan-cooled body with no heat sink rests at the air
 /// around it), else <see cref="CameraReading.WarmUpFallbackTargetC"/>. An unsettled reading never sets the target.
 /// </summary>
 public readonly record struct WarmUpTarget(double TempC, WarmUpTargetSource Source)
 {
-    public static WarmUpTarget Resolve(double heatsinkTemperatureC, SensorAmbientReading? preCool)
+    public static WarmUpTarget Resolve(double heatsinkTemperatureC, SensorAmbientReading? preCool, double rigAmbientC = double.NaN)
     {
         if (double.IsFinite(heatsinkTemperatureC))
         {
             return new WarmUpTarget(heatsinkTemperatureC, WarmUpTargetSource.HeatSink);
+        }
+
+        if (CameraReading.IsPlausibleTemperatureC(rigAmbientC))
+        {
+            return new WarmUpTarget(rigAmbientC, WarmUpTargetSource.RigAmbient);
         }
 
         if (preCool is { Settled: true } reading && double.IsFinite(reading.TempC))
@@ -43,6 +52,7 @@ public readonly record struct WarmUpTarget(double TempC, WarmUpTargetSource Sour
     {
         WarmUpTargetSource.HeatSink => "the heat sink",
         WarmUpTargetSource.SettledSensorBeforeCooling => "the sensor settled before cooling",
+        WarmUpTargetSource.RigAmbient => "the rig's ambient",
         _ => "no heat sink and no settled reading"
     };
 }

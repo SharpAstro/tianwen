@@ -4076,6 +4076,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | R3c | filed after R3b's read | the winner plus a teacher rebuilt from R3a's two seeds (E7, 8 views) | its read | R3b |
 | R3d | filed after F4 and F5's gates | the winner on the export with whatever F4 and F5 adopted | its read | R3c |
 | R3e | only if R3d plateaus | a larger net on a T4 | its read | R3d |
+| R3f | #1867 | R2w's recipe on synth13: synth11's export from a binary with #1867's injector guard, so no diverged catalogued star is drawn (the plates unchanged); **pre-registered 2026-10-30**, "R3f"; **KILLED 2026-10-31** (flat 92.9, dug 3.0, M42 45.2) | its read on F2's scorecard beside both R2w seeds | R2w seed 1 |
 
 **Why R3a has no teacher.** It isolates what R2t's recipe does on the master's stretch against R2w (R2i's recipe on the
 same stretch), and its two seeds are then both the bright-band spread and E7's members, so the teacher question costs no
@@ -4692,6 +4693,60 @@ the whole masters say it is not.
   nothing to put the teacher on top of. R2w stays the arm to beat.
 - **A third seed of R2w on the master's stretch**, to give the plan the bar it is missing: R2w stands alone, so every comparison above
   is against one draw of its recipe.
+
+#### R2w seed 1, and the bar it gives (2026-10-30)
+
+R2w's recipe again at seed 1 (`r2w_synth11_s1`, 156,500 steps, best held-out loss 5.96e-6), scored on F2's master-stretched
+scorecard (`training/star-removal/score-arm.ps1`, `f2-scorecard.master-stretch.json`). The real tiles, 100 to 1000 sigma, 4,215
+stars (`real-star-read-r2w_synth11_s1.txt`):
+
+| | R2w seed 0 | R2w seed 1 | R2t |
+|---|---|---|---|
+| flat \|<1\| | 95.6 | 96.0 | 97.4 |
+| dug <-1 | 1.76 | 2.14 | 1.23 |
+| M42 (ASI294MC), flat | 71.4 | 74.6 | 83.5 |
+| SMC, flat | 79.4 | 91.8 | 93.8 |
+| M31's nucleus, 0 to 6 px, R / G / B | 1.6 / 2.6 / 4.4 | 0.7 / **7.0 / 6.4** | |
+
+The second seed moves the bright stars by less than half a point and the dug share by 0.4, but M31's nucleus from comfortably
+under the 5 % guard to over it in green and blue, and the SMC by 12 points. So a single run of this recipe cannot read the
+nucleus or the SMC, and every arm against R2w is read against both seeds.
+
+#### R3f: R2w's recipe on the guarded draws (#1867), pre-registered 2026-10-30
+
+#1867 refuses a diverged catalogued star at the injector (`InjectionPopulation`: a non-finite `LocalSigma`, or an unsaturated
+amplitude past `OvershootMargin` (4) times the frame's clip in any channel). synth11 was exported before it, so its draws carry
+those stars at amplitudes no real star has. R3f is R2w's recipe exactly (seed 0) on **synth13**, synth11's export command from a
+binary at main as of #1915, on synth11's plates: the guard is the one difference. Rebuilding the plates is #1867's other half
+(about 13 hours) and is not in this arm. Scored as R2w seed 1 was. The run is `C:/temp/e2/r3f-driver.ps1` (export, train, score),
+the pre-registration `C:/temp/e2/r3f.prereg`.
+
+- **P1:** dug at most 1.76 (the better R2w seed).
+- **P2:** flat at least 95.6 (the worse R2w seed): no loss of bright-star removal.
+- **P3:** M31's nucleus under the 5 % guard in every channel.
+- **Adopt** when P1 and P2 hold. **Kill** when flat falls under 95.6 or dug rises over 2.14 (worse than both seeds). Between, it is
+  inside R2w's own spread and reads as no measurable change; the plates are then the next lever, not a second seed of this arm.
+- Reported beside it: how many catalogued stars the guard refused (`InjectionPopulation.Refused`), and M42.
+
+**Read (2026-10-31): KILLED on both rules.** Stopped converged at step 136,000 (best held-out 5.94e-6 at 88,000, 6.8 hours), scored on the
+320 real master tiles beside R2w's two seeds:
+
+| 100-1000 sigma, 4215 stars | R3f | R2w s0 | R2w s1 |
+|---|---|---|---|
+| flat \|<1\| | **92.88** | 95.61 | 96.01 |
+| light >+1 | 4.08 | 2.63 | 1.85 |
+| dug <-1 | **3.04** | 1.76 | 2.14 |
+| M42 flat | 45.2 | 71.4 | 74.6 |
+| SMC flat | 63.9 | 79.4 | 91.8 |
+
+Every session moves the same way: Lobster's dug share rises from under 0.5 % to 1 to 2 % a channel, HIP 80609's to 4 to 7 %, and
+M42 leaves half its bright stars lit (52 % against 24 to 27 %). Refusing the impossible-amplitude draws did not teach the model
+cleaner surroundings; it removed the brightest examples it learned bright-star removal from, and the 5-20 sigma flat fell too
+(93.6 against 94.3 / 95.2). P3 was not read: the scorer's ring step failed on its baselines (`ring_annulus.py` took the
+comma-joined list as one arm), and the nucleus step runs after it; neither changes a verdict both kill rules already give. The
+export logs carry no `Refused` count, so how many stars the guard took out is unmeasured. Per the pre-registration, the plates
+(#1867's other half, about 13 hours) are the next lever, not a second seed of this arm; and the guard should be read again WITH
+rebuilt plates before it is kept in the export.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 

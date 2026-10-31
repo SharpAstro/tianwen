@@ -123,8 +123,8 @@ public sealed record CameraDeviceStateDto
     public string? ReadoutMode { get; init; }
 
     /// <summary>
-    /// Where a warm-up of this camera would take the sensor, as the node resolves it (<see cref="WarmUpTarget.Resolve"/>);
-    /// null from a node before #1842, which a client reads as the fallback.
+    /// Where a warm-up of this camera would take the sensor, as the node resolves it (<see cref="WarmUpTarget.Resolve"/>:
+    /// the heat sink, the rig's ambient, the settled reading, the fallback); null from a node before #1842, which a client reads as the fallback.
     /// </summary>
     public double? WarmUpTargetC { get; init; }
 
@@ -134,7 +134,7 @@ public sealed record CameraDeviceStateDto
     /// </summary>
     public WarmUpTargetSource WarmUpTargetSource { get; set; } = WarmUpTargetSource.Fallback;
 
-    public static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent) => FromReading(reading, intent, WarmUpTarget.Resolve(reading.HeatsinkTemperatureC, reading.PreCool));
+    public static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent) => FromReading(reading, intent, WarmUpTarget.Resolve(reading.HeatsinkTemperatureC, reading.PreCool, reading.RigAmbientC ?? double.NaN));
 
     private static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent, WarmUpTarget warmUp) => new CameraDeviceStateDto
     {
@@ -188,10 +188,12 @@ public sealed record CameraDeviceStateDto
         ReadoutModes: ReadoutModes is { } readoutModes ? [.. readoutModes] : [],
         ReadoutMode: ReadoutMode)
     {
-        // The node's settled reading crosses as the target and its source; a client resolves NeedsWarmUp through the same rule.
+        // The node's settled reading and its rig ambient cross as the target and its source; a client resolves NeedsWarmUp
+        // through the same rule.
         PreCool = WarmUpTargetSource == WarmUpTargetSource.SettledSensorBeforeCooling && WarmUpTargetC is { } settled
             ? new SensorAmbientReading(settled, Settled: true, default)
-            : null
+            : null,
+        RigAmbientC = WarmUpTargetSource == WarmUpTargetSource.RigAmbient ? WarmUpTargetC : null
     };
 }
 

@@ -125,7 +125,7 @@ public interface IHostedSession : IHostedService
     Task? TryAbort(INodeRun run);
 }
 
-internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITimeProvider timeProvider, NodeSettingsStore settings, ILogger<HostedSession> logger)
+internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITimeProvider timeProvider, NodeSettingsStore settings, ILogger<HostedSession> logger, IDeviceDiscovery? discovery = null)
     : IHostedSession
 {
     /// <summary>
@@ -480,7 +480,7 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
         var camerasStopped = true;
         try
         {
-            await hub.StopConnectedCamerasAsync(timeProvider, logger).WaitAsync(cancellationToken);
+            await hub.StopConnectedCamerasAsync(timeProvider, logger, discovery: discovery).WaitAsync(cancellationToken);
         }
         catch (OperationCanceledException)
         {
