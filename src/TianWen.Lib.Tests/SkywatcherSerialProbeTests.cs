@@ -78,6 +78,8 @@ public class SkywatcherSerialProbeTests
     /// </summary>
     private sealed class ScriptedSerialConnection(byte[] expectedWrite, byte[] reply) : ISerialConnection
     {
+        public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
         private readonly SemaphoreSlim _sem = new(1, 1);
         private readonly Queue<byte> _readBuffer = new(reply);
 

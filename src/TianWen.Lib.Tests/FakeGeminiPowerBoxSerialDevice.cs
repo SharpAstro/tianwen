@@ -18,6 +18,8 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
 {
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     private readonly SemaphoreSlim _sem = new(1, 1);
     private readonly Channel<byte> _incoming = Channel.CreateUnbounded<byte>();
     // The driver's reader thread and a test both reach the box's state.

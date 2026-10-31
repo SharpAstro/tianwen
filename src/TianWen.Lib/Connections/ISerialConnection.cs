@@ -28,6 +28,19 @@ public interface ISerialConnection : IAsyncDisposable
 
     bool IsOpen { get; }
 
+    /// <summary>
+    /// The longest one read may wait for its reply, unless a caller's token ends it sooner: <see cref="DefaultReplyTimeout"/>
+    /// unless a driver says otherwise. Every transport bounds every read by it, so a device that stops answering (powered
+    /// off, a cable pulled, a board that crashed) fails the read instead of holding the connection, and the port lock its
+    /// exchange holds, for ever: on 2026-10-31 an AZ-GTi power-cycled while connected left a disconnect queued behind such
+    /// a read for 14 minutes, and OnStep's <c>:MS#</c> had done the same before. A device whose reply waits on motion (the
+    /// QHY serial wheel answers a move when it arrives) raises it after connecting; never make it infinite.
+    /// </summary>
+    TimeSpan ReplyTimeout { get; set; }
+
+    /// <summary>What <see cref="ReplyTimeout"/> starts at: far past any request/reply device's answer, over a cable or WiFi.</summary>
+    public static readonly TimeSpan DefaultReplyTimeout = TimeSpan.FromSeconds(5);
+
     Encoding Encoding { get; }
 
     /// <summary>

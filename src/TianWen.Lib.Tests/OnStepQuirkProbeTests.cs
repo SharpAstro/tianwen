@@ -145,6 +145,8 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
     /// </summary>
     private sealed class QuirkyOnStepStubConnection : ISerialConnection
     {
+        public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
         private readonly Encoding _encoding;
         private readonly Queue<byte> _rxBuffer = new();
         private readonly SemaphoreSlim _sem = new(1, 1);

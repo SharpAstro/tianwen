@@ -652,6 +652,8 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
 
     private sealed class StubSerialConnection(string port, int baud, Encoding encoding) : ISerialConnection
     {
+        public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
         public string Port => port;
         public int Baud => baud;
         public bool IsOpen { get; private set; } = true;
