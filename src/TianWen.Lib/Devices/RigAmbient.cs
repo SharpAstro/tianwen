@@ -8,7 +8,7 @@ namespace TianWen.Lib.Devices;
 
 /// <summary>
 /// The rig's own ambient temperature for ONE camera, read by whoever drives the camera and handed to its warm-up
-/// (<see cref="CameraReading.WarmUpTargetC"/>), never driver to driver. An ordered list of sources, most trusted first: the
+/// (<see cref="CameraReading.RigAmbientC"/>), never driver to driver. An ordered list of sources, most trusted first: the
 /// first plausible reading wins, and a source that throws or reads nothing is skipped. A later source (a power box's
 /// ambient channel, once a profile holds power boxes) is one more entry in the list.
 /// </summary>
