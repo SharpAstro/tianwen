@@ -115,6 +115,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         }
     }
 
+    /// <summary>The encoders as the board holds them, for tests: steps from home on each axis (home is 0, 0).</summary>
+    internal (int Ra, int Dec) Steps
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                return (_posRa, _posDec);
+            }
+        }
+    }
+
     /// <summary>Snapshot of the most recent wire commands (up to <see cref="COMMAND_LOG_CAP"/>),
     /// for wire-level protocol assertions in tests.</summary>
     internal string[] CommandLogSnapshot

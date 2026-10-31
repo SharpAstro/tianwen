@@ -82,7 +82,7 @@ driver cannot tell them apart, which is fact 1 of #810.
 | `:g` | 1 | none | high-speed ratio, one hex byte; 16 when unparseable | `InitDeviceAsync` |
 | `:j` | 1, 2 | none | position, 24-bit minus 0x800000 | every position read, the slew pass |
 | `:f` | 1, 2 | none | three nibbles: n0 bit 0 constant-speed (not goto), bit 1 reverse, bit 2 high speed; n1 bit 0 running; n2 bit 0 init done. Tracking = running and constant-speed | `QueryAxisStatusAsync` |
-| `:E` | 1, 2 | position + 0x800000 | `=` | `SyncRaDecAsync`, the pole sync |
+| `:E` | 1, 2 | position + 0x800000 | `=` | `SyncRaDecAsync` |
 | `:F` | 3 | none | `=` | `InitDeviceAsync` (initialise both axes) |
 | `:P` | 1, 2 | one digit, the `SkywatcherGuideRate` index | `=` | `InitDeviceAsync`, the guide-rate setters (ST-4 port rate) |
 | `:G` | 1, 2 | `<func><dir>` | `=`; `!2` on a running axis | every motion |
@@ -106,12 +106,11 @@ logged and the call returns) or `SendCommandVerifiedAsync` (below).
 2. `:q1010000`, `:a1`, `:a2`, `:b1`, `:s1`, `:s2`, `:g1`, `:j1`, `:j2`. Each unanswered read leaves its
    field at the default (CPR 0, timer 0, ratio 16, worm 0, position 0) and **the connect still succeeds**.
 3. `:F3`, then `:P1` and `:P2` with the default rate, 0.5x sidereal (index 2).
-4. If both encoders read 0 and the latitude is known, sync to (LST, +90 or -90) through `:E1` / `:E2`. At
-   connect the latitude is normally still unset (the profile pushes the site afterwards), so the same sync
-   runs from `SetSiteLatitudeAsync` / `SetSiteLongitudeAsync` instead (`MaybeSyncToPoleAfterSiteSetAsync`),
-   once both are set and only while the encoders still read 0. That path skips alt-az; the connect-time
-   one does not, and in alt-az its sync throws, which fails the connect whenever the latitude was set
-   before connecting.
+4. Nothing is written to the encoders. Home is encoder zero, read as hour angle 6 h at the pole of the site's
+   hemisphere (counterweight down), whichever site arrives and whenever. A sync to (LST, +90 or -90) used to run
+   here and on every site set; it declared hour angle 0 where the axis stands at 6 h, wrote the RA encoder a
+   quarter turn off, and sent every later goto 90 degrees too far (an AZ-GTi in Melbourne, 2026-10-31: 164
+   degrees of RA for a target 1.1 h east of the meridian, finishing counterweight-up).
 
 No time is ever sent: `TimeIsSetByUs` is true, `TryGetUTCDateFromMountAsync` answers the `TimeProvider`'s
 clock, `SetUTCDateAsync` is a no-op, and LST comes from that clock and the site longitude (0 while unset).
@@ -309,9 +308,9 @@ Tests: `SkywatcherProtocolTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRe
   the capability never uses it (#636).
 - **Park** drives to step 0 from cached positions and reads parked before it arrives; on a board that
   resumes tracking after a goto (#638), as the fake does, RA tracks away from the park position.
-- **Unverified axis convention:** the driver takes step 0 as hour angle 6 h at the pole, yet the pole sync
-  declares the powered-on position to be hour angle 0, which writes the RA encoder a quarter turn from 0
-  (-CPR/4 in the north). Whether the two agree on a real mount is open until #635.
+- **Axis convention:** step 0 is hour angle 6 h at the pole, counterweight down. The pole sync that declared hour angle 0
+  there was wrong and is gone (an AZ-GTi in Melbourne, 2026-10-31, turned 90 degrees too far after it). The east and west
+  gotos that would verify the axis-solution choice on hardware are still #635's to run.
 - **Parsed and unused:** `_capabilities` (`:q`) and `_supportsAdvancedCommands`; the `:X` set, pPEC and
   home sensors were not audited ([`gss-parity-audit.md`](../plans/gss-parity-audit.md), "Not audited").
 - **24-bit wrap:** a position crossing +/-0x800000 decodes as a jump of 16,777,216 steps, as in GSS; the

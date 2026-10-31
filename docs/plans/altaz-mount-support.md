@@ -34,7 +34,7 @@ setting. We mirror GSServer: a setting, defaulting to `GermanPolar`.
 
 **Home position:** in alt-az the SkyWatcher home is the raw encoder zero, **az 0 (north), alt 0
 (horizontal)**, not the equatorial pole (`HomeAxisX/Y = 0/0` in GSS's AltAz profile vs `90/90` for
-GermanPolar). The driver's `MaybeSyncToPoleAfterSiteSetAsync` is skipped in alt-az for this reason.
+GermanPolar). The driver writes nothing to the encoders at home in either alignment.
 
 ## Reference: how GSServer handles AZ vs EQ
 
