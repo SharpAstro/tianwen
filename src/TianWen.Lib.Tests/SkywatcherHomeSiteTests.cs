@@ -168,4 +168,54 @@ public class SkywatcherHomeSiteTests(ITestOutputHelper output)
         board.RaMotion.Running.ShouldBeFalse("stopped at home, tracking included");
         (await driver.GetDeclinationAsync(ct)).ShouldBe(Math.Sign(latitude) * 90.0, 1e-6);
     }
+
+    /// <summary>
+    /// GSServer's reading of a SkyWatcher GEM's encoders (Axes.AxesMountToApp, then AxesXyToRaDec), the oracle: mount axes are
+    /// home (90, 90) plus the turns; the app axes are (x, 180 - y) north and (-x, 180 - y) south; past 90 in Y the solution is
+    /// through the pole. Independent of the driver's own mapping, which the fake board can only read back.
+    /// </summary>
+    private static (double Ha, double Dec) GssRead(int raSteps, int decSteps, int cpr, bool south)
+    {
+        var mx = 90.0 + raSteps * 360.0 / cpr;
+        var my = 90.0 + decSteps * 360.0 / cpr;
+        var (ax, ay) = south ? (-mx, 180.0 - my) : (mx, 180.0 - my);
+        if (ay > 90.0)
+        {
+            ax += 180.0;
+            ay = 180.0 - ay;
+        }
+        return (CoordinateUtils.ConditionHA(ax / 15.0), south ? -ay : ay);
+    }
+
+    [Theory(Timeout = 60_000)]
+    [InlineData(Melbourne, 145.1775, 0.3, Melbourne)]   // just west of the zenith (2026-10-31: pointed 14 degrees below the horizon)
+    [InlineData(Melbourne, 145.1775, -0.3, Melbourne)]  // just east of the zenith
+    [InlineData(Melbourne, 145.1775, -1.1, 0.0)]
+    [InlineData(Melbourne, 145.1775, 2.5, -60.0)]
+    [InlineData(Melbourne, 145.1775, -4.0, 10.0)]
+    [InlineData(Vienna, 16.3, 0.3, Vienna)]
+    [InlineData(Vienna, 16.3, -1.1, 0.0)]
+    [InlineData(Vienna, 16.3, 2.5, 60.0)]
+    [InlineData(Vienna, 16.3, -4.0, -10.0)]
+    public async Task AGotoLeavesTheEncodersWhereGssReadsTheTarget(double latitude, double longitude, double hourAngle, double dec)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (driver, board, clock) = await ConnectAsync(latitude, longitude, ct);
+        var lst = await driver.GetSiderealTimeAsync(ct);
+
+        await driver.BeginSlewRaDecAsync(CoordinateUtils.ConditionRA(lst - hourAngle), dec, ct);
+        for (var i = 0; i < 60 && await driver.IsSlewingAsync(ct); i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(5));
+        }
+        await driver.SetTrackingAsync(false, ct);
+
+        var (raSteps, decSteps) = board.Steps;
+        var lstNow = await driver.GetSiderealTimeAsync(ct);
+        var (gssHa, gssDec) = GssRead(raSteps, decSteps, 9024000, latitude < 0);
+        var expectedHa = CoordinateUtils.ConditionHA(lstNow - CoordinateUtils.ConditionRA(lst - hourAngle));
+        CoordinateUtils.ConditionHA(gssHa - expectedHa).ShouldBe(0.0, 0.02, $"GSS reads HA {gssHa:F3} h from {raSteps}/{decSteps} steps");
+        gssDec.ShouldBe(dec, 0.05, "GSS reads the target's declination");
+        Math.Abs(raSteps * 360.0 / 9024000).ShouldBeLessThanOrEqualTo(90.5, "counterweight at or below horizontal");
+    }
 }

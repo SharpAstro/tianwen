@@ -149,15 +149,17 @@ public class SessionMountLimitTests(ITestOutputHelper output)
     public async Task ASkyWatcherVerdictIsMeasuredOnTheAxisNotEstimatedFromTheSky()
     {
         var ct = TestContext.Current.CancellationToken;
-        // The SkyWatcher driver models its RA axis, so the session reads the mechanical tier. From home
-        // (Normal) a sync 1 h EAST keeps the Normal solution -- the axis at (HA - 6 h) x 15 = -105 deg,
-        // counterweight 15 deg above horizontal -- which is 60 min of hour angle past the meridian limit
-        // in BOTH tiers; the verdict must say it came from the axis.
+        // The SkyWatcher driver models its RA axis, so the session reads the mechanical tier. A sync WEST of the
+        // meridian puts the Dec encoder in the Normal half (a sync at home takes the counterweight-down half instead,
+        // since home is the boundary); a sync 1 h EAST then keeps the Normal solution -- the axis at (HA - 6 h) x 15 =
+        // -105 deg, counterweight 15 deg above horizontal -- which is 60 min of hour angle past the meridian limit in
+        // BOTH tiers; the verdict must say it came from the axis.
         var ctx = await SessionTestHelper.CreateSessionAsync(
             output, mountPort: "SkyWatcher", mountLimits: StopTrackingPastTheMeridian, cancellationToken: ct);
         await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
         await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
         var lst = await ctx.Mount.GetSiderealTimeAsync(ct);
+        await ctx.Mount.SyncRaDecAsync(((lst - 1.0) % 24.0 + 24.0) % 24.0, 45.0, ct);
         await ctx.Mount.SyncRaDecAsync(((lst + 1.0) % 24.0 + 24.0) % 24.0, 45.0, ct);
         await ctx.Mount.SetTrackingAsync(true, ct);
         (await ctx.Mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(-105.0, 0.01, "premise: the driver models its axis");

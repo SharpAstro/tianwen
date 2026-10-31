@@ -493,7 +493,7 @@ mount that is not tracking) and a warning per tick until a profile pushes the si
 returning null, overridden by the SkyWatcher driver only. Degrees from the mount's home position, folded
 into (-180, 180]: for a GEM home is counterweight down with the tube on the pole (GSS `HomeAxisX/Y = 90`).
 The primary angle is hemisphere-corrected -- negated in the south, where the motor runs the other way
-(`axisHours = 6 - HA`) -- so that positive is "turned in the tracking direction from home" everywhere:
+(`axisHours = -6 - HA`, GSS `AxesMountToApp`) -- so that positive is "turned in the tracking direction from home" everywhere:
 `(HA - 6 h) x 15` in the Normal state, `(HA + 6 h) x 15` through the pole. The secondary angle is
 positive in the straight half, negative through the pole, which `StepsToDec`'s hemisphere mirror already
 arranges. **Angle, not steps**, exactly as the phase table asked: a consumer never sees CPR, the
