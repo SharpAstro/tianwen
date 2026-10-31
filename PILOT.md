@@ -23,8 +23,9 @@ needs to plan, build, check and land.
   commit of the branch is replayed onto main, and the queue drops a PR whose commits do not replay cleanly, even when
   a plain merge of the branch would. This is the opposite of pilot's own repo, whose queue squashes.
 - So the branch's history matters here. Take main by a merge (`git fetch origin`, `git merge origin/main`), never a
-  rebase, and never push with `--force`. When that merge resolves a conflict, the branch can stop replaying: say so
-  in the leg's report, and the controller lays the branch on main as one commit with the reviewed tree.
+  rebase, and never push with `--force`. A clean merge replays fine. A merge that RESOLVED a conflict keeps the
+  resolution in the merge commit, which the rebase drops, so the branch stops replaying: say so in the leg's report,
+  and the step that prepares the PR for the queue lays the branch on main as one commit with the reviewed tree.
 - Keep a flight's commits few and each one whole. A fixup that only undoes an earlier commit of the same branch is a
   replay hazard; fold it in before the leg ends.
 
@@ -43,8 +44,9 @@ dotnet test TianWen.Lib.Tests.Functional -c Release --no-build
 - Tests are xunit.v3 on Microsoft.Testing.Platform, not VSTest: `--logger` and `--blame-*` fail the run. `--filter`
   keeps its VSTest syntax. `global.json` sets the SDK floor.
 - CI runs `TianWen.Lib.Tests` (without `Heavy`), `TianWen.Lib.Tests.Functional` and `TianWen.Lib.Tests.Gpu`. A
-  `Heavy` test runs nightly; `TianWen.Lib.Tests.Simulators` runs on demand. A check that matches CI runs the unit and
-  functional suites; a narrower one filters with `--filter "FullyQualifiedName~<Name>"`.
+  `Heavy` test runs nightly; `TianWen.Lib.Tests.Simulators` runs on demand. A plane's check runs the unit and functional
+  suites and leaves `.Gpu` to CI on purpose: a GPU fault ends the whole test process, and the machine is shared with
+  other flights. A narrower check filters with `--filter "FullyQualifiedName~<Name>"`.
 
 ## Done-when kinds and what each needs
 
