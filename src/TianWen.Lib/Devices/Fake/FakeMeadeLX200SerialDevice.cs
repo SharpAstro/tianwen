@@ -16,6 +16,8 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeMeadeLX200SerialDevice: ISerialConnection
 {
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     private readonly AlignmentMode _alignmentMode = AlignmentMode.GermanPolar;
     private readonly Transform _transform;
     private readonly ITimeProvider _timeProvider;

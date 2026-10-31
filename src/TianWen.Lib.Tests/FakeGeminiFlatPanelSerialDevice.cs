@@ -16,6 +16,8 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiFlatPanelLite", int firmware = 205) : ISerialConnection
 {
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     private readonly SemaphoreSlim _sem = new(1, 1);
     private readonly Queue<byte> _readBuffer = new();
 

@@ -25,6 +25,8 @@ internal sealed class FakeGeminiFocuserSerialDevice(
     int maxStep = 100_000,
     bool tempCompAvailable = true) : ISerialConnection
 {
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     private readonly SemaphoreSlim _sem = new(1, 1);
     private readonly Queue<byte> _readBuffer = new();
 

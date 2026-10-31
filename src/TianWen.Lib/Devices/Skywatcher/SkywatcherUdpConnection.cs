@@ -32,6 +32,10 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
     }
 
     public bool IsOpen { get; private set; }
+
+    /// <inheritdoc />
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     public Encoding Encoding { get; }
 
     public ValueTask<bool> TryCloseAsync() => ValueTask.FromResult(Close());
@@ -71,7 +75,10 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
         if (!IsOpen) return null;
         try
         {
-            var result = await _client.ReceiveAsync(cancellationToken);
+            // A mount that stops answering ends the read at ReplyTimeout; the cancel below reads as no reply.
+            using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            reply.CancelAfter(ReplyTimeout);
+            var result = await _client.ReceiveAsync(reply.Token);
             var response = Encoding.GetString(result.Buffer);
             // Strip terminator if present
             var terminatorChars = Encoding.GetString(terminators.Span);
@@ -94,7 +101,10 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
         if (!IsOpen) return null;
         try
         {
-            var result = await _client.ReceiveAsync(cancellationToken);
+            // A mount that stops answering ends the read at ReplyTimeout; the cancel below reads as no reply.
+            using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            reply.CancelAfter(ReplyTimeout);
+            var result = await _client.ReceiveAsync(reply.Token);
             var response = Encoding.GetString(result.Buffer);
             if (response.Length < count)
             {

@@ -54,8 +54,7 @@ internal sealed class SerialConnection : ISerialConnection
         {
             AssertDtr = assertControlLines,
             AssertRts = assertControlLines,
-            // Reads are bounded by the caller's token, as ISerialConnection's always have been: a QHY filter wheel's
-            // reply blocks until the wheel arrives, and every driver chooses its own budget.
+            // Every read passes ReplyTimeout (ISerialConnection), so the port's own default is never what bounds one.
             ReadTimeout = Timeout.InfiniteTimeSpan,
             WriteTimeout = WriteTimeout,
         };
@@ -64,6 +63,9 @@ internal sealed class SerialConnection : ISerialConnection
     }
 
     public bool IsOpen => _port.IsOpen;
+
+    /// <inheritdoc />
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
 
     public string DisplayName => _port.PortName;
 
@@ -120,7 +122,7 @@ internal sealed class SerialConnection : ISerialConnection
     {
         try
         {
-            var bytesRead = await _port.ReadTerminatedAsync(message, terminators, cancellationToken).ConfigureAwait(false);
+            var bytesRead = await _port.ReadTerminatedAsync(message, terminators, ReplyTimeout, cancellationToken).ConfigureAwait(false);
             _hasAnswered = true;
             // The terminator is consumed, not stored; shown as a marker so e.g. LX200 "On-Step#" reads as the wire did.
             LogTraffic("<--", Render(message.Span[..bytesRead]) + "<term>");
@@ -155,7 +157,7 @@ internal sealed class SerialConnection : ISerialConnection
     {
         try
         {
-            await _port.ReadExactlyAsync(message, cancellationToken).ConfigureAwait(false);
+            await _port.ReadExactlyAsync(message, ReplyTimeout, cancellationToken).ConfigureAwait(false);
             _hasAnswered = true;
             LogTraffic("<--", $"{Render(message.Span)} ({message.Length})");
             return true;

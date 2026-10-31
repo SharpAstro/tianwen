@@ -16,6 +16,8 @@ namespace TianWen.Lib.Devices.Fake;
 /// </summary>
 internal class FakeSkywatcherSerialDevice : ISerialConnection
 {
+    public TimeSpan ReplyTimeout { get; set; } = ISerialConnection.DefaultReplyTimeout;
+
     private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly StringBuilder _responseBuffer = new();
