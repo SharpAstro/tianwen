@@ -17,6 +17,9 @@ public class LiveSessionTabCompositionTests
     private const int SurfaceW = 1280;
     private const int SurfaceH = 800;
 
+    /// <summary>The Live Session tab's own padding in design units, which its mount section pads its rows with.</summary>
+    private const float MountPadding = 6f;
+
     private static readonly RectF32 StartButton = new RectF32(40f, 80f, 120f, 28f);
 
     /// <summary>
@@ -186,6 +189,34 @@ public class LiveSessionTabCompositionTests
         Press(preview);
 
         state.Mode.ShouldBe(LiveSessionMode.Preview);
+    }
+
+    /// <summary>
+    /// The preview's mount section takes its height from the engine's measurement of its own rows (#1940 finding 6), so
+    /// its last row (Home, Park, Unpark, Set park) lies inside the panel and the strip holds no slack below it beyond
+    /// its own padding, at either scale, where a hand-summed constant clipped or padded it as the rows changed.
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void ThePreviewMountSectionFitsItsRowsAtEveryScale(float dpiScale)
+    {
+        using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+        var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont() };
+        var state = new LiveSessionState { Mode = LiveSessionMode.Preview, PreviewOTATelemetry = [PreviewOTATelemetry.Unknown] };
+        var area = new RectF32(0f, 0f, SurfaceW, SurfaceH);
+        tab.Render(state, area, new SystemTimeProvider());
+
+        var setPark = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "PreviewMountSetPark" });
+        var lastRowBottom = setPark.Y + setPark.Height;
+        var nodes = new List<Layout.ArrangedNode<float>>();
+        tab.CollectPaintedNodes(nodes);
+        // The dock the per-OTA columns and the mount strip share: its rect is the panel's.
+        var dock = nodes.Single(static n => n.Node is Layout.Node.Dock);
+        var panelBottom = dock.Bounds.Y + dock.Bounds.Height;
+        lastRowBottom.ShouldBeLessThanOrEqualTo(panelBottom + 0.5f, "the last row is inside the section's rect");
+        (panelBottom - lastRowBottom).ShouldBeLessThanOrEqualTo(MountPadding * dpiScale + 1.5f,
+            "the section is no taller than its rows and padding need");
     }
 
     [Theory]

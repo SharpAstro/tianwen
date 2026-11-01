@@ -28,7 +28,6 @@ namespace TianWen.UI.Abstractions
             }
 
             var fontPath = FontPath;
-            var dpiScale = DpiScale;
 
             if (state.ActiveSession is not { } session)
             {
@@ -59,20 +58,26 @@ namespace TianWen.UI.Abstractions
             }
             var columnsRow = Layout.Builder.HStack([.. columns]);
 
-            // Mount status docked to the bottom (full width), gated on enough vertical room (mirrors the old
-            // "only show if there's room" guard against the rowH*6 reservation). Up to five rows (incl. the
-            // optional target line) + padding + the hairline divider.
-            const float mountHDesign = BaseRowHeight * 5 + BasePadding * 2 + 1f;
-            var mountHpx = mountHDesign * dpiScale;
-            var showMount = rect.Y + rect.Height - mountHpx > rect.Y + rect.Height * 0.35f;
-
-            var tree = showMount
-                ? Layout.Builder.Dock(columnsRow, Layout.Builder.Bottom(BuildRunningMountSection(state, session), mountHDesign))
-                : columnsRow;
+            var tree = DockMountSection(columnsRow, BuildRunningMountSection(state, session), rect);
 
             PushClip(rect.X, rect.Y, rect.Width, rect.Height);
             RenderLayout(tree, rect, drawFill: DispatchOtaPanelFill);
             PopClip();
+        }
+
+        /// <summary>
+        /// Docks a mount section to the bottom of the per-OTA columns, sized by the engine's own measurement of the
+        /// section at this width (an Auto strip), so the height can never disagree with the rows it holds. Left out
+        /// when it would eat more than 65% of the height.
+        /// </summary>
+        private Layout.Node DockMountSection(Layout.Node columns, Layout.Node mount, RectF32 rect)
+        {
+            // The one measure beside the tree: "drop the strip if it would eat the panel" is a decision about whether to
+            // build the dock at all, which the engine has no declaration for; the strip's own height is still the engine's.
+            var measuredH = MeasureLayout(mount, new Layout.Size<float>(rect.Width, float.MaxValue)).Height;
+            return rect.Height - measuredH > rect.Height * 0.35f
+                ? Layout.Builder.Dock(columns, new Layout.DockChild(Layout.DockSide.Bottom, mount, Layout.Sizing.Auto))
+                : columns;
         }
 
         /// <summary>
