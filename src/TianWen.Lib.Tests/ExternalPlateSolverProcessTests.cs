@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using Xunit;
 
@@ -24,7 +25,7 @@ public class ExternalPlateSolverProcessTests
     [Fact(Timeout = 60_000)]
     public async Task AProbeThatNeverExitsCountsAsAbsentAndLeavesNothingRunning()
     {
-        var solver = new StandInToolSolver(hang: true);
+        var solver = new StandInToolSolver(hang: true, SystemTimeProvider.Instance);
 
         // Bounded by the test's own timeout, never a stopwatch (CLAUDE.md): the stand-in sleeps 120 s, so a probe that did not stop it
         // fails at 60. A budget of the probe's bound plus 10 read 15.5 on a CI runner whose cores a parallel test held.
@@ -37,7 +38,7 @@ public class ExternalPlateSolverProcessTests
     [Fact(Timeout = 60_000)]
     public async Task ACancelledSolveKillsTheToolAndRethrows()
     {
-        var solver = new StandInToolSolver(hang: true);
+        var solver = new StandInToolSolver(hang: true, SystemTimeProvider.Instance);
         var ct = TestContext.Current.CancellationToken;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var fits = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".fits");
@@ -56,9 +57,31 @@ public class ExternalPlateSolverProcessTests
     [Fact(Timeout = 60_000)]
     public async Task AToolThatAnswersIsStillFound()
     {
-        var solver = new StandInToolSolver(hang: false);
+        var solver = new StandInToolSolver(hang: false, SystemTimeProvider.Instance);
 
         (await solver.CheckSupportAsync(TestContext.Current.CancellationToken)).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The probe's bound runs on the injected clock, so it is the fake clock's advance that ends it, never the wall clock: the
+    /// bound is an hour, the tool never exits, and the clock is advanced by that hour ONCE, once the tool has started its inner
+    /// process and the bound's timer exists. On the wall clock the probe would hold for the hour (the test's own timeout ends it).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AProbeThatNeverExitsEndsWhenTheInjectedClockReachesItsBoundAndLeavesNothingRunning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new FakeTimeProviderWrapper();
+        var solver = new StandInToolSolver(hang: true, clock, probeBound: TimeSpan.FromHours(1));
+
+        var probe = solver.CheckSupportAsync(ct).AsTask();
+        await solver.InnerPidPrinted.WaitAsync(ct);
+        await clock.WaitForTimerDueAfterAsync(TimeSpan.FromMinutes(30), ct);
+        probe.IsCompleted.ShouldBeFalse("the tool never exits and the clock has not moved");
+        clock.Advance(TimeSpan.FromHours(1));
+
+        (await probe).ShouldBeFalse();
+        await ShouldAllExitAsync(solver);
     }
 
     /// <summary>
@@ -99,7 +122,7 @@ public class ExternalPlateSolverProcessTests
     /// A solver whose "tool" is a shell that starts a second process and prints its id: one that never
     /// exits (<paramref name="hang"/>) or one that exits 0 at once.
     /// </summary>
-    private sealed class StandInToolSolver(bool hang) : ExternalProcessPlateSolverBase
+    private sealed class StandInToolSolver(bool hang, ITimeProvider clock, TimeSpan? probeBound = null) : ExternalProcessPlateSolverBase(clock)
     {
         // The probe's bound on the hanging stand-in: long enough for it to print its inner process's id first, since pwsh's cold start
         // alone passed 5 s under a loaded full suite (2026-10-03). Still well inside the tests' 60 s, so a tool left running fails them.
@@ -126,7 +149,7 @@ public class ExternalPlateSolverProcessTests
         // The shorter bound is for the tool that never exits. One that answers must not race it: pwsh's cold start alone took more
         // than 5 s under a loaded full suite (2026-09-30) and read an answering tool as absent, so it gets a bound well inside
         // the test's own timeout.
-        protected override TimeSpan ProbeTimeout => hang ? Timeout : TimeSpan.FromSeconds(45);
+        protected override TimeSpan ProbeTimeout => probeBound ?? (hang ? Timeout : TimeSpan.FromSeconds(45));
 
         protected override string FormatImageDimenstions(ImageDim? imageDim, float range) => "";
 

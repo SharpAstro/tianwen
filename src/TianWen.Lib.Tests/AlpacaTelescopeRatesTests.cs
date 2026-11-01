@@ -146,7 +146,7 @@ public class AlpacaTelescopeRatesTests(ITestOutputHelper output)
     {
         var device = new AlpacaDevice(DeviceType.Telescope, "stub-mount", "mount.invalid", 11111, 0, "Stub Mount")
         {
-            Client = new AlpacaClient(new HttpClient(server))
+            Client = new AlpacaClient(new HttpClient(server), SystemTimeProvider.Instance)
         };
         var sp = new FakeExternal(output).BuildServiceProvider();
         var driver = new AlpacaTelescopeDriver(device, sp);

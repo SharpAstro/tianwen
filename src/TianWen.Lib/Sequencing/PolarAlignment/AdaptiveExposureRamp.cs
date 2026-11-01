@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing.PolarAlignment
 {
@@ -65,6 +65,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// <param name="minStarsMatched">The single matched-star threshold the
         /// rung must clear to "win" the ramp. Phase A and Phase B both run at
         /// the winning rung's exposure.</param>
+        /// <param name="timeProvider">The clock each rung's budget runs on, so a test's fake clock ends a rung when advanced past it.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <param name="progress">Optional progress reporter for the side panel.</param>
         /// <param name="logger">Optional logger.</param>
@@ -73,6 +74,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IPlateSolver solver,
             ImmutableArray<TimeSpan> ramp,
             int minStarsMatched,
+            ITimeProvider timeProvider,
             CancellationToken ct,
             IProgress<ProbeProgress>? progress = null,
             ILogger? logger = null)
@@ -97,14 +99,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 {
                     rungBudget = TimeSpan.FromSeconds(30);
                 }
-                using var rungCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                rungCts.CancelAfter(rungBudget);
+                using var rungDeadline = timeProvider.CancelAfter(rungBudget);
+                using var rungCts = CancellationTokenSource.CreateLinkedTokenSource(ct, rungDeadline.Token);
 
                 logger?.LogInformation(
                     "PolarAlignment probe rung {RungIndex}/{RungCount} START exposure={ExposureMs:F0}ms budget={BudgetMs:F0}ms",
                     i + 1, ramp.Length, exposure.TotalMilliseconds, rungBudget.TotalMilliseconds);
 
-                var rungStart = Stopwatch.GetTimestamp();
+                var rungStart = timeProvider.GetTimestamp();
                 bool timedOut = false;
                 try
                 {
@@ -117,7 +119,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     last = new CaptureAndSolveResult(false, null, default, 0, exposure, null,
                         FailureReason: $"Rung {exposure.TotalMilliseconds:F0}ms timed out after {rungBudget.TotalSeconds:F0}s");
                 }
-                var rungElapsed = Stopwatch.GetElapsedTime(rungStart);
+                var rungElapsed = timeProvider.GetElapsedTime(rungStart);
 
                 // Distinguish "completed past budget" from "timed out" -- if the
                 // capture-source / plate solver ignores the cancellation token,

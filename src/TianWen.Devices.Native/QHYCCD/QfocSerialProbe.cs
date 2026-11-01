@@ -13,7 +13,7 @@ namespace TianWen.Lib.Devices.QHYCCD;
 /// command: see <see cref="QHYFocuserDriver.ProbeAsync"/>. 1500ms budget covers
 /// the JSON handshake which includes a 150ms drain and a 300ms response wait.
 /// </summary>
-internal sealed class QfocSerialProbe : ISerialProbe
+internal sealed class QfocSerialProbe(ITimeProvider timeProvider) : ISerialProbe
 {
     public string Name => "QFOC";
     public int BaudRate => QHYFocuserDriver.QFOC_BAUD;
@@ -29,7 +29,7 @@ internal sealed class QfocSerialProbe : ISerialProbe
 
     public async ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken)
     {
-        var probeResult = await QHYFocuserDriver.ProbeAsync(conn, cancellationToken);
+        var probeResult = await QHYFocuserDriver.ProbeAsync(conn, timeProvider, cancellationToken);
         if (probeResult is not var (firmwareVersion, boardVersion))
         {
             return null;

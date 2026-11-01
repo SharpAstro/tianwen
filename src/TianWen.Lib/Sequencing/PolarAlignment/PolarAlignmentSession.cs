@@ -158,6 +158,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             var probe = await AdaptiveExposureRamp.ProbeAsync(
                 _source, _solver, _config.ExposureRamp,
                 _config.MinStarsForSolve,
+                _timeProvider,
                 ct, rampProgress, _logger);
             if (!probe.Success)
             {

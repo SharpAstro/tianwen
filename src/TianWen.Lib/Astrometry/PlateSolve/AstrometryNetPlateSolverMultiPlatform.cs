@@ -1,8 +1,10 @@
-﻿namespace TianWen.Lib.Astrometry.PlateSolve;
+﻿using TianWen.Lib.Devices;
+
+namespace TianWen.Lib.Astrometry.PlateSolve;
 
 internal class AstrometryNetPlateSolverMultiPlatform : AstrometryNetPlateSolver
 {
-    public AstrometryNetPlateSolverMultiPlatform() : base(true)
+    public AstrometryNetPlateSolverMultiPlatform(ITimeProvider timeProvider) : base(true, timeProvider)
     {
         // calls base
     }

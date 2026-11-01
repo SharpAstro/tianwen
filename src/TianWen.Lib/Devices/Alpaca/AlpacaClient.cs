@@ -16,7 +16,9 @@ namespace TianWen.Lib.Devices.Alpaca;
 /// Thin wrapper around <see cref="HttpClient"/> for calling the ASCOM Alpaca REST API.
 /// Uses AOT-safe <see cref="AlpacaJsonSerializerContext"/> for all JSON operations.
 /// </summary>
-internal sealed class AlpacaClient(HttpClient httpClient)
+/// <param name="httpClient">The HTTP client every call goes through.</param>
+/// <param name="timeProvider">The clock the ImageBytes download's time budget runs on, so a test's fake clock ends it when advanced past it.</param>
+internal sealed class AlpacaClient(HttpClient httpClient, ITimeProvider timeProvider)
 {
     private int _clientTransactionId;
 
@@ -197,11 +199,9 @@ internal sealed class AlpacaClient(HttpClient httpClient)
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var timeout = httpClient.Timeout;
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (timeout != Timeout.InfiniteTimeSpan)
-        {
-            budget.CancelAfter(timeout);
-        }
+        // The budget is built on the injected clock, never CancelAfter on a plain source, which runs on the wall clock.
+        using var deadline = timeout != Timeout.InfiniteTimeSpan ? timeProvider.CancelAfter(timeout) : null;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline?.Token ?? CancellationToken.None);
 
         try
         {

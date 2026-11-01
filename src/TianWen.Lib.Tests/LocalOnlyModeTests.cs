@@ -98,7 +98,7 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var asked = 0;
-        var source = new CanonDeviceSource(NullLogger<CanonDeviceSource>.Instance, new OneWpdCamera(), new CanonBodyRegistry(), Mode(localOnly))
+        var source = new CanonDeviceSource(NullLogger<CanonDeviceSource>.Instance, new OneWpdCamera(), new CanonBodyRegistry(), Mode(localOnly), SystemTimeProvider.Instance)
         {
             ScanMdnsAsync = (_, _) =>
             {
@@ -163,7 +163,7 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         using var http = new HttpClient();
-        var client = new AlpacaClient(http);
+        var client = new AlpacaClient(http, SystemTimeProvider.Instance);
 
         var asked = new List<(IPEndPoint? Bind, IPEndPoint Target)>();
         Task<List<(string Host, int Port)>> Record(IPEndPoint? bind, IPEndPoint target, CancellationToken _)
@@ -172,8 +172,8 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
             return Task.FromResult(new List<(string Host, int Port)>());
         }
 
-        await new AlpacaDeviceSource(client, NullLogger<AlpacaDeviceSource>.Instance, LocalOnlyMode.Off) { AskForServersAsync = Record }.DiscoverAsync(ct);
-        await new AlpacaDeviceSource(client, NullLogger<AlpacaDeviceSource>.Instance, LocalOnlyMode.On) { AskForServersAsync = Record }.DiscoverAsync(ct);
+        await new AlpacaDeviceSource(client, NullLogger<AlpacaDeviceSource>.Instance, LocalOnlyMode.Off, SystemTimeProvider.Instance) { AskForServersAsync = Record }.DiscoverAsync(ct);
+        await new AlpacaDeviceSource(client, NullLogger<AlpacaDeviceSource>.Instance, LocalOnlyMode.On, SystemTimeProvider.Instance) { AskForServersAsync = Record }.DiscoverAsync(ct);
 
         asked.Count.ShouldBe(2);
         asked[0].Bind.ShouldBeNull("the OS binds the broadcasting socket on every interface");

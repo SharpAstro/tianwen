@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Alpaca;
 using Xunit;
 
@@ -33,7 +34,7 @@ public class AlpacaImageDownloadTests(ITestOutputHelper output)
     public async Task ThePayloadArrivesWholeWhetherOrNotItsLengthIsDeclared(bool declareLength)
     {
         var body = AlpacaImageBytesTests.BuildPayload(641, 479, AlpacaImageBytesTests.Int32, (x, y) => x * 1000 + y);
-        var client = new AlpacaClient(new HttpClient(new FixedBodyHandler(body, declareLength)));
+        var client = new AlpacaClient(new HttpClient(new FixedBodyHandler(body, declareLength)), SystemTimeProvider.Instance);
 
         using var payload = await client.GetImageArrayBytesAsync(BaseUrl, "camera", 0, "imagearray", TestContext.Current.CancellationToken);
 
@@ -48,7 +49,7 @@ public class AlpacaImageDownloadTests(ITestOutputHelper output)
     public async Task ASteadyDownloadAllocatesNoPayloadSizedArray()
     {
         var body = AlpacaImageBytesTests.BuildPayload(640, 480, AlpacaImageBytesTests.Int32, (x, y) => x + y);
-        var client = new AlpacaClient(new HttpClient(new FixedBodyHandler(body, declareLength: true)));
+        var client = new AlpacaClient(new HttpClient(new FixedBodyHandler(body, declareLength: true)), SystemTimeProvider.Instance);
         var ct = TestContext.Current.CancellationToken;
 
         // The first download rents the buffer and JITs the path; its dispose is what the next one rents.
@@ -87,7 +88,7 @@ public class AlpacaImageDownloadTests(ITestOutputHelper output)
     [Fact(Timeout = 10_000)]
     public async Task ABodyThatStallsFailsAsATimeoutWithinTheClientsBudget()
     {
-        var client = new AlpacaClient(new HttpClient(new StalledBodyHandler()) { Timeout = TimeSpan.FromMilliseconds(250) });
+        var client = new AlpacaClient(new HttpClient(new StalledBodyHandler()) { Timeout = TimeSpan.FromMilliseconds(250) }, SystemTimeProvider.Instance);
         var ct = TestContext.Current.CancellationToken;
 
         // Caught by hand: the exception a cancelled task carries is the one under test, inner and all.
@@ -105,6 +106,43 @@ public class AlpacaImageDownloadTests(ITestOutputHelper output)
         caught.ShouldBeOfType<TaskCanceledException>();
         caught.InnerException.ShouldBeOfType<TimeoutException>();
         ct.IsCancellationRequested.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The budget is built on the injected clock, so it is the fake clock's advance that ends a stalled download, never the wall
+    /// clock: the client's timeout is an hour, the body never comes, and the clock is advanced by that hour ONCE, once the
+    /// budget's timer exists. On the wall clock the download would hold for the hour (the test's own timeout ends it).
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ABodyThatStallsEndsWhenTheInjectedClockReachesTheBudget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new FakeTimeProviderWrapper();
+        var client = new AlpacaClient(new HttpClient(new StalledBodyHandler()) { Timeout = TimeSpan.FromHours(1) }, clock);
+
+        var download = DownloadAsync(client, ct);
+        await clock.WaitForTimerDueAfterAsync(TimeSpan.FromMinutes(30), ct);
+        download.IsCompleted.ShouldBeFalse("the body has not come and the clock has not moved");
+        clock.Advance(TimeSpan.FromHours(1));
+
+        var caught = await download;
+        caught.ShouldBeOfType<TaskCanceledException>();
+        caught.InnerException.ShouldBeOfType<TimeoutException>();
+        ct.IsCancellationRequested.ShouldBeFalse();
+    }
+
+    // The exception the download ends with, caught by hand: the one a cancelled task carries is the one under test, inner and all.
+    private static async Task<Exception?> DownloadAsync(AlpacaClient client, CancellationToken ct)
+    {
+        try
+        {
+            using var payload = await client.GetImageArrayBytesAsync(BaseUrl, "camera", 0, "imagearray", ct);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
     }
 
     // Serves one fixed ImageBytes body for every request, as a server would, with or without its length.

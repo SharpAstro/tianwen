@@ -345,16 +345,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver, ILe
             _announced.Writer.TryComplete();
             if (_objectPump is { } pump && _pumpStop is { } stop)
             {
-                stop.CancelAfter(PumpDrainBudget);
-                try
-                {
-                    await pump;
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogDebug(ex, "Canon object queue ended with an error");
-                }
-                stop.Dispose();
+                await DrainPumpAsync(pump, stop, TimeProvider, PumpDrainBudget, Logger);
             }
             _objectPump = null;
             _pumpStop = null;
@@ -833,7 +824,30 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver, ILe
     }
 
     // How long a disconnect lets the object queue release what the body still announced, before it stops it.
-    private static readonly TimeSpan PumpDrainBudget = TimeSpan.FromSeconds(10);
+    internal TimeSpan PumpDrainBudget { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Waits for the object queue's reader to finish what it holds, and stops it through <paramref name="stop"/> once
+    /// <paramref name="budget"/> has run out on <paramref name="clock"/>: a body that never answers a release must not hold a
+    /// disconnect, and a test's fake clock ends the wait when advanced past the budget.
+    /// </summary>
+    internal static async Task DrainPumpAsync(Task pump, CancellationTokenSource stop, ITimeProvider clock, TimeSpan budget, ILogger logger)
+    {
+        // The registration and the deadline end before the source does, so a deadline firing late never cancels a disposed one.
+        using (var drain = clock.CancelAfter(budget))
+        using (drain.Token.Register(stop.Cancel))
+        {
+            try
+            {
+                await pump;
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Canon object queue ended with an error");
+            }
+        }
+        stop.Dispose();
+    }
 
     /// <summary>
     /// The queue of announced objects. Its reader must be able to COUNT (the queue asks whether more is waiting before it

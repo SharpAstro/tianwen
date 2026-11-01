@@ -9,6 +9,7 @@ using TianWen.AI.Imaging.RcAstro;
 using TianWen.Cli;
 using TianWen.Cli.Plan;
 using TianWen.Cli.View;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Logging;
@@ -170,9 +171,9 @@ var rootCommand = new RootCommand
                         services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                         services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
                 new PlanetaryLiveSubCommand(consoleHost, services.GetRequiredService<TianWen.Lib.Devices.ITimeProvider>()).Build(),
-                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildSurvey(),
-                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildCrop(),
-                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildConvert(),
+                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>(), services.GetRequiredService<ITimeProvider>()).BuildSurvey(),
+                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>(), services.GetRequiredService<ITimeProvider>()).BuildCrop(),
+                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>(), services.GetRequiredService<ITimeProvider>()).BuildConvert(),
                 new PlanetaryGeometrySubCommands(consoleHost).BuildLimb(),
                 new PlanetaryTrainingPairsSubCommand(consoleHost).Build(),
                 new PlanetaryTrainingPairsSubCommand(consoleHost).BuildFidelity(),

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.IO;
 
@@ -17,12 +18,16 @@ internal static class BoundedProcess
     /// cancellation the whole process TREE is killed. <c>wsl.exe</c> and <c>bash -l -c</c> each put the tool
     /// one process further down, so killing only the direct child leaves the tool running.
     /// </summary>
+    /// <param name="proc">The process to wait for.</param>
+    /// <param name="timeout">How long to wait, or null for as long as the caller's token allows.</param>
+    /// <param name="timeProvider">The clock the timeout runs on (the caller's, never the wall clock by name), so a test's fake clock ends the wait when advanced past it.</param>
+    /// <param name="cancellationToken">The caller's cancellation.</param>
     /// <returns><see langword="true"/> when the process exited on its own; <see langword="false"/> when it
     /// ran past <paramref name="timeout"/> and was killed.</returns>
     /// <exception cref="OperationCanceledException">The caller cancelled; the tree is killed first.</exception>
-    public static async Task<bool> WaitForExitOrKillAsync(Process proc, TimeSpan? timeout, CancellationToken cancellationToken)
+    public static async Task<bool> WaitForExitOrKillAsync(Process proc, TimeSpan? timeout, ITimeProvider timeProvider, CancellationToken cancellationToken)
     {
-        using var timeoutCts = timeout is { } t ? new CancellationTokenSource(t, TimeProvider.System) : null;
+        using var timeoutCts = timeout is { } t ? timeProvider.CancelAfter(t) : null;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts?.Token ?? CancellationToken.None);
         try
         {

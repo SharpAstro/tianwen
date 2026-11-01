@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using Xunit;
 
@@ -109,7 +110,7 @@ namespace TianWen.Lib.Tests
             Image.TryReadFitsFile(source, out var image, out var hint);
             Assert.NotNull(image);
 
-            var solver = new AstapPlateSolver();
+            var solver = new AstapPlateSolver(SystemTimeProvider.Instance);
             Assert.SkipUnless(await solver.CheckSupportAsync(ct), "ASTAP is not installed on this box");
 
             output.WriteLine($"truth {SolvedPixelScale:F3}\"/px; sweeping the -fov hint ASTAP is given");

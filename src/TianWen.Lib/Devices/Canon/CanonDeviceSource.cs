@@ -18,7 +18,7 @@ namespace TianWen.Lib.Devices.Canon;
 /// Discovers cameras via WPD (Windows), USB (LibUsbDotNet), and WiFi (mDNS + PTP/IP), the last not in a local-only
 /// process (<see cref="LocalOnlyMode"/>).
 /// </summary>
-internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICanonWpd wpd, CanonBodyRegistry bodies, LocalOnlyMode localOnly) : IDeviceSource<CanonDevice>
+internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICanonWpd wpd, CanonBodyRegistry bodies, LocalOnlyMode localOnly, ITimeProvider timeProvider) : IDeviceSource<CanonDevice>
 {
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
     private const int MdnsPort = 5353;
@@ -29,7 +29,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
     /// How long one identity read may take. It is about 30 ms on a body that answers, and the transport's own deadline is
     /// 15 s; a camera that does not answer must not hold a whole discovery, so it is keyed by its path instead.
     /// </summary>
-    private static readonly TimeSpan IdentityReadTimeout = TimeSpan.FromSeconds(3);
+    internal TimeSpan IdentityReadTimeout { get; init; } = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// Pre-built DNS PTR query for <c>_ptp._tcp.local</c>.
@@ -108,7 +108,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
     /// The mDNS scan for PTP/IP cameras, which binds the shared mDNS port on every interface and joins its multicast
     /// group. A seam for a test, which must not bind it.
     /// </summary>
-    internal Func<TimeSpan, CancellationToken, Task<IReadOnlyList<(string InstanceName, string IpAddr)>>> ScanMdnsAsync { get; init; } = ScanPtpTcpMdnsAsync;
+    internal Func<TimeSpan, CancellationToken, Task<IReadOnlyList<(string InstanceName, string IpAddr)>>> ScanMdnsAsync { get; init; } = (timeout, ct) => ScanPtpTcpMdnsAsync(timeout, timeProvider, ct);
 
     /// <summary>
     /// The Canon cameras on the network, found by mDNS, each keyed by its PTP/IP responder GUID. None in a local-only
@@ -129,7 +129,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
             foreach (var (instanceName, ipAddr) in mdnsResults)
             {
                 // Quick PTP/IP handshake to get stable responder GUID
-                var guid = await GetWifiGuidAsync(ipAddr, HandshakeTimeout, cancellationToken);
+                var guid = await GetWifiGuidAsync(ipAddr, HandshakeTimeout, timeProvider, cancellationToken);
                 var deviceId = guid ?? ipAddr; // fall back to IP if handshake fails
                 var displayName = instanceName.Length > 0 ? instanceName : "Canon WiFi";
 
@@ -198,8 +198,9 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
             return known.Length > 0 ? known : null;
         }
 
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        bounded.CancelAfter(IdentityReadTimeout);
+        // The read's deadline is built on the injected clock, so a test's fake clock ends a read the body never answers.
+        using var deadline = timeProvider.CancelAfter(IdentityReadTimeout);
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         try
         {
             if (await wpd.ReadIdentityAsync(wpdId, bounded.Token) is { } body && body.SerialNumber.Length > 0)
@@ -233,7 +234,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
     /// Returns discovered PTP camera instance names and IP addresses.
     /// </summary>
     private static async Task<IReadOnlyList<(string InstanceName, string IpAddr)>> ScanPtpTcpMdnsAsync(
-        TimeSpan timeout, CancellationToken ct)
+        TimeSpan timeout, ITimeProvider timeProvider, CancellationToken ct)
     {
         var results = new List<(string, string)>();
 
@@ -246,8 +247,8 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
         await udp.SendAsync(PtpTcpMdnsQuery, new IPEndPoint(MdnsMulticast, MdnsPort), ct);
 
         // Collect responses until timeout
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
+        using var window = timeProvider.CancelAfter(timeout);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, window.Token);
 
         var seen = new HashSet<string>();
         try
@@ -410,10 +411,10 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
     /// Connects to a PTP/IP camera briefly to read the stable responder GUID, then disconnects.
     /// Returns null on any error (timeout, connection refused, etc.).
     /// </summary>
-    private static async Task<string?> GetWifiGuidAsync(string host, TimeSpan timeout, CancellationToken ct)
+    private static async Task<string?> GetWifiGuidAsync(string host, TimeSpan timeout, ITimeProvider timeProvider, CancellationToken ct)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
+        using var deadline = timeProvider.CancelAfter(timeout);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
 
         try
         {

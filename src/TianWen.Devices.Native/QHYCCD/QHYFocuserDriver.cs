@@ -50,6 +50,9 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
     /// </summary>
     private static readonly byte[] JsonTerminator = [(byte)'}'];
 
+    /// <summary>How long a drain reads for before it gives the stale bytes up.</summary>
+    private static readonly TimeSpan DrainTimeout = TimeSpan.FromMilliseconds(100);
+
     private volatile int _position;
     private volatile int _targetPosition;
     private volatile bool _isMoving;
@@ -185,7 +188,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
         }
 
         // Drain any stale data from the serial buffer
-        await DrainSerialBufferAsync(serial, cancellationToken);
+        await DrainSerialBufferAsync(serial, TimeProvider, cancellationToken);
 
         await Task.Delay(150, cancellationToken);
 
@@ -322,14 +325,14 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
     }
 
     /// <summary>
-    /// Drains any stale data from the serial buffer by reading with a short timeout.
+    /// Drains any stale data from the serial buffer by reading with a short timeout, on <paramref name="timeProvider"/>.
     /// </summary>
-    private static async ValueTask DrainSerialBufferAsync(ISerialConnection serial, CancellationToken cancellationToken)
+    internal static async ValueTask DrainSerialBufferAsync(ISerialConnection serial, ITimeProvider timeProvider, CancellationToken cancellationToken)
     {
         try
         {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromMilliseconds(100));
+            using var deadline = timeProvider.CancelAfter(DrainTimeout);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
             using var @lock = await serial.WaitAsync(cts.Token);
             _ = await serial.TryReadExactlyAsync(1024, cts.Token);
         }
@@ -347,10 +350,10 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
     /// Probes a serial port to check if a QFOC focuser is connected by sending the init command.
     /// Returns a tuple of (firmwareVersion, boardVersion) on success, or <c>null</c> if not a QFOC.
     /// </summary>
-    internal static async ValueTask<(string FirmwareVersion, string BoardVersion)?> ProbeAsync(ISerialConnection serial, CancellationToken cancellationToken)
+    internal static async ValueTask<(string FirmwareVersion, string BoardVersion)?> ProbeAsync(ISerialConnection serial, ITimeProvider timeProvider, CancellationToken cancellationToken)
     {
         // Drain stale data
-        await DrainSerialBufferAsync(serial, cancellationToken);
+        await DrainSerialBufferAsync(serial, timeProvider, cancellationToken);
 
         await Task.Delay(150, cancellationToken);
 
