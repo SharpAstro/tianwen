@@ -2153,9 +2153,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     consoleHost.WriteError("--star-beta-draw sets injected stars' wings; it needs --mode stars");
                     return 1;
                 }
-                if (parseResult.GetValue(starBetaOpt) is not null || relationSessions is not null || channelWingCut is not null)
+                if (parseResult.GetValue(starBetaOpt) is not null || relationSessions is not null || channelWingCut is not null || clampWingRelations)
                 {
-                    consoleHost.WriteError("--star-beta-draw and --star-beta, --channel-relations or --channel-wing-cut are two arms; give one");
+                    consoleHost.WriteError("--star-beta-draw and --star-beta, --channel-relations, --channel-wing-cut or --clamp-wing-relations are two arms; give one");
                     return 1;
                 }
                 starBetaDraw = new StarBetaDraw(share, low, high);
@@ -2173,9 +2173,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     consoleHost.WriteError($"--star-beta {heldBeta}: the beta is in [1.1, 20]");
                     return 1;
                 }
-                if (relationSessions is not null || channelWingCut is not null)
+                if (relationSessions is not null || channelWingCut is not null || clampWingRelations)
                 {
-                    consoleHost.WriteError("--star-beta and --channel-relations or --channel-wing-cut are two arms; give one");
+                    consoleHost.WriteError("--star-beta and --channel-relations, --channel-wing-cut or --clamp-wing-relations are two arms; give one");
                     return 1;
                 }
             }

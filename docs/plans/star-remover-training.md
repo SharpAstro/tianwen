@@ -4930,7 +4930,8 @@ everywhere (0.7 % pooled, the lowest of any arm, and 20-100 sigma flat reached 9
 R3h clears the SMC at either beta and leaves HIP 80609's and the Lobster's stars drawn at the SMC's beta exactly as R2w does. It
 did not learn a heavy-winged star; it learned that a field LIKE the low-beta sessions' takes a deeper subtraction, and its typical
 stars elsewhere are dug harder for it. A session's beta is a property of the session in the training data, so the network can
-read it off the plate (its sky, colour, noise) rather than off the star, and oversampling only made that shortcut pay more.
+read it off everything else the session gives a cell (its stars' widths and colours, its noise, its background steered from the
+master) rather than off the star, and oversampling only made that shortcut pay more.
 
 #### R3i: a beta drawn per cell, on any plate (2026-11-02)
 
