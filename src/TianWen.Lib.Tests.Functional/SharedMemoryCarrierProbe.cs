@@ -60,7 +60,7 @@ public class SharedMemoryCarrierProbe(ITestOutputHelper output)
 
     private async Task MeasureAsync(NodeTransport transport, NodeFrames frames, bool sharedMemory, CancellationToken ct)
     {
-        await using var stream = await transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, sharedMemory, ct);
+        await using var stream = await transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, sharedMemory, SystemTimeProvider.Instance, ct);
         var reader = new FrameReader();
         var (last, warm) = (await stream.ReadAsync(reader, ct)).ShouldNotBeNull("the stream is open while the capture runs");
         (int Width, int Height, int Channels, bool Packed) shape = (warm.Width, warm.Height, warm.ChannelCount, FrameWire.PacksAsUInt16(warm));

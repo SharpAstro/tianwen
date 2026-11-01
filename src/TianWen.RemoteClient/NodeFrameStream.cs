@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Api;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.RemoteClient
@@ -11,7 +12,7 @@ namespace TianWen.RemoteClient
     /// <summary>
     /// A frame source of a node as a stream (<see cref="FrameStreamWire"/>, P5 part 5c of
     /// docs/plans/hardware-in-the-server.md): the newest frame whenever the last one has been read, so a view that falls
-    /// behind skips frames rather than queueing them. Opened through <see cref="NodeTransport.OpenFrameStreamAsync(string, CancellationToken)"/>.
+    /// behind skips frames rather than queueing them. Opened through <see cref="NodeTransport.OpenFrameStreamAsync(string, ITimeProvider, CancellationToken)"/>.
     /// Over this machine's socket a frame may come in shared memory (P4b, #932): the node names its slot, and the stream copies
     /// it out into the same recycled planes, so a caller never knows which carrier brought it.
     /// </summary>
@@ -22,12 +23,14 @@ namespace TianWen.RemoteClient
 
         private readonly ClientWebSocket _socket;
         private readonly HttpMessageInvoker? _invoker;
+        private readonly ITimeProvider _timeProvider;
         private FrameSlotReader? _slots;
 
-        internal NodeFrameStream(ClientWebSocket socket, HttpMessageInvoker? invoker)
+        internal NodeFrameStream(ClientWebSocket socket, HttpMessageInvoker? invoker, ITimeProvider timeProvider)
         {
             _socket = socket;
             _invoker = invoker;
+            _timeProvider = timeProvider;
         }
 
         /// <summary>
@@ -73,7 +76,7 @@ namespace TianWen.RemoteClient
             {
                 if (_socket.State is WebSocketState.Open)
                 {
-                    using var budget = new CancellationTokenSource(CloseBudget);
+                    using var budget = _timeProvider.CancelAfter(CloseBudget);
                     await _socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Done", budget.Token).ConfigureAwait(false);
                 }
             }

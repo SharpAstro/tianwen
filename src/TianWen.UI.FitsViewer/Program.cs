@@ -684,7 +684,7 @@ loop.Run(cts.Token);
 // from there deadlocks) nor blocked on (the window would stop responding for the duration).
 // ShutdownDrain keeps the loop pumping instead; see its remarks for what each spelling breaks.
 cts.Cancel();
-ShutdownDrain.PumpUntilComplete(loop, controller.ShutdownAsync(), logger);
+ShutdownDrain.PumpUntilComplete(loop, controller.ShutdownAsync(), sp.GetRequiredService<TianWen.Lib.Devices.ITimeProvider>(), logger);
 instanceGate?.Dispose();
 // The GPU trio is disposed by `using var gpu` at scope end, top-down, ahead of sdlWindow's using.
 

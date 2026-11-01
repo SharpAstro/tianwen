@@ -112,7 +112,7 @@ public sealed class AppQuit(
             return null;
         }
 
-        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(5), timeProvider.System);
+        using var budget = timeProvider.CancelAfter(TimeSpan.FromSeconds(5));
         var answer = await node.Client.GetNodeAsync(budget.Token).ConfigureAwait(false);
         if (answer.Value is not { } now)
         {

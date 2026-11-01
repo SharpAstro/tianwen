@@ -3,6 +3,7 @@ using SdlVulkan.Renderer;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Shared;
 
@@ -43,13 +44,15 @@ public static class ShutdownDrain
     /// </summary>
     /// <param name="loop">The event loop that has just stopped.</param>
     /// <param name="drain">The shutdown task to wait for.</param>
+    /// <param name="timeProvider">The clock the timeout runs on, so a test's fake clock ends the drain when advanced past it.</param>
     /// <param name="logger">Logs when the timeout is hit; the abandoned work is worth knowing about.</param>
     /// <param name="timeout">Overrides <see cref="DefaultTimeout"/>.</param>
     /// <returns>True if the drain finished, false if it was abandoned at the timeout.</returns>
-    public static bool PumpUntilComplete(SdlEventLoop loop, Task drain, ILogger? logger = null, TimeSpan? timeout = null)
+    public static bool PumpUntilComplete(SdlEventLoop loop, Task drain, ITimeProvider timeProvider, ILogger? logger = null, TimeSpan? timeout = null)
     {
         ArgumentNullException.ThrowIfNull(loop);
         ArgumentNullException.ThrowIfNull(drain);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         if (drain.IsCompleted)
         {
@@ -79,7 +82,7 @@ public static class ShutdownDrain
             return true;
         };
 
-        using var deadline = new CancellationTokenSource(budget);
+        using var deadline = timeProvider.CancelAfter(budget);
         loop.Run(deadline.Token);
 
         if (drain.IsCompleted)

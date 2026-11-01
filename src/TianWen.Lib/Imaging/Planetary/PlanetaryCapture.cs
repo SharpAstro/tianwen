@@ -1740,7 +1740,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
         // Bound the capture-loop drain so a slow/stuck loop can't hang shutdown. The CTS fires off the injected
         // TimeProvider (FakeTimeProvider-controllable in tests), not the raw system clock.
-        using var drainTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3), timeProvider.System);
+        using var drainTimeout = timeProvider.CancelAfter(TimeSpan.FromSeconds(3));
         await StopAsync(drainTimeout.Token).ConfigureAwait(false);
 
         // The recording's file is whole once its writer has closed it, which the loop's ending began.

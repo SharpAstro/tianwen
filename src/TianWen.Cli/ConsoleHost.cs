@@ -86,7 +86,7 @@ internal sealed class ConsoleHost(
                         WriteError($"This computer's node is used as it is: {note}");
                     }
                     _http = transport.CreateHttpClient();
-                    Volatile.Write(ref _node, new TianWenNodeClient(_http));
+                    Volatile.Write(ref _node, new TianWenNodeClient(_http, timeProvider: TimeProvider));
                 }
                 else
                 {

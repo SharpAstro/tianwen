@@ -567,7 +567,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         {
             for (var attempt = 1; attempt <= probe.MaxAttempts; attempt++)
             {
-                using var cts = new CancellationTokenSource(budget, _timeProvider.System);
+                using var cts = _timeProvider.CancelAfter(budget);
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
  
                 try

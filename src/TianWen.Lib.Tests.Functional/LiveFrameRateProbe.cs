@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.RemoteClient;
 using Xunit;
@@ -80,7 +81,7 @@ public class LiveFrameRateProbe(ITestOutputHelper output)
         started.IsSuccess.ShouldBeTrue(started.Error);
         try
         {
-            await using var stream = await transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, sharedMemory, ct);
+            await using var stream = await transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, sharedMemory, SystemTimeProvider.Instance, ct);
             var reader = new FrameReader();
 
             // Warm-up: the first frames pay for the camera's start, the node's first planes and the JIT.

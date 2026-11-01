@@ -877,7 +877,7 @@ async Task DrainShutdownAsync()
     }
 }
 
-ShutdownDrain.PumpUntilComplete(loop, DrainShutdownAsync(), logger);
+ShutdownDrain.PumpUntilComplete(loop, DrainShutdownAsync(), timeProvider, logger);
 lanDiscovery?.Dispose();
 
 // The GPU trio (guiRenderer, renderer and the Vulkan context) is disposed by `using var gpu` at

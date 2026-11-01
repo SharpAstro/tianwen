@@ -313,7 +313,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     // The node's masters, the newest each time the last has been read (drop-to-latest, P5 part 5c), into the view.
     private async Task ReadMastersAsync(NodeConnection node, NodeMasters masters, CancellationToken cancellationToken)
     {
-        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryMaster, cancellationToken).ConfigureAwait(false);
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryMaster, _timeProvider, cancellationToken).ConfigureAwait(false);
         var reader = new FrameReader();
         while (await stream.ReadAsync(reader, cancellationToken).ConfigureAwait(false) is { } next)
         {
@@ -338,7 +338,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     // a frame nobody sees is one the node need not send. Each is handed to the render thread, the one it replaces given back.
     private async Task ReadLiveFramesAsync(NodeConnection node, CancellationToken cancellationToken)
     {
-        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, cancellationToken).ConfigureAwait(false);
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, _timeProvider, cancellationToken).ConfigureAwait(false);
         var reader = new FrameReader();
         var throughSlots = stream.FramesFromSharedMemory;
         while (!cancellationToken.IsCancellationRequested)
@@ -529,7 +529,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             await runCts.CancelAsync().ConfigureAwait(false);
             if (_run is { } run)
             {
-                using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(3), _timeProvider.System);
+                using var drain = _timeProvider.CancelAfter(TimeSpan.FromSeconds(3));
                 try
                 {
                     await run.WaitAsync(drain.Token).ConfigureAwait(false);

@@ -86,7 +86,7 @@ public abstract class NodeConnection : IAsyncDisposable
         // The HTTP client's timeout is the backstop only (NodeTransport): the per-request budgets in NodeTimeouts are what
         // actually bite.
         _http = transport.CreateHttpClient();
-        Client = new TianWenNodeClient(_http);
+        Client = new TianWenNodeClient(_http, timeProvider: timeProvider);
         // A view's frames are asked for while it is on screen (ViewContexts.PollAll), never here: every connected node would
         // otherwise pull full frames, which the mirror's opt-in exists to prevent.
         Mirror = new RemoteSessionMirror(Client, transport.CreateEventStream(timeProvider, logger), timeProvider, logger)

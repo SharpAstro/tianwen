@@ -61,7 +61,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         var (node, window) = await CapturingAsync(ct);
         await using var _ = node;
         await using var __ = window;
-        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, ct);
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, SystemTimeProvider.Instance, ct);
         var reader = new FrameReader();
 
         // Read as it comes: every frame newer than the last, none twice.
@@ -94,7 +94,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         var (node, window) = await CapturingAsync(ct, onItsSocket: true);
         await using var _ = node;
         await using var __ = window;
-        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, ct);
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, SystemTimeProvider.Instance, ct);
         var reader = new FrameReader();
 
         var numbers = new List<int>();
@@ -131,7 +131,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
             }
         }
 
-        await using var bytes = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, sharedMemory: false, ct);
+        await using var bytes = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, sharedMemory: false, SystemTimeProvider.Instance, ct);
         await ReadAsync(bytes, reader, (640, 320, 1), ct);
         bytes.FramesFromSharedMemory.ShouldBe(0, "a stream that does not ask for shared memory is sent the frame itself");
     }
@@ -144,8 +144,8 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         var (node, window) = await CapturingAsync(ct, onItsSocket: true);
         await using var _ = node;
         await using var __ = window;
-        var gone = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, ct);
-        await using var staying = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, ct);
+        var gone = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, SystemTimeProvider.Instance, ct);
+        await using var staying = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, SystemTimeProvider.Instance, ct);
         var reader = new FrameReader();
         await ReadAsync(gone, reader, (640, 320, 1), ct);
 
@@ -183,7 +183,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         var (node, window) = await CapturingAsync(ct);
         await using var _ = node;
         await using var __ = window;
-        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryMaster, ct);
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryMaster, SystemTimeProvider.Instance, ct);
         var reader = new FrameReader();
 
         var first = await ReadAsync(stream, reader, (640, 320, 3), ct);
@@ -201,7 +201,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         var node = await NodeHarness.StartAsync(outputHelper, ct);
         await node.ActivateRigAsync(Camera, mount: null, ct);
         (await new TianWenNodeClient(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
-        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, ct);
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, SystemTimeProvider.Instance, ct);
         await ReadAsync(stream, new FrameReader(), (640, 320, 1), ct);
 
         await node.DisposeAsync();
