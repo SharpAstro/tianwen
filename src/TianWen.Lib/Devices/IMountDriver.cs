@@ -424,6 +424,21 @@ public interface IMountDriver : IDeviceDriver
         => ValueTask.FromResult<double?>(null);
 
     /// <summary>
+    /// The mount lost its position (its power, on a SkyWatcher: the encoders read home while it still stands where it was),
+    /// with the position it last knew; <see langword="null"/> while the position is known, and always for a driver that cannot
+    /// tell. While it is set the driver refuses a goto, Home, park and a move, keeps stop and tracking off, and gives no
+    /// <see cref="GetAxisAngleAsync"/>, until <see cref="RestorePositionAsync"/> or a sync to a plate solve restores it (#1954).
+    /// </summary>
+    MountPositionLoss? PositionLoss => null;
+
+    /// <summary>
+    /// Restores the position of a mount that lost it (<see cref="PositionLoss"/>): the operator's word for where the mount is.
+    /// A sync to a plate solve (<see cref="SyncRaDecAsync"/>) restores it as well.
+    /// </summary>
+    ValueTask RestorePositionAsync(MountPositionRestore how, CancellationToken cancellationToken)
+        => throw new InvalidOperationException($"{Name} has not lost its position");
+
+    /// <summary>
     /// Gets the number of encoder steps per single worm gear rotation for the specified axis.
     /// This is the PE period in encoder ticks: <c>CPR / wormTeeth</c>.
     /// Used together with <see cref="GetAxisPositionAsync"/> to compute worm gear PE phase

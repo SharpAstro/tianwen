@@ -692,7 +692,7 @@ internal sealed class TuiLiveSessionTab(
     private void BuildMountRows(ISessionTelemetry session)
     {
         var ms = LiveState.MountState;
-        var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
+        var mountStatus = ms.PositionLost is not null ? "POSITION LOST" : ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
         var pier = ms.PierSide.PierLetter;
         _rows.Add(new HeadingRow($"{session.MountDisplayName}  {mountStatus}  {pier}"));
 

@@ -162,7 +162,8 @@ public static class DeviceHubReadingExtensions
                 }
             }
 
-            return new MountState(ra, dec, ha, pier, slewing, tracking, raJ2000, decJ2000, TrackingRate: rate, AtHome: atHome, AtPark: atPark);
+            return new MountState(ra, dec, ha, pier, slewing, tracking, raJ2000, decJ2000, TrackingRate: rate,
+                PositionLost: mount.PositionLoss?.Describe(mount.Name), AtHome: atHome, AtPark: atPark);
         }
     }
 }

@@ -617,6 +617,25 @@ internal partial record Session
                 break;
             }
 
+            // The mount lost its position and the run was told to end (#1954): drain the writes and stop, under the reason the
+            // prompt's answer left in FailureReason.
+            if (Volatile.Read(ref _positionLostEndsRun))
+            {
+                _logger.LogError("The mount lost its position and it was not restored; ending the observation.");
+                await WriteQueuedImagesToFitsFilesAsync();
+                next = ImageLoopNextAction.DeviceUnrecoverable;
+                break;
+            }
+
+            // It lost its position and it was restored: the power loss stopped tracking, so point the target again.
+            if (Interlocked.Exchange(ref _repointAfterPositionRestore, 0) == 1)
+            {
+                _logger.LogWarning("The mount's position was restored; pointing {Observation} again.", observation);
+                await WriteQueuedImagesToFitsFilesAsync();
+                next = ImageLoopNextAction.RepeatCurrentObservation;
+                break;
+            }
+
             // A mechanical limit was hit and acted on by the poll. Nothing is broken -- the rig
             // reached the edge of where it may point -- so drain writes and end the night the same
             // way an unrecoverable driver does, but under its own name.

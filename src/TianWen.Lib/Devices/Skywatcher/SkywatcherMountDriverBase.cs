@@ -127,6 +127,59 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         }
     }
 
+    // POSITION LOST (#1954): set at connect when the board came back from a power loss away from where it last knew it stood,
+    // cleared by RestorePositionAsync or a sync. While set, a move is refused and the axis angle is not given out.
+    private MountPositionLoss? _positionLoss;
+
+    // The last known position as last written to disk (MountPositionMemory), and when, to pace the writes.
+    private MountLastKnownPosition? _remembered;
+    private long _rememberedAtTicks;
+
+    /// <summary>How often a still or tracking mount's position is written down; a change between moving and still writes at once.</summary>
+    internal static readonly TimeSpan RememberStillInterval = TimeSpan.FromMinutes(1);
+
+    /// <summary>How often a slewing or moving mount's position is written down.</summary>
+    internal static readonly TimeSpan RememberMovingInterval = TimeSpan.FromSeconds(5);
+
+    /// <inheritdoc/>
+    public MountPositionLoss? PositionLoss => Volatile.Read(ref _positionLoss);
+
+    /// <summary>
+    /// Refuses a move while the position is lost (<see cref="PositionLoss"/>), naming what to do instead. Asks the board first
+    /// (two <c>:f</c>): one that lost power while connected answers with its axes not initialised, and a move from the home it
+    /// then reads would go wherever that home is not.
+    /// </summary>
+    private async ValueTask EnsurePositionKnownAsync(string operation, CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _positionLoss) is null && !await AxesInitialisedAsync(cancellationToken))
+        {
+            await LostPowerWhileConnectedAsync(cancellationToken);
+        }
+        if (Volatile.Read(ref _positionLoss) is { } loss)
+        {
+            throw new InvalidOperationException(loss.Refuse(Name, operation));
+        }
+    }
+
+    private async ValueTask<bool> AxesInitialisedAsync(CancellationToken cancellationToken)
+        => (await QueryAxisStatusAsync('1', cancellationToken)).IsInitDone
+            && (await QueryAxisStatusAsync('2', cancellationToken)).IsInitDone;
+
+    /// <summary>
+    /// The board answered with an axis not initialised while connected: it lost power. Its position is lost from the last one
+    /// written down; with none written down there is nothing to restore, and the board's home is all there is.
+    /// </summary>
+    private async ValueTask LostPowerWhileConnectedAsync(CancellationToken cancellationToken)
+    {
+        if ((_remembered ?? await RecallLastKnownPositionAsync(cancellationToken)) is { } lastKnown
+            && DetectPositionLoss(lastKnown, axesInitialised: false, _posRa, _posDec, _cprRa, _cprDec) is { } loss
+            && Interlocked.CompareExchange(ref _positionLoss, loss, null) is null)
+        {
+            _gotoTargetRa = double.NaN;
+            Logger.LogError("{Mount}: {Loss} Its axes are no longer initialised: it lost power while connected.", Name, loss.Describe(Name));
+        }
+    }
+
     // Site
     private double _siteLatitude = double.NaN;
     private double _siteLongitude = double.NaN;
@@ -275,6 +328,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             // Sidereal single-axis tracking is equatorial-only; alt-az needs a dual-axis predictor.
             EnsureEquatorialAlignment("Tracking");
+            // Tracking turns the RA axis away from the position a restore writes back; off stays allowed.
+            await EnsurePositionKnownAsync("Tracking", cancellationToken);
 
             if (_cprRa == 0 || _tmrFreq == 0)
             {
@@ -329,6 +384,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             _posRa = SkywatcherProtocol.DecodePosition(data.AsSpan(0, 6));
         }
+        await RememberPositionAsync(_isSlewingRa || _isSlewingDec, force: false, cancellationToken);
         return StepsToRa(_posRa, _posDec);
     }
 
@@ -339,6 +395,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             _posDec = SkywatcherProtocol.DecodePosition(data.AsSpan(0, 6));
         }
+        await RememberPositionAsync(_isSlewingRa || _isSlewingDec, force: false, cancellationToken);
         return StepsToDec(_posDec);
     }
 
@@ -391,7 +448,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// </remarks>
     public async ValueTask<double?> GetAxisAngleAsync(TelescopeAxis axis, CancellationToken cancellationToken)
     {
-        if (_alignmentMode == AlignmentMode.AltAz || axis is not (TelescopeAxis.Primary or TelescopeAxis.Seconary))
+        // A mount that lost its position reads home where it is not: no mechanical angle until it is restored, so the safety
+        // limits fall back to the hour angle rather than trust the encoders (#1954).
+        if (_alignmentMode == AlignmentMode.AltAz || axis is not (TelescopeAxis.Primary or TelescopeAxis.Seconary)
+            || Volatile.Read(ref _positionLoss) is not null)
         {
             return null;
         }
@@ -488,6 +548,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                     }
                 }
                 _gotoTargetRa = double.NaN; // arrived (or attempts exhausted) -- goto complete
+                await ReadPositionsAsync(cancellationToken);
+                await RememberPositionAsync(moving: false, force: true, cancellationToken);
 
                 // A completed GoTo resumes sidereal tracking on a real SkyWatcher rig -- this mirrors
                 // GSServer's SkyServer.GoToAsync, which ends with `Tracking = tracking || Tracking`.
@@ -516,6 +578,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public virtual async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         EnsureEquatorialAlignment("Slewing to RA/Dec");
+        await EnsurePositionKnownAsync("A goto", cancellationToken);
         // A slew ends any move riding on tracking: the goto resumes tracking itself.
         Volatile.Write(ref _raMoveOverTracking, 0);
 
@@ -633,9 +696,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // At home the Dec encoder sits on the boundary (or a step either side of it), so neither half is where the
         // mount is: take the counterweight-down one a goto would, which in the south is no longer the half the
         // boundary reads as.
-        var pointingState = IsNearZero(_posDec, _cprDec)
+        // A mount that lost its position reads home on the Dec encoder wherever it stands, so the half it is in is the half it
+        // last knew, never the counterweight-down guess: a sync to a plate solve of a tube through the pole would otherwise put
+        // the model on the wrong side of the pier (#1954).
+        var decHalfSteps = Volatile.Read(ref _positionLoss) is { } loss ? loss.LastKnown.DecSteps : _posDec;
+        var pointingState = IsNearZero(decHalfSteps, _cprDec)
             ? await DestinationSideOfPierAsync(ra, dec, cancellationToken)
-            : IsThroughThePole(_posDec) ? PointingState.ThroughThePole : PointingState.Normal;
+            : IsThroughThePole(decHalfSteps) ? PointingState.ThroughThePole : PointingState.Normal;
         var (raSteps, decSteps) = SkyToSteps(ra, dec, pointingState);
 
         // Set encoder positions
@@ -643,6 +710,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         await SendCommandAsync('E', '2', SkywatcherProtocol.EncodePosition(decSteps), cancellationToken);
         _posRa = raSteps;
         _posDec = decSteps;
+
+        // A sync says where the mount is, which is what a lost position wanted.
+        if (Interlocked.Exchange(ref _positionLoss, null) is not null)
+        {
+            Logger.LogWarning("{Mount}: position restored by a sync to RA {Ra:F4}h Dec {Dec:F3}", Name, ra, dec);
+        }
+        await RememberPositionAsync(moving: false, force: true, cancellationToken);
     }
 
     #endregion
@@ -656,6 +730,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         if (axis is not (TelescopeAxis.Primary or TelescopeAxis.Seconary))
         {
             throw new InvalidOperationException($"Axis {axis} is not supported");
+        }
+
+        if (rate != 0.0)
+        {
+            await EnsurePositionKnownAsync("Moving the mount", cancellationToken);
         }
 
         if (axis is TelescopeAxis.Primary && (Volatile.Read(ref _raMoveOverTracking) == 1 || (rate != 0.0 && await IsTrackingAsync(cancellationToken))))
@@ -1151,6 +1230,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             return PointingState.Unknown;
         }
 
+        // A mount that lost its position reads home on the Dec encoder wherever it stands; it has not moved since it lost
+        // power, so it is in the half it last knew (#1954).
+        if (Volatile.Read(ref _positionLoss) is { } loss)
+        {
+            return IsThroughThePole(loss.LastKnown.DecSteps) ? PointingState.ThroughThePole : PointingState.Normal;
+        }
+
         // Pier side is determined from the Dec encoder position (the physical orientation of
         // the telescope), not from HA (which only tells you where the target is in the sky).
         // Following GSServer GermanPolar convention (SkyServer.SideOfPier):
@@ -1179,6 +1265,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public async ValueTask SetSideOfPierAsync(PointingState pointingState, CancellationToken cancellationToken)
     {
         EnsureEquatorialAlignment("Set side of pier");
+        await EnsurePositionKnownAsync("A meridian flip", cancellationToken);
         if (pointingState is not (PointingState.Normal or PointingState.ThroughThePole))
         {
             throw new ArgumentOutOfRangeException(nameof(pointingState), pointingState, "A pointing state to flip to must be Normal or ThroughThePole");
@@ -1291,13 +1378,14 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     #region Park
 
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(IsAtHome);
+        => ValueTask.FromResult(IsAtHome && Volatile.Read(ref _positionLoss) is null);
 
     public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_isParked);
 
     public async ValueTask ParkAsync(CancellationToken cancellationToken)
     {
+        await EnsurePositionKnownAsync("Parking", cancellationToken);
         // Parking targets a fixed ENCODER position, not a sky position -- disarm any
         // pending iterative-goto refinement or it would chase the old sky target after
         // the park slew stops.
@@ -1336,6 +1424,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public async ValueTask FindHomeAsync(CancellationToken cancellationToken)
     {
         EnsureEquatorialAlignment("Going home");
+        await EnsurePositionKnownAsync("Going home", cancellationToken);
         // Home is an ENCODER position, not a sky one: disarm any pending iterative-goto refinement, as the park does.
         _gotoTargetRa = double.NaN;
         for (var pass = 0; pass < 3; pass++)
@@ -1345,6 +1434,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             await ReadPositionsAsync(cancellationToken);
             if (IsAtHome)
             {
+                await RememberPositionAsync(moving: false, force: true, cancellationToken);
                 return;
             }
             await SlewAxisToAsync('1', _posRa, 0, cancellationToken);
@@ -1383,6 +1473,120 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             _posDec = SkywatcherProtocol.DecodePosition(dec.AsSpan(0, 6));
         }
+    }
+
+    #endregion
+
+    #region Position lost (#1954)
+
+    /// <summary>
+    /// Writes the cached encoder positions down as this mount's last known position (<see cref="MountPositionMemory"/>), paced:
+    /// at once when <paramref name="force"/>d or when the mount went from moving to still or back, else no more often than
+    /// <see cref="RememberMovingInterval"/> while moving and <see cref="RememberStillInterval"/> while still or tracking. Never
+    /// while the position is lost, which would overwrite the one position worth restoring with the home the encoders read.
+    /// Best effort: a write that fails is logged and the move goes on.
+    /// </summary>
+    private async ValueTask RememberPositionAsync(bool moving, bool force, CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _positionLoss) is not null || _cprRa == 0 || _cprDec == 0)
+        {
+            return;
+        }
+        var last = _remembered;
+        // Both encoders at exactly home where the mount last knew itself away from it is how a power loss while connected
+        // looks: ask the board at once, never after the pacing below.
+        force |= last is not null && _posRa == 0 && _posDec == 0 && !(IsNearZero(last.RaSteps, _cprRa) && IsNearZero(last.DecSteps, _cprDec));
+        if (!force && last is not null)
+        {
+            if (last.RaSteps == _posRa && last.DecSteps == _posDec && last.Moving == moving)
+            {
+                return;
+            }
+            var interval = moving ? RememberMovingInterval : RememberStillInterval;
+            if (last.Moving == moving && TimeProvider.GetElapsedTime(_rememberedAtTicks) < interval)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            // A board that lost power while connected answers again reading home with its axes not initialised: writing that
+            // down would replace the one position worth restoring. It lost its position, from the last one written down.
+            if (!await AxesInitialisedAsync(cancellationToken))
+            {
+                await LostPowerWhileConnectedAsync(cancellationToken);
+                return;
+            }
+
+            var position = new MountLastKnownPosition(_posRa, _posDec, _cprRa, _cprDec, moving, TimeProvider.GetUtcNow());
+            _remembered = position;
+            _rememberedAtTicks = TimeProvider.GetTimestamp();
+            await MountPositionMemory.RememberAsync(External, _device.DeviceId, position, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            Logger.LogWarning(ex, "{Mount}: could not write down its last known position", Name);
+        }
+    }
+
+    /// <summary>The position this mount last knew, from before this connect; a fake board overrides it (see there).</summary>
+    protected virtual Task<MountLastKnownPosition?> RecallLastKnownPositionAsync(CancellationToken cancellationToken)
+        => MountPositionMemory.TryRecallAsync(External, _device.DeviceId, Logger, cancellationToken);
+
+    /// <summary>
+    /// Whether a board just connected to lost its position: it reads home (an axis not initialised, which only a power-on
+    /// leaves, or both encoders at exactly 0) while the mount last knew itself away from home. A first connect with nothing
+    /// remembered, a mount remembered at home, or one remembered in another gear (counts per revolution) is the normal case.
+    /// </summary>
+    internal static MountPositionLoss? DetectPositionLoss(MountLastKnownPosition? lastKnown, bool axesInitialised, int raSteps, int decSteps, uint cprRa, uint cprDec)
+    {
+        if (lastKnown is null || lastKnown.CprRa != cprRa || lastKnown.CprDec != cprDec
+            || IsNearZero(lastKnown.RaSteps, cprRa) && IsNearZero(lastKnown.DecSteps, cprDec))
+        {
+            return null;
+        }
+        var readsHome = !axesInitialised || raSteps == 0 && decSteps == 0;
+        return readsHome ? new MountPositionLoss(lastKnown) : null;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Both axes are stopped first: a board refuses <c>:E</c> on a running axis, and tracking would have turned RA away from
+    /// the steps being written. <see cref="MountPositionRestore.LastKnown"/> writes the last known steps back with <c>:E1</c> /
+    /// <c>:E2</c> and reads them again; <see cref="MountPositionRestore.AtHome"/> keeps the encoders' home. Either way the
+    /// encoders must then read what was asked, or the position stays lost and this throws.
+    /// </remarks>
+    public async ValueTask RestorePositionAsync(MountPositionRestore how, CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _positionLoss) is not { } loss)
+        {
+            throw new InvalidOperationException($"{Name} has not lost its position");
+        }
+
+        await StopAxisAndWaitAsync('1', cancellationToken);
+        await StopAxisAndWaitAsync('2', cancellationToken);
+        // A board that lost power while connected was never initialised again (only a connect does that): as a connect does.
+        await InitialiseAxisAsync('1', cancellationToken);
+        await InitialiseAxisAsync('2', cancellationToken);
+        var (raSteps, decSteps) = how switch
+        {
+            MountPositionRestore.LastKnown => (loss.LastKnown.RaSteps, loss.LastKnown.DecSteps),
+            MountPositionRestore.AtHome => (0, 0),
+            _ => throw new ArgumentOutOfRangeException(nameof(how), how, null),
+        };
+        await SendCommandAsync('E', '1', SkywatcherProtocol.EncodePosition(raSteps), cancellationToken);
+        await SendCommandAsync('E', '2', SkywatcherProtocol.EncodePosition(decSteps), cancellationToken);
+        await ReadPositionsAsync(cancellationToken);
+        if (_posRa != raSteps || _posDec != decSteps)
+        {
+            throw new InvalidOperationException(
+                $"{Name} did not take the position: its encoders read {_posRa} and {_posDec} steps where {raSteps} and {decSteps} were written");
+        }
+
+        Interlocked.Exchange(ref _positionLoss, null);
+        Logger.LogWarning("{Mount}: position restored ({How}): {Ra} and {Dec} steps from home", Name, how, raSteps, decSteps);
+        await RememberPositionAsync(moving: false, force: true, cancellationToken);
     }
 
     #endregion
@@ -1540,6 +1744,20 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 _posDec = SkywatcherProtocol.DecodePosition(posDecData.AsSpan(0, 6));
             }
 
+            // POSITION LOST (#1954): read the init bits BEFORE initialising, since :F sets them. A board that comes back from a
+            // power loss reads home wherever the mount stands; it still connects, but refuses every move until the operator
+            // restores the position (RestorePositionAsync, or a sync to a plate solve). GSServer's MountLostPower, as an alert.
+            var axesInitialised = (await QueryAxisStatusAsync('1', cancellationToken)).IsInitDone
+                && (await QueryAxisStatusAsync('2', cancellationToken)).IsInitDone;
+            var lastKnown = await RecallLastKnownPositionAsync(cancellationToken);
+            _remembered = null;
+            Volatile.Write(ref _positionLoss, DetectPositionLoss(lastKnown, axesInitialised, _posRa, _posDec, _cprRa, _cprDec));
+            if (_positionLoss is { } loss)
+            {
+                Logger.LogError("{Mount}: {Loss} The encoders read {Ra} and {Dec} steps (axes initialised: {Initialised}); it last knew {LastRa} and {LastDec}.",
+                    Name, loss.Describe(Name), _posRa, _posDec, axesInitialised, loss.LastKnown.RaSteps, loss.LastKnown.DecSteps);
+            }
+
             // Initialise each axis whose init bit is clear, one axis at a time, as GSServer's InitializeAxes does: a real
             // AZ-GTi (firmware 3.40) answers :F3 with !0, so addressing both axes left them uninitialised (#1953).
             await InitialiseAxisAsync('1', cancellationToken);
@@ -1553,6 +1771,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             await GetSiteLatitudeAsync(cancellationToken);
             await GetSiteLongitudeAsync(cancellationToken);
 
+            await RememberPositionAsync(moving: false, force: true, cancellationToken);
             return true;
         }
         catch (Exception ex)
@@ -1568,6 +1787,16 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
+                // Where it stands as the link goes: the last thing a crash or a power loss after this would need.
+                try
+                {
+                    await ReadPositionsAsync(cancellationToken);
+                    await RememberPositionAsync(_isSlewingRa || _isSlewingDec, force: true, cancellationToken);
+                }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    Logger.LogWarning(ex, "{Mount}: could not read its position as it disconnected", Name);
+                }
                 await port.WaitAsync(cancellationToken);
                 return await port.TryCloseAsync();
             }

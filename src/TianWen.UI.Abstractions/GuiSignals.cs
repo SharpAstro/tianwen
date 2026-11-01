@@ -484,7 +484,7 @@ public readonly record struct StopMountMoveSignal;
 public readonly record struct SetMountTrackingSignal(TrackingSpeed Speed);
 
 /// <summary>What the Preview's mount buttons ask of the node.</summary>
-public enum MountPositionCommand { Home, Park, Unpark, SetPark, UnparkThenHome }
+public enum MountPositionCommand { Home, Park, Unpark, SetPark, UnparkThenHome, RestoreLastKnown, RestoreAtHome }
 
 /// <summary>Home, Park, Unpark or Set park, through the node (the Preview's mount buttons); UnparkThenHome runs the two in turn.</summary>
 public readonly record struct MountPositionSignal(MountPositionCommand Command);

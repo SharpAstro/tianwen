@@ -66,6 +66,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<DeviceStateDto[]>))]
 [JsonSerializable(typeof(DeviceStateDto))]
 [JsonSerializable(typeof(DeviceRequestDto))]
+[JsonSerializable(typeof(MountRestorePositionRequestDto))]
 [JsonSerializable(typeof(DisconnectRequestDto))]
 [JsonSerializable(typeof(ResponseEnvelope<DisconnectCheckDto>))]
 [JsonSerializable(typeof(CoolRequestDto))]

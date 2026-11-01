@@ -215,9 +215,42 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         lock (_lockObj)
         {
             IsOpen = true;
+            OpenedBefore = true;
         }
         Volatile.Write(ref _semaphore, new SemaphoreSlim(1, 1));
         StartSimulationTimer();
+    }
+
+    /// <summary>
+    /// The board has been connected to before in this process: a reconnect, not a mount just switched on. A fresh board is a
+    /// mount at home whatever an earlier process wrote down, so only a board opened before has a last known position (#1954).
+    /// </summary>
+    internal bool OpenedBefore { get; private set; }
+
+    /// <summary>
+    /// Cuts the board's power and restores it, as pulling a mount's plug does: the motors stop where they are, the encoders
+    /// read home again, and neither axis is initialised (#1954). The serial link stays as it was.
+    /// </summary>
+    internal void PowerCycle()
+    {
+        lock (_lockObj)
+        {
+            _posRa = 0;
+            _posDec = 0;
+            _raRunning = false;
+            _decRunning = false;
+            _raTracking = false;
+            _raGotoMode = false;
+            _decGotoMode = false;
+            _raPendingStartTicks = 0;
+            _decPendingStartTicks = 0;
+            _raSlewDegPerSec = 0;
+            _decSlewDegPerSec = 0;
+            _raStepFrac = 0;
+            _decStepFrac = 0;
+            _raInitDone = false;
+            _decInitDone = false;
+        }
     }
 
     /// <summary>The clock the board's motors run on: a board is the same mount only to a connect on this clock.</summary>

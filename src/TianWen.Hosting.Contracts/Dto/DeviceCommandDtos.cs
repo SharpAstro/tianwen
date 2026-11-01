@@ -14,6 +14,20 @@ public sealed class DeviceRequestDto
     public required string DeviceUri { get; init; }
 }
 
+/// <summary>
+/// Restores the position of a mount that lost it (#1954): <c>POST /api/v1/devices/mount/restore-position</c>.
+/// </summary>
+public sealed class MountRestorePositionRequestDto
+{
+    public required string DeviceUri { get; init; }
+
+    /// <summary>
+    /// The operator's word for where the mount is; the position it last knew unless said otherwise (an enum crosses as its
+    /// ordinal, so a request DTO defaults it rather than make a caller guess the number).
+    /// </summary>
+    public MountPositionRestore How { get; set; } = MountPositionRestore.LastKnown;
+}
+
 /// <summary>A disconnect of one device: <c>POST /api/v1/devices/disconnect</c>.</summary>
 public sealed class DisconnectRequestDto
 {
