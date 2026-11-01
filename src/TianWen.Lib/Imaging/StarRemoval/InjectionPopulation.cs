@@ -410,7 +410,8 @@ public sealed class InjectionPopulation
     /// ones it makes without them. A population with a wing relation clamp (<see cref="WingRelationClamp"/>) then holds each
     /// star's channels to the real envelope, which draws no random number, and counts the stars it moved in
     /// <see cref="InjectionPlan.WingClamped"/>; it is not drawn with a wing cut or a channel variation, which depart from the
-    /// envelope on purpose. A <paramref name="chromaticWidth"/> sets every star's other channels' widths from its reference
+    /// envelope on purpose, nor with a chromatic width, whose widths the clamp's per-channel light never sees.
+    /// A <paramref name="chromaticWidth"/> sets every star's other channels' widths from its reference
     /// channel's, drawing nothing, so the plan's stars are the ones it makes without it.
     /// </summary>
     public InjectionPlan Plan(
@@ -427,6 +428,10 @@ public sealed class InjectionPopulation
         if (_wingClamp is not null && (wingCut is not null || variation is not null))
         {
             throw new InvalidOperationException("a wing relation clamp holds the stars to the real envelope; a wing cut or a channel variation draws outside it");
+        }
+        if (_wingClamp is not null && chromaticWidth is not null)
+        {
+            throw new InvalidOperationException("a wing relation clamp solves each wing against the master's own channel widths; it would not hold a star whose widths a chromatic width set");
         }
         if (_wingClamp is not null && family != StarProfileFamily.Field)
         {

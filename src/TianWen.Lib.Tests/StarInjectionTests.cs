@@ -2154,6 +2154,24 @@ public class StarInjectionTests(ITestOutputHelper output)
         BuildColourPopulation(field, wingEnvelope: ChannelWingEnvelope.Read([RealRow("mono", [1.0])])).ClampsWingRelations.ShouldBeFalse();
     }
 
+    /// <summary>The clamp solves against the master's own channel widths and never reads a profile's width, so a chromatic width
+    /// would leave its guarantee void: the pair is refused, each alone plans.</summary>
+    [Fact]
+    public void AWingRelationClampRefusesAChromaticWidthAndEachAloneStillPlans()
+    {
+        var field = ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f));
+        var envelope = ChannelWingEnvelope.Read([RealRow("a", [0.9, 1.0, 1.1])]);
+        var clamped = BuildColourPopulation(field, TrendShape(), spreadSignificance: true, wingEnvelope: envelope);
+        var ex = Should.Throw<InvalidOperationException>(() => clamped.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1),
+            chromaticWidth: new ChromaticWidth(1.3)));
+        ex.Message.ShouldContain("wing relation clamp");
+        ex.Message.ShouldContain("chromatic width");
+        clamped.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1)).Stars.ShouldNotBeEmpty();
+        var free = BuildColourPopulation(field, TrendShape(), spreadSignificance: true);
+        free.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1),
+            chromaticWidth: new ChromaticWidth(1.3)).Stars.ShouldNotBeEmpty();
+    }
+
     // A three-channel field profile: each channel's FWHM (beta 3) and a flat halo from 2 to 10 px at the field's width.
     private static StarlessFieldProfile ColourField((double Fwhm, float Halo) red, (double Fwhm, float Halo) green, (double Fwhm, float Halo) blue)
     {

@@ -1677,6 +1677,9 @@ namespace TianWen.Lib.Tests
             await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(noFile, logger: null, TestContext.Current.CancellationToken));
             var cut = held with { OutDir = Path.Combine(_root, "stars-cut"), ChannelWingCut = 0.5 };
             await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(cut, logger: null, TestContext.Current.CancellationToken));
+            var chromatic = held with { OutDir = Path.Combine(_root, "stars-chromatic"), ChromaticWidthRatio = 1.3 };
+            var refused = await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(chromatic, logger: null, TestContext.Current.CancellationToken));
+            refused.Message.ShouldContain("channel widths");
         }
 
         /// <summary>

@@ -1149,6 +1149,32 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     }
 
     /// <summary>
+    /// The stars arm's flags that cannot be given together (wing cut, channel relations, chromatic width and the wing relation
+    /// clamp), as the message to print, or null when the given set is allowed.
+    /// </summary>
+    internal static string? StarArmConflict(bool clampWingRelations, bool channelWingCut, bool chromaticWidth, bool channelRelations)
+    {
+        if (clampWingRelations && channelWingCut)
+        {
+            return "--clamp-wing-relations and --channel-wing-cut are two arms; give one";
+        }
+        if (clampWingRelations && chromaticWidth)
+        {
+            return "--clamp-wing-relations and --chromatic-width are two arms; give one: the clamp solves each wing against the " +
+                   "master's own channel widths, so it would not hold a star whose widths the chromatic width set";
+        }
+        if (channelWingCut && channelRelations)
+        {
+            return "--channel-wing-cut and --channel-relations are two arms; give one";
+        }
+        if (chromaticWidth && (channelRelations || channelWingCut))
+        {
+            return "--chromatic-width and --channel-relations or --channel-wing-cut are two arms; give one";
+        }
+        return null;
+    }
+
+    /// <summary>
     /// <c>tianwen dataset synthetic-background</c>: R2d's D2 and D3 generator over any starless plate, a cell centred on each
     /// point asked for beside the plate's own cutout (<see cref="SyntheticBackgroundPreview"/>).
     /// </summary>
@@ -1842,7 +1868,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "ratio to green's) inside the envelope the real masters of the star-shapes file span, a channel outside it " +
                           "having its wing gain moved to the nearest edge; a brightness trend moves each channel on its own and " +
                           "can leave every real master's relation (R2s: Andromeda's blue). Draws no random number; the stars moved " +
-                          "are counted in each injections.jsonl row's WingClamped. Not with --channel-wing-cut.",
+                          "are counted in each injections.jsonl row's WingClamped. Not with --channel-wing-cut or --chromatic-width.",
         };
         var outerHaloOpt = new Option<string>("--outer-halo")
         {
@@ -1862,7 +1888,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "--mode stars: every injected star's channels but red drawn at this many times red's width, in [0.25, 4] " +
                           "(the SMC's causal check: its L-eNhance stars are 1.23 times wider in green and blue than in red). Draws no " +
                           "random number, so the stars keep their places, brightness and colour; each star's widths are in " +
-                          "injections.jsonl (FwhmPx). Not with --channel-relations or --channel-wing-cut. Off by default.",
+                          "injections.jsonl (FwhmPx). Not with --channel-relations, --channel-wing-cut or --clamp-wing-relations. Off by default.",
         };
         var channelNoiseCorrelationOpt = new Option<bool>("--channel-noise-correlation")
         {
@@ -2055,9 +2081,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 return 1;
             }
             var channelWingCut = parseResult.GetValue(channelWingCutOpt);
-            if (clampWingRelations && channelWingCut is not null)
+            var chromaticWidth = parseResult.GetValue(chromaticWidthOpt);
+            if (StarArmConflict(clampWingRelations, channelWingCut is not null, chromaticWidth is not null, relationSessions is not null) is { } armConflict)
             {
-                consoleHost.WriteError("--clamp-wing-relations and --channel-wing-cut are two arms; give one");
+                consoleHost.WriteError(armConflict);
                 return 1;
             }
             if (channelWingCut is { } minFactor)
@@ -2072,13 +2099,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     consoleHost.WriteError($"--channel-wing-cut {minFactor}: the weakest wing is a factor in (0, 1]");
                     return 1;
                 }
-                if (relationSessions is not null)
-                {
-                    consoleHost.WriteError("--channel-wing-cut and --channel-relations are two arms; give one");
-                    return 1;
-                }
             }
-            var chromaticWidth = parseResult.GetValue(chromaticWidthOpt);
             if (chromaticWidth is { } ratio)
             {
                 if (mode != DatasetDegradationExporter.DegradationMode.Stars)
@@ -2089,11 +2110,6 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 if (!ChromaticWidth.IsRatio(ratio))
                 {
                     consoleHost.WriteError($"--chromatic-width {ratio}: the ratio is in [0.25, 4]");
-                    return 1;
-                }
-                if (relationSessions is not null || channelWingCut is not null)
-                {
-                    consoleHost.WriteError("--chromatic-width and --channel-relations or --channel-wing-cut are two arms; give one");
                     return 1;
                 }
             }
