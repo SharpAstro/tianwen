@@ -86,7 +86,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
 
         try
         {
-            using var timeoutCts = new CancellationTokenSource(DefaultConnectTimeout, timeProvider.System);
+            using var timeoutCts = timeProvider.CancelAfter(DefaultConnectTimeout);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             await client.ConnectAsync(remoteEndPoint.Address, remoteEndPoint.Port, linkedCts.Token);
         }
@@ -413,7 +413,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
 
         // A device that stops answering ends the read at ReplyTimeout, as on a serial port; the callers read the cancel as
         // a read that returned nothing.
-        using var deadline = new CancellationTokenSource(ReplyTimeout, _timeProvider.System);
+        using var deadline = _timeProvider.CancelAfter(ReplyTimeout);
         using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         var n = await _stream.ReadAsync(_readBuffer.AsMemory(_readBufferEnd), reply.Token);
         if (n <= 0)

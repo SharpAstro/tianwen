@@ -887,7 +887,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             // Bounded as every reply is: this read holds the port's lock, so a reply that never comes used to leave every
             // other command queued behind it for good.
-            using var timeout = new CancellationTokenSource(ReplyTimeout, global::System.TimeProvider.System);
+            using var timeout = TimeProvider.CancelAfter(ReplyTimeout);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             var response = await port.TryReadExactlyAsync(1, linked.Token);
 
@@ -904,7 +904,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
             else
             {
-                if (response is null && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                if (response is null && !cancellationToken.IsCancellationRequested)
                 {
                     await RecoverFromLostReplyAsync(port, SlewCommand, cancellationToken);
                 }
@@ -993,6 +993,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         {
             if (await _device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, encoding: _encoding, cancellationToken: cancellationToken) is { IsOpen: true } openedConnection)
             {
+                // The connection's own bound is shorter than this protocol's slowest answer (an Autostar's :SC#), so it is
+                // raised to ReplyTimeout: the driver's bound decides when a reply is lost, not the transport's default.
+                openedConnection.ReplyTimeout = ReplyTimeout;
                 serialDevice = openedConnection;
             }
             else
@@ -1113,10 +1116,10 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             await SendAsync(port, command, cancellationToken);
 
-            using var timeout = new CancellationTokenSource(replyTimeout ?? ReplyTimeout, global::System.TimeProvider.System);
+            using var timeout = TimeProvider.CancelAfter(replyTimeout ?? ReplyTimeout);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             var reply = await port.TryReadTerminatedAsync(Terminators, linked.Token);
-            if (reply is null && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            if (reply is null && !cancellationToken.IsCancellationRequested)
             {
                 await RecoverFromLostReplyAsync(port, command, cancellationToken);
             }
@@ -1135,10 +1138,10 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             await SendAsync(port, command, cancellationToken);
 
-            using var timeout = new CancellationTokenSource(ReplyTimeout, global::System.TimeProvider.System);
+            using var timeout = TimeProvider.CancelAfter(ReplyTimeout);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             var bytesRead = await port.TryReadTerminatedRawAsync(response, Terminators, linked.Token);
-            if (bytesRead < 0 && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            if (bytesRead < 0 && !cancellationToken.IsCancellationRequested)
             {
                 await RecoverFromLostReplyAsync(port, command, cancellationToken);
             }
@@ -1157,10 +1160,10 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             await SendAsync(port, command, cancellationToken);
 
-            using var timeout = new CancellationTokenSource(ReplyTimeout, global::System.TimeProvider.System);
+            using var timeout = TimeProvider.CancelAfter(ReplyTimeout);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             var reply = await port.TryReadExactlyAsync(count, linked.Token);
-            if (reply is null && timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            if (reply is null && !cancellationToken.IsCancellationRequested)
             {
                 await RecoverFromLostReplyAsync(port, command, cancellationToken);
             }
@@ -1173,8 +1176,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// <summary>
     /// How long any reply is waited for. A lost reply used to wait for ever on the caller's token, holding the port's
     /// lock, so one swallowed command hung a connect for good (#1898). Generous, but never for ever: an OnStep can be slow to boot, 4.24 was seen taking 2.5 s over a
-    /// <c>:GP#</c>, and an Autostar's <c>:SC#</c> answers its "Updating planetary data" lines slowly. It bounds a real
-    /// wait on a real port, so it runs on the BCL's wall clock, never the injected one: under a fake clock nothing would advance it.
+    /// <c>:GP#</c>, and an Autostar's <c>:SC#</c> answers its "Updating planetary data" lines slowly. It runs on the
+    /// driver's injected clock, as every timer does: a test of a lost reply advances its fake clock past it.
     /// </summary>
     internal static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(25);
 
