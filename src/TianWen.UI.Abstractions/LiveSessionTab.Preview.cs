@@ -111,7 +111,6 @@ namespace TianWen.UI.Abstractions
             float fontSize, float pad, float rowH, ITimeProvider timeProvider)
         {
             var fontPath = FontPath;
-            var dpiScale = DpiScale;
             var preview = state.PreviewOTATelemetry;
             var otaCount = preview.Length;
             if (otaCount == 0)
@@ -136,18 +135,8 @@ namespace TianWen.UI.Abstractions
             }
             var columnsRow = Layout.Builder.HStack([.. columns]);
 
-            // Mount section pinned to the bottom (Dock.Bottom), gated on enough vertical room (mirrors the
-            // old "return if the mount strip would eat more than 65% of the height" guard).
-            // Four rows of status, a gap, the tracking row, the jog's two (speed, N/S/E/W) and the Home/Park row, with the stack's
-            // 2 between each of the nine.
-            const int mountRows = 8;
-            const float mountHDesign = BaseRowHeight * mountRows + JogGap + 2f * 8 + BasePadding * 2 + 1f;
-            var mountHpx = mountHDesign * dpiScale;
-            var showMount = rect.Y + rect.Height - mountHpx > rect.Y + rect.Height * 0.35f;
-
-            var tree = showMount
-                ? Layout.Builder.Dock(columnsRow, Layout.Builder.Bottom(BuildPreviewMountSection(state), mountHDesign))
-                : columnsRow;
+            // Mount section pinned to the bottom, its height the engine's measurement of its own rows.
+            var tree = DockMountSection(columnsRow, BuildPreviewMountSection(state), rect);
 
             PushClip(rect.X, rect.Y, rect.Width, rect.Height);
             var arranged = ArrangeLayout(tree, rect);
