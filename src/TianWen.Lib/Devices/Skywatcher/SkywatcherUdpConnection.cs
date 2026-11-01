@@ -17,17 +17,18 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
 {
     private readonly UdpClient _client;
     private readonly IPEndPoint _remoteEndPoint;
+    private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    public SkywatcherUdpConnection(string host, int port, Encoding encoding, ILogger logger)
+    public SkywatcherUdpConnection(string host, int port, Encoding encoding, ITimeProvider timeProvider, ILogger logger)
     {
         Encoding = encoding;
+        _timeProvider = timeProvider;
         _logger = logger;
         _remoteEndPoint = new IPEndPoint(IPAddress.Parse(host), port);
         _client = new UdpClient();
         _client.Connect(_remoteEndPoint);
-        _client.Client.ReceiveTimeout = 2000;
         IsOpen = true;
     }
 
@@ -76,8 +77,8 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
         try
         {
             // A mount that stops answering ends the read at ReplyTimeout; the cancel below reads as no reply.
-            using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            reply.CancelAfter(ReplyTimeout);
+            using var deadline = new CancellationTokenSource(ReplyTimeout, _timeProvider.System);
+            using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
             var result = await _client.ReceiveAsync(reply.Token);
             var response = Encoding.GetString(result.Buffer);
             // Strip terminator if present
@@ -102,8 +103,8 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
         try
         {
             // A mount that stops answering ends the read at ReplyTimeout; the cancel below reads as no reply.
-            using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            reply.CancelAfter(ReplyTimeout);
+            using var deadline = new CancellationTokenSource(ReplyTimeout, _timeProvider.System);
+            using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
             var result = await _client.ReceiveAsync(reply.Token);
             var response = Encoding.GetString(result.Buffer);
             if (response.Length < count)

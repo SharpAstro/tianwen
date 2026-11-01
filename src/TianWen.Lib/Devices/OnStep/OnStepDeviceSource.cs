@@ -29,7 +29,8 @@ namespace TianWen.Lib.Devices.OnStep;
 internal partial class OnStepDeviceSource(
     ILogger<OnStepDeviceSource> logger,
     Discovery.ISerialProbeService probeService,
-    LocalOnlyMode localOnly) : IDeviceSource<OnStepDevice>
+    LocalOnlyMode localOnly,
+    ITimeProvider timeProvider) : IDeviceSource<OnStepDevice>
 {
     private Dictionary<DeviceType, List<OnStepDevice>>? _cachedDevices;
 
@@ -235,7 +236,7 @@ internal partial class OnStepDeviceSource(
         ISerialConnection conn;
         try
         {
-            conn = await TcpSerialConnection.CreateAsync(ipAddr, tcpPort, Encoding.ASCII, logger, cts.Token);
+            conn = await TcpSerialConnection.CreateAsync(ipAddr, tcpPort, Encoding.ASCII, timeProvider, logger, cts.Token);
         }
         catch (Exception ex)
         {

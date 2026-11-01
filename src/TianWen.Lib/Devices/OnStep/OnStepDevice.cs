@@ -79,7 +79,7 @@ public record OnStepDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         if (host is { Length: > 0 })
         {
             var port = int.TryParse(Query["tcp"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) ? p : DefaultTcpPort;
-            return await TcpSerialConnection.CreateAsync(host, port, encoding ?? Encoding.Latin1, logger, cancellationToken);
+            return await TcpSerialConnection.CreateAsync(host, port, encoding ?? Encoding.Latin1, timeProvider, logger, cancellationToken);
         }
 
         // Serial path: defer to the base, which reads ?port= and ?baud= from the URI.

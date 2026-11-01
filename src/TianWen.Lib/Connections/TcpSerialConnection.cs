@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Connections;
 
@@ -30,6 +31,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
     private readonly IPEndPoint _remoteEndPoint;
+    private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
@@ -39,11 +41,12 @@ internal sealed class TcpSerialConnection : ISerialConnection
     private int _readBufferStart;
     private int _readBufferEnd;
 
-    private TcpSerialConnection(TcpClient client, NetworkStream stream, IPEndPoint remoteEndPoint, Encoding encoding, ILogger logger)
+    private TcpSerialConnection(TcpClient client, NetworkStream stream, IPEndPoint remoteEndPoint, Encoding encoding, ITimeProvider timeProvider, ILogger logger)
     {
         _client = client;
         _stream = stream;
         _remoteEndPoint = remoteEndPoint;
+        _timeProvider = timeProvider;
         Encoding = encoding;
         _logger = logger;
         IsOpen = true;
@@ -58,6 +61,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
         string host,
         int port,
         Encoding encoding,
+        ITimeProvider timeProvider,
         ILogger logger,
         CancellationToken cancellationToken = default)
     {
@@ -82,7 +86,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
 
         try
         {
-            using var timeoutCts = new CancellationTokenSource(DefaultConnectTimeout);
+            using var timeoutCts = new CancellationTokenSource(DefaultConnectTimeout, timeProvider.System);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             await client.ConnectAsync(remoteEndPoint.Address, remoteEndPoint.Port, linkedCts.Token);
         }
@@ -101,7 +105,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
         var stream = client.GetStream();
         stream.ReadTimeout = 2000;
         stream.WriteTimeout = 2000;
-        return new TcpSerialConnection(client, stream, remoteEndPoint, encoding, logger);
+        return new TcpSerialConnection(client, stream, remoteEndPoint, encoding, timeProvider, logger);
     }
 
     public bool IsOpen { get; private set; }
@@ -409,8 +413,8 @@ internal sealed class TcpSerialConnection : ISerialConnection
 
         // A device that stops answering ends the read at ReplyTimeout, as on a serial port; the callers read the cancel as
         // a read that returned nothing.
-        using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        reply.CancelAfter(ReplyTimeout);
+        using var deadline = new CancellationTokenSource(ReplyTimeout, _timeProvider.System);
+        using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         var n = await _stream.ReadAsync(_readBuffer.AsMemory(_readBufferEnd), reply.Token);
         if (n <= 0)
         {

@@ -121,7 +121,7 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
     {
         var asked = 0;
         var serial = new OnStepDevice(DeviceType.Mount, "OnStep_A1", "OnStep", "COM7");
-        var source = new OnStepDeviceSource(NullLogger<OnStepDeviceSource>.Instance, new OneSerialMatch("OnStep", serial.DeviceUri), Mode(localOnly))
+        var source = new OnStepDeviceSource(NullLogger<OnStepDeviceSource>.Instance, new OneSerialMatch("OnStep", serial.DeviceUri), Mode(localOnly), new FakeTimeProviderWrapper())
         {
             ScanMdnsAsync = (_, _) =>
             {
