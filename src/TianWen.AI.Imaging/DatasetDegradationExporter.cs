@@ -461,6 +461,10 @@ namespace TianWen.AI.Imaging
         /// keep their places, brightness and colour and only their wings move; each star's beta is in its injections.jsonl row
         /// (<c>Beta</c>). Null draws every channel at its master's own beta. Not with <paramref name="ChannelRelationSessions"/> or
         /// <paramref name="ChannelWingCut"/>.</param>
+        /// <param name="StarBetaDraw">Stars mode: a share of the cells drawn with every star at one beta uniform in a range, on any
+        /// plate (<see cref="TianWen.Lib.Imaging.StarRemoval.StarBetaDraw"/>, #1947, R3i), from each draw's own stream, so the stars
+        /// keep their places, brightness and colour. Null, every export is what it was. Not with <paramref name="StarBeta"/>,
+        /// <paramref name="ChannelRelationSessions"/> or <paramref name="ChannelWingCut"/>.</param>
         /// <param name="NoiseScale">Stars mode: the plate's cell carried at this many times the master's noise, as if stacked from
         /// 1/scale^2 of its frames, in (1, 16] (#1947, the SMC's noise check): the master's own noise at each pixel's level, sqrt(scale^2 - 1)
         /// times over, from the cell's own stream, so the clean tile and every draw of the cell carry the same added noise and the
@@ -550,6 +554,7 @@ namespace TianWen.AI.Imaging
             double? ChromaticWidthRatio = null,
             double? NoiseScale = null,
             double? StarBeta = null,
+            TianWen.Lib.Imaging.StarRemoval.StarBetaDraw? StarBetaDraw = null,
             Action<string>? Say = null);
 
         /// <summary>

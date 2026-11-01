@@ -323,6 +323,15 @@ public static partial class DatasetDegradationExporter
                 }
                 logger?.LogInformation("[degrade] star beta: every star's channels drawn at Moffat beta {Beta}, their FWHM kept", heldBeta);
             }
+            if (options.StarBetaDraw is { } betaDraw)
+            {
+                if (options.StarBeta is not null || variation is not null || wingCut is not null)
+                {
+                    throw new ArgumentException("a star beta draw and a held star beta, channel relations or a wing cut are two arms; give one", nameof(options));
+                }
+                logger?.LogInformation("[degrade] star beta draw: {Share:P0} of the cells at one beta in [{Low}, {High}], on any plate",
+                    betaDraw.Share, betaDraw.Low, betaDraw.High);
+            }
             if (options.NoiseScale is { } noiseScale)
             {
                 if (options.SyntheticBackground)
@@ -862,7 +871,7 @@ public static partial class DatasetDegradationExporter
             variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut,
             population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372),
             options.ChromaticWidthRatio is { } ratio ? new ChromaticWidth(ratio) : null,
-            options.StarBeta is { } beta ? new StarBeta(beta) : null);
+            options.StarBeta is { } beta ? new StarBeta(beta) : options.StarBetaDraw?.DrawCell(new Random(seed ^ 0x51ed270b)));
 
         // The plate's cell, the cell carried at more noise (NoisedPlateCell), or on R2d's synthetic background the cell's own
         // noisy planes (SyntheticCell).

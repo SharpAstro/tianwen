@@ -4905,6 +4905,44 @@ every channel; and the absolute SMC green median at most +2.0e-3 on the plain ex
 (nothing in training goes below 1.63), the next arm draws a share of the injected stars at a lower beta, read against the nucleus
 guard first.
 
+#### R3h: oversampling the low-beta sessions learns the field, not the wings (2026-11-02)
+
+**Killed by its pre-registration (`C:/temp/e2/r3h.prereg`).** R2w's recipe on synth11 with the 18 low-beta sessions drawn three
+times as often; it converged at step 165,500 (best held-out 6.48e-6 at 141,500), scored as R3g was:
+
+| real tiles, 100-1000 sigma | flat \|<1\| | left >+1 | dug <-1 | SMC flat | SMC left | SMC dug | HIP 80609 dug (R/G/B) |
+|---|---|---|---|---|---|---|---|
+| R2w s0 | 95.6 | 2.6 | 1.76 | 79.4 | 13.4 | 7.2 | 4.5 / 2.7 / 3.8 |
+| R2w s1 | 96.0 | 1.9 | 2.14 | 91.8 | 7.2 | 1.0 | 6.3 / 2.5 / 5.4 |
+| **R3h s0** | **88.8** | 0.7 | **10.44** | 74.2 | 1.0 | 24.7 | 28.3 / 17.2 / 14.4 |
+
+P1 (SMC flat at least 91.8) fails, P3 (pooled flat 95.6, dug 2.14) fails, the kill fires. P4 holds: M31's nucleus 3.7 / 0.2 / 2.4 %
+over 0 to 6 px. P2 holds too: the SMC's absolute green median on the plain export is +1.51e-3 (R2w s0 +6.52). Light left over fell
+everywhere (0.7 % pooled, the lowest of any arm, and 20-100 sigma flat reached 98.0); what rose is digging.
+
+**What it learned, from the wing check's exports (`beta_read.py`, green median x 1e-3):**
+
+| | SMC own | SMC at 3.8 | SMC at 1.5 | HIP 80609 own | HIP 80609 at 1.5 | Lobster own | Lobster at 1.5 |
+|---|---|---|---|---|---|---|---|
+| R2w s0 | +6.52 | -0.64 | +5.63 | -2.25 | +13.67 | -1.65 | +20.03 |
+| R3h s0 | +1.51 | -1.34 | +0.88 | -4.39 | +13.82 | -1.46 | +20.49 |
+
+R3h clears the SMC at either beta and leaves HIP 80609's and the Lobster's stars drawn at the SMC's beta exactly as R2w does. It
+did not learn a heavy-winged star; it learned that a field LIKE the low-beta sessions' takes a deeper subtraction, and its typical
+stars elsewhere are dug harder for it. A session's beta is a property of the session in the training data, so the network can
+read it off the plate (its sky, colour, noise) rather than off the star, and oversampling only made that shortcut pay more.
+
+#### R3i: a beta drawn per cell, on any plate (2026-11-02)
+
+The fix follows: draw the wings independently of the session, so only the star can tell them. `dataset degrade --star-beta-draw
+share,low,high` (`StarBetaDraw`) draws that share of the cells with every star at one beta uniform in [low, high], on whatever plate
+the cell comes from, from each draw's own stream (the stars keep their places, brightness and colour; each star's beta is in
+injections.jsonl). A cell's stars share one beta, as a real field's do, so a tile's bright stars show the faint ones' wings. The
+arm: synth11's export recipe with `--star-beta-draw 0.3,1.3,2.5` (30 % of cells at the SMC's range and below; the archive's lowest
+session fits 1.63), R2w's training recipe with no oversampling, read against R3h's bar plus the held-beta exports: HIP 80609 and
+the Lobster at 1.5 cleared (green median under +2e-3) without digging their own stars past R2w's. Its export and training wait for
+the owner's go (machine load).
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
