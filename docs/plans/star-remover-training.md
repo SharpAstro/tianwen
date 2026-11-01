@@ -4861,6 +4861,50 @@ leaves part of each one.
 the shape of `--chromatic-width`, drawing nothing), read as these were. If the leftover falls, the fix is the training stars'
 beta range, a change to the stars' shapes, read against M31's nucleus guard before any arm is trained.
 
+#### The SMC's wing check: heavy wings are the cause, and R3h (2026-11-01)
+
+The owner: "we need to be fixing / implement things", "more checks more measurements always good". Three measurements, then a
+training arm.
+
+**Is the SMC's beta real?** A Moffat's beta sets how fast a star's light falls off past its core at a given FWHM: a high beta (4 to
+6) is a compact star with little light in its skirt, a low one (1.4 to 1.7) keeps a broad, bright skirt. The SMC night's field
+profile fits 1.74 / 1.42 / 1.40 (R / G / B); the same target through the same ASI585 five nights later, broadband, fits 5.2 / 3.6
+/ 3.3, so it is that night's capture (the L-eNhance, or its focus), not the target or the camera. Read off bright, isolated,
+unsaturated stars as an azimuthal median over the peak above the local sky (`C:/temp/e2/beta/wing_read.py`), the real stars and
+the injected ones agree:
+
+| green light over the peak, % | 2 px | 3 px | 4 px | 6 px | 8 px |
+|---|---|---|---|---|---|
+| SMC, real stars (177) | 25.7 | 12.5 | 6.1 | 1.9 | 0.9 |
+| SMC, injected (27) | 27.2 | 13.8 | 6.6 | 2.1 | 0.9 |
+| HIP 80609, real (3,579) | 16.3 | 4.1 | 0.8 | 0.0 | -0.1 |
+| Lobster, real (5,500) | 13.2 | 2.8 | 0.6 | 0.0 | -0.1 |
+
+**The causal check (`dataset degrade --star-beta`, `StarBeta`).** F2's random set exported twice more by the chromatic-width check's
+command, every star's beta held at 3.8 (the training stars' median) and at 1.5 (the SMC's own), drawing nothing, so every star
+keeps its place, brightness, colour, width and halo table; the three models inferred and read against the truth on the same stars
+(`C:/temp/e2/beta`, `beta_read.py`):
+
+| green median left, x 1e-3, R2w s0 / R2w s1 / R3g | own beta | all at 3.8 | all at 1.5 |
+|---|---|---|---|
+| SMC | +6.5 / +4.9 / +7.6 | **-0.6 / -2.1 / +0.7** | +5.6 / +3.8 / +6.4 |
+| HIP 80609 | -2.3 / -3.6 / -2.4 | -2.5 / -4.2 / -2.8 | **+13.7 / +12.4 / +11.4** |
+| Lobster | -1.7 / -2.9 / -1.6 | -3.3 / -4.3 / -3.5 | **+20.0 / +19.9 / +18.6** |
+
+**It runs both ways.** Drawn with a typical star's wings, the SMC's stars are cleared by every model (R2w s0's green left past
++1e-3 falls from 93.5 to 14.8 %); drawn with the SMC's wings, the two sessions every model clears are left worse than the SMC ever
+was. No model has learned a heavy-winged star: it subtracts a typical star's shape and leaves the rest of the skirt. The training
+set holds few: of synth11's 113 training sessions 4 fit under beta 2.0 (160 of 4,520 cells), 18 under 2.5 (720 cells, 15.9 %);
+its lowest is the Helix through the same ASI585 at 1.63.
+
+**R3h (`C:/temp/e2/r3h.prereg`)**: R2w's recipe on synth11's export with one change, the trainer's new `--oversample-sessions` /
+`--oversample-factor` (off, the draw and its rng stream are what they were): those 18 sessions' cells drawn three times as often,
+36 % of the draws. No star shape changes, the change every arm that took M31's nucleus made, so the nucleus guard should hold. Its
+bar: SMC flat at least 91.8 on seed 0 (R2w seed 1's), pooled flat at least 95.6 and dug at most 2.14, the nucleus under 5 % in
+every channel; and the absolute SMC green median at most +2.0e-3 on the plain export. If oversampling cannot reach the SMC's wings
+(nothing in training goes below 1.63), the next arm draws a share of the injected stars at a lower beta, read against the nucleus
+guard first.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
