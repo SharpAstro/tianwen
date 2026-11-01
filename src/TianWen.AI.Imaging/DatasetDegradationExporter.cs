@@ -447,6 +447,11 @@ namespace TianWen.AI.Imaging
         /// clipped-star profiles (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHaloFit"/>) and scaled with the star's amplitude. A rig
         /// the file lacks draws none, said once. Recorded per star in injections.jsonl (<c>OuterHalo</c>), absent when off. Draws no random
         /// number. Null, every export is what it was.</param>
+        /// <param name="ChromaticWidthRatio">Stars mode: every injected star's channels other than red drawn at this many times red's
+        /// width (<see cref="TianWen.Lib.Imaging.StarRemoval.ChromaticWidth"/>), the SMC's causal check. Draws no random number, so
+        /// the stars keep their places, brightness and colour and only those widths move; each star's widths are in its
+        /// injections.jsonl row (<c>FwhmPx</c>). Null draws every channel at its master's own width. Not with
+        /// <paramref name="ChannelRelationSessions"/> or <paramref name="ChannelWingCut"/>.</param>
         /// <param name="KeptCores">With <paramref name="SyntheticBackground"/>: a share of the cells holds a bright galaxy-like
         /// core in its background, in the input and the target alike, so a remover learns to keep it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.KeptCores"/>, #1658), from a stream of its own, so every other draw is
@@ -527,6 +532,7 @@ namespace TianWen.AI.Imaging
             bool ChannelNoiseStructure = false,
             bool ClampWingRelations = false,
             string? OuterHaloPath = null,
+            double? ChromaticWidthRatio = null,
             Action<string>? Say = null);
 
         /// <summary>

@@ -295,6 +295,18 @@ public static partial class DatasetDegradationExporter
                 logger?.LogInformation("[degrade] wing cut: {Share:P0} of the draws weaken one channel's wing by a factor from {Min} to 1",
                     ChannelWingCut.Share, minFactor);
             }
+            if (options.ChromaticWidthRatio is { } chromaticRatio)
+            {
+                if (variation is not null || wingCut is not null)
+                {
+                    throw new ArgumentException("a chromatic width and channel relations or a wing cut are two arms; give one", nameof(options));
+                }
+                if (!ChromaticWidth.IsRatio(chromaticRatio))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(options), chromaticRatio, "a chromatic width ratio is in [0.25, 4]");
+                }
+                logger?.LogInformation("[degrade] chromatic width: every star's channels but red drawn at {Ratio} times red's width", chromaticRatio);
+            }
             if (options.FaintStarFloor is { } faintFloor)
             {
                 if (!options.SyntheticBackground)
@@ -730,7 +742,8 @@ public static partial class DatasetDegradationExporter
         var channels = unitPlate.ChannelCount;
         var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
             variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut,
-            population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372));
+            population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372),
+            options.ChromaticWidthRatio is { } ratio ? new ChromaticWidth(ratio) : null);
 
         // The plate's cell, or on R2d's synthetic background the cell's own noisy planes (SyntheticCell).
         var basePlanes = new float[channels][];
