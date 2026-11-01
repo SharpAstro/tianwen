@@ -659,7 +659,7 @@ internal partial record Session(
             MountLimits.TrustedPointingState(
                 mount.PointingStateSource, _mountState.PierSide, _verifiedPointingState),
             _mountState.PrimaryAxisAngleDeg,
-            _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
+            _mountState.Altitude, _mountState.IsTracking, _limitActed, limits, _mountState.Declination);
 
         if (!verdict.IsBreached)
         {
