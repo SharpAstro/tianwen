@@ -77,7 +77,7 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
         try
         {
             // A mount that stops answering ends the read at ReplyTimeout; the cancel below reads as no reply.
-            using var deadline = new CancellationTokenSource(ReplyTimeout, _timeProvider.System);
+            using var deadline = _timeProvider.CancelAfter(ReplyTimeout);
             using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
             var result = await _client.ReceiveAsync(reply.Token);
             var response = Encoding.GetString(result.Buffer);
@@ -103,7 +103,7 @@ internal sealed class SkywatcherUdpConnection : ISerialConnection
         try
         {
             // A mount that stops answering ends the read at ReplyTimeout; the cancel below reads as no reply.
-            using var deadline = new CancellationTokenSource(ReplyTimeout, _timeProvider.System);
+            using var deadline = _timeProvider.CancelAfter(ReplyTimeout);
             using var reply = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
             var result = await _client.ReceiveAsync(reply.Token);
             var response = Encoding.GetString(result.Buffer);

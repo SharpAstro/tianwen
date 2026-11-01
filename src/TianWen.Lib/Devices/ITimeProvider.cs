@@ -48,3 +48,17 @@ public interface ITimeProvider
     /// </summary>
     TimeProvider System { get; }
 }
+
+public static class TimeProviderExtensions
+{
+    extension(ITimeProvider timeProvider)
+    {
+        /// <summary>
+        /// A <see cref="CancellationTokenSource"/> that cancels after <paramref name="delay"/> on THIS clock: the one way to
+        /// build a deadline, so a test's fake clock ends it when advanced past it. Never <c>new CancellationTokenSource(delay)</c>
+        /// or <c>CancelAfter</c> on a plain source, which run on the wall clock whatever the injected one says. An extension,
+        /// not a default interface member, so it is called on a concrete clock (a test's fake) without a cast.
+        /// </summary>
+        public CancellationTokenSource CancelAfter(TimeSpan delay) => new(delay, timeProvider.System);
+    }
+}

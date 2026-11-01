@@ -39,7 +39,7 @@ public class TcpSerialConnectionTests
     private static async Task<T> ReadUntilBoundAsync<T>(FakeTimeProviderWrapper clock, Func<CancellationToken, Task<T>> read, CancellationToken ct)
     {
         var step = TimeSpan.FromMilliseconds(100);
-        using var timer = new CancellationTokenSource(step, clock.System);
+        using var timer = clock.CancelAfter(step);
         using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct, timer.Token);
         var pending = read(bound.Token);
         pending.IsCompleted.ShouldBeFalse("nothing has answered and the clock has not moved");

@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -80,6 +81,32 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
         responder.IsTracking.ShouldBe(false);
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task GivenOnStepWifiResponderWhenAReplyIsLostTheQueryEndsAtTheReplyDeadlineOnTheFakeClock()
+    {
+        // The reply deadline runs on the driver's injected clock: a :GU# the mount never answers ends when the fake clock
+        // passes the deadline, and the driver then clears the mount's command buffer with a bare #. On the wall clock the
+        // query would hold for 25 s of real time whatever the fake clock did.
+        var ct = TestContext.Current.CancellationToken;
+        await using var responder = await FakeOnStepWifiResponder.StartAsync(ct);
+
+        var device = new OnStepDevice(DeviceType.Mount, "test-id", "OnStep WiFi Test", responder.Host, responder.Port);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var fakeExternal = new FakeExternal(outputHelper, timeProvider);
+        await using var mount = new OnStepMountDriver<OnStepDevice>(device, fakeExternal.BuildServiceProvider());
+
+        await mount.ConnectAsync(ct);
+        var clearsBefore = responder.ReceivedCommands.Count(c => c is "#");
+        responder.Silent.TryAdd(":GU#", 0);
+
+        var query = mount.IsTrackingAsync(ct).AsTask();
+        await timeProvider.PumpUntilCompletedAsync(query, MeadeLX200ProtocolMountDriverBase<OnStepDevice>.ReplyTimeout * 2, cancellationToken: ct);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(query);
+        ex.Message.ShouldContain(":GU#");
+        responder.ReceivedCommands.Count(c => c is "#").ShouldBe(clearsBefore + 1, "a lost reply clears the mount's command buffer");
+    }
+
     /// <summary>
     /// In-process TCP responder that speaks just enough OnStep protocol for the driver
     /// to connect and exercise basic commands. Mutable state (<see cref="IsTracking"/>,
@@ -94,6 +121,9 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
         public string Host { get; }
         public int Port { get; }
         public ConcurrentBag<string> ReceivedCommands { get; } = new();
+
+        /// <summary>Commands received and never answered, as a mount that lost them would.</summary>
+        public ConcurrentDictionary<string, byte> Silent { get; } = new();
         public bool IsTracking { get; private set; }
         public bool IsParked { get; private set; }
         public bool IsSlewing { get; private set; }
@@ -153,7 +183,7 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
                                 sb.Clear();
                                 ReceivedCommands.Add(command);
 
-                                var response = HandleCommand(command);
+                                var response = Silent.ContainsKey(command) ? null : HandleCommand(command);
                                 if (response is { Length: > 0 })
                                 {
                                     var bytes = Encoding.Latin1.GetBytes(response);
@@ -200,6 +230,10 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
                 case ":GC#": return System.DateTime.UtcNow.ToString("MM/dd/yy#", System.Globalization.CultureInfo.InvariantCulture);
                 case [':', 'S', 'C', .., '#']: return "1";
                 case [':', 'S', 'L', .., '#']: return "1";
+                // The configuration a connect reads for the top move rate: steps a degree, then microseconds a step, as a
+                // harmonic OnStep reports them. A real OnStep answers both; silence would hold the connect to its deadline.
+                case ":GXE6#": return "11378.0#";
+                case ":GX92#": return "16#";
                 default: return null;
             }
         }
