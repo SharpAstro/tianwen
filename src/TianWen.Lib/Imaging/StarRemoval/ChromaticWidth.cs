@@ -5,7 +5,7 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 
 /// <summary>
 /// Every channel of every injected star drawn at <see cref="Ratio"/> times the reference channel's width
-/// (docs/plans/star-remover-training.md, "The SMC's green stars"). The SMC night through the L-eNhance has stars 1.23 times
+/// (docs/plans/star-remover-training.md, "The SMC's stars: chromatic width and a smooth sky", #1947). The SMC night through the L-eNhance has stars 1.23 times
 /// wider in green and blue than in red (OIII and H-beta against H-alpha), where the training masters' injected stars sit at
 /// 0.64 to 1.12 (10th to 90th percentile, the L-Ultimate nights being most of them), and every model leaves its stars' green.
 /// A causal check: export the same draws with the ratio forced and read whether the leftover follows it. It draws no random

@@ -4748,6 +4748,77 @@ export logs carry no `Refused` count, so how many stars the guard took out is un
 (#1867's other half, about 13 hours) are the next lever, not a second seed of this arm; and the guard should be read again WITH
 rebuilt plates before it is kept in the export.
 
+#### R3g: #1867 complete, the guard and the rebuilt plates (2026-11-01)
+
+R2w's recipe (seed 0) on **synth14**: synth13's command and binary over the plates rebuilt with #1867's plate-builder guard
+(`D:/Astro-Dataset/2026-10-12-full/starless-1867`), so the plates are the one change from R3f. Pre-registered in
+`C:/temp/e2/r3g.prereg` before its export: **P1** dug at most 1.76, **P2** flat at least 95.6, **P3** M31's nucleus under 5 % in
+every channel, **P4** flat above R3f's 92.88 and dug below its 3.04 (the plates, not the draws, carry the gain); adopt on P1 and
+P2, kill on flat under 95.6 or dug over 2.14.
+
+**Read: KILLED on both rules; P3 and P4 hold.** Scored as R3f was, with the ring step working this time:
+
+| 100-1000 sigma, 4215 stars | R3g | R3f | R2w s0 | R2w s1 |
+|---|---|---|---|---|
+| flat \|<1\| | **94.35** | 92.88 | 95.61 | 96.01 |
+| light >+1 / dug <-1 | 3.32 / **2.33** | 4.08 / 3.04 | 2.63 / 1.76 | 1.85 / 2.14 |
+| M42 flat | 72.2 | 45.2 | 71.4 | 74.6 |
+| SMC flat | **37.1** | 63.9 | 79.4 | 91.8 |
+| ring 3-6 px, R / G / B sigma | -1.18 / -0.49 / -0.41 | - | -0.80 / -0.57 / -0.26 | -0.87 / -0.60 / -0.39 |
+| M31 nucleus 0-6 px, R / G / B | +2.5 / -4.4 / +4.6 % | - | | |
+
+The rebuilt plates win back most of what the guard alone lost (P4), so they were the bigger lever, but #1867 complete still
+trains a worse remover than R2w on the old plates, and far worse on the SMC. R2w stays the default; R2t (97.41 flat, 1.23 dug)
+is still the best real-tile read of any arm. Its SMC row is the next section's subject.
+
+#### The SMC's stars: chromatic width and a smooth sky (2026-11-01)
+
+The owner, on R3g's read: "figure out what can we do about SMC. i believe fixing SMC will also increase flat across the board".
+Tracked as #1947.
+
+**The SMC read splits by seed, not by recipe.** Every seed 1 stands near 90 % flat (R2i 91.8, R2w 91.8, R3a 91.8, R3b 89.7) and
+every seed 0 at 37 to 79 (R2i 67.0, R2w 79.4, R3a 62.9, R3b 43.3, R3f 63.9, R3g 37.1). The cache is shared by every seed; the
+seed is the weights' initialisation and the batch order (`n2n_smoke.py`), so an input the training data does not constrain is
+answered by where the weights started.
+
+**Blue stars are the worst bin in every session.** Read star by star on the 4,215 bright real stars (each star's colour its
+channels' core excess, in the export's stretch): the stars with a blue share of 0.30 to 0.35 come out flat 84.5 to 95.3 % for
+R2w, R3g and R2t, against 94.3 to 97.8 for every redder bin, and session by session alike (HIP 80609 74 to 83 against 95 to 97,
+M42 36 to 59 against 75 to 86). The SMC is the extreme because 41 % of its bright stars are that blue (Lobster 16, M42 9, HIP
+80609 3). The injector is not short of blue stars: its stars' blue share spans the real stars' (median 0.245 against 0.263, 90th
+percentile 0.349 against 0.344), session by session.
+
+**What the SMC leaves is green, and its stars are wider in green and blue.** R3g leaves green past +1 sigma on all of the SMC's
+blue stars and 84 % of the rest; the L-eNhance night's stars are 1.23 times wider in green and blue than in red (OIII and
+H-beta against H-alpha), where the training stars' injected (G+B)/2 over R width runs 0.635 / 0.783 / 1.115 (10th / 50th / 90th
+percentile; the 62 L-Ultimate nights are most of them).
+
+**The causal check (`dataset degrade --chromatic-width`, `ChromaticWidth`).** F2's random set (`f2-sets.json`, `sets.random`:
+same bake, plates and arguments, its 7 validation sessions) exported three times, identical but for the option (own widths, 1.0,
+1.25), each model inferred and scored, and read against the truth: per channel, the output's 3x3 core less the clean tile's, in
+the draw's noise sigma, on the SAME stars in every arm (the band chosen once on the own export; the option draws nothing, so star
+*i* of a tile is the same star in all three). `C:/temp/e2/chroma` holds the script, the exports and `chroma_read.py`.
+
+| same 372 SMC stars, green left >+1 | own (about 1.23) | 1.0 | 1.25 |
+|---|---|---|---|
+| R2w seed 0 | 93.3 % | **75.8 %** | 94.6 % |
+| R2w seed 1 | 90.1 % | **66.1 %** | 91.9 % |
+| R3g | 99.2 % | **89.0 %** | 99.2 % |
+
+**Width is a real cause, and not the main one.** Even at 1.0, red, which the option never touches, is left on 61 to 80 % of the
+SMC's stars, against 11 to 34 % on HIP 80609 and Lobster; and drawing those two at 1.25 makes no model leave their green (3 to 9
+%), they dig instead. What sets the SMC apart is its sky: its stretched tiles carry a noise sigma of **0.0010** against 0.0036
+(HIP 80609) and 0.0045 (Lobster), and its brightest 0.1 % of pixels stand at 0.32 against 0.74 to 0.79. Only 1.7 % of the
+training tiles are as smooth (7 of 130 training sessions have a median sigma under 0.0015, broadband wide fields, no narrowband
+night). In ABSOLUTE units every model leaves +2 to +8e-3 at the SMC's stars in every channel, where the other sessions centre
+near zero (HIP 80609 digs about 2e-3): a real under-removal, which the smooth sky makes 3 to 7 sigma. (This truth-based read is
+far stricter than the real-star check's ring-relative one; compare its rows with each other, never with that check's 95 %.)
+
+**Next (#1947):** a noise-level causal check first (a tile's noise raised to a set level, the SMC re-read at four times its own),
+then R3h, the smooth tiles oversampled in the trainer with no re-export, which leaves the stars' shapes alone, the change every
+arm that took M31's nucleus made (R2l, R2m, R2s, R2s2, R2v). A chromatic-width spread in the injector comes only after, read
+against the nucleus guard first.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
