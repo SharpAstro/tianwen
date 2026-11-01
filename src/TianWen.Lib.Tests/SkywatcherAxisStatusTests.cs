@@ -124,4 +124,33 @@ public class SkywatcherAxisStatusTests(ITestOutputHelper output)
         sent.ShouldNotContain(":F1", "the axes were initialised by the first connect");
         (await driver.IsTrackingAsync(ct)).ShouldBeTrue();
     }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ADeviceConnectedOnAnotherClockGetsAFreshBoard()
+    {
+        // A test class that keeps its device in a static field connects it once per test, each on a clock of its own. The
+        // board must not carry over: on the previous test's stopped clock its motors never move again (NodeGuidingTests).
+        var ct = TestContext.Current.CancellationToken;
+        var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        {
+            { "latitude", "-37.8769444" },
+            { "longitude", "145.1775" },
+            { "port", "SkyWatcher" },
+        });
+
+        async Task<FakeSkywatcherSerialDevice> ConnectOnItsOwnClockAsync()
+        {
+            var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 11, 1, 9, 0, 0, TimeSpan.Zero));
+            var driver = new Mount(device, new FakeExternal(output, clock).BuildServiceProvider()).Driver;
+            await driver.ConnectAsync(ct);
+            var board = ((SkywatcherMountDriverBase<FakeDevice>)driver).SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+            await driver.DisconnectAsync(ct);
+            return board;
+        }
+
+        var first = await ConnectOnItsOwnClockAsync();
+        var second = await ConnectOnItsOwnClockAsync();
+
+        second.ShouldNotBeSameAs(first);
+    }
 }

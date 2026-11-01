@@ -220,6 +220,9 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         StartSimulationTimer();
     }
 
+    /// <summary>The clock the board's motors run on: a board is the same mount only to a connect on this clock.</summary>
+    internal ITimeProvider TimeProvider => _timeProvider;
+
     public bool IsOpen { get; private set; }
     public Encoding Encoding { get; }
 
