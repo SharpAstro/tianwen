@@ -32,7 +32,8 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
     /// <summary>The vendor driver waits this long after opening before its first command.</summary>
     private static readonly TimeSpan BootDelay = TimeSpan.FromSeconds(2);
     private const int HandshakeAttempts = 3;
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(1);
+    /// <summary>How long one handshake attempt waits for the device, on the injected clock; a test sets it far past every other timer.</summary>
+    internal TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// How long the reader waits for a frame before asking for status again (the box pushes every 3 s). A read given up
@@ -203,13 +204,13 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
     }
 
     /// <summary>
-    /// Waits for the reader to publish a frame <paramref name="accepts"/> takes, up to <see cref="ConfirmTimeout"/> (a
-    /// wall-clock bound, as the reads' own are); false when none came.
+    /// Waits for the reader to publish a frame <paramref name="accepts"/> takes, up to <see cref="ConfirmTimeout"/> (on
+    /// the injected clock); false when none came.
     /// </summary>
     private async ValueTask<bool> WaitForFrameAsync(Func<StatusAt, bool> accepts, CancellationToken cancellationToken)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(ConfirmTimeout);
+        using var confirmDeadline = TimeProvider.CancelAfter(ConfirmTimeout);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, confirmDeadline.Token);
         try
         {
             while (true)
@@ -319,12 +320,12 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
     }
 
     /// <summary>Asks a query up to <see cref="HandshakeAttempts"/> times, <see cref="HandshakeTimeout"/> each, until it answers.</summary>
-    private static async ValueTask<string?> AskAsync(ISerialConnection conn, Func<ISerialConnection, CancellationToken, ValueTask<string?>> query, CancellationToken cancellationToken)
+    private async ValueTask<string?> AskAsync(ISerialConnection conn, Func<ISerialConnection, CancellationToken, ValueTask<string?>> query, CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < HandshakeAttempts; attempt++)
         {
-            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            attemptCts.CancelAfter(HandshakeTimeout);
+            using var attemptDeadline = TimeProvider.CancelAfter(HandshakeTimeout);
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, attemptDeadline.Token);
             if (await query(conn, attemptCts.Token).ConfigureAwait(false) is { } answer)
             {
                 return answer;
@@ -335,12 +336,12 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
     }
 
     /// <inheritdoc cref="AskAsync(ISerialConnection, Func{ISerialConnection, CancellationToken, ValueTask{string?}}, CancellationToken)"/>
-    private static async ValueTask<int?> AskAsync(ISerialConnection conn, Func<ISerialConnection, CancellationToken, ValueTask<int?>> query, CancellationToken cancellationToken)
+    private async ValueTask<int?> AskAsync(ISerialConnection conn, Func<ISerialConnection, CancellationToken, ValueTask<int?>> query, CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < HandshakeAttempts; attempt++)
         {
-            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            attemptCts.CancelAfter(HandshakeTimeout);
+            using var attemptDeadline = TimeProvider.CancelAfter(HandshakeTimeout);
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, attemptDeadline.Token);
             if (await query(conn, attemptCts.Token).ConfigureAwait(false) is { } answer)
             {
                 return answer;
@@ -363,9 +364,9 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
             try
             {
                 (char Letter, string Payload)? frame;
-                using (var silence = CancellationTokenSource.CreateLinkedTokenSource(stop))
+                using var silenceDeadline = TimeProvider.CancelAfter(RequestAgainAfter);
+                using (var silence = CancellationTokenSource.CreateLinkedTokenSource(stop, silenceDeadline.Token))
                 {
-                    silence.CancelAfter(RequestAgainAfter);
                     frame = await GeminiPowerBoxProtocol.ReadFrameAsync(conn, silence.Token).ConfigureAwait(false);
                 }
 

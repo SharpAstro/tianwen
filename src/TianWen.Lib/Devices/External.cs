@@ -16,7 +16,8 @@ namespace TianWen.Lib.Devices;
 internal sealed class External(
     IUtf8TextBasedConnectionFactory textBasedConnectionFactory,
     ILogger<External> logger,
-    Astrometry.Catalogs.ICelestialObjectDB celestialObjectDB
+    Astrometry.Catalogs.ICelestialObjectDB celestialObjectDB,
+    ITimeProvider timeProvider
 ) : IExternal, IDisposable, IAsyncDisposable
 {
     private Task? _dbInitTask;
@@ -119,7 +120,7 @@ internal sealed class External(
         // the caller) and throws a SerialException naming what went wrong: missing, busy, or not opened in time.
         // assertControlLines asserts DTR + RTS on open (needed by some USB-serial bridges, e.g. the Gemini FlatPanel's
         // CH341); false keeps every other device's open as it was.
-        var connection = await SerialConnection.OpenAsync(address, baud, encoding, logger, assertControlLines, cancellationToken).ConfigureAwait(false);
+        var connection = await SerialConnection.OpenAsync(address, baud, encoding, logger, assertControlLines, timeProvider, cancellationToken).ConfigureAwait(false);
         _serialConnections[address] = connection;
         return connection;
     }

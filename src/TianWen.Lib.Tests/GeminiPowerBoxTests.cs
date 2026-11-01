@@ -25,6 +25,9 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     /// <summary>A status frame exactly as the bench box sent it, after <c>*G</c> and before <c>#</c>.</summary>
     private const string BenchFrame = "1111D111111U1A1T1A1M1B1M100C100C 24.81S 26.87T 56.00H 17.35D12.9V 0.16C  2.06P";
 
+    /// <summary>A deadline set far past every other timer, so only an advance of the fake clock can end it.</summary>
+    private static readonly TimeSpan Long = TimeSpan.FromHours(1);
+
     private const int Dc1 = 0, Dc3 = 2, UsbE = 9, Dew6 = 11, Voltage = 13, Current = 14, Power = 15, Ambient = 16, Humidity = 17, DewPoint = 18, Lens = 19;
 
     [Fact]
@@ -162,13 +165,18 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     public async Task ASetNoFrameShowsFailsRatherThanPretending()
     {
         var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
         var box = new FakeGeminiPowerBoxSerialDevice();
-        await using var driver = Connected(out var concrete, box);
+        await using var driver = Connected(external, out var concrete, box);
         await driver.ConnectAsync(ct);
         box.IgnoreSets = true;
-        concrete.ConfirmTimeout = TimeSpan.FromMilliseconds(300);
+        concrete.ConfirmTimeout = Long;
 
-        await Should.ThrowAsync<IOException>(async () => await driver.SetValueAsync(Dc3, 0, ct));
+        var set = driver.SetValueAsync(Dc3, 0, ct).AsTask();
+        await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct);
+        external.TimeProvider.Advance(Long);
+
+        await Should.ThrowAsync<IOException>(async () => await set);
     }
 
     [Fact(Timeout = 30_000)]
@@ -206,7 +214,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         var external = new FakeExternal(output);
         var box = new FakeGeminiPowerBoxSerialDevice();
         await using var driver = Connected(external, out var concrete, box);
-        // Only the fake clock moves here: the reader's real-clock silence must not ask for a fresh frame mid-test.
+        // Only the fake clock moves here, and the reader's silence deadline is on it: it must not ask for a fresh frame mid-test.
         concrete.RequestAgainAfter = TimeSpan.FromHours(1);
         await driver.ConnectAsync(ct);
 
@@ -239,15 +247,21 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     public async Task ABoxThatNeverSendsStatusFailsTheConnectAndLeavesNoReader()
     {
         var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
         var box = new FakeGeminiPowerBoxSerialDevice { NoStatus = true };
-        await using var driver = Connected(out var concrete, box);
-        concrete.ConfirmTimeout = TimeSpan.FromMilliseconds(300);
+        await using var driver = Connected(external, out var concrete, box);
+        concrete.ConfirmTimeout = Long;
         // A reader left running would ask for status again within this, on the closed port.
-        concrete.RequestAgainAfter = TimeSpan.FromMilliseconds(50);
+        concrete.RequestAgainAfter = TimeSpan.FromSeconds(1);
 
-        await Should.ThrowAsync<InvalidOperationException>(async () => await driver.ConnectAsync(ct));
+        var connect = driver.ConnectAsync(ct).AsTask();
+        await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct);
+        external.TimeProvider.Advance(Long);
+
+        await Should.ThrowAsync<InvalidOperationException>(async () => await connect);
         box.IsOpen.ShouldBeFalse("a failed connect closes its port");
-        await Task.Delay(TimeSpan.FromMilliseconds(400), ct);
+        external.TimeProvider.Advance(Long);
+        await Task.Delay(TimeSpan.FromMilliseconds(100), ct);
         box.WritesAfterClose.ShouldBe(0, "no reader outlives a failed connect");
         driver.Connected.ShouldBeFalse();
     }
@@ -277,8 +291,9 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         var first = new FakeGeminiPowerBoxSerialDevice();
         var silent = new FakeGeminiPowerBoxSerialDevice { NoStatus = true };
         var third = new FakeGeminiPowerBoxSerialDevice { Voltage = 12.1 };
-        await using var driver = Connected(out var concrete, first, silent, third);
-        concrete.ConfirmTimeout = TimeSpan.FromMilliseconds(300);
+        var external = new FakeExternal(output);
+        await using var driver = Connected(external, out var concrete, first, silent, third);
+        concrete.ConfirmTimeout = Long;
         await driver.ConnectAsync(ct);
         first.Unplug();
         while (driver.Connected)
@@ -287,12 +302,37 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         }
 
         // The old connection's frame must not count as the new port's first.
-        await Should.ThrowAsync<InvalidOperationException>(async () => await driver.ConnectAsync(ct));
+        var connect = driver.ConnectAsync(ct).AsTask();
+        await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct);
+        external.TimeProvider.Advance(Long);
+        await Should.ThrowAsync<InvalidOperationException>(async () => await connect);
 
         await driver.ConnectAsync(ct);
         (await driver.GetValueAsync(Voltage, ct)).ShouldBe(12.1);
         first.WritesAfterClose.ShouldBe(0, "the first connection's reader ended with its port");
         silent.WritesAfterClose.ShouldBe(0);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ABoxThatNeverAnswersItsIdentityFailsTheConnectAfterEveryAttemptsDeadline()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var box = new FakeGeminiPowerBoxSerialDevice { Mute = true };
+        await using var driver = Connected(external, out var concrete, box);
+        concrete.HandshakeTimeout = Long;
+
+        var connect = driver.ConnectAsync(ct).AsTask();
+        // One advance per attempt: each attempt's deadline is made when it starts, so one made after an advance never fires.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct);
+            external.TimeProvider.Advance(Long);
+        }
+
+        var failure = await Should.ThrowAsync<InvalidOperationException>(async () => await connect);
+        failure.Message.ShouldContain("<none>");
+        box.IsOpen.ShouldBeFalse("a failed connect closes its port");
     }
 
     private ISwitchDriver Connected(out GeminiPowerBoxDriver concrete, params FakeGeminiPowerBoxSerialDevice[] ports)

@@ -71,16 +71,21 @@ internal static class GeminiFlatPanelProtocol
     }
 
     /// <summary>Turns the light on (<c>&gt;L#</c>) or off (<c>&gt;D#</c>).</summary>
-    public static ValueTask SetLightAsync(ISerialConnection conn, bool on, CancellationToken cancellationToken)
-        => SendAsync(conn, on ? ">L#" : ">D#", cancellationToken);
+    public static ValueTask SetLightAsync(ISerialConnection conn, bool on, ITimeProvider timeProvider, CancellationToken cancellationToken)
+        => SetLightAsync(conn, on, timeProvider, AckTimeout, cancellationToken);
+
+    /// <inheritdoc cref="SetLightAsync(ISerialConnection, bool, ITimeProvider, CancellationToken)"/>
+    /// <param name="ackTimeout">How long to wait for the ack; a test sets it far past every other timer.</param>
+    internal static ValueTask SetLightAsync(ISerialConnection conn, bool on, ITimeProvider timeProvider, TimeSpan ackTimeout, CancellationToken cancellationToken)
+        => SendAsync(conn, on ? ">L#" : ">D#", timeProvider, ackTimeout, cancellationToken);
 
     /// <summary>Turns the panel beeper on (<c>&gt;T1#</c>) or off (<c>&gt;T0#</c>).</summary>
-    public static ValueTask SetBeeperAsync(ISerialConnection conn, bool on, CancellationToken cancellationToken)
-        => SendAsync(conn, on ? ">T1#" : ">T0#", cancellationToken);
+    public static ValueTask SetBeeperAsync(ISerialConnection conn, bool on, ITimeProvider timeProvider, CancellationToken cancellationToken)
+        => SendAsync(conn, on ? ">T1#" : ">T0#", timeProvider, AckTimeout, cancellationToken);
 
     /// <summary>Sets the panel brightness (<c>&gt;B&lt;n&gt;#</c>), clamped to [0, <see cref="MaxBrightness"/>].</summary>
-    public static ValueTask SetBrightnessAsync(ISerialConnection conn, int brightness, CancellationToken cancellationToken)
-        => SendAsync(conn, $">B{Math.Clamp(brightness, 0, MaxBrightness).ToString(CultureInfo.InvariantCulture)}#", cancellationToken);
+    public static ValueTask SetBrightnessAsync(ISerialConnection conn, int brightness, ITimeProvider timeProvider, CancellationToken cancellationToken)
+        => SendAsync(conn, $">B{Math.Clamp(brightness, 0, MaxBrightness).ToString(CultureInfo.InvariantCulture)}#", timeProvider, AckTimeout, cancellationToken);
 
     /// <summary>Writes a '#'-terminated query and reads the framed reply, returning the payload when the echoed letter matches.</summary>
     private static async ValueTask<string?> QueryAsync(ISerialConnection conn, char command, CancellationToken cancellationToken)
@@ -102,7 +107,7 @@ internal static class GeminiFlatPanelProtocol
     /// NEXT query's read, so drain it here, via an async read bounded by <see cref="AckTimeout"/> (a firmware
     /// that genuinely doesn't ack just times out cleanly).
     /// </summary>
-    private static async ValueTask SendAsync(ISerialConnection conn, string command, CancellationToken cancellationToken)
+    private static async ValueTask SendAsync(ISerialConnection conn, string command, ITimeProvider timeProvider, TimeSpan ackTimeout, CancellationToken cancellationToken)
     {
         using var @lock = await conn.WaitAsync(cancellationToken).ConfigureAwait(false);
         if (!await conn.TryWriteAsync(command, cancellationToken).ConfigureAwait(false))
@@ -110,8 +115,9 @@ internal static class GeminiFlatPanelProtocol
             return;
         }
 
-        using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        drainCts.CancelAfter(AckTimeout);
+        // The ack deadline is built on the injected clock, so a test's fake clock ends the wait when advanced past it.
+        using var ackDeadline = timeProvider.CancelAfter(ackTimeout);
+        using var drainCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ackDeadline.Token);
         try
         {
             _ = await conn.TryReadTerminatedAsync(Terminator, drainCts.Token).ConfigureAwait(false);

@@ -98,7 +98,12 @@ internal static class GeminiFocuserProtocol
         => await QueryIntAsync(conn, ":25#", cancellationToken).ConfigureAwait(false) is { } t && t != 0;
 
     /// <summary>Enables (<c>:231#</c>) or disables (<c>:230#</c>) temperature compensation; this set command acks with <c>OK</c>.</summary>
-    public static async ValueTask SetTempCompAsync(ISerialConnection conn, bool enabled, CancellationToken cancellationToken)
+    public static ValueTask SetTempCompAsync(ISerialConnection conn, bool enabled, ITimeProvider timeProvider, CancellationToken cancellationToken)
+        => SetTempCompAsync(conn, enabled, timeProvider, AckTimeout, cancellationToken);
+
+    /// <inheritdoc cref="SetTempCompAsync(ISerialConnection, bool, ITimeProvider, CancellationToken)"/>
+    /// <param name="ackTimeout">How long to wait for the ack; a test sets it far past every other timer.</param>
+    internal static async ValueTask SetTempCompAsync(ISerialConnection conn, bool enabled, ITimeProvider timeProvider, TimeSpan ackTimeout, CancellationToken cancellationToken)
     {
         using var @lock = await conn.WaitAsync(cancellationToken).ConfigureAwait(false);
         if (!await conn.TryWriteAsync(enabled ? ":231#" : ":230#", cancellationToken).ConfigureAwait(false))
@@ -108,8 +113,9 @@ internal static class GeminiFocuserProtocol
 
         // The temp-comp toggle is the one set command the controller acks ("OK"); drain it (bounded) so it
         // can't offset the next query's read. A silent firmware just times out cleanly.
-        using var ackCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        ackCts.CancelAfter(AckTimeout);
+        // The deadline is built on the injected clock, so a test's fake clock ends the wait when advanced past it.
+        using var ackDeadline = timeProvider.CancelAfter(ackTimeout);
+        using var ackCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ackDeadline.Token);
         try
         {
             _ = await conn.TryReadTerminatedAsync(Terminator, ackCts.Token).ConfigureAwait(false);

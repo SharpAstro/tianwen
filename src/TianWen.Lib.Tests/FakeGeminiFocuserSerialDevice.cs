@@ -41,6 +41,17 @@ internal sealed class FakeGeminiFocuserSerialDevice(
     /// <summary>Models a dead USB bridge: <see cref="IsOpen"/> stays true but no reply is ever enqueued.</summary>
     public bool Dead { get; set; }
 
+    /// <summary>
+    /// Models a controller that takes every write and never answers, as a real port does: a read waits for its token to
+    /// end (the caller's deadline) and gives up, where <see cref="Dead"/> reads end at once.
+    /// </summary>
+    public bool Silent { get; set; }
+
+    private readonly SemaphoreSlim _writes = new(0);
+
+    /// <summary>Released once per write, so a deadline test knows the code under test has reached its wait.</summary>
+    public Task WriteSeenAsync(CancellationToken cancellationToken) => _writes.WaitAsync(cancellationToken);
+
     /// <summary>Models a transient glitch: the next this-many replies are lost, then the controller answers again.</summary>
     public int DropReplies { get; set; }
 
@@ -53,6 +64,7 @@ internal sealed class FakeGeminiFocuserSerialDevice(
 
     public ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
+        _writes.Release();
         if (Dead)
         {
             return ValueTask.FromResult(true);
@@ -143,8 +155,20 @@ internal sealed class FakeGeminiFocuserSerialDevice(
         }
     }
 
-    public ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
+    public async ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
     {
+        if (Silent)
+        {
+            try
+            {
+                await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+        }
+
         var sb = new StringBuilder();
         while (_readBuffer.Count > 0)
         {
@@ -153,13 +177,13 @@ internal sealed class FakeGeminiFocuserSerialDevice(
             {
                 if (by == t)
                 {
-                    return ValueTask.FromResult<string?>(sb.ToString());
+                    return sb.ToString();
                 }
             }
             sb.Append((char)by);
         }
 
-        return ValueTask.FromResult<string?>(null);
+        return null;
     }
 
     public ValueTask<string?> TryReadExactlyAsync(int count, CancellationToken cancellationToken) => throw new NotSupportedException();

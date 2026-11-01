@@ -56,6 +56,9 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
     /// <summary>Models a box that answers no status request.</summary>
     public bool NoStatus { get; set; }
 
+    /// <summary>Models a box that answers nothing at all, not even its identity: a read waits for its token to end.</summary>
+    public bool Mute { get; set; }
+
     public List<string> WrittenCommands { get; } = [];
 
     public bool IsOpen { get; private set; } = true;
@@ -128,6 +131,11 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
 
     private void Handle(char letter, string argument)
     {
+        if (Mute)
+        {
+            return;
+        }
+
         switch (letter)
         {
             case 'H':

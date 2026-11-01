@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Connections;
 
@@ -48,7 +49,7 @@ internal sealed class SerialConnection : ISerialConnection
     /// asserts DTR and RTS from the open on, for bridges that hold the MCU in reset otherwise (the Gemini FlatPanel's CH341).
     /// </summary>
     /// <exception cref="SerialException">The port is missing, busy, or did not open in time.</exception>
-    public static async ValueTask<SerialConnection> OpenAsync(string portName, int baud, Encoding encoding, ILogger logger, bool assertControlLines, CancellationToken cancellationToken)
+    public static async ValueTask<SerialConnection> OpenAsync(string portName, int baud, Encoding encoding, ILogger logger, bool assertControlLines, ITimeProvider timeProvider, CancellationToken cancellationToken)
     {
         var settings = new SerialSettings(baud)
         {
@@ -58,7 +59,7 @@ internal sealed class SerialConnection : ISerialConnection
             ReadTimeout = Timeout.InfiniteTimeSpan,
             WriteTimeout = WriteTimeout,
         };
-        var port = await SerialPorts.OpenAsync(ISerialConnection.CleanupPortName(portName), settings, cancellationToken).ConfigureAwait(false);
+        var port = await SerialPorts.OpenAsync(ISerialConnection.CleanupPortName(portName), settings, timeProvider.System, cancellationToken).ConfigureAwait(false);
         return new SerialConnection(port, encoding, logger);
     }
 

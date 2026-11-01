@@ -13,6 +13,8 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 public class GeminiFlatPanelProtocolTests
 {
+    private static readonly FakeTimeProviderWrapper Clock = new();
+
     [Fact]
     public async Task Identify_returns_the_identity_payload()
     {
@@ -37,11 +39,11 @@ public class GeminiFlatPanelProtocolTests
 
         (await GeminiFlatPanelProtocol.GetCalibratorStateAsync(conn, ct)).ShouldBe(CalibratorStatus.Off);
 
-        await GeminiFlatPanelProtocol.SetLightAsync(conn, on: true, ct);
+        await GeminiFlatPanelProtocol.SetLightAsync(conn, on: true, Clock, ct);
         conn.WrittenCommands.ShouldContain(">L#");
         (await GeminiFlatPanelProtocol.GetCalibratorStateAsync(conn, ct)).ShouldBe(CalibratorStatus.Ready);
 
-        await GeminiFlatPanelProtocol.SetLightAsync(conn, on: false, ct);
+        await GeminiFlatPanelProtocol.SetLightAsync(conn, on: false, Clock, ct);
         conn.WrittenCommands.ShouldContain(">D#");
         (await GeminiFlatPanelProtocol.GetCalibratorStateAsync(conn, ct)).ShouldBe(CalibratorStatus.Off);
     }
@@ -54,7 +56,7 @@ public class GeminiFlatPanelProtocolTests
 
         (await GeminiFlatPanelProtocol.GetBrightnessAsync(conn, ct)).ShouldBe(0);
 
-        await GeminiFlatPanelProtocol.SetBrightnessAsync(conn, 128, ct);
+        await GeminiFlatPanelProtocol.SetBrightnessAsync(conn, 128, Clock, ct);
         conn.WrittenCommands.ShouldContain(">B128#");
         (await GeminiFlatPanelProtocol.GetBrightnessAsync(conn, ct)).ShouldBe(128);
     }
@@ -65,7 +67,7 @@ public class GeminiFlatPanelProtocolTests
         var conn = new FakeGeminiFlatPanelSerialDevice();
         var ct = TestContext.Current.CancellationToken;
 
-        await GeminiFlatPanelProtocol.SetBrightnessAsync(conn, 999, ct);
+        await GeminiFlatPanelProtocol.SetBrightnessAsync(conn, 999, Clock, ct);
         conn.WrittenCommands.ShouldContain(">B255#");
         (await GeminiFlatPanelProtocol.GetBrightnessAsync(conn, ct)).ShouldBe(255);
     }

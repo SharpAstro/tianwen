@@ -14,6 +14,8 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 public class GeminiFocuserProtocolTests
 {
+    private static readonly FakeTimeProviderWrapper Clock = new();
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -83,11 +85,11 @@ public class GeminiFocuserProtocolTests
     {
         var conn = new FakeGeminiFocuserSerialDevice(tempCompAvailable: true);
 
-        await GeminiFocuserProtocol.SetTempCompAsync(conn, enabled: true, Ct);
+        await GeminiFocuserProtocol.SetTempCompAsync(conn, enabled: true, Clock, Ct);
         conn.WrittenCommands.ShouldContain(":231#");
         (await GeminiFocuserProtocol.GetTempCompAsync(conn, Ct)).ShouldBeTrue();
 
-        await GeminiFocuserProtocol.SetTempCompAsync(conn, enabled: false, Ct);
+        await GeminiFocuserProtocol.SetTempCompAsync(conn, enabled: false, Clock, Ct);
         conn.WrittenCommands.ShouldContain(":230#");
         (await GeminiFocuserProtocol.GetTempCompAsync(conn, Ct)).ShouldBeFalse();
     }
