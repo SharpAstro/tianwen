@@ -139,6 +139,19 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     }
 
     /// <summary>
+    /// Waits until a live one-shot timer is due at least <paramref name="atLeast"/> from now, YIELDING between looks: a
+    /// deadline test sets its deadline far past every other timer, waits here until the code under test has made it (a
+    /// deadline built on this clock, never on the wall clock), then advances the clock past it ONCE.
+    /// </summary>
+    public async Task WaitForTimerDueAfterAsync(TimeSpan atLeast, CancellationToken cancellationToken)
+    {
+        while (!_recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks))
+        {
+            await Task.Delay(1, cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// Drives <paramref name="loopTask"/> (a session loop started via <c>Task.Run</c> with
     /// <see cref="ExternalTimePump"/> = true) to completion by advancing fake time, PACED to the
     /// loop: it advances only while something is parked at a <see cref="SleepAsync"/> waiter, and
@@ -572,6 +585,20 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             }
 
             return next;
+        }
+
+        /// <summary>Whether a live one-shot timer is due after <paramref name="ticks"/> (UTC ticks) and will fire at all.</summary>
+        public bool HasOneShotDueAfter(long ticks)
+        {
+            foreach (var (timer, _) in _timers)
+            {
+                if (!timer.IsPeriodic && timer.NextDue > ticks && timer.NextDue != long.MaxValue)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void Forget(RecordedTimer timer) => _timers.TryRemove(timer, out _);

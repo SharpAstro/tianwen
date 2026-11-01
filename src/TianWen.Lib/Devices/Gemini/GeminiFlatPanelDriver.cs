@@ -29,7 +29,8 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
     // this ~2s cost is paid only on a genuine cold open.
     private static readonly TimeSpan BootDelay = TimeSpan.FromMilliseconds(2200);
     private const int HandshakeAttempts = 3;
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(1);
+    /// <summary>How long one handshake attempt waits for the device, on the injected clock; a test sets it far past every other timer.</summary>
+    internal TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan HandshakeRetryInterval = TimeSpan.FromMilliseconds(400);
 
     private volatile ISerialConnection? _conn;
@@ -63,16 +64,16 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
             return;
         }
 
-        await GeminiFlatPanelProtocol.SetLightAsync(conn, on: true, cancellationToken).ConfigureAwait(false);
+        await GeminiFlatPanelProtocol.SetLightAsync(conn, on: true, TimeProvider, cancellationToken).ConfigureAwait(false);
         await TimeProvider.SleepAsync(CommandSettle, cancellationToken).ConfigureAwait(false);
-        await GeminiFlatPanelProtocol.SetBrightnessAsync(conn, brightness, cancellationToken).ConfigureAwait(false);
+        await GeminiFlatPanelProtocol.SetBrightnessAsync(conn, brightness, TimeProvider, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task BeginCalibratorOff(CancellationToken cancellationToken = default)
     {
         if (_conn is { IsOpen: true } conn)
         {
-            await GeminiFlatPanelProtocol.SetLightAsync(conn, on: false, cancellationToken).ConfigureAwait(false);
+            await GeminiFlatPanelProtocol.SetLightAsync(conn, on: false, TimeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -82,7 +83,7 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
     {
         if (_conn is { IsOpen: true } conn)
         {
-            await GeminiFlatPanelProtocol.SetBeeperAsync(conn, on, cancellationToken).ConfigureAwait(false);
+            await GeminiFlatPanelProtocol.SetBeeperAsync(conn, on, TimeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -151,9 +152,10 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
             string? identity = null;
             for (var attempt = 0; attempt < HandshakeAttempts; attempt++)
             {
-                using (var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                // The attempt's deadline is built on the injected clock, so a fake clock ends it when advanced past it.
+                using var attemptDeadline = TimeProvider.CancelAfter(HandshakeTimeout);
+                using (var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, attemptDeadline.Token))
                 {
-                    attemptCts.CancelAfter(HandshakeTimeout);
                     try
                     {
                         identity = await GeminiFlatPanelProtocol.IdentifyAsync(conn, attemptCts.Token).ConfigureAwait(false);

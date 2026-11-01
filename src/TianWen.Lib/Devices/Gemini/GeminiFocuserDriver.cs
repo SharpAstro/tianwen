@@ -23,7 +23,8 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
     // liveness path (already-open conn), not here, so this cost is paid only on a genuine cold open.
     private static readonly TimeSpan BootDelay = TimeSpan.FromMilliseconds(2200);
     private const int HandshakeAttempts = 3;
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(1);
+    /// <summary>How long one handshake attempt waits for the device, on the injected clock; a test sets it far past every other timer.</summary>
+    internal TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan HandshakeRetryInterval = TimeSpan.FromMilliseconds(400);
 
     private volatile ISerialConnection? _conn;
@@ -87,7 +88,7 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
     {
         if (_conn is { IsOpen: true } conn && _tempCompAvailable)
         {
-            await GeminiFocuserProtocol.SetTempCompAsync(conn, value, cancellationToken).ConfigureAwait(false);
+            await GeminiFocuserProtocol.SetTempCompAsync(conn, value, TimeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -176,9 +177,10 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
             string? identity = null;
             for (var attempt = 0; attempt < HandshakeAttempts; attempt++)
             {
-                using (var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                // The attempt's deadline is built on the injected clock, so a fake clock ends it when advanced past it.
+                using var attemptDeadline = TimeProvider.CancelAfter(HandshakeTimeout);
+                using (var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, attemptDeadline.Token))
                 {
-                    attemptCts.CancelAfter(HandshakeTimeout);
                     try
                     {
                         identity = await GeminiFocuserProtocol.IdentifyAsync(conn, attemptCts.Token).ConfigureAwait(false);
