@@ -4819,6 +4819,48 @@ then R3h, the smooth tiles oversampled in the trainer with no re-export, which l
 arm that took M31's nucleus made (R2l, R2m, R2s, R2s2, R2v). A chromatic-width spread in the injector comes only after, read
 against the nucleus guard first.
 
+#### The SMC's noise check: not the sky, and the heaviest wings in the archive (2026-11-01)
+
+#1947's first step, the owner's "Start". `dataset degrade --noise-scale` (`Options.NoiseScale`) carries every plate cell at a set
+multiple of the master's noise, as if stacked from 1/scale^2 of its frames: the master's own noise at each pixel's level,
+sqrt(scale^2 - 1) times over, from the cell's own stream, so the clean tile and every draw of the cell carry the same added noise,
+while the plan, the render and the stretch are as without it (the SMC's 160 injection rows came out byte-identical to the plain
+export's). The SMC alone re-exported at 2 and 4 times its noise, the plain arm the chromatic-width check's own export, the three
+models inferred and read against the truth on the same 372 stars (`C:/temp/e2/noise`, `noise_read.py`). The tiles reached a
+stretched sigma of 0.0010 / 0.0020 / 0.0040, the other sessions' level at four times.
+
+| median left vs truth, R / G / B, x 1e-3 | plain | x2 | x4 |
+|---|---|---|---|
+| R2w seed 0 | +5.2 / +6.5 / +3.6 | +3.9 / +6.6 / +2.5 | +4.2 / +9.1 / +2.1 |
+| R2w seed 1 | +2.8 / +4.9 / +1.0 | +3.1 / +5.3 / +1.7 | +4.0 / +7.2 / +2.8 |
+| R3g | +2.0 / +7.6 / +4.6 | +2.7 / +8.5 / +3.6 | +3.6 / +8.8 / +2.3 |
+
+**The smooth sky is not the cause.** The absolute leftover does not shrink with the noise: green, the SMC's main leftover, grows in
+all three models, red and blue go either way. In sigma it falls (R3g's green left 99 / 94 / 80 %), but only because the sigma
+rose: the read #1947 named in advance says the noise is not it, so R3h as planned (smooth tiles oversampled) is not run.
+
+**Nor is the stars' absolute faintness** (`matched_read.py`, the plain export, every unsaturated injected star binned by its core
+light in absolute stretched units). At the SMC's own light the other sessions' stars come out clean, the SMC's do not, and its
+leftover grows with the star's light, a fixed share of each star left behind:
+
+| G left, median x 1e-3 (share past +1e-3), R3g | SMC | HIP 80609 | Lobster |
+|---|---|---|---|
+| core light 0.03-0.1 | +3.6 (93 %) | +0.1 (41 %) | +0.7 (47 %) |
+| core light 0.1-0.3 | +6.9 (99 %) | -0.0 (41 %) | -1.3 (31 %) |
+| core light 0.3-1 | +9.4 (100 %) | -1.7 (27 %) | -1.9 (28 %) |
+
+R2w's two seeds read the same way. **What is the SMC's own is its stars' shape**: its injected stars are drawn at a Moffat beta of
+1.74 / 1.42 / 1.40 (R / G / B median), against 3.9 / 3.3 / 3.5 on HIP 80609 and 4.5 / 5.7 / 6.3 on Lobster, its field profile
+being drawn per star from its own catalogue's fits. Over the 100 sessions of the stretch survey's export (`stretch-survey`, the
+training plates through the same injector) the SMC's median star beta, 1.54, is the lowest of all; the training stars' 1st / 5th
+/ 50th percentile is 1.67 / 1.99 / 3.80, 1.2 % of them under 1.8. Heavy wings in green and blue, on top of the 1.23 chromatic
+width, put the SMC's stars at the far edge of the training population, and a remover that subtracts a typical star's shape
+leaves part of each one.
+
+**Next (#1947), a third causal check**: the SMC exported with every star's beta held at a training-typical value (an option in
+the shape of `--chromatic-width`, drawing nothing), read as these were. If the leftover falls, the fix is the training stars'
+beta range, a change to the stars' shapes, read against M31's nucleus guard before any arm is trained.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
