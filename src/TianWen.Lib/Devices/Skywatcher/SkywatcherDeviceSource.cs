@@ -15,12 +15,21 @@ namespace TianWen.Lib.Devices.Skywatcher;
 /// 255.255.255.255:11880) stays here because it uses a different transport, and is not run in a
 /// local-only process (<see cref="LocalOnlyMode"/>).
 /// </summary>
-internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<SkywatcherDeviceSource> logger, LocalOnlyMode localOnly) : IDeviceSource<SkywatcherDevice>
+internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<SkywatcherDeviceSource> logger, LocalOnlyMode localOnly, ITimeProvider timeProvider) : IDeviceSource<SkywatcherDevice>
 {
+    /// <summary>How long the WiFi broadcast listens for mounts to answer, on the injected clock.</summary>
+    internal TimeSpan WifiAnswerWindow { get; init; } = TimeSpan.FromSeconds(2);
+
     /// <summary>
     /// The WiFi broadcast, sent from a socket the OS binds on every interface. A seam for a test, which must not send it.
     /// </summary>
-    internal Func<CancellationToken, IAsyncEnumerable<SkywatcherDevice>> BroadcastWifiAsync { get; init; } = DiscoverWiFiAsync;
+    internal Func<CancellationToken, IAsyncEnumerable<SkywatcherDevice>>? BroadcastWifiAsync { get; init; }
+
+    /// <summary>The WiFi broadcast to every interface, unless a seam replaced it.</summary>
+    private IAsyncEnumerable<SkywatcherDevice> WifiAsync(CancellationToken cancellationToken)
+        => BroadcastWifiAsync is { } broadcast
+            ? broadcast(cancellationToken)
+            : DiscoverWiFiAsync(new System.Net.IPEndPoint(System.Net.IPAddress.Broadcast, SkywatcherProtocol.WIFI_PORT), cancellationToken);
 
     private Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>> _cachedDevices = new();
 
@@ -54,7 +63,7 @@ internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<
         {
             try
             {
-                await foreach (var device in BroadcastWifiAsync(cancellationToken))
+                await foreach (var device in WifiAsync(cancellationToken))
                 {
                     mounts.Add(device);
                 }
@@ -71,21 +80,24 @@ internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<
         });
     }
 
-    private static async IAsyncEnumerable<SkywatcherDevice> DiscoverWiFiAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends the firmware query to <paramref name="target"/> (the broadcast address, or a test's loopback socket) and
+    /// yields every mount that answers inside <see cref="WifiAnswerWindow"/> on the injected clock.
+    /// </summary>
+    internal async IAsyncEnumerable<SkywatcherDevice> DiscoverWiFiAsync(System.Net.IPEndPoint target, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         System.Net.Sockets.UdpClient? udpClient = null;
         try
         {
+            // The window opens before the first await, so it is on the clock from the moment the probe starts.
+            using var window = timeProvider.CancelAfter(WifiAnswerWindow);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, window.Token);
+
             udpClient = new System.Net.Sockets.UdpClient();
             udpClient.EnableBroadcast = true;
-            udpClient.Client.ReceiveTimeout = 2000;
 
             var command = SkywatcherProtocol.BuildCommand('e', '1');
-            var broadcastEndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Broadcast, SkywatcherProtocol.WIFI_PORT);
-            await udpClient.SendAsync(command, broadcastEndPoint, cancellationToken);
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(2));
+            await udpClient.SendAsync(command, target, cancellationToken);
 
             while (!cts.Token.IsCancellationRequested)
             {

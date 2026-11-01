@@ -42,8 +42,11 @@ internal partial class OnStepDeviceSource(
     // mDNS wire constants: same multicast group as Canon, different service name.
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
     private const int MdnsPort = 5353;
-    private static readonly TimeSpan MdnsTimeout = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan TcpProbeTimeout = TimeSpan.FromSeconds(2);
+    /// <summary>How long the mDNS scan listens for answers, on the injected clock.</summary>
+    internal TimeSpan MdnsTimeout { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>How long one WiFi host is given to connect and say what it is, on the injected clock.</summary>
+    internal TimeSpan TcpProbeTimeout { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// Pre-built DNS PTR query for <c>_telescope._tcp.local</c>; the service the
@@ -90,7 +93,7 @@ internal partial class OnStepDeviceSource(
     /// The mDNS scan for <c>_telescope._tcp.local</c>, which binds the shared mDNS port on every interface and joins its
     /// multicast group. A seam for a test, which must not bind it.
     /// </summary>
-    internal Func<TimeSpan, CancellationToken, Task<IReadOnlyList<(string InstanceName, string IpAddr)>>> ScanMdnsAsync { get; init; } = ScanTelescopeMdnsAsync;
+    internal Func<TimeSpan, CancellationToken, Task<IReadOnlyList<(string InstanceName, string IpAddr)>>> ScanMdnsAsync { get; init; } = (timeout, ct) => ScanTelescopeMdnsAsync(timeout, timeProvider, ct);
 
     /// <summary>
     /// Adds the OnStep mounts on the network to <paramref name="devices"/>: found by mDNS, then asked over TCP. None in a
@@ -221,7 +224,7 @@ internal partial class OnStepDeviceSource(
     /// stays stable across DHCP-induced IP changes and across USB ↔ WiFi switches
     /// (the UUID lives in the mount's own memory, independent of transport).
     /// </summary>
-    private async Task QueryWifiHostAsync(Dictionary<DeviceType, List<OnStepDevice>> devices, string instanceName, string ipAddr, int tcpPort, CancellationToken cancellationToken)
+    internal async Task QueryWifiHostAsync(Dictionary<DeviceType, List<OnStepDevice>> devices, string instanceName, string ipAddr, int tcpPort, CancellationToken cancellationToken)
     {
         using var probeScope = logger.BeginScope(new Dictionary<string, object>
         {
@@ -230,8 +233,8 @@ internal partial class OnStepDeviceSource(
             ["Source"] = "OnStep",
         });
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TcpProbeTimeout);
+        using var deadline = timeProvider.CancelAfter(TcpProbeTimeout);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
 
         ISerialConnection conn;
         try
@@ -293,7 +296,7 @@ internal partial class OnStepDeviceSource(
     /// responses. Returns (instance-name, ipAddr) pairs. Adapted from the Canon
     /// mDNS scanner: same wire format, different service name.
     /// </summary>
-    private static async Task<IReadOnlyList<(string InstanceName, string IpAddr)>> ScanTelescopeMdnsAsync(TimeSpan timeout, CancellationToken ct)
+    private static async Task<IReadOnlyList<(string InstanceName, string IpAddr)>> ScanTelescopeMdnsAsync(TimeSpan timeout, ITimeProvider timeProvider, CancellationToken ct)
     {
         var results = new List<(string, string)>();
 
@@ -313,8 +316,8 @@ internal partial class OnStepDeviceSource(
 
         await udp.SendAsync(TelescopeMdnsQuery, new IPEndPoint(MdnsMulticast, MdnsPort), ct);
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
+        using var window = timeProvider.CancelAfter(timeout);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, window.Token);
 
         var seen = new HashSet<string>();
         try
