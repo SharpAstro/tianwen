@@ -62,7 +62,7 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // bind, no network round-trip, so the ctor is still cheap. No CreateAsync needed.
         if (IsWifi)
         {
-            return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, logger);
+            return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, timeProvider, logger);
         }
 
         // Parse baud from URI query, defaulting to the provided baud parameter
