@@ -143,7 +143,7 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
     {
         var sent = 0;
         var serial = new SkywatcherDevice(DeviceType.Mount, "Skywatcher_EQ6R", "EQ6-R", "COM9");
-        var source = new SkywatcherDeviceSource(new OneSerialMatch("Skywatcher", serial.DeviceUri), NullLogger<SkywatcherDeviceSource>.Instance, Mode(localOnly))
+        var source = new SkywatcherDeviceSource(new OneSerialMatch("Skywatcher", serial.DeviceUri), NullLogger<SkywatcherDeviceSource>.Instance, Mode(localOnly), new FakeTimeProviderWrapper())
         {
             BroadcastWifiAsync = ct =>
             {
