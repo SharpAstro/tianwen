@@ -133,6 +133,7 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         await using var mount = new FakeOnStepMountDriver(MakeDevice(48.2, 16.3), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
         await mount.ConnectAsync(ct);
         mount.CanFindHome.ShouldBeTrue();
+        (await mount.AtHomeAsync(ct)).ShouldBeFalse("not sent home yet");
 
         await mount.FindHomeAsync(ct);
 
@@ -141,6 +142,7 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         home.ShouldBeGreaterThanOrEqualTo(0);
         commands.Skip(home + 1).Count(c => c is ":GU#").ShouldBeGreaterThanOrEqualTo(2, "it was still on its way at the first poll");
         (await mount.AtParkAsync(ct)).ShouldBeFalse();
+        (await mount.AtHomeAsync(ct)).ShouldBeTrue("the H flag of :GU#, which the base's plain false never read");
     }
 
     [Fact(Timeout = 60_000)]

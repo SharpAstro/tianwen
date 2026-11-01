@@ -255,6 +255,14 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
         return status.IsParked;
     }
 
+    /// <summary><c>:GU#</c>'s <c>H</c>, the flag <see cref="FindHomeAsync"/> waits for: the base's plain false read a mount
+    /// standing at home as away from it.</summary>
+    public override async ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
+    {
+        var status = await GetStatusAsync(cancellationToken);
+        return status.IsAtHome;
+    }
+
     private static readonly ReadOnlyMemory<byte> GmCommand = "Gm"u8.ToArray();
     /// <summary><c>:Gm#</c> is the controller's own answer, not a derivation.</summary>
     public override PointingStateSource PointingStateSource => PointingStateSource.Measured;
