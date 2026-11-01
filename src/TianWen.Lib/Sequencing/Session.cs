@@ -555,7 +555,16 @@ internal partial record Session(
                 // night, which switches the horizon test off (#798).
                 Altitude: SiteContext.AltitudeDegrees(Site?.Latitude ?? double.NaN, hourAngle, dec),
                 PrimaryAxisAngleDeg: primaryAxisAngleDeg,
-                TrackingRate: trackingRate);
+                TrackingRate: trackingRate,
+                PositionLost: mount.PositionLoss?.Describe(mount.Name));
+
+            // A mount that lost its position reads a home it is not at: no pier side to latch, no stop to read as a limit
+            // (the power loss stopped it) and no limit on encoders that lie. The run asks what to do instead (#1954).
+            if (mount.PositionLoss is not null)
+            {
+                await ResolveMountPositionLossAsync(mount, cancellationToken);
+                return;
+            }
 
             // Accept the reported pier side ONLY on the edge where a slew has just finished. A goto is
             // the only thing in ordinary operation that carries a tube across the pier, so that is the
@@ -822,6 +831,15 @@ internal partial record Session(
 
             // Initial device state poll after all devices are connected
             await PollDeviceStatesAsync(cancellationToken);
+
+            // A mount that came up having lost its position was asked about by that poll: a decline ends the run before
+            // anything moves, and a restore needs no repoint yet, since nothing has been pointed (#1954).
+            if (Volatile.Read(ref _positionLostEndsRun))
+            {
+                SetPhase(SessionPhase.Failed);
+                return;
+            }
+            Interlocked.Exchange(ref _repointAfterPositionRestore, 0);
 
             // Optional dusk (evening) twilight sky-flat block. Runs at session start -- while the sky is still
             // in twilight, before the wait-for-dark -- and cools to the imaging setpoint first so the flats

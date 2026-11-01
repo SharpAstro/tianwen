@@ -89,6 +89,12 @@ public static class MountGoto
             return (SlewPostCondition.SlewNotPossible, parked);
         }
 
+        // A mount that lost its position reads home where it is not: a goto from there goes anywhere (#1954).
+        if (mount.PositionLoss is { } lost)
+        {
+            return (SlewPostCondition.SlewNotPossible, lost.Refuse(mount.Name, $"A goto to {name}"));
+        }
+
         // Mounts with neither Park nor Unpark: surface as an informational suffix.
         var noParkSupportNote = (!mount.CanPark && !mount.CanUnpark)
             ? " (mount has no park/unpark support)"

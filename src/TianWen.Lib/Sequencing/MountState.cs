@@ -44,6 +44,12 @@ public readonly record struct MountState(
     /// </summary>
     TrackingSpeed? TrackingRate = null,
     /// <summary>
+    /// What happened to a mount that lost its position (<see cref="IMountDriver.PositionLoss"/>, worded by
+    /// <see cref="MountPositionLoss.Describe"/>), or null while its position is known: it then refuses every move until the
+    /// operator restores it (#1954).
+    /// </summary>
+    string? PositionLost = null,
+    /// <summary>
     /// Whether the mount says it is at home (<see cref="IMountDriver.AtHomeAsync"/>); false when it was not read. A site in
     /// the other hemisphere goes to a mount only while it is (<see cref="MountSiteExtensions"/>).
     /// </summary>

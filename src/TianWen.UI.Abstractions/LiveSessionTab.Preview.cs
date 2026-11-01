@@ -518,8 +518,9 @@ namespace TianWen.UI.Abstractions
         private Layout.Node BuildPreviewMountSection(LiveSessionState state)
         {
             var ms = state.MountState;
-            var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
-            var statusText = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
+            var positionLost = ms.PositionLost is not null;
+            var dotColor = positionLost ? GuiTheme.Palette.Error : ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
+            var statusText = positionLost ? "Position lost" : ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
             var pierLabel = ms.PierSide.PierLetter is { Length: > 0 } letter ? letter : "?";
             // An unknown pointing (no mount connected, or none read yet) says so rather than printing NaN.
             statusText += double.IsNaN(ms.HourAngle) ? $"  Pier: {pierLabel}  HA: --" : $"  Pier: {pierLabel}  HA: {ms.HourAngle:F2}h";
@@ -533,7 +534,9 @@ namespace TianWen.UI.Abstractions
                         .RowH(BaseRowHeight),
                     Layout.Builder.Text(double.IsNaN(ms.RightAscension) ? "RA --" : $"RA {ms.RightAscension:F4}h", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
                     Layout.Builder.Text(double.IsNaN(ms.Declination) ? "Dec --" : $"Dec {ms.Declination:F3}\u00b0", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
-                    Layout.Builder.Text(statusText, BaseFontSize * 0.85f, ms.IsSlewing ? StatusSlewing : DimText).RowH(BaseRowHeight),
+                    ms.PositionLost is { } lost
+                        ? Layout.Builder.Text(statusText, BaseFontSize * 0.85f, GuiTheme.Palette.Error).RowH(BaseRowHeight).WithTooltip(lost)
+                        : Layout.Builder.Text(statusText, BaseFontSize * 0.85f, ms.IsSlewing ? StatusSlewing : DimText).RowH(BaseRowHeight),
                     // The mount moved while a button is held, as on the planetary panel and through the same rows, set off from
                     // the status above it.
                     Layout.Builder.Spacer().RowH(JogGap),
@@ -542,6 +545,12 @@ namespace TianWen.UI.Abstractions
                     MountJogControls.DropdownRow("Track", MountJogControls.TrackingRowLabel(ms), TrackingMenuAction, () => OpenTrackingMenu(ms), jogLook),
                     .. MountJogControls.Rows(_previewMoveSpeedIdx, chosen => _previewMoveSpeedIdx = chosen,
                         s => PostSignal(s), s => PostSignal(s), idPrefix: "Preview", jogLook),
+                    // A mount that lost its power refuses every move until the operator says where it stands (#1954).
+                    .. (ReadOnlySpan<Layout.Node>)(positionLost
+                        ? [MountJogControls.ButtonRow("PreviewRestore", jogLook,
+                            ("Sync last known", "LastKnown", () => PostSignal(new MountPositionSignal(MountPositionCommand.RestoreLastKnown))),
+                            ("At home", "AtHome", () => PostSignal(new MountPositionSignal(MountPositionCommand.RestoreAtHome))))]
+                        : []),
                     // Where the mount rests: the node refuses what this mount cannot do, in words.
                     MountJogControls.ButtonRow("PreviewMount", jogLook,
                         ("Home", "Home", () => PostSignal(new MountPositionSignal(MountPositionCommand.Home))),

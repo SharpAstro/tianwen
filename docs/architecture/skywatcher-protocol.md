@@ -110,10 +110,13 @@ logged and the call returns) or `SendCommandVerifiedAsync` (below).
    or has its next `:G` refused `!2`. A tracking or constant-speed axis keeps running (#1955; GSServer's
    `AxesStopValidate` stops both). Each other unanswered read leaves its
    field at the default (CPR 0, timer 0, ratio 16, worm 0, position 0) and **the connect still succeeds**.
-3. Per axis, `:f`, and `:F1` / `:F2` only where the init bit is clear (GSServer's `InitializeAxes`); an axis the
+3. `:f1`, `:f2` again, read BEFORE any `:F` sets the init bits, against the last known position written down for this
+   mount: a board that reads home (an axis not initialised, or both encoders at exactly 0) where the mount last knew itself
+   away from home lost its power, and the connect succeeds POSITION LOST (#1954, [Position lost](#position-lost)).
+4. Per axis, `:f`, and `:F1` / `:F2` only where the init bit is clear (GSServer's `InitializeAxes`); an axis the
    handset, the app or an earlier connect initialised is left alone. Then `:P1` and `:P2` with the default rate,
    0.5x sidereal (index 2). The firmware, model and `:q` capabilities are logged once (#1953).
-4. Nothing is written to the encoders. Home is encoder zero, read as hour angle 6 h at the pole of the site's
+5. Nothing is written to the encoders (a restore after a power loss is the operator's, never the connect's). Home is encoder zero, read as hour angle 6 h at the pole of the site's
    hemisphere (counterweight down), whichever site arrives and whenever. A sync to (LST, +90 or -90) used to run
    here and on every site set; it declared hour angle 0 where the axis stands at 6 h, wrote the RA encoder a
    quarter turn off, and sent every later goto 90 degrees too far (an AZ-GTi in Melbourne, 2026-10-31: 164
@@ -121,6 +124,36 @@ logged and the call returns) or `SendCommandVerifiedAsync` (below).
 
 No time is ever sent: `TimeIsSetByUs` is true, `TryGetUTCDateFromMountAsync` answers the `TimeProvider`'s
 clock, `SetUTCDateAsync` is a no-op, and LST comes from that clock and the site longitude (0 while unset).
+
+## Position lost
+
+A Synta board keeps its encoders and init bits in RAM: switched off and on, it reads home (step 0 on both axes) with
+neither axis initialised, wherever the mount stands, and an unpowered mount does not move by itself. GSServer calls it
+`MountLostPower` and drops the link (hibernate resume, upstream #140); this driver connects and ALERTS (#1954):
+
+- **Written down:** the driver writes the encoders' steps, their CPR, whether the mount was moving and the time to
+  `Mounts/<deviceId>.last-position.json` in the app data folder (`MountPositionMemory`): at the end of a connect, a goto,
+  Home, park and sync, as the link goes, and from the RA and Dec reads, paced (every 5 s while moving, every minute while
+  still or tracking, at once on a change between the two). Never while the position is lost. Before each write two `:f`
+  ask whether the board is still initialised: one that lost power while connected answers no, and is lost from the
+  position last written down, which a write would otherwise overwrite with the home it reads. A jump to exactly 0, 0
+  asks at once, past the pacing.
+- **Detected:** at connect (step 3 of the sequence), at every write (above), and before every move: a goto, Home, park,
+  a flip, a held move and tracking each send `:f1` `:f2` first. Not lost: nothing written down, a position written down at
+  home, or one in another CPR (another mount).
+- **While lost** (`IMountDriver.PositionLoss`, worded once by `MountPositionLoss.Describe`): a goto, Home, park, a flip,
+  a held move and tracking throw `InvalidOperationException` naming the restore; stop and tracking off stay allowed.
+  `GetAxisAngleAsync` answers null, so the safety limits fall back to the hour angle; `GetSideOfPierAsync` answers the
+  half the mount last knew; `AtHomeAsync` answers false. `MountGoto`, the node's Home, park and move-axis routes refuse
+  before any job (409), and the device state carries the words (`MountDeviceStateDto.PositionLost`).
+- **Restored**, the operator's choice: `RestorePositionAsync(LastKnown)` stops both axes, initialises each with `:F`
+  where needed (a board that lost power while connected was never initialised again), writes the last known steps
+  with `:E1` / `:E2` and reads them back; `AtHome` keeps the home the encoders read; a sync to a plate solve
+  (`SyncRaDecAsync`) restores it too, in the Dec half the mount LAST KNEW, never the counterweight-down guess from the
+  home it reads. Node route: `POST /api/v1/devices/mount/restore-position` (`MountRestorePositionRequestDto`).
+- **In a run** (`Session.PositionLoss.cs`): the poll finds it and asks once ("Sync from last known position" / "End the
+  run", physical presence); a yes restores and points the current target again, nobody to ask is the unattended
+  answer, and a decline ends the run with the loss as `FailureReason`. A lost mount is never read as a limit stop.
 
 ## How a slew is done
 
@@ -287,14 +320,19 @@ URI with `port=SkyWatcher` (`SessionTestHelper` `mountPort: "SkyWatcher"`). The 
   commands answer `response`, or nothing when it is `null`, and do not reach the state machine. With
   `null` it is the per-command lost-reply knob #810 asks for; note an empty buffer reads `null` at once,
   where hardware would wait on the transport;
-- records the last 4096 commands (`CommandLogSnapshot`) for wire assertions.
+- records the last 4096 commands (`CommandLogSnapshot`) for wire assertions;
+- persists per `FakeDevice` instance and clock, so a reconnect finds the same board (a goto still running, #1955), and
+  `PowerCycle()` cuts its power as a plug pulled: motors stop, encoders read home, init bits clear (#1954). Only a board
+  connected to before in this process recalls a last known position (`OpenedBefore`): a fresh one is a mount just
+  switched on at home, in a test or a demo, whatever an earlier process wrote down.
 
 `FakeSkywatcherMountDriver` leaves the wire untouched. Its believed pointing is the base driver's; the TRUE
 pointing the fake camera renders (`GetTruePointingNativeAsync`) adds polar misalignment and the disturbance
 terms of [`fake-disturbance-model.md`](fake-disturbance-model.md), and it overrides `SyncRaDecAsync` and
 `BeginSlewRaDecAsync` only to re-anchor that model. Because the fake executes whatever step targets it is
 given and reports the driver's own model back, it cannot catch an error in the axis convention itself.
-Tests: `SkywatcherProtocolTests`, `SkywatcherAxisStatusTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
+Tests: `SkywatcherProtocolTests`, `SkywatcherAxisStatusTests`, `SkywatcherPositionLossTests` (and
+`SessionPositionLossTests`, `NodeMountPositionLossTests`), `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
 `SkywatcherGuideRateTests`, `SkywatcherSerialProbeTests`, `FakeSkywatcherMountDriverTests`.
 
 ## Known issues

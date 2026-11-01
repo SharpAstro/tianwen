@@ -321,6 +321,16 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// simulation would be zeroed before it can run. The base call still moves
     /// the encoders either way.
     /// </remarks>
+    /// <summary>
+    /// A fresh fake board is a mount just switched on at home, in a test or a demo, whatever an earlier process wrote down for
+    /// this device id; only a board connected to before in this process (a reconnect, a simulated power cut) has a last known
+    /// position to lose (#1954).
+    /// </summary>
+    protected override Task<MountLastKnownPosition?> RecallLastKnownPositionAsync(CancellationToken cancellationToken)
+        => SerialConnection is FakeSkywatcherSerialDevice { OpenedBefore: true }
+            ? base.RecallLastKnownPositionAsync(cancellationToken)
+            : Task.FromResult<MountLastKnownPosition?>(null);
+
     public override async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         await base.SyncRaDecAsync(ra, dec, cancellationToken);

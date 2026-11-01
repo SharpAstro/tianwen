@@ -198,7 +198,8 @@ namespace TianWen.UI.Abstractions
             var ms = liveSessionState.MountState;
 
             var (statusLabel, statusColor) =
-                  ms.IsSlewing  ? ("Slewing",  new RGBAColor32(0xff, 0xc8, 0x66, 0xff))  // amber
+                  ms.PositionLost is not null ? ("Position lost", GuiTheme.Palette.Error)  // a power loss, #1954
+                : ms.IsSlewing  ? ("Slewing",  new RGBAColor32(0xff, 0xc8, 0x66, 0xff))  // amber
                 : ms.IsTracking ? ("Tracking", new RGBAColor32(0x66, 0xdd, 0x66, 0xff))  // green
                 :                 ("Idle",     DimText);
 
