@@ -81,6 +81,36 @@ public class SessionSkyFlatsTests(ITestOutputHelper output)
         }
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task TakeSkyFlatsAsync_DuskWithTheWindowOpen_UnparksAParkedMountAtItsSlew()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: SkyFlatConfig with { TakeSkyFlatsAtDusk = true }, withFilterWheel: true, cancellationToken: ct);
+        await ctx.Mount.ParkAsync(ct);
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeTrue();
+
+        // Nothing before the block unparks (Session.RunAsync no longer does it ahead of cooling and the Flats phase);
+        // the block itself does, as the first step of its zenith slew.
+        (await ctx.Session.TakeSkyFlatsAsync(TwilightPeriod.Dusk, ct)).ShouldBeTrue();
+
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeFalse("the dusk block unparks at its slew, as the run's first move of the mount");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TakeSkyFlatsAsync_DuskWhenTheRunMayNotUnpark_ReturnsFalseNamingWhyAndLeavesTheMountParked()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: SkyFlatConfig with { TakeSkyFlatsAtDusk = true, UnparkMount = false }, withFilterWheel: true, cancellationToken: ct);
+        await ctx.Mount.ParkAsync(ct);
+
+        (await ctx.Session.TakeSkyFlatsAsync(TwilightPeriod.Dusk, ct)).ShouldBeFalse("a refused unpark fails the block, which Session.RunAsync turns into SessionPhase.Failed");
+
+        ctx.Session.FailureReason.ShouldNotBeNull().ShouldContain("Unpark Mount is off");
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeTrue();
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task TakeSkyFlatsAsync_WindowAlreadyPast_SkipsWithoutWritingFlats()
     {
