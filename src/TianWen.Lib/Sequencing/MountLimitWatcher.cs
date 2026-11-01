@@ -204,7 +204,7 @@ public sealed class MountLimitWatcher(
             : double.NaN;
 
         var alreadyActed = _acted.ContainsKey(mountUri);
-        var verdict = MountLimits.Evaluate(hourAngle, pointingState, primaryAxisAngleDeg, altitude, isTracking, alreadyActed, config);
+        var verdict = MountLimits.Evaluate(hourAngle, pointingState, primaryAxisAngleDeg, altitude, isTracking, alreadyActed, config, declination);
         _verdicts[mountUri.DeviceKey] = verdict;
 
         if (!verdict.IsBreached)

@@ -383,6 +383,14 @@ public static class MountLimits
     /// the caller clears its latch when <see cref="MountLimitVerdict.IsBreached"/> goes false.
     /// </param>
     /// <param name="config">The rig's limits.</param>
+    /// <param name="declinationDeg">
+    /// Where the tube points in declination, NaN when not known. Within <see cref="MountGoto.PoleToleranceDegrees"/>
+    /// of a pole the hour-angle estimate of the meridian test says nothing: the tube lies along the polar axis, so
+    /// turning the RA axis cannot bring it to the pier, and every hour angle names the same pointing. A mount at home
+    /// reads whatever hour angle its firmware gives the pole (the bench TeeSeek 11's OnStep reads 12 h, which the
+    /// test took for 679 min past the meridian and stopped its tracking). The axis-angle tier is a mechanical reading
+    /// and keeps its say there.
+    /// </param>
     /// <returns>
     /// The most severe verdict across both limits, ranked on what it would DO: any action outranks
     /// any warning, and among actions the stronger response wins -- <see cref="MountLimitResponse.Park"/>
@@ -399,7 +407,8 @@ public static class MountLimits
         double altitudeDeg,
         bool isTracking,
         bool alreadyActed,
-        MountLimitConfiguration config)
+        MountLimitConfiguration config,
+        double declinationDeg = double.NaN)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -408,7 +417,7 @@ public static class MountLimits
             return MountLimitVerdict.Clear;
         }
 
-        var meridian = EvaluateMeridian(hourAngleHours, pointingState, primaryAxisAngleDeg, config);
+        var meridian = EvaluateMeridian(hourAngleHours, pointingState, primaryAxisAngleDeg, declinationDeg, config);
         var horizon = EvaluateHorizon(hourAngleHours, altitudeDeg, isTracking, config);
 
         // Most severe wins; the meridian breaks an exact tie. Comparing on Response alone is not
@@ -434,7 +443,7 @@ public static class MountLimits
     };
 
     private static MountLimitVerdict EvaluateMeridian(
-        double hourAngleHours, PointingState pointingState, double? primaryAxisAngleDeg, MountLimitConfiguration config)
+        double hourAngleHours, PointingState pointingState, double? primaryAxisAngleDeg, double declinationDeg, MountLimitConfiguration config)
     {
         double offsetMinutes;
         MountLimitBasis basis;
@@ -448,7 +457,8 @@ public static class MountLimits
         }
         else
         {
-            if (double.IsNaN(hourAngleHours))
+            // At a pole the hour angle is no turn of the RA axis toward the pier (see Evaluate's declinationDeg).
+            if (double.IsNaN(hourAngleHours) || Math.Abs(declinationDeg) >= 90.0 - MountGoto.PoleToleranceDegrees)
             {
                 return MountLimitVerdict.Clear;
             }
