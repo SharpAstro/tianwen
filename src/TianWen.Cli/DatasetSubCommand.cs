@@ -1857,6 +1857,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "channel of every star, the channel drawn at random and the factor log-uniform up to 1, from a stream of " +
                           "its own (R2v: one channel falling off faster than any training master's does). Not with --channel-relations.",
         };
+        var chromaticWidthOpt = new Option<double?>("--chromatic-width")
+        {
+            Description = "--mode stars: every injected star's channels but red drawn at this many times red's width, in [0.25, 4] " +
+                          "(the SMC's causal check: its L-eNhance stars are 1.23 times wider in green and blue than in red). Draws no " +
+                          "random number, so the stars keep their places, brightness and colour; each star's widths are in " +
+                          "injections.jsonl (FwhmPx). Not with --channel-relations or --channel-wing-cut. Off by default.",
+        };
         var channelNoiseCorrelationOpt = new Option<bool>("--channel-noise-correlation")
         {
             Description = "--mode stars: draw the noise (the stars' own, and the synthetic background's) with the correlation between " +
@@ -1891,7 +1898,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, channelWingCutOpt, chromaticWidthOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2071,6 +2078,25 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     return 1;
                 }
             }
+            var chromaticWidth = parseResult.GetValue(chromaticWidthOpt);
+            if (chromaticWidth is { } ratio)
+            {
+                if (mode != DatasetDegradationExporter.DegradationMode.Stars)
+                {
+                    consoleHost.WriteError("--chromatic-width sets injected stars' channel widths; it needs --mode stars");
+                    return 1;
+                }
+                if (!ChromaticWidth.IsRatio(ratio))
+                {
+                    consoleHost.WriteError($"--chromatic-width {ratio}: the ratio is in [0.25, 4]");
+                    return 1;
+                }
+                if (relationSessions is not null || channelWingCut is not null)
+                {
+                    consoleHost.WriteError("--chromatic-width and --channel-relations or --channel-wing-cut are two arms; give one");
+                    return 1;
+                }
+            }
             var channelNoiseCorrelation = parseResult.GetValue(channelNoiseCorrelationOpt);
             if (channelNoiseCorrelation && mode != DatasetDegradationExporter.DegradationMode.Stars)
             {
@@ -2185,6 +2211,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 StretchFromMaster: stretchFrom == "master",
                 ClampWingRelations: clampWingRelations,
                 OuterHaloPath: parseResult.GetValue(outerHaloOpt),
+                ChromaticWidthRatio: chromaticWidth,
                 Say: Say);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);

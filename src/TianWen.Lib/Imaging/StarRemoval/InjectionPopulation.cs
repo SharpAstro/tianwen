@@ -410,14 +410,20 @@ public sealed class InjectionPopulation
     /// ones it makes without them. A population with a wing relation clamp (<see cref="WingRelationClamp"/>) then holds each
     /// star's channels to the real envelope, which draws no random number, and counts the stars it moved in
     /// <see cref="InjectionPlan.WingClamped"/>; it is not drawn with a wing cut or a channel variation, which depart from the
-    /// envelope on purpose.
+    /// envelope on purpose. A <paramref name="chromaticWidth"/> sets every star's other channels' widths from its reference
+    /// channel's, drawing nothing, so the plan's stars are the ones it makes without it.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
-        ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null, Random? faintRng = null)
+        ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null, Random? faintRng = null,
+        ChromaticWidth? chromaticWidth = null)
     {
         ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
         string? relationFrom = null;
+        if (chromaticWidth is not null && (variation is not null || wingCut is not null))
+        {
+            throw new InvalidOperationException("a chromatic width sets every star's channel widths; a channel variation or a wing cut is another arm, give one");
+        }
         if (_wingClamp is not null && (wingCut is not null || variation is not null))
         {
             throw new InvalidOperationException("a wing relation clamp holds the stars to the real envelope; a wing cut or a channel variation draws outside it");
@@ -468,6 +474,10 @@ public sealed class InjectionPopulation
         ImmutableArray<StarProfile> Shaped(double x, double y, float significance)
         {
             var profiles = Varied(ProfilesAt(x, y, family, _shape is { } shape ? StarShape.LogGains(shape, significance) : default), factors);
+            if (chromaticWidth is not null)
+            {
+                profiles = chromaticWidth.Apply(profiles);
+            }
             if (_wingClamp is null)
             {
                 return profiles;

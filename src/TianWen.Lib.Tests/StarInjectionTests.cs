@@ -786,6 +786,54 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The SMC's causal check: a chromatic width sets every star's green and blue widths from its red, and nothing else. Its
+    /// stars are the plain plan's star for star (place, brightness, colour, saturation, wing), so an export with it differs
+    /// from one without only where the widths do.
+    /// </summary>
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1.25)]
+    [InlineData(0.7)]
+    public void AChromaticWidthSetsGreenAndBlueFromRedAndMovesNoStar(double ratio)
+    {
+        var population = BuildColourPopulation(ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f)));
+        var plain = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21));
+        var set = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21),
+            chromaticWidth: new ChromaticWidth(ratio));
+
+        plain.Stars.Length.ShouldBeGreaterThan(0, "premise: the cell has stars");
+        set.Stars.Length.ShouldBe(plain.Stars.Length);
+        plain.Stars.ShouldContain(static s => Math.Abs(s.Profiles[1].FwhmPx / s.Profiles[0].FwhmPx - 1.0) > 0.05,
+            "premise: the master's own channels differ in width");
+        for (var i = 0; i < plain.Stars.Length; i++)
+        {
+            var (s, p) = (set.Stars[i], plain.Stars[i]);
+            (s.X, s.Y, s.Saturated).ShouldBe((p.X, p.Y, p.Saturated));
+            s.Amplitudes.ShouldBe(p.Amplitudes);
+            s.Profiles[0].ShouldBe(p.Profiles[0], "red is the reference and keeps its own profile");
+            for (var c = 1; c < 3; c++)
+            {
+                s.Profiles[c].FwhmPx.ShouldBe(p.Profiles[0].FwhmPx * ratio, 1e-12);
+                (s.Profiles[c].Beta, s.Profiles[c].HaloLogGain, s.Profiles[c].AxisRatio).ShouldBe(
+                    (p.Profiles[c].Beta, p.Profiles[c].HaloLogGain, p.Profiles[c].AxisRatio), "only the width moves");
+            }
+        }
+    }
+
+    [Fact]
+    public void AChromaticWidthLeavesAMonoStarAndRefusesAnotherArm()
+    {
+        var mono = ImmutableArray.Create(StarProfile.Round(StarProfileFamily.Moffat, 2.4, 3.0));
+        new ChromaticWidth(1.3).Apply(mono).ShouldBe(mono, "a mono star has no other channel to set");
+
+        var population = BuildColourPopulation(ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f)));
+        Should.Throw<InvalidOperationException>(() => population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0,
+            new Random(21), null, new Random(1), new ChannelWingCut(0.5), chromaticWidth: new ChromaticWidth(1.0)));
+        Should.Throw<ArgumentOutOfRangeException>(() => new ChromaticWidth(0.2));
+        Should.Throw<ArgumentOutOfRangeException>(() => new ChromaticWidth(double.NaN));
+    }
+
+    /// <summary>
     /// Synthetics S4's estimator: on two noise series of correlation 0.12 with one sample in fifty carrying light both share
     /// (a faint star, 3 to 7 sigma), a Pearson coefficient reads 0.41, the light taken for correlated noise, and the robust
     /// form 0.14. It is not immune (one sample in twenty moves it to 0.17), so the plate it reads has its stars subtracted.
