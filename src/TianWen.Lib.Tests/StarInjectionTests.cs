@@ -869,6 +869,36 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// R3i's draw: about its share of the cells hold one beta inside the range, the rest none, and the stream it draws from is
+    /// used alike either way; a draw that is not one is refused.
+    /// </summary>
+    [Fact]
+    public void AStarBetaDrawHoldsItsShareOfCellsInsideItsRange()
+    {
+        var draw = new StarBetaDraw(0.3, 1.3, 2.5);
+        var (held, cells) = (0, 4000);
+        for (var i = 0; i < cells; i++)
+        {
+            var rng = new Random(i);
+            if (draw.DrawCell(rng) is { } beta)
+            {
+                held++;
+                beta.Beta.ShouldBeInRange(1.3, 2.5);
+            }
+            var next = new Random(i);
+            next.NextDouble();
+            next.NextDouble();
+            rng.NextDouble().ShouldBe(next.NextDouble(), "two numbers taken whatever the outcome");
+        }
+        ((double)held / cells).ShouldBe(0.3, 0.03);
+
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.0, 1.3, 2.5));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.3, 2.5, 1.3));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.3, 1.0, 2.5));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(1.1, 1.3, 2.5));
+    }
+
+    /// <summary>
     /// Synthetics S4's estimator: on two noise series of correlation 0.12 with one sample in fifty carrying light both share
     /// (a faint star, 3 to 7 sigma), a Pearson coefficient reads 0.41, the light taken for correlated noise, and the robust
     /// form 0.14. It is not immune (one sample in twenty moves it to 0.17), so the plate it reads has its stars subtracted.
