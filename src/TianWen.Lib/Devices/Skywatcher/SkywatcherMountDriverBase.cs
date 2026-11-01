@@ -1472,6 +1472,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 _capabilities = SkywatcherProtocol.ParseCapabilities(capData);
             }
 
+            Logger.LogInformation("Skywatcher {Model} firmware {Version}, advanced command set {Advanced}, capabilities {Capabilities} ({Raw})",
+                _firmwareInfo.MountModel, _firmwareInfo.VersionString, _supportsAdvancedCommands, _capabilities, capResponse ?? "<none>");
+
             // Query counts per revolution
             var cprRaResponse = await SendAndReceiveAsync('a', '1', null, cancellationToken);
             if (SkywatcherProtocol.TryParseResponse(cprRaResponse, out var cprRaData) && cprRaData.Length >= 6)
@@ -1530,8 +1533,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 _posDec = SkywatcherProtocol.DecodePosition(posDecData.AsSpan(0, 6));
             }
 
-            // Initialize both axes
-            await SendCommandAsync('F', '3', null, cancellationToken);
+            // Initialise each axis whose init bit is clear, one axis at a time, as GSServer's InitializeAxes does: a real
+            // AZ-GTi (firmware 3.40) answers :F3 with !0, so addressing both axes left them uninitialised (#1953).
+            await InitialiseAxisAsync('1', cancellationToken);
+            await InitialiseAxisAsync('2', cancellationToken);
 
             // Set ST-4 autoguide port speed to match our guide rate
             await SendCommandAsync('P', '1', _guideRate.WireIndex, cancellationToken);
@@ -1711,6 +1716,30 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             waited += pollInterval;
         }
         Logger.LogWarning("Skywatcher axis {Axis} did not reach full stop within {TimeoutSeconds:F1}s", axisChar, timeout.TotalSeconds);
+    }
+
+    /// <summary>
+    /// Sends <c>:F</c> to one axis when its <c>:f</c> init bit is clear, and says what it found and did. An axis that is
+    /// already initialised (the handset, the app or an earlier connect did it) is left alone.
+    /// </summary>
+    private async ValueTask InitialiseAxisAsync(char axis, CancellationToken cancellationToken)
+    {
+        if ((await QueryAxisStatusAsync(axis, cancellationToken)).IsInitDone)
+        {
+            Logger.LogInformation("Skywatcher axis {Axis} is already initialised", axis);
+            return;
+        }
+
+        await SendCommandAsync('F', axis, null, cancellationToken);
+        var initialised = (await QueryAxisStatusAsync(axis, cancellationToken)).IsInitDone;
+        if (initialised)
+        {
+            Logger.LogInformation("Skywatcher axis {Axis} initialised", axis);
+        }
+        else
+        {
+            Logger.LogWarning("Skywatcher axis {Axis} still reports not initialised after :F{Axis}", axis, axis);
+        }
     }
 
     private async ValueTask<AxisStatus> QueryAxisStatusAsync(char axis, CancellationToken cancellationToken)
