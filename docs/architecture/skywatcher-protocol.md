@@ -30,7 +30,7 @@ and hands it back while it is open.
 | Handshake | none; DTR and RTS are not asserted |
 | Encoding | ASCII |
 | Write timeout | 2000 ms, at the port and at the task (`SerialConnection.WriteTimeout`, held by Serial.Lib) |
-| Read timeout | **none.** `SerialConnection` opens its port with no read deadline (`Timeout.InfiniteTimeSpan`), so a silent board holds the read, and the port lock, until the caller's token fires |
+| Read timeout | `ReplyTimeout` (`ISerialConnection.DefaultReplyTimeout`, 5 s): every read passes it to Serial.Lib, so a silent board fails the read instead of holding it and the port lock. The port's own `ReadTimeout` stays infinite and bounds nothing |
 
 **WiFi.** When `port` parses as an IP address (`IPAddress.TryParse`), the same method returns a
 `SkywatcherUdpConnection` to UDP port 11880 (`SkywatcherProtocol.WIFI_PORT`) and ignores `baud`. It
@@ -47,7 +47,8 @@ driver cannot tell them apart, which is fact 1 of #810.
 ## Framing
 
 - **Command:** `:` + command letter + axis + optional data + `\r` (`SkywatcherProtocol.BuildCommand`). The
-  axis is `1` (RA, primary), `2` (Dec, secondary) or `3` (both; only `:F3` uses it).
+  axis is `1` (RA, primary) or `2` (Dec, secondary). `3` (both) is never sent: a real AZ-GTi (firmware 3.40)
+  answers `:F3` with `!0`, unknown command, and GSServer never addresses both axes (#1953).
 - **Reply:** `=` + data + `\r` when the board took the command, `!` + code + `\r` when it refused. Read
   `\r`-terminated with the terminator stripped, 128 bytes at most (`MaxTerminatedResponseBytes`).
   `TryParseResponse` accepts only a leading `=` and returns the rest as data.
@@ -83,7 +84,7 @@ driver cannot tell them apart, which is fact 1 of #810.
 | `:j` | 1, 2 | none | position, 24-bit minus 0x800000 | every position read, the slew pass |
 | `:f` | 1, 2 | none | three nibbles: n0 bit 0 constant-speed (not goto), bit 1 reverse, bit 2 high speed; n1 bit 0 running; n2 bit 0 init done. Tracking = running and constant-speed | `QueryAxisStatusAsync` |
 | `:E` | 1, 2 | position + 0x800000 | `=` | `SyncRaDecAsync` |
-| `:F` | 3 | none | `=` | `InitDeviceAsync` (initialise both axes) |
+| `:F` | 1, 2 | none | `=` | `InitDeviceAsync` (initialise an axis whose `:f` init bit is clear) |
 | `:P` | 1, 2 | one digit, the `SkywatcherGuideRate` index | `=` | `InitDeviceAsync`, the guide-rate setters (ST-4 port rate) |
 | `:G` | 1, 2 | `<func><dir>` | `=`; `!2` on a running axis | every motion |
 | `:H` | 1, 2 | step count, unsigned and relative (direction from `:G`) | `=` | `SlewAxisToAsync`, the Dec micro-goto |
@@ -105,7 +106,9 @@ logged and the call returns) or `SendCommandVerifiedAsync` (below).
 1. `:e1`. **The only gate:** no parseable reply, and the connect fails.
 2. `:q1010000`, `:a1`, `:a2`, `:b1`, `:s1`, `:s2`, `:g1`, `:j1`, `:j2`. Each unanswered read leaves its
    field at the default (CPR 0, timer 0, ratio 16, worm 0, position 0) and **the connect still succeeds**.
-3. `:F3`, then `:P1` and `:P2` with the default rate, 0.5x sidereal (index 2).
+3. Per axis, `:f`, and `:F1` / `:F2` only where the init bit is clear (GSServer's `InitializeAxes`); an axis the
+   handset, the app or an earlier connect initialised is left alone. Then `:P1` and `:P2` with the default rate,
+   0.5x sidereal (index 2). The firmware, model and `:q` capabilities are logged once (#1953).
 4. Nothing is written to the encoders. Home is encoder zero, read as hour angle 6 h at the pole of the site's
    hemisphere (counterweight down), whichever site arrives and whenever. A sync to (LST, +90 or -90) used to run
    here and on every site set; it declared hour angle 0 where the axis stands at 6 h, wrote the RA encoder a
@@ -287,17 +290,13 @@ pointing the fake camera renders (`GetTruePointingNativeAsync`) adds polar misal
 terms of [`fake-disturbance-model.md`](fake-disturbance-model.md), and it overrides `SyncRaDecAsync` and
 `BeginSlewRaDecAsync` only to re-anchor that model. Because the fake executes whatever step targets it is
 given and reports the driver's own model back, it cannot catch an error in the axis convention itself.
-Tests: `SkywatcherProtocolTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
+Tests: `SkywatcherProtocolTests`, `SkywatcherAxisInitTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
 `SkywatcherGuideRateTests`, `SkywatcherSerialProbeTests`, `FakeSkywatcherMountDriverTests`.
 
 ## Known issues
 
 - **The #810 violations tabled above.** The worst are `QueryAxisStatusAsync`'s "stopped" fallback (it
   feeds `IsSlewingAsync`, `IsTrackingAsync` and every stop-wait) and `GetSideOfPierAsync`'s `Normal`.
-- **No read timeout on either transport, and the verified commands run under `CancellationToken.None`.**
-  By reading the code, a board that is alive but never answers one of them holds that read and the port
-  lock indefinitely, rather than failing into the three-attempt retry; the fake answers at once, so
-  `SkywatcherPulseRestoreTests` cannot see it.
 - **Nothing pairs a reply with its command**, and nothing drains the input before a command: a reply that
   arrives after its read gave up is taken as the next command's answer.
 - **A half-initialised connect succeeds.** Only `:e1` gates it; a lost `:a` or `:b` leaves CPR or the timer

@@ -495,8 +495,15 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'F': // Init done
                 {
-                    if (axis == '3' || axis == '1') _raInitDone = true;
-                    if (axis == '3' || axis == '2') _decInitDone = true;
+                    // One axis at a time: a real AZ-GTi (firmware 3.40) answers :F3 with !0, unknown command (#1953),
+                    // and GSServer never addresses both axes for :F.
+                    if (axis == '1') _raInitDone = true;
+                    else if (axis == '2') _decInitDone = true;
+                    else
+                    {
+                        _responseBuffer.Append("!0\r");
+                        break;
+                    }
                     _responseBuffer.Append("=\r");
                     break;
                 }
