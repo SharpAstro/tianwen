@@ -134,5 +134,27 @@ namespace TianWen.UI.Abstractions
         /// holding a before texture set; unavailable otherwise.
         /// </summary>
         BeforePixels,
+
+        /// <summary>
+        /// A planetary stack's master before and after the wavelet sharpening (#1883), both under the live display settings: the
+        /// left half the unsharpened master, uploaded into the before slots, the right the sharpened one, so moving the Enhance
+        /// dials shows what the sharpening does. Needs a planetary stack on show with sharpening on.
+        /// </summary>
+        Unsharpened,
+
+        /// <summary>
+        /// A planetary stack against one raw frame of its capture, the one at the playhead (#1883): the left half the frame demosaiced as
+        /// a master is, uploaded into the before slots and drawn so the planet's disk coincides with the stack's (the stack's own
+        /// registration of that frame), the right the stack. Both under the live display settings, so what stacking bought is the only
+        /// difference. Needs a stack over a capture's own frames, which a node's masters and a master opened as a file are not.
+        /// </summary>
+        RawVsStack,
+
+        /// <summary>
+        /// A planetary capture's Live rolling stack against its Full stack (#1883, the names of #1877): whichever is on show is the right half,
+        /// the other the left, both sharpened by the same routine with the dials on show, and the other's disk drawn where it coincides with
+        /// the one on show. Needs the other stack to exist: built this session by the Auto view, or beside the SER.
+        /// </summary>
+        LiveVsFull,
     }
 }

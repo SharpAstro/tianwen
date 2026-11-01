@@ -2003,6 +2003,7 @@ public sealed class ViewerController(
             if (state.WaveletDirty)
             {
                 sharpening.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb, state.PlanetaryLook);
+                _peerSharpenPending = true; // the other stack on show is sharpened by the same dials
                 state.WaveletDirty = false;
             }
             if (!bestOnShow)
@@ -2011,6 +2012,9 @@ public sealed class ViewerController(
                 sharpening.RequestFollow(state.FrameIndex);
             }
         }
+
+        // The other stack of the capture, while A | B compares Live with Full (#1883).
+        var peerWorking = TickPeers();
 
         // Upload whichever source is actually on screen. A raw frame advance only re-uploads when the raw
         // frame is shown; a new master always becomes the displayed image (it only publishes while stacked).
@@ -2034,7 +2038,7 @@ public sealed class ViewerController(
         // Evaluated before the short-circuiting returns below, or a tick that published would leave the built-at line a master behind.
         var builtLineChanged = UpdateLiveStackBuiltLine(bestOnShow);
         return rawPublished || masterPublished || builtLineChanged || readoutChanged || readoutPending || (!autoUp && _player.SeekPending)
-            || (!autoUp && state.ShowStacked && _liveSource is { IsBusy: true }) || batchLayer is { IsBusy: true };
+            || (!autoUp && state.ShowStacked && _liveSource is { IsBusy: true }) || batchLayer is { IsBusy: true } || peerWorking;
     }
 
     /// <summary>
@@ -2059,6 +2063,131 @@ public sealed class ViewerController(
 
         state.LiveStackBuiltLine = line;
         return true;
+    }
+
+    // --- A | B's Live | Full (#1883): the other stack of the capture, driven only while it is compared ---
+
+    // Whether the Full master of the capture on show sits beside it (PlanetaryAuto.OutputPaths), asked once per capture off the render thread.
+    private (string Capture, Task<bool> Probe)? _fullBesideProbe;
+
+    // That master read as a layer of its own while the Auto view has built none, and the read in flight.
+    private LiveStackPreviewSource? _fullFromFile;
+    private string? _fullFromFileCapture;
+    private (string Capture, Task<Image?> Read)? _fullRead;
+
+    // The layer last driven as the other stack, and whether it is owed the dials on show.
+    private LiveStackPreviewSource? _peerDriven;
+    private bool _peerSharpenPending;
+
+    private static string FullMasterBeside(string capture)
+        => PlanetaryAuto.OutputPaths(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".", Path.GetFileNameWithoutExtension(capture)).Master;
+
+    /// <summary>The Full stack the Live view compares with: the Auto view's, else its master read from beside the SER. For tests.</summary>
+    internal LiveStackPreviewSource? FullPeerLayer => _auto.Layer ?? _fullFromFile;
+
+    // Tells each view of its peer and drives the one that is compared: the same sharpening (SetSharpen with the dials on show, never a
+    // second path), published, and following the playhead (Live) or its one master (Full). True while the peer is working or published.
+    private bool TickPeers()
+    {
+        if (state.SequencePath is not { } capture || _liveSource is not { } live)
+        {
+            DropFullFromFile();
+            _peerDriven = null;
+            return false;
+        }
+
+        if (_fullFromFileCapture is not null && !string.Equals(_fullFromFileCapture, capture, StringComparison.OrdinalIgnoreCase))
+        {
+            DropFullFromFile();
+        }
+
+        if (_fullBesideProbe is not { } probe || !string.Equals(probe.Capture, capture, StringComparison.OrdinalIgnoreCase))
+        {
+            var path = FullMasterBeside(capture);
+            _fullBesideProbe = (capture, Task.Run(() => File.Exists(path)));
+        }
+
+        var full = _auto.Layer ?? _fullFromFile;
+        var besideKnown = _fullBesideProbe is { Probe: { IsCompletedSuccessfully: true, Result: true } };
+        live.AttachPeer(full, full is not null || besideKnown, "Live", "Full");
+        _auto.Layer?.AttachPeer(live, known: true, "Full", "Live");
+
+        // Which one is wanted: the Live view on show wants the Full stack, the Full view on show the Live one.
+        LiveStackPreviewSource? peer = null;
+        var wantsFull = live.PeerWanted && state.ShowStacked && !state.ShowAuto;
+        if (wantsFull)
+        {
+            peer = full ?? ReadFullFromFile(capture, besideKnown);
+        }
+        else if (_auto.Layer is { PeerWanted: true } && state.ShowAuto)
+        {
+            peer = live;
+        }
+
+        if (peer is null)
+        {
+            _peerDriven = null;
+            return false;
+        }
+
+        if (!ReferenceEquals(_peerDriven, peer))
+        {
+            _peerDriven = peer;
+            _peerSharpenPending = true;
+        }
+        if (_peerSharpenPending)
+        {
+            peer.SetSharpen(state.BuildWaveletOptions(), state.WaveletLimb, state.PlanetaryLook);
+            _peerSharpenPending = false;
+        }
+
+        var published = peer.TryPublishMaster();
+        peer.RequestFollow(ReferenceEquals(peer, live) ? state.FrameIndex : 0);
+        state.NeedsRedraw |= published; // the renderer re-uploads the other stack into its before slots from its new generation
+        return published || peer.IsBusy;
+    }
+
+    // The Full master beside the SER read as a layer, once, off the render thread; null until it is in hand.
+    private LiveStackPreviewSource? ReadFullFromFile(string capture, bool besideKnown)
+    {
+        if (_fullRead is { } read)
+        {
+            if (read.Read.IsCompleted)
+            {
+                _fullRead = null;
+                if (read.Read.IsCompletedSuccessfully && read.Read.Result is { } master
+                    && string.Equals(read.Capture, capture, StringComparison.OrdinalIgnoreCase))
+                {
+                    _fullFromFile = new LiveStackPreviewSource(new FixedMaster(master), capture, timeProvider, logger);
+                    _fullFromFileCapture = capture;
+                    state.NeedsRedraw = true;
+                    return _fullFromFile;
+                }
+                if (read.Read.IsCompletedSuccessfully)
+                {
+                    read.Read.Result?.Release();
+                }
+            }
+            return null;
+        }
+
+        if (besideKnown && _fullFromFile is null)
+        {
+            var path = FullMasterBeside(capture);
+            _fullRead = (capture, Task.Run<Image?>(() => Image.TryReadFitsFile(path, out var image) ? image : null));
+        }
+        return _fullFromFile;
+    }
+
+    private void DropFullFromFile()
+    {
+        if (_fullFromFile is { } layer)
+        {
+            _fullFromFile = null;
+            StashForDispose(layer);
+        }
+        _fullFromFileCapture = null;
+        _fullRead = null;
     }
 
     // The dials follow the view on show (#1314 part 2): the one leaving keeps what it had, the one coming (a batch view, or null for the
@@ -2355,6 +2484,10 @@ public sealed class ViewerController(
         if (_auto.Layer is { } autoLayer)
         {
             await autoLayer.DisposeAsync();
+        }
+        if (_fullFromFile is { } fromFile)
+        {
+            await fromFile.DisposeAsync();
         }
     }
 }

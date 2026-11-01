@@ -602,6 +602,151 @@ namespace TianWen.UI.Abstractions
         /// <summary>Frees any retained before pixels. Safe when none are held.</summary>
         public virtual void ReleaseBeforeImageTextures() { }
 
+        /// <summary>
+        /// Uploads one plane of an UNSHARPENED master into before slot <paramref name="slot"/>, replacing whatever the before slots
+        /// held (#1883). The first upload of a set takes the slots over; the next of the same size overwrites in place. Called only
+        /// from <see cref="PrepareFrame"/>, outside any recording, and never destroys what a frame in flight may sample. False when
+        /// the backend has no before slots or the device could not take it; the split then has no left half and draws no divider.
+        /// </summary>
+        public virtual bool TryUploadBeforeImageChannel(ReadOnlySpan<float> data, int slot, int width, int height) => false;
+
+        // The unsharpened master the before slots hold, by its source, generation and the channel view it was laid out for; null when they hold
+        // something else (an enhance's retained pixels, or nothing).
+        private (object Source, SplitCompare Kind, int Generation, ChannelView View)? _unsharpenedUploaded;
+        private IUnsharpenedPreview? _wantedStack;
+        private IRawFramePreview? _wantedRaw;
+        private IPeerStackPreview? _wantedPeer;
+
+        /// <summary>
+        /// Keeps A | B's two planetary modes honest (#1883): tells the stack which second image is wanted (its unsharpened master, or the
+        /// playhead's raw frame), drops the split when the view is no longer a stack, and puts that image into the before slots once per
+        /// image, never on a dial move (a generation moves only when the image itself is rebuilt). Restates what the split needs to know
+        /// of the source.
+        /// </summary>
+        private void SyncUnsharpenedCompare(IPreviewSource? source, ViewerState state)
+        {
+            var stack = source as IUnsharpenedPreview;
+            var frames = source as IRawFramePreview;
+            var peers = source as IPeerStackPreview;
+            LastPlanetaryChoiceRect = default; // drawn again by this frame's paint, only while the split is on over a stack
+            Split.OnStackView = stack is not null;
+            Split.SharpeningOn = stack?.SharpeningOn ?? false;
+            Split.RawAvailable = frames?.CanShowRaw ?? false;
+            Split.PeerAvailable = peers?.PeerKnown ?? false;
+            if (peers is not null)
+            {
+                (Split.OwnName, Split.PeerName) = (peers.OwnName, peers.PeerName);
+            }
+
+            if (stack is null && Split.IsOn && Split.Mode is SplitCompare.Unsharpened or SplitCompare.RawVsStack or SplitCompare.LiveVsFull)
+            {
+                Split.Toggle(hasBeforePixels: false); // on, so this turns it off: the view left the stack, as a stale before is dropped
+            }
+
+            var wantPlain = stack is not null && Split.IsOn && Split.Mode is SplitCompare.Unsharpened && stack.SharpeningOn;
+            var wantRaw = frames is not null && Split.IsOn && Split.Mode is SplitCompare.RawVsStack && frames.CanShowRaw;
+            // Wanted while compared, even before the other stack is built: the controller drives it (reads it from its file) only then.
+            var wantPeer = peers is not null && Split.IsOn && Split.Mode is SplitCompare.LiveVsFull && peers.PeerKnown;
+            // The stack last told it is wanted is told it no longer is when the view moves off it (the source is gone from here, not from
+            // the controller's layers), so a view nobody compares keeps no second image.
+            var wantedStack = wantPlain ? stack : null;
+            if (!ReferenceEquals(_wantedStack, wantedStack))
+            {
+                _wantedStack?.WantUnsharpened(false);
+                _wantedStack = wantedStack;
+            }
+            wantedStack?.WantUnsharpened(true);
+            var wantedRaw = wantRaw ? frames : null;
+            if (!ReferenceEquals(_wantedRaw, wantedRaw))
+            {
+                _wantedRaw?.WantRaw(false);
+                _wantedRaw = wantedRaw;
+            }
+            wantedRaw?.WantRaw(true);
+            var wantedPeer = wantPeer ? peers : null;
+            if (!ReferenceEquals(_wantedPeer, wantedPeer))
+            {
+                _wantedPeer?.WantPeer(false);
+                _wantedPeer = wantedPeer;
+            }
+            wantedPeer?.WantPeer(true);
+
+            if (!wantPlain && !wantRaw && !wantPeer)
+            {
+                Split.ComparisonOffset = default;
+                if (_unsharpenedUploaded is not null)
+                {
+                    _unsharpenedUploaded = null;
+                    ReleaseBeforeImageTextures();
+                }
+                return;
+            }
+
+            var kind = wantPeer ? SplitCompare.LiveVsFull : wantRaw ? SplitCompare.RawVsStack : SplitCompare.Unsharpened;
+            object? owner = wantPeer ? peers : wantRaw ? frames : stack;
+            if (owner is null)
+            {
+                return;
+            }
+
+            var plainOrRaw = wantPeer ? peers?.Peer : wantRaw ? frames?.Raw : stack?.Unsharpened;
+            var generation = wantPeer ? peers?.PeerGeneration ?? 0 : wantRaw ? frames?.RawGeneration ?? 0 : stack?.UnsharpenedGeneration ?? 0;
+            if (plainOrRaw is not { Width: > 0, Height: > 0 } plain)
+            {
+                // Being built: the divider waits for it. Pixels of the OTHER comparison must not show under this one's labels meanwhile.
+                if (_unsharpenedUploaded is { } held && (held.Kind != kind || !ReferenceEquals(held.Source, owner)))
+                {
+                    _unsharpenedUploaded = null;
+                    ReleaseBeforeImageTextures();
+                }
+                return;
+            }
+
+            var key = (owner, kind, generation, state.ChannelView); // the source too: two sources count generations alike
+            if (_unsharpenedUploaded == key && HasBeforeImageTextures)
+            {
+                return;
+            }
+
+            var bytes = (long)plain.Width * plain.Height * Math.Max(1, plain.ChannelCount) * sizeof(float);
+            if (ShouldSkipBeforePixelCache(bytes) || !UploadUnsharpenedAsBefore(plain, state))
+            {
+                _unsharpenedUploaded = null;
+                ReleaseBeforeImageTextures();
+                state.StatusMessage = wantPeer
+                    ? $"Not enough memory to hold the {peers?.PeerName} stack for A | B"
+                    : wantRaw
+                        ? "Not enough memory to hold the raw frame for A | B"
+                        : "Not enough memory to hold the unsharpened master for A | B";
+                return;
+            }
+
+            _unsharpenedUploaded = key;
+            Split.ComparisonOffset = wantPeer && peers is not null ? peers.PeerOffset : wantRaw && frames is not null ? frames.RawOffset : default;
+            state.NeedsRedraw = true;
+        }
+
+        // The planes land in the slots the live upload fills for this channel view: all three for a composite colour master, else slot 0
+        // holds the one plane the view shows.
+        private bool UploadUnsharpenedAsBefore(IPreviewSource plain, ViewerState state)
+        {
+            var (w, h) = (plain.Width, plain.Height);
+            if (state.ChannelView is ChannelView.Composite && plain.ChannelCount >= 3)
+            {
+                for (var i = 0; i < 3; i++)
+                {
+                    if (!TryUploadBeforeImageChannel(plain.GetChannelData(i), i, w, h))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            var channel = state.ChannelView.DisplayedSourceChannel(plain.ChannelCount) ?? 0;
+            return TryUploadBeforeImageChannel(plain.GetChannelData(channel), 0, w, h);
+        }
+
         // -----------------------------------------------------------------------
         // Public API
         // -----------------------------------------------------------------------
@@ -834,6 +979,7 @@ namespace TianWen.UI.Abstractions
             if (state.RetainBeforePixelsRequested)
             {
                 state.RetainBeforePixelsRequested = false;
+                _unsharpenedUploaded = null; // the slots are the enhance's now
                 Split.PixelsGeneration =
                     !ShouldSkipBeforePixelCache(EstimatedBeforePixelBytes) && TryRetainImageTexturesAsBefore()
                         ? state.SourceGeneration
@@ -1407,6 +1553,8 @@ namespace TianWen.UI.Abstractions
                 UploadDocumentTextures(source, state);
             }
 
+            SyncUnsharpenedCompare(source, state);
+
             RestoreDocumentCalibration(document, state);
 
             // The toolbar band's HEIGHT is an input to the layout pass below, and what decides it is the
@@ -1613,6 +1761,7 @@ namespace TianWen.UI.Abstractions
                 // it is not certain about, and then this draws as it always did.
                 if (TryDrawImageFromCachedLayer())
                 {
+                    RenderChoiceWithoutDivider(area);
                     return;
                 }
 
@@ -1625,6 +1774,7 @@ namespace TianWen.UI.Abstractions
                     p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
                     RenditionSlot.Live, sampleBeforeChannels: false);
                 PopClip();
+                RenderChoiceWithoutDivider(area);
                 return;
             }
 
@@ -1649,6 +1799,20 @@ namespace TianWen.UI.Abstractions
                 compareH = beforeSize.Height * p.Scale;
             }
 
+            // Raw | Stack: the frame drawn where the stack's registration of it puts the disk, so both halves show the planet in one place.
+            // Not a second draw path: the quad is the same size, only its origin moves (the left half is bounded to the live quad below).
+            if (Split.Mode is SplitCompare.RawVsStack or SplitCompare.LiveVsFull)
+            {
+                if (Split.Mode is SplitCompare.LiveVsFull && BeforeImageSize is { Width: > 0, Height: > 0 } peerSize)
+                {
+                    // The other stack is its own size (a Full master is cropped to where its frames reached), drawn at the scale of this one.
+                    compareW = peerSize.Width * p.Scale;
+                    compareH = peerSize.Height * p.Scale;
+                }
+                compareLeft += Split.ComparisonOffset.X * p.Scale;
+                compareTop += Split.ComparisonOffset.Y * p.Scale;
+            }
+
             // Both halves draw the WHOLE quad and are cut down by the clip, so the two renditions stay
             // in identical pan/zoom/projection space and features line up across the divider.
             //
@@ -1671,7 +1835,7 @@ namespace TianWen.UI.Abstractions
             var leftHalf = Split.ComparesCropExtent
                 ? leftRect
                 : ClipToShown(leftRect);
-            if (comparesPixels && (compareLeft != p.OffsetX || compareTop != p.OffsetY))
+            if (comparesPixels && (compareLeft != p.OffsetX || compareTop != p.OffsetY || compareW != p.DrawW || compareH != p.DrawH))
             {
                 leftHalf = Intersect(leftHalf, new RectF32(p.OffsetX, p.OffsetY, p.DrawW, p.DrawH));
             }
@@ -1837,14 +2001,82 @@ namespace TianWen.UI.Abstractions
             {
                 DrawSplitLabel(rightText, area, splitX + gap, top, fontSize);
             }
+
+            RenderPlanetaryChoice(area, top + SplitLabelHeight(fontSize) + PanelPadding, fontSize);
         }
+
+        // A split on over a stack whose chosen comparison cannot show (a dim option, or its image still being built) draws no divider, but
+        // the row stays, or the dimmed option and its reason could never be reached again and the user could not choose another.
+        private void RenderChoiceWithoutDivider(in RectF32 area)
+        {
+            if (Split.IsOn && Split.OnStackView && !string.IsNullOrEmpty(FontPath))
+            {
+                var fontSize = ToolbarFontSize;
+                RenderPlanetaryChoice(area, area.Y + PanelPadding + SplitLabelHeight(fontSize) + PanelPadding, fontSize);
+            }
+        }
+
+        private const string SplitSharpeningHit = "SplitSharpening";
+        private const string SplitRawVsStackHit = "SplitRawVsStack";
+        private const string SplitLiveVsFullHit = "SplitLiveVsFull";
+
+        // Which planetary comparison the split shows (#1883): a declared choice, in the labels' area and only while the split is on over a
+        // stack view. An option that cannot compare is dimmed with its reason (AvailabilityOf, the rule the divider and the A | B button
+        // read). Arranged in device pixels at DesignScale.One, as the divider is, and centred on the pane so it does not move with the line.
+        // The choice is the controller's, per viewer, and never saved.
+        private void RenderPlanetaryChoice(in RectF32 area, float top, float fontSize)
+        {
+            if (!Split.IsOn || !Split.OnStackView || _state is not { } state)
+            {
+                return;
+            }
+
+            ReadOnlySpan<Layout.ButtonGroupOption<SplitCompare>> choices =
+            [
+                ChoiceOption(SplitCompare.Unsharpened, "Sharpening", SplitSharpeningHit),
+                ChoiceOption(SplitCompare.RawVsStack, "Raw | Stack", SplitRawVsStackHit),
+                ChoiceOption(SplitCompare.LiveVsFull, $"{Split.PeerName} | {Split.OwnName}", SplitLiveVsFullHit),
+            ];
+            var pad = PanelPadding;
+            var style = PlanetaryChoiceStyle with { Gap = pad }; // each segment as wide as its own label: the engine measures it
+            var group = Layout.Builder.ButtonGroup(choices, Split.Mode, mode =>
+            {
+                Split.ChoosePlanetary(mode);
+                state.NeedsRedraw = true;
+            }, style, fontSize);
+            var ctx = MeasureContext(scale: DesignScale.One);
+            var size = Layout.Engine.Measure(group, new Layout.Size<float>(area.Width, float.MaxValue), ctx);
+            if (size.Width > area.Width - pad * 2f)
+            {
+                return; // a pane too narrow for it: the labels alone, as they drop when they do not fit
+            }
+
+            LastPlanetaryChoiceRect = new RectF32(area.X + (area.Width - size.Width) / 2f, top, size.Width, size.Height);
+            RenderLayout(group, LastPlanetaryChoiceRect, scale: DesignScale.One);
+        }
+
+        private Layout.ButtonGroupOption<SplitCompare> ChoiceOption(SplitCompare mode, string label, string hit)
+        {
+            var (available, reason) = Split.AvailabilityOf(mode, HasBeforeImageTextures, _cropActive);
+            return new Layout.ButtonGroupOption<SplitCompare>(mode, label)
+            {
+                Hit = new HitResult.ButtonHit(hit),
+                DisabledReason = available ? null : reason,
+            };
+        }
+
+        /// <summary>Where the planetary choice was last drawn (empty while it is not shown): for tests and damage.</summary>
+        internal RectF32 LastPlanetaryChoiceRect { get; private set; }
+
+        // One height for the label chip, which the planetary choice below it reads too, so the two cannot drift apart.
+        private float SplitLabelHeight(float fontSize) => fontSize + PanelPadding;
 
         private float LabelWidth(string text, float fontSize) => MeasureText(text, fontSize) + PanelPadding * 2f;
 
         private void DrawSplitLabel(string text, in RectF32 area, float desiredX, float top, float fontSize)
         {
             var w = LabelWidth(text, fontSize);
-            var h = fontSize + PanelPadding;
+            var h = SplitLabelHeight(fontSize);
             // A floor only -- the caller has already refused to draw a label that does not fit its own
             // half, so this just guarantees a sane rect for the degenerate pane sizes.
             var x = Math.Clamp(desiredX, area.X + PanelPadding, MathF.Max(area.X + PanelPadding, area.Right - w - PanelPadding));
