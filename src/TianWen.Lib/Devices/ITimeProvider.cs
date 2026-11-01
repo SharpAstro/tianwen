@@ -61,4 +61,13 @@ public static class TimeProviderExtensions
         /// </summary>
         public CancellationTokenSource CancelAfter(TimeSpan delay) => new(delay, timeProvider.System);
     }
+
+    extension(TimeProvider clock)
+    {
+        /// <summary>
+        /// The same deadline for a clock held as a BCL <see cref="TimeProvider"/> rather than an <see cref="ITimeProvider"/>:
+        /// it runs on THAT clock, whichever it is, so the one spelling covers both.
+        /// </summary>
+        public CancellationTokenSource CancelAfter(TimeSpan delay) => new(delay, clock);
+    }
 }

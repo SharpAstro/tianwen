@@ -370,7 +370,7 @@ public sealed class LiveViewController : IAsyncDisposable
             return;
         }
 
-        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.LiveView, cancellationToken).ConfigureAwait(false);
+        await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.LiveView, _timeProvider, cancellationToken).ConfigureAwait(false);
         var reader = new FrameReader();
         while (await stream.ReadAsync(reader, cancellationToken).ConfigureAwait(false) is { } next)
         {
@@ -483,7 +483,7 @@ public sealed class LiveViewController : IAsyncDisposable
             await runCts.CancelAsync().ConfigureAwait(false);
             if (_run is { } run)
             {
-                using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(3), _timeProvider.System);
+                using var drain = _timeProvider.CancelAfter(TimeSpan.FromSeconds(3));
                 try
                 {
                     await run.WaitAsync(drain.Token).ConfigureAwait(false);

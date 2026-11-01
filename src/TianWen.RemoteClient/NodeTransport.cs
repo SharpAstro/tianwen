@@ -115,16 +115,17 @@ namespace TianWen.RemoteClient
         /// Opens <paramref name="source"/> (a <see cref="Hosting.Dto.FrameSources"/> name the node streams) as a
         /// <see cref="NodeFrameStream"/>, over the same transport; the caller's to dispose. Over this machine's socket it asks
         /// for the frames in shared memory (P4b of docs/plans/hardware-in-the-server.md, #932), which the node may decline.
+        /// The stream closes within a budget on <paramref name="timeProvider"/>.
         /// </summary>
-        public Task<NodeFrameStream> OpenFrameStreamAsync(string source, CancellationToken cancellationToken)
-            => OpenFrameStreamAsync(source, sharedMemory: SocketPath is not null, cancellationToken);
+        public Task<NodeFrameStream> OpenFrameStreamAsync(string source, ITimeProvider timeProvider, CancellationToken cancellationToken)
+            => OpenFrameStreamAsync(source, sharedMemory: SocketPath is not null, timeProvider, cancellationToken);
 
         /// <summary>
-        /// Opens <paramref name="source"/> as <see cref="OpenFrameStreamAsync(string, CancellationToken)"/> does, asking for
+        /// Opens <paramref name="source"/> as <see cref="OpenFrameStreamAsync(string, ITimeProvider, CancellationToken)"/> does, asking for
         /// shared memory only when <paramref name="sharedMemory"/> says so (a measurement of either carrier). A node reached
         /// over TCP never offers it.
         /// </summary>
-        public async Task<NodeFrameStream> OpenFrameStreamAsync(string source, bool sharedMemory, CancellationToken cancellationToken)
+        public async Task<NodeFrameStream> OpenFrameStreamAsync(string source, bool sharedMemory, ITimeProvider timeProvider, CancellationToken cancellationToken)
         {
             var endpoint = WebSocketUri(BaseAddress, FrameStreamWire.PathOf(source),
                 sharedMemory && SocketPath is not null ? $"{FrameStreamWire.CarrierQuery}={FrameStreamWire.SharedMemory}" : null);
@@ -146,7 +147,7 @@ namespace TianWen.RemoteClient
                     Grant.Present(socket.Options);
                 }
                 await socket.ConnectAsync(endpoint, invoker, cancellationToken).ConfigureAwait(false);
-                var stream = new NodeFrameStream(socket, invoker);
+                var stream = new NodeFrameStream(socket, invoker, timeProvider);
                 socket = null;
                 invoker = null;
                 return stream;

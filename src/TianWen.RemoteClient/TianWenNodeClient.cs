@@ -154,12 +154,18 @@ namespace TianWen.RemoteClient
     /// layers those on top.
     /// </para>
     /// </summary>
-    public sealed class TianWenNodeClient(HttpClient httpClient, NodeTimeouts? timeouts = null)
+    /// <param name="httpClient">The client every call goes through, whose base address is the node root.</param>
+    /// <param name="timeouts">The per-request budgets, <see cref="NodeTimeouts.Default"/> when null.</param>
+    /// <param name="timeProvider">The clock the budgets run on, so a test's fake clock ends one when advanced past it. A client
+    /// whose creator has none of its own runs them on the system clock.</param>
+    public sealed class TianWenNodeClient(HttpClient httpClient, NodeTimeouts? timeouts = null, ITimeProvider? timeProvider = null)
     {
-        // Overridable so a test can set budgets it can actually wait out: the expiry path is real
-        // wall-clock (CancelAfter), and it is the one branch that must never be mistaken for caller
-        // cancellation, so it has to be exercised for real rather than simulated.
+        // Overridable so a test can set budgets it can use: the expiry path is the one branch that must never be
+        // mistaken for caller cancellation, so it has to be exercised for real rather than simulated, and a
+        // test's fake clock ends it when advanced past it.
         private readonly NodeTimeouts _timeouts = timeouts ?? NodeTimeouts.Default;
+
+        private readonly ITimeProvider _timeProvider = timeProvider ?? SystemTimeProvider.Instance;
 
         /// <summary>The node root this client talks to, for logging and display.</summary>
         public Uri? BaseAddress => httpClient.BaseAddress;
@@ -174,12 +180,41 @@ namespace TianWen.RemoteClient
         /// this one to HTTP -- guarding on the linked token would turn every timeout into a rethrow and
         /// tear down the poll loop the first time a rig went quiet.
         /// </para>
+        /// <para>
+        /// The budget is a deadline on the injected clock (never <c>CancelAfter</c> on the linked source, which runs on the
+        /// wall clock whatever the client was handed), and the returned source owns it: disposing the one disposes both.
+        /// </para>
         /// </summary>
-        private static CancellationTokenSource WithBudget(TimeSpan budget, CancellationToken cancellationToken)
+        private Budgeted WithBudget(TimeSpan budget, CancellationToken cancellationToken) =>
+            new Budgeted(_timeProvider, budget, cancellationToken);
+
+        /// <summary>A request's budget: a token that fires on the caller's token or at the deadline, both sources disposed with it.</summary>
+        private sealed class Budgeted : IDisposable
         {
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(budget);
-            return cts;
+            private readonly CancellationTokenSource _deadline;
+            private readonly CancellationTokenSource _linked;
+
+            public Budgeted(ITimeProvider clock, TimeSpan budget, CancellationToken cancellationToken)
+            {
+                _deadline = clock.CancelAfter(budget);
+                try
+                {
+                    _linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _deadline.Token);
+                }
+                catch
+                {
+                    _deadline.Dispose();
+                    throw;
+                }
+            }
+
+            public CancellationToken Token => _linked.Token;
+
+            public void Dispose()
+            {
+                _linked.Dispose();
+                _deadline.Dispose();
+            }
         }
 
         /// <summary>Error text for a call that ran out of budget -- <c>OperationCanceledException.Message</c>

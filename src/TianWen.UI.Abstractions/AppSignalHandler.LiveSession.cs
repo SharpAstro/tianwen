@@ -163,7 +163,7 @@ namespace TianWen.UI.Abstractions
                     // live view ends first; the still is what the pane shows once it arrives.
                     if (liveView.LiveOta == sig.OtaIndex)
                     {
-                        using var budget = new CancellationTokenSource(LiveViewStopBudget, _timeProvider.System);
+                        using var budget = _timeProvider.CancelAfter(LiveViewStopBudget);
                         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
                         await liveView.StopAsync(bounded.Token);
                     }

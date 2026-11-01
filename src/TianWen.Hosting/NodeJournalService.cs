@@ -378,7 +378,9 @@ internal sealed class NodeJournalService(
 
     private async Task<string?> ReconnectAsync(DeviceBase device, CancellationToken cancellationToken)
     {
-        using var budget = new CancellationTokenSource(ReconnectBudget, options.WallClock);
+        // The machine's WALL clock on purpose, as every other time this service judges (the journal's age is read on it too):
+        // a simulated TIANWEN_NOW shifts the node's own clock, and a reconnect that blocks on a driver is bounded by real time.
+        using var budget = options.WallClock.CancelAfter(ReconnectBudget);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
         try
         {

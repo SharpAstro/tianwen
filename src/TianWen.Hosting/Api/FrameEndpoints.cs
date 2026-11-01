@@ -13,10 +13,21 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Api;
+
+/// <summary>
+/// How long a frame stream's close waits for the client's answer before the socket is dropped. Nothing registers it on a
+/// node, which takes <see cref="Default"/>; a test registers its own to hold the budget far past anything but the clock.
+/// </summary>
+/// <param name="CloseBudget">The wait, on the node's injected clock.</param>
+internal sealed record FrameStreamOptions(TimeSpan CloseBudget)
+{
+    public static readonly FrameStreamOptions Default = new FrameStreamOptions(TimeSpan.FromSeconds(2));
+}
 
 /// <summary>
 /// Linear frames over the socket (P4 part 2 of docs/plans/hardware-in-the-server.md, #931): the frame a source shows
@@ -69,18 +80,15 @@ internal static class FrameEndpoints
             Serve(frames.Named(FrameSources.LiveView), after, "The live view", FrameSources.LiveView, context));
 
         // The same two as streams (P5 part 5c): drop-to-latest over a WebSocket, a live view at the rate its client takes.
-        routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryLive), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
-            StreamAsync(context, frames, lifetime, FrameSources.PlanetaryLive));
-        routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryMaster), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
-            StreamAsync(context, frames, lifetime, FrameSources.PlanetaryMaster));
-        routes.Map(FrameStreamWire.PathOf(FrameSources.LiveView), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime) =>
-            StreamAsync(context, frames, lifetime, FrameSources.LiveView));
+        routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryLive), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime, ITimeProvider timeProvider) =>
+            StreamAsync(context, frames, lifetime, timeProvider, FrameSources.PlanetaryLive));
+        routes.Map(FrameStreamWire.PathOf(FrameSources.PlanetaryMaster), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime, ITimeProvider timeProvider) =>
+            StreamAsync(context, frames, lifetime, timeProvider, FrameSources.PlanetaryMaster));
+        routes.Map(FrameStreamWire.PathOf(FrameSources.LiveView), (HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime, ITimeProvider timeProvider) =>
+            StreamAsync(context, frames, lifetime, timeProvider, FrameSources.LiveView));
 
         return group;
     }
-
-    /// <summary>How long a stream's close waits for the client's answer before the socket is dropped.</summary>
-    private static readonly TimeSpan CloseBudget = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// A run's own source as a stream (<see cref="FrameStreamWire"/>): for each ask the client makes, the newest frame, or
@@ -94,7 +102,7 @@ internal static class FrameEndpoints
     /// goes with it. A node that cannot make one (no <see cref="NodeSharedMemory"/>, or the system refused the memory) says
     /// so once and sends that stream's frames as bytes: a live view is never refused for its carrier.
     /// </remarks>
-    private static async Task StreamAsync(HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime, string source)
+    internal static async Task StreamAsync(HttpContext context, NodeFrames frames, IHostApplicationLifetime lifetime, ITimeProvider timeProvider, string source)
     {
         if (!context.WebSockets.IsWebSocketRequest)
         {
@@ -102,6 +110,8 @@ internal static class FrameEndpoints
             await context.Response.WriteAsync("WebSocket connections only");
             return;
         }
+
+        var closeBudget = (context.RequestServices.GetService<FrameStreamOptions>() ?? FrameStreamOptions.Default).CloseBudget;
 
         var slots = WantsSharedMemory(context) ? context.RequestServices.GetService<NodeSharedMemory>()?.CreateWriter() : null;
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
@@ -171,7 +181,7 @@ internal static class FrameEndpoints
             {
                 try
                 {
-                    using var budget = new CancellationTokenSource(CloseBudget);
+                    using var budget = timeProvider.CancelAfter(closeBudget);
                     await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Stream ended", budget.Token);
                 }
                 catch (Exception ex) when (ex is WebSocketException or OperationCanceledException)
@@ -179,7 +189,10 @@ internal static class FrameEndpoints
                     // Best effort: the client may already be gone.
                 }
             }
-            reading.CancelAfter(CloseBudget);
+            // The client's answer to the close is waited for out of the same budget, on the same clock. `reading` is a plain
+            // source whose own CancelAfter would run on the wall clock, so the budget's source is what cancels it.
+            using var answerBudget = timeProvider.CancelAfter(closeBudget);
+            using var cancelsReading = answerBudget.Token.Register(reading.Cancel);
             await receiving;
             slots?.Dispose();
         }
