@@ -251,6 +251,10 @@ public static partial class DatasetDegradationExporter
             {
                 throw new ArgumentException("a wing cut departs from the real envelope on purpose; the clamp would undo it", nameof(options));
             }
+            if (options.ClampWingRelations && options.ChromaticWidthRatio is not null)
+            {
+                throw new ArgumentException("the wing relation clamp solves each wing against the master's own channel widths; it would not hold a star whose widths a chromatic width set", nameof(options));
+            }
             Dictionary<string, StarShapeRow>? shapes = null;
             ChannelWingEnvelope? wingEnvelope = null;
             if (options.StarShapesPath is { } shapesPath)

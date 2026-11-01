@@ -440,7 +440,8 @@ namespace TianWen.AI.Imaging
         /// its wing gain moved to the nearest edge (<see cref="TianWen.Lib.Imaging.StarRemoval.WingRelationClamp"/>); the
         /// stars moved are counted in each injection row's <c>WingClamped</c>. Draws no random number, so the stars keep
         /// their places, brightness and colour. Off, every export is what it was. Not with
-        /// <paramref name="ChannelWingCut"/>, which departs from the envelope on purpose.</param>
+        /// <paramref name="ChannelWingCut"/>, which departs from the envelope on purpose, nor with
+        /// <paramref name="ChromaticWidthRatio"/>, whose widths the clamp's per-channel light never sees.</param>
         /// <param name="OuterHaloPath">Stars mode (#1870): a <c>halo-profiles.json</c> (training/star-removal/domain/halo_profile.py); every
         /// injected star is drawn with a second, wide, faint Moffat under its profile
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>), fitted in C# per rig (the master's camera) to that file's LINEAR
@@ -451,7 +452,7 @@ namespace TianWen.AI.Imaging
         /// width (<see cref="TianWen.Lib.Imaging.StarRemoval.ChromaticWidth"/>), the SMC's causal check. Draws no random number, so
         /// the stars keep their places, brightness and colour and only those widths move; each star's widths are in its
         /// injections.jsonl row (<c>FwhmPx</c>). Null draws every channel at its master's own width. Not with
-        /// <paramref name="ChannelRelationSessions"/> or <paramref name="ChannelWingCut"/>.</param>
+        /// <paramref name="ChannelRelationSessions"/>, <paramref name="ChannelWingCut"/> or <paramref name="ClampWingRelations"/>.</param>
         /// <param name="KeptCores">With <paramref name="SyntheticBackground"/>: a share of the cells holds a bright galaxy-like
         /// core in its background, in the input and the target alike, so a remover learns to keep it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.KeptCores"/>, #1658), from a stream of its own, so every other draw is
