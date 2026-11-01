@@ -438,6 +438,10 @@ public sealed class InjectionPopulation
         {
             throw new InvalidOperationException("a wing relation clamp solves each wing against the master's own channel widths; it would not hold a star whose widths a chromatic width set");
         }
+        if (_wingClamp is not null && starBeta is not null)
+        {
+            throw new InvalidOperationException("a wing relation clamp solves each wing against the master's own profile; it would move the wings a held star beta set");
+        }
         if (_wingClamp is not null && family != StarProfileFamily.Field)
         {
             throw new InvalidOperationException("a wing relation clamp moves the master's field profile; it needs the Field profile");

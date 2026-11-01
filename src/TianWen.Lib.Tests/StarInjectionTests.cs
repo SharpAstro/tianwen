@@ -2231,6 +2231,9 @@ public class StarInjectionTests(ITestOutputHelper output)
             chromaticWidth: new ChromaticWidth(1.3)));
         ex.Message.ShouldContain("wing relation clamp");
         ex.Message.ShouldContain("chromatic width");
+        // A held beta (or a drawn one, which plans as one) is the same: the clamp would move the wings it set.
+        Should.Throw<InvalidOperationException>(() => clamped.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1),
+            starBeta: new StarBeta(1.5))).Message.ShouldContain("star beta");
         clamped.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1)).Stars.ShouldNotBeEmpty();
         var free = BuildColourPopulation(field, TrendShape(), spreadSignificance: true);
         free.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1),

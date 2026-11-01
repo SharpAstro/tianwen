@@ -255,6 +255,10 @@ public static partial class DatasetDegradationExporter
             {
                 throw new ArgumentException("the wing relation clamp solves each wing against the master's own channel widths; it would not hold a star whose widths a chromatic width set", nameof(options));
             }
+            if (options.ClampWingRelations && (options.StarBeta is not null || options.StarBetaDraw is not null))
+            {
+                throw new ArgumentException("the wing relation clamp solves each wing against the master's own profile; it would move the wings a held or drawn star beta set", nameof(options));
+            }
             Dictionary<string, StarShapeRow>? shapes = null;
             ChannelWingEnvelope? wingEnvelope = null;
             if (options.StarShapesPath is { } shapesPath)
