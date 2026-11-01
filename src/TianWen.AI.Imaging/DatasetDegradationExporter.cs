@@ -456,6 +456,11 @@ namespace TianWen.AI.Imaging
         /// the stars keep their places, brightness and colour and only those widths move; each star's widths are in its
         /// injections.jsonl row (<c>FwhmPx</c>). Null draws every channel at its master's own width. Not with
         /// <paramref name="ChannelRelationSessions"/>, <paramref name="ChannelWingCut"/> or <paramref name="ClampWingRelations"/>.</param>
+        /// <param name="StarBeta">Stars mode: every injected star's channels drawn at this Moffat beta, their FWHM kept
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.StarBeta"/>, #1947), the SMC's wing check. Draws no random number, so the stars
+        /// keep their places, brightness and colour and only their wings move; each star's beta is in its injections.jsonl row
+        /// (<c>Beta</c>). Null draws every channel at its master's own beta. Not with <paramref name="ChannelRelationSessions"/> or
+        /// <paramref name="ChannelWingCut"/>.</param>
         /// <param name="NoiseScale">Stars mode: the plate's cell carried at this many times the master's noise, as if stacked from
         /// 1/scale^2 of its frames, in (1, 16] (#1947, the SMC's noise check): the master's own noise at each pixel's level, sqrt(scale^2 - 1)
         /// times over, from the cell's own stream, so the clean tile and every draw of the cell carry the same added noise and the
@@ -544,6 +549,7 @@ namespace TianWen.AI.Imaging
             string? OuterHaloPath = null,
             double? ChromaticWidthRatio = null,
             double? NoiseScale = null,
+            double? StarBeta = null,
             Action<string>? Say = null);
 
         /// <summary>

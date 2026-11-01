@@ -412,18 +412,23 @@ public sealed class InjectionPopulation
     /// <see cref="InjectionPlan.WingClamped"/>; it is not drawn with a wing cut or a channel variation, which depart from the
     /// envelope on purpose, nor with a chromatic width, whose widths the clamp's per-channel light never sees.
     /// A <paramref name="chromaticWidth"/> sets every star's other channels' widths from its reference
-    /// channel's, drawing nothing, so the plan's stars are the ones it makes without it.
+    /// channel's, drawing nothing, so the plan's stars are the ones it makes without it; a <paramref name="starBeta"/> holds every
+    /// star's Moffat exponent, the same way.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
         ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null, Random? faintRng = null,
-        ChromaticWidth? chromaticWidth = null)
+        ChromaticWidth? chromaticWidth = null, StarBeta? starBeta = null)
     {
         ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
         string? relationFrom = null;
         if (chromaticWidth is not null && (variation is not null || wingCut is not null))
         {
             throw new InvalidOperationException("a chromatic width sets every star's channel widths; a channel variation or a wing cut is another arm, give one");
+        }
+        if (starBeta is not null && (variation is not null || wingCut is not null))
+        {
+            throw new InvalidOperationException("a held star beta sets every star's wings; a channel variation or a wing cut is another arm, give one");
         }
         if (_wingClamp is not null && (wingCut is not null || variation is not null))
         {
@@ -482,6 +487,10 @@ public sealed class InjectionPopulation
             if (chromaticWidth is not null)
             {
                 profiles = chromaticWidth.Apply(profiles);
+            }
+            if (starBeta is not null)
+            {
+                profiles = starBeta.Apply(profiles);
             }
             if (_wingClamp is null)
             {

@@ -311,6 +311,18 @@ public static partial class DatasetDegradationExporter
                 }
                 logger?.LogInformation("[degrade] chromatic width: every star's channels but red drawn at {Ratio} times red's width", chromaticRatio);
             }
+            if (options.StarBeta is { } heldBeta)
+            {
+                if (variation is not null || wingCut is not null)
+                {
+                    throw new ArgumentException("a held star beta and channel relations or a wing cut are two arms; give one", nameof(options));
+                }
+                if (!StarBeta.IsBeta(heldBeta))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(options), heldBeta, "a held star beta is in [1.1, 20]");
+                }
+                logger?.LogInformation("[degrade] star beta: every star's channels drawn at Moffat beta {Beta}, their FWHM kept", heldBeta);
+            }
             if (options.NoiseScale is { } noiseScale)
             {
                 if (options.SyntheticBackground)
@@ -849,7 +861,8 @@ public static partial class DatasetDegradationExporter
         var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
             variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut,
             population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372),
-            options.ChromaticWidthRatio is { } ratio ? new ChromaticWidth(ratio) : null);
+            options.ChromaticWidthRatio is { } ratio ? new ChromaticWidth(ratio) : null,
+            options.StarBeta is { } beta ? new StarBeta(beta) : null);
 
         // The plate's cell, the cell carried at more noise (NoisedPlateCell), or on R2d's synthetic background the cell's own
         // noisy planes (SyntheticCell).
