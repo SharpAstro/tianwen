@@ -163,12 +163,14 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     // The SkyWatcher board is the PHYSICAL mount: it keeps its motion, encoders and init bits across a disconnect, so every
     // connect of one device instance gets the same board, opened again (a goto still running at a reconnect, #1955; a power
-    // cycle between connects, #1954). Keyed by the instance, never the URI, so two tests sharing a URI never share a mount.
+    // cycle between connects, #1954). Keyed by the instance, never the URI, so two tests sharing a URI never share a mount, and
+    // kept only for a connect on the board's own clock: a test class that holds its device in a static field connects it once
+    // per test, each on a clock of its own, and a board left on the previous test's stopped clock never moves again.
     private static readonly ConditionalWeakTable<FakeDevice, FakeSkywatcherSerialDevice> _skywatcherBoards = new();
 
     private FakeSkywatcherSerialDevice SkywatcherBoard(ILogger logger, Encoding? encoding, ITimeProvider timeProvider)
     {
-        if (_skywatcherBoards.TryGetValue(this, out var board))
+        if (_skywatcherBoards.TryGetValue(this, out var board) && ReferenceEquals(board.TimeProvider, timeProvider))
         {
             board.Reopen();
             return board;
