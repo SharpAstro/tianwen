@@ -1683,6 +1683,68 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #1947: <c>NoiseScale</c> carries every plate cell at that many times the master's noise. The stars are the ones an
+        /// export without it draws, to the byte of injections.jsonl; the clean tile is no longer the plate's, yet far from every
+        /// star the draw is still its clean tile to the bit, since both carry the same added noise; the clean tile's conditioning
+        /// plane is the scale times the plain one's; and every row says so. Refused on a synthetic background and outside (1, 16].
+        /// </summary>
+        [Fact]
+        public async Task ANoiseScaleCarriesThePlateAtMoreNoiseAndMovesNoStar()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var plain = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-plain"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0);
+            var noisy = plain with { OutDir = Path.Combine(_root, "stars-noisy"), NoiseScale = 4.0 };
+            (await DatasetDegradationExporter.RunAsync(plain, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            (await DatasetDegradationExporter.RunAsync(noisy, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            File.ReadAllText(Path.Combine(noisy.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(plain.OutDir, DatasetDegradationExporter.InjectionManifestFileName)), "the noise moves no star");
+            ReadDegradationRows(plain.OutDir).ShouldAllBe(static r => r.NoiseScale == null);
+            var rows = ReadDegradationRows(noisy.OutDir);
+            rows.Length.ShouldBe(4);
+            rows.ShouldAllBe(static r => r.NoiseScale == 4.0);
+            var injections = ReadInjectionRows(noisy.OutDir);
+            foreach (var row in rows)
+            {
+                var clean = ReadTileChannels(noisy.OutDir, CleanTileOf(row));
+                var plainClean = ReadTileChannels(plain.OutDir, CleanTileOf(row));
+                var drawn = ReadTileChannels(noisy.OutDir, row.Tile);
+                var stars = injections.Single(i => i.Tile == row.Tile).Stars;
+                var moved = 0;
+                var untouched = 0;
+                var changedFar = 0;
+                for (var i = 0; i < TileSize * TileSize; i++)
+                {
+                    int x = i % TileSize, y = i / TileSize;
+                    var far = !stars.Any(s => ((s.X - x) * (s.X - x)) + ((s.Y - y) * (s.Y - y)) < UntouchedBeyondPx * UntouchedBeyondPx);
+                    untouched += far ? 1 : 0;
+                    for (var c = 0; c < 3; c++)
+                    {
+                        moved += clean[c][i] != plainClean[c][i] ? 1 : 0;
+                        changedFar += far && drawn[c][i] != clean[c][i] ? 1 : 0;
+                    }
+                }
+                moved.ShouldBeGreaterThan(TileSize * TileSize, "the clean tile carries the added noise");
+                untouched.ShouldBeGreaterThan(TileSize * TileSize / 8);
+                changedFar.ShouldBe(0, "the draw is laid on the same noisy cell as its clean tile");
+
+                var sigma = ReadTile(noisy.OutDir, DatasetDegradationExporter.SigmaPathFor(CleanTileOf(row)));
+                var plainSigma = ReadTile(plain.OutDir, DatasetDegradationExporter.SigmaPathFor(CleanTileOf(row)));
+                var ratios = sigma.Zip(plainSigma, static (a, b) => b > 0 ? a / b : float.NaN).Where(float.IsFinite).Order().ToArray();
+                ratios.Length.ShouldBeGreaterThan(TileSize * TileSize / 2);
+                ratios[ratios.Length / 2].ShouldBe(4.0f, 0.5f, "the conditioning plane is at the shallower depth");
+            }
+
+            var synthetic = noisy with { OutDir = Path.Combine(_root, "stars-noisy-synthetic"), SyntheticBackground = true };
+            await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(synthetic, logger: null, TestContext.Current.CancellationToken));
+            var none = noisy with { OutDir = Path.Combine(_root, "stars-noisy-one"), NoiseScale = 1.0 };
+            await Should.ThrowAsync<ArgumentOutOfRangeException>(async () => await DatasetDegradationExporter.RunAsync(none, logger: null, TestContext.Current.CancellationToken));
+        }
+
+        /// <summary>
         /// #1870: <c>OuterHaloPath</c> draws a per-rig outer halo under every injected star. Off, no row says anything of it and
         /// a second run is byte-identical; on, the stars keep their places and brightness, each row records its rig's term, and
         /// the tiles change; a profile file without the master's rig draws nothing, says so, and leaves every tile as off.
