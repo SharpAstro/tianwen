@@ -1890,6 +1890,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "random number, so the stars keep their places, brightness and colour; each star's widths are in " +
                           "injections.jsonl (FwhmPx). Not with --channel-relations, --channel-wing-cut or --clamp-wing-relations. Off by default.",
         };
+        var noiseScaleOpt = new Option<double?>("--noise-scale")
+        {
+            Description = "--mode stars: every plate cell carried at this many times the master's noise, as if stacked from " +
+                          "1/scale^2 of its frames, in (1, 16] (#1947, the SMC's noise check: its sky is about four times smoother than " +
+                          "the training tiles'). The clean tile and every draw carry the same added noise; the stars, their render and " +
+                          "the stretch are as without it. Recorded per row (NoiseScale). Not with --background synthetic. Off by default.",
+        };
         var channelNoiseCorrelationOpt = new Option<bool>("--channel-noise-correlation")
         {
             Description = "--mode stars: draw the noise (the stars' own, and the synthetic background's) with the correlation between " +
@@ -1924,7 +1931,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, channelWingCutOpt, chromaticWidthOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, channelWingCutOpt, chromaticWidthOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2113,6 +2120,20 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     return 1;
                 }
             }
+            var noiseScale = parseResult.GetValue(noiseScaleOpt);
+            if (noiseScale is { } scale)
+            {
+                if (mode != DatasetDegradationExporter.DegradationMode.Stars)
+                {
+                    consoleHost.WriteError("--noise-scale carries a stars export's plate at more noise; it needs --mode stars");
+                    return 1;
+                }
+                if (!DatasetDegradationExporter.IsNoiseScale(scale))
+                {
+                    consoleHost.WriteError($"--noise-scale {scale}: the scale is in (1, 16]");
+                    return 1;
+                }
+            }
             var channelNoiseCorrelation = parseResult.GetValue(channelNoiseCorrelationOpt);
             if (channelNoiseCorrelation && mode != DatasetDegradationExporter.DegradationMode.Stars)
             {
@@ -2228,6 +2249,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ClampWingRelations: clampWingRelations,
                 OuterHaloPath: parseResult.GetValue(outerHaloOpt),
                 ChromaticWidthRatio: chromaticWidth,
+                NoiseScale: noiseScale,
                 Say: Say);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);

@@ -311,6 +311,19 @@ public static partial class DatasetDegradationExporter
                 }
                 logger?.LogInformation("[degrade] chromatic width: every star's channels but red drawn at {Ratio} times red's width", chromaticRatio);
             }
+            if (options.NoiseScale is { } noiseScale)
+            {
+                if (options.SyntheticBackground)
+                {
+                    throw new ArgumentException("a noise scale carries the plate's cell at more noise; a synthetic background has no plate", nameof(options));
+                }
+                if (!IsNoiseScale(noiseScale))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(options), noiseScale, "a noise scale is in (1, 16]");
+                }
+                logger?.LogInformation("[degrade] noise scale: every plate cell carried at {Scale} times the master's noise, as if stacked from 1/{Frames} of its frames",
+                    noiseScale, noiseScale * noiseScale);
+            }
             if (options.FaintStarFloor is { } faintFloor)
             {
                 if (!options.SyntheticBackground)
@@ -627,12 +640,20 @@ public static partial class DatasetDegradationExporter
                 float[][]? background = null;
                 var knots = ImmutableArray<SyntheticBackground.Knot>.Empty;
                 KeptCore? core = null;
+                float[][]? plateCell = null;
                 double cleanMad;
                 if (synthetic is not null)
                 {
                     (background, knots, core, cleanMad) = SyntheticCell(sessionOptions, synthetic, unitPlate, absent, cell, calibrations, masterDepth,
                         stackedFrames, DrawSeed(options.Seed, sessionId, cell.X, cell.Y, -1), origMin, balances,
                         Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId, keptCores, noiseCorrelation, noiseStructure);
+                }
+                else if (options.NoiseScale is { } scale)
+                {
+                    plateCell = NoisedPlateCell(sessionOptions, unitPlate, absent, cell, calibrations, masterDepth, stackedFrames, scale,
+                        DrawSeed(options.Seed, sessionId, cell.X, cell.Y, -2), noiseCorrelation, noiseStructure);
+                    cleanMad = WriteNoisedCleanTile(plateCell, cell.TileSize, unitPlate, origMin, balances, calibrations, masterDepth * scale,
+                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId);
                 }
                 else
                 {
@@ -654,19 +675,20 @@ public static partial class DatasetDegradationExporter
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
                         origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut, core,
-                        noiseCorrelation, noiseStructure);
+                        noiseCorrelation, noiseStructure, plateCell, options.NoiseScale ?? 1.0);
                     degRows.Add(row with
                     {
                         Stretch = options.StretchFromMaster ? "master" : "plate",
                         StretchSkySlopeRatio = skySlopeRatio,
                         NoiseStructure = noiseStructure is null ? null : "cross-lags",
                         NoiseStructureShrink = noiseStructure?.Shrink,
+                        NoiseScale = options.NoiseScale,
                     });
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
                         Tile: row.Tile, SessionId: sessionId, Camera: cell.Camera, Frame: row.Frame,
                         SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: cell.TileSize, Channels: channels,
-                        Gain: cell.Gain, ExposureSeconds: cell.ExposureSeconds, NoiseMad: row.OneSubSigma * row.DepthScale));
+                        Gain: cell.Gain, ExposureSeconds: cell.ExposureSeconds, NoiseMad: row.OneSubSigma * row.DepthScale * (options.NoiseScale ?? 1.0)));
                     degradedTiles++;
                 }
             }
@@ -712,10 +734,88 @@ public static partial class DatasetDegradationExporter
         }
     }
 
+    /// <summary>Whether <paramref name="scale"/> is one <see cref="Options.NoiseScale"/> takes, (1, 16].</summary>
+    public static bool IsNoiseScale(double scale) => scale > 1.0 && scale <= 16.0;
+
+    /// <summary>
+    /// #1947's noise check: the plate's cell as a master of <paramref name="scale"/> times its noise, as if stacked from
+    /// 1/scale^2 of its frames. Each pixel takes the master's own noise at its level, sqrt(scale^2 - 1) times over, on fields of
+    /// the master's shape from the cell's own stream, so the clean tile and every draw of the cell carry the same added noise
+    /// and only the stars differ between them. An absent pixel, and one past the frame's edge, stays as it is.
+    /// </summary>
+    private static float[][] NoisedPlateCell(Options options, Image unitPlate, BitMatrix? absent, CellSpec cell,
+        LinearDegradation.NoiseCalibration[] calibrations, double masterDepth, int stackedFrames, double scale, int seed,
+        ChannelNoiseCorrelation? noiseCorrelation, ChannelNoiseStructure? noiseStructure)
+    {
+        var size = cell.TileSize;
+        var channels = unitPlate.ChannelCount;
+        var (shape, warpSigma) = DrawNoiseShape(options, seed);
+        var fields = NoiseFieldsFor(shape, warpSigma, size, stackedFrames, new Random(seed ^ 0x68e31da4), channels, noiseCorrelation,
+            noiseStructure, noiseStructure is null ? null : new Random(seed ^ 0x1f83d9ab));
+        var gain = Math.Sqrt((scale * scale) - 1.0);
+        var planes = new float[channels][];
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = CutClamped(unitPlate, c, cell.X, cell.Y, size, size);
+            var field = fields[c];
+            var calibration = calibrations[c];
+            for (var y = 0; y < size; y++)
+            {
+                var fy = cell.Y + y;
+                for (var x = 0; x < size; x++)
+                {
+                    var fx = cell.X + x;
+                    var i = (y * size) + x;
+                    var v = plane[i];
+                    if (fx < 0 || fy < 0 || fx >= unitPlate.Width || fy >= unitPlate.Height || absent?[fy, fx] == true || !float.IsFinite(v))
+                    {
+                        continue;
+                    }
+                    plane[i] = (float)(v + (gain * calibration.SigmaAt(v, masterDepth) * field[i]));
+                }
+            }
+            planes[c] = plane;
+        }
+        return planes;
+    }
+
+    /// <summary>
+    /// The clean tile of a cell carried at more noise (<see cref="NoisedPlateCell"/>), stretched with the session's parameters,
+    /// and its conditioning plane at <paramref name="noiseDepth"/>, the level read off the cell itself as
+    /// <c>WriteMasterSigmaTile</c> reads it. Returns the tile's noise MAD.
+    /// </summary>
+    private static double WriteNoisedCleanTile(float[][] plateCell, int size, Image unitPlate, float[] origMin, double[] balances,
+        LinearDegradation.NoiseCalibration[] calibrations, double noiseDepth, string tilePath, string sigmaPath, string sessionId)
+    {
+        var planes = new float[plateCell.Length][,];
+        for (var c = 0; c < planes.Length; c++)
+        {
+            var plane = new float[size, size];
+            Buffer.BlockCopy(plateCell[c], 0, plane, 0, plateCell[c].Length * sizeof(float));
+            planes[c] = plane;
+        }
+        var linear = new Image(planes, BitDepth.Float32, 1f, 0f, unitPlate.Pedestal, unitPlate.ImageMeta);
+        Image? stretched = null;
+        try
+        {
+            stretched = linear.MtfStretchWith(origMin, balances);
+            var mad = DatasetTileExporter.WriteTile(stretched, PixelPoint.Empty, size, tilePath, sessionId);
+            WriteSigmaTile(stretched, origMin, balances, calibrations, noiseDepth, sigmaPath);
+            return mad;
+        }
+        finally
+        {
+            stretched?.Release();
+            linear.Release();
+        }
+    }
+
     /// <summary>
     /// One draw of one cell: the plan, the render, the stars' own noise, the stretch, the tile and its plane, and the rows.
     /// The placement and brightness, the saturated stars' virtual subs and the noise each take a stream of their own from
-    /// the draw's seed, so changing one never moves the others.
+    /// the draw's seed, so changing one never moves the others. With a <paramref name="plateCell"/> (#1947's noise scale) the draw
+    /// is laid on that cell, and the stars' own noise and the conditioning plane are at <paramref name="noiseScale"/> times the
+    /// master's depth, while the render's floors stay at the master's own, so the stars are rendered as without it.
     /// </summary>
     private static (DegradationRow Row, InjectionRow Injection) InjectCell(
         Options options,
@@ -740,7 +840,9 @@ public static partial class DatasetDegradationExporter
         ChannelWingCut? wingCut = null,
         KeptCore? core = null,
         ChannelNoiseCorrelation? noiseCorrelation = null,
-        ChannelNoiseStructure? noiseStructure = null)
+        ChannelNoiseStructure? noiseStructure = null,
+        float[][]? plateCell = null,
+        double noiseScale = 1.0)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
@@ -749,11 +851,12 @@ public static partial class DatasetDegradationExporter
             population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372),
             options.ChromaticWidthRatio is { } ratio ? new ChromaticWidth(ratio) : null);
 
-        // The plate's cell, or on R2d's synthetic background the cell's own noisy planes (SyntheticCell).
+        // The plate's cell, the cell carried at more noise (NoisedPlateCell), or on R2d's synthetic background the cell's own
+        // noisy planes (SyntheticCell).
         var basePlanes = new float[channels][];
         for (var c = 0; c < channels; c++)
         {
-            basePlanes[c] = background is not null ? background[c] : CutClamped(unitPlate, c, cell.X, cell.Y, size, size);
+            basePlanes[c] = background?[c] ?? plateCell?[c] ?? CutClamped(unitPlate, c, cell.X, cell.Y, size, size);
         }
         BitMatrix? cellAbsent = null;
         if (absent is { } frameAbsent)
@@ -772,6 +875,7 @@ public static partial class DatasetDegradationExporter
         }
 
         var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
+        var noiseDepth = masterDepth * noiseScale;
         var floors = calibrations.Select(k => InjectionFloorSigma * k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
         var local = plan.Stars.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
         var render = StarInjection.Render(basePlanes, size, size, cellAbsent, local, floors, new Random(seed ^ 0x6d2b79f5), options.StarSubs);
@@ -815,8 +919,8 @@ public static partial class DatasetDegradationExporter
                         plane[y, x] = withStars;
                         continue;
                     }
-                    var sigmaWith = calibration.SigmaAt(withStars, masterDepth);
-                    var sigmaWithout = calibration.SigmaAt(without, masterDepth);
+                    var sigmaWith = calibration.SigmaAt(withStars, noiseDepth);
+                    var sigmaWithout = calibration.SigmaAt(without, noiseDepth);
                     var extra = Math.Sqrt(Math.Max(0.0, sigmaWith * sigmaWith - sigmaWithout * sigmaWithout)) * render.UnclippedFraction[c][i];
                     plane[y, x] = (float)(withStars + extra * field[i]);
                 }
@@ -842,7 +946,7 @@ public static partial class DatasetDegradationExporter
             stretchedCell = cellImage.MtfStretchWith(origMin, balances);
             DatasetTileExporter.WriteTile(stretchedCell, PixelPoint.Empty, size, Path.Combine(tilesDir, file), sessionId);
             levelStretched = levelCell.MtfStretchWith(origMin, balances);
-            WriteSigmaTile(levelStretched, origMin, balances, calibrations, masterDepth, Path.Combine(tilesDir, sigmaFile));
+            WriteSigmaTile(levelStretched, origMin, balances, calibrations, noiseDepth, Path.Combine(tilesDir, sigmaFile));
         }
         finally
         {

@@ -221,6 +221,8 @@ namespace TianWen.AI.Imaging
         /// cross-structure between channels (S4b, #1781); null when it was not.</param>
         /// <param name="NoiseStructureShrink">With <paramref name="NoiseStructure"/>: the factor the session's measured
         /// cross-correlations were drawn at, 1 when the fit reached them, below it when they were shrunk toward independent.</param>
+        /// <param name="NoiseScale">Stars mode: the times the master's noise the pair's plate carries (<see cref="Options.NoiseScale"/>,
+        /// #1947); null when it carries the master's own.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -270,7 +272,8 @@ namespace TianWen.AI.Imaging
             string? Stretch = null,
             double[]? StretchSkySlopeRatio = null,
             string? NoiseStructure = null,
-            double? NoiseStructureShrink = null);
+            double? NoiseStructureShrink = null,
+            double? NoiseScale = null);
 
         /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
         public const string SigmaTileExtension = ".sigma.f16";
@@ -453,6 +456,12 @@ namespace TianWen.AI.Imaging
         /// the stars keep their places, brightness and colour and only those widths move; each star's widths are in its
         /// injections.jsonl row (<c>FwhmPx</c>). Null draws every channel at its master's own width. Not with
         /// <paramref name="ChannelRelationSessions"/>, <paramref name="ChannelWingCut"/> or <paramref name="ClampWingRelations"/>.</param>
+        /// <param name="NoiseScale">Stars mode: the plate's cell carried at this many times the master's noise, as if stacked from
+        /// 1/scale^2 of its frames, in (1, 16] (#1947, the SMC's noise check): the master's own noise at each pixel's level, sqrt(scale^2 - 1)
+        /// times over, from the cell's own stream, so the clean tile and every draw of the cell carry the same added noise and the
+        /// stars' own noise and the conditioning planes are at the shallower depth. The stars are placed, brightened, coloured and
+        /// rendered as without it, and the stretch is the one without it. Recorded per row (<c>NoiseScale</c>). Null, every export is
+        /// what it was. Not with <paramref name="SyntheticBackground"/>, which has no plate to carry it.</param>
         /// <param name="KeptCores">With <paramref name="SyntheticBackground"/>: a share of the cells holds a bright galaxy-like
         /// core in its background, in the input and the target alike, so a remover learns to keep it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.KeptCores"/>, #1658), from a stream of its own, so every other draw is
@@ -534,6 +543,7 @@ namespace TianWen.AI.Imaging
             bool ClampWingRelations = false,
             string? OuterHaloPath = null,
             double? ChromaticWidthRatio = null,
+            double? NoiseScale = null,
             Action<string>? Say = null);
 
         /// <summary>
