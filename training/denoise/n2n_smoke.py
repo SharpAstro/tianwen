@@ -261,6 +261,8 @@ def resume_fingerprint(args, meta):
         fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
     if getattr(args, "speckle_weight", 0.0):
         fp.update(speckle_weight=args.speckle_weight, speckle_sigma=args.speckle_sigma)
+    if getattr(args, "oversample_factor", 1.0) != 1.0:
+        fp.update(oversample_sessions=sorted(read_session_list(args.oversample_sessions)), oversample_factor=args.oversample_factor)
     if getattr(args, "clip_grad", 0.0):
         fp.update(clip_grad=args.clip_grad)
     if getattr(args, "teacher", None):
@@ -273,6 +275,31 @@ def resume_fingerprint(args, meta):
     if args.schedule == "cosine":
         fp["steps"] = args.steps
     return fp
+
+
+def read_session_list(path):
+    """A session list file: one session id per line, as the cache's meta.json names it; '#' starts a comment."""
+    out = []
+    for line in open(path, encoding="utf-8"):
+        line = line.split("#", 1)[0].strip()
+        if line:
+            out.append(line)
+    return out
+
+
+def cell_draw_weights(keys, n_train, sessions, factor):
+    """#1947's oversampling: each training cell's probability of being drawn, a listed session's cells `factor` times any
+    other's. A listed session the training cells do not hold is refused, never ignored: a typo would otherwise train the
+    plain recipe under the oversampled one's name."""
+    if not factor > 0.0:
+        raise ValueError(f"--oversample-factor {factor}: a factor is positive")
+    listed = set(sessions)
+    held = {k[0] for k in keys[:n_train]}
+    missing = sorted(listed - held)
+    if missing:
+        raise ValueError(f"--oversample-sessions names {len(missing)} session(s) the training cells do not hold: {missing[:3]}")
+    w = np.array([factor if k[0] in listed else 1.0 for k in keys[:n_train]], dtype=np.float64)
+    return w / w.sum()
 
 
 def dihedral_views(rng, n):
@@ -1402,6 +1429,18 @@ def train(args):
         print("loading tiles into RAM for the averaging path ...", flush=True)
         mm = np.asarray(mm)
     n_train = meta["train_cells"]
+    # #1947: with --oversample-factor the listed sessions' cells are drawn that many times as often as any other; off, the
+    # draw below is the one it always was, the rng stream included.
+    cell_p = None
+    if args.oversample_factor != 1.0:
+        if not args.oversample_sessions:
+            raise SystemExit("--oversample-factor needs --oversample-sessions")
+        cell_p = cell_draw_weights(meta["keys"], n_train, read_session_list(args.oversample_sessions), args.oversample_factor)
+        listed = set(read_session_list(args.oversample_sessions))
+        n_listed = sum(1 for k in meta["keys"][:n_train] if k[0] in listed)
+        print(f"oversampling {len(listed)} sessions ({n_listed} of {n_train} training cells) x {args.oversample_factor:g}: "
+              f"their share of the draws {100.0 * cell_p[[k[0] in listed for k in meta['keys'][:n_train]]].sum():.1f} % "
+              f"(was {100.0 * n_listed / n_train:.1f} %)", flush=True)
     # The sub slots that hold pixels (prepare's "draws"). A cache from before the field fills all of them, so it
     # draws exactly as it always did, the rng stream included.
     draws = int(meta.get("draws", SUBS_PER_CELL))
@@ -1944,7 +1983,7 @@ def train(args):
         return mm[i, synth_target] if teacher is None else teacher[i, slot - 1]
     for step in range(start, steps + 1):
         pick = None
-        idx = rng.integers(0, n_train, args.batch)
+        idx = rng.integers(0, n_train, args.batch) if cell_p is None else rng.choice(n_train, args.batch, p=cell_p)
         # Two DIFFERENT subs of the same cell: independent noise, same scene. That is the
         # whole N2N premise, and it is why no clean target is needed.
         a = rng.integers(1, draws + 1, args.batch)
@@ -2706,6 +2745,12 @@ if __name__ == "__main__":
                         "at the removed stars' sites, in the pixel term's units, times this weight; 0 (default) is off and "
                         "leaves the run, its fingerprint and its step untouched. Sites are the local maxima of the star "
                         "layer (draw less truth) at or above --speckle-sigma. Needs --cond-map")
+    p.add_argument("--oversample-sessions", default=None,
+                   help="#1947: a file of session ids (one a line, as meta.json names them, '#' a comment) whose training "
+                        "cells --oversample-factor draws more often; a listed session the training cells do not hold is refused")
+    p.add_argument("--oversample-factor", type=float, default=1.0,
+                   help="#1947: how many times as often a listed session's cells are drawn as any other's; 1 (default) is "
+                        "off and leaves the run, its rng stream and its fingerprint untouched")
     p.add_argument("--speckle-sigma", type=float, default=100.0,
                    help="#1362: the star layer's floor, in the draw's own noise sigma, for a --speckle-weight site")
     p.add_argument("--upsample", action="store_true")
