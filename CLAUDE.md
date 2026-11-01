@@ -351,6 +351,9 @@ Enforced via `src/.editorconfig` (it sits beside the solution, not at the repo r
 - **`ITimeProvider.SleepAsync`** must be used instead of `Task.Delay(duration, timeProvider, ct)`.
   `FakeTimeProvider`'s `SleepAsync` auto-advances fake time; `Task.Delay` with `FakeTimeProvider`
   hangs waiting for external advancement. All code should be testable.
+- **A deadline is `ITimeProvider.CancelAfter(delay)`** (also on a BCL `TimeProvider`), never `new CancellationTokenSource(delay)`
+  nor `CancelAfter` on a plain source: those run on the wall clock whatever clock was injected, so a fake clock never ends
+  them. `NoWallClockDeadlineTests` fails on either anywhere in `src/` outside the test projects; its only exception is the extension's own definition.
 - `LoggerCatchExtensions` provides `ILogger.Catch/CatchAsync` for best-effort fallbacks
 
 **`TIANWEN_NOW` startup clock anchor (dev/test):** set the `TIANWEN_NOW` env var to an ISO-8601
