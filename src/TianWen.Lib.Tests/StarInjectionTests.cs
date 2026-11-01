@@ -834,6 +834,71 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// #1947's wing check: a held star beta sets every channel's Moffat exponent of every star, and nothing else. Its stars are
+    /// the plain plan's star for star (place, brightness, colour, saturation, width, halo table, wing gain), so an export with it
+    /// differs from one without only in the wings; it refuses a wing cut and a beta outside [1.1, 20].
+    /// </summary>
+    [Theory]
+    [InlineData(1.5)]
+    [InlineData(3.8)]
+    public void AHeldStarBetaSetsEveryChannelsWingsAndMovesNoStar(double beta)
+    {
+        var population = BuildColourPopulation(ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f)));
+        var plain = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21));
+        var held = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21),
+            starBeta: new StarBeta(beta));
+
+        plain.Stars.Length.ShouldBeGreaterThan(0, "premise: the cell has stars");
+        plain.Stars.ShouldContain(s => s.Profiles.Any(p => Math.Abs(p.Beta - beta) > 0.1), "premise: the master's own beta is another");
+        held.Stars.Length.ShouldBe(plain.Stars.Length);
+        for (var i = 0; i < plain.Stars.Length; i++)
+        {
+            var (s, p) = (held.Stars[i], plain.Stars[i]);
+            (s.X, s.Y, s.Saturated).ShouldBe((p.X, p.Y, p.Saturated));
+            s.Amplitudes.ShouldBe(p.Amplitudes);
+            for (var c = 0; c < 3; c++)
+            {
+                s.Profiles[c].ShouldBe(p.Profiles[c] with { Beta = beta }, "only the beta moves");
+            }
+        }
+
+        Should.Throw<InvalidOperationException>(() => population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0,
+            new Random(21), null, new Random(1), new ChannelWingCut(0.5), starBeta: new StarBeta(beta)));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBeta(1.0));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBeta(double.NaN));
+    }
+
+    /// <summary>
+    /// R3i's draw: about its share of the cells hold one beta inside the range, the rest none, and the stream it draws from is
+    /// used alike either way; a draw that is not one is refused.
+    /// </summary>
+    [Fact]
+    public void AStarBetaDrawHoldsItsShareOfCellsInsideItsRange()
+    {
+        var draw = new StarBetaDraw(0.3, 1.3, 2.5);
+        var (held, cells) = (0, 4000);
+        for (var i = 0; i < cells; i++)
+        {
+            var rng = new Random(i);
+            if (draw.DrawCell(rng) is { } beta)
+            {
+                held++;
+                beta.Beta.ShouldBeInRange(1.3, 2.5);
+            }
+            var next = new Random(i);
+            next.NextDouble();
+            next.NextDouble();
+            rng.NextDouble().ShouldBe(next.NextDouble(), "two numbers taken whatever the outcome");
+        }
+        ((double)held / cells).ShouldBe(0.3, 0.03);
+
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.0, 1.3, 2.5));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.3, 2.5, 1.3));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.3, 1.0, 2.5));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(1.1, 1.3, 2.5));
+    }
+
+    /// <summary>
     /// Synthetics S4's estimator: on two noise series of correlation 0.12 with one sample in fifty carrying light both share
     /// (a faint star, 3 to 7 sigma), a Pearson coefficient reads 0.41, the light taken for correlated noise, and the robust
     /// form 0.14. It is not immune (one sample in twenty moves it to 0.17), so the plate it reads has its stars subtracted.
@@ -2166,6 +2231,9 @@ public class StarInjectionTests(ITestOutputHelper output)
             chromaticWidth: new ChromaticWidth(1.3)));
         ex.Message.ShouldContain("wing relation clamp");
         ex.Message.ShouldContain("chromatic width");
+        // A held beta (or a drawn one, which plans as one) is the same: the clamp would move the wings it set.
+        Should.Throw<InvalidOperationException>(() => clamped.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1),
+            starBeta: new StarBeta(1.5))).Message.ShouldContain("star beta");
         clamped.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1)).Stars.ShouldNotBeEmpty();
         var free = BuildColourPopulation(field, TrendShape(), spreadSignificance: true);
         free.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1),
