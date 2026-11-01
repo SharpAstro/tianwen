@@ -61,6 +61,10 @@ param(
     # noise sigma, for a site); 0 (default) leaves the run, its fingerprint and its steps as they were.
     [double]$SpeckleWeight = 0,
     [double]$SpeckleSigma = 100,
+    # #1947: draw the training cells of the sessions listed in this file this many times as often (n2n_smoke.py
+    # --oversample-sessions, --oversample-factor); 1 (default) leaves the run, its rng stream and its fingerprint as they were.
+    [string]$OversampleSessions = '',
+    [double]$OversampleFactor = 1,
     # R2n: how many times the U-Net halves the tile (n2n_smoke.py --levels; 2, the default, is every model before R2n) and
     # the cap on any level's channels (--max-ch; 0 is none).
     [int]$Levels = 2,
@@ -104,7 +108,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, speckle weight $SpeckleWeight over $SpeckleSigma sigma, levels $Levels, channel cap $MaxCh, dihedral $Dihedral, ema $Ema, clip $ClipGrad, teacher '$Teacher', extra cache '$ExtraCache'" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, speckle weight $SpeckleWeight over $SpeckleSigma sigma, oversample $OversampleFactor of '$OversampleSessions', levels $Levels, channel cap $MaxCh, dihedral $Dihedral, ema $Ema, clip $ClipGrad, teacher '$Teacher', extra cache '$ExtraCache'" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -167,6 +171,10 @@ try {
             if ($ClipGrad -gt 0) { $mask.Add('--clip-grad'); $mask.Add($ClipGrad.ToString([cultureinfo]::InvariantCulture)) }
             if ($Teacher) { $mask.Add('--teacher'); $mask.Add($Teacher) }
             if ($ExtraCache) { $mask.Add('--extra-cache'); $mask.Add($ExtraCache) }
+            if ($OversampleFactor -ne 1) {
+                $mask.Add('--oversample-sessions'); $mask.Add($OversampleSessions)
+                $mask.Add('--oversample-factor'); $mask.Add($OversampleFactor.ToString([cultureinfo]::InvariantCulture))
+            }
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
