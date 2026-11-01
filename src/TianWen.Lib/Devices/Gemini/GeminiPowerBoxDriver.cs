@@ -37,8 +37,8 @@ internal sealed class GeminiPowerBoxDriver(GeminiPowerBoxDevice device, IService
 
     /// <summary>
     /// How long the reader waits for a frame before asking for status again (the box pushes every 3 s). A read given up
-    /// here loses nothing, since nothing was arriving. A test that moves the fake clock lengthens it, so the real clock
-    /// cannot ask for a frame in the middle.
+    /// here loses nothing, since nothing was arriving. The wait is on the injected clock, so a test that advances the
+    /// fake clock lengthens it past that advance, or the advance asks for a frame in the middle.
     /// </summary>
     internal TimeSpan RequestAgainAfter { get; set; } = TimeSpan.FromSeconds(6);
 

@@ -152,6 +152,26 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     }
 
     /// <summary>
+    /// <see cref="WaitForTimerDueAfterAsync"/> for a timer due no later than <paramref name="atMost"/> from now as well.
+    /// A test whose code under test keeps ANOTHER live deadline further out (a reader's silence timer, set past the
+    /// advance so that the advance cannot wake it) needs this: "a timer due after half the deadline" is then true of
+    /// that other deadline before the one under test has even been made, and an advance taken on that look fires nothing.
+    /// </summary>
+    public async Task WaitForTimerDueWithinAsync(TimeSpan atLeast, TimeSpan atMost, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var now = _fake.GetUtcNow().UtcTicks;
+            if (_recording.HasOneShotDueAfter(now + atLeast.Ticks, now + atMost.Ticks))
+            {
+                return;
+            }
+
+            await Task.Delay(1, cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// Drives <paramref name="loopTask"/> (a session loop started via <c>Task.Run</c> with
     /// <see cref="ExternalTimePump"/> = true) to completion by advancing fake time, PACED to the
     /// loop: it advances only while something is parked at a <see cref="SleepAsync"/> waiter, and
@@ -587,12 +607,15 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             return next;
         }
 
-        /// <summary>Whether a live one-shot timer is due after <paramref name="ticks"/> (UTC ticks) and will fire at all.</summary>
-        public bool HasOneShotDueAfter(long ticks)
+        /// <summary>
+        /// Whether a live one-shot timer is due after <paramref name="ticks"/> (UTC ticks), and no later than
+        /// <paramref name="atMost"/> when that is given, and will fire at all.
+        /// </summary>
+        public bool HasOneShotDueAfter(long ticks, long atMost = long.MaxValue - 1)
         {
             foreach (var (timer, _) in _timers)
             {
-                if (!timer.IsPeriodic && timer.NextDue > ticks && timer.NextDue != long.MaxValue)
+                if (!timer.IsPeriodic && timer.NextDue > ticks && timer.NextDue <= atMost && timer.NextDue != long.MaxValue)
                 {
                     return true;
                 }

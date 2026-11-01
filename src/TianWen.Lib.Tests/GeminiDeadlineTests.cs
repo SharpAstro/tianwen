@@ -35,6 +35,9 @@ public class GeminiDeadlineTests(ITestOutputHelper output)
         var send = GeminiFlatPanelProtocol.SetLightAsync(panel, on: true, clock, Long, ct).AsTask();
         await panel.WriteSeenAsync(ct);
         send.IsCompleted.ShouldBeFalse("nothing has acked and the clock has not moved");
+        // The ack deadline is made after the write, so the write seen is not yet the deadline made: an advance taken on it
+        // could pass the deadline before it exists, and then fire nothing.
+        await clock.WaitForTimerDueAfterAsync(Long / 2, ct);
         clock.Advance(Long);
 
         await send;
@@ -51,6 +54,8 @@ public class GeminiDeadlineTests(ITestOutputHelper output)
         var send = GeminiFocuserProtocol.SetTempCompAsync(focuser, enabled: true, clock, Long, ct).AsTask();
         await focuser.WriteSeenAsync(ct);
         send.IsCompleted.ShouldBeFalse("nothing has acked and the clock has not moved");
+        // As above: the ack deadline is made after the write.
+        await clock.WaitForTimerDueAfterAsync(Long / 2, ct);
         clock.Advance(Long);
 
         await send;
