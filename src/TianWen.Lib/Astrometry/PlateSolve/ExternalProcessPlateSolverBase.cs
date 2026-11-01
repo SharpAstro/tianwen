@@ -8,11 +8,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
 
-public abstract class ExternalProcessPlateSolverBase : IPlateSolver
+/// <param name="timeProvider">The clock every probe and path-translation timeout runs on, so a test's fake clock ends one when advanced past it.</param>
+public abstract class ExternalProcessPlateSolverBase(ITimeProvider timeProvider) : IPlateSolver
 {
     protected const PlatformID CygwinPlatformId = (PlatformID)('C' << 14 | 'y' << 7 | 'g');
 
@@ -62,8 +64,8 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
     }
 
     /// <summary>The one rule for every external tool (<see cref="BoundedProcess"/>): it never outlives the wait.</summary>
-    private protected static Task<bool> WaitForExitOrKillAsync(Process proc, TimeSpan? timeout, CancellationToken cancellationToken)
-        => BoundedProcess.WaitForExitOrKillAsync(proc, timeout, cancellationToken);
+    private protected Task<bool> WaitForExitOrKillAsync(Process proc, TimeSpan? timeout, CancellationToken cancellationToken)
+        => BoundedProcess.WaitForExitOrKillAsync(proc, timeout, timeProvider, cancellationToken);
 
     /// <inheritdoc/>
     public async Task<PlateSolveResult> SolveFileAsync(

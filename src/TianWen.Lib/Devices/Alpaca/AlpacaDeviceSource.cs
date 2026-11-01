@@ -16,7 +16,7 @@ namespace TianWen.Lib.Devices.Alpaca;
 /// each server's management API for configured devices. A local-only process
 /// (<see cref="LocalOnlyMode"/>) asks loopback alone, so a server on this machine (a simulator) is still found.
 /// </summary>
-internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDeviceSource> logger, LocalOnlyMode localOnly) : IDeviceSource<AlpacaDevice>
+internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDeviceSource> logger, LocalOnlyMode localOnly, ITimeProvider timeProvider) : IDeviceSource<AlpacaDevice>
 {
     internal const int AlpacaDiscoveryPort = 32227;
     private static readonly byte[] DiscoveryMessage = Encoding.ASCII.GetBytes("alpacadiscovery1");
@@ -30,7 +30,10 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
         : (new IPEndPoint(IPAddress.Loopback, 0), new IPEndPoint(IPAddress.Loopback, AlpacaDiscoveryPort));
 
     /// <summary>The discovery exchange over <see cref="DiscoveryEndpoints"/>. A seam for a test, which must not send it.</summary>
-    internal Func<IPEndPoint?, IPEndPoint, CancellationToken, Task<List<(string Host, int Port)>>> AskForServersAsync { get; init; } = DiscoverServersAsync;
+    internal Func<IPEndPoint?, IPEndPoint, CancellationToken, Task<List<(string Host, int Port)>>> AskForServersAsync { get; init; } = (bind, target, ct) => DiscoverServersAsync(bind, target, timeProvider, DefaultAnswerWindow, ct);
+
+    /// <summary>How long discovery listens for answers to its broadcast.</summary>
+    internal static readonly TimeSpan DefaultAnswerWindow = TimeSpan.FromSeconds(2);
 
     private static readonly HashSet<DeviceType> SupportedDeviceTypes =
     [
@@ -107,7 +110,7 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
     /// binds one on every interface when null) and collects server responses.
     /// Resolves IP addresses to hostnames via reverse DNS for stable identification.
     /// </summary>
-    private static async Task<List<(string Host, int Port)>> DiscoverServersAsync(IPEndPoint? bind, IPEndPoint target, CancellationToken cancellationToken)
+    internal static async Task<List<(string Host, int Port)>> DiscoverServersAsync(IPEndPoint? bind, IPEndPoint target, ITimeProvider timeProvider, TimeSpan answerWindow, CancellationToken cancellationToken)
     {
         var servers = new List<(string Host, int Port)>();
 
@@ -118,9 +121,9 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
 
             await udpClient.SendAsync(DiscoveryMessage, target, cancellationToken);
 
-            // Wait for responses with a timeout
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(2));
+            // Wait for responses until the window closes, on the injected clock.
+            using var window = timeProvider.CancelAfter(answerWindow);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, window.Token);
 
             while (!timeoutCts.Token.IsCancellationRequested)
             {

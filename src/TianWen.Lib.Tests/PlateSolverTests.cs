@@ -26,7 +26,7 @@ public class PlateSolverTests(ITestOutputHelper output)
             return new CatalogPlateSolver(db, NullLogger.Instance);
         }
 
-        return (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
+        return (Activator.CreateInstance(solverType, SystemTimeProvider.Instance) as IPlateSolver).ShouldNotBeNull();
     }
 
     [Theory]

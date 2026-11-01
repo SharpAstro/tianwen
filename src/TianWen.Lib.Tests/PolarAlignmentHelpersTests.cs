@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing.PolarAlignment;
 using Xunit;
@@ -30,7 +31,7 @@ namespace TianWen.Lib.Tests
 
             // minStarsRefine: -1 disables the relaxed-threshold rung tracking;
             // these tests only assert the strict-threshold path.
-            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, CancellationToken.None);
+            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, SystemTimeProvider.Instance, CancellationToken.None);
 
             result.Success.ShouldBeTrue();
             result.ExposureUsed.ShouldBe(TimeSpan.FromMilliseconds(100));
@@ -43,7 +44,7 @@ namespace TianWen.Lib.Tests
             var ramp = ImmutableArray.Create(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(500));
             var source = new ScriptedCaptureSource([(false, 0), (false, 5), (true, 20)]);
 
-            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, CancellationToken.None);
+            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, SystemTimeProvider.Instance, CancellationToken.None);
 
             result.Success.ShouldBeTrue();
             result.ExposureUsed.ShouldBe(TimeSpan.FromMilliseconds(500));
@@ -57,7 +58,7 @@ namespace TianWen.Lib.Tests
             // First rung "solves" but only 10 stars (< minStarsMatched=15) -> advance.
             var source = new ScriptedCaptureSource([(true, 10), (true, 25)]);
 
-            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, CancellationToken.None);
+            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, SystemTimeProvider.Instance, CancellationToken.None);
 
             result.Success.ShouldBeTrue();
             result.StarsMatched.ShouldBe(25);
@@ -71,7 +72,7 @@ namespace TianWen.Lib.Tests
             var ramp = ImmutableArray.Create(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(5));
             var source = new ScriptedCaptureSource([(false, 0), (false, 3), (false, 7)]);
 
-            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, CancellationToken.None);
+            var result = await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, SystemTimeProvider.Instance, CancellationToken.None);
 
             result.Success.ShouldBeFalse();
             result.ExposureUsed.ShouldBe(TimeSpan.FromSeconds(5)); // last attempted rung
@@ -87,7 +88,7 @@ namespace TianWen.Lib.Tests
             cts.Cancel();
 
             await Should.ThrowAsync<OperationCanceledException>(async () =>
-                await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, cts.Token));
+                await AdaptiveExposureRamp.ProbeAsync(source, NullPlateSolver.Instance, ramp, minStarsMatched: 15, SystemTimeProvider.Instance, cts.Token));
         }
 
         // --- CaptureSourceRanker ---

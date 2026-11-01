@@ -720,7 +720,7 @@ internal sealed class GuideLoop
             // Final save on shutdown
             if (_profileFolder is not null && _neuralModel is not null && _calibration is not null)
             {
-                using var saveCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var saveCts = _timeProvider.CancelAfter(TimeSpan.FromSeconds(5));
                 try
                 {
                     await NeuralGuideModelPersistence.SaveAsync(

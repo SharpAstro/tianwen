@@ -1,6 +1,7 @@
 ﻿using TianWen.Lib.Imaging;
 using System;
 using System.IO;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
 
@@ -9,7 +10,7 @@ internal abstract class AstrometryNetPlateSolver : ExternalProcessPlateSolverBas
     private readonly string? _commandFolder;
     private readonly PlatformID _commandPlatform;
 
-    public AstrometryNetPlateSolver(bool supportCygwin)
+    public AstrometryNetPlateSolver(bool supportCygwin, ITimeProvider timeProvider) : base(timeProvider)
     {
         var maybeLocalAstrometryInstall = supportCygwin && Environment.OSVersion.Platform == PlatformID.Win32NT
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Astrometry", "bin")

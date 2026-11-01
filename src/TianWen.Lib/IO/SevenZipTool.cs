@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.IO;
 
@@ -16,22 +17,22 @@ public readonly record struct ArchiveMember(string Path, long Size);
 /// The 7-Zip command line, for the planetary corpus's archives (docs/plans/planetary-restoration.md, R0): list an
 /// archive's members, read a member's first bytes (a SER header) without unpacking it, and unpack one member at a time,
 /// so a 145 GB archive never needs 145 GB free. Every call is bounded (<see cref="BoundedProcess"/>): the tool never
-/// outlives the call.
+/// outlives the call. Every timeout runs on the <paramref name="timeProvider"/> its creator hands over.
 /// </summary>
-public sealed class SevenZipTool(string executable)
+public sealed class SevenZipTool(string executable, ITimeProvider timeProvider)
 {
     /// <summary>The <c>7z</c> this runs.</summary>
     public string Executable { get; } = executable;
 
     /// <summary>
     /// The 7-Zip to use: <paramref name="explicitPath"/> when given, else <c>7z</c> on the PATH, else the default
-    /// Windows install. Null when there is none.
+    /// Windows install. Null when there is none. The tool's timeouts run on <paramref name="timeProvider"/>.
     /// </summary>
-    public static SevenZipTool? Find(string? explicitPath = null)
+    public static SevenZipTool? Find(ITimeProvider timeProvider, string? explicitPath = null)
     {
         if (!string.IsNullOrEmpty(explicitPath))
         {
-            return File.Exists(explicitPath) ? new SevenZipTool(explicitPath) : null;
+            return File.Exists(explicitPath) ? new SevenZipTool(explicitPath, timeProvider) : null;
         }
         var names = OperatingSystem.IsWindows() ? new[] { "7z.exe" } : new[] { "7z", "7zz", "7za" };
         foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
@@ -41,7 +42,7 @@ public sealed class SevenZipTool(string executable)
                 var candidate = Path.Combine(directory, name);
                 if (File.Exists(candidate))
                 {
-                    return new SevenZipTool(candidate);
+                    return new SevenZipTool(candidate, timeProvider);
                 }
             }
         }
@@ -52,7 +53,7 @@ public sealed class SevenZipTool(string executable)
                 var candidate = Path.Combine(Environment.GetFolderPath(folder), "7-Zip", "7z.exe");
                 if (File.Exists(candidate))
                 {
-                    return new SevenZipTool(candidate);
+                    return new SevenZipTool(candidate, timeProvider);
                 }
             }
         }
@@ -64,7 +65,7 @@ public sealed class SevenZipTool(string executable)
     {
         using var process = Start(["l", "-slt", "-ba", archive], redirectOutput: true);
         var listing = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        if (!await BoundedProcess.WaitForExitOrKillAsync(process, timeout, cancellationToken).ConfigureAwait(false))
+        if (!await BoundedProcess.WaitForExitOrKillAsync(process, timeout, timeProvider, cancellationToken).ConfigureAwait(false))
         {
             throw new TimeoutException($"7-Zip did not list {archive} within {timeout.TotalSeconds:0} s");
         }
@@ -84,7 +85,7 @@ public sealed class SevenZipTool(string executable)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         using var process = Start(["e", "-so", archive, member], redirectOutput: true);
-        using var timeoutCts = new CancellationTokenSource(timeout, TimeProvider.System);
+        using var timeoutCts = timeProvider.CancelAfter(timeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
         var buffer = new byte[count];
         var read = 0;
@@ -119,7 +120,7 @@ public sealed class SevenZipTool(string executable)
         Directory.CreateDirectory(directory);
         using var process = Start(["e", "-y", "-o" + directory, archive, member], redirectOutput: true);
         var drain = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        await BoundedProcess.WaitForExitOrKillAsync(process, timeout: null, cancellationToken).ConfigureAwait(false);
+        await BoundedProcess.WaitForExitOrKillAsync(process, timeout: null, timeProvider, cancellationToken).ConfigureAwait(false);
         await drain.ConfigureAwait(false);
         var landed = Path.Combine(directory, Path.GetFileName(member.Replace('\\', '/')));
         if (process.ExitCode != 0 || !File.Exists(landed))

@@ -40,9 +40,11 @@ public static class AstrometryServiceCollectionExtensions
         .AddSingleton<IPlateSolver>(sp => new CatalogPlateSolver(
             sp.GetRequiredService<ICelestialObjectDB>(),
             sp.GetRequiredService<ILogger<CatalogPlateSolver>>()))
-        .AddSingleton<IPlateSolver, AstapPlateSolver>()
-        .AddSingleton<IPlateSolver, AstrometryNetPlateSolverMultiPlatform>()
-        .AddSingleton<IPlateSolver, AstrometryNetPlateSolverUnix>()
+        // The three external solvers' probe and path-translation timeouts run on the host's clock; a host with none still composes,
+        // as Nova's does, on the system clock.
+        .AddSingleton<IPlateSolver>(sp => new AstapPlateSolver(sp.GetService<ITimeProvider>() ?? SystemTimeProvider.Instance))
+        .AddSingleton<IPlateSolver>(sp => new AstrometryNetPlateSolverMultiPlatform(sp.GetService<ITimeProvider>() ?? SystemTimeProvider.Instance))
+        .AddSingleton<IPlateSolver>(sp => new AstrometryNetPlateSolverUnix(sp.GetService<ITimeProvider>() ?? SystemTimeProvider.Instance))
         // The blind solve of last resort, offered only where the user has stored a key; a host with no credential store
         // (or no clock of its own) still composes, with the solver never offered.
         .AddSingleton<IPlateSolver>(sp => new NovaAstrometryPlateSolver(

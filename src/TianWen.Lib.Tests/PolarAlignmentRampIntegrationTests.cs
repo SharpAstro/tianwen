@@ -103,6 +103,7 @@ public class PolarAlignmentRampIntegrationTests(ITestOutputHelper output)
         var result = await AdaptiveExposureRamp.ProbeAsync(
             source, solver, ramp,
             minStarsMatched: 40,
+            timeProvider,
             ct, progress: null, logger: logger);
 
         // The result is whatever the ramp settled on. The hard requirement is

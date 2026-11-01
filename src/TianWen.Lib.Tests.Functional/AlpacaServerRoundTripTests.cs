@@ -135,7 +135,7 @@ namespace TianWen.Lib.Tests.Functional
             _folders.Dispose();
         }
 
-        private AlpacaClient NewAlpacaClient() => new AlpacaClient(new HttpClient());
+        private AlpacaClient NewAlpacaClient() => new AlpacaClient(new HttpClient(), SystemTimeProvider.Instance);
 
         // -----------------------------------------------------------------------------------------
         // Management API -- how a client discovers what the node offers

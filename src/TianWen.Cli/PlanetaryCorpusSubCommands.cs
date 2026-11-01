@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.IO;
 
@@ -16,7 +17,7 @@ namespace TianWen.Cli;
 /// <c>planetary crop</c> cuts a SER, or every SER in an archive, to a window tracked on its disk. They only read their
 /// sources, and every write keeps the drive's reserve free.
 /// </summary>
-internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogger<PlanetaryCorpusSubCommands> logger)
+internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogger<PlanetaryCorpusSubCommands> logger, ITimeProvider timeProvider)
 {
     private static Option<string> KeepFreeOption() => new Option<string>("--keep-free")
     {
@@ -69,7 +70,7 @@ internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogg
                 consoleHost.WriteError($"--keep-free must be a size such as 109G; got '{parseResult.GetValue(keepFreeOpt)}'");
                 return 1;
             }
-            var sevenZip = SevenZipTool.Find(parseResult.GetValue(sevenZipOpt));
+            var sevenZip = SevenZipTool.Find(timeProvider, parseResult.GetValue(sevenZipOpt));
             if (sevenZip is null)
             {
                 consoleHost.WriteScrollable("No 7-Zip found: archives are listed as unread.");
@@ -160,7 +161,7 @@ internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogg
 
             if (source.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
             {
-                if (SevenZipTool.Find(parseResult.GetValue(sevenZipOpt)) is not { } sevenZip)
+                if (SevenZipTool.Find(timeProvider, parseResult.GetValue(sevenZipOpt)) is not { } sevenZip)
                 {
                     consoleHost.WriteError("No 7-Zip found to unpack the archive with; pass --7z");
                     return 1;

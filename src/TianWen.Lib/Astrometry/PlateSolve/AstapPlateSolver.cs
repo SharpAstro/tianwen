@@ -2,10 +2,11 @@
 using System;
 using System.IO;
 using System.Text;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
 
-internal class AstapPlateSolver : ExternalProcessPlateSolverBase
+internal class AstapPlateSolver(ITimeProvider timeProvider) : ExternalProcessPlateSolverBase(timeProvider)
 {
     public override string Name => "ASTAP Plate Solver";
 
