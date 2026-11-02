@@ -1000,6 +1000,7 @@ internal partial record Session
             await mount.Driver.SyncRaDecJ2000Async(wcs.CenterRA, wcs.CenterDec, cancellationToken);
 
             _logger.LogInformation("Plate solve: mount synced to solved position.");
+            NoteMountSyncedBySolve();
             RecordPlateSolve(context, telescope.Name, succeeded: true, solution: wcs, result);
             return (true, wcs.CenterRA, wcs.CenterDec);
         }
