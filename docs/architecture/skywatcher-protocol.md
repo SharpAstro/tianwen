@@ -103,8 +103,12 @@ logged and the call returns) or `SendCommandVerifiedAsync` (below).
 
 `InitDeviceAsync`, after the transport opens:
 
-1. `:e1`. **The only gate:** no parseable reply, and the connect fails.
-2. `:q1010000`, `:a1`, `:a2`, `:b1`, `:s1`, `:s2`, `:g1`, `:j1`, `:j2`. Each unanswered read leaves its
+1. `:e1`. **A gate:** no parseable reply, and the connect fails. So does a `:f` with no valid reply at steps 2
+   and 3, which throws since #1956.
+2. `:q1010000`, `:a1`, `:a2`, `:b1`, `:s1`, `:s2`, `:g1`, then `:f1` / `:f2`: an axis still running a GOTO is stopped
+   and waited for (`StopAxisAndWaitAsync`) before `:j1`, `:j2`, so a reconnect never reads positions off a moving mount
+   or has its next `:G` refused `!2`. A tracking or constant-speed axis keeps running (#1955; GSServer's
+   `AxesStopValidate` stops both). Each other unanswered read leaves its
    field at the default (CPR 0, timer 0, ratio 16, worm 0, position 0) and **the connect still succeeds**.
 3. Per axis, `:f`, and `:F1` / `:F2` only where the init bit is clear (GSServer's `InitializeAxes`); an axis the
    handset, the app or an earlier connect initialised is left alone. Then `:P1` and `:P2` with the default rate,
@@ -234,9 +238,9 @@ read that returns a value where [`driver-resilience.md`](driver-resilience.md) r
 
 | Member | Wire | Connected, no valid reply |
 |--------|------|---------------------------|
-| `IsSlewingAsync` | `:f1`, `:f2`; may send a refinement pass and the tracking start | **Violation.** `QueryAxisStatusAsync` answers "stopped, not tracking", so mid-slew it reads not slewing; with a goto pending and the grace spent it runs the refinement from stale positions and may stop the axes and re-goto. Fix: `QueryAxisStatusAsync` throws `IOException` |
-| `IsTrackingAsync` | `:f1` | **Violation.** `false`: an RA pulse then takes the stopped-axis branch and its verified `:K1` stops tracking; two such polls latch `DriverEnforcedStop`. Fix: as above |
-| `SetTrackingAsync(true)` | `:f1`, then `:I1`, or `:G1` `:I1` `:J1` | a lost `:f1` takes the restart branch, whose `:G1` a running axis refuses (logged only); silently does nothing while CPR or the timer frequency is 0 |
+| `IsSlewingAsync` | `:f1`, `:f2`; may send a refinement pass and the tracking start | throws `IOException` (#1956): `QueryAxisStatusAsync` faults a connected axis whose `:f` gives no valid reply, as GSServer's `SlewFault` does. It used to answer "stopped, not tracking", which ended a slew-wait mid-slew |
+| `IsTrackingAsync` | `:f1` | throws `IOException`, as above. It used to answer `false`, and an RA pulse then took the stopped-axis branch and its verified `:K1` stopped tracking |
+| `SetTrackingAsync(true)` | `:f1`, then `:I1`, or `:G1` `:I1` `:J1` | a lost `:f1` throws `IOException`; silently does nothing while CPR or the timer frequency is 0 |
 | `SetTrackingAsync(false)`, `AbortSlewAsync`, `SyncRaDecAsync`, `CameraSnapAsync`, guide-rate setters | `:K1`; `:L1` `:L2`; `:E1` `:E2`; `:O1`; `:P1` (`:P2` for Dec) | best-effort: logged, returns; a sync updates the cache as though it took |
 | `GetRightAscensionAsync`, `GetDeclinationAsync`, `GetTargetRightAscensionAsync`, `GetTargetDeclinationAsync`, `GetHourAngleAsync` | `:j1` / `:j2` (the target getters read the current position) | **Violation.** The cached steps of the last good read, converted at the current LST (a stale RA also drifts); 0 steps if never read. A non-hex `=` reply throws `FormatException`, not transient. Fix: throw `IOException` when the reply does not parse |
 | `GetAxisPositionAsync` | `:j` | **Violation.** `null`, the interface's "no encoder data". Fix: throw instead |
@@ -290,16 +294,16 @@ pointing the fake camera renders (`GetTruePointingNativeAsync`) adds polar misal
 terms of [`fake-disturbance-model.md`](fake-disturbance-model.md), and it overrides `SyncRaDecAsync` and
 `BeginSlewRaDecAsync` only to re-anchor that model. Because the fake executes whatever step targets it is
 given and reports the driver's own model back, it cannot catch an error in the axis convention itself.
-Tests: `SkywatcherProtocolTests`, `SkywatcherAxisInitTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
+Tests: `SkywatcherProtocolTests`, `SkywatcherAxisStatusTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
 `SkywatcherGuideRateTests`, `SkywatcherSerialProbeTests`, `FakeSkywatcherMountDriverTests`.
 
 ## Known issues
 
-- **The #810 violations tabled above.** The worst are `QueryAxisStatusAsync`'s "stopped" fallback (it
-  feeds `IsSlewingAsync`, `IsTrackingAsync` and every stop-wait) and `GetSideOfPierAsync`'s `Normal`.
+- **The #810 violations tabled above.** The worst left is `GetSideOfPierAsync`'s `Normal`; the axis status
+  (`QueryAxisStatusAsync`, which feeds `IsSlewingAsync`, `IsTrackingAsync` and every stop-wait) throws since #1956.
 - **Nothing pairs a reply with its command**, and nothing drains the input before a command: a reply that
   arrives after its read gave up is taken as the next command's answer.
-- **A half-initialised connect succeeds.** Only `:e1` gates it; a lost `:a` or `:b` leaves CPR or the timer
+- **A half-initialised connect succeeds.** Only `:e1` and `:f` gate it; a lost `:a` or `:b` leaves CPR or the timer
   at 0, after which slews throw `InvalidOperationException` and `SetTrackingAsync(true)` does nothing.
 - **Two stop-waits time out silently**: `StopAxisAndWaitAsync` and the Dec micro-goto wait log after 3.5 s
   and return as though stopped (left deliberately, finding 3 of the audit).

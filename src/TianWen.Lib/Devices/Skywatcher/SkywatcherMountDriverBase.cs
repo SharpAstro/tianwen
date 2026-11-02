@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1520,6 +1521,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 }
             }
 
+            // A reconnect can find a goto still running: stop it before the positions are read, so they are not read off a
+            // moving mount and the next :G is not refused with !2. Only a GOTO: a tracking or constant-speed axis keeps
+            // running, so a reconnect mid-run keeps tracking (#1955, the owner's choice; GSServer's AxesStopValidate stops both).
+            await StopGotoOnConnectAsync('1', cancellationToken);
+            await StopGotoOnConnectAsync('2', cancellationToken);
+
             // Query current positions
             var posRaResponse = await SendAndReceiveAsync('j', '1', null, cancellationToken);
             if (SkywatcherProtocol.TryParseResponse(posRaResponse, out var posRaData) && posRaData.Length >= 6)
@@ -1718,6 +1725,17 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         Logger.LogWarning("Skywatcher axis {Axis} did not reach full stop within {TimeoutSeconds:F1}s", axisChar, timeout.TotalSeconds);
     }
 
+    /// <summary>Stops one axis and waits for it when <c>:f</c> says it is running a GOTO; a constant-speed axis is left running.</summary>
+    private async ValueTask StopGotoOnConnectAsync(char axis, CancellationToken cancellationToken)
+    {
+        var status = await QueryAxisStatusAsync(axis, cancellationToken);
+        if (status.IsRunning && !status.IsTracking)
+        {
+            Logger.LogWarning("Skywatcher axis {Axis} was running a goto when connected; stopping it before reading its position", axis);
+            await StopAxisAndWaitAsync(axis, cancellationToken);
+        }
+    }
+
     /// <summary>
     /// Sends <c>:F</c> to one axis when its <c>:f</c> init bit is clear, and says what it found and did. An axis that is
     /// already initialised (the handset, the app or an earlier connect did it) is left alone.
@@ -1760,6 +1778,14 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var isInitDone = (n2 & 0x01) != 0;
             var isHighSpeed = (n0 & 0x04) != 0;
             return new AxisStatus(isRunning, isRunning && isConstantSpeed, isForward, isInitDone, isHighSpeed);
+        }
+
+        // A connected board that gives no valid status is a transient FAULT, never "stopped" (#810, #1956): the made-up
+        // "stopped" ended a slew-wait mid-slew and read a tracking mount as stopped. GSServer faults the slew the same way
+        // (SlewFault). The session's resilience layer retries or reconnects on the throw. Not connected keeps the neutral value.
+        if (_deviceInfo.SerialDevice is { IsOpen: true })
+        {
+            throw new IOException($"Skywatcher axis {axis} status :f{axis} got no valid reply ({response ?? "none"})");
         }
         return new AxisStatus(false, false, true, false);
     }
