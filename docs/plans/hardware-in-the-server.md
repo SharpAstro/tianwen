@@ -669,6 +669,13 @@ hardware server must survive its parent:
   (`PowerCreateRequest` + `PowerRequestSystemRequired`, never the per-thread `SetThreadExecutionState`), macOS a
   `caffeinate -i -w <node pid>` child, Linux a `systemd-inhibit` around `tail --pid=<node pid>`; a tool that is
   absent is logged once and the node goes on without.
+  **If the machine suspends anyway, the mounts are stopped first where the OS gives notice** (`NodeSuspendStop`,
+  `ISuspendNotice`): Windows registers `PowerRegisterSuspendResumeNotification` with a callback (no window, AOT-clean),
+  and on `PBT_APMSUSPEND` every connected mount in the hub, leased or not, gets `AbortSlewAsync`, `MoveAxisAsync(axis, 0)`
+  on both axes and `SetTrackingAsync(false)`, in parallel, each through `CatchAsync` and all inside a 1.5 s budget on the
+  injected clock (Windows allows about 2 s). The ownership exception is stated in `device-ownership.md`. On resume it
+  logs that tracking must be restarted; nothing restarts it. Linux and macOS give no notice without D-Bus or a run loop,
+  so they say so once and rely on the inhibitor above.
 - **Version skew**: the GUI and the server ship together, but an older server may still be running from
   before an update (or a newer one, after a downgrade). The handshake compares wire versions. An idle
   server of another version is asked to exit and a new one spawned. **So is an idle one of the same wire but

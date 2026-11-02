@@ -35,6 +35,9 @@ releasing it only after restoring the mount. Every new kind of run owes the same
 - **`force: true` is for process shutdown only.** Note that GUI "Force Off" does **not** force past
   ownership: it means "skip the warm-up", which is what the user confirmed; consenting to a cold
   disconnect is not consenting to kill the night.
+  **The second exception is a suspend notice** (`NodeSuspendStop`, #1957): on Windows the node aborts the slew, stops both
+  axes and stops tracking on every connected mount, LEASED ones included, since the OS is about to freeze the run's process
+  and a mount left moving would drive on unwatched. Bounded by 1.5 s; nothing restarts on resume.
 - **Stopping the rig is ONE order, `RigShutdown`** (`TianWen.UI.Abstractions`, a node client since P6):
   the node's run first, through its own ending (a session's and a flat run's `Finalise`, polar's mount
   restore), and the devices warmed up and disconnected, as the node's jobs, only once the node says the run

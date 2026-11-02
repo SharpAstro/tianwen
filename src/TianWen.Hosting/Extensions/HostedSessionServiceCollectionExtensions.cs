@@ -51,6 +51,16 @@ public static class HostedSessionServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Stops every connected mount's axes and tracking when the OS says the computer is about to suspend
+    /// (<see cref="NodeSuspendStop"/>, #1957); on a platform that gives no notice it says so once and does nothing.
+    /// </summary>
+    public static IServiceCollection AddNodeSuspendStop(this IServiceCollection services)
+    {
+        services.TryAddSingleton<TianWen.Lib.IO.ISuspendNotice>(TianWen.Lib.IO.SuspendNotices.ForThisOs);
+        return services.AddHostedService<NodeSuspendStop>();
+    }
+
+    /// <summary>
     /// Registers the hosted session service, WebSocket event hub, and event broadcaster.
     /// </summary>
     public static IServiceCollection AddHostedSession(this IServiceCollection services)

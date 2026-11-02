@@ -126,6 +126,9 @@ using (held)
     // The computer stays awake while the node holds hardware, whoever started it (#1957).
     builder.Services.AddNodeKeepsAwake();
 
+    // If it suspends anyway, the mounts are stopped first where the OS says so (#1957).
+    builder.Services.AddNodeSuspendStop();
+
     // A local client may take a stream's frames through shared memory (P4b): sections named after the socket this node holds.
     builder.Services.AddNodeSharedMemory(held);
 
