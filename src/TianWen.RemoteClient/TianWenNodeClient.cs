@@ -737,6 +737,14 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/park", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
                 HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>POST /devices/mount/restore-position</c> -- restores the position of a mount that lost it (#1954), as a job.
+        /// </summary>
+        public Task<NodeResult<JobDto>> RestoreMountPositionAsync(Uri deviceUri, MountPositionRestore how, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/restore-position",
+                new MountRestorePositionRequestDto { DeviceUri = deviceUri.ToString(), How = how },
+                HostingJsonContext.Default.MountRestorePositionRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>POST /devices/mount/unpark</c> -- unparks the mount, as a job.</summary>
         public Task<NodeResult<JobDto>> UnparkMountAsync(Uri deviceUri, CancellationToken cancellationToken) =>
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/mount/unpark", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },

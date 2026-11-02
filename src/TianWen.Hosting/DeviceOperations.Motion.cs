@@ -26,6 +26,7 @@ internal sealed partial class DeviceOperations
     internal const string UnparkJob = "unpark";
     internal const string HomeJob = "home";
     internal const string NudgeJob = "nudge";
+    internal const string RestorePositionJob = "restore-position";
 
     /// <summary>How often a job asks a moving device whether it has settled.</summary>
     private static readonly TimeSpan SettlePoll = TimeSpan.FromMilliseconds(250);
@@ -263,6 +264,10 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot park");
         }
+        if (mount.PositionLoss is { } lost)
+        {
+            return ResponseEnvelope<JobDto>.Fail(lost.Refuse(name, "Parking"), 409);
+        }
 
         return Start(ParkJob, uri, name, $"Parking {name}", async (step, ct) =>
         {
@@ -320,6 +325,10 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} cannot go home by itself");
         }
+        if (mount.PositionLoss is { } lost)
+        {
+            return ResponseEnvelope<JobDto>.Fail(lost.Refuse(name, "Going home"), 409);
+        }
 
         return Start(HomeJob, uri, name, "Going home", async (step, ct) =>
         {
@@ -355,6 +364,32 @@ internal sealed partial class DeviceOperations
         {
             await mount.SetTrackingAsync(false, ct);
         }
+    }
+
+    /// <summary>
+    /// Restores the position of a mount that lost it (#1954), as a job: the operator's word for where it is, from the position
+    /// it last knew or from home (a sync to a plate solve restores it too). Refused when the position is not lost.
+    /// </summary>
+    public ResponseEnvelope<JobDto> RestorePosition(MountRestorePositionRequestDto request)
+    {
+        if (!TryIdle<IMountDriver>(request.DeviceUri, "mount", out var uri, out var mount, out var refused))
+        {
+            return refused.Value.As<JobDto>();
+        }
+        var name = NameOf(uri);
+        if (mount.PositionLoss is null)
+        {
+            return ResponseEnvelope<JobDto>.Fail($"{name} has not lost its position", 409);
+        }
+
+        var how = request.How;
+        return Start(RestorePositionJob, uri, name, $"Restoring the position of {name}", async (step, ct) =>
+        {
+            await mount.RestorePositionAsync(how, ct);
+            return how is MountPositionRestore.AtHome
+                ? $"{name} is at home"
+                : $"{name} is back at the position it last knew";
+        });
     }
 
     /// <summary>Makes where the mount points now its park position, at once.</summary>

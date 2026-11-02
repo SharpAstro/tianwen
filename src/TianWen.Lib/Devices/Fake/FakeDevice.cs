@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Collections.Specialized;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -150,7 +151,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
                 => new FakeSgpSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, SiteLatitude >= 0, true),
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
-                => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true, SlewStartLatency),
+                => SkywatcherBoard(logger, encoding, timeProvider),
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "OnStep", StringComparison.OrdinalIgnoreCase)
                 => new FakeOnStepSerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true,
                     staleCommandBuffer: string.Equals(Query.QueryValue(DeviceQueryKey.StaleCommandBuffer), "true", StringComparison.OrdinalIgnoreCase),
@@ -159,6 +160,26 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
                 => new FakeMeadeLX200SerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
             _ => null
         });
+
+    // The SkyWatcher board is the PHYSICAL mount: it keeps its motion, encoders and init bits across a disconnect, so every
+    // connect of one device instance gets the same board, opened again (a goto still running at a reconnect, #1955; a power
+    // cycle between connects, #1954). Keyed by the instance, never the URI, so two tests sharing a URI never share a mount, and
+    // kept only for a connect on the board's own clock: a test class that holds its device in a static field connects it once
+    // per test, each on a clock of its own, and a board left on the previous test's stopped clock never moves again.
+    private static readonly ConditionalWeakTable<FakeDevice, FakeSkywatcherSerialDevice> _skywatcherBoards = new();
+
+    private FakeSkywatcherSerialDevice SkywatcherBoard(ILogger logger, Encoding? encoding, ITimeProvider timeProvider)
+    {
+        if (_skywatcherBoards.TryGetValue(this, out var board) && ReferenceEquals(board.TimeProvider, timeProvider))
+        {
+            board.Reopen();
+            return board;
+        }
+
+        board = new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true, SlewStartLatency);
+        _skywatcherBoards.AddOrUpdate(this, board);
+        return board;
+    }
 
     [JsonIgnore]
     /// <summary>See <see cref="DeviceQueryKey.SlewStartLatencyMs"/>; zero unless the URI asks for a slow-starting controller.</summary>

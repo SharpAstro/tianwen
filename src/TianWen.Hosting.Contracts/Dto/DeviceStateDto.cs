@@ -294,6 +294,9 @@ public sealed record MountDeviceStateDto
     /// <summary>Whether the mount says it is parked (<see cref="MountState.AtPark"/>).</summary>
     public bool AtPark { get; init; }
 
+    /// <summary>What happened to a mount that lost its position (<see cref="MountState.PositionLost"/>); null while it is known.</summary>
+    public string? PositionLost { get; init; }
+
     public static MountDeviceStateDto FromState(MountState state, MountLimitVerdict? verdict) => new MountDeviceStateDto
     {
         TrackingRate = state.TrackingRate,
@@ -307,6 +310,7 @@ public sealed record MountDeviceStateDto
         IsTracking = state.IsTracking,
         AtHome = state.AtHome,
         AtPark = state.AtPark,
+        PositionLost = state.PositionLost,
         Limit = verdict is { } v ? MountLimitDto.FromVerdict(v) : null,
     };
 
@@ -324,6 +328,7 @@ public sealed record MountDeviceStateDto
         RaJ2000: RaJ2000 ?? double.NaN,
         DecJ2000: DecJ2000 ?? double.NaN,
         TrackingRate: TrackingRate,
+        PositionLost: PositionLost,
         AtHome: AtHome,
         AtPark: AtPark);
 }

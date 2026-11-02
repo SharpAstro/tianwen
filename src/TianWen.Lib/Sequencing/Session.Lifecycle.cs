@@ -241,7 +241,14 @@ internal partial record Session
 
         _currentActivity = "Parking mount\u2026";
         _logger.LogInformation("Finalise: parking mount...");
-        bool parkInitiated = Catch(() => mount.Driver.CanPark) && await CatchAsync(mount.Driver.ParkAsync, cancellationToken).ConfigureAwait(false);
+        // Never a mount whose position is unknown or unconfirmed after a power loss: a park from there goes wherever that
+        // position is not (#1954).
+        var parkPositionKnown = !Volatile.Read(ref _positionLostEndsRun);
+        if (!parkPositionKnown)
+        {
+            _logger.LogWarning("Finalise: not parking {Mount}: its position after the power loss is not confirmed.", mount.Driver.Name);
+        }
+        bool parkInitiated = parkPositionKnown && Catch(() => mount.Driver.CanPark) && await CatchAsync(mount.Driver.ParkAsync, cancellationToken).ConfigureAwait(false);
 
         var parkCompleted = parkInitiated && await CatchAsync(async cancellationToken =>
         {

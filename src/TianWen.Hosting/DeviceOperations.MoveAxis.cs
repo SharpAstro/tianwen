@@ -89,6 +89,11 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail($"{name} does not move its {axis} axis at {Math.Abs(rate)} degrees a second");
         }
+        // A stop stays allowed; a move of a mount that lost its position is refused (#1954).
+        if (rate != 0 && mount.PositionLoss is { } lost)
+        {
+            return ResponseEnvelope<JobDto>.Fail(lost.Refuse(name, "Moving the mount"), 409);
+        }
 
         var now = timeProvider.GetTimestamp();
         if (jobs.TryGetRunningOn(uri, out var running))

@@ -142,6 +142,12 @@ internal partial record Session
                     {
                         _logger.LogWarning("Centering on {Target} did not converge, continuing with current pointing.", observation.Target);
                     }
+
+                    // After a power loss the restored position stands only once a plate solve has synced the mount (#1954).
+                    if (!await ConfirmRestoredPositionAsync(mount.Driver, cancellationToken))
+                    {
+                        break;
+                    }
                 }
                 else
                 {
@@ -614,6 +620,25 @@ internal partial record Session
             {
                 _logger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 next = ImageLoopNextAction.BreakObservationLoop;
+                break;
+            }
+
+            // The mount lost its position and the run was told to end (#1954): drain the writes and stop, under the reason the
+            // prompt's answer left in FailureReason.
+            if (Volatile.Read(ref _positionLostEndsRun))
+            {
+                _logger.LogError("The mount lost its position and it was not restored; ending the observation.");
+                await WriteQueuedImagesToFitsFilesAsync();
+                next = ImageLoopNextAction.DeviceUnrecoverable;
+                break;
+            }
+
+            // It lost its position and it was restored: the power loss stopped tracking, so point the target again.
+            if (Interlocked.Exchange(ref _repointAfterPositionRestore, 0) == 1)
+            {
+                _logger.LogWarning("The mount's position was restored; pointing {Observation} again.", observation);
+                await WriteQueuedImagesToFitsFilesAsync();
+                next = ImageLoopNextAction.RepeatCurrentObservation;
                 break;
             }
 

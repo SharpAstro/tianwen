@@ -672,6 +672,9 @@ namespace TianWen.UI.Abstractions
                     {
                         MountPositionCommand.Home => (node.Client.HomeMountAsync(mountUri, ct), "Going home"),
                         MountPositionCommand.Park => (node.Client.ParkMountAsync(mountUri, ct), "Parking"),
+                        // A mount that lost its power (#1954): the operator's word for where it stands.
+                        MountPositionCommand.RestoreLastKnown => (node.Client.RestoreMountPositionAsync(mountUri, MountPositionRestore.LastKnown, ct), "Restoring the position"),
+                        MountPositionCommand.RestoreAtHome => (node.Client.RestoreMountPositionAsync(mountUri, MountPositionRestore.AtHome, ct), "Taking home as the position"),
                         _ => (node.Client.UnparkMountAsync(mountUri, ct), "Unparking"),
                     };
                     if (await RunNodeJobAsync(node, starting, what, ct) is { } done)

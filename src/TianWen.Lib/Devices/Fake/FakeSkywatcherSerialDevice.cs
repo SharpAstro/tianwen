@@ -22,7 +22,9 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private readonly ILogger _logger;
     private readonly StringBuilder _responseBuffer = new();
     private int _responsePointer;
-    private readonly SemaphoreSlim _semaphore = new(1, 1);
+    // The PORT's lock, not the board's: a driver's disconnect takes it and never gives it back (the port is closed under it), so a
+    // reopen is a new port handle with a lock of its own, as a real reconnect opens a new SerialConnection.
+    private SemaphoreSlim _semaphore = new(1, 1);
     // Guards the axis state, the response buffer and the command log against the tracking timer. A lock
     // rather than a CAS swap because one command mutates several fields and appends its reply as one step;
     // a fake serial device, never reached from a render thread.
@@ -194,11 +196,65 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         _lastTrackingTicks = timeProvider.GetTimestamp();
         IsOpen = isOpen;
         Encoding = encoding;
-
-        // Start simulation timer
-        var period = TimeSpan.FromMilliseconds(50);
-        _trackingTimer = _timeProvider.CreateTimer(SimulationTimerCallback, null, period, period);
+        StartSimulationTimer();
     }
+
+    private void StartSimulationTimer()
+    {
+        var period = TimeSpan.FromMilliseconds(50);
+        Interlocked.Exchange(ref _trackingTimer, _timeProvider.CreateTimer(SimulationTimerCallback, null, period, period))?.Dispose();
+    }
+
+    /// <summary>
+    /// Opens the board again for a new connection, as a real mount keeps its motion, encoders and init bits while the
+    /// computer disconnects and reconnects (<see cref="FakeDevice"/> hands the same board to every connect of one device).
+    /// Motion carries on through the gap: the next command integrates it.
+    /// </summary>
+    internal void Reopen()
+    {
+        lock (_lockObj)
+        {
+            IsOpen = true;
+            OpenedBefore = true;
+        }
+        Volatile.Write(ref _semaphore, new SemaphoreSlim(1, 1));
+        StartSimulationTimer();
+    }
+
+    /// <summary>
+    /// The board has been connected to before in this process: a reconnect, not a mount just switched on. A fresh board is a
+    /// mount at home whatever an earlier process wrote down, so only a board opened before has a last known position (#1954).
+    /// </summary>
+    internal bool OpenedBefore { get; private set; }
+
+    /// <summary>
+    /// Cuts the board's power and restores it, as pulling a mount's plug does: the motors stop where they are, the encoders
+    /// read home again, and neither axis is initialised (#1954). The serial link stays as it was.
+    /// </summary>
+    internal void PowerCycle()
+    {
+        lock (_lockObj)
+        {
+            _posRa = 0;
+            _posDec = 0;
+            _raRunning = false;
+            _decRunning = false;
+            _raTracking = false;
+            _raGotoMode = false;
+            _decGotoMode = false;
+            _raPendingStartTicks = 0;
+            _decPendingStartTicks = 0;
+            _raSlewDegPerSec = 0;
+            _decSlewDegPerSec = 0;
+            _raStepFrac = 0;
+            _decStepFrac = 0;
+            _raInitDone = false;
+            _decInitDone = false;
+        }
+    }
+
+    /// <summary>The clock the board's motors run on: a board is the same mount only to a connect on this clock.</summary>
+    internal ITimeProvider TimeProvider => _timeProvider;
 
     public bool IsOpen { get; private set; }
     public Encoding Encoding { get; }
@@ -330,7 +386,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         }
     }
 
-    public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
+    public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => Volatile.Read(ref _semaphore).AcquireLockAsync(cancellationToken);
 
     public ValueTask DisposeAsync()
     {
@@ -495,8 +551,15 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'F': // Init done
                 {
-                    if (axis == '3' || axis == '1') _raInitDone = true;
-                    if (axis == '3' || axis == '2') _decInitDone = true;
+                    // One axis at a time: a real AZ-GTi (firmware 3.40) answers :F3 with !0, unknown command (#1953),
+                    // and GSServer never addresses both axes for :F.
+                    if (axis == '1') _raInitDone = true;
+                    else if (axis == '2') _decInitDone = true;
+                    else
+                    {
+                        _responseBuffer.Append("!0\r");
+                        break;
+                    }
                     _responseBuffer.Append("=\r");
                     break;
                 }

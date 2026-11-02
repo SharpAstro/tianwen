@@ -32,6 +32,26 @@ horizon limit", which is wrong on current upstream. Every verdict below is again
 | `fb6e682` (#109) | Slewing race condition | **Partly - see finding 2** |
 | `6e6dba9` | Rollover / rollunder test support | **No** - a test affordance, not a fix; question now answered, no action |
 | `f70d821` (#116) | Queue race condition | **No** - we have no command queue |
+| `129ed8b` (#134) | Observatories save, slew-started event dispose | **No** - TianWen signals a slew with a `TaskCompletionSource`, nothing to dispose |
+| `6fdfbe8` | On badge for FlipSOP | **No** - UI only |
+| `e8883c6` (#135), `f25adac` (#136) | Horizon slew limits, and their global switch | **Already** - `MountGoto` refuses a target below the horizon limit, always on the target's own altitude |
+| `03df875` (#139) | LST in the coordinates bar, LHA after fresh steps | **No** - the hour angle is derived on demand, never cached |
+| `b6ff2bc` (#140) | Hibernate resume support | **YES, four parts** - see "Hibernate resume support: what applies" |
+
+### Hibernate resume support: what applies
+
+Read 2026-11-01 against `origin/master` at `b6ff2bc`, with a real AZ-GTi (firmware 3.40) on the bench:
+
+- **Initialisation per axis**: GSS reads the `:f` init bit and sends `:F1` / `:F2` only where it is clear. TianWen
+  sent `:F3`, which the AZ-GTi answers `!0`, so no connect ever initialised an axis: #1953.
+- **A mount that lost power** reads not initialised, or 0 / 0: GSS stops resuming; TianWen comes up POSITION LOST
+  with "sync from last known position": #1954.
+- **Stop the axes on connect** before reading positions: #1955.
+- **A slew that meets a link failure** faults (`SlewFault`) instead of reading stopped: #1956, the slew case of #810.
+- **Keep the computer awake** while a mount is connected, and stop the axes on suspend: node level, #1957.
+- Already covered: the write retry with a port reopen (Serial.Lib's bounded writes and the session's reconnect),
+  one poll attempt and a recovery after five failures (`PollDriverReadAsync`), the pulse restore's nested
+  `finally` (`_pulseGuideInFlight`, `_pendingPulseFault`). The rest is GSS's command queue and power plumbing.
 
 ### #89 - RA pulse guiding on GEM mounts. Not applicable.
 

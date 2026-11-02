@@ -30,7 +30,7 @@ and hands it back while it is open.
 | Handshake | none; DTR and RTS are not asserted |
 | Encoding | ASCII |
 | Write timeout | 2000 ms, at the port and at the task (`SerialConnection.WriteTimeout`, held by Serial.Lib) |
-| Read timeout | **none.** `SerialConnection` opens its port with no read deadline (`Timeout.InfiniteTimeSpan`), so a silent board holds the read, and the port lock, until the caller's token fires |
+| Read timeout | `ReplyTimeout` (`ISerialConnection.DefaultReplyTimeout`, 5 s): every read passes it to Serial.Lib, so a silent board fails the read instead of holding it and the port lock. The port's own `ReadTimeout` stays infinite and bounds nothing |
 
 **WiFi.** When `port` parses as an IP address (`IPAddress.TryParse`), the same method returns a
 `SkywatcherUdpConnection` to UDP port 11880 (`SkywatcherProtocol.WIFI_PORT`) and ignores `baud`. It
@@ -47,7 +47,8 @@ driver cannot tell them apart, which is fact 1 of #810.
 ## Framing
 
 - **Command:** `:` + command letter + axis + optional data + `\r` (`SkywatcherProtocol.BuildCommand`). The
-  axis is `1` (RA, primary), `2` (Dec, secondary) or `3` (both; only `:F3` uses it).
+  axis is `1` (RA, primary) or `2` (Dec, secondary). `3` (both) is never sent: a real AZ-GTi (firmware 3.40)
+  answers `:F3` with `!0`, unknown command, and GSServer never addresses both axes (#1953).
 - **Reply:** `=` + data + `\r` when the board took the command, `!` + code + `\r` when it refused. Read
   `\r`-terminated with the terminator stripped, 128 bytes at most (`MaxTerminatedResponseBytes`).
   `TryParseResponse` accepts only a leading `=` and returns the rest as data.
@@ -83,7 +84,7 @@ driver cannot tell them apart, which is fact 1 of #810.
 | `:j` | 1, 2 | none | position, 24-bit minus 0x800000 | every position read, the slew pass |
 | `:f` | 1, 2 | none | three nibbles: n0 bit 0 constant-speed (not goto), bit 1 reverse, bit 2 high speed; n1 bit 0 running; n2 bit 0 init done. Tracking = running and constant-speed | `QueryAxisStatusAsync` |
 | `:E` | 1, 2 | position + 0x800000 | `=` | `SyncRaDecAsync` |
-| `:F` | 3 | none | `=` | `InitDeviceAsync` (initialise both axes) |
+| `:F` | 1, 2 | none | `=` | `InitDeviceAsync` (initialise an axis whose `:f` init bit is clear) |
 | `:P` | 1, 2 | one digit, the `SkywatcherGuideRate` index | `=` | `InitDeviceAsync`, the guide-rate setters (ST-4 port rate) |
 | `:G` | 1, 2 | `<func><dir>` | `=`; `!2` on a running axis | every motion |
 | `:H` | 1, 2 | step count, unsigned and relative (direction from `:G`) | `=` | `SlewAxisToAsync`, the Dec micro-goto |
@@ -102,11 +103,20 @@ logged and the call returns) or `SendCommandVerifiedAsync` (below).
 
 `InitDeviceAsync`, after the transport opens:
 
-1. `:e1`. **The only gate:** no parseable reply, and the connect fails.
-2. `:q1010000`, `:a1`, `:a2`, `:b1`, `:s1`, `:s2`, `:g1`, `:j1`, `:j2`. Each unanswered read leaves its
+1. `:e1`. **A gate:** no parseable reply, and the connect fails. So does a `:f` with no valid reply at steps 2
+   and 3, which throws since #1956.
+2. `:q1010000`, `:a1`, `:a2`, `:b1`, `:s1`, `:s2`, `:g1`, then `:f1` / `:f2`: an axis still running a GOTO is stopped
+   and waited for (`StopAxisAndWaitAsync`) before `:j1`, `:j2`, so a reconnect never reads positions off a moving mount
+   or has its next `:G` refused `!2`. A tracking or constant-speed axis keeps running (#1955; GSServer's
+   `AxesStopValidate` stops both). Each other unanswered read leaves its
    field at the default (CPR 0, timer 0, ratio 16, worm 0, position 0) and **the connect still succeeds**.
-3. `:F3`, then `:P1` and `:P2` with the default rate, 0.5x sidereal (index 2).
-4. Nothing is written to the encoders. Home is encoder zero, read as hour angle 6 h at the pole of the site's
+3. `:f1`, `:f2` again, read BEFORE any `:F` sets the init bits, against the last known position written down for this
+   mount: a board that reads home (an axis not initialised, or both encoders at exactly 0) where the mount last knew itself
+   away from home lost its power, and the connect succeeds POSITION LOST (#1954, [Position lost](#position-lost)).
+4. Per axis, `:f`, and `:F1` / `:F2` only where the init bit is clear (GSServer's `InitializeAxes`); an axis the
+   handset, the app or an earlier connect initialised is left alone. Then `:P1` and `:P2` with the default rate,
+   0.5x sidereal (index 2). The firmware, model and `:q` capabilities are logged once (#1953).
+5. Nothing is written to the encoders (a restore after a power loss is the operator's, never the connect's). Home is encoder zero, read as hour angle 6 h at the pole of the site's
    hemisphere (counterweight down), whichever site arrives and whenever. A sync to (LST, +90 or -90) used to run
    here and on every site set; it declared hour angle 0 where the axis stands at 6 h, wrote the RA encoder a
    quarter turn off, and sent every later goto 90 degrees too far (an AZ-GTi in Melbourne, 2026-10-31: 164
@@ -114,6 +124,40 @@ logged and the call returns) or `SendCommandVerifiedAsync` (below).
 
 No time is ever sent: `TimeIsSetByUs` is true, `TryGetUTCDateFromMountAsync` answers the `TimeProvider`'s
 clock, `SetUTCDateAsync` is a no-op, and LST comes from that clock and the site longitude (0 while unset).
+
+## Position lost
+
+A Synta board keeps its encoders and init bits in RAM: switched off and on, it reads home (step 0 on both axes) with
+neither axis initialised, wherever the mount stands, and an unpowered mount does not move by itself. GSServer calls it
+`MountLostPower` and drops the link (hibernate resume, upstream #140); this driver connects and ALERTS (#1954):
+
+- **Written down:** the driver writes the encoders' steps, their CPR, whether the mount was moving and the time to
+  `Mounts/<deviceId>.last-position.json` in the app data folder (`MountPositionMemory`): at the end of a connect, a goto,
+  Home, park and sync, as the link goes, and from the RA and Dec reads, paced (every 5 s while moving, every minute while
+  still or tracking, at once on a change between the two). Never while the position is lost. Before each write two `:f`
+  ask whether the board is still initialised: one that lost power while connected answers no, and is lost from the
+  position last written down, which a write would otherwise overwrite with the home it reads. A jump to exactly 0, 0
+  asks at once, past the pacing.
+- **Detected:** at connect (step 3 of the sequence), at every write (above), and before every move: a goto, Home, park,
+  a flip, a held move and tracking each send `:f1` `:f2` first. Not lost: nothing written down, a position written down at
+  home, or one in another CPR (another mount).
+- **While lost** (`IMountDriver.PositionLoss`, worded once by `MountPositionLoss.Describe`): a goto, Home, park, a flip,
+  a held move and tracking throw `InvalidOperationException` naming the restore; stop and tracking off stay allowed.
+  `GetAxisAngleAsync` answers null, so the safety limits fall back to the hour angle; `GetSideOfPierAsync` answers the
+  half the mount last knew; `AtHomeAsync` answers false. `MountGoto`, the node's Home, park and move-axis routes refuse
+  before any job (409), and the device state carries the words (`MountDeviceStateDto.PositionLost`).
+- **Restored**, the operator's choice: `RestorePositionAsync(LastKnown)` stops both axes, initialises each with `:F`
+  where needed (a board that lost power while connected was never initialised again), writes the last known steps
+  with `:E1` / `:E2` and reads them back; `AtHome` keeps the home the encoders read; a sync to a plate solve
+  (`SyncRaDecAsync`) restores it too, in the Dec half the mount LAST KNEW, never the counterweight-down guess from the
+  home it reads. Node route: `POST /api/v1/devices/mount/restore-position` (`MountRestorePositionRequestDto`).
+- **In a run** (`Session.PositionLoss.cs`): the poll finds it and asks once ("Sync from last known position" / "End the
+  run", physical presence); a yes restores and points the current target again, nobody to ask is the unattended
+  answer, and a decline ends the run with the loss as `FailureReason`. A lost mount is never read as a limit stop.
+  **A restore stands only once a plate solve has SYNCED the mount** (the centring after the repoint; a solve that synced
+  confirms it even where the centring then missed its threshold, since the sync is what corrects the last known position).
+  With none, tracking stops and the run fails with its reason: no end-of-night flats, and `Finalise` does not park a mount
+  whose position is lost or unconfirmed (`ConfirmRestoredPositionAsync`, the owner, 2026-11-02).
 
 ## How a slew is done
 
@@ -138,7 +182,11 @@ reports slewing while an axis is running in goto mode and no guide pulse is in f
 - **Refinement.** The target steps encode the hour angle at command time, so a long slew lands late by
   its own duration. With a goto pending, a residual above 30 arcsec re-runs the pass with the same
   solution, up to twice (`MaxGotoRefineAttempts`), under a CAS gate so two pollers cannot both issue it;
-  it reports slewing meanwhile (bench #639).
+  it reports slewing meanwhile (bench #639). **The goto's first pass holds the same gate until its `:J` is out**
+  (`FirstGotoPassAsync`): it stop-waits both axes and reads both encoders before the progress flag goes up, and a
+  poller in that window found the goto armed and the axes idle and started a pass beside it (an AZ-GTi, 2026-11-02:
+  the second `:G1` answered `!2`, then 20 s of unanswered `:H`/`:M`). `SkywatcherGotoStartRaceTests` holds the window
+  open on the fake.
 - **Arrival.** The target is disarmed and `SetTrackingAsync(true)` runs, best-effort, as GSS does after a
   goto. **Assumed, not verified:** the board may also resume sidereal tracking on its own; the fake does
   (bench #638), and the setter then only re-times `:I1`.
@@ -231,9 +279,9 @@ read that returns a value where [`driver-resilience.md`](driver-resilience.md) r
 
 | Member | Wire | Connected, no valid reply |
 |--------|------|---------------------------|
-| `IsSlewingAsync` | `:f1`, `:f2`; may send a refinement pass and the tracking start | **Violation.** `QueryAxisStatusAsync` answers "stopped, not tracking", so mid-slew it reads not slewing; with a goto pending and the grace spent it runs the refinement from stale positions and may stop the axes and re-goto. Fix: `QueryAxisStatusAsync` throws `IOException` |
-| `IsTrackingAsync` | `:f1` | **Violation.** `false`: an RA pulse then takes the stopped-axis branch and its verified `:K1` stops tracking; two such polls latch `DriverEnforcedStop`. Fix: as above |
-| `SetTrackingAsync(true)` | `:f1`, then `:I1`, or `:G1` `:I1` `:J1` | a lost `:f1` takes the restart branch, whose `:G1` a running axis refuses (logged only); silently does nothing while CPR or the timer frequency is 0 |
+| `IsSlewingAsync` | `:f1`, `:f2`; may send a refinement pass and the tracking start | throws `IOException` (#1956): `QueryAxisStatusAsync` faults a connected axis whose `:f` gives no valid reply, as GSServer's `SlewFault` does. It used to answer "stopped, not tracking", which ended a slew-wait mid-slew |
+| `IsTrackingAsync` | `:f1` | throws `IOException`, as above. It used to answer `false`, and an RA pulse then took the stopped-axis branch and its verified `:K1` stopped tracking |
+| `SetTrackingAsync(true)` | `:f1`, then `:I1`, or `:G1` `:I1` `:J1` | a lost `:f1` throws `IOException`; silently does nothing while CPR or the timer frequency is 0 |
 | `SetTrackingAsync(false)`, `AbortSlewAsync`, `SyncRaDecAsync`, `CameraSnapAsync`, guide-rate setters | `:K1`; `:L1` `:L2`; `:E1` `:E2`; `:O1`; `:P1` (`:P2` for Dec) | best-effort: logged, returns; a sync updates the cache as though it took |
 | `GetRightAscensionAsync`, `GetDeclinationAsync`, `GetTargetRightAscensionAsync`, `GetTargetDeclinationAsync`, `GetHourAngleAsync` | `:j1` / `:j2` (the target getters read the current position) | **Violation.** The cached steps of the last good read, converted at the current LST (a stale RA also drifts); 0 steps if never read. A non-hex `=` reply throws `FormatException`, not transient. Fix: throw `IOException` when the reply does not parse |
 | `GetAxisPositionAsync` | `:j` | **Violation.** `null`, the interface's "no encoder data". Fix: throw instead |
@@ -280,27 +328,28 @@ URI with `port=SkyWatcher` (`SessionTestHelper` `mountPort: "SkyWatcher"`). The 
   commands answer `response`, or nothing when it is `null`, and do not reach the state machine. With
   `null` it is the per-command lost-reply knob #810 asks for; note an empty buffer reads `null` at once,
   where hardware would wait on the transport;
-- records the last 4096 commands (`CommandLogSnapshot`) for wire assertions.
+- records the last 4096 commands (`CommandLogSnapshot`) for wire assertions;
+- persists per `FakeDevice` instance and clock, so a reconnect finds the same board (a goto still running, #1955), and
+  `PowerCycle()` cuts its power as a plug pulled: motors stop, encoders read home, init bits clear (#1954). Only a board
+  connected to before in this process recalls a last known position (`OpenedBefore`): a fresh one is a mount just
+  switched on at home, in a test or a demo, whatever an earlier process wrote down.
 
 `FakeSkywatcherMountDriver` leaves the wire untouched. Its believed pointing is the base driver's; the TRUE
 pointing the fake camera renders (`GetTruePointingNativeAsync`) adds polar misalignment and the disturbance
 terms of [`fake-disturbance-model.md`](fake-disturbance-model.md), and it overrides `SyncRaDecAsync` and
 `BeginSlewRaDecAsync` only to re-anchor that model. Because the fake executes whatever step targets it is
 given and reports the driver's own model back, it cannot catch an error in the axis convention itself.
-Tests: `SkywatcherProtocolTests`, `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
+Tests: `SkywatcherProtocolTests`, `SkywatcherAxisStatusTests`, `SkywatcherPositionLossTests` (and
+`SessionPositionLossTests`, `NodeMountPositionLossTests`), `SkywatcherGssOracleTests`, `SkywatcherPulseRestoreTests`,
 `SkywatcherGuideRateTests`, `SkywatcherSerialProbeTests`, `FakeSkywatcherMountDriverTests`.
 
 ## Known issues
 
-- **The #810 violations tabled above.** The worst are `QueryAxisStatusAsync`'s "stopped" fallback (it
-  feeds `IsSlewingAsync`, `IsTrackingAsync` and every stop-wait) and `GetSideOfPierAsync`'s `Normal`.
-- **No read timeout on either transport, and the verified commands run under `CancellationToken.None`.**
-  By reading the code, a board that is alive but never answers one of them holds that read and the port
-  lock indefinitely, rather than failing into the three-attempt retry; the fake answers at once, so
-  `SkywatcherPulseRestoreTests` cannot see it.
+- **The #810 violations tabled above.** The worst left is `GetSideOfPierAsync`'s `Normal`; the axis status
+  (`QueryAxisStatusAsync`, which feeds `IsSlewingAsync`, `IsTrackingAsync` and every stop-wait) throws since #1956.
 - **Nothing pairs a reply with its command**, and nothing drains the input before a command: a reply that
   arrives after its read gave up is taken as the next command's answer.
-- **A half-initialised connect succeeds.** Only `:e1` gates it; a lost `:a` or `:b` leaves CPR or the timer
+- **A half-initialised connect succeeds.** Only `:e1` and `:f` gate it; a lost `:a` or `:b` leaves CPR or the timer
   at 0, after which slews throw `InvalidOperationException` and `SetTrackingAsync(true)` does nothing.
 - **Two stop-waits time out silently**: `StopAxisAndWaitAsync` and the Dec micro-goto wait log after 3.5 s
   and return as though stopped (left deliberately, finding 3 of the audit).
