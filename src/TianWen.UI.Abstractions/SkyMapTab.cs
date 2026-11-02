@@ -385,16 +385,18 @@ namespace TianWen.UI.Abstractions
                 RenderScheduleTargets(contentRect, BaseFontSize, ppr, cx, cy, site, dimBelowHorizon);
             }
 
-            // Mount reticle on top of everything catalog-related so it's never buried.
+            // NCP/SCP/Zenith reticles (clickable goto targets) and N/S/E/W horizon
+            // cardinal labels.
+            RenderFixedPointMarkers(contentRect, BaseFontSize, ppr, cx, cy, site);
+
+            // Mount reticle LAST, on top of everything, the fixed markers included: its click region
+            // is then the topmost, so a press on it opens the mount. A mount at home sits on its pole,
+            // whose 36 px box used to cover all but a 4 px ring of the reticle's; Ctrl+click passes the
+            // press on to the sky under it (RenderMountOverlay), and a goto to the pole is Home.
             if (State.ShowMountOverlay && State.MountOverlay is { } mountOverlay)
             {
                 RenderMountOverlay(mountOverlay, contentRect, BaseFontSize, ppr, cx, cy);
             }
-
-            // NCP/SCP/Zenith reticles (clickable goto targets) and N/S/E/W horizon
-            // cardinal labels. Drawn on top of the mount reticle so the user can always
-            // click a pole or zenith to slew, even if the mount happens to overlap.
-            RenderFixedPointMarkers(contentRect, BaseFontSize, ppr, cx, cy, site);
             FixedMarkerMs += LayerElapsed(ref layerMark);
 
             // The strip and the crosshair say where the VIEW is pointing and where its centre is, and

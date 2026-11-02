@@ -799,14 +799,31 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // Solve & Sync button) - same UX rule as the fixed markers, the click only
         // selects, the button acts. The reported position is the BELIEVED (encoder)
         // pointing; Solve & Sync is how the marker is brought back to the truth.
+        // It is the topmost region (the base draws the reticle last), so the mount wins a
+        // click; Ctrl+click is the sky's: the press is claimed and resolved where it landed,
+        // a star before an enclosing shape, as a Ctrl+click anywhere else on the map is.
         var hitSize = 44f * dpiScale;
         var capturedName = mountOverlay.DisplayName;
         var capturedRA = mountOverlay.RaJ2000;
         var capturedDec = mountOverlay.DecJ2000;
         RegisterClickable(screenX - hitSize * 0.5f, screenY - hitSize * 0.5f, hitSize, hitSize,
             new HitResult.ButtonHit("SkyMapMountReticle"),
-            _ => PostSignal(new SkyMapShowMountInfoSignal(
-                capturedName, capturedRA, capturedDec)));
+            modifiers =>
+            {
+                if ((modifiers & InputModifier.Ctrl) == 0)
+                {
+                    PostSignal(new SkyMapShowMountInfoSignal(capturedName, capturedRA, capturedDec));
+                }
+            },
+            onPress: press =>
+            {
+                if ((press.Modifiers & InputModifier.Ctrl) == 0)
+                {
+                    return null;
+                }
+                EmitSelectAt(press.X, press.Y, press.Modifiers);
+                return new DragCapture(static _ => { }, static _ => { });
+            });
     }
 
     /// <summary>
