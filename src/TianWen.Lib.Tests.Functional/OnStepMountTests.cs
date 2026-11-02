@@ -542,6 +542,27 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(expectedSecondary, 0.01);
     }
 
+    // OnStep terminates :GW# where a Meade does not; read as three bytes, its '#' made every later reply the previous
+    // command's, and the bench TeeSeek's poller read the status as slewing and blanked Dec and HA in turn.
+    [Fact(Timeout = 60_000)]
+    public async Task GivenOnStepTheMountTypeReadLeavesTheStreamInStep()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(-37.8743502, 145.1668205), new FakeExternal(outputHelper).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+        var latitude = await mount.GetSiteLatitudeAsync(ct);
+
+        for (var read = 0; read < 3; read++)
+        {
+            (await mount.GetAlignmentAsync(ct)).ShouldBe(AlignmentMode.GermanPolar);
+            (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull();
+            (await mount.GetHourAngleAsync(ct)).ShouldBe(6.0, 0.01);
+            (await mount.GetSiteLatitudeAsync(ct)).ShouldBe(latitude, "the reply after them is still its own command's");
+            (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
+        }
+
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task GivenOnStepTheAxisAngleIsReadThroughTheInterface()
     {

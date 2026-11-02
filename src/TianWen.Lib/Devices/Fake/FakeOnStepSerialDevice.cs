@@ -108,6 +108,12 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
                 AppendStatusResponse();
                 return true;
 
+            case ":GW#":
+                // OnStep TERMINATES it ([mount][tracking][alignment]#), where a Meade sends the three bytes bare; the LX200
+                // fake's bare answer let a driver reading exactly three bytes pass while the bench TeeSeek's stream shifted.
+                _responseBuffer.Append('G').Append(_isTracking ? 'T' : 'N').Append("0#");
+                return true;
+
             case ":Gm#":
                 _responseBuffer.Append(GetPierSideChar()).Append('#');
                 return true;

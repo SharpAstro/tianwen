@@ -51,7 +51,8 @@ return `null` / `false`. A cancelled read is not caught, so it surfaces as the r
 
 - **Command:** `:` + body + `#`, built by the base's private `SendAsync` (`GU` goes out as `:GU#`).
 - **Terminated reply:** read up to `#` or NUL (the base's `Terminators`), terminator stripped. Used for
-  `:GU#`, `:Gm#`, `:GX42#`, `:GX43#` and the discovery reads.
+  `:GU#`, `:Gm#`, `:GW#` (`AlignmentReplyIsTerminated`: a Meade sends its three bytes bare, and a `#` left in the
+  stream made every later reply the previous command's), `:GX42#`, `:GX43#` and the discovery reads.
 - **One-byte reply:** exactly one byte, no terminator: `:Te#`, `:Td#`, `:hP#`, `:hR#`, `:hQ#`, and a site-name
   set during discovery. The code assumes a bare `1` or `0`; a trailing `#` would stay in the stream and be
   read as the start of the next reply.
