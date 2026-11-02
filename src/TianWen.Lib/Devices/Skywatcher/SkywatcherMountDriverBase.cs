@@ -1457,6 +1457,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             await ReadPositionsAsync(cancellationToken);
             if (IsAtHome)
             {
+                // Both axes were just stop-waited: still, whatever a poller last raised.
+                _isSlewingRa = false;
+                _isSlewingDec = false;
                 await RememberPositionAsync(moving: false, force: true, cancellationToken);
                 return;
             }
@@ -1479,6 +1482,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var dec = await QueryAxisStatusAsync('2', cancellationToken);
             if (!(ra.IsRunning && !ra.IsTracking) && !(dec.IsRunning && !dec.IsTracking))
             {
+                // The flags a poller's IsSlewingAsync raised during this slew: left up, the next position read would write the
+                // mount down as moving where it stands still (#1954).
+                _isSlewingRa = false;
+                _isSlewingDec = false;
                 return;
             }
         }
