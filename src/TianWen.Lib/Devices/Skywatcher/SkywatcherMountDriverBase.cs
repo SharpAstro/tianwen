@@ -172,12 +172,21 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private async ValueTask LostPowerWhileConnectedAsync(CancellationToken cancellationToken)
     {
         if ((_remembered ?? await RecallLastKnownPositionAsync(cancellationToken)) is { } lastKnown
-            && DetectPositionLoss(lastKnown, axesInitialised: false, _posRa, _posDec, _cprRa, _cprDec) is { } loss
-            && Interlocked.CompareExchange(ref _positionLoss, loss, null) is null)
+            && DetectPositionLoss(lastKnown, axesInitialised: false, _posRa, _posDec, _cprRa, _cprDec) is { } loss)
         {
-            _gotoTargetRa = double.NaN;
-            Logger.LogError("{Mount}: {Loss} Its axes are no longer initialised: it lost power while connected.", Name, loss.Describe(Name));
+            if (Interlocked.CompareExchange(ref _positionLoss, loss, null) is null)
+            {
+                _gotoTargetRa = double.NaN;
+                Logger.LogError("{Mount}: {Loss} Its axes are no longer initialised: it lost power while connected.", Name, loss.Describe(Name));
+            }
+            return;
         }
+
+        // Nothing written down away from home: the board's home is all there is, as at a connect. Initialise the axes as a
+        // connect does, so no move is commanded on an axis the board has not initialised (PR #1963 review).
+        Logger.LogWarning("{Mount}: its axes are no longer initialised (it lost power while connected), and no position away from home was written down; initialising them at the home they read.", Name);
+        await InitialiseAxisAsync('1', cancellationToken);
+        await InitialiseAxisAsync('2', cancellationToken);
     }
 
     // Site
