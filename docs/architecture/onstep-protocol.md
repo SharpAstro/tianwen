@@ -144,7 +144,10 @@ Measured on the TeeSeek 11 (4.24s, Melbourne) on 2026-11-02: powered on at home,
 90.0 and axis 2 read -89.99986, while `:GR#` rose with `:GS#` and the hour angle held at 11.975 h for 55 minutes. At
 home the tube lies along the polar axis, so RA and Dec cannot see the RA axis turn; and the 12 h is refraction:
 OnStep reports the unrefracted place, about 79 arcsec below the pole at 38 degrees altitude, which is HA 12 h. This
-is what the meridian limit reads there. Not yet seen on a mount: the northern sign, and an axis off home
+is what the meridian limit reads there, and within `MountGoto.PoleToleranceDegrees` of a pole `GetHourAngleAsync`
+takes the axis's too, as the SkyWatcher driver always does: axis 1 / 15 on East, (axis 1 - 180) / 15 on West, so 6 h
+at home and rising with tracking. Every hour angle names the same pointing there; off the pole it stays the sky's,
+sidereal time less `:GR#`. Not yet seen on a mount: the northern sign, and an axis off home
 (#1962).
 
 ## Park and unpark
