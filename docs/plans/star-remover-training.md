@@ -4941,8 +4941,59 @@ the cell comes from, from each draw's own stream (the stars keep their places, b
 injections.jsonl). A cell's stars share one beta, as a real field's do, so a tile's bright stars show the faint ones' wings. The
 arm: synth11's export recipe with `--star-beta-draw 0.3,1.3,2.5` (30 % of cells at the SMC's range and below; the archive's lowest
 session fits 1.63), R2w's training recipe with no oversampling, read against R3h's bar plus the held-beta exports: HIP 80609 and
-the Lobster at 1.5 cleared (green median under +2e-3) without digging their own stars past R2w's. Its export and training wait for
-the owner's go (machine load).
+the Lobster at 1.5 cleared (green median under +2e-3) without digging their own stars past R2w's.
+
+#### R3i's read: the wings are learned, and paid for in digging (2026-11-02)
+
+**Killed by its pre-registration (`C:/temp/e2/r3i.prereg`), and the first arm whose mechanism held.** Exported from the binary of
+PR #1961 (synth15, 08:52 to 12:26), trained on the 1070 to step 215,000 (best held-out 6.13e-6 at 203,000, four halvings, 9.6 h),
+scored as R3h was:
+
+| real tiles, 100-1000 sigma | flat \|<1\| | left >+1 | dug <-1 | SMC flat | SMC left | SMC dug | HIP 80609 dug (three views) | M31 nucleus 0-6 px, R / G / B |
+|---|---|---|---|---|---|---|---|---|
+| R2w s0 | 95.6 | 2.6 | 1.76 | 79.4 | 13.4 | 7.2 | 4.5 / 2.7 / 3.8 | |
+| R2w s1 | 96.0 | 1.9 | 2.14 | 91.8 | 7.2 | 1.0 | 6.3 / 2.5 / 5.4 | |
+| R2t s1 (four levels, synth4) | 97.4 | 1.4 | 1.23 | 93.8 | 6.2 | 0.0 | 4.2 / 2.9 / 0.7 | |
+| **R3i s0** | **95.1** | 1.4 | **3.44** | **93.8** | **0.0** | 6.2 | **11.3** / 4.5 / 3.2 | +4.0 / **+7.7 / +10.2** % |
+
+| green median x 1e-3 | SMC own | SMC at 1.5 | HIP 80609 own | HIP 80609 at 1.5 | Lobster own | Lobster at 1.5 |
+|---|---|---|---|---|---|---|
+| R2w s0 | +6.52 | +5.63 | -2.25 | +13.67 | -1.65 | +20.03 |
+| R2w s1 | +4.88 | +3.76 | -3.64 | +12.41 | -2.86 | +19.90 |
+| R3h s0 | +1.51 | +0.88 | -4.39 | +13.82 | -1.46 | +20.49 |
+| **R3i s0** | **+1.30** | +0.67 | **-4.87** | **-0.10** | -1.64 | **+0.69** |
+
+P1 holds (HIP 80609 and the Lobster drawn at the SMC's beta cleared, -0.10 and +0.69 against R2w's +13.7 and +20.0), P3 holds (the
+SMC's own green +1.30), and the SMC's real stars are flat on 93.8 % with none left, R2t's figure and the best of any master-stretched
+arm. P2 fails on HIP 80609 (own green -4.87 against -3.0, though R2w seed 1 also misses at -3.64), P4 fails on the pooled real tiles
+(flat 95.1 against 95.6, dug 3.44 against 2.14) and P5 on M31's nucleus. So drawing the wings apart from the session did what R3h's
+oversampling could not: the network now reads a heavy wing off the star. With 30 % of cells all at beta 1.3 to 2.5 it also expects
+one where there is none, and digs ordinary bright stars (HIP 80609's first view most) and takes an extended core. The ring read agrees:
+R/G/B -0.73 / -0.63 / -0.57 sigma at 3 to 6 px against R2w s0's -0.80 / -0.57 / -0.26, blue dug deeper. The next question is the dose.
+
+#### R3j, R3k and R3l: the dose of drawn wings, pre-registered (2026-11-02)
+
+Written after R3i's read and before any of the three trains (`C:/temp/e2/r3jkl.prereg`). Each is synth11's export from the binary of
+PR #1961 with one change to `--star-beta-draw`, R2w's training recipe, seed 0, scored as R3i, trained one after another on the
+1070 while the next export runs on the CPU:
+
+| arm | export | `--star-beta-draw` | what it asks |
+|---|---|---|---|
+| R3j | synth16 | 0.5,1.3,2.5 | the dose up |
+| R3k | synth17 | 0.15,1.3,2.5 | the dose down |
+| R3l | synth18 | 0.3,1.3,6 | R3i's share over the archive's whole range, so beta under 2.5 is about 7.7 % of cells and the drawn cells span ordinary stars too: beta READ over a range against assumed from a narrow one |
+
+**Bars**, R3i's unchanged: P1 the drawn-1.5 green median at most +2.0e-3 on HIP 80609 and the Lobster; P2 their own at least -3.0e-3;
+P3 the SMC's own at most +2.0e-3; P4 pooled flat at least 95.6, dug at most 2.14, the SMC flat at least 91.8; P5 the nucleus under
+5 % per channel. **Kill:** pooled flat under 95.6, dug over 2.14, or the nucleus guard broken. All five holding makes a candidate for
+a second seed.
+
+**Predictions**, from the dose reading: R3j keeps P1 and P3 and digs more than R3i (pooled dug over 3.44, HIP 80609's own green under
+-4.87), and is killed; if it digs LESS, the dose reading is wrong, R3i's dig is its seed's, and R3i seed 1 comes before any other
+share. R3k digs between R2w s1 and R3i or less, with P1's medians between R3i's and R2w's and the SMC's real flat still at least
+91.8; passing every bar is the hope, not the expectation. R3l keeps less of P1 than R3i and digs at or under R2w. A three-point read
+(0.15 / 0.3 / 0.5) monotone in both dig and P1 says the dose is the lever; a non-monotone one says a single seed cannot read it,
+and the next step is seeds, not shares.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
