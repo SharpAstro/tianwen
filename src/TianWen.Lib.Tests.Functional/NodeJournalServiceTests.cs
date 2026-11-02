@@ -229,6 +229,50 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         node.Node.IsRunning.ShouldBeFalse("it never resumes a run");
     }
 
+    private const string SouthernMount = "Mount://FakeDevice/FakeMount1?port=SkyWatcher&latitude=-37.8&longitude=145.0#Fake Mount";
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARecoveredMountTakesTheActiveProfilesSiteWithNoClientAction()
+    {
+        // The mount's connect is the journal's, not a client's: the device plane's after-connect routine must run all the
+        // same, or a SkyWatcher that lost its power comes back with no site and reads its axes through the wrong hemisphere (#1965).
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(outputHelper, _folders.Create("twp"));
+        var profile = new Profile(Guid.NewGuid(), "Southern rig",
+            new ProfileData(new Uri(SouthernMount), NoneDevice.Instance.DeviceUri, [], SiteLatitude: -37.8, SiteLongitude: 145.0));
+        await profile.SaveAsync(external, ct);
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice(SouthernMount, "Fake Mount", null, null));
+
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct, services =>
+        {
+            services.AddSingleton(new NodeJournalOptions(path, 31337, static () => null, TimeProvider.System));
+            services.AddSingleton<IExternal>(external);
+            services.AddSingleton(sp => new NodeSettingsStore(external, new NodeSettings(false, profile.ProfileId)));
+        });
+
+        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+
+        report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
+        node.App.Services.GetRequiredService<IDeviceHub>().TryGetConnectedDriver<IMountDriver>(new Uri(SouthernMount), out var mount).ShouldBeTrue();
+        (await mount.GetSiteLatitudeAsync(ct)).ShouldBeLessThan(0, "the profile's southern site, given by the journal's own reconnect");
+        (await mount.GetSiteLatitudeAsync(ct)).ShouldBe(-37.8, 0.01);
+        (await mount.GetSiteLongitudeAsync(ct)).ShouldBe(145.0, 0.01);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARecoveredMountWithNoActiveProfileStillReconnects()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice(SouthernMount, "Fake Mount", null, null));
+
+        await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
+
+        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+
+        report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
+        node.App.Services.GetRequiredService<IDeviceHub>().IsConnected(new Uri(SouthernMount)).ShouldBeTrue("with no site to give it, and none guessed");
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task ARunStartingEndsTheRecoverysCoolingRamp()
     {

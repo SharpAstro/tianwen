@@ -65,6 +65,7 @@ public sealed record NodeJournalOptions(string? Path, int? AfterCrashOf, Func<Da
 internal sealed class NodeJournalService(
     NodeJournalOptions options,
     HostedSession hosted,
+    ConnectProfileWriter connectProfile,
     IDeviceHub hub,
     IExternal external,
     ITimeProvider timeProvider,
@@ -351,6 +352,7 @@ internal sealed class NodeJournalService(
             }
 
             logger.LogInformation("Recovering: reconnected {Device}", device.DisplayName);
+            await WriteConnectIntoProfileAsync(device, cancellationToken);
             // Back on the hub BEFORE the cooling is re-established, so a recovered warm-up can aim at it.
             if (held.PreCoolSensorC is { } preCool && double.IsFinite(preCool))
             {
@@ -373,6 +375,43 @@ internal sealed class NodeJournalService(
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             logger.LogError(ex, "Could not write the node's journal {Path} after recovering; trying again at the next change", path);
+        }
+    }
+
+    /// <summary>
+    /// What a device-plane connect does after it connects, through the same routine (<see cref="ConnectProfileWriter"/>,
+    /// #1965): a mount takes the active profile's site, a camera's sensor is recorded. Bounded by the recovery's token, and
+    /// a failure is logged, never a reconnect that failed. With no active profile, or one that does not name this mount,
+    /// the mount runs with no site from the profile and no site is guessed.
+    /// </summary>
+    private async Task WriteConnectIntoProfileAsync(DeviceBase device, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await connectProfile.WriteAsync(device, cancellationToken);
+            if (device.DeviceType is DeviceType.Mount)
+            {
+                switch (result.Outcome)
+                {
+                    case ConnectProfileOutcome.NoActiveProfile:
+                        logger.LogWarning("Recovering: there is no active profile, so {Device} runs with no site from a profile", device.DisplayName);
+                        break;
+                    case ConnectProfileOutcome.NotInProfile:
+                        logger.LogWarning("Recovering: the active profile does not name {Device} as its mount, so it runs with no site from the profile", device.DisplayName);
+                        break;
+                    case ConnectProfileOutcome.Written:
+                        logger.LogInformation("Recovering: {Device}: {Note}", device.DisplayName, result.Note);
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Recovering: could not reconcile {Device} with the active profile; it stays reconnected", device.DisplayName);
         }
     }
 

@@ -23,7 +23,7 @@ namespace TianWen.Hosting;
 /// <c>JOB-PROGRESS</c>.
 /// </remarks>
 internal sealed partial class DeviceOperations(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, IExternal external, NodeProfiles profiles,
-    ICredentialStore credentials, ITimeProvider timeProvider, ILogger<DeviceOperations> logger,
+    ICredentialStore credentials, ConnectProfileWriter connectProfile, ITimeProvider timeProvider, ILogger<DeviceOperations> logger,
     IDeviceDiscovery? discovery = null)
 {
     /// <summary>The <see cref="JobDto.Kind"/> of each job.</summary>
