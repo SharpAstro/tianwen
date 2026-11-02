@@ -22,7 +22,9 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private readonly ILogger _logger;
     private readonly StringBuilder _responseBuffer = new();
     private int _responsePointer;
-    private readonly SemaphoreSlim _semaphore = new(1, 1);
+    // The PORT's lock, not the board's: a driver's disconnect takes it and never gives it back (the port is closed under it), so a
+    // reopen is a new port handle with a lock of its own, as a real reconnect opens a new SerialConnection.
+    private SemaphoreSlim _semaphore = new(1, 1);
     // Guards the axis state, the response buffer and the command log against the tracking timer. A lock
     // rather than a CAS swap because one command mutates several fields and appends its reply as one step;
     // a fake serial device, never reached from a render thread.
@@ -194,10 +196,28 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         _lastTrackingTicks = timeProvider.GetTimestamp();
         IsOpen = isOpen;
         Encoding = encoding;
+        StartSimulationTimer();
+    }
 
-        // Start simulation timer
+    private void StartSimulationTimer()
+    {
         var period = TimeSpan.FromMilliseconds(50);
-        _trackingTimer = _timeProvider.CreateTimer(SimulationTimerCallback, null, period, period);
+        Interlocked.Exchange(ref _trackingTimer, _timeProvider.CreateTimer(SimulationTimerCallback, null, period, period))?.Dispose();
+    }
+
+    /// <summary>
+    /// Opens the board again for a new connection, as a real mount keeps its motion, encoders and init bits while the
+    /// computer disconnects and reconnects (<see cref="FakeDevice"/> hands the same board to every connect of one device).
+    /// Motion carries on through the gap: the next command integrates it.
+    /// </summary>
+    internal void Reopen()
+    {
+        lock (_lockObj)
+        {
+            IsOpen = true;
+        }
+        Volatile.Write(ref _semaphore, new SemaphoreSlim(1, 1));
+        StartSimulationTimer();
     }
 
     public bool IsOpen { get; private set; }
@@ -330,7 +350,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         }
     }
 
-    public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
+    public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => Volatile.Read(ref _semaphore).AcquireLockAsync(cancellationToken);
 
     public ValueTask DisposeAsync()
     {
