@@ -117,7 +117,7 @@ constraints GSS never had:
 | Phase | What | Status |
 |-------|------|--------|
 | P0 | **`MountLimits` pure decider** (`TianWen.Lib/Sequencing/` beside `MeridianFlipDecision`): `Evaluate(hourAngleHours, pointingState, altitudeDeg, isTracking, alreadyActed, MountLimitConfiguration) -> MountLimitVerdict`. No I/O, no driver, no clock. `MountLimitConfiguration` landed with it rather than waiting for P1, because the decider cannot be written without it; P1 keeps the PLACEMENT (profile persistence + UI). **Two departures from the sketch:** the HORIZON test takes no pier side, and neither test takes an alignment mode -- see the note below. The MERIDIAN test takes the pointing state, as of 2026-08-30. | **DONE** (39 cases, 3 sabotages verified; pointing state added 2026-08-30, seen to fail first) |
-| P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | **DONE for SkyWatcher** (2026-08-30): `IMountDriver.GetAxisAngleAsync`, null on every other driver, and `MountLimits.Evaluate` prefers it -- see "P1b as built" |
+| P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | **DONE for SkyWatcher** (2026-08-30) **and OnStep** (2026-11-02, off home still to be seen: #1962): `IMountDriver.GetAxisAngleAsync`, null on every other driver, and `MountLimits.Evaluate` prefers it -- see "P1b as built" |
 | P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about the mount's geometry AND the tube bolted to it, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** (editor UI 2026-08-30: `PanelSection.MountLimits` on the profile panel, and the flip settings' first UI as a "Meridian Flip" config group whose deadline carries the limit's clamp as a caveat -- see "P1 editor UI as built") |
 | P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (9 tests, 2 sabotages verified) |
 | P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | **DONE for both hosts** (13 tests, 2 sabotages verified): `BackgroundService` in `tianwen-server`, `tracker.Run(watcher.RunAsync)` from `tianwen-gui`'s composition root (2026-08-30) -- see "P3 as built" |
@@ -520,8 +520,9 @@ session's `PollDriverReadAsync` is constrained to non-nullable structs, so the d
 the read) is polled beside the hour angle and pier side, and `MountLimitWatcher` reads the same thing
 with NaN as its failed-read default -- an unreadable axis must fall back to the estimate, not fire.
 `FakeMountDriver` keeps the interface default, so the plain fake exercises the hour-angle tier and the
-SkyWatcher fake the axis tier; both are pinned. Not done for OnStep, which exposes raw steps but whose
-axis model (and home convention) this pass did not study.
+SkyWatcher fake the axis tier; both are pinned. OnStep followed on 2026-11-02 (`:GX42#` / `:GX43#`, its absolute
+axis angles; mapping and measurement in `docs/architecture/onstep-protocol.md`, "The axis angle"): at home its RA and
+Dec hold still while the head tracks, so the hour-angle tier there read a still mount whatever the axis did.
 
 **Tests**: seven pure cases (axis beyond horizontal is the offset whatever the sky says; sign does not
 matter; at/below horizontal is clear even when the sky says 60 min past; the axis wins over a disagreeing
@@ -711,7 +712,8 @@ Tracked by #872, #873.
   `LiveSessionState.MountLimitVerdict` from it whenever no session exists, so the Home card row and the
   feed work for a manual slew exactly as for a run. The server still has no session-less surface for it.
 - **Tier labelling in the editor**, above.
-- **OnStep axis angle**: exposes raw steps, axis model not studied; stays on the hour-angle tier.
+- **OnStep axis angle off home and in the north** (#1962): read from `:GX42#` / `:GX43#` since 2026-11-02, measured
+  at home and tracking in Melbourne; a goto on each pier side and the northern sign are still to be seen.
 - **A verdict on the TUI's Live Session surface** beyond the Home board cell/row, and **a limits editor
   row in the TUI equipment tab** (its site bar is bespoke, not the profile-panel section list).
 - **Live TUI verification** of the editor path (the GUI was verified live 2026-08-30, below).

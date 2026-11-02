@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -208,39 +209,53 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         await mount.MoveAxisAsync(TelescopeAxis.Primary, 0, ct);
     }
 
-    [Fact(Timeout = 60_000)]
-    public async Task GivenOnStepWhenConnectingItsClockIsSetAndReadsBackOurs()
+    [Theory(Timeout = 60_000)]
+    [InlineData("2026-11-02T01:54:55Z", ":SG-11#", -11.0)] // Melbourne's summer, the day the TeeSeek read +10 h at 12:54
+    [InlineData("2026-07-01T10:00:00Z", ":SG-10#", -10.0)] // its winter
+    public async Task GivenOnStepWhenConnectingItsClockIsSetInTheSitesOwnSeason(string utc, string expectedSg, double expectedCorrectionHours)
     {
         // The TeeSeek's OnStep sat 11 hours off and refused a goto to Venus, high in the west, as below the horizon:
-        // nothing set its clock on connect, only a session's start did.
+        // nothing set its clock on connect, only a session's start did. Then it kept the +10 h it was given through
+        // Melbourne's summer, its local clock an hour behind the wall's, since its own offset was left as it was.
         var ct = TestContext.Current.CancellationToken;
-        var timeProvider = new FakeTimeProviderWrapper();
+        var timeProvider = new FakeTimeProviderWrapper(DateTimeOffset.Parse(utc, CultureInfo.InvariantCulture));
         await using var mount = new FakeOnStepMountDriver(MakeDevice(-37.8743502, 145.1668205), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
 
         await mount.ConnectAsync(ct);
 
         var commands = mount.SerialDevice.ShouldNotBeNull().Commands.ToList();
+        var sg = commands.IndexOf(expectedSg);
         var sc = commands.FindIndex(c => c.StartsWith(":SC", StringComparison.Ordinal));
         var sl = commands.FindIndex(c => c.StartsWith(":SL", StringComparison.Ordinal));
-        sc.ShouldBeGreaterThanOrEqualTo(0);
+        sg.ShouldBeGreaterThanOrEqualTo(0, "the site's offset in its season (the fake starts at UTC)");
+        sc.ShouldBeGreaterThan(sg, "the offset first, so the local time sent after it means the right UTC");
         sl.ShouldBeGreaterThan(sc, "date, then time, as the ASCOM OnStep driver sets them");
-        commands.ShouldNotContain(c => c.StartsWith(":SG", StringComparison.Ordinal), "the mount's own UTC offset is left as it is");
         mount.TimeIsSetByUs.ShouldBeTrue();
+        var fake = mount.SerialDevice.ShouldBeOfType<FakeOnStepSerialDevice>();
+        fake.UtcOffset.ShouldBe(TimeSpan.FromHours(expectedCorrectionHours));
         var mountUtc = (await mount.TryGetUTCDateFromMountAsync(ct)).ShouldNotBeNull();
         (mountUtc - timeProvider.GetUtcNow().UtcDateTime).Duration().ShouldBeLessThan(TimeSpan.FromSeconds(2));
 
         // What was SENT, not what the fake reads back: the fake's own clock is the time provider's, so the read-back is true
-        // whatever :SC and :SL carried. Melbourne's mount offset (:GG# answers -11, the hours added to local to give UTC) is
-        // non-zero, so a clock sent as UTC, an 11 hour error, cannot pass.
-        var fake = mount.SerialDevice.ShouldBeOfType<FakeOnStepSerialDevice>();
-        fake.UtcOffset = TimeSpan.FromHours(-11);
+        // whatever :SC and :SL carried. The offset is non-zero, so a clock sent as UTC, an error of hours, cannot pass.
         var utcNow = timeProvider.GetUtcNow().UtcDateTime;
-
-        await mount.SetUTCDateAsync(utcNow, ct);
-
         var sentLocal = fake.ClockDateSent.ShouldNotBeNull().Date + fake.ClockTimeSent.ShouldNotBeNull();
-        (sentLocal - (utcNow - fake.UtcOffset)).Duration().ShouldBeLessThan(TimeSpan.FromSeconds(1), "the local time the offset implies, not UTC");
+        (sentLocal - (utcNow - fake.UtcOffset)).Duration().ShouldBeLessThan(TimeSpan.FromSeconds(2), "the local time the offset implies, not UTC");
+
+        // A mount already on the site's offset is not sent it again.
+        var sent = fake.Commands.Length;
+        await mount.SetUTCDateAsync(timeProvider.GetUtcNow().UtcDateTime, ct);
+        fake.Commands.Skip(sent).ShouldNotContain(c => c.StartsWith(":SG", StringComparison.Ordinal));
     }
+
+    [Theory]
+    [InlineData(-11.0, "-11")]
+    [InlineData(10.0, "+10")]
+    [InlineData(0.0, "+00")]
+    [InlineData(-5.75, "-05:45")]
+    [InlineData(3.5, "+03:30")]
+    public void OnStepsUtcOffsetArgumentIsSignedWithMinutesOnlyWhenNotWhole(double hours, string expected)
+        => OnStepMountDriver<OnStepDevice>.FormatUtcCorrection(TimeSpan.FromHours(hours)).ShouldBe(expected);
 
     [Fact(Timeout = 60_000)]
     public async Task GivenACommandLeftHalfSentWhenConnectingTheFirstCommandIsNotSwallowed()
@@ -389,28 +404,19 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         (await mount.AtParkAsync(ct)).ShouldBe(false);
     }
 
-    [Theory(Timeout = 60_000)]
-    [InlineData(48.2, 16.3)]
-    public async Task GivenOnStepMountWhenQueryingAxisPositionItReturnsEncoderCounts(double siteLat, double siteLong)
+    [Fact(Timeout = 60_000)]
+    public async Task GivenOnStepItReportsNoRawAxisPositionAndNoThirdAxis()
     {
+        // OnStep 4.x has no raw-count command (:GX44# / :GX45# do not exist; the bench TeeSeek times out on them), so
+        // the guider's periodic-error path sees no position rather than a five-second timeout on every read. The axis
+        // ANGLE is :GX42# / :GX43#, and OnStep has two axes.
         var ct = TestContext.Current.CancellationToken;
-        var device = MakeDevice(siteLat, siteLong);
-        var fakeExternal = new FakeExternal(outputHelper);
-        await using var mount = new FakeOnStepMountDriver(device, fakeExternal.BuildServiceProvider());
+        await using var driver = new FakeOnStepMountDriver(MakeDevice(48.2, 16.3), new FakeExternal(outputHelper).BuildServiceProvider());
+        await driver.ConnectAsync(ct);
+        IMountDriver mount = driver;
 
-        await mount.ConnectAsync(ct);
-
-        var ra = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
-        var dec = await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct);
-        var tertiary = await mount.GetAxisPositionAsync(TelescopeAxis.Tertiary, ct);
-
-        ra.ShouldNotBeNull();
-        dec.ShouldNotBeNull();
-        tertiary.ShouldBeNull("OnStep has only two mechanical axes");
-
-        // Fake home position: HA=6h, Dec=+90° → RA counts should be positive, Dec positive.
-        ra.Value.ShouldBeGreaterThan(0);
-        dec.Value.ShouldBeGreaterThan(0);
+        (await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct)).ShouldBeNull();
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Tertiary, ct)).ShouldBeNull("OnStep has only two mechanical axes");
     }
 
     [Fact]
@@ -464,5 +470,61 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         mount.TrackingSpeeds.ShouldContain(TrackingSpeed.Lunar);
         mount.TrackingSpeeds.ShouldContain(TrackingSpeed.Solar);
         mount.TrackingSpeeds.ShouldContain(TrackingSpeed.King);
+    }
+
+    // The bench TeeSeek at home read RA/Dec at the pole and HA 11.975 h through 55 minutes of tracking, while its head
+    // turned: the tube lies along the polar axis there. OnStep's :GX42# (axis 1) followed the head, 90 at home and up
+    // 15 degrees an hour, and that is the axis angle the meridian limit reads.
+    [Theory(Timeout = 60_000)]
+    [InlineData(-37.8743502, 145.1668205)]
+    [InlineData(48.2, 16.3)]
+    public async Task GivenOnStepAtHomeWhenTrackingThePrimaryAxisAngleFollowsTheHead(double siteLat, double siteLong)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper();
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(siteLat, siteLong), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(0.0, 0.01, "home is counterweight down");
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(0.0, 0.01, "and the Dec axis on the pole");
+
+        await mount.SetTrackingAsync(true, ct);
+        for (var minute = 0; minute < 60; minute++)
+        {
+            await timeProvider.SleepAsync(TimeSpan.FromMinutes(1), ct);
+        }
+
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(15.0, 0.5, "an hour of tracking turns the RA axis 15 degrees, in the tracking direction");
+    }
+
+    // The SkyWatcher driver's numbers for the same poses (FakeSkywatcherMountDriverTests): one mechanical angle whichever
+    // driver reads it. A sync keeps the fake's pier side, which at home is OnStep's East.
+    [Theory(Timeout = 60_000)]
+    [InlineData(48.2, 16.3, 3.0, 45.0, -45.0, 45.0)]
+    [InlineData(-37.8743502, 145.1668205, 2.0, -45.0, -60.0, -45.0)]
+    public async Task GivenOnStepSyncedOffHomeTheAxisAnglesAreTheSkywatcherDriversForThatPose(double siteLat, double siteLong, double hourAngle, double dec, double expectedPrimary, double expectedSecondary)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(siteLat, siteLong), new FakeExternal(outputHelper).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+
+        var lst = await mount.GetSiderealTimeAsync(ct);
+        await mount.SyncRaDecAsync(((lst - hourAngle) % 24.0 + 24.0) % 24.0, dec, ct);
+
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(expectedPrimary, 0.05);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(expectedSecondary, 0.01);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenOnStepTheAxisAngleIsReadThroughTheInterface()
+    {
+        // A public method on a class that does not list IMountDriver is never called through it: OnStep's former
+        // GetAxisPositionAsync was dead that way, so this goes through the interface, as the limit watcher does.
+        var ct = TestContext.Current.CancellationToken;
+        await using var driver = new FakeOnStepMountDriver(MakeDevice(-37.8743502, 145.1668205), new FakeExternal(outputHelper).BuildServiceProvider());
+        await driver.ConnectAsync(ct);
+        IMountDriver mount = driver;
+
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull();
     }
 }

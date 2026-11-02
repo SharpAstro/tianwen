@@ -42,7 +42,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     // Mount axis angles (German Equatorial Mount)
     // HA axis: 0 = pointing at meridian (home position), positive = west of meridian
     // DEC axis: angle from equator, at home position = site latitude (pointing at pole)
-    // protected so OnStep subclass can derive synthetic :GX44#/:GX45# encoder counts.
+    // protected so the OnStep subclass can answer its :GX42#/:GX43# axis angles from them.
     protected double _haAxisAngle;  // Hour angle axis position in hours
     protected double _decAxisAngle; // Declination axis position in degrees
 
