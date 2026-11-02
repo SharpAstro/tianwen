@@ -162,6 +162,9 @@ atomically as any of that changes, and a 5 s poll catches what raises nothing (t
   Warm and then Off, and the Alpaca plane and the ninaAPI shim record what their command left the cooler doing
   (`RecordCommandedCoolerAsync`, which never fails the command it follows: a read-back that fails is logged and the
   camera keeps its intent). A disconnect forgets it. **A new place that commands a cooler owes the same.**
+- **The journal's reconnect writes into the active profile as a device-plane connect does** (`ConnectProfileWriter`,
+  #1965): the mount's site is reconciled with the profile's, a camera's sensor recorded; no active profile is a logged
+  warning, never a guessed site.
 - **A node that holds nothing has no journal.** The host's stop, once the run and the cameras have ended within its
   budget, releases every other device too (a mount left for the process's exit was journaled as held, and reported by
   the next node as a crash that never happened), so a clean stop leaves none; one cut short leaves what it got to, a

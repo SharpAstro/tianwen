@@ -756,6 +756,11 @@ else happens, and what the plan does about each:
     `CameraCoolingRamp` so a node can drive it with no session; a recovery's ramps end when a run starts and as the
     host starts to stop. The device being reconnected is written to the journal BEFORE its connect, which is the only
     way "the device it was touching when it died" can be known after a crash inside a driver.
+  - **The journal's reconnect does what a device-plane connect does after it (#1965).** A reconnected mount takes the
+    active profile's site, and a camera has its sensor recorded, through the device plane's own routine
+    (`ConnectProfileWriter`, never a copy), so a SkyWatcher that lost power does not come back with no site and read its
+    axes through the wrong hemisphere. With no active profile, or one whose mount is another device, the recovery logs a
+    warning and guesses no site.
 
 ### What crosses the socket
 

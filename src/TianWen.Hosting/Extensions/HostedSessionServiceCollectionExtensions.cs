@@ -57,6 +57,7 @@ public static class HostedSessionServiceCollectionExtensions
         // tianwen-server does beside its socket. Registered FIRST of the hosted services so it stops LAST, after the
         // run and the hub's cameras have come down, and writes what is left of them.
         services.TryAddSingleton(NodeJournalOptions.None);
+        services.AddSingleton<ConnectProfileWriter>();
         services.AddSingleton<NodeJournalService>();
         services.AddHostedService(sp => sp.GetRequiredService<NodeJournalService>());
         // P3 of docs/plans/mount-safety-limits.md: enforces a configured mount limit against any
