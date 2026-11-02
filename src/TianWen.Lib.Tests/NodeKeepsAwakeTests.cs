@@ -124,27 +124,27 @@ public class NodeKeepsAwakeTests
         rig.Power.Held.ShouldBe(1);
     }
 
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task A_running_job_takes_it_and_its_end_releases_it()
     {
         var rig = new Rig();
         var finish = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Jobs.Changed += (_, job) =>
+        {
+            if (job.State is not JobState.Running)
+            {
+                ended.TrySetResult();
+            }
+        };
         rig.Jobs.StartOrJoin("warm-and-disconnect", (_, _) => finish.Task);
 
         rig.Service.Check();
         rig.Power.Held.ShouldBe(1);
 
         finish.SetResult("Warmed");
-        await Task.Yield();
-        for (var i = 0; i < 100 && rig.Power.Held > 0; i++)
-        {
-            await Task.Yield();
-            rig.Service.Check();
-            if (rig.Power.Held > 0)
-            {
-                await Task.Delay(1, TestContext.Current.CancellationToken);
-            }
-        }
+        await ended.Task.WaitAsync(TestContext.Current.CancellationToken);
+        rig.Service.Check();
 
         rig.Power.Held.ShouldBe(0);
         rig.Power.Takes.ShouldBe(1);
@@ -172,7 +172,7 @@ public class NodeKeepsAwakeTests
     }
 
     [Fact]
-    public async Task Stopping_the_service_releases_it()
+    public async Task Stopping_the_service_keeps_it_while_hardware_is_still_held_and_disposing_releases_it()
     {
         var rig = new Rig();
         rig.Connected(true);
@@ -180,6 +180,11 @@ public class NodeKeepsAwakeTests
         rig.Power.Held.ShouldBe(1);
 
         await rig.Service.StopAsync(TestContext.Current.CancellationToken);
+
+        // The hosted session stops after this service and is still warming the cameras.
+        rig.Power.Held.ShouldBe(1);
+
+        rig.Service.Dispose();
 
         rig.Power.Releases.ShouldBe(1);
         rig.Power.Held.ShouldBe(0);

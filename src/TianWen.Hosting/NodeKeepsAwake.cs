@@ -49,16 +49,14 @@ internal sealed class NodeKeepsAwake(IDeviceHub hub, IHostedSession hosted, Node
         }
     }
 
-    public override async Task StopAsync(CancellationToken cancellationToken)
+    // StopAsync deliberately does NOT release. Services stop in reverse registration order, and the hosted session stops
+    // after this one: it still warms the cameras and disconnects the devices (up to HostedSession.ShutdownBudget), and the
+    // computer must not idle-sleep mid cooler ramp. The request is let go when the host disposes this service, once every
+    // service has stopped, and by the OS when the process exits.
+    public override void Dispose()
     {
-        try
-        {
-            await base.StopAsync(cancellationToken);
-        }
-        finally
-        {
-            Release("the node is stopping");
-        }
+        Release("the node is stopping");
+        base.Dispose();
     }
 
     private void OnDeviceStateChanged(object? sender, DeviceConnectedEventArgs e) => Check();

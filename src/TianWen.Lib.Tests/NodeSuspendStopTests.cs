@@ -146,7 +146,7 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
-    public async Task Nothing_connected_is_a_quiet_no_op_and_stopping_the_service_unsubscribes()
+    public async Task A_stopped_service_takes_no_notice_of_a_suspend()
     {
         var ct = TestContext.Current.CancellationToken;
         var rig = new Rig();
