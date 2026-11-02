@@ -497,6 +497,33 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(15.0, 0.5, "an hour of tracking turns the RA axis 15 degrees, in the tracking direction");
     }
 
+    // Near the pole the hour angle is the RA AXIS's, as the SkyWatcher driver's always is: the TeeSeek's own RA read
+    // HA 12 h there through hours of tracking. Off the pole it is the sky's, sidereal time less OnStep's RA.
+    [Theory(Timeout = 60_000)]
+    [InlineData(-37.8743502, 145.1668205)]
+    [InlineData(48.2, 16.3)]
+    public async Task GivenOnStepAtThePoleTheHourAngleIsTheAxissAndOffItTheSkys(double siteLat, double siteLong)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper();
+        await using var mount = new FakeOnStepMountDriver(MakeDevice(siteLat, siteLong), new FakeExternal(outputHelper, timeProvider).BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+
+        (await mount.GetHourAngleAsync(ct)).ShouldBe(6.0, 0.01, "home is counterweight down, HA 6 h");
+
+        await mount.SetTrackingAsync(true, ct);
+        for (var minute = 0; minute < 60; minute++)
+        {
+            await timeProvider.SleepAsync(TimeSpan.FromMinutes(1), ct);
+        }
+        (await mount.GetHourAngleAsync(ct)).ShouldBe(7.0, 0.05, "an hour of tracking at home");
+
+        var dec = siteLat < 0 ? -45.0 : 45.0;
+        var lst = await mount.GetSiderealTimeAsync(ct);
+        await mount.SyncRaDecAsync(((lst - 3.0) % 24.0 + 24.0) % 24.0, dec, ct);
+        (await mount.GetHourAngleAsync(ct)).ShouldBe(3.0, 0.01, "off the pole, the sky's");
+    }
+
     // The SkyWatcher driver's numbers for the same poses (FakeSkywatcherMountDriverTests): one mechanical angle whichever
     // driver reads it. A sync keeps the fake's pier side, which at home is OnStep's East.
     [Theory(Timeout = 60_000)]

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Connections;
 
@@ -488,8 +489,7 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
             return null;
         }
 
-        var response = await SendAndReceiveAsync(command, cancellationToken);
-        if (!double.TryParse(response, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var degrees))
+        if (await ReadAxisDegreesAsync(command, cancellationToken) is not { } degrees)
         {
             return null;
         }
@@ -498,6 +498,36 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
             ? FoldDegrees(degrees - 90.0)
             : FoldDegrees((await IsSouthernHemisphereAsync(cancellationToken) ? -90.0 : 90.0) - degrees);
     }
+
+    /// <summary>
+    /// The hour angle, from the RA AXIS within <see cref="MountGoto.PoleToleranceDegrees"/> of a pole, as the SkyWatcher
+    /// driver's always is: 6 h at home, rising with tracking. Elsewhere the base's sidereal time less OnStep's RA.
+    /// </summary>
+    /// <remarks>
+    /// Near a pole OnStep's RA cannot say where the RA axis is: the tube lies along it, so its pointing holds still however
+    /// far the head turns, and at home OnStep reports the unrefracted place, ~79 arcsec below the pole, which reads HA 12 h
+    /// through hours of tracking (the bench TeeSeek, 2026-11-02). Every hour angle names the same pointing there, so the
+    /// axis's is as true as any and the only one that moves. On OnStep's East axis 1 is the instrument HA in degrees, on
+    /// West it is HA + 180 (<see cref="GetAxisAngleAsync"/>). Alt-az, or an axis that cannot be read, keeps the base's.
+    /// </remarks>
+    public override async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
+    {
+        if (Math.Abs(await GetDeclinationAsync(cancellationToken)) >= 90.0 - MountGoto.PoleToleranceDegrees
+            && await GetAlignmentAsync(cancellationToken) is not AlignmentMode.AltAz
+            && await ReadAxisDegreesAsync(GX42Command, cancellationToken) is { } axis1
+            && await ReadAxisDegreesAsync(GX43Command, cancellationToken) is { } axis2)
+        {
+            var throughThePole = Math.Abs(axis2) > 90.0;
+            return CoordinateUtils.ConditionHA((throughThePole ? axis1 - 180.0 : axis1) / 15.0);
+        }
+
+        return await base.GetHourAngleAsync(cancellationToken);
+    }
+
+    private async ValueTask<double?> ReadAxisDegreesAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+        => double.TryParse(await SendAndReceiveAsync(command, cancellationToken), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var degrees)
+            ? degrees
+            : null;
 
     /// <summary>Folds an angle into (-180, 180].</summary>
     private static double FoldDegrees(double degrees)

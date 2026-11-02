@@ -781,7 +781,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     protected async ValueTask<bool> IsSouthernHemisphereAsync(CancellationToken cancellationToken)
         => _isSouthernHemisphere ??= await GetSiteLatitudeAsync(cancellationToken) < 0;
 
-    public async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
+    public virtual async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
     {
         var lst = await GetSiderealTimeAsync(cancellationToken);
         var ra = await GetRightAscensionAsync(cancellationToken);
