@@ -212,6 +212,25 @@ public sealed class SkywatcherPositionLossTests(ITestOutputHelper output) : IDis
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task AMountAtHomeThatLostPowerWhileConnectedIsInitialisedBeforeItsNextGoto()
+    {
+        // Nothing written down away from home: the board's home is all there is, but no move goes to an axis the board has
+        // not initialised (PR #1963 review).
+        var ct = TestContext.Current.CancellationToken;
+        var rig = await ConnectAsync(Melbourne, 145.1775, ct);
+        rig.Board.PowerCycle();
+        var before = rig.Board.CommandLogSnapshot.Length;
+
+        await GotoEastAsync(rig, ct);
+
+        rig.Driver.PositionLoss.ShouldBeNull("home is home");
+        var sent = rig.Board.CommandLogSnapshot[before..];
+        Array.IndexOf(sent, ":F1").ShouldBeGreaterThanOrEqualTo(0);
+        Array.IndexOf(sent, ":F1").ShouldBeLessThan(Array.IndexOf(sent, ":J1"), "initialised before the goto started the axis");
+        Array.IndexOf(sent, ":F2").ShouldBeLessThan(Array.IndexOf(sent, ":J2"));
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task AMountLeftAtHomeThatLostPowerIsNotLost()
     {
         var ct = TestContext.Current.CancellationToken;
