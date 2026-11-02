@@ -660,6 +660,15 @@ hardware server must survive its parent:
   without a word. A reopened window after the minute pays about two seconds to start a new node. `POST /api/v1/node/shutdown` (socket only) performs the safe
   stop from P0b item 4, then exits; "Stop the rig and quit" (decision 1) calls it, only from the last
   client attached.
+- **The node keeps the computer awake while it holds hardware** (`NodeKeepsAwake`, #1957): a system-required
+  power request (the display may still sleep) held while any connected device, lease, run or running job is
+  true (`NodeHoldsHardware`, the rule `NodeIdleExit` shares, which adds a present client), released when the last
+  is let go, on stop, and by the OS when the node exits. Registered in `tianwen-server` whatever its role, since a
+  node started by hand holds hardware just the same. One seam, `IPowerRequest` (`TianWen.Lib/IO`), which #1673 (a
+  planetary recording keeps the machine awake) reuses: Windows a power request object
+  (`PowerCreateRequest` + `PowerRequestSystemRequired`, never the per-thread `SetThreadExecutionState`), macOS a
+  `caffeinate -i -w <node pid>` child, Linux a `systemd-inhibit` around `tail --pid=<node pid>`; a tool that is
+  absent is logged once and the node goes on without.
 - **Version skew**: the GUI and the server ship together, but an older server may still be running from
   before an update (or a newer one, after a downgrade). The handshake compares wire versions. An idle
   server of another version is asked to exit and a new one spawned. **So is an idle one of the same wire but

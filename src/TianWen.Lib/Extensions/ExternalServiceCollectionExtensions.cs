@@ -19,7 +19,9 @@ public static class ExternalServiceCollectionExtensions
         // user's (TIANWEN_DATA_ROOT, a test's node), whose secrets must not reach the user's vault. Behind ICredentialStore.
         .AddSingleton<ICredentialStore>(sp => OperatingSystem.IsWindows() && !TianWenDataRoot.IsOverridden
             ? new WindowsCredentialStore()
-            : new FileCredentialStore(sp.GetRequiredService<IExternal>()));
+            : new FileCredentialStore(sp.GetRequiredService<IExternal>()))
+        // Keeps the computer awake while the node holds hardware (#1957): a power request on Windows, a child on macOS/Linux.
+        .AddSingleton<TianWen.Lib.IO.IPowerRequest>(TianWen.Lib.IO.PowerRequests.ForThisOs);
 
     /// <summary>
     /// Registers <paramref name="mode"/> as this process's <see cref="LocalOnlyMode"/>, unless one is registered already:

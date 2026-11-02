@@ -70,19 +70,7 @@ internal sealed class NodeIdleExit(NodeRole role, NodeListening listening, IDevi
         {
             return "a client is present";
         }
-        if (hub.ConnectedDevices.Count > 0)
-        {
-            return "a device is connected";
-        }
-        if (hosted.RunningKind is { } kind)
-        {
-            return $"a {kind} run is going on";
-        }
-        if (jobs.List().Any(static job => job.State is JobState.Running))
-        {
-            return "a job is running";
-        }
-        return null;
+        return NodeHoldsHardware.What(hub, hosted, jobs);
     }
 
     /// <summary>One look: starts, cancels or spends the grace, and exits once it is spent.</summary>

@@ -1299,6 +1299,10 @@ the session plane", "Invariants 7-13 in full"); the node's lifetime and version 
    `LanGrants`, asked through `LanInvites`). **A new route goes in its surface's group** (`.ReadsOnly()`,
    `.OpenToAsk()`); `NodeAccessTests` fails on a route outside the groups. A native refusal is a 401, never a
    socket-only route's 403. `docs/architecture/hosting-api.md`, "Who may command the node over TCP".
+14. **The node keeps the computer awake while it holds hardware** (#1957, `NodeKeepsAwake`): a connected device, a lease, a
+   run or a running job (`NodeHoldsHardware`, shared with `NodeIdleExit`) holds an `IPowerRequest`, the display free to
+   sleep. **Windows takes a power request object, never `SetThreadExecutionState`** (per thread, and a service's
+   continuation hops threads). #1673 reuses the seam. `docs/plans/hardware-in-the-server.md`, "Spawn and lifetime".
 
 **Local-only binds nothing but loopback and the node's socket, and is ONE decision per process, `LocalOnlyMode`**
 (`TIANWEN_LOCAL_ONLY=1` or `tianwen-server --local-only`; `tools/start-app.ps1` sets it, since Windows Firewall asks
