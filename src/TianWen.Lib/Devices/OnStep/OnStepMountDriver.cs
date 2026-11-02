@@ -202,8 +202,18 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
     /// </summary>
     private async ValueTask<TimeSpan?> SiteUtcCorrectionAsync(DateTime utc, CancellationToken cancellationToken)
     {
-        var latitude = await GetSiteLatitudeAsync(cancellationToken);
-        var longitude = await GetSiteLongitudeAsync(cancellationToken);
+        double latitude, longitude;
+        try
+        {
+            latitude = await GetSiteLatitudeAsync(cancellationToken);
+            longitude = await GetSiteLongitudeAsync(cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The offset is a nicety for the mount's own clock readout; a site it will not tell must not cost the clock.
+            Logger.LogWarning(ex, "{Device}: could not read its site, so its UTC offset is left as it is", _device.DisplayName);
+            return null;
+        }
         if (!Transform.TryGetUtcOffset(latitude, longitude, utc, out var civil))
         {
             return null;
@@ -523,6 +533,9 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
 
         return await base.GetHourAngleAsync(cancellationToken);
     }
+
+    /// <summary>OnStep answers <c>:GW#</c> as <c>[mount][tracking][alignment]#</c>, terminated (its <c>Command.ino</c>).</summary>
+    protected override bool AlignmentReplyIsTerminated => true;
 
     private async ValueTask<double?> ReadAxisDegreesAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
         => double.TryParse(await SendAndReceiveAsync(command, cancellationToken), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var degrees)
