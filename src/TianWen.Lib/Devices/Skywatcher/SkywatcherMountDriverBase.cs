@@ -601,7 +601,30 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         _gotoTargetDec = dec;
         _gotoRefineAttempts = 0;
 
-        await SlewToRaDecCoreAsync(ra, dec, _gotoPointingState, cancellationToken);
+        await FirstGotoPassAsync(ra, dec, _gotoPointingState, cancellationToken);
+    }
+
+    /// <summary>
+    /// The first pass of a goto just armed, holding the refinement gate (<see cref="_gotoRefineInFlight"/>) until its <c>:J</c>
+    /// is out. Between arming and the progress flag, the pass stop-waits both axes and reads both encoders, which over a real
+    /// serial link takes a few hundred milliseconds; a poller in that window found the goto armed and the axes idle, took it for
+    /// a goto that had ended short, and started a refinement pass beside this one: an AZ-GTi answered the second <c>:G1</c>
+    /// <c>!2</c> and the goto stalled 20 s on unanswered commands (2026-11-02). Held, the poller answers "slewing".
+    /// </summary>
+    private async ValueTask FirstGotoPassAsync(double ra, double dec, PointingState pointingState, CancellationToken cancellationToken)
+    {
+        var held = Interlocked.CompareExchange(ref _gotoRefineInFlight, 1, 0) == 0;
+        try
+        {
+            await SlewToRaDecCoreAsync(ra, dec, pointingState, cancellationToken);
+        }
+        finally
+        {
+            if (held)
+            {
+                Interlocked.Exchange(ref _gotoRefineInFlight, 0);
+            }
+        }
     }
 
     /// <summary>
@@ -1288,7 +1311,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         _gotoTargetRa = ra;
         _gotoTargetDec = dec;
         _gotoRefineAttempts = 0;
-        await SlewToRaDecCoreAsync(ra, dec, pointingState, cancellationToken);
+        await FirstGotoPassAsync(ra, dec, pointingState, cancellationToken);
     }
 
     public ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)

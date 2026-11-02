@@ -178,7 +178,11 @@ reports slewing while an axis is running in goto mode and no guide pulse is in f
 - **Refinement.** The target steps encode the hour angle at command time, so a long slew lands late by
   its own duration. With a goto pending, a residual above 30 arcsec re-runs the pass with the same
   solution, up to twice (`MaxGotoRefineAttempts`), under a CAS gate so two pollers cannot both issue it;
-  it reports slewing meanwhile (bench #639).
+  it reports slewing meanwhile (bench #639). **The goto's first pass holds the same gate until its `:J` is out**
+  (`FirstGotoPassAsync`): it stop-waits both axes and reads both encoders before the progress flag goes up, and a
+  poller in that window found the goto armed and the axes idle and started a pass beside it (an AZ-GTi, 2026-11-02:
+  the second `:G1` answered `!2`, then 20 s of unanswered `:H`/`:M`). `SkywatcherGotoStartRaceTests` holds the window
+  open on the fake.
 - **Arrival.** The target is disarmed and `SetTrackingAsync(true)` runs, best-effort, as GSS does after a
   goto. **Assumed, not verified:** the board may also resume sidereal tracking on its own; the fake does
   (bench #638), and the setter then only re-times `:I1`.
