@@ -51,7 +51,7 @@ return `null` / `false`. A cancelled read is not caught, so it surfaces as the r
 
 - **Command:** `:` + body + `#`, built by the base's private `SendAsync` (`GU` goes out as `:GU#`).
 - **Terminated reply:** read up to `#` or NUL (the base's `Terminators`), terminator stripped. Used for
-  `:GU#`, `:Gm#`, `:GX44#`, `:GX45#` and the discovery reads.
+  `:GU#`, `:Gm#`, `:GX42#`, `:GX43#` and the discovery reads.
 - **One-byte reply:** exactly one byte, no terminator: `:Te#`, `:Td#`, `:hP#`, `:hR#`, `:hQ#`, and a site-name
   set during discovery. The code assumes a bare `1` or `0`; a trailing `#` would stay in the stream and be
   read as the start of the next reply.
@@ -97,13 +97,13 @@ rejects is none at all (`null`, thrown as `InvalidOperationException`); there is
 | `:hQ#` | 1 byte | `1` accepted | `SetParkAsync` (`IMountDriver`, `CanSetPark`) | nothing |
 | `:TQ#` `:TL#` `:TS#` `:TK#` | none read | | `SetTrackingSpeedAsync`: sidereal, lunar, solar, King | the base sends `:TQ#` for solar and has no King |
 | `#` (bare) | none | | first command of a connect | clears a half-sent command a discovery probe of another family left in OnStep's buffer, which would otherwise read `:GVP#` as its tail and swallow it |
-| `:SC` `MM/dd/yy#` then `:SL` `HH:mm:ss#`, with `:GG#` first | 1 byte each: `1` valid, `0` invalid | `1` is success, else throws | `SetUTCDateAsync`, on every connect (a failure is logged, the connect goes on) | the base's `:SL` / `:SG`. The local time is UTC minus the mount's own `:GG#` offset (hours ADDED to local to give UTC), which is left as it is; `:SC` is followed by Meade's "Updating Planetary Data" lines, which are discarded before `:SL`. The TeeSeek's clock sat 11 hours off |
+| `:GG#`, then `:SGsHH[:MM]#` if it differs, then `:SC` `MM/dd/yy#` and `:SL` `HH:mm:ss#` | 1 byte each: `1` valid, `0` invalid | `1` is success, else throws | `SetUTCDateAsync`, on every connect (a failure is logged, the connect goes on) | the base's `:SL` / `:SG`. The offset is the SITE's civil one at that instant, daylight saving included (`Transform.TryGetUtcOffset` from the mount's `:Gt#` / `:Gg#`), in Meade's sense (hours ADDED to local to give UTC, so Melbourne's summer is `:SG-11#`), sent only when the mount's `:GG#` differs, and before `:SC`, so the local time sent after it means the right UTC; a zone that cannot be resolved, or an offset `:SG` cannot hold (whole hours, :30 and :45 only), keeps the mount's. The local time is UTC minus that offset; `:SC` is followed by Meade's "Updating Planetary Data" lines, which are discarded before `:SL`. The TeeSeek's clock sat 11 hours off, then kept +10 h through Melbourne's summer, its local clock an hour behind the wall's |
 | `:Mn#` `:Ms#` `:Me#` `:Mw#` / `:Qn#` `:Qs#` `:Qe#` `:Qw#` | none read | | `MoveAxisAsync` | the base's step-rate jog; a start never sends a `:Q` first (a `:Qw#` just before `:Me#` left the TeeSeek's axis standing), a rate of 0 sends the `:Q` |
 | `:RAd.dddddddd#` / `:REd.dddddddd#` | none read | | `MoveAxisAsync` | the axis's rate in degrees a second, exactly as asked (the ASCOM OnStep driver's way); `:R0#` to `:R9#` did not move the TeeSeek's 4.24 |
 | `:GXE6#` then `:GX92#` | `#`-terminated number each | `1000000 / :GX92# / :GXE6# / 240`, degrees a second | `AxisRates` top, read once on connect (2 s bound each: a firmware that does not know them never answers, which is not a lost reply) | a fixed 48x sidereal when either is missing. 1.88 deg/s on the TeeSeek |
 | `:hC#`, then `:GU#` | none, then flags | polls until `H` (at home), `F` or 240 s | `FindHomeAsync` | nothing: the base has no home. Refused with "is parked" on a parked mount, and so is the node's goto at the pole: nothing unparks a mount by itself. Tracking is stopped once home |
 | `:MS#` refusal | one digit, no `#` and no message | `1` below the horizon limit, `2` above the overhead limit, `3` standby, `4` parked, `5` goto in progress, `6` outside the limits, `7` hardware fault, `8` already moving | the goto's refusal in words | Meade sends the digit then a `#`-terminated message; waiting for it held the port's lock for good and the mount read "busy" until the node restarted |
-| `:GX44#` / `:GX45#` | `#`-terminated integer | `long.TryParse` (invariant), else `null` | `GetAxisPositionAsync`, axis 1 / axis 2; the tertiary axis answers `null` with no query | the interface default `null` |
+| `:GW#`, then `:GX42#` / `:GX43#` | `#`-terminated decimal degrees, six places | `double.TryParse` (invariant), else `null`; alt-az (`A`) answers `null` | `GetAxisAngleAsync`, axis 1 / axis 2; the tertiary axis answers `null` with no query | the interface default `null`. See "The axis angle" below |
 
 ### `:Sd` and `:St` need their sign
 
@@ -120,9 +120,32 @@ the exception: OnStepX strips an optional sign and reads three digits in -180 to
 ([Site.command.cpp#L173-L177](https://github.com/hjd1964/OnStepX/blob/65a751825677a03a0b12b15546780b614a206435/src/telescope/mount/site/Site.command.cpp#L173-L177)).
 Read from the firmware sources, not yet from a controller.
 
-The code reads `:GX44#` / `:GX45#` as raw step counts per mechanical axis, meant (per its comment) to mirror
-SkyWatcher's `:j1` / `:j2` for the neural guider's periodic-error features. It assumes integer counts; a
-decimal reply reads `null`.
+### The axis angle
+
+`:GX42#` / `:GX43#` are OnStep's "absolute Axis1/Axis2 angle in degrees" (`Command.ino`, its `getEnc` in
+`Goto.ino`): the axis's step count plus its index (what syncs and alignment shift), over steps per degree. Not an
+encoder, whatever the name: a count of what the motor was told to do. `:GX40#` / `:GX41#` are the same two angles as
+`sDDD*MM:SS`. There is no `:GX44#` / `:GX45#` in OnStep 4.x (the handler answers an unknown command, and the bench
+TeeSeek's 4.24s timed out on both); the driver once read them as raw counts for the guider, through a
+`GetAxisPositionAsync` that was never reachable through `IMountDriver`, and it is gone.
+
+OnStep's frame (`src/lib/Coord.h`, `Globals.h`, `Astro.ino`): a German mount's home is axis 1 = 90 and axis 2 = +90
+north, -90 south. On its pier side East axis 1 is the instrument HA in degrees and axis 2 the Dec; on West axis 1 is
+HA + 180 and axis 2 is 180 - Dec (north) or -180 - Dec (south), and |axis 2| > 90 is how OnStep tells West. So:
+
+- **Primary** = axis 1 - 90, folded into (-180, 180], on either side: 0 at home, growing with tracking in both
+  hemispheres (axis 1 is HA-like; OnStep turns the motor the hemisphere's way itself).
+- **Secondary** = axis 2's home less axis 2 (90 - axis 2 north, -90 - axis 2 south). That is the SkyWatcher
+  driver's number for the same pose, which in the south is NEGATIVE on OnStep's East: the SkyWatcher driver names
+  that half through the pole there, while `GetSideOfPierAsync` reads OnStep's East as Normal. A mechanical angle is
+  one number whichever driver reads it; the pier-side names are each driver's own.
+
+Measured on the TeeSeek 11 (4.24s, Melbourne) on 2026-11-02: powered on at home, axis 1 rose 15.2 degrees an hour from
+90.0 and axis 2 read -89.99986, while `:GR#` rose with `:GS#` and the hour angle held at 11.975 h for 55 minutes. At
+home the tube lies along the polar axis, so RA and Dec cannot see the RA axis turn; and the 12 h is refraction:
+OnStep reports the unrefracted place, about 79 arcsec below the pole at 38 degrees altitude, which is HA 12 h. This
+is what the meridian limit reads there. Not yet seen on a mount: the northern sign, and an axis off home
+(#1962).
 
 ## Park and unpark
 
@@ -220,8 +243,8 @@ no retry, no reconnect and no fault count. **X** marks a violation of #810.
 | `GetSideOfPierAsync` | `:Gm#` | `Unknown` | `Unknown` (**X**) | `Unknown` (**X**) |
 | `ParkAsync` | `:hP#`, then the `:GU#` poll | `InvalidOperationException` | `InvalidOperationException`, for the ack or a poll (**X**, wrong type) | ack: `InvalidOperationException`; poll: keeps polling, then `TimeoutException` at 60 s |
 | `UnparkAsync` | `:hR#`, then the `:GU#` poll | `InvalidOperationException` | as `ParkAsync` (**X**, wrong type) | ack: `InvalidOperationException`; poll: returns at once, "unparked" (**X**) |
-| `GetAxisPositionAsync` | `:GX44#` / `:GX45#` | `null` | `null` (**X**) | `null` (**X**) |
-| `SetUTCDateAsync` | `:GG#`, `:SC`, `:SL`, then the clock read back | `InvalidOperationException` | `InvalidOperationException` | refused: `InvalidOperationException` naming the digit; read back more than a minute out: a warning |
+| `GetAxisAngleAsync` | `:GW#`, `:GX42#` / `:GX43#` | `InvalidOperationException` | `InvalidOperationException` | `null`, no angle (the limit falls back to the hour angle) |
+| `SetUTCDateAsync` | `:GG#`, `:Gt#`, `:Gg#`, maybe `:SG`, `:SC`, `:SL`, then the clock read back | `InvalidOperationException` | `InvalidOperationException` | refused: `InvalidOperationException` naming the digit; read back more than a minute out: a warning |
 | `CanMoveAxis`, `AxisRates` | none (from the connect's `:GXE6#` / `:GX92#`) | | | primary and secondary only; a quarter of sidereal to the mount's top |
 | `MoveAxisAsync` | `:RAd#` / `:REd#`, then `:Mx#`; `:Qx#` to stop | `InvalidOperationException` | a lost reply is recovered with the bare `#` | n/a |
 | `CanFindHome`, `FindHomeAsync` | `:hC#`, then the `:GU#` poll for `H` | `InvalidOperationException` | `InvalidOperationException` | `TimeoutException` at 240 s; `F` throws |
@@ -243,7 +266,9 @@ on both transports; only the caller's own token escapes as `OperationCanceledExc
   with a COMPUTED destination.
 - `SyncRaDecAsync` sends `:CM#` (nothing sends `:CS#`), refuses when `GetSideOfPierAsync` is `Unknown`, which
   is every `:Gm#` reply but `E` or `W`, and takes any non-empty reply as success.
-- `GetAxisAngleAsync` and `GetWormPeriodStepsAsync` keep the interface defaults, `null` and `0`.
+- `GetAxisPositionAsync` and `GetWormPeriodStepsAsync` keep the interface defaults, `null` and `0`, so the guider's
+  periodic-error path is off on OnStep. The class re-declares `IMountDriver` so its `GetAxisAngleAsync` is the
+  interface's: a public method on a class that does not list the interface is never called through it.
 
 ## The fake
 
@@ -259,9 +284,11 @@ on both transports; only the caller's own token escapes as `OperationCanceledExc
 - `:TS#` / `:TK#` set the base fake's tenths-of-a-hertz rate to 600 / 601, which the `:GT#` band reads back
   as sidereal.
 - `:Gm#` answers `N` while parking or parked, `W` when the Dec axis is past the pole, else `E`.
-- `:GX44#` / `:GX45#` answer the LX200 fake's axis angles times 11,378 steps per degree (HA hours x 15 for axis
-  1): a TeeSeek-class harmonic mount, a 200-step NEMA 17 at 256 microsteps through 80:1, 4,096,000
-  microsteps per turn, about 0.32 arcsec per step. At home (HA 6 h, Dec axis +90 in the north) both are positive.
+- `:GX42#` / `:GX43#` answer the LX200 fake's axis angles in OnStep's frame and six-decimal form (HA hours x 15
+  for axis 1, home 90; the Dec axis, home +/-90 by hemisphere). Through the pole the fake keeps HA - 12 h where
+  OnStep keeps HA + 180 degrees, one turn apart, which the fold removes.
+- `:SGsHH[:MM]#` sets what `:GG#` answers, with `1`, and refuses minutes other than :00, :30 and :45 with `0`, as
+  OnStep's handler does.
 - `:Sd` and `:St` answer `0` to a value without its `+` or `-` (`RequiresExplicitSign`), as OnStepX does. It is
   the one place the OnStep fake is STRICTER than the LX200 fake, and it must stay as strict as the firmware:
   with no controller on the bench, the fake is the only thing standing in for one.
@@ -272,15 +299,13 @@ is the LX200 fake's `Fake LX200 Mount`, so the fake would fail the product regex
 `FakeDevice`, never through discovery. `OnStepMountTests` pins connect and alignment, tracking via `:Te#` and
 `n`, slewing via the absence of `N`, park `p` to `I` to `P`, unpark, the axis counts and the capabilities, and
 the signed `:Sd` bytes of a northern, an equatorial and a southern target with the declination the fake parsed,
-and the `:St` / `:Sg` bytes of a northern and a southern site.
+the `:St` / `:Sg` bytes of a northern and a southern site, the clock's `:SG` in Melbourne's summer and winter, and
+the axis angle at home, after an hour of tracking and synced off home, in both hemispheres.
 
 ## Deliberately not replicated, and out of scope
 
 - **No guide-rate control.** `CanSetGuideRates` is `false`, from the base; OnStep's `:Rn#` / `:GX90#` guide
   rates are #542. The jog (`:Mx#` with `:RAd.d#` / `:REd.d#`) is mapped above.
-- **No axis model.** `:GX44#` / `:GX45#` are passed through raw; `GetAxisAngleAsync` stays `null` until a real
-  controller has been read at home and at known hour angles (#648), so the mount limits use the hour-angle
-  tier on OnStep.
 - **No local sync check.** Sync sends `:CM#` and trusts the mount's reply, with no "target too far" test or
   prompt; a park is polled to completion rather than assumed. (A comparison with the OnCue ASCOM driver that
   motivated both lives outside the repo and is not restated here.)
@@ -291,15 +316,14 @@ and the `:St` / `:Sg` bytes of a northern and a southern site.
 
 - **#810, reads that invent a value** (the Mapping table): an unvalidated `:GU#` reads garbage as "tracking,
   slewing", which hides the stop `Session.DetectDriverEnforcedStop` exists to see and ends an unpark wait
-  early; `:Gm#` and `:GX4n#` return neutral values while connected; every missing reply throws
+  early; `:Gm#` returns a neutral value while connected; every missing reply throws
   `InvalidOperationException`, which the session never retries.
-- **#648, the axis angle**, and **#542**, the rest: guide rates; an mDNS fallback to an ephemeral port
+- **#542**, the rest: guide rates; an mDNS fallback to an ephemeral port
   when Bonjour or Avahi owns 5353 (today WiFi discovery then silently finds nothing, common on macOS); SRV
   parsing for a non-default port; an "add unseen device" dialog for a WiFi mount that does not advertise
   mDNS (general form: #674); tests for `EquipmentActions.ReconcileAllProfilesAsync`.
-- **The step counts reach the guider and are thrown away.** `GetWormPeriodStepsAsync` answers `0` and
-  `GuideLoop` computes a periodic-error phase only when it is positive, so on OnStep every guide frame pays
-  two extra round trips (`:GX44#`, `:GX45#`) and the phase stays `NaN`.
+- **No periodic-error phase.** OnStep's raw counts would be `:GX42#` / `:GX43#` times `:GXE4#` / `:GXE5#` (steps
+  per degree), and its worm period `:GXE7#`; a harmonic drive like the TeeSeek has no worm, so nothing asks yet.
 - **The device id changes with the firmware version**, since it includes the `:GVN#` product number.
 - **A dead TCP link leaves the driver `Connected`.** `TcpSerialConnection` sets `IsOpen = false` on a fault and
   every later read returns `null`, but nothing clears `DeviceDriverBase.Connected`, and `ResilientCall`
@@ -310,4 +334,4 @@ and the `:St` / `:Sg` bytes of a northern and a southern site.
 - **Test stub drift:** `OnStepQuirkProbeTests`' stub answers `:GL#` (LX200's local-time query) instead of the
   slot-4 `:GP#` the probe sends; the test passes only because that unanswered read ends on the probe budget.
 - **Bench validation is outstanding** for every "the code assumes" above, above all the one-byte replies, the
-  `:GU#` alphabet, the unused-site text and the units of `:GX44#`.
+  `:GU#` alphabet and the unused-site text.

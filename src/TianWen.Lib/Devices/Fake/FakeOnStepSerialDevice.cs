@@ -179,6 +179,17 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
                 _responseBuffer.Append(dateOk ? '1' : '0');
                 return true;
 
+            // :SGsHH[:MM]# sets the UTC offset (hours ADDED to local to give UTC), minutes :00, :30 or :45 only, as
+            // OnStep's handler takes them; what :GG# answers from then on.
+            case [':', 'S', 'G', .., '#']:
+                var offsetOk = TryParseOnStepUtcOffset(dataStr[3..^1], out var sentOffset);
+                if (offsetOk)
+                {
+                    UtcOffset = sentOffset;
+                }
+                _responseBuffer.Append(offsetOk ? '1' : '0');
+                return true;
+
             case [':', 'S', 'L', .., '#']:
                 var timeOk = TimeSpan.TryParseExact(dataStr[3..^1], "hh\\:mm\\:ss", CultureInfo.InvariantCulture, out var sentTime);
                 ClockTimeSent = timeOk ? sentTime : null;
@@ -196,20 +207,39 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
                 }
                 return true;
 
-            case ":GX44#":
-                // Axis 1 (HA / RA) encoder counts at the output shaft.
-                // HA axis in hours → degrees × StepsPerDegree.
-                AppendEncoderCounts((long)Math.Round(_haAxisAngle * 15.0 * StepsPerDegree));
+            case ":GX42#":
+                // OnStep's "absolute Axis1 angle in degrees" (its getEnc): home is 90, on the far pier side HA + 180. The
+                // fake's axis 1 is the same frame in hours (home 6 h, through the pole HA - 12 h, one turn from OnStep's).
+                AppendAxisDegrees(_haAxisAngle * 15.0);
                 return true;
 
-            case ":GX45#":
-                // Axis 2 (Dec) encoder counts.
-                AppendEncoderCounts((long)Math.Round(_decAxisAngle * StepsPerDegree));
+            case ":GX43#":
+                // "absolute Axis2 angle in degrees": home +/-90 by hemisphere, past it on the far pier side, as the fake's.
+                AppendAxisDegrees(_decAxisAngle);
                 return true;
 
             default:
                 return false;
         }
+    }
+
+    private static bool TryParseOnStepUtcOffset(string argument, out TimeSpan offset)
+    {
+        offset = default;
+        var parts = argument.Split(':');
+        if (parts.Length > 2 || argument.Length is < 2 or > 6 || argument[0] is not ('+' or '-')
+            || !int.TryParse(parts[0], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var hours) || hours is < -24 or > 24)
+        {
+            return false;
+        }
+        var minutes = 0;
+        if (parts.Length == 2 && (!int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out minutes) || minutes is not (0 or 30 or 45)))
+        {
+            return false;
+        }
+        var magnitude = TimeSpan.FromHours(Math.Abs(hours)) + TimeSpan.FromMinutes(minutes);
+        offset = argument[0] is '-' ? -magnitude : magnitude;
+        return true;
     }
 
     /// <summary>The top rate <c>:GX92#</c> answers, microseconds a step: with the drive below it is 1.76 degrees a second (422x sidereal).</summary>
@@ -225,16 +255,13 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     /// </list>
     /// That gives ~0.32" per step at the sky. OnStep reports this as <c>:GXE4#</c> / <c>:GXE5#</c> (steps per degree
     /// on each axis); <c>:GXE6#</c> is the steps a SIDEREAL SECOND takes (OnStep's <c>stepsPerSecondAxis1</c>), which is
-    /// this over 240. Downstream users of
-    /// <see cref="GetAxisPositionAsync"/> (e.g. neural-guider PE feature engineering)
-    /// see realistic, monotonically changing encoder values.
+    /// this over 240.
     /// </summary>
     private const double StepsPerDegree = 11378.0;
 
-    private void AppendEncoderCounts(long counts)
-    {
-        _responseBuffer.Append(counts.ToString(CultureInfo.InvariantCulture)).Append('#');
-    }
+    /// <summary>OnStep's six-decimal degrees (<c>dtostrf(f,0,6,...)</c>).</summary>
+    private void AppendAxisDegrees(double degrees)
+        => _responseBuffer.Append(degrees.ToString("F6", CultureInfo.InvariantCulture)).Append('#');
 
     /// <summary>
     /// Appends the OnStep <c>:GU#</c> status string. Only the flags that the driver
