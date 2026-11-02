@@ -104,6 +104,9 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(query);
         ex.Message.ShouldContain(":GU#");
+        // The driver writes the # and throws at once, while the responder reads it on its own socket loop: wait for it
+        // there (bounded by the test's timeout), or the count is read before the # arrives, as it once was on CI.
+        await responder.WaitUntilAsync(() => responder.ReceivedCommands.Count(c => c is "#") > clearsBefore, ct);
         responder.ReceivedCommands.Count(c => c is "#").ShouldBe(clearsBefore + 1, "a lost reply clears the mount's command buffer");
     }
 
@@ -121,6 +124,18 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
         public string Host { get; }
         public int Port { get; }
         public ConcurrentBag<string> ReceivedCommands { get; } = new();
+
+        /// <summary>Released once per command received, so a test can wait for the responder to have read one.</summary>
+        private readonly SemaphoreSlim _received = new(0);
+
+        /// <summary>Waits until <paramref name="condition"/> holds over what was received, re-checking as each command arrives.</summary>
+        public async Task WaitUntilAsync(Func<bool> condition, CancellationToken cancellationToken)
+        {
+            while (!condition())
+            {
+                await _received.WaitAsync(cancellationToken);
+            }
+        }
 
         /// <summary>Commands received and never answered, as a mount that lost them would.</summary>
         public ConcurrentDictionary<string, byte> Silent { get; } = new();
@@ -182,6 +197,7 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
                                 var command = sb.ToString();
                                 sb.Clear();
                                 ReceivedCommands.Add(command);
+                                _received.Release();
 
                                 var response = Silent.ContainsKey(command) ? null : HandleCommand(command);
                                 if (response is { Length: > 0 })
