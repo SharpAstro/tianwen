@@ -6919,6 +6919,251 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   is biased by whatever moves it: judge a removal against the plane before the ghost through the SAME source. The 2022 shell is a smear
   along one axis of the alt-az mount (L only; every filter's blur is elongated that way next to the limb, so that night's kernel must be).
 
+### The rules as CLAUDE.md carried them on 2026-11-03
+
+CLAUDE.md was cut to one line per rule on 2026-11-03 (it had passed the 150,000-character limit), and the rules added there since 2026-10-09 lived only in it. This is the section's full text as it stood, moved verbatim, so nothing it said is lost; where it and the 2026-10-09 text above differ, this one is the later.
+
+A CPU-first planetary stacker, **completely separate** from the deep-sky `Imaging.Stacking` pipeline
+(star-quad align + sigma-clip rejection don't apply to a featureless disk). Batch pipeline, live
+streaming stacker, benchmarks: `docs/plans/planetary-stacking.md`. Live-capture drivers, controls, the
+fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. The restoration programme
+(R0 to R9, Saturn S1 to S6, the enhanced pipeline): `docs/plans/planetary-restoration.md`; its literature:
+`docs/architecture/planetary-literature.md`. **Every rule below in full, with the measurement behind it:
+`planetary-restoration.md` and `live-planetary-capture.md`, "Rules in full (moved from CLAUDE.md,
+2026-10-09)"**; read it before changing what a rule names. One line per rule here:
+
+- **`PlanetaryMaster` is the single shared "accumulators -> master" finalize**, so the batch and live
+  masters can never drift.
+- **Live capture: camera ADU normalises to [0,1] at the stream boundary** (`LiveCameraFrameStream.DeepCopy`);
+  the stream layout derives from the ACTUAL frame, **NOT** the camera's `SensorType`; **no driver call crosses
+  onto the render thread** (it stages, the capture loop drains + applies). Preview defaults to **linear**
+  (`StretchMode.None`).
+- **The planetary corpus is read, never written** (R0, `planetary survey` / `convert` / `crop`): a crop keeps
+  EVERY frame, the Bayer phase and the source's header and trailer BYTE FOR BYTE (`SerReader.CropTo`, never a
+  `SerWriter` copy); every write goes through `ScratchSpace`, which keeps the drive's 109 GB reserve.
+- **A planet's orientation comes from `PhysicalEphemeris`, never from an image**: the pole angle is referred to
+  the pole of DATE, and Meeus's central meridians are corrected for phase.
+- **Saturn's rings are drawn from the ephemeris, never fitted** (`SaturnRings`, #1231), and **the limb fit models
+  them** (`LimbFitOptions.Rings`, `StartRinged`, #1232: a ring's covered and shaded shares NESTED, never
+  multiplied); **B and A carry a slope** (`LimbFit.RingSlopes`, #1184). **A metric reads Saturn as globe and
+  rings** (`MetricDisk.Rings`, `ClearRadiiAt`, `RingTouched`), **a limb profile compares the same PIXELS**
+  (`PlanetaryMetrics.LimbReachPx`), and **an OPAL Saturn map is read through `PlanetMap.FilledZonally`**.
+- **A disk's centre and scale come from `PlanetaryLimbFit`, never the centre of mass or an edge detector**;
+  **always model the phase** (10 degrees ignored put a centre 2.7 px off); start from `PlanetaryLimbFit.Start`,
+  never `PlanetaryDisk.BoundingBox`. Its evaluation runs on every core with one walk's bits (#1106; never a
+  reduction across bands). **Each COLOUR is placed by its own limb fit** (`PlanetaryChannelAlignment`, #1202),
+  never by correlation or any measure that weighs brightness; **a live view reads its colours ONCE, by its
+  Derive** (`PlanetaryLiveLimb.Channels`, `TryAlign`).
+- **Which telescope took a capture is read off its frames, one-sided** (`planetary aperture`): a measured cutoff
+  is only a LOWER bound; spikes say Newtonian, their absence says nothing. A plain FFT screen is 28 % short of
+  Kolmogorov without subharmonics; a small render grid prints a four-fold halo.
+- **A synthetic capture is compared through `PlanetaryCaptureStatistics`, one routine for twin and real**
+  (`planetary degrade`): the disk's motion is the limb fit's (`LimbSeeingRms`); an 8-bit sky is fitted through
+  the rounding (`SkyByPixels`); **a statistic is read against its spread over seeds** (`--seed`: lag-1 wanders
+  67 %, so a 10 % band tests nothing); a twin's level is the planet's own (`PlanetaryDegrade.ShownLevelGain`,
+  #1233); a warped frame keeps the pupil's light; a Saturn twin's rings are structured (`SaturnRings.Structured`,
+  `RingFootprint`).
+- **The stack's defaults ARE the measured best, and the recipe before is one switch away**
+  (`PlanetaryStackOptions.Legacy`, `--legacy`, #1159). **The rolling stack takes the gradient and plain
+  correlation, never Lanczos-3** (`RollingWindowOptions`, #1272), **folds its best quarter and keeps its
+  reference in place** (`KeepFraction` 0.25, `ReReferenceInPlace`, #1174), and **a pixel no folded frame reaches
+  reads 0** (`RollingWindowStacker.UncoveredWeight`, #1319). **Judge a live stack by the frames it GRADES a
+  second and its rebuilds by cause (`RebuildCauses`), never by how far its window's end moved.** **No step may
+  grow faster than linearly in frames** (the user, 2026-10-02). **A test that depends on one of these choices
+  pins it.** **Lanczos-3's clamp applies only where every tap is non-negative** (`Image.Lanczos3Finish`). A run
+  is de-rotated unasked only past `PlanetaryDerotationOptions.MinimumTurnPx`, its north decided by the run's
+  quarters, never the limb fit.
+- **A recorded capture's best stack is `PlanetaryBestStack`, ONE routine for `planetary stack` and `tianwen-fits`'
+  Full view** (Shift+K, #1159; `DerotationFor`, `Sharpen`, `OutputPaths`, `PupilFor`,
+  `PlanetaryTelescopePersistence`, #1179), which identifies the capture first as `planetary stack --auto` does
+  (`PlanetaryAuto`, `PlanetaryIdentification`; the Best view folded in, #817): the panel's choices are GIVEN, a telescope
+  only once set on that capture (`PlanetaryTelescopeSetHere`), the viewer's last one only where the capture names none.
+  **A master names its planet in `OBJECT` and opens in `StretchMode.Planetary`** (`StretchMode.ForFrame`, ONE rule
+  for the viewer, the thumbnail and `tianwen view`). **The batch stack runs on every core with one walk's bits**
+  (`ParallelFor.RunBands`, `PlanetaryFrameBatches`): **never split a fold across FRAMES**, whose sum is ordered.
+- **AUTO is ONE routine, `PlanetaryAuto`, for `planetary stack --auto` and the viewer's Full view** (#1391): the capture
+  read by `PlanetaryIdentification` (each fact's source said in words, written into the master), then Best at the
+  defaults. **The frames only tell Jupiter from Saturn** (a crescent Venus is as elongated as the rings); **a mount's
+  pointing and the path that disagree name neither**; a telescope is remembered per CAMERA (`PlanetaryTelescopeMemory`).
+- **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary stack`, `planetary
+  sharpen` and the live view's Derive** (`PlanetaryBestStack.DeriveGains`, `WaveletDerivation`,
+  `PlanetaryLiveLimb`, `PlanetaryLimbWindow`, #1201: the limb belongs to the capture, so Reset keeps it):
+  - **No sharpening is drawn outside the limb** (#1171): the planet's model to the frame's edge (`PlanetaryLimbFix.ModelToFrame`,
+    #1681; `ModelFeathered` an option), **the model's sky beyond a window the frame runs past, never a hand-back to the stack** (#1692: it
+    showed the stack's glow as two bands), but for a moon (`PlanetaryMetrics.CompactSources`, #1181; `PlanetaryLimbWindow.PasteMoonsBeyond`,
+    #1211) and **a faint source found ONCE on the luminance and laid as stacked in every channel** (`PlanetaryDering.FaintSources`; found a
+    channel at a time, one colour's noise was carried as a speck), **beyond the window on the frame mirrored about its edges**
+    (`FaintSourcesBeyond`: a finder reads one pixel in, so a moon the edge cut was erased), and **a pixel inside the
+    outline the sharpening drives below the sky takes that model** (#1471, `PlanetaryUnderSky`). **A moon is a
+    source above the PLANE its surroundings make, never only above its box's median** (#1301,
+    `PlanetaryMetrics.PeakAbovePlane`, `PlanetaryDering.KeepMoon`); read every CHANNEL's moons.
+  - **A diffraction PSF's grid spans twice the extent it is used over** (`PlanetaryRender.DiffractionGridFor`,
+    #1213); a twin carries the pupil's far wing only with `--far-wing` (`DegradeOptions.FarWing`, #1222).
+  - **The limb fit's sharp model is a reference or a target only through `PlanetaryLimbFit.DetectorPixel`**
+    (#1468): its pixel is a 2x2 cell mean, half a pixel short of a detector's box, and the kernel took the gap for blur.
+  - **The derived gains are the truth's; anything past it is the strength OPTION, never the default** (#1251,
+    `PlanetarySharpenOptions.Strength`, `--strength`, `PlanetaryWaveletGains.Boost`); **never multiply derived
+    gains**. **"The truth" is the planet through the pupil's own diffraction**, and **the gains undo the telescope
+    too, by ONE rule** (`PlanetarySharpenTarget.Auto`, the default: the aperture wherever every channel's cutoff is known,
+    `PlanetarySharpening.TargetFor`, #1632, #1668; `--target telescope|aperture` forces either, #1366; score it
+    `--score-against aperture`), **band-limited by a Hann taper that ends at the lesser of the cutoff and the grid's Nyquist,
+    never a Tukey, whose own edge response overshot 7.9 % and rang past Saturn's limb** (`PlanetaryApertureTaper`,
+    `PlanetaryFinishing.GridNyquist`, `--aperture-taper`,
+    #1661); gains given or learned keep the telescope they were fitted toward. **Read a gain set by its FILTER** (`PlanetaryWaveletGains.Transfer`). The
+    panel's `PlanetaryStrength` is never saved.
+  - **Learned gains are an OPTION, applied only inside what their twins covered** (`--learned-gains`,
+    `PlanetaryGainsModels`, `PlanetaryGainsModel.Predict`, #1552): every reading inside the twins' range and the
+    pupil cutoff within 10 % of theirs, else the derived gains stand and each channel says why
+    (`PlanetarySharpenResult.LearnedInWords`). **A model's blur reading is the light just outside the limb
+    (`PlanetaryPicture.NearGlow`), never the limb's edge**, which reads real Jupiter's darker limb as blur (#1561);
+    its constant is generated by `training/planetary/l_gains_s_model_cs.py`, never edited by hand. **A deconvolution
+    is Richardson-Lucy with the capture's OWN pupil diffraction, after the gains, an option at 20 steps**
+    (`--finish deconvolve`, `PlanetaryFinishing.Deconvolve`, L-DECONV): the twins' truth asks 20 **on the learned gains
+    and none on the derived gains**, which it overshoots (L-DECONV-L: 11 of 14 twins further off), the posts 0 to 80 by
+    capture; `--finish kolivas` is one fixed Moffat on every capture, a reference, never a deconvolution.
+  - **One Derive fits every stop** (`PlanetarySharpening.StrengthStops`, `DerivedGains.GainsAt`,
+    `ViewerState.ChooseStrength`, #1314); **every channel keeps its own derived gains**
+    (`DerivedGains.ChannelGainsAt`, `WaveletSharpenOptions.ChannelGains`); a new stop goes into that list,
+    never a second one.
+  - **The derivation swings with the limb fit's Minnaert k** (#1498): an A/B between near-identical stacks reads the
+    UNSHARPENED masters, or holds k on both sides (`--fit-k`); `--fit-channels`, `--edge-reach` and `--plate-scale` (the radius held,
+    #1498: 2 % off costs up to 41 %) are options, none adopted.
+  - **The limb options are four families, one name across `stack`, `sharpen` and `limb`** (#1479): the limb FIT `--fit-k`
+    / `--fit-channels`, the edge the gains are read off `--edge-reach` / `--edge-rings`, the gains' own fit `--gains-fit`,
+    what a limb pixel takes `--limb-fix` / `--limb-floor`. A new limb option joins its family's prefix.
+  - **A master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a
+    `FixedMaster`), never a second sharpening path; **a Save writes what is on show** (`ShownDocument`); **a
+    SER's view is one switch, Raw / Live / Full** (`ViewerState.ChoosePlanetaryView`,
+    `PlanetaryBestStackResult.Layer`); **the derived dials never clamp at a master's peak** (`SliderOptions`,
+    `Clamp = false`).
+  - **Saturn is sharpened as Jupiter is** (#1184, `ClearRadiiAt` at most 1); **its globe turns under rings that
+    stay** (#1234: a de-rotation never moves a `RingTouched` pixel nor reads a source under one).
+  - **The window is the frame MIRRORED, never zero-padded**; on a crop with no sky past 2.5 radii the metrics'
+    sky is the farthest tenth past 1.3 (`PlanetaryMetrics.SkyLevel`).
+  - **A colour master's finest band is kept as stacked** (`ColourFinestBand`, #1187); read a colour lattice PER
+    CHANNEL, since it cancels in the luminance.
+  - **A colour master of Jupiter or Saturn is balanced to the planet's own colour AFTER the sharpening**
+    (`PlanetaryColourBalance`, #1212, `PlanetaryLiveLimb.Balance`; Saturn's globe where its rings leave it clear,
+    #1235), never a saturation about grey; **saturation 1.1 by default, the colour contrast the twins' truth says the blur
+    took, 1.4 an option** (`DefaultSaturation`, `EyeSaturation`, `--colour-saturation`, #1664; the Enhance panel's `Truth 1.1` / `Eye 1.4` stops, `ViewerState.PlanetaryColourSaturation`, taken by the next Full stack and Derive, dim on a mono source, #1880), **and the white point the planet's
+    own, grey an option** (`--white-point neutral`, `CBALWP`). **The balance goes through the camera's own matrix by default, found ONCE by the camera the
+    master's `INSTRUME` names** (`PlanetaryColourBalance.CameraColourAsync`, `CBALCAM`, #1279; `--colour-matrix none` is the
+    balance before): a stack carries its SER's camera into `INSTRUME` (`IPlanetaryFrameStream.Camera`), and a camera with no
+    QE curve is balanced by its gains alone, in ONE wording (`WithoutMatrix`). **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
+    (`CameraColorMatrix.ComputeCamXyz`, `CameraColorMatrixTests`), never their projections. **OPAL's I/F factors come
+    from its readme** (`PlanetaryColour.ReadmeFilters`), never a constant. **A balanced master's stretch takes ONE
+    black point** (`ImageMeta.IsColourBalanced`, CBALSAT, #1229). **Colour is compared with a post AS SHOWN**
+    (`PlanetaryReferenceJudge.ReadShown`, #1273). **A colour look is a RENDERING, never a master**
+    (`PlanetaryColourLook`, `planetary look`, `ColourLook.Boosted` / `Posted`, #1305; a looked COPY in the viewer,
+    `Prepare` / `OnMaster`, #1277).
+  - What was measured and NOT adopted, so do not re-run it as new: `--finish cutoff` / `wiener` / `adaptive`
+    (#1279, #1281; **the derived gains are already a Wiener**), `--shrink` (#1313, read off `planetary stack
+    --halves`), `--noise halves` (#1373, `PlanetarySharpenOptions.NoiseHalves`), `--colour-finest bounded` and
+    `--colour-target cut` (#1376: the colour gap is the KERNEL; a true kernel closes 80 % of it, no reshaping
+    half), `--wiener-floor tikhonov` (#1406, `PlanetaryWienerFloor`), `--limb-floor band` (#1329, `PlanetaryLimbBand`), `--fit-k opal` (#1221, `PlanetaryLimbDarkening`). **Every twin is sampled coarser
+    than its optics resolve** (`PlanetarySharpenResult.Cutoffs`), so anything near the cutoff is unread there;
+    **a twin standing in for a long capture is calibrated at that capture's length**.
+  - **Check what a reference IS before reading it** (the 12-inch SCT Jupiter's PNG is its raw stack). The
+    sharpening **needs the planet, the instant and the telescope**. **Judge a limb fix by `LimbProfileError` on
+    the twins AND by eye on a real capture hard-stretched about its sky** (`LimbRebound` failed R3's rule; the
+    dark trough at the limb is left, #1171), and judge the edge on a core-and-halo kernel, never a single Gaussian.
+- **A stack is scored through `PlanetaryMetrics` and `planetary measure`; a truth-free metric judges a real
+  capture only once it ranks candidates as its truth-based twin does** (Spearman at least 0.8: the limb's
+  undershoot does, the halves do not). **A real capture is judged against its own `_stack`/`_post` through
+  `planetary judge`** (`PlanetaryReferenceJudge`, #1250), never by a display picture's raw values.
+- **A frame's quality is read in the MID bands, never the finest** (`planetary grade`): at 8 bits the Laplacian
+  ranks frames at +0.19 against +0.87 to +0.99 for the gradient, `FftHighBandEstimator` and the reference gain;
+  **never judge a quality statistic read by the Laplacian**. **Register onto a truth with
+  `CorrelationRegistrar`**, never a phase correlation. **A keep is chosen after the sharpening** (#1083,
+  `planetary keeps`: about half the frames, against a raw stack's 5 to 10 %).
+- **A twin's blur varies over the disk only with a layer at an altitude** (#1071, `--high-r0`,
+  `PlanetaryDegrade.Layered`); a real capture's coherent quality needs the still layer to renew in place
+  (`--local-renew-ms`, about 200 ms).
+- **On an 8-bit frame phase correlation places a patch 3 times worse than plain cross-correlation**
+  (`AlignmentPointMatchingTests`; `PlanetaryStackOptions.WhitenedCorrelation` /
+  `CaptureStatisticsOptions.WhitenedCorrelation`, plain by default in both, #1394); **a warp statistic read whitened is the
+  matching's noise** (`--whitened-correlation` reads it as R2 did; `CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
+- **A dewarp is judged against the TRUE warp, at the mesh the stack applies, never at the points alone**
+  (`<capture>.warp`, `planetary dewarp`; `WarpPoolFrames` and `MedianGeometry` change nothing).
+- **A stack's resampling kernel is its own blur** (`PlanetaryStackOptions.Interpolation`,
+  `PlanetaryResamplingTests`), **and a correlation's peak is CLIMBED** (`PhaseCorrelation.ClimbPeak`, the one
+  climb; never a second). **The three-cornered hat (`planetary registration`) credits two estimators that share an
+  error with too little, SILENTLY**: rank only in a triple the twin's recorded motion clears.
+- **A frame the camera corrupted in readout scores zero everywhere a frame is graded**
+  (`FrameGrader.IsCorruptReadout`, `FrameGrader.Grade`), **and so does a frame whose planet is cut or absent**
+  (#1237, `FrameGrader.IsCutOrEmpty`, `DropsCutFrames`), **cut by a straight line INSIDE the frame** (#1291,
+  `PlanetaryDisk.CutInside`), **smeared** (#1300, `FrameGrader.SmearRatio`, `PlanetaryDisk.Elongation`) or **DIM**
+  (#1307, `FrameGrader.DimRatio`). **The planet is found at a level set from the sky and its own peak**
+  (`PlanetaryDisk.SkyQuantile`, `SmearLevel`, `PlanetShare`, `FramesCutKept`), **never from the frame's mean or
+  spread**, and a frame whose box finds no planet is graded over its planet's own blob; `SelectBest` keeps no zero
+  while any frame scores above it.
+- **A batch master is cropped to where 0.95 of the frames' FOOTPRINTS reached** (`CropToCoverage`, `--no-crop`,
+  `PlanetaryCoverage`, `LargestCoveredRectangle(coverage)`), never the weight the stack folds, and never into the
+  planet's `Footprint`; `PlanetaryComposition.Register` moves one night's mono stacks onto one grid.
+- **A capture's span is its frames' earliest and latest TIMES, never its first and last frames** (#1292,
+  `CaptureSpan`; a de-rotation whose north the run cannot tell is not done, `NorthUnread`). **A long run saved as
+  many files is one SESSION** (`PlanetaryCorpus.Sessions`, `--session`, `--epoch`, #1308), **split by filter
+  AFTER it is chained** (#1336), **each file taking the session's north** (#1347,
+  `PlanetaryDerotationOptions.North`, `LuckyImagingStacker.ReadNorthAsync`, `--each-file`). **A keep sweep grades a
+  file once** (`--grade-cache DIR`, `FrameGradeCache`, #1351), and **a new estimator owes a `CacheKey` naming every
+  parameter that moves a score**.
+- **A colour master is sharpened per channel, which UNMIXES colour** (#1295; `LuminanceOnly`,
+  `--sharpen-luminance`, an option): read a colour change against a truth (`ColourAgainstTruth`, `--truth`),
+  never by eye on one capture.
+- **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`). **A point's
+  plain correlation SHRINKS the shift it reads** (#1081; `PlanetaryStackOptions.MeshGain` stays one), **and the mesh's 48 px reach
+  dilutes it again, its `+0.25` does not** (#1412 F3, `MeshRegularization`): neither moves the stack. **Dense
+  points pay** (#1195), and **`MaxAlignmentPoints` (64) caps any grid, which every host says in ONE wording** (`FeatureDetector.PointsInWords`, #1412). **Judge a point estimator
+  against its Cramer-Rao bound** (#1082, `AlignmentPointMatcher.Bound`; `PlanetaryPointEstimator.SquareDifference`
+  goes with #1195 or not at all). **Each point keeping its own best frames is an option, never the default**
+  (`PlanetaryStackOptions.PointKeep`, `--point-keep`, #1350: 73 % of a point's quality is its frame's), and **a
+  point's choice blends between neighbours only** (`AlignmentPointSpacing`).
+- **Bayer drizzle to the sensor grid beats the demosaic UNSHARPENED; nothing past the sensor grid pays.**
+  **Sharpened, the demosaic stays the colour default until the owner says otherwise** (#1091, #1092;
+  `PlanetaryDrizzleOptions.DefaultPixfrac`). **A drizzle luminance in the demosaic's colours is a verb, not the
+  default** (`planetary compose luminance` then `lrgb`, #1330).
+- **A planet is de-rotated through the spheroid, as ALBEDO, only from sources inside 0.9 radii**
+  (`PlanetaryDerotation`, `PlanetaryProjection`, Minnaert's law). **North comes from agreement, never the limb fit
+  alone** (`PlanetaryDerotation.AgreementBothWays`, `planetary derotate`). **A mono camera's stacks are composed by
+  `PlanetaryComposition`** (`planetary compose`, #1278): each moved onto the reference's disk FIRST, then
+  de-rotated; IR luminance (`--lrgb`) is an option. **A stack's sharpness is read off its limb BEFORE any turn**
+  (`ImageMeta.LimbEdge`, `LIMBEDGE`, #1349), against the reference's model, never its own fit's; `--viewing-weights limb` leaves
+  the limb to the stacks that kept it unturned, an option. **A compose relights a turned stack above its OWN sky, by its own
+  core-blurred globe model** (`PlanetaryTurnRelight.Blurred`, #1349): Minnaert's law relit the sky and a limb with no blur, a
+  circle at 0.8 to 0.9 radii (`--relight minnaert` keeps it). Its fitted k is the relight's: the 2026-10-07 night's own agreement
+  confirms it, and a twin's bias came from the twin's guessed ring zones (#1542). **A feather beside Saturn's rings is an option for
+  a nearly zonal night, never the default** (`--ring-feather 2,4`, #1537): it keeps a spot there where it was. **Each frame is
+  carried inside the stacker**
+  (`PlanetaryStackOptions.Derotation`); **two stacks of one camera are moved with ONE north**; **a night's zonal
+  drift is below what two stacks agree on** (`planetary drift`, `planetary belts`).
+- **The blur and its inverse (R7, R8), when re-measured**: the spectral ratio (`planetary spectral-ratio`) cancels a
+  static CONVOLUTION, never a static phase, and an 8-bit sky's noise is its pixels' own spread from frame to frame;
+  **the limb fit's kernel is the TOTAL blur and not the stack's in the finest bands**, so never an inverse's kernel
+  as fitted (`planetary blur`, `--map`, `planetary inverse`, #1120); **a per-band gain is fitted JOINTLY over the a
+  trous bands** (`planetary ceilings`, `planetary gains`, `PlanetaryWaveletGains`, the DISK a term of its own); **an
+  inverse is judged by what its knob does to the OTHER bands** (`planetary inverses`); **a ring below the sky is a
+  composite kernel's negative lobe: hold the COMPOSITE non-negative** (`planetary ringing`); **sharpen the limb as
+  its own channel** (`planetary dering`, `PlanetaryDering.LimbChannel`).
+- **The finest band is read off the limb's EDGE, never the limb fit's kernel** (`planetary finest-band`,
+  `PlanetaryFinestBand`; noise past about 0.3 cycles a pixel, #1140). **A moon read is the kernel's SHAPE and
+  DIRECTIONS, never its level** (`--moons`, `PlanetaryMoonProbe`, `GalileanMoons`; `planetary elongated`,
+  `planetary lucky-frames`, `planetary score`, #1155). **A ghost is taken out as what is NOT ROUND** (`planetary
+  ghost`, `PlanetaryGhost.Shell`), judged through the SAME source.
+- **Read the plan doc before touching the Canon path** (`docs/plans/planetary-stacking.md`, "Live-capture drivers
+  and the recenter loop (shipped)": five things that fail SILENTLY). **Recentering is opt-in**, and so is the
+  mount jog, whose **sign is uncalibrated**.
+- **A stream's depth, high-speed readout and USB bandwidth are its own** (`VideoCaptureOptions`), never the
+  camera's settings; **a frame declares the full scale of the depth it was READ OUT in**
+  (`DALCameraDriver.MaxAduFor`).
+- **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI, the node and the Preview's live view**
+  (`LiveCaptureKind.LiveView`, `NodeLiveView`, #1111); the GUI's `PlanetaryCaptureController` sends controls only as
+  they CHANGE (`NodePlanetaryCapture`) and shows the node's masters (`NodeMasters`). **A live view STREAMS and the
+  client ASKS for each frame** (`FrameStreamWire`, drop-to-latest); **over this machine's socket every frame goes
+  through shared memory** (P4b, #932; `FrameSlotDto`, `NodeFrameSlots`, `AddNodeSharedMemory`). **A recording
+  (`SerRecording`) never slows the capture** and **says what it was taken of and through** (#1179,
+  `PlanetaryCaptureName.RecordingFileName`). It claims only the camera, so **a recenter nudge asks
+  `DeviceOwnershipGate` over the mount first**.
+
 ## Rules carried over
 
 - Pre-register each phase's predictions and kill lines in its run script before the run.
