@@ -123,6 +123,9 @@ using (held)
     // sharing the rig, and never while it holds hardware.
     builder.Services.AddNodeIdleExit(node.IdleExit);
 
+    // The computer stays awake while the node holds hardware, whoever started it (#1957).
+    builder.Services.AddNodeKeepsAwake();
+
     // A local client may take a stream's frames through shared memory (P4b): sections named after the socket this node holds.
     builder.Services.AddNodeSharedMemory(held);
 

@@ -41,6 +41,16 @@ public static class HostedSessionServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Keeps the computer awake while the node holds hardware (<see cref="NodeKeepsAwake"/>, #1957), whatever the node's role.
+    /// A host that composes <c>AddExternal</c> has an <see cref="TianWen.Lib.IO.IPowerRequest"/> already; any other gets the OS's.
+    /// </summary>
+    public static IServiceCollection AddNodeKeepsAwake(this IServiceCollection services)
+    {
+        services.TryAddSingleton<TianWen.Lib.IO.IPowerRequest>(TianWen.Lib.IO.PowerRequests.ForThisOs);
+        return services.AddHostedService<NodeKeepsAwake>();
+    }
+
+    /// <summary>
     /// Registers the hosted session service, WebSocket event hub, and event broadcaster.
     /// </summary>
     public static IServiceCollection AddHostedSession(this IServiceCollection services)
