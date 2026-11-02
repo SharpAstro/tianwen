@@ -67,6 +67,42 @@ public class SessionPositionLossTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task ARestoreAPlateSolveSyncedGoesOn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (ctx, _, _) = await TrackingRigThatLosesPowerAsync(ct);
+        ctx.Session.PromptRequested += (_, e) => e.Respond(true);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        // The centring's solve synced the mount, whether or not it then converged.
+        ctx.Session.NoteMountSyncedBySolve();
+        (await ctx.Session.ConfirmRestoredPositionAsync(ctx.Mount, ct)).ShouldBeTrue();
+        ctx.Session.PositionLostEndsRun.ShouldBeFalse();
+        (await ctx.Session.ConfirmRestoredPositionAsync(ctx.Mount, ct)).ShouldBeTrue("confirmed once: a later centring without a solve is the ordinary warning");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARestoreNoPlateSolveSyncedStopsTrackingAndEndsTheRunWithoutParking()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (ctx, board, _) = await TrackingRigThatLosesPowerAsync(ct);
+        ctx.Session.PromptRequested += (_, e) => e.Respond(true);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+        await ctx.Mount.SetTrackingAsync(true, ct);
+
+        (await ctx.Session.ConfirmRestoredPositionAsync(ctx.Mount, ct)).ShouldBeFalse();
+
+        ctx.Session.PositionLostEndsRun.ShouldBeTrue();
+        ctx.Session.FailureReason.ShouldNotBeNull().ShouldContain("could not confirm");
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse("tracking stopped");
+
+        var restored = board.Steps;
+        await ctx.Session.Finalise(ct);
+        (await ctx.Mount.AtParkAsync(ct)).ShouldBeFalse("never parked from a position nothing confirmed");
+        board.Steps.ShouldBe(restored, "and it did not move");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task APowerLossMidRunWithNobodyToAskEndsTheRunWithTheLossAsItsReason()
     {
         var ct = TestContext.Current.CancellationToken;

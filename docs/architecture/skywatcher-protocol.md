@@ -154,6 +154,10 @@ neither axis initialised, wherever the mount stands, and an unpowered mount does
 - **In a run** (`Session.PositionLoss.cs`): the poll finds it and asks once ("Sync from last known position" / "End the
   run", physical presence); a yes restores and points the current target again, nobody to ask is the unattended
   answer, and a decline ends the run with the loss as `FailureReason`. A lost mount is never read as a limit stop.
+  **A restore stands only once a plate solve has SYNCED the mount** (the centring after the repoint; a solve that synced
+  confirms it even where the centring then missed its threshold, since the sync is what corrects the last known position).
+  With none, tracking stops and the run fails with its reason: no end-of-night flats, and `Finalise` does not park a mount
+  whose position is lost or unconfirmed (`ConfirmRestoredPositionAsync`, the owner, 2026-11-02).
 
 ## How a slew is done
 

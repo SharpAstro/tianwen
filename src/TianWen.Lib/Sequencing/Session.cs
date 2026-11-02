@@ -898,6 +898,13 @@ internal partial record Session(
             SetPhase(SessionPhase.Observing);
             await ObservationLoopAsync(cancellationToken).ConfigureAwait(false);
 
+            // The mount lost its position and the run ended on it (#1954): a failure with its reason, and no end-of-night
+            // flats, which may slew a mount nobody knows the position of.
+            if (Volatile.Read(ref _positionLostEndsRun))
+            {
+                throw new SessionFailedException(_failureReason ?? "The mount lost its position.");
+            }
+
             // Optional end-of-session flat block. Runs on normal completion only (an abort/exception
             // skips straight to Finalise), and BEFORE Finalise warms the cameras so the flats are taken
             // at the imaging setpoint temperature.

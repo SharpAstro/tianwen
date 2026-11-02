@@ -142,6 +142,12 @@ internal partial record Session
                     {
                         _logger.LogWarning("Centering on {Target} did not converge, continuing with current pointing.", observation.Target);
                     }
+
+                    // After a power loss the restored position stands only once a plate solve has synced the mount (#1954).
+                    if (!await ConfirmRestoredPositionAsync(mount.Driver, cancellationToken))
+                    {
+                        break;
+                    }
                 }
                 else
                 {
