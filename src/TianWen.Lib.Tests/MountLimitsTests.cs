@@ -142,6 +142,31 @@ public class MountLimitsTests
             .IsBreached.ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData(-89.978)] // the bench TeeSeek 11 at home, which its OnStep reads as HA 11.975 h
+    [InlineData(89.7)]    // the north's pole, inside the tolerance
+    public void AtAPoleTheHourAngleSaysNothingAboutThePier(double declinationDeg)
+        => MountLimits.Evaluate(11.975, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 38.0, isTracking: false, alreadyActed: false, Enabled(), declinationDeg)
+            .IsBreached.ShouldBeFalse();
+
+    [Fact]
+    public void OffThePoleTheSameHourAngleStillActs()
+    {
+        // 1 degree off the pole is outside the 0.5 degree tolerance, and an unknown declination keeps the estimate.
+        MountLimits.Evaluate(12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled(), declinationDeg: -89.0)
+            .Kind.ShouldBe(MountLimitKind.Meridian);
+        MountLimits.Evaluate(12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled(), declinationDeg: double.NaN)
+            .Kind.ShouldBe(MountLimitKind.Meridian);
+    }
+
+    [Fact]
+    public void AtAPoleTheAxisAngleKeepsItsSay()
+    {
+        // The mechanical tier reads the RA axis itself, so the pole does not silence it: 120 degrees is 30 past horizontal.
+        MountLimits.Evaluate(11.975, PointingState.Unknown, primaryAxisAngleDeg: 120.0, altitudeDeg: 38.0, isTracking: true, alreadyActed: false, Enabled(), declinationDeg: -89.978)
+            .Kind.ShouldBe(MountLimitKind.Meridian);
+    }
+
     #endregion
 
     #region Trusting the pointing state

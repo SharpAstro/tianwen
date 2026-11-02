@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.OnStep;
@@ -20,7 +22,9 @@ namespace TianWen.Lib.Devices.OnStep;
 /// <c>FakeDevice</c> while production uses <see cref="OnStepDevice"/>.
 /// </summary>
 internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider serviceProvider)
-    : MeadeLX200ProtocolMountDriverBase<TDevice>(device, serviceProvider)
+    // IMountDriver again so its default members this class defines (GetAxisAngleAsync) are the interface's: a public
+    // method of the same name on a class that does not list the interface is never called through it.
+    : MeadeLX200ProtocolMountDriverBase<TDevice>(device, serviceProvider), IMountDriver
     where TDevice : DeviceBase
 {
     // OnStep advertises native park / unpark / set-park
@@ -143,12 +147,15 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
     private static readonly ReadOnlyMemory<byte> SLCommandPrefix = "SL"u8.ToArray();
 
     /// <summary>
-    /// Sets OnStep's date and time as the ASCOM OnStep driver does (<c>UTCDate</c>, 3.18): the mount's OWN UTC offset is
-    /// read (<c>:GG#</c>, Meade's hours ADDED to local time to give UTC) and left as it is, the local time it implies is
-    /// sent as <c>:SC</c> then <c>:SL</c>, each acknowledged by one byte, <c>1</c> valid and <c>0</c> invalid, as the
-    /// Meade document has it. Only UTC matters to gotos and limits, and an offset someone set on the handset is theirs.
-    /// Whatever follows <c>:SC</c>'s ack (Meade's "Updating Planetary Data" lines) is discarded. Then the clock is read
-    /// back, and a mount more than a minute out is a warning.
+    /// Sets OnStep's date and time. The UTC offset comes first: the site's civil offset at <paramref name="value"/>,
+    /// daylight saving included (<see cref="Transform.TryGetUtcOffset"/> from the mount's own site), sent as <c>:SG</c>
+    /// when the mount's (<c>:GG#</c>, Meade's hours ADDED to local time to give UTC) differs, so the mount's local clock
+    /// follows the season: the bench TeeSeek kept +10 h through Melbourne's summer, an hour behind the wall clock. A
+    /// site whose zone cannot be resolved, or an offset OnStep cannot hold (it takes whole hours and :30 / :45 only),
+    /// keeps the mount's. Then the local time that offset implies goes as <c>:SC</c> then <c>:SL</c>, each acknowledged
+    /// by one byte, <c>1</c> valid and <c>0</c> invalid, as the Meade document has it. Only UTC matters to gotos and
+    /// limits. Whatever follows <c>:SC</c>'s ack (Meade's "Updating Planetary Data" lines) is discarded. Then the clock
+    /// is read back, and a mount more than a minute out is a warning.
     /// </summary>
     public override async ValueTask SetUTCDateAsync(DateTime value, CancellationToken cancellationToken)
     {
@@ -158,6 +165,11 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
         }
 
         var mountOffset = await GetUtcCorrectionAsync(cancellationToken);
+        if (await SiteUtcCorrectionAsync(value, cancellationToken) is { } siteOffset && siteOffset != mountOffset)
+        {
+            await SetAndCheckAsync(SGCommandPrefix, FormatUtcCorrection(siteOffset), "UTC offset", cancellationToken);
+            mountOffset = siteOffset;
+        }
         var local = value - mountOffset;
 
         await SetAndCheckAsync(SCCommandPrefix, local.ToString("MM/dd/yy", CultureInfo.InvariantCulture), "date", cancellationToken);
@@ -179,6 +191,46 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
         {
             Logger.LogInformation("{Device}'s clock set to {Utc:u} UTC (its local {Local:HH:mm:ss}, its UTC offset {Offset} h)", _device.DisplayName, value, local, mountOffset.TotalHours);
         }
+    }
+
+    private static readonly ReadOnlyMemory<byte> SGCommandPrefix = "SG"u8.ToArray();
+
+    /// <summary>
+    /// The site's civil offset at <paramref name="utc"/> in Meade's sense (hours ADDED to local time to give UTC, so
+    /// Melbourne's summer +11 h is -11), from the mount's own coordinates; null when the zone cannot be resolved or
+    /// OnStep's <c>:SG</c> cannot hold it (whole hours and :30 / :45 only, within 24 h).
+    /// </summary>
+    private async ValueTask<TimeSpan?> SiteUtcCorrectionAsync(DateTime utc, CancellationToken cancellationToken)
+    {
+        double latitude, longitude;
+        try
+        {
+            latitude = await GetSiteLatitudeAsync(cancellationToken);
+            longitude = await GetSiteLongitudeAsync(cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The offset is a nicety for the mount's own clock readout; a site it will not tell must not cost the clock.
+            Logger.LogWarning(ex, "{Device}: could not read its site, so its UTC offset is left as it is", _device.DisplayName);
+            return null;
+        }
+        if (!Transform.TryGetUtcOffset(latitude, longitude, utc, out var civil))
+        {
+            return null;
+        }
+        var correction = -civil;
+        return Math.Abs(correction.TotalHours) <= 24 && correction.Minutes is 0 or 30 or -30 or 45 or -45 && correction.Seconds is 0
+            ? correction
+            : null;
+    }
+
+    /// <summary>OnStep's <c>:SGsHH[:MM]#</c> argument: always signed, minutes only when not whole (:30 or :45).</summary>
+    internal static string FormatUtcCorrection(TimeSpan correction)
+    {
+        var sign = correction < TimeSpan.Zero ? '-' : '+';
+        var magnitude = correction.Duration();
+        var hours = ((int)magnitude.TotalHours).ToString("00", CultureInfo.InvariantCulture);
+        return magnitude.Minutes is 0 ? $"{sign}{hours}" : $"{sign}{hours}:{magnitude.Minutes:00}";
     }
 
     private async ValueTask SetAndCheckAsync(ReadOnlyMemory<byte> prefix, string argument, string what, CancellationToken cancellationToken)
@@ -253,6 +305,14 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
     {
         var status = await GetStatusAsync(cancellationToken);
         return status.IsParked;
+    }
+
+    /// <summary><c>:GU#</c>'s <c>H</c>, the flag <see cref="FindHomeAsync"/> waits for: the base's plain false read a mount
+    /// standing at home as away from it.</summary>
+    public override async ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
+    {
+        var status = await GetStatusAsync(cancellationToken);
+        return status.IsAtHome;
     }
 
     private static readonly ReadOnlyMemory<byte> GmCommand = "Gm"u8.ToArray();
@@ -401,37 +461,92 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
         }
     }
 
-    private static readonly ReadOnlyMemory<byte> GX44Command = "GX44"u8.ToArray();
-    private static readonly ReadOnlyMemory<byte> GX45Command = "GX45"u8.ToArray();
+    private static readonly ReadOnlyMemory<byte> GX42Command = "GX42"u8.ToArray();
+    private static readonly ReadOnlyMemory<byte> GX43Command = "GX43"u8.ToArray();
 
-    /// <summary>
-    /// Reads raw encoder counts for the given mechanical axis via OnStep's
-    /// <c>:GX44#</c> (axis 1 / RA / Az) and <c>:GX45#</c> (axis 2 / Dec / Alt).
-    /// Mirrors the Skywatcher <c>:j1\r</c> / <c>:j2\r</c> behaviour so the neural
-    /// guider's PE-phase feature engineering works identically across mount types.
-    /// Returns <c>null</c> for the tertiary axis (not present on OnStep).
-    /// </summary>
-    public async ValueTask<long?> GetAxisPositionAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>OnStep's <c>:GX42#</c> / <c>:GX43#</c> ("absolute Axis1/Axis2 angle in degrees", its <c>getEnc</c>): the axis's
+    /// step count plus its index (what syncs and alignment shift), over steps per degree. Not an encoder despite the
+    /// name: a count of what the motor was told to do. Its frame (<c>Coord.h</c>, <c>Globals.h</c>) puts a German
+    /// mount's home at axis 1 = 90 and axis 2 = +90 north, -90 south; on its pier side East axis 1 is the instrument
+    /// HA in degrees and axis 2 the Dec, on West axis 1 is HA + 180 and axis 2 is 180 - Dec (north) or -180 - Dec
+    /// (south), which is how OnStep tells the sides apart (|axis 2| &gt; 90 is West).</para>
+    ///
+    /// <para>So the primary angle from home is axis 1 - 90 on either side, and grows with tracking in both hemispheres,
+    /// since axis 1 is HA-like there and OnStep turns the motor the hemisphere's way itself. The secondary is axis 2's
+    /// home less axis 2 (90 - axis 2 north, -90 - axis 2 south), the SkyWatcher driver's number for the same pose:
+    /// positive on OnStep's East in the north, NEGATIVE on it in the south, where the SkyWatcher driver names that half
+    /// through the pole while <see cref="GetSideOfPierAsync"/> reads OnStep's East as Normal. A mechanical angle has to
+    /// be one number whichever driver reads it; the pier-side names are the drivers' own. Measured on the bench TeeSeek 11
+    /// (OnStep 4.24s, Melbourne) on 2026-11-02: axis 1 rose 15.2 degrees an hour from 90.0 at a power-on at home, and
+    /// axis 2 read -89.99986. The northern sign is derived from OnStep's source, not yet seen on a mount.</para>
+    ///
+    /// <para>This is what makes the meridian limit work at home: there the tube lies along the polar axis, so OnStep's
+    /// RA and Dec hold still however far the head turns (it reported HA 11.975 h through 55 minutes of tracking), while
+    /// axis 1 follows the head. Alt-az has no such axes.</para>
+    /// </remarks>
+    public async ValueTask<double?> GetAxisAngleAsync(TelescopeAxis axis, CancellationToken cancellationToken)
     {
         var command = axis switch
         {
-            TelescopeAxis.Primary => GX44Command,
-            TelescopeAxis.Seconary => GX45Command,
-            _ => default(ReadOnlyMemory<byte>)
+            TelescopeAxis.Primary => GX42Command,
+            TelescopeAxis.Seconary => GX43Command,
+            _ => default
         };
-
-        if (command.IsEmpty)
+        if (command.IsEmpty || await GetAlignmentAsync(cancellationToken) is AlignmentMode.AltAz)
         {
             return null;
         }
 
-        var response = await SendAndReceiveAsync(command, cancellationToken);
-        if (response is null)
+        if (await ReadAxisDegreesAsync(command, cancellationToken) is not { } degrees)
         {
             return null;
         }
 
-        return long.TryParse(response, NumberStyles.Integer, CultureInfo.InvariantCulture, out var counts) ? counts : null;
+        return axis is TelescopeAxis.Primary
+            ? FoldDegrees(degrees - 90.0)
+            : FoldDegrees((await IsSouthernHemisphereAsync(cancellationToken) ? -90.0 : 90.0) - degrees);
+    }
+
+    /// <summary>
+    /// The hour angle, from the RA AXIS within <see cref="MountGoto.PoleToleranceDegrees"/> of a pole, as the SkyWatcher
+    /// driver's always is: 6 h at home, rising with tracking. Elsewhere the base's sidereal time less OnStep's RA.
+    /// </summary>
+    /// <remarks>
+    /// Near a pole OnStep's RA cannot say where the RA axis is: the tube lies along it, so its pointing holds still however
+    /// far the head turns, and at home OnStep reports the unrefracted place, ~79 arcsec below the pole, which reads HA 12 h
+    /// through hours of tracking (the bench TeeSeek, 2026-11-02). Every hour angle names the same pointing there, so the
+    /// axis's is as true as any and the only one that moves. On OnStep's East axis 1 is the instrument HA in degrees, on
+    /// West it is HA + 180 (<see cref="GetAxisAngleAsync"/>). Alt-az, or an axis that cannot be read, keeps the base's.
+    /// </remarks>
+    public override async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
+    {
+        if (Math.Abs(await GetDeclinationAsync(cancellationToken)) >= 90.0 - MountGoto.PoleToleranceDegrees
+            && await GetAlignmentAsync(cancellationToken) is not AlignmentMode.AltAz
+            && await ReadAxisDegreesAsync(GX42Command, cancellationToken) is { } axis1
+            && await ReadAxisDegreesAsync(GX43Command, cancellationToken) is { } axis2)
+        {
+            var throughThePole = Math.Abs(axis2) > 90.0;
+            return CoordinateUtils.ConditionHA((throughThePole ? axis1 - 180.0 : axis1) / 15.0);
+        }
+
+        return await base.GetHourAngleAsync(cancellationToken);
+    }
+
+    /// <summary>OnStep answers <c>:GW#</c> as <c>[mount][tracking][alignment]#</c>, terminated (its <c>Command.ino</c>).</summary>
+    protected override bool AlignmentReplyIsTerminated => true;
+
+    private async ValueTask<double?> ReadAxisDegreesAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+        => double.TryParse(await SendAndReceiveAsync(command, cancellationToken), NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var degrees)
+            ? degrees
+            : null;
+
+    /// <summary>Folds an angle into (-180, 180].</summary>
+    private static double FoldDegrees(double degrees)
+    {
+        degrees = ((degrees + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+        return degrees == -180.0 ? 180.0 : degrees;
     }
 
     private static readonly ReadOnlyMemory<byte> GUCommand = "GU"u8.ToArray();

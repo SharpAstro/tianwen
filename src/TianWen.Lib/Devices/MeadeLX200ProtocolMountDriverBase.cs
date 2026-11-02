@@ -196,11 +196,20 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return mode;
     }
 
+    /// <summary>
+    /// Whether <c>:GW#</c>'s three characters end in <c>#</c>. A classic Meade sends them bare, so the base reads exactly
+    /// three bytes; OnStep (and the LX800's fixed firmware) terminates them, and a <c>#</c> left in the stream makes every
+    /// later reply the previous command's: on the bench TeeSeek the poller read the status as slewing and blanked Dec
+    /// and HA in turn.
+    /// </summary>
+    protected virtual bool AlignmentReplyIsTerminated => false;
+
     private static readonly ReadOnlyMemory<byte> GWCommand = "GW"u8.ToArray();
     private async ValueTask<(AlignmentMode Mode, bool Tracking, int AlignmentStars)> AlignmentDetailsAsync(CancellationToken cancellationToken)
     {
-        // TODO LX800 fixed GW response not being terminated, account for that
-        var response = await SendAndReceiveExactlyAsync(GWCommand, 3, cancellationToken);
+        var response = AlignmentReplyIsTerminated
+            ? await SendAndReceiveAsync(GWCommand, cancellationToken)
+            : await SendAndReceiveExactlyAsync(GWCommand, 3, cancellationToken);
         if (response is { Length: 3 })
         {
             var mode = response[0] switch
@@ -228,7 +237,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
-    public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
+    public virtual ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
     public virtual ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
@@ -781,7 +790,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     protected async ValueTask<bool> IsSouthernHemisphereAsync(CancellationToken cancellationToken)
         => _isSouthernHemisphere ??= await GetSiteLatitudeAsync(cancellationToken) < 0;
 
-    public async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
+    public virtual async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
     {
         var lst = await GetSiderealTimeAsync(cancellationToken);
         var ra = await GetRightAscensionAsync(cancellationToken);

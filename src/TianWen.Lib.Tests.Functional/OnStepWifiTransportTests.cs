@@ -224,12 +224,18 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
                 case ":hR#": IsParked = false; return "1";
                 case ":hQ#": return "1";
                 case ":Gm#": return IsParked ? "N" : "E";
+                case ":GW#": return IsTracking ? "GT0#" : "GN0#"; // terminated, as OnStep sends it
                 // The clock a connect sets and reads back: an OnStep at UTC, acknowledging :SC and :SL with 1.
                 case ":GG#": return "+00#";
                 case ":GL#": return System.DateTime.UtcNow.ToString("HH:mm:ss#", System.Globalization.CultureInfo.InvariantCulture);
                 case ":GC#": return System.DateTime.UtcNow.ToString("MM/dd/yy#", System.Globalization.CultureInfo.InvariantCulture);
                 case [':', 'S', 'C', .., '#']: return "1";
                 case [':', 'S', 'L', .., '#']: return "1";
+                // The site the clock's UTC offset is looked up from (Greenwich, so it is the zone's own), and the offset
+                // set when the mount's differs from it.
+                case ":Gt#": return "+51*28#";
+                case ":Gg#": return "+000*00#";
+                case [':', 'S', 'G', .., '#']: return "1";
                 // The configuration a connect reads for the top move rate: steps a degree, then microseconds a step, as a
                 // harmonic OnStep reports them. A real OnStep answers both; silence would hold the connect to its deadline.
                 case ":GXE6#": return "11378.0#";

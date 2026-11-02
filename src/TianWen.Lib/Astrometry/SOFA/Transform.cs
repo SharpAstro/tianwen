@@ -673,10 +673,27 @@ namespace TianWen.Lib.Astrometry.SOFA
                 return true;
             }
 
-            if (SiteLatitude is var lat && !double.IsNaN(lat)
-                && SiteLongitude is var @long && !double.IsNaN(@long)
-                && TimeZoneLookup.GetTimeZone(lat, @long).Result is { Length: > 0 } tzId && tzId.Contains('/')
-            )
+            dt = DateTime;
+            if (TryGetUtcOffset(SiteLatitude, SiteLongitude, dt, out offset))
+            {
+                _SiteTimeZoneValue = offset;
+                return true;
+            }
+
+            dt = DateTime.MinValue;
+            offset = TimeSpan.MaxValue;
+            return false;
+        }
+
+        /// <summary>
+        /// The civil UTC offset at a site at an instant, daylight saving included: the IANA zone the coordinates fall in
+        /// (GeoTimeZone), resolved for <paramref name="utc"/>. False when either coordinate is NaN or the zone cannot be
+        /// resolved.
+        /// </summary>
+        public static bool TryGetUtcOffset(double latitude, double longitude, DateTime utc, out TimeSpan offset)
+        {
+            if (!double.IsNaN(latitude) && !double.IsNaN(longitude)
+                && TimeZoneLookup.GetTimeZone(latitude, longitude).Result is { Length: > 0 } tzId && tzId.Contains('/'))
             {
                 // GeoTimeZone returns an IANA id (e.g. "Australia/Sydney"). Resolving it needs the ICU
                 // timezone database; a host running globalization-invariant (no ICU) throws rather than
@@ -684,9 +701,7 @@ namespace TianWen.Lib.Astrometry.SOFA
                 // (the caller falls back to UTC) instead of propagating.
                 try
                 {
-                    var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(tzId);
-                    dt = DateTime;
-                    offset = _SiteTimeZoneValue ??= tzInfo.GetUtcOffset(dt);
+                    offset = TimeZoneInfo.FindSystemTimeZoneById(tzId).GetUtcOffset(utc);
                     return true;
                 }
                 catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
@@ -695,7 +710,6 @@ namespace TianWen.Lib.Astrometry.SOFA
                 }
             }
 
-            dt = DateTime.MinValue;
             offset = TimeSpan.MaxValue;
             return false;
         }
