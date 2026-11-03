@@ -109,6 +109,28 @@ public sealed class GradeMarkTests : IDisposable
         TestRenderer.MarksFor("BAD_CLOUD_light_1.fits", cloudyDawn).ShouldBe([TestRenderer.GradeMark.Cloud, TestRenderer.GradeMark.Twilight]);
     }
 
+    /// <summary>
+    /// In colour the file list draws each mark as its emoji (the owner's preference: clearer than a silhouette), a twilight
+    /// saying which one; Night and a host with no emoji face keep the baked masks.
+    /// </summary>
+    [Fact]
+    public void AMarkInColourIsItsEmojiAndATwilightSaysWhichOne()
+    {
+        var dawn = new LightGradeVerdict(1f, float.NaN, GradeCause.Sunrise, 0.5f);
+        var dusk = new LightGradeVerdict(1f, float.NaN, GradeCause.Sunset, 0.5f);
+
+        TestRenderer.EmojiOf(TestRenderer.GradeMark.Streaky, null).ShouldBe("💫", "the owner's pick for trailed stars");
+        TestRenderer.EmojiOf(TestRenderer.GradeMark.Cloud, null).ShouldBe("☁️");
+        TestRenderer.EmojiOf(TestRenderer.GradeMark.Twilight, dawn).ShouldBe("🌅");
+        TestRenderer.EmojiOf(TestRenderer.GradeMark.Twilight, dusk).ShouldBe("🌇");
+
+        var colour = TestRenderer.MarkNodes([TestRenderer.GradeMark.Defocused], null, 12f, default, colour: true);
+        var baked = TestRenderer.MarkNodes([TestRenderer.GradeMark.Defocused], null, 12f, default, colour: false);
+        colour.Length.ShouldBe(1);
+        baked.Length.ShouldBe(1);
+        colour[0].ShouldNotBe(baked[0], "the colour mark is the emoji, the baked one the mask");
+    }
+
     private static async Task<AstroImageDocument> DocumentAt(string path)
     {
         var image = new Image([new float[8, 8]], BitDepth.Int16, 65535f, 0f, 0f, new ImageMeta());

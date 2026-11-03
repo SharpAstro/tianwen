@@ -306,7 +306,7 @@ namespace TianWen.UI.Abstractions
                 var name = Layout.Builder.Fill(key: FileRowNameKey);
                 var highlight = marks.IsEmpty
                     ? name.Stretch()
-                    : Layout.Builder.HStack([name.WStar(), .. MarkNodes(marks, verdict, markSize, nameColor)])
+                    : Layout.Builder.HStack([name.WStar(), .. MarkNodes(marks, verdict, markSize, nameColor, GradeMarksInColour)])
                         .WithGap(markGap).Stretch();
                 if (isSelected)
                 {
