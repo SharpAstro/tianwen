@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using DIR.Lib;
 using TianWen.Lib;
 using TianWen.Lib.Astrometry;
@@ -309,6 +310,124 @@ public static class LightGrading
             return (patchiness, local, nightSky, default, false);
         }
         return (patchinessKnown ? grade.Patchiness / referenceClearest : patchiness, float.NaN, grade.SkyLevel / chosen.NightDarkestSky, chosen.Night, false);
+    }
+
+    /// <summary>The fewest clear frames of one night and rig that make a reference of it (#1976).</summary>
+    public const int MinClearFramesPerReference = 10;
+
+    /// <summary>The most recent clear nights kept per rig and site; an older one is dropped when a newer is added.</summary>
+    public const int MaxReferenceNightsPerRig = 5;
+
+    /// <summary>The fewest clear frames of one object that give a night a clearest patchiness for it.</summary>
+    private const int MinClearFramesPerObject = 3;
+
+    /// <summary>
+    /// The nights in <paramref name="grades"/> clear enough to be a rig's reference (#1976), each as the reference its CLEAR frames
+    /// make. A frame counts only when its verdict, read through <paramref name="references"/>, carries no cloud and was judged on
+    /// the run's own baselines (a frame taken in twilight never counts); a night is a reference only when it has at least
+    /// <see cref="MinClearFramesPerReference"/> such frames and NONE of its frames was judged against another night's reference,
+    /// since a night that needed one is not itself clear. Where the rig has no reference from another night to check against, the
+    /// night must also look clear on its own terms: its median sky within <see cref="NightSkyCloudFrom"/> of its darkest tenth, and
+    /// no cloud among its frames. A uniform overcast cannot be told from a clear night by one night alone, so the first reference
+    /// of a rig can be wrong; it is replaced as soon as a later clear night of the rig is graded, since the most recent other
+    /// night wins. The sky level is the clear frames' darkest tenth, and each object's clearest patchiness their tenth for it.
+    /// </summary>
+    public static ImmutableArray<LightGradeReference> ClearNights(ImmutableDictionary<string, LightGrade> grades,
+        ImmutableArray<LightGradeReference> references = default)
+    {
+        Dictionary<NightGroup, (List<LightGrade> Clear, int Frames, bool Needed)> nights = [];
+        foreach (var grade in grades.Values)
+        {
+            if (grade.Twilight is not null || grade.Night == default || !float.IsFinite(grade.SkyLevel) || grade.SkyLevel <= 0f)
+            {
+                continue;
+            }
+            var group = new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night);
+            var (clear, frames, needed) = nights.GetValueOrDefault(group, ([], 0, false));
+            var verdict = Verdict(grades, grade, references);
+            if (verdict.ReferenceNight != default)
+            {
+                needed = true;
+            }
+            else if ((verdict.Causes & GradeCause.Cloud) == 0)
+            {
+                clear.Add(grade);
+            }
+            nights[group] = (clear, frames + 1, needed);
+        }
+
+        var made = ImmutableArray.CreateBuilder<LightGradeReference>();
+        foreach (var (group, (clear, frames, needed)) in nights)
+        {
+            if (needed || clear.Count < MinClearFramesPerReference)
+            {
+                continue;
+            }
+            var site = (clear[0].SiteLatitude, clear[0].SiteLongitude);
+            var checkedAgainstAnother = false;
+            if (!references.IsDefault)
+            {
+                foreach (var reference in references)
+                {
+                    if (reference.Key with { ObjectKey = string.Empty } == group.Key && reference.Rig == group.Rig && reference.Night != group.Night
+                        && reference.NightDarkestSky > 0f && SameSite(reference.SiteLatitude, site.SiteLatitude) && SameSite(reference.SiteLongitude, site.SiteLongitude))
+                    {
+                        checkedAgainstAnother = true;
+                        break;
+                    }
+                }
+            }
+            List<float> sky = [.. clear.Select(static g => g.SkyLevel)];
+            sky.Sort();
+            if (!checkedAgainstAnother && (clear.Count < frames || sky[sky.Count / 2] / sky[sky.Count / 10] >= NightSkyCloudFrom))
+            {
+                continue;
+            }
+
+            Dictionary<string, List<float>> byObject = [];
+            foreach (var grade in clear)
+            {
+                if (float.IsFinite(grade.Patchiness) && grade.Patchiness > 0f)
+                {
+                    if (!byObject.TryGetValue(grade.Key.ObjectKey, out var list))
+                    {
+                        byObject[grade.Key.ObjectKey] = list = [];
+                    }
+                    list.Add(grade.Patchiness);
+                }
+            }
+            var objects = ImmutableArray.CreateBuilder<LightGradeObjectClearest>();
+            foreach (var (objectKey, values) in byObject.OrderBy(static p => p.Key, StringComparer.Ordinal))
+            {
+                if (values.Count >= MinClearFramesPerObject)
+                {
+                    values.Sort();
+                    objects.Add(new LightGradeObjectClearest(objectKey, values[values.Count / 10]));
+                }
+            }
+            made.Add(new LightGradeReference(group.Key, group.Rig, RoundSite(site.SiteLatitude), RoundSite(site.SiteLongitude), group.Night,
+                objects.ToImmutable(), sky[sky.Count / 10]));
+        }
+        return made.ToImmutable();
+    }
+
+    /// <summary>
+    /// <paramref name="added"/> over <paramref name="existing"/>: a night of the same rig and site is replaced, and each rig and site
+    /// keeps only its <see cref="MaxReferenceNightsPerRig"/> most recent nights. Ordered by rig, then newest night first.
+    /// </summary>
+    public static ImmutableArray<LightGradeReference> MergeReferences(IEnumerable<LightGradeReference> existing, IEnumerable<LightGradeReference> added)
+    {
+        static (LightGradeKey, string, double, double) RigOfReference(LightGradeReference r)
+            => (r.Key with { ObjectKey = string.Empty }, r.Rig, r.SiteLatitude, r.SiteLongitude);
+        var merged = new Dictionary<((LightGradeKey, string, double, double), DateOnly), LightGradeReference>();
+        foreach (var reference in existing.Concat(added))
+        {
+            merged[(RigOfReference(reference), reference.Night)] = reference with { Key = reference.Key with { ObjectKey = string.Empty } };
+        }
+        return [.. merged.Values
+            .GroupBy(static r => (r.Key, r.Rig, r.SiteLatitude, r.SiteLongitude))
+            .SelectMany(static g => g.OrderByDescending(static r => r.Night).Take(MaxReferenceNightsPerRig))
+            .OrderBy(static r => r.Rig, StringComparer.Ordinal).ThenByDescending(static r => r.Night)];
     }
 
     private static bool SameSite(double a, double b)

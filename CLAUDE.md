@@ -1380,7 +1380,7 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   are colour emoji in the file list, and baked masks only in Night or with no emoji face, and on the verdict buttons
   (`ImageRendererBase.GradeMarks.cs`, `GradeMarksInColour`); a reject is the `BAD_` rename the stacker reads, its CAUSE in the
   name (`BAD_CLOUD_`, `BAD_STREAKY_`, `BAD_DEFOCUSED_`, `BAD_OBSTRUCTION_`; a bare `BAD_` is N.I.N.A.'s, unspecified), Good takes
-  both off (`CaptureRejection.TryMark` / `CauseOf`, this name only, the count of other hard links said).
+  both off (`CaptureRejection.TryMark` / `CauseOf`, this name only, the count of other hard links said). **A run is not its own clear baseline** (#1976): a group or night baseline far above the rig's clear reference from another night (`Viewer/clear-sky.json`, `LightGradeReferenceStore`, recorded from folders whose frames graded clear) is replaced by it, said in the tooltip, and with none the run cannot be judged for cloud.
 - **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare**
   (`WindowUiSettings.PaintedPopovers`). A viewer toolbar button is a node that declares its own press
   (`ToolbarButtonNode`), so a new one cannot be silently dead under the router. `docs/plans/dir-lib-10.md`. The **tone popover** (`ToolbarAction.Tone`): `docs/plans/hdr-display.md`.

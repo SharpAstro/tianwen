@@ -1771,6 +1771,69 @@ public sealed class ViewerController(
         _enhanceChoicesTask = Task.Run(() => EnhanceChoices.For(pipeline, image));
     }
 
+    // The clear references of the rigs (#1976): loaded off the render thread when the first folder opens, published to the state as
+    // one swap, and fed with the clear nights of the grade table once its grades settle or the folder is left. The tasks are polled
+    // and started from the frame loop, and none of them touches the state but through that one swap.
+    private Task<ImmutableArray<LightGradeReference>>? _referencesTask;
+    private string? _gradeFolder;
+    private ImmutableDictionary<string, LightGrade>? _gradesSeen;
+    private double _gradesChangedAt;
+    private bool _gradesUnrecorded;
+
+    /// <summary>A table of grades this still while it grows is taken as settled, and its clear nights recorded.</summary>
+    private const double GradesSettleSeconds = 5;
+
+    private void FollowGradeReferences()
+    {
+        if (external is not { } store)
+        {
+            return;
+        }
+        if (_referencesTask is { IsCompleted: true } done)
+        {
+            _referencesTask = null;
+            if (done.IsCompletedSuccessfully)
+            {
+                state.GradeReferences = done.Result;
+            }
+        }
+        if (_referencesTask is not null)
+        {
+            return;
+        }
+        var folder = state.CurrentFolder;
+        var grades = state.FrameGrades;
+        var now = _playbackClock.Elapsed.TotalSeconds;
+        if (!ReferenceEquals(grades, _gradesSeen))
+        {
+            _gradesSeen = grades;
+            _gradesChangedAt = now;
+            _gradesUnrecorded = true;
+        }
+        if (state.GradeReferences.IsDefault)
+        {
+            // Not loaded yet: asked for once per folder opened, and a read that failed leaves the verdicts run-relative.
+            if (folder is { Length: > 0 } && !string.Equals(folder, _gradeFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                _gradeFolder = folder;
+                _referencesTask = Task.Run(() => LightGradeReferenceStore.LoadAsync(store, CancellationToken.None));
+            }
+            return;
+        }
+        var left = !string.Equals(folder, _gradeFolder, StringComparison.OrdinalIgnoreCase);
+        if (_gradesUnrecorded && (left || now - _gradesChangedAt >= GradesSettleSeconds))
+        {
+            _gradesUnrecorded = false;
+            _gradeFolder = folder;
+            var loaded = state.GradeReferences;
+            _referencesTask = Task.Run(() => LightGradeReferenceStore.RecordAsync(store, grades, loaded, CancellationToken.None));
+        }
+        else if (left)
+        {
+            _gradeFolder = folder;
+        }
+    }
+
     /// <summary>
     /// Carries what this controller keys on a file's path to the name a thumbs mark gave it: where the display is remembered
     /// (the old record is forgotten, the next leave writes the new), the path an Enhance revert reloads, and the retained
@@ -1778,6 +1841,7 @@ public sealed class ViewerController(
     /// </summary>
     private void FollowFrameRenames()
     {
+        FollowGradeReferences();
         ViewerActions.TryCompleteMark(state);
         while (state.TryTakeFrameRename(out var oldPath, out var newPath))
         {
@@ -2508,6 +2572,18 @@ public sealed class ViewerController(
     {
         // The file on show keeps its display, before anything below lets go of it.
         await SaveLeavingDisplayAsync();
+        if (external is { } store && _gradesUnrecorded && !state.GradeReferences.IsDefault)
+        {
+            // The folder on show when the window closes: its clear nights are kept like a folder left.
+            try
+            {
+                await LightGradeReferenceStore.RecordAsync(store, state.FrameGrades, state.GradeReferences, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning(ex, "The clear-sky references could not be written");
+            }
+        }
         _starDetectionCts?.Cancel();
         _starDetectionCts?.Dispose();
 
