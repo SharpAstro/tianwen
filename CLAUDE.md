@@ -1372,8 +1372,9 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   clearest tenth (`Image.SkyPatchiness`: cloud is unevenness LARGER than a tile, which a uniform dimming and the star score
   never show; 1.3x, and only where it is also 1.2x the 20th percentile of the frames within 60 minutes, `LocalCloudFrom`,
   which is what stops a rising target's first hour reading as cloud), by the sky LEVEL against the NIGHT's darkest tenth
-  across targets (`NightSkyCloudFrom` 1.8x, grouped per rig: gain, offset, instrument and telescope as well as the
-  group's sensor, filter, exposure and bin, since a level in counts scales with all of them; it sees a target cloudy from
+  across targets (`NightSkyCloudFrom` 1.8x, grouped per rig, `LightGrading.RigOf`: gain, offset, ISO, instrument and telescope as well as the
+  group's sensor, filter, exposure and bin, since a level in counts scales with all of them; the patchiness baselines
+  (`ClearestPatchiness`, `LocalFloor`) are per rig too; it sees a target cloudy from
   its first frame to its last) and by twilight (`SolarAltitude.Twilight`, the frame's DATE-OBS and site, past -18 degrees;
   the Sun is a twilight frame's ONLY cause, neither cloud term judges it). A row's marks
   are colour emoji in the file list, and baked masks only in Night or with no emoji face, and on the verdict buttons
