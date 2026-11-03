@@ -119,6 +119,47 @@ public class LightGradingTests
         blue.Key.Describe().ShouldBe("Blue, 300 s");
     }
 
+    /// <summary>
+    /// A target cloudy from first frame to last cannot be seen against its own group, whose clearest frames are cloud too, and
+    /// is plain against the night: the 2026-07-06 LMC run sat at 1.89 to 3.17 times the night's darkest sky across targets.
+    /// </summary>
+    [Fact]
+    public void AWholeTargetUnderCloudReadsAgainstTheNightsDarkestSky()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        LightGrade On(string target, float sky) => new(
+            new LightGradeKey(4, 4, SensorType.Monochrome, "", target, 30_000, 1), new FrameMetrics(2f, 2.2f, 0.1f, 1000), 10f,
+            Patchiness: 1f, SkyLevel: sky, Night: night);
+        var clear = Enumerable.Range(0, 20).Select(i => ($"lagoon{i}", On("LAGOON", 900f + i * 10))).ToArray();
+        var lmc = Enumerable.Range(0, 10).Select(i => ($"lmc{i}", On("LMC", 2200f + i * 20))).ToArray();
+        var grades = Grades([.. clear, .. lmc]);
+
+        var cloudy = LightGrading.Verdict(grades, lmc[0].Item2);
+        cloudy.NightSky.ShouldBeGreaterThan(LightGrading.NightSkyCloudFrom);
+        cloudy.Causes.ShouldBe(GradeCause.Cloud);
+        cloudy.Shown.ShouldBe(LightGrading.PoorBelow);
+        LightGrading.CloudInWords(cloudy).ShouldStartWith("Cloud: the sky is 2.4x as bright as the night's darkest");
+        LightGrading.Relative(grades, lmc[0].Item2).ShouldBe(1f, "against its own group the LMC frame is as good as any");
+        LightGrading.Verdict(grades, clear[19].Item2).Causes.ShouldBe(GradeCause.None);
+
+        // Another night is another baseline: the same bright sky alone on its night is its own darkest.
+        var otherNight = lmc[0].Item2 with { Night = night.AddDays(1) };
+        LightGrading.RelativeNightSky(Grades(("other", otherNight)), otherNight).ShouldBe(1f);
+    }
+
+    [Fact]
+    public void AFramesNightIsItsLocalEveningEitherSideOfMidnight()
+    {
+        static ImageMeta At(DateTimeOffset t) => new("ASI533", t, TimeSpan.FromSeconds(30), FrameType.Light, "", 3.76f, 3.76f, 135,
+            FocuserPositions.None, Filter.None, 1, 1, -5f, SensorType.Monochrome, 0, 0, RowOrder.TopDown, -37.876f, 145.178f);
+
+        // Melbourne (UTC+10 by its longitude): 22:00 and 02:00 local are the evening of the 6th, 13:00 the next day is the 7th.
+        LightGrading.NightOf(At(new DateTimeOffset(2026, 7, 6, 12, 0, 0, TimeSpan.Zero))).ShouldBe(new DateOnly(2026, 7, 6));
+        LightGrading.NightOf(At(new DateTimeOffset(2026, 7, 6, 16, 0, 0, TimeSpan.Zero))).ShouldBe(new DateOnly(2026, 7, 6));
+        LightGrading.NightOf(At(new DateTimeOffset(2026, 7, 7, 3, 0, 0, TimeSpan.Zero))).ShouldBe(new DateOnly(2026, 7, 7));
+        LightGrading.NightOf(At(default)).ShouldBe(default(DateOnly));
+    }
+
     [Fact]
     public void AFrameWithNoStarsIsNotGraded()
         => LightGrading.Grade(Frame(Filter.Luminance), StarList.Empty).ShouldBeNull();
