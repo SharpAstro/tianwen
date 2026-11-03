@@ -296,7 +296,7 @@ public static class LightGrading
             return (patchiness, local, nightSky, default, false);
         }
         var referenceClearest = 0f;
-        foreach (var o in chosen.Objects)
+        foreach (var o in chosen.Objects.IsDefault ? [] : chosen.Objects)
         {
             if (string.Equals(o.ObjectKey, grade.Key.ObjectKey, StringComparison.Ordinal) && o.Clearest > 0f)
             {
@@ -590,7 +590,7 @@ public static class LightGrading
         }
 
         // A window sliding over the group's frames in time order: O(n w log w) for w frames in a window, never a scan of the
-        // group per frame.
+        // group per frame. The plateau test's two side windows are found by binary search (O(log n + w log w) each).
         private void AddLocalFloors(RigGroup key, List<(DateTimeOffset Taken, float Patchiness)> frames)
         {
             frames.Sort(static (a, b) => a.Taken.CompareTo(b.Taken));
@@ -629,16 +629,14 @@ public static class LightGrading
             }
         }
 
-        // The 20th percentile of the frames in [from, to], null when there are none.
+        // The 20th percentile of the frames in [from, to], null when there are none. The frames are sorted by time, so the
+        // bounds are two binary searches and only the frames inside are sorted: O(log n + w log w).
         private static float? FloorOf(List<(DateTimeOffset Taken, float Patchiness)> frames, DateTimeOffset from, DateTimeOffset to, List<float> scratch)
         {
             scratch.Clear();
-            foreach (var (taken, patchiness) in frames)
+            for (var i = FirstAtOrAfter(frames, from); i < frames.Count && frames[i].Taken <= to; i++)
             {
-                if (taken >= from && taken <= to)
-                {
-                    scratch.Add(patchiness);
-                }
+                scratch.Add(frames[i].Patchiness);
             }
             if (scratch.Count == 0)
             {
@@ -646,6 +644,25 @@ public static class LightGrading
             }
             scratch.Sort();
             return scratch[scratch.Count / 5];
+        }
+
+        // The index of the first frame taken at or after <from>, or frames.Count.
+        private static int FirstAtOrAfter(List<(DateTimeOffset Taken, float Patchiness)> frames, DateTimeOffset from)
+        {
+            int lo = 0, hi = frames.Count;
+            while (lo < hi)
+            {
+                var mid = lo + (hi - lo) / 2;
+                if (frames[mid].Taken < from)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            return lo;
         }
 
         private static void Add<TKey, TValue>(Dictionary<TKey, List<TValue>> into, TKey key, TValue value) where TKey : notnull

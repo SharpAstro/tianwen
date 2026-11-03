@@ -2579,7 +2579,7 @@ public sealed class ViewerController(
             {
                 await LightGradeReferenceStore.RecordAsync(store, state.FrameGrades, state.GradeReferences, CancellationToken.None);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex, "The clear-sky references could not be written");
             }
