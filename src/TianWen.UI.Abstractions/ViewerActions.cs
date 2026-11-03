@@ -506,12 +506,61 @@ public static class ViewerActions
     /// carry the old one.
     /// </summary>
     public static string MarkFrame(ViewerState state, AstroImageDocument document, CaptureRejection.Cause? rejectAs)
+        => ApplyMark(state, document, rejectAs, RenameOnDisk(document.FilePath, rejectAs));
+
+    /// <summary>
+    /// The thumbs' press: the rename on a background task (a rename is a metadata call on a local disk and a network round trip
+    /// in a OneDrive or share folder, and a press is handled on the thread that draws), the status line saying "Renaming..."
+    /// meanwhile. A second press while one is pending is ignored. The document, grade and file-list follow-ups are applied by
+    /// <see cref="TryCompleteMark"/> from the frame loop, never on the task.
+    /// </summary>
+    public static void StartMarkFrame(ViewerState state, AstroImageDocument document, CaptureRejection.Cause? rejectAs)
+    {
+        if (state.PendingMark is not null)
+        {
+            return;
+        }
+        var path = document.FilePath;
+        state.PendingMark = new PendingMark(document, rejectAs, Task.Run(() => RenameOnDisk(path, rejectAs)));
+        state.StatusMessage = "Renaming...";
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>Applies a finished <see cref="StartMarkFrame"/>; false while none is pending or it has not finished.</summary>
+    public static bool TryCompleteMark(ViewerState state)
+    {
+        if (state.PendingMark is not { Rename.IsCompleted: true } pending)
+        {
+            return false;
+        }
+        state.PendingMark = null;
+        state.StatusMessage = pending.Rename.IsCompletedSuccessfully
+            ? ApplyMark(state, pending.Document, pending.RejectAs, pending.Rename.Result)
+            : $"Could not mark {Path.GetFileName(pending.Document.FilePath)}: {pending.Rename.Exception?.GetBaseException().Message}";
+        state.NeedsRedraw = true;
+        return true;
+    }
+
+    /// <summary>A mark still being written to disk (<see cref="ViewerState.PendingMark"/>).</summary>
+    public sealed record PendingMark(AstroImageDocument Document, CaptureRejection.Cause? RejectAs, Task<MarkOutcome> Rename);
+
+    /// <summary>What <see cref="CaptureRejection.TryMark"/> answered.</summary>
+    public readonly record struct MarkOutcome(string? Marked, int OtherNames, string? Error);
+
+    private static MarkOutcome RenameOnDisk(string path, CaptureRejection.Cause? rejectAs)
+    {
+        var marked = CaptureRejection.TryMark(path, rejectAs, out var otherNames, out var error);
+        return new MarkOutcome(marked, otherNames, error);
+    }
+
+    private static string ApplyMark(ViewerState state, AstroImageDocument document, CaptureRejection.Cause? rejectAs, MarkOutcome outcome)
     {
         var path = document.FilePath;
         var rejected = rejectAs is not null;
-        if (CaptureRejection.TryMark(path, rejectAs, out var otherNames, out var error) is not { } marked)
+        var otherNames = outcome.OtherNames;
+        if (outcome.Marked is not { } marked)
         {
-            return $"Could not {(rejected ? "reject" : "keep")} {Path.GetFileName(path)}: {error}";
+            return $"Could not {(rejected ? "reject" : "keep")} {Path.GetFileName(path)}: {outcome.Error}";
         }
         if (string.Equals(marked, path, StringComparison.Ordinal))
         {

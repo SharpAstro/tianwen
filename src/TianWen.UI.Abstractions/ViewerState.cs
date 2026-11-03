@@ -468,6 +468,9 @@ public sealed class ViewerState
     /// <summary>Status message to display (e.g. "Plate solving...", "Stretching...").</summary>
     public string? StatusMessage { get; set; }
 
+    /// <summary>A thumbs mark whose rename is still running off the draw thread; null when none (<see cref="ViewerActions.StartMarkFrame"/>).</summary>
+    public ViewerActions.PendingMark? PendingMark;
+
     /// <summary>Whether the image pipeline needs to be reprocessed.</summary>
     public bool NeedsReprocess { get; set; } = true;
 

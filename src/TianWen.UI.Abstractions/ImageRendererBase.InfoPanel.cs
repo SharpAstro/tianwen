@@ -217,8 +217,7 @@ namespace TianWen.UI.Abstractions
                     .BgHover(GuiTheme.Hover(ViewerTheme.InfoPanelBg))
                     .Clickable(new HitResult.ButtonHit(action), _ =>
                     {
-                        state.StatusMessage = ViewerActions.MarkFrame(state, document, rejectAs);
-                        state.NeedsRedraw = true;
+                        ViewerActions.StartMarkFrame(state, document, rejectAs);
                     })
                     .WithTooltip(active && rejectAs is not null ? $"Rejected as {ViewerActions.CauseInWords(rejectAs)}" : tip);
             }

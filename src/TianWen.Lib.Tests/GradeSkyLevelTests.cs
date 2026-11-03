@@ -17,7 +17,7 @@ namespace TianWen.Lib.Tests;
 [Collection("UI")]
 public sealed class GradeSkyLevelTests
 {
-    private const int W = 128, H = 96;
+    private const int W = 256, H = 256;
     private const float Sky = 1000f;
 
     private static Image Frame(float starPeak)
@@ -32,7 +32,20 @@ public sealed class GradeSkyLevelTests
             }
         }
 
-        (int X, int Y)[] centres = [(20, 20), (60, 30), (100, 25), (30, 70), (80, 65), (110, 80), (50, 50), (90, 45)];
+        // Cloud: broad blobs, the same in both frames, so the patchiness is theirs and not the noise's or a star wing's.
+        (int X, int Y)[] blobs = [(50, 60), (180, 70), (110, 190), (210, 210)];
+        foreach (var (bx, by) in blobs)
+        {
+            for (var y = 0; y < H; y++)
+            {
+                for (var x = 0; x < W; x++)
+                {
+                    plane[y, x] += 40f * MathF.Exp(-(((x - bx) * (x - bx)) + ((y - by) * (y - by))) / (2f * 18f * 18f));
+                }
+            }
+        }
+
+        (int X, int Y)[] centres = [(20, 20), (120, 30), (220, 25), (30, 140), (160, 125), (230, 200), (90, 100), (180, 230), (60, 220), (130, 180)];
         foreach (var (cx, cy) in centres)
         {
             for (var dy = -6; dy <= 6; dy++)
@@ -44,7 +57,14 @@ public sealed class GradeSkyLevelTests
             }
         }
 
-        return new Image([plane], BitDepth.Int16, 65535f, 0f, 0f,
+        // The frame's real maximum, as a FITS read computes it, so the two frames' unit-scale divisors differ.
+        var max = 0f;
+        foreach (var v in plane)
+        {
+            max = MathF.Max(max, v);
+        }
+
+        return new Image([plane], BitDepth.Int16, max, 0f, 0f,
             new ImageMeta("sky", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(30), FrameType.Light, "",
                 3.76f, 3.76f, 135, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
                 RowOrder.TopDown, float.NaN, float.NaN));
@@ -68,6 +88,8 @@ public sealed class GradeSkyLevelTests
 
         faint.SkyLevel.ShouldBe(Sky, Sky * 0.03f, "the median in counts, not a fraction of the frame's peak");
         bright.SkyLevel.ShouldBe(Sky, Sky * 0.03f);
+        bright.Patchiness.ShouldBe(faint.Patchiness, MathF.Max(faint.Patchiness, bright.Patchiness) * 0.1f + 1e-6f,
+            "the patchiness is in counts too, not in each frame's peak units");
         (bright.SkyLevel / faint.SkyLevel).ShouldBe(1f, 0.03f, "a 3x difference in peak must not read as a 3x difference in sky");
     }
 }
