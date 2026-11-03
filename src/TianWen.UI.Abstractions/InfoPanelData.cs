@@ -393,7 +393,8 @@ public static class InfoPanelData
                 [document.Findings.Stars is null ? "Measuring the stars..." : "Not graded: no stars found"], null, null);
         }
 
-        var relative = LightGrading.Relative(grades, grade);
+        var verdict = LightGrading.Verdict(grades, grade);
+        var relative = verdict.Relative;
         var graded = 0;
         string? bestPath = null;
         var bestScore = 0f;
@@ -419,8 +420,21 @@ public static class InfoPanelData
         var metrics = grade.Metrics;
         lines.Add(string.Create(CultureInfo.InvariantCulture,
             $"Stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, FWHM {metrics.MedianFwhm:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
+        // What the stars cannot say (#1951): the sky's patchiness against the group's clearest tenth, and a twilight, each a
+        // line only when it holds the colour down, so a clear dark frame's section is as short as it was.
+        if ((verdict.Causes & GradeCause.Cloud) != 0)
+        {
+            lines.Add(string.Create(CultureInfo.InvariantCulture,
+                $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest frames"));
+        }
+        if ((verdict.Causes & (GradeCause.Sunrise | GradeCause.Sunset)) != 0)
+        {
+            lines.Add((verdict.Causes & GradeCause.Sunrise) != 0
+                ? "Twilight: taken past astronomical dark, the Sun rising"
+                : "Twilight: taken past astronomical dark, the Sun setting");
+        }
         return new GradeReadout(lines.ToImmutable(), relative,
-            relative < 1f && bestPath is not null ? System.IO.Path.GetFileName(bestPath) : null);
+            relative < 1f && bestPath is not null ? System.IO.Path.GetFileName(bestPath) : null, verdict.Shown, verdict.Causes);
     }
 
     /// <summary>
@@ -475,4 +489,8 @@ public static class InfoPanelData
 /// The Grade section's lines, the frame's grade relative to its group's best once it has one, and the best frame's file name
 /// while it is another frame: a name, which the strip trims rather than wraps.
 /// </summary>
-public readonly record struct GradeReadout(ImmutableArray<string> Lines, float? Relative, string? BestName);
+/// <param name="Shown">The share the grade is SHOWN at (<see cref="LightGradeVerdict.Shown"/>), which its colour is drawn from;
+/// null until graded.</param>
+/// <param name="Causes">What held the colour down, for the marks beside it.</param>
+public readonly record struct GradeReadout(ImmutableArray<string> Lines, float? Relative, string? BestName,
+    float? Shown = null, GradeCause Causes = GradeCause.None);

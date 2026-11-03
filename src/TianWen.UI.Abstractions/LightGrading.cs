@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Lib;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
+using TwilightPeriod = TianWen.Lib.Sequencing.TwilightPeriod;
 
 namespace TianWen.UI.Abstractions;
 
@@ -44,9 +47,32 @@ public readonly record struct LightGradeKey(
 
 /// <summary>
 /// One frame's quality as the stacker scores it: <see cref="FrameRegistration.ReferenceScore"/> over the stars the viewer
-/// found on it, the composite that picks a stack's reference frame (many, sharp and round together).
+/// found on it, the composite that picks a stack's reference frame (many, sharp and round together). Beside it, the two
+/// things that score cannot see (#1951): how patchy the sky is (<see cref="Image.SkyPatchiness"/>, NaN on a frame too small
+/// to read it), which cloud raises, and which twilight the frame was taken in, null in a dark sky or where the frame does
+/// not say when and where it was taken.
 /// </summary>
-public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score);
+public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN, TwilightPeriod? Twilight = null);
+
+/// <summary>Why a frame's grade colour was held down, beside what its stars say. A frame may have both.</summary>
+[Flags]
+public enum GradeCause
+{
+    None = 0,
+    /// <summary>A patchy sky, read against the group's best (<see cref="LightGrading.CloudFrom"/>): cloud lit from below.</summary>
+    Cloud = 1,
+    /// <summary>Taken past astronomical dark as the Sun rose.</summary>
+    Sunrise = 2,
+    /// <summary>Taken past astronomical dark as the Sun set.</summary>
+    Sunset = 4,
+}
+
+/// <summary>
+/// What a graded frame reads as: its <see cref="Relative"/> sharpness against the best of its group, its
+/// <see cref="Patchiness"/> as a multiple of its group's clearest tenth (NaN where unread), the causes that hold it down,
+/// and the share it is SHOWN at, which those causes cap so a sharp frame through cloud or in twilight cannot read good.
+/// </summary>
+public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown);
 
 /// <summary>
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
@@ -68,7 +94,83 @@ public static class LightGrading
 
         var metrics = FrameRegistration.MetricsFrom(stars);
         var score = FrameRegistration.ReferenceScore(metrics);
-        return float.IsFinite(score) && score > 0f ? new LightGrade(LightGradeKey.Of(image), metrics, score) : null;
+        if (!float.IsFinite(score) || score <= 0f)
+        {
+            return null;
+        }
+
+        var meta = image.ImageMeta;
+        // A default time is a frame that never said when it was taken (an in-memory frame, a header with no DATE-OBS).
+        var twilight = meta.ExposureStartTime == default
+            ? null
+            : SolarAltitude.Twilight(meta.ExposureStartTime, meta.Latitude, meta.Longitude);
+        return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel), twilight);
+    }
+
+    /// <summary>
+    /// What <paramref name="grade"/> reads as among the graded frames of its group: its sharpness share, its patchiness
+    /// against the group's clearest tenth, and the colour share those cap. The ONE place a grade becomes a colour, for the
+    /// file list's row and the panel's line alike.
+    /// </summary>
+    public static LightGradeVerdict Verdict(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+    {
+        var relative = Relative(grades, grade);
+        var patchiness = RelativePatchiness(grades, grade);
+        var causes = GradeCause.None;
+        var shown = relative;
+        if (patchiness >= CloudFrom)
+        {
+            causes |= GradeCause.Cloud;
+            shown = MathF.Min(shown, patchiness >= HeavyCloudFrom ? PoorBelow : (PoorBelow + GoodFrom) * 0.5f);
+        }
+        if (grade.Twilight is { } twilight)
+        {
+            causes |= twilight == TwilightPeriod.Dawn ? GradeCause.Sunrise : GradeCause.Sunset;
+            shown = MathF.Min(shown, PoorBelow);
+        }
+        return new LightGradeVerdict(relative, patchiness, causes, shown);
+    }
+
+    /// <summary>
+    /// A frame's patchiness as a multiple of its group's clearest tenth (the tenth-lowest of the group's patchiness so far,
+    /// the lowest while fewer than ten are graded), so the sky a field always has, a galaxy or a nebula filling the frame,
+    /// cancels, and only what changed from frame to frame is left. NaN where the frame's patchiness was not read; 1 while the
+    /// group has nothing to compare with.
+    /// </summary>
+    public static float RelativePatchiness(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+    {
+        if (!float.IsFinite(grade.Patchiness))
+        {
+            return float.NaN;
+        }
+        var key = grade.Key;
+        var count = 0;
+        foreach (var other in grades.Values)
+        {
+            if (other.Key == key && float.IsFinite(other.Patchiness) && other.Twilight is null)
+            {
+                count++;
+            }
+        }
+        if (count == 0)
+        {
+            return 1f;
+        }
+        // Twilight frames are left out of the baseline: a bright sky is a cause of its own, and its gradient is not the dark
+        // sky the group's patchiness is read against.
+        using var values = ArrayPoolHelper.Rent<float>(count);
+        var n = 0;
+        foreach (var other in grades.Values)
+        {
+            if (other.Key == key && float.IsFinite(other.Patchiness) && other.Twilight is null)
+            {
+                values[n++] = other.Patchiness;
+            }
+        }
+        var span = values.AsSpan(0, n);
+        span.Sort();
+        var clearest = span[n / 10];
+        return clearest > 0f ? grade.Patchiness / clearest : 1f;
     }
 
     /// <summary>The best score among the graded frames of <paramref name="key"/>'s group, or 0 when none is graded.</summary>
@@ -122,6 +224,16 @@ public static class LightGrading
 
     /// <summary>From this share of the best, a frame reads as good.</summary>
     public const float GoodFrom = 0.85f;
+
+    /// <summary>
+    /// From this multiple of the group's clearest tenth, a frame's sky reads as cloud and its colour is held at warn. Over the
+    /// two nights #1951 measured, the clear groups' 90th percentile sat at 1.07 to 1.10 and none reached 1.5, the labelled
+    /// cloudy frames at 8 to 13, and the frames bordering a cloudy stretch at 2.7 to 3.1.
+    /// </summary>
+    public const float CloudFrom = 2f;
+
+    /// <summary>From this multiple, the cloud holds the colour at poor.</summary>
+    public const float HeavyCloudFrom = 4f;
 
     /// <summary>How much of the grade colour a row's background takes over the panel.</summary>
     private const float RowTintShare = 0.35f;

@@ -9,6 +9,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
+using TwilightPeriod = TianWen.Lib.Sequencing.TwilightPeriod;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -42,6 +43,63 @@ public class LightGradingTests
 
         LightGrading.Relative(grades, best).ShouldBe(1f);
         LightGrading.Relative(grades, half).ShouldBe(0.5f);
+    }
+
+    private static LightGrade Patchy(float score, float patchiness, TwilightPeriod? twilight = null)
+        => Graded(Filter.Luminance, score) with { Patchiness = patchiness, Twilight = twilight };
+
+    /// <summary>
+    /// #1951: a frame through cloud scored as well as a clear one (its stars are as many, as sharp and as round), so a sharp
+    /// cloudy frame read green. Its patchy sky now holds the colour at warn, at poor when heavy, and says why.
+    /// </summary>
+    [Fact]
+    public void ASharpFrameThroughCloudCannotReadGood()
+    {
+        var clear = Enumerable.Range(0, 10).Select(i => ($"c{i}", Patchy(10f, 1f + i * 0.01f))).ToArray();
+        var thin = Patchy(10f, 2.5f);
+        var heavy = Patchy(10f, 9f);
+        var grades = Grades([.. clear, ("thin", thin), ("heavy", heavy)]);
+
+        var thinVerdict = LightGrading.Verdict(grades, thin);
+        thinVerdict.Relative.ShouldBe(1f, "its stars are as good as the best's");
+        thinVerdict.Causes.ShouldBe(GradeCause.Cloud);
+        thinVerdict.Shown.ShouldBeLessThan(LightGrading.GoodFrom);
+        thinVerdict.Shown.ShouldBeGreaterThan(LightGrading.PoorBelow);
+
+        var heavyVerdict = LightGrading.Verdict(grades, heavy);
+        heavyVerdict.Shown.ShouldBe(LightGrading.PoorBelow);
+        heavyVerdict.Patchiness.ShouldBe(9f, 0.1f);
+        LightGrading.Verdict(grades, clear[0].Item2).Causes.ShouldBe(GradeCause.None);
+    }
+
+    /// <summary>
+    /// A frame past astronomical dark reads poor however good its stars, says which twilight, and is left out of the
+    /// patchiness baseline: a bright sky's gradient is not the dark sky the group is read against.
+    /// </summary>
+    [Fact]
+    public void ATwilightFrameReadsPoorAndStaysOutOfTheBaseline()
+    {
+        var dark = Patchy(10f, 1f);
+        var dawn = Patchy(10f, 0.2f, TwilightPeriod.Dawn);
+        var dusk = Patchy(10f, 1f, TwilightPeriod.Dusk);
+        var grades = Grades(("dark", dark), ("dawn", dawn), ("dusk", dusk));
+
+        LightGrading.Verdict(grades, dawn).Causes.ShouldBe(GradeCause.Sunrise);
+        LightGrading.Verdict(grades, dusk).Causes.ShouldBe(GradeCause.Sunset);
+        LightGrading.Verdict(grades, dawn).Shown.ShouldBe(LightGrading.PoorBelow);
+        LightGrading.RelativePatchiness(grades, dark).ShouldBe(1f, "the dawn frame's 0.2 is not the baseline");
+    }
+
+    [Fact]
+    public void AFrameWithoutAPatchinessReadIsJudgedByItsStarsAlone()
+    {
+        var unread = Graded(Filter.Luminance, 5f);
+        var grades = Grades(("best", Graded(Filter.Luminance, 10f)), ("unread", unread));
+
+        var verdict = LightGrading.Verdict(grades, unread);
+        verdict.Patchiness.ShouldBe(float.NaN);
+        verdict.Causes.ShouldBe(GradeCause.None);
+        verdict.Shown.ShouldBe(0.5f);
     }
 
     /// <summary>

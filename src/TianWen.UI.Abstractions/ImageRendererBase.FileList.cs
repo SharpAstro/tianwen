@@ -309,7 +309,7 @@ namespace TianWen.UI.Abstractions
                 {
                     // A graded frame's row says how it compares with the best of its group seen so far (LightGrading),
                     // under the selection and the hover, which say something about the row the pointer or the load is on.
-                    highlight = highlight.Bg(LightGrading.RowTint(ViewerTheme.Palette, LightGrading.Relative(grades, grade)));
+                    highlight = highlight.Bg(LightGrading.RowTint(ViewerTheme.Palette, LightGrading.Verdict(grades, grade).Shown));
                 }
 
                 var row = Layout.Builder.HStack(highlight).PadX(2f)
