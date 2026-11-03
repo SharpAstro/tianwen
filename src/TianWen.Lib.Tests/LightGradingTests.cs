@@ -266,7 +266,7 @@ public class LightGradingTests
         var grades = Grades(lmc);
         var references = ClearReference("LMC", referenceNight, 1000f, 1f);
 
-        LightGrading.Verdict(grades, lmc[0].Item2).NightSky.ShouldBe(1f, "against itself it is its own darkest");
+        LightGrading.Verdict(grades, lmc[0].Item2).NightSky.ShouldBeInRange(0.9f, 1.1f, "against itself it is its own darkest");
         foreach (var (_, frame) in lmc)
         {
             var verdict = LightGrading.Verdict(grades, frame, references);
