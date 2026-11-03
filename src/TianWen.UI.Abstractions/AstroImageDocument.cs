@@ -53,10 +53,16 @@ public sealed class AstroImageDocument : IPreviewSource
 
     /// <summary>
     /// The file this document was opened from was renamed under it (a thumbs mark in the Grade section, #1951), so the
-    /// document follows: a solve or a reload after the rename reads the file where it now is. Nothing is re-read, since the
-    /// pixels are the same file's. One reference write, so a background reader sees the old path or the new, never half.
+    /// document follows: a solve or a reload after the rename reads the file where it now is, its readout source included
+    /// (<see cref="IReadoutTileSource.FollowRename"/>, or a released float master could not be read back). Nothing is re-read,
+    /// since the pixels are the same file's. One reference write each, so a background reader sees the old path or the new.
+    /// The controller's own path-keyed state follows through <see cref="ViewerState.RecordFrameRename"/>.
     /// </summary>
-    public void FollowRename(string newPath) => Volatile.Write(ref _filePath, newPath);
+    public void FollowRename(string newPath)
+    {
+        Volatile.Write(ref _filePath, newPath);
+        ReadoutTiles?.FollowRename(newPath);
+    }
 
     /// <summary>Debayered image (or raw image if it is a colour or mono image). This is the permanent base image.</summary>
     public Image UnstretchedImage { get; }

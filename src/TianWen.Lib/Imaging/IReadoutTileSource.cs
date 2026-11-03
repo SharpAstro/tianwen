@@ -27,6 +27,12 @@ public interface IReadoutTileSource
     /// <summary>Tiles read from the file so far: what a test asks to prove a move inside a tile reads nothing.</summary>
     long TilesRead { get; }
 
+    /// <summary>
+    /// The file was renamed (not rewritten) under the source: every later read, and a reload, goes to <paramref name="newPath"/>.
+    /// A rename keeps the length and write time, so the staleness check is unaffected.
+    /// </summary>
+    void FollowRename(string newPath);
+
     /// <summary>Whether the file has changed since it was opened, after which nothing is read from it.</summary>
     bool IsStale { get; }
 

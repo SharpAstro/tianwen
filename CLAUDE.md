@@ -1371,7 +1371,8 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   a grade becomes a colour (the file list's row, the Grade line), capped by the sky's patchiness against the group's
   clearest tenth (`Image.SkyPatchiness`: cloud is unevenness LARGER than a tile, which a uniform dimming and the star score
   never show) and by twilight (`SolarAltitude.Twilight`, the frame's DATE-OBS and site, past -18 degrees). A row's marks
-  are baked masks (`ImageRendererBase.GradeMarks.cs`); a reject is the `BAD_` rename the stacker reads, its CAUSE in the
+  are colour emoji in the file list, and baked masks only in Night or with no emoji face, and on the verdict buttons
+  (`ImageRendererBase.GradeMarks.cs`, `GradeMarksInColour`); a reject is the `BAD_` rename the stacker reads, its CAUSE in the
   name (`BAD_CLOUD_`, `BAD_STREAKY_`, `BAD_DEFOCUSED_`, `BAD_OBSTRUCTION_`; a bare `BAD_` is N.I.N.A.'s, unspecified), Good takes
   both off (`CaptureRejection.TryMark` / `CauseOf`, this name only, the count of other hard links said).
 - **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare**

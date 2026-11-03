@@ -34,6 +34,7 @@ public abstract class ReadoutTileSourceBase : IReadoutTileSource
     private readonly ConcurrentDictionary<long, float[]> _tiles = new();
     private long _tilesRead;
     private volatile bool _stale;
+    private string _path;
 
     /// <param name="path">The file.</param>
     /// <param name="width">Samples per row.</param>
@@ -43,7 +44,7 @@ public abstract class ReadoutTileSourceBase : IReadoutTileSource
     /// <param name="writeTimeUtc">The file's write time when it was opened.</param>
     protected ReadoutTileSourceBase(string path, int width, int height, int channelCount, long length, DateTime writeTimeUtc)
     {
-        Path = path;
+        _path = path;
         Width = width;
         Height = height;
         ChannelCount = channelCount;
@@ -54,7 +55,10 @@ public abstract class ReadoutTileSourceBase : IReadoutTileSource
     }
 
     /// <summary>The file the source reads.</summary>
-    protected string Path { get; }
+    protected string Path => Volatile.Read(ref _path);
+
+    /// <inheritdoc/>
+    public void FollowRename(string newPath) => Volatile.Write(ref _path, newPath);
 
     /// <inheritdoc/>
     public int Width { get; }
