@@ -79,6 +79,21 @@ public sealed class ViewerState
     public void RecordFrameGrade(string path, LightGrade grade)
         => ImmutableInterlocked.AddOrUpdate(ref _frameGrades, Path.GetFullPath(path), grade, (_, _) => grade);
 
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(string Old, string New)> _frameRenames = new();
+
+    /// <summary>
+    /// Says a file was renamed under the viewer (a thumbs mark), for <see cref="ViewerController"/> to carry the state it keys on a
+    /// path (the display memory's key, the pre-enhance path and document) to the new name.
+    /// </summary>
+    public void RecordFrameRename(string oldPath, string newPath) => _frameRenames.Enqueue((oldPath, newPath));
+
+    internal bool TryTakeFrameRename(out string oldPath, out string newPath)
+    {
+        var got = _frameRenames.TryDequeue(out var pair);
+        (oldPath, newPath) = got ? pair : (string.Empty, string.Empty);
+        return got;
+    }
+
     /// <summary>Carries a frame's grade to its new name after a rename (a thumbs mark), in one swap like every write.</summary>
     public void RenameFrameGrade(string oldPath, string newPath)
     {

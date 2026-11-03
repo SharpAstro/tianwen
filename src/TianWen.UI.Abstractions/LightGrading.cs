@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib;
@@ -100,11 +101,11 @@ public static class LightGrading
     /// <see cref="AstroImageDocument.DetectStarsAsync"/>'s <c>whileResident</c>. Called on an evicted image it restores the
     /// planes and leaves them so (<c>DocumentResidencyTests</c>).
     /// </remarks>
-    public static LightGrade? Grade(Image image, StarList stars)
+    public static LightGrade? Grade(Image image, StarList stars, float? fullScaleAdu = null)
     {
         var meta = image.ImageMeta;
         // A default time is a frame that never said when it was taken (an in-memory frame, a header with no DATE-OBS).
-        var twilight = meta.ExposureStartTime == default
+        var twilight = meta.ExposureStartTime == default || !SiteKnown(meta)
             ? null
             : SolarAltitude.Twilight(meta.ExposureStartTime, meta.Latitude, meta.Longitude);
         if (stars.Count == 0)
@@ -121,15 +122,17 @@ public static class LightGrading
             return null;
         }
         return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel), twilight,
-            SkyLevelOf(image, stars), NightOf(meta));
+            SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta));
     }
 
     /// <summary>
-    /// The star-masked sky median in the frame's own counts: the unit-scaled statistic times the divisor it was scaled by (the
-    /// frame's observed peak, which differs from frame to frame, so the unit figure alone does not compare across a night). A
-    /// mosaic is read at its green photosites, the masked statistics' own convention. NaN without a star mask.
+    /// The star-masked sky median in the frame's own counts (ADU): the median itself, not above the frame's darkest pixel, in the
+    /// file's counts. The viewer grades the image <see cref="AstroImageDocument.AdoptImageAsync"/> already scaled to [0, 1] by
+    /// the frame's own observed peak, which differs from frame to frame, so <paramref name="fullScaleAdu"/> (the count a sample
+    /// of 1 stood for, <see cref="AstroImageDocument.FullScaleAdu"/>) puts it back; null for an image still in counts or
+    /// genuinely on [0, 1]. A mosaic is read at its green photosites, the masked statistics' own convention. NaN without a star mask.
     /// </summary>
-    private static float SkyLevelOf(Image image, StarList stars)
+    private static float SkyLevelOf(Image image, StarList stars, float? fullScaleAdu)
     {
         if (stars.StarMask is not { } mask)
         {
@@ -138,8 +141,19 @@ public static class LightGrading
         var (_, median, _) = image.IsCfaMosaic
             ? image.GetStarMaskedMedianAndMADScaledToUnit(0, mask, cfa: CfaChannel.Green)
             : image.GetStarMaskedMedianAndMADScaledToUnit(image.ReferenceStarChannel, mask);
-        return median * (image.MaxValue <= 1f ? 1f : image.MaxValue);
+        // The statistic is (median - MinValue) / divisor, the divisor 1 on a scaled image and the observed peak on one in counts:
+        // undo both to the image's own units, then by the scale the document spent.
+        var divisor = image.HasUnitScalePeak ? 1f : image.MaxValue;
+        return (median * divisor + image.MinValue) * (fullScaleAdu ?? 1f);
     }
+
+    /// <summary>
+    /// Whether the header names a site: a finite latitude and longitude that are not both exactly 0, which is what a capture
+    /// profile with no site set writes. Read as unknown like NaN, since nothing else lies at (0, 0) and every frame of a night
+    /// far from it would read as taken in twilight.
+    /// </summary>
+    private static bool SiteKnown(in ImageMeta meta)
+        => double.IsFinite(meta.Latitude) && double.IsFinite(meta.Longitude) && !(meta.Latitude == 0 && meta.Longitude == 0);
 
     /// <summary>
     /// The local evening a frame belongs to: its time less twelve hours at the site's mean solar time (its longitude), so the
@@ -152,7 +166,7 @@ public static class LightGrading
         {
             return default;
         }
-        var local = float.IsFinite(meta.Longitude)
+        var local = SiteKnown(meta)
             ? meta.ExposureStartTime.UtcDateTime.AddHours(meta.Longitude / 15.0)
             : meta.ExposureStartTime.DateTime;
         return DateOnly.FromDateTime(local.AddHours(-12));
@@ -205,11 +219,12 @@ public static class LightGrading
     }
 
     /// <summary>
-    /// A frame's sky level as a multiple of its NIGHT's darkest tenth: every graded frame of the same night through the same
-    /// sensor, filter, exposure and binning, whatever its target, twilight frames left out. A target cloudy from its first frame
-    /// to its last is invisible against its own group (its clearest tenth is cloud too) and plain against the night: on
-    /// 2026-07-06 the owner's LMC run read 1.89 to 3.17 times the night's darkest, against at most 1.57 for any clear frame.
-    /// NaN where the frame's sky was not read or the night has nothing to compare with.
+    /// A frame's sky level as a multiple of its NIGHT's darkest tenth (the 10th percentile of the night's sky levels): every
+    /// graded frame of the same night through the same sensor, filter, exposure and binning, whatever its target, twilight
+    /// frames left out. A target cloudy from its first frame to its last is invisible against its own group (its clearest tenth
+    /// is cloud too) and plain against the night: on 2026-07-06 the owner's LMC run read 1.89 to 3.17 times the night's
+    /// darkest, against at most 1.57 for any clear frame. NaN where the frame's sky was not read or the night has nothing to
+    /// compare with.
     /// </summary>
     public static float RelativeNightSky(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
     {
@@ -217,41 +232,17 @@ public static class LightGrading
         {
             return float.NaN;
         }
-        var key = grade.Key with { ObjectKey = string.Empty };
-        var night = grade.Night;
-        bool SameNight(in LightGrade other) => other.Night == night && (other.Key with { ObjectKey = string.Empty }) == key
-            && float.IsFinite(other.SkyLevel) && other.SkyLevel > 0f && other.Twilight is null;
-        var count = 0;
-        foreach (var other in grades.Values)
-        {
-            if (SameNight(other))
-            {
-                count++;
-            }
-        }
-        if (count == 0)
-        {
-            return float.NaN;
-        }
-        using var values = ArrayPoolHelper.Rent<float>(count);
-        var n = 0;
-        foreach (var other in grades.Values)
-        {
-            if (SameNight(other))
-            {
-                values[n++] = other.SkyLevel;
-            }
-        }
-        var span = values.AsSpan(0, n);
-        span.Sort();
-        return grade.SkyLevel / span[n / 10];
+        return BaselinesOf(grades).NightDarkest.TryGetValue(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Night), out var darkest)
+            ? grade.SkyLevel / darkest
+            : float.NaN;
     }
 
     /// <summary>
-    /// A frame's patchiness as a multiple of its group's clearest tenth (the tenth-lowest of the group's patchiness so far,
+    /// A frame's patchiness as a multiple of its group's clearest tenth (the 10th percentile of the group's patchiness so far,
     /// the lowest while fewer than ten are graded), so the sky a field always has, a galaxy or a nebula filling the frame,
     /// cancels, and only what changed from frame to frame is left. NaN where the frame's patchiness was not read; 1 while the
-    /// group has nothing to compare with.
+    /// group has nothing to compare with. Twilight frames are left out of the baseline: a bright sky is a cause of its own,
+    /// and its gradient is not the dark sky the group's patchiness is read against.
     /// </summary>
     public static float RelativePatchiness(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
     {
@@ -259,49 +250,14 @@ public static class LightGrading
         {
             return float.NaN;
         }
-        var key = grade.Key;
-        var count = 0;
-        foreach (var other in grades.Values)
-        {
-            if (other.Key == key && float.IsFinite(other.Patchiness) && other.Twilight is null)
-            {
-                count++;
-            }
-        }
-        if (count == 0)
-        {
-            return 1f;
-        }
-        // Twilight frames are left out of the baseline: a bright sky is a cause of its own, and its gradient is not the dark
-        // sky the group's patchiness is read against.
-        using var values = ArrayPoolHelper.Rent<float>(count);
-        var n = 0;
-        foreach (var other in grades.Values)
-        {
-            if (other.Key == key && float.IsFinite(other.Patchiness) && other.Twilight is null)
-            {
-                values[n++] = other.Patchiness;
-            }
-        }
-        var span = values.AsSpan(0, n);
-        span.Sort();
-        var clearest = span[n / 10];
-        return clearest > 0f ? grade.Patchiness / clearest : 1f;
+        return BaselinesOf(grades).ClearestPatchiness.TryGetValue(grade.Key, out var clearest) && clearest > 0f
+            ? grade.Patchiness / clearest
+            : 1f;
     }
 
     /// <summary>The best score among the graded frames of <paramref name="key"/>'s group, or 0 when none is graded.</summary>
     public static float BestScore(ImmutableDictionary<string, LightGrade> grades, LightGradeKey key)
-    {
-        var best = 0f;
-        foreach (var grade in grades.Values)
-        {
-            if (grade.Key == key && grade.Score > best)
-            {
-                best = grade.Score;
-            }
-        }
-        return best;
-    }
+        => BaselinesOf(grades).BestScore.GetValueOrDefault(key);
 
     /// <summary>A graded frame's score as a share of the best of its group seen so far, in (0, 1].</summary>
     public static float Relative(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
@@ -309,6 +265,76 @@ public static class LightGrading
         var best = BestScore(grades, grade.Key);
         return best > 0f ? Math.Clamp(grade.Score / best, 0f, 1f) : 1f;
     }
+
+    private readonly record struct NightGroup(LightGradeKey Key, DateOnly Night);
+
+    /// <summary>
+    /// What every verdict of one grade table is read against: each group's best score and clearest patchiness, each night's
+    /// darkest sky. Built in one pass over the table, ONCE per snapshot (<see cref="BaselinesOf"/>), so a verdict is a lookup and a
+    /// repaint of a long file list stays O(rows), where each row used to scan the table three times and sort it twice.
+    /// </summary>
+    private sealed class Baselines(ImmutableDictionary<string, LightGrade> grades)
+    {
+        public Dictionary<LightGradeKey, float> BestScore { get; } = [];
+        public Dictionary<LightGradeKey, float> ClearestPatchiness { get; } = [];
+        public Dictionary<NightGroup, float> NightDarkest { get; } = [];
+
+        public Baselines Build()
+        {
+            Dictionary<LightGradeKey, List<float>> patchiness = [];
+            Dictionary<NightGroup, List<float>> sky = [];
+            foreach (var grade in grades.Values)
+            {
+                if (grade.Score > BestScore.GetValueOrDefault(grade.Key))
+                {
+                    BestScore[grade.Key] = grade.Score;
+                }
+                if (grade.Twilight is not null)
+                {
+                    continue;
+                }
+                if (float.IsFinite(grade.Patchiness))
+                {
+                    Add(patchiness, grade.Key, grade.Patchiness);
+                }
+                if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f && grade.Night != default)
+                {
+                    Add(sky, new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Night), grade.SkyLevel);
+                }
+            }
+            foreach (var (key, values) in patchiness)
+            {
+                ClearestPatchiness[key] = Tenth(values);
+            }
+            foreach (var (key, values) in sky)
+            {
+                NightDarkest[key] = Tenth(values);
+            }
+            return this;
+        }
+
+        private static void Add<TKey>(Dictionary<TKey, List<float>> into, TKey key, float value) where TKey : notnull
+        {
+            if (!into.TryGetValue(key, out var list))
+            {
+                into[key] = list = [];
+            }
+            list.Add(value);
+        }
+
+        private static float Tenth(List<float> values)
+        {
+            values.Sort();
+            return values[values.Count / 10];
+        }
+    }
+
+    // Keyed on the snapshot's REFERENCE: every write to the table is one swap of an immutable dictionary, so a snapshot's
+    // baselines never go stale, and an old snapshot's are collected with it.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImmutableDictionary<string, LightGrade>, Baselines> _baselines = new();
+
+    private static Baselines BaselinesOf(ImmutableDictionary<string, LightGrade> grades)
+        => _baselines.GetValue(grades, static g => new Baselines(g).Build());
 
     /// <summary>
     /// The colour a relative grade reads as, from the palette's own semantic colours: Error below

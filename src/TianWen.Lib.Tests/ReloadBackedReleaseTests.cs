@@ -7,6 +7,7 @@ using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -206,6 +207,28 @@ public class ReloadBackedReleaseTests : IDisposable
 
         await released.EnsurePlanesAsync(ct);
         released.PlaneReloads.ShouldBe(1, "resident planes are not read again");
+    }
+
+    /// <summary>
+    /// A thumbs-down renames the file under a document whose planes were released: the readout source follows, so the reload
+    /// reads the file where it now is, and the rename keeps the length and write time, so the source is not stale (#1975 review).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ARejectRenameLeavesAReleasedMasterAbleToReadItsPlanesBack()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = WriteMaster("light_0001.fits");
+        var released = await OpenReleasedAsync(path);
+        released.UnstretchedImage.PlanesNeedReload.ShouldBeTrue();
+        var state = new ViewerState { CurrentFolder = Path.GetDirectoryName(path), ImageFileNames = ["light_0001.fits"] };
+
+        ViewerActions.MarkFrame(state, released, CaptureRejection.Cause.Cloud).ShouldStartWith("Rejected as cloud");
+        File.Exists(path).ShouldBeFalse();
+
+        await released.EnsurePlanesAsync(ct);
+        released.UnstretchedImage.PlanesResident.ShouldBeTrue("the reload read the renamed file");
+        released.PlaneReloads.ShouldBe(1);
+        released.CanReadBack.ShouldBeTrue("a rename is not a change of the file");
     }
 
     [Fact(Timeout = 60_000)]

@@ -1171,6 +1171,7 @@ public sealed class ViewerController(
     /// </summary>
     private void RevertEnhance()
     {
+        FollowFrameRenames();
         state.IsEnhanced = false;
         state.EnhanceProgressPct = 0f;
 
@@ -1264,7 +1265,7 @@ public sealed class ViewerController(
                 // (LightGrading.Grade is synchronous and a released image refuses a read).
                 await document.DetectStarsAsync(sdCts.Token, whileResident: (image, stars) =>
                 {
-                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars) is { } frameGrade)
+                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars, document.FullScaleAdu) is { } frameGrade)
                     {
                         state.RecordFrameGrade(document.FilePath, frameGrade);
                     }
@@ -1763,8 +1764,38 @@ public sealed class ViewerController(
         _enhanceChoicesTask = Task.Run(() => EnhanceChoices.For(pipeline, image));
     }
 
+    /// <summary>
+    /// Carries what this controller keys on a file's path to the name a thumbs mark gave it: where the display is remembered
+    /// (the old record is forgotten, the next leave writes the new), the path an Enhance revert reloads, and the retained
+    /// pre-enhance document. Taken in the frame loop and before anything reads those paths.
+    /// </summary>
+    private void FollowFrameRenames()
+    {
+        while (state.TryTakeFrameRename(out var oldPath, out var newPath))
+        {
+            bool Is(string? p) => p is not null && string.Equals(p, oldPath, StringComparison.OrdinalIgnoreCase);
+            if (Is(_displayPath))
+            {
+                if (external is not null)
+                {
+                    ViewerDisplayMemory.Forget(external, oldPath);
+                }
+                _displayPath = newPath;
+            }
+            if (Is(_preEnhancePath))
+            {
+                _preEnhancePath = newPath;
+            }
+            if (_preEnhanceDocument is { } retained && Is(retained.FilePath))
+            {
+                retained.FollowRename(newPath);
+            }
+        }
+    }
+
     public void TryApplyPendingEnhance(CancellationToken appToken = default)
     {
+        FollowFrameRenames();
         TickEnhanceChoices();
         if (_enhanceTask is not { IsCompleted: true } task)
         {
@@ -2367,6 +2398,7 @@ public sealed class ViewerController(
     /// </summary>
     private Task SaveLeavingDisplayAsync()
     {
+        FollowFrameRenames();
         if (external is null
             || _displayPath is not { } path
             || _displayAtOpen is not { } atOpen

@@ -520,6 +520,7 @@ public static class ViewerActions
 
         document.FollowRename(marked);
         state.RenameFrameGrade(path, marked);
+        state.RecordFrameRename(path, marked);
         var index = state.ImageFileNames.FindIndex(f => string.Equals(f, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase));
         if (index >= 0)
         {
