@@ -1366,13 +1366,14 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   which RETHROWS a failed load on every frame.
 - **The docked info strip REPORTS; settings live in toolbar popovers, never a panel of them in the strip**
   (`InfoPanelData.GetStatisticsTable`). The rule is about ROOM (the owner, 2026-09-11), so a verdict on what a section
-  reports may sit on its line: the Grade section's thumbs (#1951, `VerdictButtons`, once the frame is graded).
+  reports may sit on its line: the Grade section's verdict (#1951, `VerdictButtons`, once the frame is graded).
 - **A light's grade is its sharpness AND what the sharpness cannot see** (#1951): `LightGrading.Verdict` is the ONE place
   a grade becomes a colour (the file list's row, the Grade line), capped by the sky's patchiness against the group's
   clearest tenth (`Image.SkyPatchiness`: cloud is unevenness LARGER than a tile, which a uniform dimming and the star score
   never show) and by twilight (`SolarAltitude.Twilight`, the frame's DATE-OBS and site, past -18 degrees). A row's marks
-  are baked masks (`ImageRendererBase.GradeMarks.cs`); thumbs down is the `BAD_` rename the stacker reads
-  (`CaptureRejection.TryMark`, this name only, the count of other hard links said).
+  are baked masks (`ImageRendererBase.GradeMarks.cs`); a reject is the `BAD_` rename the stacker reads, its CAUSE in the
+  name (`BAD_CLOUD_`, `BAD_STREAKY_`, `BAD_DEFOCUSED_`, `BAD_OBSTRUCTION_`; a bare `BAD_` is N.I.N.A.'s, unspecified), Good takes
+  both off (`CaptureRejection.TryMark` / `CauseOf`, this name only, the count of other hard links said).
 - **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare**
   (`WindowUiSettings.PaintedPopovers`). A viewer toolbar button is a node that declares its own press
   (`ToolbarButtonNode`), so a new one cannot be silently dead under the router. `docs/plans/dir-lib-10.md`. The **tone popover** (`ToolbarAction.Tone`): `docs/plans/hdr-display.md`.

@@ -14,13 +14,16 @@ namespace TianWen.UI.Abstractions
         private const string GradeMarkKeyPrefix = "grade-mark:";
 
         /// <summary>The marks a frame's grade can carry, in the order a row shows them.</summary>
-        internal enum GradeMark { Rejected, Kept, Cloud, Twilight }
+        internal enum GradeMark { Rejected, Kept, Cloud, Twilight, Streaky, Defocused, Obstruction }
 
         private static ImmutableArray<IconBaker.CoverageMask> MasksOf(GradeMark mark) => mark switch
         {
             GradeMark.Rejected => BakedIcons.ThumbsDown,
             GradeMark.Kept => BakedIcons.ThumbsUp,
             GradeMark.Cloud => BakedIcons.Cloud,
+            GradeMark.Streaky => BakedIcons.Comet,
+            GradeMark.Defocused => BakedIcons.Eyeglasses,
+            GradeMark.Obstruction => BakedIcons.Evergreen,
             _ => BakedIcons.Sun,
         };
 
@@ -29,17 +32,30 @@ namespace TianWen.UI.Abstractions
             => Layout.Builder.Fill(key: string.Create(CultureInfo.InvariantCulture, $"{GradeMarkKeyPrefix}{mark}:{ink.Red:X2}{ink.Green:X2}{ink.Blue:X2}{ink.Alpha:X2}"))
                 .WFixed(size).HFixed(size);
 
-        /// <summary>The marks a file-list row carries: its name's rejection, then what its grade's verdict held it down for.</summary>
+        /// <summary>The mark the owner's rejection cause draws as, a bare BAD_ the thumbs down.</summary>
+        internal static GradeMark MarkOf(CaptureRejection.Cause cause) => cause switch
+        {
+            CaptureRejection.Cause.Cloud => GradeMark.Cloud,
+            CaptureRejection.Cause.Streaky => GradeMark.Streaky,
+            CaptureRejection.Cause.Defocused => GradeMark.Defocused,
+            CaptureRejection.Cause.Obstruction => GradeMark.Obstruction,
+            _ => GradeMark.Rejected,
+        };
+
+        /// <summary>
+        /// The marks a file-list row carries: the cause its name records (BAD_CLOUD_ a cloud, a bare BAD_ the thumbs down),
+        /// then what its grade's verdict held it down for; a cloud the owner named and the grade found is drawn once.
+        /// </summary>
         internal static ImmutableArray<GradeMark> MarksFor(string fileName, LightGradeVerdict? verdict)
         {
             var marks = ImmutableArray.CreateBuilder<GradeMark>(3);
-            if (CaptureRejection.IsRejectedAtCapture(fileName))
+            if (CaptureRejection.CauseOf(fileName) is { } cause)
             {
-                marks.Add(GradeMark.Rejected);
+                marks.Add(MarkOf(cause));
             }
             if (verdict is { } v)
             {
-                if ((v.Causes & GradeCause.Cloud) != 0)
+                if ((v.Causes & GradeCause.Cloud) != 0 && !marks.Contains(GradeMark.Cloud))
                 {
                     marks.Add(GradeMark.Cloud);
                 }
@@ -66,6 +82,9 @@ namespace TianWen.UI.Abstractions
         internal static string TooltipOf(GradeMark mark, LightGradeVerdict? verdict) => mark switch
         {
             GradeMark.Rejected => "Rejected: named BAD_, so a stack leaves it out",
+            GradeMark.Streaky => "Rejected for streaky stars (BAD_STREAKY_)",
+            GradeMark.Defocused => "Rejected as defocused (BAD_DEFOCUSED_)",
+            GradeMark.Obstruction => "Rejected for an obstruction (BAD_OBSTRUCTION_)",
             GradeMark.Kept => "Kept",
             GradeMark.Cloud => verdict is { } v ? LightGrading.CloudInWords(v) : "Cloud",
             _ => verdict is { Causes: var c } && (c & GradeCause.Sunrise) != 0

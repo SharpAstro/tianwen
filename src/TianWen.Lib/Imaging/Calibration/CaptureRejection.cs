@@ -39,31 +39,88 @@ public static class CaptureRejection
     public static bool IsRejectedAtCapture(string path)
         => Path.GetFileName(path.AsSpan()).StartsWith(RejectedPrefix, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The name <paramref name="path"/>'s file would have marked rejected, or kept: the prefix added or taken off.</summary>
-    public static string MarkedPath(string path, bool rejected)
+    /// <summary>
+    /// Why a rejected frame was rejected, as the viewer's Grade section names it (#1951): written into the name after the
+    /// prefix (<c>BAD_CLOUD_...</c>), so it travels with the file and Explorer shows it, while every reader of the prefix reads
+    /// the frame as rejected exactly as before. <see cref="Unspecified"/> is a bare <c>BAD_</c>, which is what N.I.N.A. writes.
+    /// </summary>
+    public enum Cause
     {
-        var name = Path.GetFileName(path);
-        var marked = rejected
-            ? IsRejectedAtCapture(path) ? name : RejectedPrefix + name
-            : IsRejectedAtCapture(path) ? name[RejectedPrefix.Length..] : name;
-        return Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, marked);
+        Unspecified,
+        Cloud,
+        Streaky,
+        Defocused,
+        Obstruction,
     }
 
     /// <summary>
-    /// Marks the frame at <paramref name="path"/> rejected (the <see cref="RejectedPrefix"/> added to its name) or kept (the
-    /// prefix taken off), the convention N.I.N.A. writes and every scan here reads, so the viewer's thumbs down is what the
-    /// stacker leaves out. Renames THIS name only and says how many other names the file has: in a de-duplicated archive
+    /// The cause a rejected frame's name records, or null for a frame not rejected. A name with the prefix and no cause word
+    /// after it (N.I.N.A.'s own, or a cause this build does not know) is <see cref="Cause.Unspecified"/>.
+    /// </summary>
+    public static Cause? CauseOf(string path)
+    {
+        if (!IsRejectedAtCapture(path))
+        {
+            return null;
+        }
+        var rest = Path.GetFileName(path.AsSpan())[RejectedPrefix.Length..];
+        foreach (var cause in NamedCauses)
+        {
+            if (rest.StartsWith(CauseWord(cause), StringComparison.OrdinalIgnoreCase))
+            {
+                return cause;
+            }
+        }
+        return Cause.Unspecified;
+    }
+
+    /// <summary>
+    /// The name <paramref name="path"/>'s file would have rejected for <paramref name="rejectAs"/>, or kept when it is null:
+    /// the prefix and any cause word taken off first, so a frame moves from one cause to another, or back to its capture name,
+    /// in one rename.
+    /// </summary>
+    public static string MarkedPath(string path, Cause? rejectAs)
+    {
+        var name = Path.GetFileName(path);
+        var bare = name;
+        if (CauseOf(path) is { } current)
+        {
+            bare = name[RejectedPrefix.Length..];
+            if (current != Cause.Unspecified)
+            {
+                bare = bare[CauseWord(current).Length..];
+            }
+        }
+        var marked = rejectAs switch
+        {
+            null => bare,
+            Cause.Unspecified => RejectedPrefix + bare,
+            { } cause => RejectedPrefix + CauseWord(cause) + bare,
+        };
+        return Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, marked);
+    }
+
+    private static readonly Cause[] NamedCauses = [Cause.Cloud, Cause.Streaky, Cause.Defocused, Cause.Obstruction];
+
+    /// <summary>A cause's word in a name, its separator included: <c>CLOUD_</c>.</summary>
+    private static string CauseWord(Cause cause) => cause.ToString().ToUpperInvariant() + "_";
+
+    /// <summary>
+    /// Marks the frame at <paramref name="path"/> rejected for <paramref name="rejectAs"/> (the <see cref="RejectedPrefix"/>
+    /// and the cause's word added to its name) or kept when it is null (both taken off), the convention N.I.N.A. writes and
+    /// every scan here reads, so the viewer's reject is what the stacker leaves out. Renames THIS name only and says how many
+    /// other names the file has: in a de-duplicated archive
     /// a frame's other names sit in other trees (an Unsorted link into Astro-Pics), some of which are never written, so
     /// bringing them along is the caller's decision with the count in hand, never a side effect. A name already as asked is
     /// no rename.
     /// </summary>
     /// <returns>The frame's path after the call (the same path when nothing moved), or null with <paramref name="error"/> set
     /// when the rename failed: a name already taken by another file, a file gone, a folder that refuses the write.</returns>
-    public static string? TryMark(string path, bool rejected, out int otherNames, out string? error)
+    public static string? TryMark(string path, Cause? rejectAs, out int otherNames, out string? error)
     {
         otherNames = HardLinkProbe.TryGetIdentity(path) is { LinkCount: > 1 } identity ? identity.LinkCount - 1 : 0;
         error = null;
-        var target = MarkedPath(path, rejected);
+        var target = MarkedPath(path, rejectAs);
         if (string.Equals(target, path, StringComparison.Ordinal))
         {
             return path;
