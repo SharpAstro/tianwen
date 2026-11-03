@@ -79,8 +79,9 @@ public sealed class ViewerState
     /// The clear nights of the rigs seen so far (#1976), which a run's cloud is judged against when its own baselines are
     /// implausible. Default (not asked) until the references are loaded, when a verdict is exactly the run-relative one.
     /// </summary>
-    public ImmutableArray<LightGradeReference> GradeReferences { get => Volatile.Read(ref _gradeReferences); set => Volatile.Write(ref _gradeReferences, value); }
+    public ImmutableArray<LightGradeReference> GradeReferences { get => _gradeReferences; set => _gradeReferences = value; }
 
+    // An ImmutableArray is one reference wide, so a plain read or write of it is atomic; Volatile wants a reference type.
     private ImmutableArray<LightGradeReference> _gradeReferences;
 
     /// <summary>Records (or replaces) the grade of the frame at <paramref name="path"/>.</summary>
