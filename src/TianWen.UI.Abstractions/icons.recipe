@@ -84,7 +84,8 @@ Sun        = U+2600    # A frame taken past astronomical dark (SolarAltitude.Twi
                        # alike; the tooltip and the Grade line say which. The glyphs that would say it in the
                        # mark, U+1F305 SUNRISE, U+1F307 SUNSET and U+1F304 SUNRISE OVER MOUNTAINS, are scenes
                        # drawn as colour and bake a solid square (225 of 256 pixels at 16 px, all three).
-Comet      = U+2604    # A light rejected for STREAKY stars (trailing, guiding; CaptureRejection.Cause.Streaky).
+Dizzy      = U+1F4AB   # A light rejected for STREAKY stars (trailing, guiding; CaptureRejection.Cause.Streaky): a star with
+                       # its trail, the owner's pick over U+2604 COMET, which says comet first.
 Eyeglasses = U+1F453   # A light rejected as DEFOCUSED. A light outline (32 of 256 pixels at 16 px), but plainly glasses.
 Evergreen  = U+1F332   # A light rejected for an OBSTRUCTION (a tree, the roof). U+1F32B FOG, which would have said
                        # "soft", bakes a solid square; U+26D4 NO ENTRY bakes nearly solid (176 of 256).
