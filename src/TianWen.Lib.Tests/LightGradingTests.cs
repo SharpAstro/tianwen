@@ -209,6 +209,29 @@ public class LightGradingTests
         LightGrading.RelativeNightSky(grades, high[0].Item2).ShouldBeLessThan(1.1f);
     }
 
+    /// <summary>A Canon raw has no gain or offset, only an ISO: two ISOs of one night are two rigs, in the night's sky and in the patchiness baselines.</summary>
+    [Fact]
+    public void TwoIsosOfOneNightAreTwoRigs()
+    {
+        var t = new DateTimeOffset(2026, 7, 6, 12, 0, 0, TimeSpan.Zero);
+        var meta = new ImageMeta("Canon EOS R", t, TimeSpan.FromSeconds(30), FrameType.Light, "", 3.76f, 3.76f, 135,
+            FocuserPositions.None, Filter.None, 1, 1, -5f, SensorType.RGGB, 0, 0, RowOrder.TopDown, -37.876f, 145.178f);
+        var rig800 = LightGrading.RigOf(meta with { Iso = 800 });
+        var rig3200 = LightGrading.RigOf(meta with { Iso = 3200 });
+        rig800.ShouldNotBe(rig3200);
+
+        var night = new DateOnly(2026, 7, 6);
+        LightGrade On(float sky, float patchiness, string rig) => new(
+            new LightGradeKey(4, 4, SensorType.RGGB, "", "T", 30_000, 1), new FrameMetrics(2f, 2.2f, 0.1f, 1000), 10f,
+            Patchiness: patchiness, SkyLevel: sky, Night: night, Rig: rig);
+        var low = Enumerable.Range(0, 20).Select(i => ($"a{i}", On(1000f + i, 1f, rig800))).ToArray();
+        var high = Enumerable.Range(0, 20).Select(i => ($"b{i}", On(4000f + i, 4f, rig3200))).ToArray();
+        var grades = Grades([.. low, .. high]);
+
+        LightGrading.Verdict(grades, high[0].Item2).Causes.ShouldBe(GradeCause.None, "ISO 3200 is read against ISO 3200's own night and patchiness");
+        LightGrading.RelativePatchiness(grades, high[0].Item2).ShouldBeLessThan(1.1f);
+    }
+
     [Fact]
     public void AFramesNightIsItsLocalEveningEitherSideOfMidnight()
     {
