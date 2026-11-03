@@ -5,6 +5,7 @@ using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -202,6 +203,40 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         record.ShouldNotBeNull();
         record.DisplayCrop.ShouldBe(new PixelRect(4, 4, 32, 24));
         record.StretchParameters.ShouldBe(new StretchParameters(0.1, -1.5));
+    }
+
+    /// <summary>
+    /// A thumbs mark renames the file (#1951), which forgets the record kept under the old name. A display restored on open and
+    /// never touched since is written again under the new name on leaving, or the rejected frame reopens at its defaults.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ARejectedFrameKeepsItsRememberedDisplayUnderItsNewName(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = MakeExternal();
+        await using var e2e = ViewerE2E.Start(dpi, external: external);
+        var a = e2e.WriteColourFits("a.fits");
+        var b = e2e.WriteColourFits("b.fits", level: 500f);
+
+        await e2e.OpenAsync(a, ct);
+        Tune(e2e.State, 0f);
+        await e2e.OpenAsync(b, ct);
+        await e2e.OpenAsync(a, ct);
+        ShouldBeTuned(e2e.State, 0f);
+
+        // Restored and left as it was, then rejected: the file is renamed and the old name's record forgotten.
+        var document = e2e.Controller.Document.ShouldNotBeNull();
+        ViewerActions.MarkFrame(e2e.State, document, CaptureRejection.Cause.Cloud).ShouldStartWith("Rejected as cloud");
+        e2e.Frame();
+        var rejected = Path.Combine(Path.GetDirectoryName(a).ShouldNotBeNull(), "BAD_CLOUD_a.fits");
+        File.Exists(rejected).ShouldBeTrue();
+
+        await e2e.OpenAsync(b, ct);
+        Tune(e2e.State, 3f);
+        await e2e.OpenAsync(rejected, ct);
+        ShouldBeTuned(e2e.State, 0f);
     }
 
     [Theory(Timeout = 120_000)]

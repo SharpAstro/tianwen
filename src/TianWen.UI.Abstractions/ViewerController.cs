@@ -89,6 +89,10 @@ public sealed class ViewerController(
     // file saves the display only when it differs from this, so a file only looked at leaves no record.
     private string? _displayPath;
     private ViewerDisplayRecord? _displayAtOpen;
+    // Whether the open restored a saved record, and whether the leave owes one whatever changed: a rename (a thumbs mark) forgets
+    // the record kept under the old name, so a restored display is written again under the new one.
+    private bool _displayRemembered;
+    private bool _displaySaveOwed;
 
     // Previous sources (e.g. a SerPreviewSource / LiveStackPreviewSource holding a memory-mapped file)
     // replaced by a new load. Disposed in ReleaseCompletedTasks (post-frame, UI thread) once no longer
@@ -572,10 +576,13 @@ public sealed class ViewerController(
                 // reload, which brings its own crop back.
                 _displayPath = null;
                 _displayAtOpen = null;
+                _displayRemembered = false;
+                _displaySaveOwed = false;
                 if (masterLayer is null && RemembersFile(newDoc) && !revertCropApplied)
                 {
                     if (remembered is not null)
                     {
+                        _displayRemembered = true;
                         ViewerDisplayMemory.Apply(remembered, state);
                         state.DisplayCrop = ViewerState.ResolveDisplayCrop(remembered.DisplayCrop,
                             newDoc.UnstretchedImage.Width, newDoc.UnstretchedImage.Height);
@@ -1781,6 +1788,9 @@ public sealed class ViewerController(
                     ViewerDisplayMemory.Forget(external, oldPath);
                 }
                 _displayPath = newPath;
+                // The forgotten record must be written again under the new name even when the display never changed,
+                // or the leave's "nothing changed since open" skips it and the frame reopens at its defaults.
+                _displaySaveOwed |= _displayRemembered;
             }
             if (Is(_preEnhancePath))
             {
@@ -2411,12 +2421,13 @@ public sealed class ViewerController(
         }
 
         var now = ViewerDisplayMemory.Capture(state);
-        if (now == atOpen)
+        if (now == atOpen && !_displaySaveOwed)
         {
             return Task.CompletedTask;
         }
 
         _displayAtOpen = now;
+        _displaySaveOwed = false;
         return SaveDisplayAsync(external, path, now);
     }
 
@@ -2457,6 +2468,8 @@ public sealed class ViewerController(
         {
             ViewerDisplayMemory.Forget(external, path);
             _displayAtOpen = ViewerDisplayMemory.Capture(state);
+            _displayRemembered = false;
+            _displaySaveOwed = false;
         }
     }
 
