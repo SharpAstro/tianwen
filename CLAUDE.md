@@ -1370,7 +1370,12 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
 - **A light's grade is its sharpness AND what the sharpness cannot see** (#1951): `LightGrading.Verdict` is the ONE place
   a grade becomes a colour (the file list's row, the Grade line), capped by the sky's patchiness against the group's
   clearest tenth (`Image.SkyPatchiness`: cloud is unevenness LARGER than a tile, which a uniform dimming and the star score
-  never show) and by twilight (`SolarAltitude.Twilight`, the frame's DATE-OBS and site, past -18 degrees). A row's marks
+  never show; 1.3x, and only where it is also 1.2x the 20th percentile of the frames within 60 minutes, `LocalCloudFrom`,
+  which is what stops a rising target's first hour reading as cloud), by the sky LEVEL against the NIGHT's darkest tenth
+  across targets (`NightSkyCloudFrom` 1.8x, grouped per rig: gain, offset, instrument and telescope as well as the
+  group's sensor, filter, exposure and bin, since a level in counts scales with all of them; it sees a target cloudy from
+  its first frame to its last) and by twilight (`SolarAltitude.Twilight`, the frame's DATE-OBS and site, past -18 degrees;
+  the Sun is a twilight frame's ONLY cause, neither cloud term judges it). A row's marks
   are colour emoji in the file list, and baked masks only in Night or with no emoji face, and on the verdict buttons
   (`ImageRendererBase.GradeMarks.cs`, `GradeMarksInColour`); a reject is the `BAD_` rename the stacker reads, its CAUSE in the
   name (`BAD_CLOUD_`, `BAD_STREAKY_`, `BAD_DEFOCUSED_`, `BAD_OBSTRUCTION_`; a bare `BAD_` is N.I.N.A.'s, unspecified), Good takes

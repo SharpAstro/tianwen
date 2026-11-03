@@ -176,6 +176,39 @@ public class LightGradingTests
         LightGrading.RelativeNightSky(Grades(("other", otherNight)), otherNight).ShouldBe(1f);
     }
 
+    /// <summary>The Sun is a twilight frame's only cause: a bright sky and a gradient are what twilight looks like, never also cloud.</summary>
+    [Fact]
+    public void ATwilightFrameWithABrightSkyIsNotAlsoCloud()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        LightGrade On(float sky, TwilightPeriod? twilight = null) => new(
+            new LightGradeKey(4, 4, SensorType.Monochrome, "", "T", 30_000, 1), new FrameMetrics(2f, 2.2f, 0.1f, 1000), 10f,
+            Patchiness: twilight is null ? 1f : 9f, Twilight: twilight, SkyLevel: sky, Night: night);
+        var dark = Enumerable.Range(0, 20).Select(i => ($"d{i}", On(1000f + i * 5))).ToArray();
+        var dawn = On(2600f, TwilightPeriod.Dawn);
+        var grades = Grades([.. dark, ("dawn", dawn)]);
+
+        var verdict = LightGrading.Verdict(grades, dawn);
+        verdict.Causes.ShouldBe(GradeCause.Sunrise);
+        verdict.Shown.ShouldBe(LightGrading.PoorBelow);
+    }
+
+    /// <summary>A sky level in counts scales with gain, offset and telescope: a rig's frames are read against that rig's own night.</summary>
+    [Fact]
+    public void TwoRigsOfOneNightAreNotReadAgainstEachOther()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        LightGrade On(float sky, string rig) => new(
+            new LightGradeKey(4, 4, SensorType.Monochrome, "", "T", 30_000, 1), new FrameMetrics(2f, 2.2f, 0.1f, 1000), 10f,
+            Patchiness: 1f, SkyLevel: sky, Night: night, Rig: rig);
+        var low = Enumerable.Range(0, 20).Select(i => ($"a{i}", On(1000f + i, "100|50|ASI533|A"))).ToArray();
+        var high = Enumerable.Range(0, 20).Select(i => ($"b{i}", On(2000f + i, "200|50|ASI533|B"))).ToArray();
+        var grades = Grades([.. low, .. high]);
+
+        LightGrading.Verdict(grades, high[0].Item2).Causes.ShouldBe(GradeCause.None, "its own rig's darkest is its own");
+        LightGrading.RelativeNightSky(grades, high[0].Item2).ShouldBeLessThan(1.1f);
+    }
+
     [Fact]
     public void AFramesNightIsItsLocalEveningEitherSideOfMidnight()
     {

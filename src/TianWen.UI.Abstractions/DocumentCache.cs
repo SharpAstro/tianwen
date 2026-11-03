@@ -40,8 +40,14 @@ public sealed class DocumentCache : IDocumentCache
     {
         if (_cache.TryGetValue(filePath, out var weakRef) && weakRef.TryGetTarget(out var cached))
         {
-            cached.Touch();
-            return cached;
+            // A document renamed under its key (a thumbs mark, AstroImageDocument.FollowRename) no longer names this file: a hit
+            // on it would hand back a document whose path is a file that is gone. It is a miss, and the entry is replaced below.
+            if (string.Equals(cached.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+            {
+                cached.Touch();
+                return cached;
+            }
+            _cache.Remove(filePath);
         }
 
         var doc = await AstroImageDocument.OpenAsync(filePath, algorithm, cancellationToken);

@@ -239,6 +239,38 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         ShouldBeTuned(e2e.State, 0f);
     }
 
+    /// <summary>
+    /// The same with the rename still running when the owner leaves (a slow folder): the leave waits for it, so the record lands
+    /// under the name the file ends with, whether the rename finished before the leave or not.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task LeavingWhileTheRenameRunsKeepsTheDisplayUnderTheNewName(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = MakeExternal();
+        await using var e2e = ViewerE2E.Start(dpi, external: external);
+        var a = e2e.WriteColourFits("a.fits");
+        var b = e2e.WriteColourFits("b.fits", level: 500f);
+
+        await e2e.OpenAsync(a, ct);
+        Tune(e2e.State, 0f);
+        await e2e.OpenAsync(b, ct);
+        await e2e.OpenAsync(a, ct);
+        ShouldBeTuned(e2e.State, 0f);
+
+        var document = e2e.Controller.Document.ShouldNotBeNull();
+        ViewerActions.StartMarkFrame(e2e.State, document, CaptureRejection.Cause.Cloud);
+        await e2e.OpenAsync(b, ct);
+        var rejected = Path.Combine(Path.GetDirectoryName(a).ShouldNotBeNull(), "BAD_CLOUD_a.fits");
+        File.Exists(rejected).ShouldBeTrue();
+
+        Tune(e2e.State, 3f);
+        await e2e.OpenAsync(rejected, ct);
+        ShouldBeTuned(e2e.State, 0f);
+    }
+
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
