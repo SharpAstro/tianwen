@@ -521,7 +521,10 @@ public static class ViewerActions
             return;
         }
         var path = document.FilePath;
-        state.PendingMark = new PendingMark(document, rejectAs, Task.Run(() => RenameOnDisk(path, rejectAs)));
+        var rename = Task.Run(() => RenameOnDisk(path, rejectAs));
+        state.PendingMark = new PendingMark(document, rejectAs, rename);
+        // The demand-driven loop draws only when asked: the completion wakes it once, as the enhance path's does.
+        _ = rename.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
         state.StatusMessage = "Renaming...";
         state.NeedsRedraw = true;
     }

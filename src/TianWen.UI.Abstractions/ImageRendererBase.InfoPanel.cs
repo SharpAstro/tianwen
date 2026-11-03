@@ -188,15 +188,6 @@ namespace TianWen.UI.Abstractions
         private static Layout.Node InStrip(Layout.Node content) => content.Pad(BasePanelPadding);
 
         /// <summary>
-        /// A section heading: the name, then a hairline rule across the rest of the row (drawn into a fill by
-        /// <see cref="DrawSectionRule"/>), the whole row answering <paramref name="onClick"/> when it is given one.
-        /// </summary>
-        /// <remarks>
-        /// The headings used to be written as <c>"-- Statistics --"</c>, which spends four characters of a narrow panel on
-        /// decoration the heading COLOUR already provides. A drawn rule is also font-independent: the tidier characters for
-        /// the job (an em dash, box-drawing U+2500) are the kind of codepoint a host face can lack.
-        /// </remarks>
-        /// <summary>
         /// The Grade section's own verdict (#1951), once the frame is graded: Good (thumbs up) keeps the frame, taking any
         /// <c>BAD_</c> prefix off its name; Cloud, Streaky, Defocused and Obstruction reject it for that cause, renaming it
         /// <c>BAD_CLOUD_...</c> and so on, which the stacker leaves out (<see cref="ViewerActions.MarkFrame"/>). The one that
@@ -232,6 +223,15 @@ namespace TianWen.UI.Abstractions
                 .WithGap(BaseFontSize * 0.4f).WStar();
         }
 
+        /// <summary>
+        /// A section heading: the name, then a hairline rule across the rest of the row (drawn into a fill by
+        /// <see cref="DrawSectionRule"/>), the whole row answering <paramref name="onClick"/> when it is given one.
+        /// </summary>
+        /// <remarks>
+        /// The headings used to be written as <c>"-- Statistics --"</c>, which spends four characters of a narrow panel on
+        /// decoration the heading COLOUR already provides. A drawn rule is also font-independent: the tidier characters for
+        /// the job (an em dash, box-drawing U+2500) are the kind of codepoint a host face can lack.
+        /// </remarks>
         private static Layout.Node SectionHeading(string title, HitResult? hit = null, Action? onClick = null)
             => Layout.Builder.HStack(
                     Layout.Builder.Text(title, BaseFontSize, ViewerTheme.Palette.HeaderText, vAlign: TextAlign.Near,
