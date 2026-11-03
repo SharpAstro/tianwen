@@ -48,6 +48,39 @@ public sealed class GradeMarkTests : IDisposable
     }
 
     [Fact]
+    public void ACloudMarkFromTheNameSaysSoWhenTheGradeFoundNoCloud()
+    {
+        var missed = new LightGradeVerdict(1f, 1.0f, GradeCause.None, 1f);
+        TestRenderer.TooltipOf(TestRenderer.GradeMark.Cloud, missed).ShouldBe("Rejected as cloud (BAD_CLOUD_)");
+        TestRenderer.TooltipOf(TestRenderer.GradeMark.Cloud, null).ShouldBe("Rejected as cloud (BAD_CLOUD_)");
+        var found = new LightGradeVerdict(0.5f, 3.0f, GradeCause.Cloud, 0.5f);
+        TestRenderer.TooltipOf(TestRenderer.GradeMark.Cloud, found).ShouldStartWith("Cloud: the sky is 3.0x");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AThumbsPressRenamesOffTheDrawThreadAndASecondPressWhilePendingIsIgnored()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _temp.Create("marks-async").FullName;
+        var path = Path.Combine(folder, "light_0001.fits");
+        await File.WriteAllBytesAsync(path, [1, 2, 3], ct);
+        var document = await DocumentAt(path);
+        var state = new ViewerState { CurrentFolder = folder, ImageFileNames = ["light_0001.fits"] };
+
+        ViewerActions.StartMarkFrame(state, document, CaptureRejection.Cause.Cloud);
+        state.StatusMessage.ShouldBe("Renaming...");
+        ViewerActions.StartMarkFrame(state, document, CaptureRejection.Cause.Streaky);
+        while (!ViewerActions.TryCompleteMark(state))
+        {
+            await Task.Delay(5, ct);
+        }
+        state.StatusMessage.ShouldStartWith("Rejected as cloud: renamed to BAD_CLOUD_light_0001.fits");
+        File.Exists(Path.Combine(folder, "BAD_CLOUD_light_0001.fits")).ShouldBeTrue();
+        File.Exists(Path.Combine(folder, "BAD_STREAKY_light_0001.fits")).ShouldBeFalse("the second press was ignored");
+        state.PendingMark.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task ARejectRenamesTheFrameWithItsCauseAndEverythingFollowsAndGoodUndoesIt()
     {
         var ct = TestContext.Current.CancellationToken;

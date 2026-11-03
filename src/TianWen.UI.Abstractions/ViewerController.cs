@@ -1778,6 +1778,7 @@ public sealed class ViewerController(
     /// </summary>
     private void FollowFrameRenames()
     {
+        ViewerActions.TryCompleteMark(state);
         while (state.TryTakeFrameRename(out var oldPath, out var newPath))
         {
             bool Is(string? p) => p is not null && string.Equals(p, oldPath, StringComparison.OrdinalIgnoreCase);
@@ -1785,7 +1786,9 @@ public sealed class ViewerController(
             {
                 if (external is not null)
                 {
-                    ViewerDisplayMemory.Forget(external, oldPath);
+                    // A delete on the disk the record lives on: off the thread that draws.
+                    var ext = external;
+                    _ = Task.Run(() => ViewerDisplayMemory.Forget(ext, oldPath));
                 }
                 _displayPath = newPath;
                 // The forgotten record must be written again under the new name even when the display never changed,

@@ -126,10 +126,12 @@ public static class LightGrading
         {
             return null;
         }
-        return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel), twilight,
+        return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel) * (fullScaleAdu ?? 1f), twilight,
             SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime);
     }
 
+    // The patchiness is read in the plane's own value space, so it is put back into counts by the same scale as the sky level
+    // (above): left in each frame's own peak units, two frames of one sky read a different patchiness by their peak ratio.
     /// <summary>
     /// The star-masked sky median in the frame's own counts (ADU): the median itself, not above the frame's darkest pixel, in the
     /// file's counts. The viewer grades the image <see cref="AstroImageDocument.AdoptImageAsync"/> already scaled to [0, 1] by
