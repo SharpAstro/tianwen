@@ -60,7 +60,21 @@ public readonly record struct LightGradeKey(
 /// per rig, so two rigs or two gains of one night are never compared with each other.
 /// </summary>
 public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN,
-    TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default, string Rig = "");
+    TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default, string Rig = "",
+    double SiteLatitude = double.NaN, double SiteLongitude = double.NaN);
+
+/// <summary>What a rig's clearest tenth of patchiness read on one clear night, for one object.</summary>
+public readonly record struct LightGradeObjectClearest(string ObjectKey, float Clearest);
+
+/// <summary>
+/// A clear night of one rig (#1976): what a run's own baselines are checked against, so a run that is cloud from first frame to
+/// last cannot be its own clear reference. A plain record, to be stored and read back as JSON, so it ends on a non-nullable value.
+/// <see cref="Key"/> is compared without its object (the sky level in counts is the rig's, not the target's) and the site is
+/// rounded to 0.1 degree (<see cref="LightGrading.RoundSite"/>), NaN where unknown. <see cref="NightDarkestSky"/> is the night's
+/// darkest tenth of sky level in counts and <see cref="Objects"/> each object's clearest patchiness, where known.
+/// </summary>
+public readonly record struct LightGradeReference(LightGradeKey Key, string Rig, double SiteLatitude, double SiteLongitude, DateOnly Night,
+    ImmutableArray<LightGradeObjectClearest> Objects, float NightDarkestSky);
 
 /// <summary>Why a frame's grade colour was held down, beside what its stars say. A frame may have both.</summary>
 [Flags]
@@ -84,10 +98,12 @@ public enum GradeCause
 /// <see cref="Patchiness"/> as a multiple of its group's clearest tenth (NaN where unread), the causes that hold it down,
 /// its <see cref="NightSky"/> as a multiple of its night's darkest tenth (NaN where unread), its <see cref="LocalPatchiness"/>
 /// against the frames taken within an hour of it (NaN where unread), and the share it is SHOWN at, which those causes cap so a
-/// sharp frame through cloud or in twilight cannot read good.
+/// sharp frame through cloud or in twilight cannot read good. <see cref="ReferenceNight"/> is the night of the rig's clear reference
+/// the cloud was judged against because the run's own baselines were implausible (default when they were its own), and
+/// <see cref="CloudUnjudged"/> says references were asked and the rig has none, so cloud cannot be judged (the colour is unchanged).
 /// </summary>
 public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN,
-    float LocalPatchiness = float.NaN);
+    float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false);
 
 /// <summary>
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
@@ -129,7 +145,8 @@ public static class LightGrading
             return null;
         }
         return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel) * (fullScaleAdu ?? 1f), twilight,
-            SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime, RigOf(meta));
+            SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime, RigOf(meta),
+            SiteKnown(meta) ? RoundSite(meta.Latitude) : double.NaN, SiteKnown(meta) ? RoundSite(meta.Longitude) : double.NaN);
     }
 
     // The patchiness is read in the plane's own value space, so it is put back into counts by the same scale as the sky level
@@ -164,6 +181,9 @@ public static class LightGrading
     private static bool SiteKnown(in ImageMeta meta)
         => double.IsFinite(meta.Latitude) && double.IsFinite(meta.Longitude) && !(meta.Latitude == 0 && meta.Longitude == 0);
 
+    /// <summary>A site coordinate to 0.1 degree (about 11 km), what a reference's site is matched on.</summary>
+    public static double RoundSite(double degrees) => Math.Round(degrees, 1);
+
     /// <summary>
     /// What a sky level in counts scales with beyond the group's key: gain, offset, ISO (a camera's gain), instrument and telescope. Part of the night's
     /// group (<see cref="NightGroup"/>), not of <see cref="LightGradeKey"/>, which stays the star score's group.
@@ -194,7 +214,8 @@ public static class LightGrading
     /// against the group's clearest tenth, and the colour share those cap. The ONE place a grade becomes a colour, for the
     /// file list's row and the panel's line alike.
     /// </summary>
-    public static LightGradeVerdict Verdict(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+    public static LightGradeVerdict Verdict(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade,
+        ImmutableArray<LightGradeReference> references = default)
     {
         var relative = Relative(grades, grade);
         var patchiness = RelativePatchiness(grades, grade);
@@ -202,6 +223,12 @@ public static class LightGrading
         var causes = GradeCause.None;
         var shown = relative;
         var nightSky = RelativeNightSky(grades, grade);
+        DateOnly referenceNight = default;
+        var unjudged = false;
+        if (!references.IsDefault && grade.Twilight is null)
+        {
+            (patchiness, local, nightSky, referenceNight, unjudged) = AgainstReferences(grades, grade, references, patchiness, local, nightSky);
+        }
         // A frame in twilight has a bright sky of its own cause, the Sun: neither cloud term judges it (its patchiness and sky
         // level are left out of the baselines the same way), or one dawn frame would read Cloud as well as Sunrise.
         if (grade.Twilight is { } twilight)
@@ -222,8 +249,70 @@ public static class LightGrading
                 shown = MathF.Min(shown, PoorBelow);
             }
         }
-        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local);
+        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local, referenceNight, unjudged);
     }
+
+    /// <summary>
+    /// A run is not its own clear baseline (#1976). The group's night darkest tenth of sky and clearest tenth of patchiness are a
+    /// run's own frames, so a run cloudy from first frame to last (the 2026-07-06 LMC, with only its folder open) reads clear against
+    /// itself. When the darkest tenth sits <see cref="NightSkyCloudFrom"/> or more above the most recent OTHER night's clear
+    /// reference of the same rig and site, and the clearest patchiness <see cref="CloudFrom"/> or more above that reference's for the
+    /// same object (where it knows the object), the frame is judged against the reference instead, with no local test (a local floor
+    /// of the same cloudy run is no floor). With no reference for the rig the run cannot be judged for cloud, and says so; nothing
+    /// else about the verdict changes. A run whose baselines are plausible keeps its numbers exactly.
+    /// </summary>
+    private static (float Patchiness, float Local, float NightSky, DateOnly ReferenceNight, bool Unjudged) AgainstReferences(
+        ImmutableDictionary<string, LightGrade> grades, in LightGrade grade, ImmutableArray<LightGradeReference> references,
+        float patchiness, float local, float nightSky)
+    {
+        var readable = (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f) || float.IsFinite(grade.Patchiness);
+        if (!readable)
+        {
+            return (patchiness, local, nightSky, default, false);
+        }
+        var groupKey = grade.Key with { ObjectKey = string.Empty };
+        LightGradeReference? best = null;
+        foreach (var reference in references)
+        {
+            if (reference.Key with { ObjectKey = string.Empty } == groupKey && reference.Rig == grade.Rig
+                && SameSite(reference.SiteLatitude, grade.SiteLatitude) && SameSite(reference.SiteLongitude, grade.SiteLongitude)
+                && reference.Night != grade.Night && reference.NightDarkestSky > 0f
+                && (best is null || reference.Night > best.Value.Night))
+            {
+                best = reference;
+            }
+        }
+        if (best is not { } chosen)
+        {
+            return (patchiness, local, nightSky, default, true);
+        }
+
+        var baselines = BaselinesOf(grades);
+        if (grade.Night == default || !float.IsFinite(grade.SkyLevel) || grade.SkyLevel <= 0f
+            || !baselines.NightDarkest.TryGetValue(new NightGroup(groupKey, grade.Rig, grade.Night), out var darkest)
+            || darkest / chosen.NightDarkestSky < NightSkyCloudFrom)
+        {
+            return (patchiness, local, nightSky, default, false);
+        }
+        var referenceClearest = 0f;
+        foreach (var o in chosen.Objects)
+        {
+            if (string.Equals(o.ObjectKey, grade.Key.ObjectKey, StringComparison.Ordinal) && o.Clearest > 0f)
+            {
+                referenceClearest = o.Clearest;
+            }
+        }
+        var patchinessKnown = referenceClearest > 0f && float.IsFinite(grade.Patchiness);
+        if (patchinessKnown
+            && !(baselines.ClearestPatchiness.TryGetValue(new RigGroup(grade.Key, grade.Rig), out var clearest) && clearest / referenceClearest >= CloudFrom))
+        {
+            return (patchiness, local, nightSky, default, false);
+        }
+        return (patchinessKnown ? grade.Patchiness / referenceClearest : patchiness, float.NaN, grade.SkyLevel / chosen.NightDarkestSky, chosen.Night, false);
+    }
+
+    private static bool SameSite(double a, double b)
+        => double.IsNaN(a) ? double.IsNaN(b) : !double.IsNaN(b) && Math.Abs(a - b) < 0.05;
 
     /// <summary>
     /// Whether a patchiness reads as cloud: past <see cref="CloudFrom"/> against the group's clearest AND past
@@ -240,7 +329,7 @@ public static class LightGrading
     {
         var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
         var bright = verdict.NightSky >= NightSkyCloudFrom;
-        return (patchy, bright) switch
+        var words = (patchy, bright) switch
         {
             (true, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest and {verdict.NightSky:0.0}x as bright as the night's darkest"),
@@ -249,7 +338,14 @@ public static class LightGrading
             _ => string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest"),
         };
+        return verdict.ReferenceNight == default
+            ? words
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{words}; no clear frame in this run: judged against {verdict.ReferenceNight:yyyy-MM-dd}");
     }
+
+    /// <summary>The state of a run whose rig has no clear reference, for the Grade line and a cloud mark's tooltip alike.</summary>
+    public const string CloudUnjudgedInWords = "Cloud cannot be judged: no clear night of this rig yet";
 
     /// <summary>
     /// A frame's sky level as a multiple of its NIGHT's darkest tenth (the 10th percentile of the night's sky levels): every
@@ -398,8 +494,39 @@ public static class LightGrading
                     window.Add(frames[i].Patchiness);
                 }
                 window.Sort();
-                LocalFloor[new TimedGroup(key, taken)] = window[window.Count / 5];
+                var floor = window[window.Count / 5];
+                // A stretch longer than the window that is cloudy throughout is its own floor, so its cloud reads as normal. It is
+                // told from a target's climb or fall by its SHAPE: a plateau, its local floor at least CloudFrom above the floors of
+                // the frames one to three windows before AND after it, which a smooth climb never is (it stays at or below the floor
+                // behind it). The clear part around it is then the floor. A stretch running to either end of the run has no clear
+                // part on that side to compare with and is left as measured.
+                if (floor > 0f && FloorOf(frames, taken - 3 * LocalWindow, taken - LocalWindow, window) is { } before
+                    && FloorOf(frames, taken + LocalWindow, taken + 3 * LocalWindow, window) is { } after
+                    && MathF.Max(before, after) > 0f && floor >= CloudFrom * MathF.Max(before, after))
+                {
+                    floor = MathF.Max(before, after);
+                }
+                LocalFloor[new TimedGroup(key, taken)] = floor;
             }
+        }
+
+        // The 20th percentile of the frames in [from, to], null when there are none.
+        private static float? FloorOf(List<(DateTimeOffset Taken, float Patchiness)> frames, DateTimeOffset from, DateTimeOffset to, List<float> scratch)
+        {
+            scratch.Clear();
+            foreach (var (taken, patchiness) in frames)
+            {
+                if (taken >= from && taken <= to)
+                {
+                    scratch.Add(patchiness);
+                }
+            }
+            if (scratch.Count == 0)
+            {
+                return null;
+            }
+            scratch.Sort();
+            return scratch[scratch.Count / 5];
         }
 
         private static void Add<TKey, TValue>(Dictionary<TKey, List<TValue>> into, TKey key, TValue value) where TKey : notnull

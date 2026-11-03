@@ -275,7 +275,7 @@ namespace TianWen.UI.Abstractions
                 // (cloud, twilight), each a baked mask the size of the text at the row's right. The name is trimmed in the
                 // paint below against the cell the ENGINE gave it, so the marks' room is measured once, by the tree that
                 // places them. One verdict per row, which the tint below reads too.
-                LightGradeVerdict? verdict = state.GradeOf(fileName) is { } rowGrade ? LightGrading.Verdict(grades, rowGrade) : null;
+                LightGradeVerdict? verdict = state.GradeOf(fileName) is { } rowGrade ? LightGrading.Verdict(grades, rowGrade, state.GradeReferences) : null;
                 var marks = MarksFor(fileName, verdict);
                 var markSize = FontSize;
                 var markGap = FontSize * 0.25f;

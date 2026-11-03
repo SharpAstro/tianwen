@@ -245,6 +245,102 @@ public class LightGradingTests
         LightGrading.NightOf(At(default)).ShouldBe(default(DateOnly));
     }
 
+    private static LightGrade Run(string target, float sky, float patchiness, DateOnly night, DateTimeOffset taken = default)
+        => new(new LightGradeKey(4, 4, SensorType.Monochrome, "", target, 30_000, 1), new FrameMetrics(2f, 2.2f, 0.1f, 1000), 10f,
+            Patchiness: patchiness, SkyLevel: sky, Night: night, Taken: taken);
+
+    private static ImmutableArray<LightGradeReference> ClearReference(string target, DateOnly night, float sky, float clearest, string rig = "")
+        => [new LightGradeReference(new LightGradeKey(4, 4, SensorType.Monochrome, "", target, 30_000, 1), rig, double.NaN, double.NaN, night,
+            [new LightGradeObjectClearest(target, clearest)], sky)];
+
+    /// <summary>
+    /// #1976: the 2026-07-06 LMC run alone in the table (the folder on show) is its own darkest tenth and reads clear. Given a clear
+    /// reference of the same rig from another night it is Cloud, and the verdict names the night it was judged against.
+    /// </summary>
+    [Fact]
+    public void ACloudyRunAloneIsJudgedAgainstTheRigsClearReference()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var referenceNight = new DateOnly(2026, 6, 1);
+        var lmc = Enumerable.Range(0, 10).Select(i => ($"lmc{i}", Run("LMC", 2200f + i * 20, 1.9f + i * 0.14f, night))).ToArray();
+        var grades = Grades(lmc);
+        var references = ClearReference("LMC", referenceNight, 1000f, 1f);
+
+        LightGrading.Verdict(grades, lmc[0].Item2).NightSky.ShouldBe(1f, "against itself it is its own darkest");
+        foreach (var (_, frame) in lmc)
+        {
+            var verdict = LightGrading.Verdict(grades, frame, references);
+            verdict.Causes.ShouldBe(GradeCause.Cloud);
+            verdict.ReferenceNight.ShouldBe(referenceNight);
+            verdict.NightSky.ShouldBeGreaterThanOrEqualTo(LightGrading.NightSkyCloudFrom);
+            LightGrading.CloudInWords(verdict).ShouldContain("judged against 2026-06-01");
+        }
+    }
+
+    /// <summary>
+    /// With no clear night of the rig on file, a run cannot be judged for cloud: the verdict says so and its colour is exactly the
+    /// run-relative one, so nothing is called clear by a measure that cannot tell.
+    /// </summary>
+    [Fact]
+    public void ARunWithNoReferenceForItsRigSaysCloudCannotBeJudged()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var lmc = Enumerable.Range(0, 10).Select(i => ($"lmc{i}", Run("LMC", 2200f + i * 20, 1f, night))).ToArray();
+        var grades = Grades(lmc);
+        var otherRig = ClearReference("LMC", new DateOnly(2026, 6, 1), 1000f, 1f, rig: "200|50|OTHER|X");
+
+        var plain = LightGrading.Verdict(grades, lmc[0].Item2);
+        var verdict = LightGrading.Verdict(grades, lmc[0].Item2, otherRig);
+        verdict.CloudUnjudged.ShouldBeTrue();
+        verdict.ReferenceNight.ShouldBe(default);
+        verdict.Shown.ShouldBe(plain.Shown);
+        verdict.Causes.ShouldBe(plain.Causes);
+        plain.CloudUnjudged.ShouldBeFalse("references not asked");
+        LightGrading.CloudUnjudgedInWords.ShouldContain("cannot be judged");
+    }
+
+    /// <summary>A night whose own darkest tenth is plausible keeps today's numbers to the bit when a reference is supplied.</summary>
+    [Fact]
+    public void AMixedNightKeepsItsNumbersWhenAReferenceIsSupplied()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var clear = Enumerable.Range(0, 20).Select(i => ($"lagoon{i}", Run("LAGOON", 900f + i * 10, 1f, night))).ToArray();
+        var lmc = Enumerable.Range(0, 10).Select(i => ($"lmc{i}", Run("LMC", 2200f + i * 20, 1f, night))).ToArray();
+        var grades = Grades([.. clear, .. lmc]);
+        var references = ClearReference("LMC", new DateOnly(2026, 6, 1), 1000f, 1f);
+
+        foreach (var (_, frame) in clear.Concat(lmc))
+        {
+            var with = LightGrading.Verdict(grades, frame, references);
+            with.ReferenceNight.ShouldBe(default);
+            with.CloudUnjudged.ShouldBeFalse();
+            with.ShouldBe(LightGrading.Verdict(grades, frame));
+        }
+    }
+
+    /// <summary>
+    /// A run that turns cloudy for 3 hours (one frame a minute, patchiness 1 to 3, sky 1.5x, under the night-sky threshold so only
+    /// the local rule can see it): the middle of the stretch is its own local floor, which the plateau rule refuses, so every cloudy
+    /// frame is flagged and none of the clear hours.
+    /// </summary>
+    [Fact]
+    public void ALongCloudyStretchCannotSetItsOwnLocalFloor()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var start = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
+        bool Cloudy(int i) => i is >= 300 and < 480;
+        var frames = Enumerable.Range(0, 600)
+            .Select(i => ($"f{i}", Run("T", Cloudy(i) ? 1500f : 1000f, Cloudy(i) ? 3f : 1f, night, start.AddMinutes(i))))
+            .ToArray();
+        var grades = Grades(frames);
+
+        var wrong = Enumerable.Range(0, 600)
+            .Where(i => LightGrading.Verdict(grades, frames[i].Item2).Causes.HasFlag(GradeCause.Cloud) != Cloudy(i))
+            .ToArray();
+        wrong.ShouldBeEmpty();
+        LightGrading.LocalPatchiness(grades, frames[390].Item2).ShouldBe(3f, 0.01f, "the middle is read against the clear part, not itself");
+    }
+
     [Fact]
     public void AFrameWithNoStarsIsNotGraded()
         => LightGrading.Grade(Frame(Filter.Luminance), StarList.Empty).ShouldBeNull();
