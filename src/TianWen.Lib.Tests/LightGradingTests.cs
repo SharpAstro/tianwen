@@ -73,6 +73,35 @@ public class LightGradingTests
     }
 
     /// <summary>
+    /// 2026-09-10: the Helix rose from 47 to 64 degrees and its sky's patchiness fell smoothly from 1.73 to 1.29 times its
+    /// clearest over 90 minutes, which the clearest-tenth test alone read as cloud on 72 of 176 clear frames. A frame as patchy
+    /// as the frames either side of it is its altitude; one patchier than they are, in the middle of the same climb, is cloud.
+    /// </summary>
+    [Fact]
+    public void ARisingTargetsSkyIsNotCloudButAPassingCloudStillIs()
+    {
+        var start = new DateTimeOffset(2026, 9, 10, 10, 30, 0, TimeSpan.Zero);
+        // Five hours of one frame a minute, as measured: 1.73 falling to 1.29 over the first 90 minutes, on to 1.0 over the
+        // next 90, then level.
+        static float Climb(int i) => i < 90 ? 1.73f - 0.44f * i / 90f : i < 180 ? 1.29f - 0.29f * (i - 90) / 90f : 1f;
+        var frames = Enumerable.Range(0, 300)
+            .Select(i => ($"f{i}", Patchy(10f, Climb(i)) with { Taken = start.AddMinutes(i) }))
+            .ToArray();
+        var passing = Patchy(10f, 2f) with { Taken = start.AddMinutes(200.5) };
+        var grades = Grades([.. frames, ("passing", passing)]);
+
+        var first = LightGrading.Verdict(grades, frames[0].Item2);
+        first.Patchiness.ShouldBeGreaterThan(LightGrading.CloudFrom, "against the night's clearest it is patchy");
+        first.LocalPatchiness.ShouldBeLessThan(LightGrading.LocalCloudFrom, "against its neighbours it is not");
+        first.Causes.ShouldBe(GradeCause.None);
+        frames.Count(f => LightGrading.Verdict(grades, f.Item2).Causes.HasFlag(GradeCause.Cloud)).ShouldBe(0);
+
+        var verdict = LightGrading.Verdict(grades, passing);
+        verdict.Causes.ShouldBe(GradeCause.Cloud);
+        verdict.LocalPatchiness.ShouldBe(2f, 0.01f);
+    }
+
+    /// <summary>
     /// A frame past astronomical dark reads poor however good its stars, says which twilight, and is left out of the
     /// patchiness baseline: a bright sky's gradient is not the dark sky the group is read against.
     /// </summary>

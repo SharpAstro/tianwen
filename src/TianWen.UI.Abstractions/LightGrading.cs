@@ -53,10 +53,12 @@ public readonly record struct LightGradeKey(
 /// to read it), which cloud raises, and which twilight the frame was taken in, null in a dark sky or where the frame does
 /// not say when and where it was taken. <see cref="SkyLevel"/> is the star-masked sky median in the frame's own counts (ADU,
 /// NaN without a star mask) and <see cref="Night"/> the local evening it belongs to, which together read a sky BRIGHT against
-/// the rest of its night: cloud lit from below over a whole target, which a group-relative measure cannot see.
+/// the rest of its night: cloud lit from below over a whole target, which a group-relative measure cannot see. <see cref="Taken"/>
+/// is when the exposure started, default where the frame does not say, which places its patchiness against the frames either
+/// side of it (<see cref="LightGrading.LocalPatchiness"/>).
 /// </summary>
 public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN,
-    TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default);
+    TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default);
 
 /// <summary>Why a frame's grade colour was held down, beside what its stars say. A frame may have both.</summary>
 [Flags]
@@ -64,7 +66,8 @@ public enum GradeCause
 {
     None = 0,
     /// <summary>
-    /// Cloud: a sky patchier than its group's clearest (<see cref="LightGrading.CloudFrom"/>), or brighter than its night's
+    /// Cloud: a sky patchier than its group's clearest (<see cref="LightGrading.CloudFrom"/>) and than the frames taken either
+    /// side of it (<see cref="LightGrading.LocalCloudFrom"/>), or brighter than its night's
     /// darkest across every target (<see cref="LightGrading.NightSkyCloudFrom"/>).
     /// </summary>
     Cloud = 1,
@@ -77,10 +80,12 @@ public enum GradeCause
 /// <summary>
 /// What a graded frame reads as: its <see cref="Relative"/> sharpness against the best of its group, its
 /// <see cref="Patchiness"/> as a multiple of its group's clearest tenth (NaN where unread), the causes that hold it down,
-/// its <see cref="NightSky"/> as a multiple of its night's darkest tenth (NaN where unread), the causes that hold it down, and
-/// the share it is SHOWN at, which those causes cap so a sharp frame through cloud or in twilight cannot read good.
+/// its <see cref="NightSky"/> as a multiple of its night's darkest tenth (NaN where unread), its <see cref="LocalPatchiness"/>
+/// against the frames taken within an hour of it (NaN where unread), and the share it is SHOWN at, which those causes cap so a
+/// sharp frame through cloud or in twilight cannot read good.
 /// </summary>
-public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN);
+public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN,
+    float LocalPatchiness = float.NaN);
 
 /// <summary>
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
@@ -122,7 +127,7 @@ public static class LightGrading
             return null;
         }
         return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel), twilight,
-            SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta));
+            SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime);
     }
 
     /// <summary>
@@ -181,9 +186,10 @@ public static class LightGrading
     {
         var relative = Relative(grades, grade);
         var patchiness = RelativePatchiness(grades, grade);
+        var local = LocalPatchiness(grades, grade);
         var causes = GradeCause.None;
         var shown = relative;
-        if (patchiness >= CloudFrom)
+        if (PatchyCloud(patchiness, local))
         {
             causes |= GradeCause.Cloud;
             shown = MathF.Min(shown, patchiness >= HeavyCloudFrom ? PoorBelow : (PoorBelow + GoodFrom) * 0.5f);
@@ -199,13 +205,23 @@ public static class LightGrading
             causes |= twilight == TwilightPeriod.Dawn ? GradeCause.Sunrise : GradeCause.Sunset;
             shown = MathF.Min(shown, PoorBelow);
         }
-        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky);
+        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local);
     }
+
+    /// <summary>
+    /// Whether a patchiness reads as cloud: past <see cref="CloudFrom"/> against the group's clearest AND past
+    /// <see cref="LocalCloudFrom"/> against the frames either side of it, since a target's sky grows patchier the lower it is,
+    /// and a rising target's first hour read as cloud against its clearest (2026-09-10: 72 of 176 clear frames). Heavy cloud
+    /// (<see cref="HeavyCloudFrom"/>) needs no local test, which a cloud bank lasting past the window would pass; nor does a
+    /// frame with no time to place it by (a NaN local).
+    /// </summary>
+    private static bool PatchyCloud(float patchiness, float local)
+        => patchiness >= HeavyCloudFrom || (patchiness >= CloudFrom && !(local < LocalCloudFrom));
 
     /// <summary>The cloud cause in words, saying which measure found it, for the Grade line and the file list's mark alike.</summary>
     public static string CloudInWords(in LightGradeVerdict verdict)
     {
-        var patchy = verdict.Patchiness >= CloudFrom;
+        var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
         var bright = verdict.NightSky >= NightSkyCloudFrom;
         return (patchy, bright) switch
         {
@@ -255,6 +271,19 @@ public static class LightGrading
             : 1f;
     }
 
+    /// <summary>
+    /// A frame's patchiness as a multiple of the 20th percentile of its group's patchiness over the frames taken within
+    /// <see cref="LocalWindow"/> of it, itself included. Cloud comes and goes over minutes, while a target's sky grows less
+    /// patchy over hours as it climbs (the 2026-09-10 Helix fell from 1.73 to 1.29 times its clearest as it rose from 47 to 64
+    /// degrees), so a frame patchier than its neighbours is cloud and one as patchy as its neighbours is its altitude. NaN where
+    /// the frame's patchiness or time was not read; twilight frames are left out of the neighbours as of the clearest tenth.
+    /// </summary>
+    public static float LocalPatchiness(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+        => float.IsFinite(grade.Patchiness) && grade.Taken != default
+            && BaselinesOf(grades).LocalFloor.TryGetValue(new TimedGroup(grade.Key, grade.Taken), out var floor) && floor > 0f
+            ? grade.Patchiness / floor
+            : float.NaN;
+
     /// <summary>The best score among the graded frames of <paramref name="key"/>'s group, or 0 when none is graded.</summary>
     public static float BestScore(ImmutableDictionary<string, LightGrade> grades, LightGradeKey key)
         => BaselinesOf(grades).BestScore.GetValueOrDefault(key);
@@ -268,9 +297,11 @@ public static class LightGrading
 
     private readonly record struct NightGroup(LightGradeKey Key, DateOnly Night);
 
+    private readonly record struct TimedGroup(LightGradeKey Key, DateTimeOffset Taken);
+
     /// <summary>
     /// What every verdict of one grade table is read against: each group's best score and clearest patchiness, each night's
-    /// darkest sky. Built in one pass over the table, ONCE per snapshot (<see cref="BaselinesOf"/>), so a verdict is a lookup and a
+    /// darkest sky, each frame's local patchiness floor. Built in one pass over the table, ONCE per snapshot (<see cref="BaselinesOf"/>), so a verdict is a lookup and a
     /// repaint of a long file list stays O(rows), where each row used to scan the table three times and sort it twice.
     /// </summary>
     private sealed class Baselines(ImmutableDictionary<string, LightGrade> grades)
@@ -278,11 +309,13 @@ public static class LightGrading
         public Dictionary<LightGradeKey, float> BestScore { get; } = [];
         public Dictionary<LightGradeKey, float> ClearestPatchiness { get; } = [];
         public Dictionary<NightGroup, float> NightDarkest { get; } = [];
+        public Dictionary<TimedGroup, float> LocalFloor { get; } = [];
 
         public Baselines Build()
         {
             Dictionary<LightGradeKey, List<float>> patchiness = [];
             Dictionary<NightGroup, List<float>> sky = [];
+            Dictionary<LightGradeKey, List<(DateTimeOffset Taken, float Patchiness)>> timed = [];
             foreach (var grade in grades.Values)
             {
                 if (grade.Score > BestScore.GetValueOrDefault(grade.Key))
@@ -296,6 +329,10 @@ public static class LightGrading
                 if (float.IsFinite(grade.Patchiness))
                 {
                     Add(patchiness, grade.Key, grade.Patchiness);
+                    if (grade.Taken != default)
+                    {
+                        Add(timed, grade.Key, (grade.Taken, grade.Patchiness));
+                    }
                 }
                 if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f && grade.Night != default)
                 {
@@ -310,10 +347,42 @@ public static class LightGrading
             {
                 NightDarkest[key] = Tenth(values);
             }
+            foreach (var (key, frames) in timed)
+            {
+                AddLocalFloors(key, frames);
+            }
             return this;
         }
 
-        private static void Add<TKey>(Dictionary<TKey, List<float>> into, TKey key, float value) where TKey : notnull
+        // A window sliding over the group's frames in time order: O(n w log w) for w frames in a window, never a scan of the
+        // group per frame.
+        private void AddLocalFloors(LightGradeKey key, List<(DateTimeOffset Taken, float Patchiness)> frames)
+        {
+            frames.Sort(static (a, b) => a.Taken.CompareTo(b.Taken));
+            List<float> window = [];
+            var start = 0;
+            var end = 0;
+            foreach (var (taken, _) in frames)
+            {
+                while (frames[start].Taken < taken - LocalWindow)
+                {
+                    start++;
+                }
+                while (end < frames.Count && frames[end].Taken <= taken + LocalWindow)
+                {
+                    end++;
+                }
+                window.Clear();
+                for (var i = start; i < end; i++)
+                {
+                    window.Add(frames[i].Patchiness);
+                }
+                window.Sort();
+                LocalFloor[new TimedGroup(key, taken)] = window[window.Count / 5];
+            }
+        }
+
+        private static void Add<TKey, TValue>(Dictionary<TKey, List<TValue>> into, TKey key, TValue value) where TKey : notnull
         {
             if (!into.TryGetValue(key, out var list))
             {
@@ -383,6 +452,17 @@ public static class LightGrading
     /// to end and flagged no clear frame: the brightest clear sky that night, a target low in the town's glow, read 1.57.
     /// </summary>
     public const float NightSkyCloudFrom = 1.8f;
+
+    /// <summary>
+    /// From this multiple of the frames either side of it (<see cref="LocalPatchiness"/>), a patchiness past
+    /// <see cref="CloudFrom"/> is cloud rather than altitude. On the owner's BAD_ marks of 2026-08-31, 09-10 and 09-12 (nights the
+    /// rest of the grade was not tuned on) and the cloud marks of 07-06, it took the clear frames flagged from 10, 73, 14 and 0
+    /// to 0, 11, 4 and 0, for 3 of 42 catches on 09-10 and 3 of 52 on 07-06, where 1.15 left 50 flagged on 09-10.
+    /// </summary>
+    public const float LocalCloudFrom = 1.2f;
+
+    /// <summary>How far either side of a frame its neighbours are taken from: shorter than a target's climb, longer than a cloud.</summary>
+    public static readonly TimeSpan LocalWindow = TimeSpan.FromMinutes(60);
 
     /// <summary>From this multiple, the cloud holds the colour at poor.</summary>
     public const float HeavyCloudFrom = 4f;
