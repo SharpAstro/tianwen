@@ -46,10 +46,17 @@ public sealed class AstroImageDocument : IPreviewSource
         new("SER video", "ser"),
     ];
 
-    private readonly string _filePath;
+    private string _filePath;
 
-    /// <summary>The file path this document was loaded from.</summary>
-    public string FilePath => _filePath;
+    /// <summary>The file path this document was loaded from, or where that file was renamed to since (<see cref="FollowRename"/>).</summary>
+    public string FilePath => Volatile.Read(ref _filePath);
+
+    /// <summary>
+    /// The file this document was opened from was renamed under it (a thumbs mark in the Grade section, #1951), so the
+    /// document follows: a solve or a reload after the rename reads the file where it now is. Nothing is re-read, since the
+    /// pixels are the same file's. One reference write, so a background reader sees the old path or the new, never half.
+    /// </summary>
+    public void FollowRename(string newPath) => Volatile.Write(ref _filePath, newPath);
 
     /// <summary>Debayered image (or raw image if it is a colour or mono image). This is the permanent base image.</summary>
     public Image UnstretchedImage { get; }
@@ -170,7 +177,7 @@ public sealed class AstroImageDocument : IPreviewSource
             var image = UnstretchedImage;
             if (image.PlanesNeedReload)
             {
-                var path = _filePath;
+                var path = FilePath;
                 var source = ReadoutTiles ?? throw new InvalidOperationException("Planes were released from a document with no readout source to read them back through.");
                 await Task.Run(() =>
                 {
@@ -1341,7 +1348,7 @@ public sealed class AstroImageDocument : IPreviewSource
     public async Task<bool> PlateSolveAsync(IPlateSolverFactory solverFactory, CancellationToken cancellationToken = default)
     {
         var imageDim = UnstretchedImage.GetImageDim();
-        var result = await solverFactory.SolveFileAsync(_filePath, imageDim, searchOrigin: Findings.Wcs, cancellationToken: cancellationToken);
+        var result = await solverFactory.SolveFileAsync(FilePath, imageDim, searchOrigin: Findings.Wcs, cancellationToken: cancellationToken);
         if (result.Solution is { } wcs)
         {
             UpdateFindings(static (findings, solved) => findings with { Wcs = solved }, wcs);

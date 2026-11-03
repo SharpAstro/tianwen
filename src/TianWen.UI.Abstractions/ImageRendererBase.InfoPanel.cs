@@ -9,6 +9,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions
@@ -155,6 +156,10 @@ namespace TianWen.UI.Abstractions
                             .WithGap(BaseFontSize / 3)
                             .WStar());
                     }
+                    if (readout.Shown is not null)
+                    {
+                        grade.Add(VerdictButtons(state, document));
+                    }
                     sections.Add(Section(grade));
                 }
             }
@@ -191,6 +196,34 @@ namespace TianWen.UI.Abstractions
         /// decoration the heading COLOUR already provides. A drawn rule is also font-independent: the tidier characters for
         /// the job (an em dash, box-drawing U+2500) are the kind of codepoint a host face can lack.
         /// </remarks>
+        /// <summary>
+        /// The Grade section's own verdict (#1951), once the frame is graded: thumbs down renames it <c>BAD_</c>, which the
+        /// stacker leaves out, thumbs up takes the prefix off again (<see cref="ViewerActions.MarkFrame"/>). The one that
+        /// matches the frame's name now is inked, the other dim, so the row says the state as well as offering the change.
+        /// Two marks on a line the section already has: the strip still holds no panel of settings, which go in popovers.
+        /// </summary>
+        private static Layout.Node VerdictButtons(ViewerState state, AstroImageDocument document)
+        {
+            var palette = ViewerTheme.Palette;
+            var rejected = CaptureRejection.IsRejectedAtCapture(document.FilePath);
+            var size = BaseFontSize * 1.4f;
+            Layout.Node Button(GradeMark mark, bool active, bool reject, string tip)
+                => GradeMarkNode(mark, size, active ? (reject ? palette.Error : palette.Success) : palette.DimText)
+                    .Pad(BaseFontSize * 0.3f, BaseFontSize * 0.15f)
+                    .BgHover(GuiTheme.Hover(ViewerTheme.InfoPanelBg))
+                    .Clickable(new HitResult.ButtonHit(reject ? "RejectFrame" : "KeepFrame"), _ =>
+                    {
+                        state.StatusMessage = ViewerActions.MarkFrame(state, document, reject);
+                        state.NeedsRedraw = true;
+                    })
+                    .WithTooltip(tip);
+
+            return Layout.Builder.HStack(
+                    Button(GradeMark.Kept, !rejected, reject: false, rejected ? "Keep: take the BAD_ prefix off its name" : "Kept"),
+                    Button(GradeMark.Rejected, rejected, reject: true, rejected ? "Rejected: named BAD_" : "Reject: name it BAD_, so a stack leaves it out"))
+                .WithGap(BaseFontSize * 0.5f);
+        }
+
         private static Layout.Node SectionHeading(string title, HitResult? hit = null, Action? onClick = null)
             => Layout.Builder.HStack(
                     Layout.Builder.Text(title, BaseFontSize, ViewerTheme.Palette.HeaderText, vAlign: TextAlign.Near,

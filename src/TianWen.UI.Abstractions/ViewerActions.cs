@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.IO;
 using TianWen.UI.Abstractions.Overlays;
@@ -494,6 +495,42 @@ public static class ViewerActions
         {
             state.PendingFileListScrollTop = Math.Max(0, state.SelectedFileIndex - 5);
         }
+    }
+
+    /// <summary>
+    /// The Grade section's thumbs (#1951): marks the frame on show rejected (thumbs down: the <c>BAD_</c> prefix N.I.N.A.
+    /// writes and every scan reads, <see cref="CaptureRejection"/>) or kept again (thumbs up: the prefix off). The file is
+    /// renamed in place, its row keeps its place in the list until the folder is next scanned, and its grade and the open
+    /// document follow the new name, so nothing reloads. Returns the status line: what happened, and how many other names
+    /// a hard-linked frame has that still carry the old one.
+    /// </summary>
+    public static string MarkFrame(ViewerState state, AstroImageDocument document, bool rejected)
+    {
+        var path = document.FilePath;
+        if (CaptureRejection.TryMark(path, rejected, out var otherNames, out var error) is not { } marked)
+        {
+            return $"Could not {(rejected ? "reject" : "keep")} {Path.GetFileName(path)}: {error}";
+        }
+        if (string.Equals(marked, path, StringComparison.Ordinal))
+        {
+            return rejected ? $"{Path.GetFileName(path)} is already rejected" : $"{Path.GetFileName(path)} is already kept";
+        }
+
+        document.FollowRename(marked);
+        state.RenameFrameGrade(path, marked);
+        var index = state.ImageFileNames.FindIndex(f => string.Equals(f, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
+        {
+            state.ImageFileNames[index] = Path.GetFileName(marked);
+        }
+        state.NeedsRedraw = true;
+        var others = otherNames switch
+        {
+            0 => string.Empty,
+            1 => "; its 1 other hard link keeps the old name",
+            _ => $"; its {otherNames} other hard links keep the old name",
+        };
+        return rejected ? $"Rejected: renamed to {Path.GetFileName(marked)}{others}" : $"Kept: renamed to {Path.GetFileName(marked)}{others}";
     }
 
     /// <summary>

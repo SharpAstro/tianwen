@@ -79,6 +79,24 @@ public sealed class ViewerState
     public void RecordFrameGrade(string path, LightGrade grade)
         => ImmutableInterlocked.AddOrUpdate(ref _frameGrades, Path.GetFullPath(path), grade, (_, _) => grade);
 
+    /// <summary>Carries a frame's grade to its new name after a rename (a thumbs mark), in one swap like every write.</summary>
+    public void RenameFrameGrade(string oldPath, string newPath)
+    {
+        var from = Path.GetFullPath(oldPath);
+        var to = Path.GetFullPath(newPath);
+        ImmutableDictionary<string, LightGrade> before, after;
+        do
+        {
+            before = Volatile.Read(ref _frameGrades);
+            if (!before.TryGetValue(from, out var grade))
+            {
+                return;
+            }
+            after = before.Remove(from).SetItem(to, grade);
+        }
+        while (Interlocked.CompareExchange(ref _frameGrades, after, before) != before);
+    }
+
     /// <summary>The grade of the file-list entry <paramref name="fileName"/> in the folder on show, if it has one.</summary>
     public LightGrade? GradeOf(string fileName)
         => CurrentFolder is { Length: > 0 } folder

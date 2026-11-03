@@ -38,4 +38,50 @@ public static class CaptureRejection
     /// </remarks>
     public static bool IsRejectedAtCapture(string path)
         => Path.GetFileName(path.AsSpan()).StartsWith(RejectedPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The name <paramref name="path"/>'s file would have marked rejected, or kept: the prefix added or taken off.</summary>
+    public static string MarkedPath(string path, bool rejected)
+    {
+        var name = Path.GetFileName(path);
+        var marked = rejected
+            ? IsRejectedAtCapture(path) ? name : RejectedPrefix + name
+            : IsRejectedAtCapture(path) ? name[RejectedPrefix.Length..] : name;
+        return Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, marked);
+    }
+
+    /// <summary>
+    /// Marks the frame at <paramref name="path"/> rejected (the <see cref="RejectedPrefix"/> added to its name) or kept (the
+    /// prefix taken off), the convention N.I.N.A. writes and every scan here reads, so the viewer's thumbs down is what the
+    /// stacker leaves out. Renames THIS name only and says how many other names the file has: in a de-duplicated archive
+    /// a frame's other names sit in other trees (an Unsorted link into Astro-Pics), some of which are never written, so
+    /// bringing them along is the caller's decision with the count in hand, never a side effect. A name already as asked is
+    /// no rename.
+    /// </summary>
+    /// <returns>The frame's path after the call (the same path when nothing moved), or null with <paramref name="error"/> set
+    /// when the rename failed: a name already taken by another file, a file gone, a folder that refuses the write.</returns>
+    public static string? TryMark(string path, bool rejected, out int otherNames, out string? error)
+    {
+        otherNames = HardLinkProbe.TryGetIdentity(path) is { LinkCount: > 1 } identity ? identity.LinkCount - 1 : 0;
+        error = null;
+        var target = MarkedPath(path, rejected);
+        if (string.Equals(target, path, StringComparison.Ordinal))
+        {
+            return path;
+        }
+        if (File.Exists(target))
+        {
+            error = $"{Path.GetFileName(target)} already exists beside it";
+            return null;
+        }
+        try
+        {
+            File.Move(path, target);
+            return target;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            error = ex.Message;
+            return null;
+        }
+    }
 }
