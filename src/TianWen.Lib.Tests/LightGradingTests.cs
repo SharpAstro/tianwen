@@ -123,6 +123,29 @@ public class LightGradingTests
     public void AFrameWithNoStarsIsNotGraded()
         => LightGrading.Grade(Frame(Filter.Luminance), StarList.Empty).ShouldBeNull();
 
+    /// <summary>
+    /// A light taken in daylight has no stars because the sky is bright, and is graded at zero with its twilight, so it reads
+    /// poor and carries the sun mark: the last dawn frames of 2026-05-14, rejected by hand, were otherwise left as nothing.
+    /// A flat has no stars by design and stays ungraded whatever the Sun does.
+    /// </summary>
+    [Fact]
+    public void ADaylightLightWithNoStarsIsGradedPoorWithItsTwilight()
+    {
+        // Melbourne, 2026-05-15 06:55 local: past astronomical dark, the Sun rising.
+        var dawn = new DateTimeOffset(2026, 5, 15, 6, 55, 0, TimeSpan.FromHours(10));
+        Image At(FrameType type) => new([new float[4, 4]], BitDepth.Int16, 65535f, 0f, 0f,
+            new ImageMeta("ASI533", dawn, TimeSpan.FromSeconds(30), type, "", 3.76f, 3.76f, 135, FocuserPositions.None,
+                Filter.None, 1, 1, -5f, SensorType.Monochrome, 0, 0, RowOrder.TopDown, -37.876f, 145.178f));
+
+        var grade = LightGrading.Grade(At(FrameType.Light), StarList.Empty) ?? throw new InvalidOperationException("a daylight light is graded");
+        grade.Twilight.ShouldBe(TwilightPeriod.Dawn);
+        var verdict = LightGrading.Verdict(Grades(("dawn", grade)), grade);
+        verdict.Causes.ShouldBe(GradeCause.Sunrise);
+        verdict.Shown.ShouldBeLessThanOrEqualTo(LightGrading.PoorBelow);
+
+        LightGrading.Grade(At(FrameType.Flat), StarList.Empty).ShouldBeNull("a sky flat at dawn is not a bad light");
+    }
+
     [Fact]
     public void TheColourRunsFromErrorThroughWarnToSuccess()
     {
