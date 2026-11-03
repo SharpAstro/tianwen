@@ -573,10 +573,14 @@ public static class ViewerActions
         document.FollowRename(marked);
         state.RenameFrameGrade(path, marked);
         state.RecordFrameRename(path, marked);
-        var index = state.ImageFileNames.FindIndex(f => string.Equals(f, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase));
-        if (index >= 0)
+        // A mark can finish after the owner opened another folder: that folder's list may hold the same file name.
+        if (SameFolder(Path.GetDirectoryName(path), state.CurrentFolder))
         {
-            state.ImageFileNames[index] = Path.GetFileName(marked);
+            var index = state.ImageFileNames.FindIndex(f => string.Equals(f, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                state.ImageFileNames[index] = Path.GetFileName(marked);
+            }
         }
         state.NeedsRedraw = true;
         var others = otherNames switch
@@ -588,6 +592,16 @@ public static class ViewerActions
         return rejected
             ? $"Rejected as {CauseInWords(rejectAs)}: renamed to {Path.GetFileName(marked)}{others}"
             : $"Kept: renamed to {Path.GetFileName(marked)}{others}";
+    }
+
+    private static bool SameFolder(string? a, string? b)
+    {
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
+        {
+            return false;
+        }
+        static string Norm(string p) => Path.GetFullPath(p).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(Norm(a), Norm(b), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>A rejection's cause as the status line and the tooltips say it.</summary>

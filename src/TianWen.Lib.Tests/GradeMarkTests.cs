@@ -80,6 +80,30 @@ public sealed class GradeMarkTests : IDisposable
         state.PendingMark.ShouldBeNull();
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task AMarkThatFinishesAfterAnotherFolderWasOpenedLeavesThatFoldersListAlone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folderA = _temp.Create("late-a").FullName;
+        var folderB = _temp.Create("late-b").FullName;
+        var path = Path.Combine(folderA, "light_0001.fits");
+        await File.WriteAllBytesAsync(path, [1, 2, 3], ct);
+        await File.WriteAllBytesAsync(Path.Combine(folderB, "light_0001.fits"), [4], ct);
+        var document = await DocumentAt(path);
+        var state = new ViewerState { CurrentFolder = folderA, ImageFileNames = ["light_0001.fits"] };
+
+        ViewerActions.StartMarkFrame(state, document, CaptureRejection.Cause.Cloud);
+        state.CurrentFolder = folderB;
+        state.ImageFileNames = ["light_0001.fits"];
+        while (!ViewerActions.TryCompleteMark(state))
+        {
+            await Task.Delay(5, ct);
+        }
+
+        File.Exists(Path.Combine(folderA, "BAD_CLOUD_light_0001.fits")).ShouldBeTrue();
+        state.ImageFileNames[0].ShouldBe("light_0001.fits", "folder B's row is not A's file");
+    }
+
     [Fact]
     public async Task ARejectRenamesTheFrameWithItsCauseAndEverythingFollowsAndGoodUndoesIt()
     {
