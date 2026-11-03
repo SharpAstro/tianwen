@@ -142,8 +142,8 @@ namespace TianWen.UI.Abstractions
                     grade.Add(SectionHeading("Grade"));
                     for (var i = 0; i < readout.Lines.Length; i++)
                     {
-                        grade.Add(WrappedText(readout.Lines[i], i == 0 && readout.Relative is { } relative
-                            ? LightGrading.Colour(ViewerTheme.Palette, relative)
+                        grade.Add(WrappedText(readout.Lines[i], i == 0 && readout.Shown is { } shown
+                            ? LightGrading.Colour(ViewerTheme.Palette, shown)
                             : body));
                     }
                     if (readout.BestName is { } bestName)
