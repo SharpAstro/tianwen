@@ -83,13 +83,23 @@ public static class LightGrading
 {
     /// <summary>
     /// The grade of a frame from its detected stars, or null when it has none to grade by: a frame with no stars is
-    /// not graded rather than graded zero, since a dark, a flat or a planetary frame is not a bad light.
+    /// not graded rather than graded zero, since a dark, a flat or a planetary frame is not a bad light. The one exception is
+    /// a LIGHT taken past astronomical dark, which has no stars because the sky is daylight, and is graded at zero with its
+    /// twilight so it reads poor and carries the sun mark: on 2026-05-14 the last seven dawn frames, every one rejected by
+    /// hand, were left ungraded and so read as nothing at all (#1951).
     /// </summary>
     public static LightGrade? Grade(Image image, StarList stars)
     {
+        var meta = image.ImageMeta;
+        // A default time is a frame that never said when it was taken (an in-memory frame, a header with no DATE-OBS).
+        var twilight = meta.ExposureStartTime == default
+            ? null
+            : SolarAltitude.Twilight(meta.ExposureStartTime, meta.Latitude, meta.Longitude);
         if (stars.Count == 0)
         {
-            return null;
+            return twilight is not null && meta.FrameType == FrameType.Light
+                ? new LightGrade(LightGradeKey.Of(image), new FrameMetrics(float.NaN, float.NaN, float.NaN, 0), 0f, float.NaN, twilight)
+                : null;
         }
 
         var metrics = FrameRegistration.MetricsFrom(stars);
@@ -98,12 +108,6 @@ public static class LightGrading
         {
             return null;
         }
-
-        var meta = image.ImageMeta;
-        // A default time is a frame that never said when it was taken (an in-memory frame, a header with no DATE-OBS).
-        var twilight = meta.ExposureStartTime == default
-            ? null
-            : SolarAltitude.Twilight(meta.ExposureStartTime, meta.Latitude, meta.Longitude);
         return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel), twilight);
     }
 
@@ -228,9 +232,10 @@ public static class LightGrading
     /// <summary>
     /// From this multiple of the group's clearest tenth, a frame's sky reads as cloud and its colour is held at warn. Over the
     /// two nights #1951 measured, the clear groups' 90th percentile sat at 1.07 to 1.10 and none reached 1.5, the labelled
-    /// cloudy frames at 8 to 13, and the frames bordering a cloudy stretch at 2.7 to 3.1.
+    /// cloudy frames at 8 to 13, the frames bordering a cloudy stretch at 2.7 to 3.1, and three the owner rejected by hand at
+    /// the end of a cloudy run at 1.74 to 1.96, which a cut at 2 let through as clean.
     /// </summary>
-    public const float CloudFrom = 2f;
+    public const float CloudFrom = 1.5f;
 
     /// <summary>From this multiple, the cloud holds the colour at poor.</summary>
     public const float HeavyCloudFrom = 4f;
