@@ -50,16 +50,22 @@ public readonly record struct LightGradeKey(
 /// found on it, the composite that picks a stack's reference frame (many, sharp and round together). Beside it, the two
 /// things that score cannot see (#1951): how patchy the sky is (<see cref="Image.SkyPatchiness"/>, NaN on a frame too small
 /// to read it), which cloud raises, and which twilight the frame was taken in, null in a dark sky or where the frame does
-/// not say when and where it was taken.
+/// not say when and where it was taken. <see cref="SkyLevel"/> is the star-masked sky median in the frame's own counts (ADU,
+/// NaN without a star mask) and <see cref="Night"/> the local evening it belongs to, which together read a sky BRIGHT against
+/// the rest of its night: cloud lit from below over a whole target, which a group-relative measure cannot see.
 /// </summary>
-public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN, TwilightPeriod? Twilight = null);
+public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN,
+    TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default);
 
 /// <summary>Why a frame's grade colour was held down, beside what its stars say. A frame may have both.</summary>
 [Flags]
 public enum GradeCause
 {
     None = 0,
-    /// <summary>A patchy sky, read against the group's best (<see cref="LightGrading.CloudFrom"/>): cloud lit from below.</summary>
+    /// <summary>
+    /// Cloud: a sky patchier than its group's clearest (<see cref="LightGrading.CloudFrom"/>), or brighter than its night's
+    /// darkest across every target (<see cref="LightGrading.NightSkyCloudFrom"/>).
+    /// </summary>
     Cloud = 1,
     /// <summary>Taken past astronomical dark as the Sun rose.</summary>
     Sunrise = 2,
@@ -70,9 +76,10 @@ public enum GradeCause
 /// <summary>
 /// What a graded frame reads as: its <see cref="Relative"/> sharpness against the best of its group, its
 /// <see cref="Patchiness"/> as a multiple of its group's clearest tenth (NaN where unread), the causes that hold it down,
-/// and the share it is SHOWN at, which those causes cap so a sharp frame through cloud or in twilight cannot read good.
+/// its <see cref="NightSky"/> as a multiple of its night's darkest tenth (NaN where unread), the causes that hold it down, and
+/// the share it is SHOWN at, which those causes cap so a sharp frame through cloud or in twilight cannot read good.
 /// </summary>
-public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown);
+public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN);
 
 /// <summary>
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
@@ -108,7 +115,42 @@ public static class LightGrading
         {
             return null;
         }
-        return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel), twilight);
+        return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel), twilight,
+            SkyLevelOf(image, stars), NightOf(meta));
+    }
+
+    /// <summary>
+    /// The star-masked sky median in the frame's own counts: the unit-scaled statistic times the divisor it was scaled by (the
+    /// frame's observed peak, which differs from frame to frame, so the unit figure alone does not compare across a night). A
+    /// mosaic is read at its green photosites, the masked statistics' own convention. NaN without a star mask.
+    /// </summary>
+    private static float SkyLevelOf(Image image, StarList stars)
+    {
+        if (stars.StarMask is not { } mask)
+        {
+            return float.NaN;
+        }
+        var (_, median, _) = image.IsCfaMosaic
+            ? image.GetStarMaskedMedianAndMADScaledToUnit(0, mask, cfa: CfaChannel.Green)
+            : image.GetStarMaskedMedianAndMADScaledToUnit(image.ReferenceStarChannel, mask);
+        return median * (image.MaxValue <= 1f ? 1f : image.MaxValue);
+    }
+
+    /// <summary>
+    /// The local evening a frame belongs to: its time less twelve hours at the site's mean solar time (its longitude), so the
+    /// frames either side of midnight are one night; the timestamp's own offset where the site is unknown. Default for a frame
+    /// that never said when it was taken.
+    /// </summary>
+    internal static DateOnly NightOf(in ImageMeta meta)
+    {
+        if (meta.ExposureStartTime == default)
+        {
+            return default;
+        }
+        var local = float.IsFinite(meta.Longitude)
+            ? meta.ExposureStartTime.UtcDateTime.AddHours(meta.Longitude / 15.0)
+            : meta.ExposureStartTime.DateTime;
+        return DateOnly.FromDateTime(local.AddHours(-12));
     }
 
     /// <summary>
@@ -127,12 +169,77 @@ public static class LightGrading
             causes |= GradeCause.Cloud;
             shown = MathF.Min(shown, patchiness >= HeavyCloudFrom ? PoorBelow : (PoorBelow + GoodFrom) * 0.5f);
         }
+        var nightSky = RelativeNightSky(grades, grade);
+        if (nightSky >= NightSkyCloudFrom)
+        {
+            causes |= GradeCause.Cloud;
+            shown = MathF.Min(shown, PoorBelow);
+        }
         if (grade.Twilight is { } twilight)
         {
             causes |= twilight == TwilightPeriod.Dawn ? GradeCause.Sunrise : GradeCause.Sunset;
             shown = MathF.Min(shown, PoorBelow);
         }
-        return new LightGradeVerdict(relative, patchiness, causes, shown);
+        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky);
+    }
+
+    /// <summary>The cloud cause in words, saying which measure found it, for the Grade line and the file list's mark alike.</summary>
+    public static string CloudInWords(in LightGradeVerdict verdict)
+    {
+        var patchy = verdict.Patchiness >= CloudFrom;
+        var bright = verdict.NightSky >= NightSkyCloudFrom;
+        return (patchy, bright) switch
+        {
+            (true, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest and {verdict.NightSky:0.0}x as bright as the night's darkest"),
+            (false, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Cloud: the sky is {verdict.NightSky:0.0}x as bright as the night's darkest"),
+            _ => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest"),
+        };
+    }
+
+    /// <summary>
+    /// A frame's sky level as a multiple of its NIGHT's darkest tenth: every graded frame of the same night through the same
+    /// sensor, filter, exposure and binning, whatever its target, twilight frames left out. A target cloudy from its first frame
+    /// to its last is invisible against its own group (its clearest tenth is cloud too) and plain against the night: on
+    /// 2026-07-06 the owner's LMC run read 1.89 to 3.17 times the night's darkest, against at most 1.57 for any clear frame.
+    /// NaN where the frame's sky was not read or the night has nothing to compare with.
+    /// </summary>
+    public static float RelativeNightSky(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+    {
+        if (!float.IsFinite(grade.SkyLevel) || grade.SkyLevel <= 0f || grade.Night == default)
+        {
+            return float.NaN;
+        }
+        var key = grade.Key with { ObjectKey = string.Empty };
+        var night = grade.Night;
+        bool SameNight(in LightGrade other) => other.Night == night && (other.Key with { ObjectKey = string.Empty }) == key
+            && float.IsFinite(other.SkyLevel) && other.SkyLevel > 0f && other.Twilight is null;
+        var count = 0;
+        foreach (var other in grades.Values)
+        {
+            if (SameNight(other))
+            {
+                count++;
+            }
+        }
+        if (count == 0)
+        {
+            return float.NaN;
+        }
+        using var values = ArrayPoolHelper.Rent<float>(count);
+        var n = 0;
+        foreach (var other in grades.Values)
+        {
+            if (SameNight(other))
+            {
+                values[n++] = other.SkyLevel;
+            }
+        }
+        var span = values.AsSpan(0, n);
+        span.Sort();
+        return grade.SkyLevel / span[n / 10];
     }
 
     /// <summary>
@@ -233,9 +340,18 @@ public static class LightGrading
     /// From this multiple of the group's clearest tenth, a frame's sky reads as cloud and its colour is held at warn. Over the
     /// two nights #1951 measured, the clear groups' 90th percentile sat at 1.07 to 1.10 and none reached 1.5, the labelled
     /// cloudy frames at 8 to 13, the frames bordering a cloudy stretch at 2.7 to 3.1, and three the owner rejected by hand at
-    /// the end of a cloudy run at 1.74 to 1.96, which a cut at 2 let through as clean.
+    /// the end of a cloudy run at 1.74 to 1.96. Against the owner's frame-by-frame cloud marks of 2026-07-06 (700 frames, the
+    /// Frame Cloud Check page), 1.3 flagged no clear frame of 588 and caught 52 cloudy of 109, where 1.5 caught 37 and 1.2
+    /// flagged its first clear one.
     /// </summary>
-    public const float CloudFrom = 1.5f;
+    public const float CloudFrom = 1.3f;
+
+    /// <summary>
+    /// From this multiple of its night's darkest tenth, a frame's sky reads as cloud and its colour is held at poor
+    /// (<see cref="RelativeNightSky"/>). On the owner's marks of 2026-07-06 it caught all 75 frames of a run cloudy from start
+    /// to end and flagged no clear frame: the brightest clear sky that night, a target low in the town's glow, read 1.57.
+    /// </summary>
+    public const float NightSkyCloudFrom = 1.8f;
 
     /// <summary>From this multiple, the cloud holds the colour at poor.</summary>
     public const float HeavyCloudFrom = 4f;

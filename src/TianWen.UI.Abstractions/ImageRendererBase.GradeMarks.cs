@@ -67,9 +67,7 @@ namespace TianWen.UI.Abstractions
         {
             GradeMark.Rejected => "Rejected: named BAD_, so a stack leaves it out",
             GradeMark.Kept => "Kept",
-            GradeMark.Cloud => verdict is { } v
-                ? string.Create(CultureInfo.InvariantCulture, $"Cloud: the sky is {v.Patchiness:0.0}x as patchy as the group's clearest")
-                : "Cloud",
+            GradeMark.Cloud => verdict is { } v ? LightGrading.CloudInWords(v) : "Cloud",
             _ => verdict is { Causes: var c } && (c & GradeCause.Sunrise) != 0
                 ? "Sunrise: taken past astronomical dark, the Sun rising"
                 : "Sunset: taken past astronomical dark, the Sun setting",

@@ -424,8 +424,7 @@ public static class InfoPanelData
         // line only when it holds the colour down, so a clear dark frame's section is as short as it was.
         if ((verdict.Causes & GradeCause.Cloud) != 0)
         {
-            lines.Add(string.Create(CultureInfo.InvariantCulture,
-                $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest frames"));
+            lines.Add(LightGrading.CloudInWords(verdict));
         }
         if ((verdict.Causes & (GradeCause.Sunrise | GradeCause.Sunset)) != 0)
         {
