@@ -271,9 +271,16 @@ namespace TianWen.UI.Abstractions
                 // bound a run to its rect, so the overflow paints over the image. TextFit is the
                 // shared implementation and measures through the fallback chain, so a name needing a
                 // fallback face is cut at the right length rather than against the wrong font.
-                var textWidth = rowRect.Width - PanelPadding * 2f;
-                var displayName = TextFit.TrimToWidth(
-                    Renderer, label, FontPath, FontFallback, FontSize, textWidth, TextTrim.End);
+                // The row's marks (#1951): a BAD_ name's thumbs down, then the causes its grade's verdict held it down for
+                // (cloud, twilight), each a baked mask the size of the text at the row's right. The name is trimmed in the
+                // paint below against the cell the ENGINE gave it, so the marks' room is measured once, by the tree that
+                // places them. One verdict per row, which the tint below reads too.
+                LightGradeVerdict? verdict = state.GradeOf(fileName) is { } rowGrade ? LightGrading.Verdict(grades, rowGrade) : null;
+                var marks = MarksFor(fileName, verdict);
+                var markSize = FontSize;
+                var markGap = FontSize * 0.25f;
+                var textX = rowRect.X + PanelPadding;
+                var displayName = label;
 
                 // A DECLARED row (#1489), placed where the scroll controller put it (the controller owns which rows
                 // show and where, which is what keeps a wheel accumulator and the row snap alive across frames).
@@ -296,7 +303,11 @@ namespace TianWen.UI.Abstractions
                 // ButtonHit, ListItemHit and SliderHit, and a ButtonHit is out, since the press handler runs every
                 // one whose action parses as a ToolbarAction and a file can be named anything.
                 var nameColor = isSelected ? FileListItemTextSelected : FileListItemText;
-                var highlight = Layout.Builder.Fill(key: FileRowNameKey).Stretch();
+                var name = Layout.Builder.Fill(key: FileRowNameKey);
+                var highlight = marks.IsEmpty
+                    ? name.Stretch()
+                    : Layout.Builder.HStack([name.WStar(), .. MarkNodes(marks, verdict, markSize, nameColor)])
+                        .WithGap(markGap).Stretch();
                 if (isSelected)
                 {
                     highlight = highlight.Bg(ViewerTheme.Palette.Selection);
@@ -305,11 +316,11 @@ namespace TianWen.UI.Abstractions
                 {
                     highlight = highlight.Bg(FileListHoverBg);
                 }
-                else if (state.GradeOf(fileName) is { } grade)
+                else if (verdict is { } shownVerdict)
                 {
                     // A graded frame's row says how it compares with the best of its group seen so far (LightGrading),
                     // under the selection and the hover, which say something about the row the pointer or the load is on.
-                    highlight = highlight.Bg(LightGrading.RowTint(ViewerTheme.Palette, LightGrading.Verdict(grades, grade).Shown));
+                    highlight = highlight.Bg(LightGrading.RowTint(ViewerTheme.Palette, shownVerdict.Shown));
                 }
 
                 var row = Layout.Builder.HStack(highlight).PadX(2f)
@@ -327,9 +338,17 @@ namespace TianWen.UI.Abstractions
                             press.Modifiers, press.Clicks));
                         return null;
                     }, CursorKind.Default);
-                RenderLayout(row, rowRect, scale: DesignScale.One, drawFill: (_, _) =>
-                    DrawText(displayName, rowRect.X + PanelPadding, RowTextY(rowRect.Y, rowRect.Height), FontSize,
-                        nameColor));
+                RenderLayout(row, rowRect, scale: DesignScale.One, drawFill: (fill, fillRect) =>
+                {
+                    if (DrawGradeMark(fill, fillRect))
+                    {
+                        return;
+                    }
+                    // The name ends where its cell does, less half a padding of air before a mark or the row's edge.
+                    displayName = TextFit.TrimToWidth(
+                        Renderer, label, FontPath, FontFallback, FontSize, fillRect.Right - textX - PanelPadding / 2f, TextTrim.End);
+                    DrawText(displayName, textX, RowTextY(rowRect.Y, rowRect.Height), FontSize, nameColor);
+                });
 
                 // Only when the name is actually cut -- a tooltip repeating a fully visible label is
                 // noise. Anchored on the row so it appears where the pointer is.

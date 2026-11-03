@@ -533,9 +533,13 @@ toolbar label-width rule: `docs/architecture/widgets-and-controls.md` § The FIT
 - **Read the object catalogue through `ImageRendererBase.LoadedCatalog`, never
   `CelestialObjectDB.Value.Value`.** `AsyncLazy<T>.Value` is a non-blocking PEEK (`Result<T>?`); `Value`
   RETHROWS a failed load on every frame, so `LoadedCatalog` asks with `TryGet` instead.
-- **The docked info strip REPORTS; it holds no controls.** Statistics collapse to a heading and open as
-  a measured-column TABLE (`InfoPanelData.GetStatisticsTable`); controls live in toolbar popovers
-  instead (white balance, tone). **The live rolling stack adds one wrapped "Live stack" line** (#1881):
+- **The docked info strip REPORTS; settings live in toolbar popovers, never a panel of them in the strip.**
+  Statistics collapse to a heading and open as a measured-column TABLE (`InfoPanelData.GetStatisticsTable`);
+  the white balance and the tone are popovers. The rule was always about ROOM: it was written down when the
+  owner asked for the statistics to stop taking "a shitton of space" and the white-balance sliders to move
+  out (2026-09-11, "feat(viewer): the info strip reports"). So a verdict on what a section reports may sit
+  on that section's line, which takes no room a reading needs: the Grade section's thumbs up and down
+  (#1951, `VerdictButtons`), drawn only once the frame is graded. **The live rolling stack adds one wrapped "Live stack" line** (#1881):
   which raw frame its picture was built at, how far behind the playhead and how old, set on
   `ViewerState.LiveStackBuiltLine` by the controller's playback tick only while the Live view is on show
   (never Raw, never the Auto view's `FixedMaster`) and only when its wording changes, so the age costs

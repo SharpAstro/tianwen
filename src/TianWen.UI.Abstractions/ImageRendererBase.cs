@@ -2099,6 +2099,10 @@ namespace TianWen.UI.Abstractions
         // Dimmed: a rule at full heading strength competes with the heading it is separating.
         private void DrawSectionRule(Layout.Content.Fill fill, RectF32 rect)
         {
+            if (DrawGradeMark(fill, rect))
+            {
+                return;
+            }
             if (fill.Key == SectionRuleKey && rect.Width >= FontSize)
             {
                 var color = ViewerTheme.Palette.HeaderText;
