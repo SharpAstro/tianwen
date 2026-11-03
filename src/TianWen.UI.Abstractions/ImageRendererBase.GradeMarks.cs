@@ -117,7 +117,9 @@ namespace TianWen.UI.Abstractions
             GradeMark.Kept => "Kept",
             GradeMark.Cloud => verdict is { } v && (v.Causes & GradeCause.Cloud) != 0
                 ? LightGrading.CloudInWords(v)
-                : "Rejected as cloud (BAD_CLOUD_)",
+                : verdict is { CloudUnjudged: true }
+                    ? $"Rejected as cloud (BAD_CLOUD_). {LightGrading.CloudUnjudgedInWords}"
+                    : "Rejected as cloud (BAD_CLOUD_)",
             _ => verdict is { Causes: var c } && (c & GradeCause.Sunrise) != 0
                 ? "Sunrise: taken past astronomical dark, the Sun rising"
                 : "Sunset: taken past astronomical dark, the Sun setting",

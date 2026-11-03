@@ -75,6 +75,14 @@ public sealed class ViewerState
     private ImmutableDictionary<string, LightGrade> _frameGrades =
         ImmutableDictionary.Create<string, LightGrade>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The clear nights of the rigs seen so far (#1976), which a run's cloud is judged against when its own baselines are
+    /// implausible. Default (not asked) until the references are loaded, when a verdict is exactly the run-relative one.
+    /// </summary>
+    public ImmutableArray<LightGradeReference> GradeReferences { get => Volatile.Read(ref _gradeReferences); set => Volatile.Write(ref _gradeReferences, value); }
+
+    private ImmutableArray<LightGradeReference> _gradeReferences;
+
     /// <summary>Records (or replaces) the grade of the frame at <paramref name="path"/>.</summary>
     public void RecordFrameGrade(string path, LightGrade grade)
         => ImmutableInterlocked.AddOrUpdate(ref _frameGrades, Path.GetFullPath(path), grade, (_, _) => grade);
