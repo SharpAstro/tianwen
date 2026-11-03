@@ -37,13 +37,13 @@ public class DocumentResidencyTests : IDisposable
         image.HasSourceRaster.ShouldBeTrue("the fixture must be the retaining case");
         image.PlanesResident.ShouldBeFalse("evicted at the end of the constructor");
 
-        // What ViewerController.StartStarDetection runs, in its order.
-        await document.DetectStarsAsync(ct);
-        document.Findings.Stars.ShouldNotBeNull().Count.ShouldBeGreaterThan(0, "the planted stars must be found, or the grade below never runs");
-        image.PlanesResident.ShouldBeFalse("star detection must not leave the planes resident");
-
-        LightGrading.Grade(image, document.Findings.Stars!).ShouldNotBeNull();
-        image.PlanesResident.ShouldBeFalse("grading must not leave the planes resident");
+        // What ViewerController.StartStarDetection runs, as it runs it: the grade INSIDE the detection, while the planes are
+        // still pinned (since #1951 the grade reads pixels too, its sky's patchiness and level), and the planes released after.
+        LightGrade? grade = null;
+        await document.DetectStarsAsync(ct, whileResident: (resident, stars) => grade = LightGrading.Grade(resident, stars));
+        document.Findings.Stars.ShouldNotBeNull().Count.ShouldBeGreaterThan(0, "the planted stars must be found, or the grade never runs");
+        grade.ShouldNotBeNull();
+        image.PlanesResident.ShouldBeFalse("star detection and the grade inside it must not leave the planes resident");
     }
 
     /// <summary>
