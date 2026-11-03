@@ -341,6 +341,25 @@ public class LightGradingTests
         LightGrading.LocalPatchiness(grades, frames[390].Item2).ShouldBe(3f, 0.01f, "the middle is read against the clear part, not itself");
     }
 
+    /// <summary>
+    /// 20,000 frames in one group (one a minute) build their baselines in one pass, plateau test included: the bound is the
+    /// test's timeout, so a scan of the group per frame (about 800 million comparisons) cannot creep back.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ALargeGroupBuildsItsBaselinesInTime()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var start = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
+        var frames = Enumerable.Range(0, 20_000)
+            .Select(i => ($"f{i}", Run("T", 1000f, 1f, night, start.AddMinutes(i))))
+            .ToArray();
+        var grades = Grades(frames);
+
+        var local = await Task.Run(() => LightGrading.LocalPatchiness(grades, frames[10_000].Item2), TestContext.Current.CancellationToken);
+
+        local.ShouldBe(1f, 0.01f);
+    }
+
     [Fact]
     public void AFrameWithNoStarsIsNotGraded()
         => LightGrading.Grade(Frame(Filter.Luminance), StarList.Empty).ShouldBeNull();
