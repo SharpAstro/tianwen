@@ -498,22 +498,24 @@ public static class ViewerActions
     }
 
     /// <summary>
-    /// The Grade section's thumbs (#1951): marks the frame on show rejected (thumbs down: the <c>BAD_</c> prefix N.I.N.A.
-    /// writes and every scan reads, <see cref="CaptureRejection"/>) or kept again (thumbs up: the prefix off). The file is
-    /// renamed in place, its row keeps its place in the list until the folder is next scanned, and its grade and the open
-    /// document follow the new name, so nothing reloads. Returns the status line: what happened, and how many other names
-    /// a hard-linked frame has that still carry the old one.
+    /// The Grade section's verdict (#1951): marks the frame on show rejected for a cause (the <c>BAD_</c> prefix N.I.N.A.
+    /// writes and every scan reads, with the cause's word after it, <see cref="CaptureRejection"/>) or kept again when
+    /// <paramref name="rejectAs"/> is null (Good: the prefix and the cause off). The file is renamed in place, its row keeps
+    /// its place in the list until the folder is next scanned, and its grade and the open document follow the new name, so
+    /// nothing reloads. Returns the status line: what happened, and how many other names a hard-linked frame has that still
+    /// carry the old one.
     /// </summary>
-    public static string MarkFrame(ViewerState state, AstroImageDocument document, bool rejected)
+    public static string MarkFrame(ViewerState state, AstroImageDocument document, CaptureRejection.Cause? rejectAs)
     {
         var path = document.FilePath;
-        if (CaptureRejection.TryMark(path, rejected, out var otherNames, out var error) is not { } marked)
+        var rejected = rejectAs is not null;
+        if (CaptureRejection.TryMark(path, rejectAs, out var otherNames, out var error) is not { } marked)
         {
             return $"Could not {(rejected ? "reject" : "keep")} {Path.GetFileName(path)}: {error}";
         }
         if (string.Equals(marked, path, StringComparison.Ordinal))
         {
-            return rejected ? $"{Path.GetFileName(path)} is already rejected" : $"{Path.GetFileName(path)} is already kept";
+            return rejected ? $"{Path.GetFileName(path)} is already rejected as {CauseInWords(rejectAs)}" : $"{Path.GetFileName(path)} is already kept";
         }
 
         document.FollowRename(marked);
@@ -530,8 +532,21 @@ public static class ViewerActions
             1 => "; its 1 other hard link keeps the old name",
             _ => $"; its {otherNames} other hard links keep the old name",
         };
-        return rejected ? $"Rejected: renamed to {Path.GetFileName(marked)}{others}" : $"Kept: renamed to {Path.GetFileName(marked)}{others}";
+        return rejected
+            ? $"Rejected as {CauseInWords(rejectAs)}: renamed to {Path.GetFileName(marked)}{others}"
+            : $"Kept: renamed to {Path.GetFileName(marked)}{others}";
     }
+
+    /// <summary>A rejection's cause as the status line and the tooltips say it.</summary>
+    public static string CauseInWords(CaptureRejection.Cause? cause) => cause switch
+    {
+        CaptureRejection.Cause.Cloud => "cloud",
+        CaptureRejection.Cause.Streaky => "streaky stars",
+        CaptureRejection.Cause.Defocused => "defocused",
+        CaptureRejection.Cause.Obstruction => "an obstruction",
+        CaptureRejection.Cause.Unspecified => "bad",
+        _ => "good",
+    };
 
     /// <summary>
     /// Selects a file from the file list by index and sets <see cref="ViewerState.RequestedFilePath"/>.

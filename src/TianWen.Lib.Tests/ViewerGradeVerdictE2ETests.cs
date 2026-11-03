@@ -30,24 +30,24 @@ public class ViewerGradeVerdictE2ETests
         await e2e.OpenAsync(path, ct);
 
         static bool IsThumb(HitResult hit, string action) => hit is HitResult.ButtonHit { Action: var a } && a == action;
-        e2e.Viewer.PaintedRegions().Any(r => IsThumb(r.Result, "RejectFrame")).ShouldBeFalse("no verdict before a grade");
+        e2e.Viewer.PaintedRegions().Any(r => IsThumb(r.Result, "RejectCloud")).ShouldBeFalse("no verdict before a grade");
 
         // The synthetic frame has no stars to grade by, so the grade star detection would record is recorded here.
         var document = e2e.Controller.Document ?? throw new System.InvalidOperationException("the file is open");
         e2e.State.RecordFrameGrade(path, new LightGrade(LightGradeKey.Of(document.UnstretchedImage), new FrameMetrics(2f, 2.2f, 0.1f, 500), 5f));
         e2e.Frame();
 
-        e2e.Click(e2e.Region(hit => IsThumb(hit, "RejectFrame"), "the Grade section's thumbs down"));
+        e2e.Click(e2e.Region(hit => IsThumb(hit, "RejectCloud"), "the Grade section's Cloud"));
         e2e.Frame();
 
-        var rejected = Path.Combine(Path.GetDirectoryName(path)!, "BAD_light_0089.fits");
+        var rejected = Path.Combine(Path.GetDirectoryName(path)!, "BAD_CLOUD_light_0089.fits");
         File.Exists(rejected).ShouldBeTrue();
         File.Exists(path).ShouldBeFalse();
         e2e.IsShowing(rejected).ShouldBeTrue("the open document follows its file");
-        e2e.State.ImageFileNames.ShouldContain("BAD_light_0089.fits");
-        e2e.State.StatusMessage.ShouldNotBeNull().ShouldStartWith("Rejected");
+        e2e.State.ImageFileNames.ShouldContain("BAD_CLOUD_light_0089.fits");
+        e2e.State.StatusMessage.ShouldNotBeNull().ShouldStartWith("Rejected as cloud");
 
-        e2e.Click(e2e.Region(hit => IsThumb(hit, "KeepFrame"), "the Grade section's thumbs up"));
+        e2e.Click(e2e.Region(hit => IsThumb(hit, "KeepFrame"), "the Grade section's Good"));
         e2e.Frame();
 
         File.Exists(path).ShouldBeTrue();

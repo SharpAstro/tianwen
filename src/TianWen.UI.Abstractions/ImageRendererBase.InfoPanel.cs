@@ -197,31 +197,40 @@ namespace TianWen.UI.Abstractions
         /// the job (an em dash, box-drawing U+2500) are the kind of codepoint a host face can lack.
         /// </remarks>
         /// <summary>
-        /// The Grade section's own verdict (#1951), once the frame is graded: thumbs down renames it <c>BAD_</c>, which the
-        /// stacker leaves out, thumbs up takes the prefix off again (<see cref="ViewerActions.MarkFrame"/>). The one that
-        /// matches the frame's name now is inked, the other dim, so the row says the state as well as offering the change.
-        /// Two marks on a line the section already has: the strip still holds no panel of settings, which go in popovers.
+        /// The Grade section's own verdict (#1951), once the frame is graded: Good (thumbs up) keeps the frame, taking any
+        /// <c>BAD_</c> prefix off its name; Cloud, Streaky, Defocused and Obstruction reject it for that cause, renaming it
+        /// <c>BAD_CLOUD_...</c> and so on, which the stacker leaves out (<see cref="ViewerActions.MarkFrame"/>). The one that
+        /// matches the frame's name now is inked (Good in the success colour, a cause in the error colour), the rest dim, so the
+        /// row says the state as well as offering the change; a bare N.I.N.A. <c>BAD_</c> lights no cause. Marks on a line the
+        /// section already has: the strip still holds no panel of settings, which go in popovers.
         /// </summary>
         private static Layout.Node VerdictButtons(ViewerState state, AstroImageDocument document)
         {
             var palette = ViewerTheme.Palette;
-            var rejected = CaptureRejection.IsRejectedAtCapture(document.FilePath);
+            var current = CaptureRejection.CauseOf(document.FilePath);
             var size = BaseFontSize * 1.4f;
-            Layout.Node Button(GradeMark mark, bool active, bool reject, string tip)
-                => GradeMarkNode(mark, size, active ? (reject ? palette.Error : palette.Success) : palette.DimText)
+            Layout.Node Button(GradeMark mark, CaptureRejection.Cause? rejectAs, string action, string tip)
+            {
+                var active = rejectAs is null ? current is null : current == rejectAs;
+                return GradeMarkNode(mark, size, active ? (rejectAs is null ? palette.Success : palette.Error) : palette.DimText)
                     .Pad(BaseFontSize * 0.3f, BaseFontSize * 0.15f)
                     .BgHover(GuiTheme.Hover(ViewerTheme.InfoPanelBg))
-                    .Clickable(new HitResult.ButtonHit(reject ? "RejectFrame" : "KeepFrame"), _ =>
+                    .Clickable(new HitResult.ButtonHit(action), _ =>
                     {
-                        state.StatusMessage = ViewerActions.MarkFrame(state, document, reject);
+                        state.StatusMessage = ViewerActions.MarkFrame(state, document, rejectAs);
                         state.NeedsRedraw = true;
                     })
-                    .WithTooltip(tip);
+                    .WithTooltip(active && rejectAs is not null ? $"Rejected as {ViewerActions.CauseInWords(rejectAs)}" : tip);
+            }
 
-            return Layout.Builder.HStack(
-                    Button(GradeMark.Kept, !rejected, reject: false, rejected ? "Keep: take the BAD_ prefix off its name" : "Kept"),
-                    Button(GradeMark.Rejected, rejected, reject: true, rejected ? "Rejected: named BAD_" : "Reject: name it BAD_, so a stack leaves it out"))
-                .WithGap(BaseFontSize * 0.5f);
+            // Wrapped, not a single row: five marks can be wider than a narrow strip, and a mark past its edge is one nobody can press.
+            return Layout.Builder.WrapH([
+                    Button(GradeMark.Kept, null, "KeepFrame", current is null ? "Good" : "Good: take the BAD_ prefix off its name"),
+                    Button(GradeMark.Cloud, CaptureRejection.Cause.Cloud, "RejectCloud", "Reject as cloud (BAD_CLOUD_)"),
+                    Button(GradeMark.Streaky, CaptureRejection.Cause.Streaky, "RejectStreaky", "Reject for streaky stars (BAD_STREAKY_)"),
+                    Button(GradeMark.Defocused, CaptureRejection.Cause.Defocused, "RejectDefocused", "Reject as defocused (BAD_DEFOCUSED_)"),
+                    Button(GradeMark.Obstruction, CaptureRejection.Cause.Obstruction, "RejectObstruction", "Reject for an obstruction (BAD_OBSTRUCTION_)")])
+                .WithGap(BaseFontSize * 0.4f).WStar();
         }
 
         private static Layout.Node SectionHeading(string title, HitResult? hit = null, Action? onClick = null)

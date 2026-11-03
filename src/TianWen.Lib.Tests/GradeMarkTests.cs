@@ -24,16 +24,31 @@ public sealed class GradeMarkTests : IDisposable
     public void Dispose() => _temp.Dispose();
 
     [Fact]
-    public void AMarkedNameAddsOrTakesOffThePrefixOnce()
+    public void AMarkedNameCarriesItsCauseAndGoodTakesItAllOff()
     {
-        CaptureRejection.MarkedPath(Path.Combine("d", "light_1.fits"), rejected: true).ShouldBe(Path.Combine("d", "BAD_light_1.fits"));
-        CaptureRejection.MarkedPath(Path.Combine("d", "BAD_light_1.fits"), rejected: true).ShouldBe(Path.Combine("d", "BAD_light_1.fits"));
-        CaptureRejection.MarkedPath(Path.Combine("d", "BAD_light_1.fits"), rejected: false).ShouldBe(Path.Combine("d", "light_1.fits"));
-        CaptureRejection.MarkedPath(Path.Combine("d", "light_1.fits"), rejected: false).ShouldBe(Path.Combine("d", "light_1.fits"));
+        string In(string name) => Path.Combine("d", name);
+        CaptureRejection.MarkedPath(In("light_1.fits"), CaptureRejection.Cause.Cloud).ShouldBe(In("BAD_CLOUD_light_1.fits"));
+        CaptureRejection.MarkedPath(In("light_1.fits"), CaptureRejection.Cause.Unspecified).ShouldBe(In("BAD_light_1.fits"));
+        CaptureRejection.MarkedPath(In("BAD_CLOUD_light_1.fits"), CaptureRejection.Cause.Streaky).ShouldBe(In("BAD_STREAKY_light_1.fits"),
+            "a frame moves from one cause to another in one rename");
+        CaptureRejection.MarkedPath(In("BAD_light_1.fits"), CaptureRejection.Cause.Defocused).ShouldBe(In("BAD_DEFOCUSED_light_1.fits"));
+        CaptureRejection.MarkedPath(In("BAD_OBSTRUCTION_light_1.fits"), null).ShouldBe(In("light_1.fits"));
+        CaptureRejection.MarkedPath(In("BAD_light_1.fits"), null).ShouldBe(In("light_1.fits"));
+        CaptureRejection.MarkedPath(In("light_1.fits"), null).ShouldBe(In("light_1.fits"));
     }
 
     [Fact]
-    public async Task ThumbsDownRenamesTheFrameAndEverythingFollowsAndThumbsUpUndoesIt()
+    public void ANamesCauseIsReadAfterThePrefixAndABarePrefixIsUnspecified()
+    {
+        CaptureRejection.CauseOf("light_1.fits").ShouldBeNull();
+        CaptureRejection.CauseOf("BAD_light_1.fits").ShouldBe(CaptureRejection.Cause.Unspecified, "N.I.N.A.'s own prefix names no cause");
+        CaptureRejection.CauseOf("bad_cloud_light_1.fits").ShouldBe(CaptureRejection.Cause.Cloud, "matched as the prefix is, ignoring case");
+        CaptureRejection.CauseOf("BAD_STREAKY_light_1.fits").ShouldBe(CaptureRejection.Cause.Streaky);
+        CaptureRejection.IsRejectedAtCapture("BAD_DEFOCUSED_light_1.fits").ShouldBeTrue("every reader of the prefix still reads it rejected");
+    }
+
+    [Fact]
+    public async Task ARejectRenamesTheFrameWithItsCauseAndEverythingFollowsAndGoodUndoesIt()
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _temp.Create("marks").FullName;
@@ -43,19 +58,18 @@ public sealed class GradeMarkTests : IDisposable
         var state = new ViewerState { CurrentFolder = folder, ImageFileNames = ["light_0088.fits", "light_0089.fits"] };
         state.RecordFrameGrade(path, new LightGrade(LightGradeKey.Of(document.UnstretchedImage), new FrameMetrics(2f, 2.2f, 0.1f, 100), 4f));
 
-        ViewerActions.MarkFrame(state, document, rejected: true).ShouldStartWith("Rejected: renamed to BAD_light_0089.fits");
+        ViewerActions.MarkFrame(state, document, CaptureRejection.Cause.Cloud).ShouldStartWith("Rejected as cloud: renamed to BAD_CLOUD_light_0089.fits");
 
-        var rejected = Path.Combine(folder, "BAD_light_0089.fits");
-        File.Exists(rejected).ShouldBeTrue();
+        File.Exists(Path.Combine(folder, "BAD_CLOUD_light_0089.fits")).ShouldBeTrue();
         File.Exists(path).ShouldBeFalse();
-        CaptureRejection.IsRejectedAtCapture(document.FilePath).ShouldBeTrue("the open document follows its file");
-        state.ImageFileNames[1].ShouldBe("BAD_light_0089.fits", "the row keeps its place under its new name");
-        state.GradeOf("BAD_light_0089.fits").ShouldNotBeNull("the grade follows the name");
-        state.GradeOf("light_0089.fits").ShouldBeNull();
+        CaptureRejection.CauseOf(document.FilePath).ShouldBe(CaptureRejection.Cause.Cloud, "the open document follows its file");
+        state.ImageFileNames[1].ShouldBe("BAD_CLOUD_light_0089.fits", "the row keeps its place under its new name");
+        state.GradeOf("BAD_CLOUD_light_0089.fits").ShouldNotBeNull("the grade follows the name");
 
-        ViewerActions.MarkFrame(state, document, rejected: true).ShouldEndWith("is already rejected");
+        ViewerActions.MarkFrame(state, document, CaptureRejection.Cause.Cloud).ShouldEndWith("is already rejected as cloud");
+        ViewerActions.MarkFrame(state, document, CaptureRejection.Cause.Streaky).ShouldStartWith("Rejected as streaky stars: renamed to BAD_STREAKY_light_0089.fits");
 
-        ViewerActions.MarkFrame(state, document, rejected: false).ShouldStartWith("Kept: renamed to light_0089.fits");
+        ViewerActions.MarkFrame(state, document, null).ShouldStartWith("Kept: renamed to light_0089.fits");
         File.Exists(path).ShouldBeTrue();
         state.ImageFileNames[1].ShouldBe("light_0089.fits");
     }
@@ -71,7 +85,7 @@ public sealed class GradeMarkTests : IDisposable
         var document = await DocumentAt(path);
         var state = new ViewerState { CurrentFolder = folder, ImageFileNames = ["light_1.fits"] };
 
-        ViewerActions.MarkFrame(state, document, rejected: true).ShouldStartWith("Could not reject light_1.fits");
+        ViewerActions.MarkFrame(state, document, CaptureRejection.Cause.Unspecified).ShouldStartWith("Could not reject light_1.fits");
 
         document.FilePath.ShouldBe(path);
         state.ImageFileNames[0].ShouldBe("light_1.fits");
@@ -90,6 +104,9 @@ public sealed class GradeMarkTests : IDisposable
         TestRenderer.MarksFor("BAD_light_1.fits", cloudyDawn).ShouldBe([TestRenderer.GradeMark.Rejected, TestRenderer.GradeMark.Cloud, TestRenderer.GradeMark.Twilight]);
         TestRenderer.TooltipOf(TestRenderer.GradeMark.Twilight, cloudyDawn).ShouldStartWith("Sunrise");
         TestRenderer.TooltipOf(TestRenderer.GradeMark.Cloud, cloudyDawn).ShouldBe("Cloud: the sky is 9.0x as patchy as the group's clearest");
+        // The owner's own cause draws as its mark; a cloud the owner named and the grade found is drawn once.
+        TestRenderer.MarksFor("BAD_STREAKY_light_1.fits", null).ShouldBe([TestRenderer.GradeMark.Streaky]);
+        TestRenderer.MarksFor("BAD_CLOUD_light_1.fits", cloudyDawn).ShouldBe([TestRenderer.GradeMark.Cloud, TestRenderer.GradeMark.Twilight]);
     }
 
     private static async Task<AstroImageDocument> DocumentAt(string path)
