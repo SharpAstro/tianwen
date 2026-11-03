@@ -165,12 +165,12 @@ public static class LightGrading
         => double.IsFinite(meta.Latitude) && double.IsFinite(meta.Longitude) && !(meta.Latitude == 0 && meta.Longitude == 0);
 
     /// <summary>
-    /// What a sky level in counts scales with beyond the group's key: gain, offset, instrument and telescope. Part of the night's
+    /// What a sky level in counts scales with beyond the group's key: gain, offset, ISO (a camera's gain), instrument and telescope. Part of the night's
     /// group (<see cref="NightGroup"/>), not of <see cref="LightGradeKey"/>, which stays the star score's group.
     /// </summary>
     internal static string RigOf(in ImageMeta meta)
         => string.Create(System.Globalization.CultureInfo.InvariantCulture,
-            $"{meta.Gain}|{meta.Offset}|{meta.Instrument?.Trim().ToUpperInvariant()}|{meta.Telescope?.Trim().ToUpperInvariant()}");
+            $"{meta.Gain}|{meta.Offset}|{meta.Iso}|{meta.Instrument?.Trim().ToUpperInvariant()}|{meta.Telescope?.Trim().ToUpperInvariant()}");
 
     /// <summary>
     /// The local evening a frame belongs to: its time less twelve hours at the site's mean solar time (its longitude), so the
@@ -253,7 +253,7 @@ public static class LightGrading
 
     /// <summary>
     /// A frame's sky level as a multiple of its NIGHT's darkest tenth (the 10th percentile of the night's sky levels): every
-    /// graded frame of the same night through the same rig (sensor, gain, offset, instrument, telescope), filter, exposure and
+    /// graded frame of the same night through the same rig (sensor, gain, offset, ISO, instrument, telescope), filter, exposure and
     /// binning, whatever its target, twilight
     /// frames left out. A target cloudy from its first frame to its last is invisible against its own group (its clearest tenth
     /// is cloud too) and plain against the night: on 2026-07-06 the owner's LMC run read 1.89 to 3.17 times the night's
@@ -272,7 +272,7 @@ public static class LightGrading
     }
 
     /// <summary>
-    /// A frame's patchiness as a multiple of its group's clearest tenth (the 10th percentile of the group's patchiness so far,
+    /// A frame's patchiness as a multiple of its group's (and rig's: gain, ISO, instrument, telescope) clearest tenth (the 10th percentile of the group's patchiness so far,
     /// the lowest while fewer than ten are graded), so the sky a field always has, a galaxy or a nebula filling the frame,
     /// cancels, and only what changed from frame to frame is left. NaN where the frame's patchiness was not read; 1 while the
     /// group has nothing to compare with. Twilight frames are left out of the baseline: a bright sky is a cause of its own,
@@ -284,7 +284,7 @@ public static class LightGrading
         {
             return float.NaN;
         }
-        return BaselinesOf(grades).ClearestPatchiness.TryGetValue(grade.Key, out var clearest) && clearest > 0f
+        return BaselinesOf(grades).ClearestPatchiness.TryGetValue(new RigGroup(grade.Key, grade.Rig), out var clearest) && clearest > 0f
             ? grade.Patchiness / clearest
             : 1f;
     }
@@ -298,7 +298,7 @@ public static class LightGrading
     /// </summary>
     public static float LocalPatchiness(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
         => float.IsFinite(grade.Patchiness) && grade.Taken != default
-            && BaselinesOf(grades).LocalFloor.TryGetValue(new TimedGroup(grade.Key, grade.Taken), out var floor) && floor > 0f
+            && BaselinesOf(grades).LocalFloor.TryGetValue(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken), out var floor) && floor > 0f
             ? grade.Patchiness / floor
             : float.NaN;
 
@@ -315,7 +315,9 @@ public static class LightGrading
 
     private readonly record struct NightGroup(LightGradeKey Key, string Rig, DateOnly Night);
 
-    private readonly record struct TimedGroup(LightGradeKey Key, DateTimeOffset Taken);
+    private readonly record struct RigGroup(LightGradeKey Key, string Rig);
+
+    private readonly record struct TimedGroup(RigGroup Group, DateTimeOffset Taken);
 
     /// <summary>
     /// What every verdict of one grade table is read against: each group's best score and clearest patchiness, each night's
@@ -325,15 +327,15 @@ public static class LightGrading
     private sealed class Baselines(ImmutableDictionary<string, LightGrade> grades)
     {
         public Dictionary<LightGradeKey, float> BestScore { get; } = [];
-        public Dictionary<LightGradeKey, float> ClearestPatchiness { get; } = [];
+        public Dictionary<RigGroup, float> ClearestPatchiness { get; } = [];
         public Dictionary<NightGroup, float> NightDarkest { get; } = [];
         public Dictionary<TimedGroup, float> LocalFloor { get; } = [];
 
         public Baselines Build()
         {
-            Dictionary<LightGradeKey, List<float>> patchiness = [];
+            Dictionary<RigGroup, List<float>> patchiness = [];
             Dictionary<NightGroup, List<float>> sky = [];
-            Dictionary<LightGradeKey, List<(DateTimeOffset Taken, float Patchiness)>> timed = [];
+            Dictionary<RigGroup, List<(DateTimeOffset Taken, float Patchiness)>> timed = [];
             foreach (var grade in grades.Values)
             {
                 if (grade.Score > BestScore.GetValueOrDefault(grade.Key))
@@ -346,10 +348,10 @@ public static class LightGrading
                 }
                 if (float.IsFinite(grade.Patchiness))
                 {
-                    Add(patchiness, grade.Key, grade.Patchiness);
+                    Add(patchiness, new RigGroup(grade.Key, grade.Rig), grade.Patchiness);
                     if (grade.Taken != default)
                     {
-                        Add(timed, grade.Key, (grade.Taken, grade.Patchiness));
+                        Add(timed, new RigGroup(grade.Key, grade.Rig), (grade.Taken, grade.Patchiness));
                     }
                 }
                 if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f && grade.Night != default)
@@ -374,7 +376,7 @@ public static class LightGrading
 
         // A window sliding over the group's frames in time order: O(n w log w) for w frames in a window, never a scan of the
         // group per frame.
-        private void AddLocalFloors(LightGradeKey key, List<(DateTimeOffset Taken, float Patchiness)> frames)
+        private void AddLocalFloors(RigGroup key, List<(DateTimeOffset Taken, float Patchiness)> frames)
         {
             frames.Sort(static (a, b) => a.Taken.CompareTo(b.Taken));
             List<float> window = [];
@@ -474,8 +476,8 @@ public static class LightGrading
     /// <summary>
     /// From this multiple of the frames either side of it (<see cref="LocalPatchiness"/>), a patchiness past
     /// <see cref="CloudFrom"/> is cloud rather than altitude. On the owner's BAD_ marks of 2026-08-31, 09-10 and 09-12 (nights the
-    /// rest of the grade was not tuned on) and the cloud marks of 07-06, it took the clear frames flagged from 10, 73, 14 and 0
-    /// to 0, 11, 4 and 0, for 3 of 42 catches on 09-10 and 3 of 52 on 07-06, where 1.15 left 50 flagged on 09-10.
+    /// rest of the grade was not tuned on) and the cloud marks of 07-06, it took the clear frames flagged from 10, 72, 14 and 0
+    /// to 0, 9, 4 and 0 (09-10: 72 to 9 on the shipping grade), for 40 of 44 catches kept on 09-10 and 3 of 52 lost on 07-06, where 1.15 left 50 flagged on 09-10.
     /// </summary>
     public const float LocalCloudFrom = 1.2f;
 
