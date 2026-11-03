@@ -255,7 +255,7 @@ public sealed class StandaloneViewerHost<TSurface>
         }
         return playback || blinked || skyMoved || tooltipDue || _controller.AutoStackWantsFrame
             || _state.NeedsRedraw || _state.NeedsTextureUpdate || _state.RequestedFilePath is not null
-            || _controller.IsLoadPending;
+            || _controller.IsLoadPending || _state.PendingMark is { Rename.IsCompleted: true };
     }
 
     /// <summary>
