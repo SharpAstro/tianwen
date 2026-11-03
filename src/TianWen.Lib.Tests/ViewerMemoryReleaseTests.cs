@@ -62,6 +62,27 @@ public class ViewerMemoryReleaseTests : IDisposable
 
     private static void ShouldBeReleased(AstroImageDocument d) => d.UnstretchedImage.PlanesNeedReload.ShouldBeTrue();
 
+    /// <summary>A document renamed under its cache key (a thumbs mark) is not what the old name opens: the hit names a file that is gone.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ARenamedDocumentIsNotReturnedForItsOldName()
+    {
+        TestContext.Current.CancellationToken.IsCancellationRequested.ShouldBeFalse();
+        var cache = new DocumentCache();
+        var original = WriteMaster("a.fits", 1);
+        var renamed = Path.Combine(Path.GetDirectoryName(original) ?? "", "BAD_CLOUD_a.fits");
+
+        var first = await OpenAsync(cache, original);
+        File.Move(original, renamed);
+        first.FollowRename(renamed);
+        File.Copy(renamed, original);
+
+        var again = await OpenAsync(cache, original);
+
+        again.ShouldNotBeSameAs(first);
+        again.FilePath.ShouldBe(original);
+        first.FilePath.ShouldBe(renamed);
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task OpeningUnderTheBudgetReleasesNothing()
     {

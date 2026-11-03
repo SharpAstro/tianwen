@@ -55,10 +55,12 @@ public readonly record struct LightGradeKey(
 /// NaN without a star mask) and <see cref="Night"/> the local evening it belongs to, which together read a sky BRIGHT against
 /// the rest of its night: cloud lit from below over a whole target, which a group-relative measure cannot see. <see cref="Taken"/>
 /// is when the exposure started, default where the frame does not say, which places its patchiness against the frames either
-/// side of it (<see cref="LightGrading.LocalPatchiness"/>).
+/// side of it (<see cref="LightGrading.LocalPatchiness"/>). <see cref="Rig"/> names what else a sky level in counts scales with (gain,
+/// offset, instrument and telescope), which the star-score group (<see cref="Key"/>) does not carry: the night's darkest is read
+/// per rig, so two rigs or two gains of one night are never compared with each other.
 /// </summary>
 public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN,
-    TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default);
+    TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default, string Rig = "");
 
 /// <summary>Why a frame's grade colour was held down, beside what its stars say. A frame may have both.</summary>
 [Flags]
@@ -127,7 +129,7 @@ public static class LightGrading
             return null;
         }
         return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel) * (fullScaleAdu ?? 1f), twilight,
-            SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime);
+            SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime, RigOf(meta));
     }
 
     // The patchiness is read in the plane's own value space, so it is put back into counts by the same scale as the sky level
@@ -163,6 +165,14 @@ public static class LightGrading
         => double.IsFinite(meta.Latitude) && double.IsFinite(meta.Longitude) && !(meta.Latitude == 0 && meta.Longitude == 0);
 
     /// <summary>
+    /// What a sky level in counts scales with beyond the group's key: gain, offset, instrument and telescope. Part of the night's
+    /// group (<see cref="NightGroup"/>), not of <see cref="LightGradeKey"/>, which stays the star score's group.
+    /// </summary>
+    internal static string RigOf(in ImageMeta meta)
+        => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{meta.Gain}|{meta.Offset}|{meta.Instrument?.Trim().ToUpperInvariant()}|{meta.Telescope?.Trim().ToUpperInvariant()}");
+
+    /// <summary>
     /// The local evening a frame belongs to: its time less twelve hours at the site's mean solar time (its longitude), so the
     /// frames either side of midnight are one night; the timestamp's own offset where the site is unknown. Default for a frame
     /// that never said when it was taken.
@@ -191,21 +201,26 @@ public static class LightGrading
         var local = LocalPatchiness(grades, grade);
         var causes = GradeCause.None;
         var shown = relative;
-        if (PatchyCloud(patchiness, local))
-        {
-            causes |= GradeCause.Cloud;
-            shown = MathF.Min(shown, patchiness >= HeavyCloudFrom ? PoorBelow : (PoorBelow + GoodFrom) * 0.5f);
-        }
         var nightSky = RelativeNightSky(grades, grade);
-        if (nightSky >= NightSkyCloudFrom)
-        {
-            causes |= GradeCause.Cloud;
-            shown = MathF.Min(shown, PoorBelow);
-        }
+        // A frame in twilight has a bright sky of its own cause, the Sun: neither cloud term judges it (its patchiness and sky
+        // level are left out of the baselines the same way), or one dawn frame would read Cloud as well as Sunrise.
         if (grade.Twilight is { } twilight)
         {
             causes |= twilight == TwilightPeriod.Dawn ? GradeCause.Sunrise : GradeCause.Sunset;
             shown = MathF.Min(shown, PoorBelow);
+        }
+        else
+        {
+            if (PatchyCloud(patchiness, local))
+            {
+                causes |= GradeCause.Cloud;
+                shown = MathF.Min(shown, patchiness >= HeavyCloudFrom ? PoorBelow : (PoorBelow + GoodFrom) * 0.5f);
+            }
+            if (nightSky >= NightSkyCloudFrom)
+            {
+                causes |= GradeCause.Cloud;
+                shown = MathF.Min(shown, PoorBelow);
+            }
         }
         return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local);
     }
@@ -238,7 +253,8 @@ public static class LightGrading
 
     /// <summary>
     /// A frame's sky level as a multiple of its NIGHT's darkest tenth (the 10th percentile of the night's sky levels): every
-    /// graded frame of the same night through the same sensor, filter, exposure and binning, whatever its target, twilight
+    /// graded frame of the same night through the same rig (sensor, gain, offset, instrument, telescope), filter, exposure and
+    /// binning, whatever its target, twilight
     /// frames left out. A target cloudy from its first frame to its last is invisible against its own group (its clearest tenth
     /// is cloud too) and plain against the night: on 2026-07-06 the owner's LMC run read 1.89 to 3.17 times the night's
     /// darkest, against at most 1.57 for any clear frame. NaN where the frame's sky was not read or the night has nothing to
@@ -250,7 +266,7 @@ public static class LightGrading
         {
             return float.NaN;
         }
-        return BaselinesOf(grades).NightDarkest.TryGetValue(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Night), out var darkest)
+        return BaselinesOf(grades).NightDarkest.TryGetValue(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night), out var darkest)
             ? grade.SkyLevel / darkest
             : float.NaN;
     }
@@ -297,7 +313,7 @@ public static class LightGrading
         return best > 0f ? Math.Clamp(grade.Score / best, 0f, 1f) : 1f;
     }
 
-    private readonly record struct NightGroup(LightGradeKey Key, DateOnly Night);
+    private readonly record struct NightGroup(LightGradeKey Key, string Rig, DateOnly Night);
 
     private readonly record struct TimedGroup(LightGradeKey Key, DateTimeOffset Taken);
 
@@ -338,7 +354,7 @@ public static class LightGrading
                 }
                 if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f && grade.Night != default)
                 {
-                    Add(sky, new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Night), grade.SkyLevel);
+                    Add(sky, new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night), grade.SkyLevel);
                 }
             }
             foreach (var (key, values) in patchiness)

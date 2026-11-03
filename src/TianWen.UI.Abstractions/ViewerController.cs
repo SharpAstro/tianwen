@@ -2423,15 +2423,40 @@ public sealed class ViewerController(
             return Task.CompletedTask;
         }
 
+        // A thumbs rename of THIS file still running (a slow folder): the leave waits for it before it settles the path, so the record
+        // lands under the name the file ends with. Written under the old one, the completion (applied with another document open) would
+        // match no path state and the renamed frame would reopen at its defaults.
+        var renaming = state.PendingMark is { Rename.IsCompleted: false } pending && ReferenceEquals(pending.Document, document) ? pending.Rename : null;
         var now = ViewerDisplayMemory.Capture(state);
-        if (now == atOpen && !_displaySaveOwed)
+        if (now == atOpen && !_displaySaveOwed && !(renaming is not null && _displayRemembered))
         {
             return Task.CompletedTask;
         }
 
         _displayAtOpen = now;
         _displaySaveOwed = false;
-        return SaveDisplayAsync(external, path, now);
+        return renaming is null ? SaveDisplayAsync(external, path, now) : SaveDisplayAfterRenameAsync(external, path, now, renaming);
+    }
+
+    private async Task SaveDisplayAfterRenameAsync(IExternal store, string path, ViewerDisplayRecord record, Task<ViewerActions.MarkOutcome> rename)
+    {
+        var target = path;
+        try
+        {
+            var outcome = await rename;
+            if (outcome.Marked is { } marked && !string.Equals(marked, path, StringComparison.OrdinalIgnoreCase))
+            {
+                target = marked;
+                // The old name's record goes with the name, as FollowFrameRenames does for a rename it sees in time.
+                await Task.Run(() => ViewerDisplayMemory.Forget(store, path));
+            }
+        }
+        catch (Exception ex)
+        {
+            // A rename that threw changed nothing: the record belongs to the name the file still has.
+            logger.LogWarning(ex, "The rename of {FilePath} failed while its display was being saved", path);
+        }
+        await SaveDisplayAsync(store, target, record);
     }
 
     private async Task SaveDisplayAsync(IExternal store, string path, ViewerDisplayRecord record)
