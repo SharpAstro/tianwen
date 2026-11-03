@@ -95,6 +95,11 @@ public static class LightGrading
     /// twilight so it reads poor and carries the sun mark: on 2026-05-14 the last seven dawn frames, every one rejected by
     /// hand, were left ungraded and so read as nothing at all (#1951).
     /// </summary>
+    /// <remarks>
+    /// <b>It reads the planes</b> (the sky's patchiness and level), so call it while they are resident: the viewer does, inside
+    /// <see cref="AstroImageDocument.DetectStarsAsync"/>'s <c>whileResident</c>. Called on an evicted image it restores the
+    /// planes and leaves them so (<c>DocumentResidencyTests</c>).
+    /// </remarks>
     public static LightGrade? Grade(Image image, StarList stars)
     {
         var meta = image.ImageMeta;
