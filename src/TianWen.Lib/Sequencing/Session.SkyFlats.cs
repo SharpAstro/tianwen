@@ -2,8 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Astrometry.Catalogs;
-using TianWen.Lib.Astrometry.VSOP87;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
@@ -249,8 +248,8 @@ internal partial record Session
     private async ValueTask<bool> IsSkyFlatWindowPastAsync(TwilightPeriod period, double brightDeg, double darkDeg, CancellationToken cancellationToken)
     {
         var site = Site ?? await Setup.Mount.Driver.GetSiteAsync(cancellationToken).ConfigureAwait(false);
-        if (site is null
-            || !VSOP87a.Reduce(CatalogIndex.Sol, _timeProvider.GetUtcNow(), site.Latitude, site.Longitude, out _, out _, out _, out var sunAltDeg, out _))
+        var sunAltDeg = site is null ? double.NaN : SolarAltitude.Degrees(_timeProvider.GetUtcNow(), site.Latitude, site.Longitude);
+        if (!double.IsFinite(sunAltDeg))
         {
             _logger.LogWarning("Could not compute solar altitude for the sky-flat window gate; proceeding without it.");
             return false;
