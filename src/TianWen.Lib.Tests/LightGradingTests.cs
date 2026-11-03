@@ -278,6 +278,27 @@ public class LightGradingTests
     }
 
     /// <summary>
+    /// A reference read from a hand-edited <c>clear-sky.json</c> may carry no objects at all (a default array): it still grades,
+    /// the sky ratio alone deciding.
+    /// </summary>
+    [Fact]
+    public void AReferenceWithNoObjectsStillJudgesTheSky()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var referenceNight = new DateOnly(2026, 6, 1);
+        var lmc = Enumerable.Range(0, 10).Select(i => ($"lmc{i}", Run("LMC", 2200f + i * 20, 1f, night))).ToArray();
+        var grades = Grades(lmc);
+        ImmutableArray<LightGradeReference> references =
+            [new LightGradeReference(new LightGradeKey(4, 4, SensorType.Monochrome, "", "LMC", 30_000, 1), "", double.NaN, double.NaN,
+                referenceNight, default, 1000f)];
+
+        var verdict = LightGrading.Verdict(grades, lmc[0].Item2, references);
+
+        verdict.Causes.ShouldBe(GradeCause.Cloud);
+        verdict.ReferenceNight.ShouldBe(referenceNight);
+    }
+
+    /// <summary>
     /// With no clear night of the rig on file, a run cannot be judged for cloud: the verdict says so and its colour is exactly the
     /// run-relative one, so nothing is called clear by a measure that cannot tell.
     /// </summary>
@@ -342,20 +363,23 @@ public class LightGradingTests
     }
 
     /// <summary>
-    /// 20,000 frames in one group (one a minute) build their baselines in one pass, plateau test included: the bound is the
-    /// test's timeout, so a scan of the group per frame (about 800 million comparisons) cannot creep back.
+    /// 100,000 frames in one group (one a minute) build their baselines in one pass, plateau test included: the bound is the
+    /// test's timeout, so a scan of the group per frame cannot creep back. The plateau test's two side windows scanned over the
+    /// whole group are about 20 billion comparisons (n squared, twice): with that scan put back the test timed out at 20 s,
+    /// while the binary search passes in under a second (both measured on the desktop), so the bound fails the scan and
+    /// passes the search with a wide margin on a slower runner too.
     /// </summary>
-    [Fact(Timeout = 60_000)]
+    [Fact(Timeout = 20_000)]
     public async Task ALargeGroupBuildsItsBaselinesInTime()
     {
         var night = new DateOnly(2026, 7, 6);
         var start = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
-        var frames = Enumerable.Range(0, 20_000)
+        var frames = Enumerable.Range(0, 100_000)
             .Select(i => ($"f{i}", Run("T", 1000f, 1f, night, start.AddMinutes(i))))
             .ToArray();
         var grades = Grades(frames);
 
-        var local = await Task.Run(() => LightGrading.LocalPatchiness(grades, frames[10_000].Item2), TestContext.Current.CancellationToken);
+        var local = await Task.Run(() => LightGrading.LocalPatchiness(grades, frames[50_000].Item2), TestContext.Current.CancellationToken);
 
         local.ShouldBe(1f, 0.01f);
     }
