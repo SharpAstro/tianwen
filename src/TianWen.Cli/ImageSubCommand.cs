@@ -962,7 +962,7 @@ internal sealed partial class ImageSubCommand(
         var gradientOpt = GradientBackendOption.Create(" Has no effect with --no-gradient.");
         var sharpenWhiteBalanceOpt = new Option<string?>("--white-balance")
         {
-            Description = "An SPCC white balance for this input, as 'R,G,B' (the triple `image render` prints with '(SPCC)'). Put into the linear data before the enhance when the filter is broadband, as `stack --enhance` does; ignored for a line-selective filter or when the input states its own.",
+            Description = "An SPCC white balance for this input, as 'R,G,B' (the triple `image render` prints with '(SPCC)'). Put into the linear data before the enhance when the filter is broadband, as `stack --enhance` does; ignored for a line-selective filter. It wins over a balance the input states in its own WB cards, and a log line names both triples when it does.",
         };
 
         var cmd = new Command("sharpen", "The canonical AI enhance: with a star remover (RC-Astro StarXTerminator), deblur, gradient, remove stars, denoise (and deconvolve) the starless plate, optional SCNR on stars, recombine; without one, whole-frame deblur, gradient correction and denoise. Every step runs only where a backend serves it; TianWen's own deblur (E3.4d) only with --ai-backend tianwen and --deconv-kernel.")
@@ -1227,15 +1227,20 @@ internal sealed partial class ImageSubCommand(
             //  - WhiteBalance multiplies a broadband SPCC balance the input states (a stacked master's WB
             //    cards), or the one --white-balance gives for an input that states none, into the linear data
             //    first, as `stack --enhance` and the viewer apply theirs.
-            var stated = normalised.ImageMeta.ColourCalibration;
-            if (stated is null && parseResult.GetValue(sharpenWhiteBalanceOpt) is { Length: > 0 } wbText)
+            (float R, float G, float B)? explicitWb = null;
+            if (parseResult.GetValue(sharpenWhiteBalanceOpt) is { Length: > 0 } wbText)
             {
                 if (!TryParseWhiteBalance(wbText, out var given))
                 {
                     consoleHost.WriteError($"--white-balance must be three positive finite numbers 'R,G,B'; got '{wbText}'.");
                     return 1;
                 }
-                stated = new ColourCalibration(given.R, given.G, given.B, ColourCalibrationSource.Spcc);
+                explicitWb = given;
+            }
+            var (stated, wbNote) = ResolveSharpenWhiteBalance(normalised.ImageMeta.ColourCalibration, explicitWb);
+            if (wbNote is not null)
+            {
+                consoleHost.WriteScrollable(wbNote);
             }
             var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(stated, normalised.ImageMeta, ct);
             if (whiteBalance is { } applying)
@@ -2519,6 +2524,26 @@ internal sealed partial class ImageSubCommand(
     /// <paramref name="img"/>. SPCC is computed at render time and only
     /// baked into the PNG; the source FITS stays untouched.
     /// </summary>
+    /// <summary>
+    /// Which balance <c>image sharpen</c> works from: an explicit <c>--white-balance</c> WINS over the input's own WB
+    /// cards (an option on the command line is the user's intent, and the cards used to win silently, so an override
+    /// was lost without a word), and the note names both triples when it replaced the file's. Null note when nothing
+    /// was replaced.
+    /// </summary>
+    internal static (ColourCalibration? Chosen, string? Note) ResolveSharpenWhiteBalance(
+        ColourCalibration? fromFile, (float R, float G, float B)? explicitWb)
+    {
+        if (explicitWb is not { } given)
+        {
+            return (fromFile, null);
+        }
+        var chosen = new ColourCalibration(given.R, given.G, given.B, ColourCalibrationSource.Spcc);
+        var note = fromFile is { } file
+            ? $"[sharpen] --white-balance ({given.R:F3}, {given.G:F3}, {given.B:F3}) replaces the input's own {ColourCalibration.CardOf(file.Source)} white balance ({file.R:F3}, {file.G:F3}, {file.B:F3})"
+            : null;
+        return (chosen, note);
+    }
+
     /// <summary>
     /// Parse a <c>--white-balance</c> triple. Accepts exactly what the render line prints,
     /// <c>R,G,B</c>, and refuses anything that is not three positive finite numbers -- a zero or
