@@ -239,6 +239,49 @@ internal partial record Session(
     /// how drift detection stayed off after every AutoFocus without a test noticing (#820).
     /// </summary>
     internal int DriftRefocusCount { get; private set; }
+
+    private int _cloudFrameCount;
+
+    /// <summary>
+    /// Lights the live cloud judge found cloud this session and had saved as <c>MAYBE_CLOUD_</c> (#1977). Test seam, like
+    /// <see cref="DriftRefocusCount"/>: a file on disk says a frame was suspect, not that the judge ran on it.
+    /// </summary>
+    internal int CloudFrameCount => Volatile.Read(ref _cloudFrameCount);
+
+    /// <summary>Frames in an OTA's focus-drift history window. Test seam: a cloud light must add none (#1977).</summary>
+    internal int FrameMetricsHistoryCount(int telescopeIndex)
+        => (uint)telescopeIndex < (uint)_frameMetricsHistory.Length ? _frameMetricsHistory[telescopeIndex].Snapshot.Length : 0;
+
+    /// <summary>
+    /// Per OTA, when the run of cloud lights that is going on began, or null while its latest judged light was clear (#1977).
+    /// Set and read on the imaging loop's thread only; replaced for each observation.
+    /// </summary>
+    private DateTimeOffset?[] _cloudySince = [];
+
+    /// <summary>Whether the latest judged light of an OTA was cloud: what a plate solve outside the loop's own frames asks first.</summary>
+    private bool IsCloudy(int telescopeIndex) => (uint)telescopeIndex < (uint)_cloudySince.Length && _cloudySince[telescopeIndex] is not null;
+
+    /// <summary>
+    /// Records the live judge's answer on an OTA's latest light (#1977): a cloud light starts a run of cloud (or continues
+    /// the one going on, keeping when it began, which <see cref="SessionConfiguration.CloudWaitTimeout"/> is measured from), a
+    /// clear one ends it, which is what lets the drift check, the focus history and the plate solves resume. The imaging loop
+    /// calls it on each judged light; internal so a test can put a flip under cloud without a loop running.
+    /// </summary>
+    internal void RecordLatestLightCloud(int telescopeIndex, bool cloud)
+    {
+        if ((uint)telescopeIndex >= (uint)_cloudySince.Length)
+        {
+            Array.Resize(ref _cloudySince, Math.Max(telescopeIndex + 1, Setup.Telescopes.Length));
+        }
+        if (cloud)
+        {
+            _cloudySince[telescopeIndex] ??= _timeProvider.GetUtcNow();
+        }
+        else
+        {
+            _cloudySince[telescopeIndex] = null;
+        }
+    }
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
     public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => _activeFocusSamples;
     public ImmutableArray<GuideErrorSample> GuideSamples => _guideSamples.Snapshot;

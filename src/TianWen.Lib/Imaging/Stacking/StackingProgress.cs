@@ -120,4 +120,9 @@ public sealed record ScanSummary(
     int FramesScanned,
     int ProductsSkipped,
     int RejectionMapsSkipped,
-    int ProductsKept);
+    int ProductsKept)
+{
+    /// <summary>Frames named <c>MAYBE_CLOUD_</c> (#1977) left out of the scan; 0 when they were included.
+    /// An init property, not a positional parameter: a defaulted one would be a binary break.</summary>
+    public int SuspectedCloudSkipped { get; init; }
+}

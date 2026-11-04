@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Globalization;
 using DIR.Lib;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Grading;
 
@@ -20,13 +21,13 @@ namespace TianWen.UI.Abstractions
         private const string GradeEmojiKeyPrefix = "grade-emoji:";
 
         /// <summary>The marks a frame's grade can carry, in the order a row shows them.</summary>
-        internal enum GradeMark { Rejected, Kept, Cloud, Twilight, Streaky, Defocused, Obstruction }
+        internal enum GradeMark { Rejected, Kept, Cloud, Twilight, Streaky, Defocused, Obstruction, SuspectedCloud }
 
         private static ImmutableArray<IconBaker.CoverageMask> MasksOf(GradeMark mark) => mark switch
         {
             GradeMark.Rejected => BakedIcons.ThumbsDown,
             GradeMark.Kept => BakedIcons.ThumbsUp,
-            GradeMark.Cloud => BakedIcons.Cloud,
+            GradeMark.Cloud or GradeMark.SuspectedCloud => BakedIcons.Cloud,
             GradeMark.Streaky => BakedIcons.Dizzy,
             GradeMark.Defocused => BakedIcons.Eyeglasses,
             GradeMark.Obstruction => BakedIcons.Evergreen,
@@ -59,9 +60,16 @@ namespace TianWen.UI.Abstractions
             {
                 marks.Add(MarkOf(cause));
             }
+            // A MAYBE_CLOUD_ name (#1977) is the session's suspicion, not a rejection: its own mark, which also stands for a
+            // cloud the grade found, so the two are not drawn side by side.
+            var suspected = CaptureRejection.IsSuspectedCloud(fileName);
+            if (suspected)
+            {
+                marks.Add(GradeMark.SuspectedCloud);
+            }
             if (verdict is { } v)
             {
-                if ((v.Causes & GradeCause.Cloud) != 0 && !marks.Contains(GradeMark.Cloud))
+                if ((v.Causes & GradeCause.Cloud) != 0 && !suspected && !marks.Contains(GradeMark.Cloud))
                 {
                     marks.Add(GradeMark.Cloud);
                 }
@@ -82,6 +90,7 @@ namespace TianWen.UI.Abstractions
             GradeMark.Streaky => "💫",                     // dizzy: a star with its trail
             GradeMark.Defocused => "👓",                   // eyeglasses
             GradeMark.Obstruction => "🌲",                 // evergreen tree
+            GradeMark.SuspectedCloud => "⛅",               // sun behind cloud: a cloud not yet confirmed
             _ => verdict is { Causes: var c } && (c & GradeCause.Sunset) != 0
                 ? "🌇"                                     // sunset
                 : "🌅",                                    // sunrise
@@ -99,7 +108,7 @@ namespace TianWen.UI.Abstractions
             {
                 var node = colour
                     ? Layout.Builder.Fill(key: GradeEmojiKeyPrefix + EmojiOf(mark, verdict)).WFixed(size).HFixed(size)
-                    : GradeMarkNode(mark, size, ink);
+                    : GradeMarkNode(mark, size, mark == GradeMark.SuspectedCloud ? new RGBAColor32(ink.Red, ink.Green, ink.Blue, (byte)(ink.Alpha / 2)) : ink);
                 nodes.Add(node.WithTooltip(TooltipOf(mark, verdict)));
             }
             return nodes.MoveToImmutable();
@@ -116,6 +125,8 @@ namespace TianWen.UI.Abstractions
             GradeMark.Defocused => "Rejected as defocused (BAD_DEFOCUSED_)",
             GradeMark.Obstruction => "Rejected for an obstruction (BAD_OBSTRUCTION_)",
             GradeMark.Kept => "Kept",
+            GradeMark.SuspectedCloud => "Suspected cloud (MAYBE_CLOUD_): the session judged this light cloudy. A stack leaves it out unless asked. "
+                + "Thumbs down in the Grade section confirms it (BAD_CLOUD_), thumbs up clears the suspicion",
             GradeMark.Cloud => verdict is { } v && (v.Causes & GradeCause.Cloud) != 0
                 ? LightGrading.CloudInWords(v)
                 : verdict is { CloudUnjudged: true }

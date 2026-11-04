@@ -200,6 +200,52 @@ public class MeridianFlipVerificationSessionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A flip under cloud runs no plate solve (#1977): a solve through cloud finds no field or a wrong one, so while the OTA's
+    /// latest light is judged cloud the recentre and the field-rotation check are skipped and the flip is read off the mount's
+    /// own report (<see cref="FlipEvidence.Inconclusive"/>). The positive control is the same real auto-flip after the cloud has
+    /// CLEARED (a clear light recorded after a cloud one, as the imaging loop records them): the solves resume, and the field
+    /// read off them says the tube went over. Without the cloud skip the first case solves, and its verdict is Flipped.
+    /// </summary>
+    [Theory(Timeout = 300_000)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AFlipUnderCloudRunsNoPlateSolveAndOnceClearTheSolvesResume(bool stillCloudy)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await ArrangeEastOfMeridianAsync(ct);
+        var mount = ctx.Mount;
+
+        ctx.TimeProvider.Advance(TimeSpan.FromHours(2));
+        await mount.SetSideOfPierAsync(PointingState.Normal, ct);
+
+        // The cloud came over before the flip; in the control a clear light followed it.
+        ctx.Session.RecordLatestLightCloud(0, cloud: true);
+        if (!stillCloudy)
+        {
+            ctx.Session.RecordLatestLightCloud(0, cloud: false);
+        }
+        var solvesBefore = ctx.Session.PlateSolveHistory.Length;
+
+        var result = await ctx.Session.PerformMeridianFlipAsync(
+            ctx.Session.ActiveObservation!, alreadyFlipped: true, ct);
+
+        output.WriteLine(
+            $"still cloudy {stillCloudy}: solves {solvesBefore} -> {ctx.Session.PlateSolveHistory.Length}, verdict {result.Verdict.Evidence}, success {result.Success}");
+
+        result.Success.ShouldBeTrue("the flip completes either way: under cloud on the mount's report");
+        if (stillCloudy)
+        {
+            ctx.Session.PlateSolveHistory.Length.ShouldBe(solvesBefore, "no plate solve runs through cloud");
+            result.Verdict.Evidence.ShouldBe(FlipEvidence.Inconclusive, "with no solve the image has no say, and the mount is believed");
+        }
+        else
+        {
+            ctx.Session.PlateSolveHistory.Length.ShouldBeGreaterThan(solvesBefore, "a clear light lets the recentre solve again");
+            result.Verdict.Evidence.ShouldBe(FlipEvidence.Flipped, "and the field read off it shows the tube went over");
+        }
+    }
+
+    /// <summary>
     /// The canonical pier side (<c>Session.GetSideOfPierAsync</c>) must hold what the last goto landed
     /// on, while the MOUNT's own report drifts. That difference is the entire failure this plan is
     /// about, reduced to two reads: a computed-state driver turns its answer over as the POINTING

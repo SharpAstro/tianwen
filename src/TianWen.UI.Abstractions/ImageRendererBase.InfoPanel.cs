@@ -161,6 +161,12 @@ namespace TianWen.UI.Abstractions
                     {
                         grade.Add(VerdictButtons(state, document));
                     }
+                    // What the verdicts add up to over the folder (#1977): the session's MAYBE_CLOUD_ suspicions counted apart
+                    // from the BAD_ rejects and the unmarked frames, read off the listed names. A report, so a line, not a control.
+                    if (InfoPanelData.GetFolderMarksLine(state) is { } folderMarks)
+                    {
+                        grade.Add(WrappedText(folderMarks, body));
+                    }
                     sections.Add(Section(grade));
                 }
             }
@@ -200,10 +206,13 @@ namespace TianWen.UI.Abstractions
         {
             var palette = ViewerTheme.Palette;
             var current = CaptureRejection.CauseOf(document.FilePath);
+            // A MAYBE_CLOUD_ name (#1977) is the session's suspicion: neither Good nor a cause is the current state, and the
+            // two presses answer it (Cloud confirms it as BAD_CLOUD_, Good drops the prefix).
+            var suspected = CaptureRejection.IsSuspectedCloud(document.FilePath);
             var size = BaseFontSize * 1.4f;
             Layout.Node Button(GradeMark mark, CaptureRejection.Cause? rejectAs, string action, string tip)
             {
-                var active = rejectAs is null ? current is null : current == rejectAs;
+                var active = !suspected && (rejectAs is null ? current is null : current == rejectAs);
                 return GradeMarkNode(mark, size, active ? (rejectAs is null ? palette.Success : palette.Error) : palette.DimText)
                     .Pad(BaseFontSize * 0.3f, BaseFontSize * 0.15f)
                     .BgHover(GuiTheme.Hover(ViewerTheme.InfoPanelBg))
@@ -216,8 +225,9 @@ namespace TianWen.UI.Abstractions
 
             // Wrapped, not a single row: five marks can be wider than a narrow strip, and a mark past its edge is one nobody can press.
             return Layout.Builder.WrapH([
-                    Button(GradeMark.Kept, null, "KeepFrame", current is null ? "Good" : "Good: take the BAD_ prefix off its name"),
-                    Button(GradeMark.Cloud, CaptureRejection.Cause.Cloud, "RejectCloud", "Reject as cloud (BAD_CLOUD_)"),
+                    Button(GradeMark.Kept, null, "KeepFrame", suspected ? "Clear the suspicion (drop MAYBE_CLOUD_)"
+                        : current is null ? "Good" : "Good: take the BAD_ prefix off its name"),
+                    Button(GradeMark.Cloud, CaptureRejection.Cause.Cloud, "RejectCloud", suspected ? "Confirm cloud (BAD_CLOUD_)" : "Reject as cloud (BAD_CLOUD_)"),
                     Button(GradeMark.Streaky, CaptureRejection.Cause.Streaky, "RejectStreaky", "Reject for streaky stars (BAD_STREAKY_)"),
                     Button(GradeMark.Defocused, CaptureRejection.Cause.Defocused, "RejectDefocused", "Reject as defocused (BAD_DEFOCUSED_)"),
                     Button(GradeMark.Obstruction, CaptureRejection.Cause.Obstruction, "RejectObstruction", "Reject for an obstruction (BAD_OBSTRUCTION_)")])

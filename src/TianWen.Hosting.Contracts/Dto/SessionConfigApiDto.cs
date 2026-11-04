@@ -83,6 +83,8 @@ public sealed class SessionConfigApiDto
     public int? FocusDriftMinSamples { get; init; }
     public bool? SaveIntermediates { get; init; }
     public bool? UnparkMount { get; init; }
+    public bool? DetectCloudWhileImaging { get; init; }
+    public double? CloudWaitTimeoutMinutes { get; init; }
 
     /// <summary>The configuration: every set field over the declared defaults.</summary>
     public SessionConfiguration ToConfiguration()
@@ -153,6 +155,8 @@ public sealed class SessionConfigApiDto
             FocusDriftMinSamples = FocusDriftMinSamples ?? d.FocusDriftMinSamples,
             SaveIntermediates = SaveIntermediates ?? d.SaveIntermediates,
             UnparkMount = UnparkMount ?? d.UnparkMount,
+            DetectCloudWhileImaging = DetectCloudWhileImaging ?? d.DetectCloudWhileImaging,
+            CloudWaitTimeout = Minutes(CloudWaitTimeoutMinutes) ?? d.CloudWaitTimeout,
         };
     }
 
@@ -222,6 +226,8 @@ public sealed class SessionConfigApiDto
         FocusDriftMinSamples = config.FocusDriftMinSamples,
         SaveIntermediates = config.SaveIntermediates,
         UnparkMount = config.UnparkMount,
+        DetectCloudWhileImaging = config.DetectCloudWhileImaging,
+        CloudWaitTimeoutMinutes = config.CloudWaitTimeout?.TotalMinutes,
     };
 
     private static TimeSpan? Seconds(double? seconds) => seconds is { } s ? TimeSpan.FromSeconds(s) : null;

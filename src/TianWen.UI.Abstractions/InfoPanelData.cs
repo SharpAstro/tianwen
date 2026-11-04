@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -442,6 +443,13 @@ public static class InfoPanelData
     }
 
     /// <summary>
+    /// The Grade section's count of the open folder's suspected, rejected and unmarked frames (<see cref="FolderMarkTally"/>), or
+    /// null with no folder open or none of its frames marked. Names only: no I/O, so it is safe on the thread that draws.
+    /// </summary>
+    public static string? GetFolderMarksLine(ViewerState state)
+        => string.IsNullOrEmpty(state.CurrentFolder) ? null : FolderMarkTally.Of(state.ImageFileNames).InWords();
+
+    /// <summary>
     /// The readout over the most a pixel of this frame can say: every plane's value, and RA and Dec where the frame is
     /// solved. The strip keeps room for this many lines whether or not the pointer is over the picture, read off the
     /// readout itself so a line added to it is kept room for too.
@@ -486,6 +494,65 @@ public static class InfoPanelData
         }
 
         return lines;
+    }
+}
+
+/// <summary>
+/// A folder's frames counted by what their NAMES say (#1977): the session's suspicions (<c>MAYBE_CLOUD_</c>,
+/// <see cref="CaptureRejection.IsSuspectedCloud"/>), the rejects (<c>BAD_</c> whatever its cause,
+/// <see cref="CaptureRejection.IsRejectedAtCapture"/>) and the rest. A suspicion is counted apart from both: it is neither a
+/// reject nor a keep until the Grade section's verdict says which. Read off the listed names alone, never the disk, so the
+/// strip can report it on every frame it draws.
+/// </summary>
+public readonly record struct FolderMarkTally(int Suspected, int Rejected, int Unmarked)
+{
+    /// <summary>Counts <paramref name="fileNames"/>, a folder's listed file names (<see cref="ViewerState.ImageFileNames"/>).</summary>
+    public static FolderMarkTally Of(IReadOnlyList<string> fileNames)
+    {
+        int suspected = 0, rejected = 0, unmarked = 0;
+        for (var i = 0; i < fileNames.Count; i++)
+        {
+            var name = fileNames[i];
+            if (CaptureRejection.IsSuspectedCloud(name))
+            {
+                suspected++;
+            }
+            else if (CaptureRejection.IsRejectedAtCapture(name))
+            {
+                rejected++;
+            }
+            else
+            {
+                unmarked++;
+            }
+        }
+        return new FolderMarkTally(suspected, rejected, unmarked);
+    }
+
+    /// <summary>
+    /// The Grade section's line, <c>Folder: 2 suspected cloud, 1 rejected, 40 unmarked</c>, a count of zero left out; null while
+    /// no frame of the folder is marked either way, since a folder of unmarked frames is the default and needs no line.
+    /// </summary>
+    public string? InWords()
+    {
+        if (Suspected == 0 && Rejected == 0)
+        {
+            return null;
+        }
+        var parts = new List<string>(3);
+        if (Suspected > 0)
+        {
+            parts.Add($"{Suspected} suspected cloud");
+        }
+        if (Rejected > 0)
+        {
+            parts.Add($"{Rejected} rejected");
+        }
+        if (Unmarked > 0)
+        {
+            parts.Add($"{Unmarked} unmarked");
+        }
+        return "Folder: " + string.Join(", ", parts);
     }
 }
 

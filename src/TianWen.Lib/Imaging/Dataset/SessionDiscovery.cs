@@ -89,6 +89,7 @@ public static class SessionDiscovery
         var frames = ImmutableArray.CreateBuilder<(FrameInfo Frame, string Root)>();
         var sidecar = FrameMetaSidecarStats.Empty;
         var rejectedAtCapture = 0;
+        var suspectedCloud = 0;
         foreach (var root in options.ArchiveRoots)
         {
             // Headers remembered from the last scan of this root: an unchanged file is parsed from its
@@ -104,6 +105,7 @@ public static class SessionDiscovery
             // Read after enumerating: the counters accumulate as frames stream past.
             sidecar = sidecar.Add(source.SidecarStats);
             rejectedAtCapture += source.RejectedAtCapture;
+            suspectedCloud += source.SuspectedCloudSkipped;
             index?.Save(logger);
             var fromIndex = index is null ? "" : $" ({index.Hits} from the header index, {index.Misses} read)";
             progress?.Report($"[{progressTag}] scanned {root}: {frames.Count} FITS headers so far{fromIndex}");
@@ -112,6 +114,12 @@ public static class SessionDiscovery
         if (sidecar.Malformed > 0)
         {
             logger?.LogWarning("{Count} {FileName} sidecar(s) could not be parsed and were ignored", sidecar.Malformed, FrameMetaSidecarResolver.FileName);
+        }
+        if (suspectedCloud > 0)
+        {
+            logger?.LogInformation(
+                "{Count} frame(s) skipped: named '{Prefix}...', a frame the session suspects is cloud (confirm or keep it in the viewer)",
+                suspectedCloud, CaptureRejection.SuspectedCloudPrefix);
         }
         if (rejectedAtCapture > 0)
         {

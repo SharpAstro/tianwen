@@ -263,6 +263,10 @@ internal sealed class StackSubCommand(
         {
             Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or to compare the two strategies' rejection (the AHD path rejects per output pixel, drizzle per deposited sample). --strategy overrides still win - forcing BayerDrizzle bypasses this flag.",
         };
+        var includeMaybeCloudOpt = new Option<bool>("--include-maybe-cloud")
+        {
+            Description = "Keep frames named MAYBE_CLOUD_ (the session suspects cloud, #1977) as inputs. Default behaviour is to leave them out, and to say how many. Confirm one as cloud in the viewer to rename it BAD_CLOUD_, or keep it to take the prefix off.",
+        };
         var includeIntegrationsOpt = new Option<bool>("--include-integrations")
         {
             Description = "Keep frames with a non-zero FITS STACK_N header (integrated masters from a previous run) as scan inputs. Default behaviour is to drop them since stale masters in adjacent output-*/ dirs otherwise pollute the next session's grouping. Pass this flag for two-stage mosaic stacking: integrate each panel separately, then re-run with --include-integrations against the panel masters to produce the final mosaic. .rejection.fits sidecars are ALWAYS dropped regardless of this flag.",
@@ -333,7 +337,7 @@ internal sealed class StackSubCommand(
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
                 inheritWbOpt,
-                noBayerDrizzleOpt, includeIntegrationsOpt,
+                noBayerDrizzleOpt, includeIntegrationsOpt, includeMaybeCloudOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
                 saturationOpt, contrastBoostOpt,
@@ -523,6 +527,7 @@ internal sealed class StackSubCommand(
                 InheritedWhiteBalance: inheritedWb,
                 DisableBayerDrizzle: disableBayerDrizzle,
                 IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
+                IncludeSuspectedCloud: parseResult.GetValue(includeMaybeCloudOpt),
                 Enhance: enhanceArg,
                 EnhanceBlend: enhanceBlendArg,
                 SplitPlates: splitPlatesArg,
@@ -599,6 +604,7 @@ internal sealed class StackSubCommand(
                         var summary = $"[stack] scanned: {s.FramesScanned} FITS";
                         if (s.ProductsSkipped > 0) summary += $", ignored {s.ProductsSkipped} TianWen product(s) (pass --include-integrations to keep)";
                         if (s.RejectionMapsSkipped > 0) summary += $", ignored {s.RejectionMapsSkipped} rejection map(s)";
+                        if (s.SuspectedCloudSkipped > 0) summary += $", left out {s.SuspectedCloudSkipped} suspected-cloud frame(s) named MAYBE_CLOUD_ (pass --include-maybe-cloud to keep)";
                         if (s.ProductsKept > 0) summary += $", kept {s.ProductsKept} integration(s) as input";
                         consoleHost.WriteScrollable(summary);
                         break;

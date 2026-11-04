@@ -303,6 +303,9 @@ public sealed record StackingOptions(
     // on a debayered OSC plane, where every star is a spike (13 percent of the peak, measured). The
     // measurements: docs/plans/deconvolver-training.md, R1, and the enum's own remarks.
     WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped,
+    // A frame named MAYBE_CLOUD_ (the session suspects cloud, #1977) is left out by default, never
+    // read; true feeds them in with the rest. A suspicion is not a BAD_ reject, so this is its own switch.
+    bool IncludeSuspectedCloud = false,
     // Leave out the lights the viewer's grade calls cloud or twilight (CloudRejection, LightGrading.Verdict, #1981): each light is
     // graded on its calibrated frame before normalization, which would erase the night-sky term, and every frame dropped is
     // logged with the verdict's own words and marked SkippedCloud in the manifest. Off by default until the owner's labelled

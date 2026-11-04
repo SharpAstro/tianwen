@@ -822,6 +822,115 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public CloudLayer CloudLayer { get; set; } = CloudLayer.Altocumulus;
 
     /// <summary>
+    /// Fixed sky mottle, as a fraction of the sky level (0 = off): a gain per 64 px block drawn once from a fixed hash, so it
+    /// is the SAME on every frame, like the dust, vignetting and light-pollution structure a real sensor's sky carries.
+    /// Without it a simulated clear sky is shot noise alone, and the sky patchiness (<c>Image.SkyPatchiness</c>, the tile
+    /// medians' residual about a smooth surface) of two clear frames is the ratio of two noise draws, which reads 1.0 to 1.7 and
+    /// makes the session's live cloud judge call a clear frame cloud one time in five (#1977). Real clear skies hold a floor, so
+    /// it is on by default (<see cref="DefaultSkyMottle"/>): every fake-driven run, the functional suites and an unattended GUI
+    /// or TUI run on fake devices alike, images a clear sky the judge reads as clear.
+    /// <para><b>The field is smooth.</b> A block keeps its own gain across its interior, so a 64 px tile's median is its
+    /// block's (the floor the patchiness needs), and eases to its neighbour's over <see cref="SkyMottleRampHalf"/> pixels either
+    /// side of the edge. A hard step at the edge was found as a row of faint "stars" by the built-in guider on a starless
+    /// overcast frame, so it re-acquired a new one every frame where it should have failed acquisition
+    /// (<c>FakeCameraMountCouplingTests.GivenCloudWhenGuidingRestartsWithReusedCalibrationThenAcquisitionFailsLoudly</c>).</para>
+    /// </summary>
+    public double SkyMottle { get; set; } = DefaultSkyMottle;
+
+    /// <summary>The default <see cref="SkyMottle"/>: 1 % of the sky level.</summary>
+    public const double DefaultSkyMottle = 0.01;
+
+    private const int SkyMottleBlock = 64;
+
+    /// <summary>Half the width, in pixels, of the ramp between two blocks' gains, centred on the edge between them.</summary>
+    private const int SkyMottleRampHalf = 8;
+
+    /// <summary>A block's gain, from a hash of its position: fixed across frames, independent between blocks.</summary>
+    private static float SkyMottleGain(int blockX, int blockY, double fraction)
+    {
+        var h = unchecked((uint)(blockX * 73856093) ^ (uint)(blockY * 19349663));
+        h = unchecked((h ^ (h >> 13)) * 1274126177u);
+        var unit = ((h ^ (h >> 16)) & 0xFFFF) / 32767.5 - 1.0; // [-1, 1]
+        return (float)(1.0 + fraction * unit);
+    }
+
+    /// <summary>
+    /// How far a pixel (along one axis) has eased from block <paramref name="lowBlock"/>'s gain to the next block's: 0 across a
+    /// block's interior, a smoothstep through the ramp centred on the edge, 1 past it. Measured from the block centres, so
+    /// <paramref name="lowBlock"/> is the pixel's own block or, in the first half of the ramp, the one before it (-1 before the first).
+    /// </summary>
+    private static float SkyMottleEase(int pixel, out int lowBlock)
+    {
+        var fromCentre = pixel - SkyMottleBlock / 2;
+        lowBlock = fromCentre >= 0 ? fromCentre / SkyMottleBlock : -1;
+        var along = fromCentre - lowBlock * SkyMottleBlock; // [0, SkyMottleBlock); the edge is half a block along
+        var u = (along - (SkyMottleBlock / 2 - SkyMottleRampHalf)) / (2f * SkyMottleRampHalf);
+        return u <= 0f ? 0f : u >= 1f ? 1f : u * u * (3f - 2f * u);
+    }
+
+    private static void ApplySkyMottle(float[,] data, double fraction)
+    {
+        var height = data.GetLength(0);
+        var width = data.GetLength(1);
+        var blocksX = (width + SkyMottleBlock - 1) / SkyMottleBlock;
+        var blocksY = (height + SkyMottleBlock - 1) / SkyMottleBlock;
+        var flat = MemoryMarshal.CreateSpan(ref Unsafe.As<byte, float>(ref MemoryMarshal.GetArrayDataReference(data)), data.Length);
+
+        // Each column's ease and the block it eases from, once per frame.
+        using var easeX = ArrayPoolHelper.Rent<float>(width);
+        using var lowX = ArrayPoolHelper.Rent<int>(width);
+        for (var x = 0; x < width; x++)
+        {
+            easeX[x] = SkyMottleEase(x, out var columnBlock);
+            lowX[x] = columnBlock;
+        }
+
+        // A block row's gain across the frame (its profile); a pixel row is the profile of its block row, or a blend of two
+        // inside the ramp, multiplied in one vector pass. Two profiles are kept, rebuilt when the rows move on to the next pair.
+        using var profileLow = ArrayPoolHelper.Rent<float>(width);
+        using var profileHigh = ArrayPoolHelper.Rent<float>(width);
+        using var blended = ArrayPoolHelper.Rent<float>(width);
+        var low = profileLow.AsSpan(0, width);
+        var high = profileHigh.AsSpan(0, width);
+        var blend = blended.AsSpan(0, width);
+        var builtFor = int.MinValue;
+        for (var y = 0; y < height; y++)
+        {
+            var easeY = SkyMottleEase(y, out var lowY);
+            if (lowY != builtFor)
+            {
+                Profile(Math.Clamp(lowY, 0, blocksY - 1), low);
+                Profile(Math.Clamp(lowY + 1, 0, blocksY - 1), high);
+                builtFor = lowY;
+            }
+            var row = flat.Slice(y * width, width);
+            if (easeY <= 0f)
+            {
+                TensorPrimitives.Multiply(row, low, row);
+            }
+            else if (easeY >= 1f)
+            {
+                TensorPrimitives.Multiply(row, high, row);
+            }
+            else
+            {
+                TensorPrimitives.Lerp(low, high, easeY, blend);
+                TensorPrimitives.Multiply(row, blend, row);
+            }
+        }
+
+        void Profile(int blockY, Span<float> profile)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var from = SkyMottleGain(Math.Clamp(lowX[x], 0, blocksX - 1), blockY, fraction);
+                var to = SkyMottleGain(Math.Clamp(lowX[x] + 1, 0, blocksX - 1), blockY, fraction);
+                profile[x] = from + (to - from) * easeX[x];
+            }
+        }
+    }
+
+    /// <summary>
     /// Test seam: when &gt; 0, the next <see cref="StartExposureAsync"/> call throws
     /// <see cref="System.IO.IOException"/> (classified as transient by
     /// <c>ResilientCall</c>) and decrements the counter. Use to script
@@ -1355,6 +1464,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                             offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                             exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                             cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, cloudLayer: CloudLayer, dest: dest);
+                    }
+
+                    if (SkyMottle > 0)
+                    {
+                        ApplySkyMottle(array, SkyMottle);
                     }
 
                     // Compute actual min/max of the rendered data. Vectorised via
