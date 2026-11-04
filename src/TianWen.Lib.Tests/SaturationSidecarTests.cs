@@ -58,7 +58,13 @@ public sealed class SaturationSidecarTests : IDisposable
         for (var c = 0; c < 3; c++)
         {
             planes[c] = new float[Size, Size];
-            Array.Fill(planes[c].AsSpan2DFlat(), Sky);
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    planes[c][y, x] = Sky;
+                }
+            }
         }
         var saturation = new float[Size, Size];
 
