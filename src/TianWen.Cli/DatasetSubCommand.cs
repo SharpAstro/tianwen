@@ -24,7 +24,8 @@ namespace TianWen.Cli;
 /// CLI contract: NO machine specifics; archive roots and the output dir are required parameters
 /// with fail-fast validation; behavioural knobs carry portable defaults only.
 /// </summary>
-internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null)
+internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null,
+    TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? objectDb = null)
 {
     public Command Build()
     {
@@ -884,16 +885,21 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     return 1;
                 }
             }
-            var result = await ExpectedSkyFitter.FitAsync(folders, logger, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
+            // With the catalogue the zero point of every frame whose header holds a WCS is fitted too; without it the sky alone is.
+            var result = await ExpectedSkyFitter.FitAsync(folders, logger, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct, objectDb);
             await ExpectedSkyStore.SaveAsync(consoleHost.External, result.Entries, ct);
             foreach (var entry in result.Entries)
             {
                 var m = entry.Model;
+                var zeroPoint = m.HasZeroPoint
+                    ? string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                        $"zero point {m.ZeroPoint0:0.00} - {m.Extinction:0.00} X mag (scatter {m.ZeroPointScatter:0.00}, {m.ZeroPointCount} frames)")
+                    : "no zero point (no frames with a WCS)";
                 consoleHost.WriteScrollable(string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                    $"{entry.Key.Describe()}: {m.FrameCount} of {m.OfferedCount} frames, {entry.Nights} nights, terms [{string.Join(' ', m.Terms)}], level scatter {m.LevelScatter:0.000}, gradient scatter {m.GradientScatter:0.000}"));
+                    $"{entry.Key.Describe()}: {m.FrameCount} of {m.OfferedCount} frames, {entry.Nights} nights, terms [{string.Join(' ', m.Terms)}], level scatter {m.LevelScatter:0.000}, gradient scatter {m.GradientScatter:0.000}, {zeroPoint}"));
             }
             consoleHost.WriteScrollable(
-                $"[sky-model] {result.FilesSeen} files, {result.Measured} measured, {result.Rejected} rejected by name, {result.Twilight} twilight, {result.NotLights} not usable lights, {result.Unmeasured} unmeasured; {result.Entries.Length} models saved to {ExpectedSkyStore.PathFor(consoleHost.External)}, {result.TooFew} keys had too few frames or nights");
+                $"[sky-model] {result.FilesSeen} files, {result.Measured} measured, {result.Rejected} rejected by name, {result.Twilight} twilight, {result.NotLights} not usable lights, {result.Unmeasured} unmeasured, {result.WithZeroPoint} with a zero point; {result.Entries.Length} models saved to {ExpectedSkyStore.PathFor(consoleHost.External)}, {result.TooFew} keys had too few frames or nights");
             return 0;
         });
         return command;

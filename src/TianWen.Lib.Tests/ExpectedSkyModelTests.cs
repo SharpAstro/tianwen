@@ -155,8 +155,10 @@ public class ExpectedSkyModelTests
         var model = ExpectedSkyModel.Fit([.. Enumerable.Range(0, 200).Select(_ => Draw(r))]);
         model.ShouldNotBeNull();
 
-        var json = JsonSerializer.Serialize(model);
-        var back = JsonSerializer.Deserialize<ExpectedSkyModel>(json);
+        // The store writes through named floating-point literals, since a model with no zero point carries NaN there.
+        var options = new JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        var json = JsonSerializer.Serialize(model, options);
+        var back = JsonSerializer.Deserialize<ExpectedSkyModel>(json, options);
 
         back.ShouldNotBeNull();
         back.Version.ShouldBe(ExpectedSkyModel.CurrentVersion);

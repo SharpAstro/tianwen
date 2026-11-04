@@ -1271,9 +1271,24 @@ public sealed class ViewerController(
             {
                 // The grade reads the planes, so it runs inside the detection, before the planes are released
                 // (LightGrading.Grade is synchronous and a released image refuses a read).
+                // The transparency (#1974) needs a WCS the document ALREADY has (its header's or a solve it ran: none is started for the
+                // grade) and the Tycho-2 catalogue; the catalogue is awaited here, off the render thread, only for such a frame.
+                var gradeWcs = grade && document.Findings.Wcs is { HasCDMatrix: true } known ? known : (TianWen.Lib.Astrometry.WCS?)null;
+                TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? gradeCatalogue = null;
+                if (gradeWcs is not null && CelestialObjectDB is { } lazyCatalogue)
+                {
+                    try
+                    {
+                        gradeCatalogue = await lazyCatalogue.WithCancellation(sdCts.Token);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogDebug(ex, "Catalogue unavailable for the grade's transparency");
+                    }
+                }
                 await document.DetectStarsAsync(sdCts.Token, whileResident: (image, stars) =>
                 {
-                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars, document.FullScaleAdu) is { } frameGrade)
+                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars, document.FullScaleAdu, gradeWcs, gradeCatalogue) is { } frameGrade)
                     {
                         state.RecordFrameGrade(document.FilePath, frameGrade);
                     }

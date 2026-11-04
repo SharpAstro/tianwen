@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace TianWen.Lib.Imaging;
 
@@ -7,7 +8,8 @@ namespace TianWen.Lib.Imaging;
 /// <param name="Covariates">The frame's pointing and Moon (<see cref="SkyCovariates.From"/>).</param>
 /// <param name="Level">The sky level in the frame's counts (<see cref="SkySurface.Level"/>).</param>
 /// <param name="GradientStrength">The gradient strength in the frame's counts (<see cref="SkySurface.GradientStrength"/>).</param>
-public readonly record struct SkySample(SkyCovariates Covariates, double Level, double GradientStrength);
+/// <param name="ZeroPoint">The frame's photometric zero point (<see cref="ColorCalibration.PhotometricZeroPoint"/>) in the same counts, NaN where it has no WCS or too few matches.</param>
+public readonly record struct SkySample(SkyCovariates Covariates, double Level, double GradientStrength, double ZeroPoint = double.NaN);
 
 /// <summary>How far a frame's sky sits above the expected one, in units of the model's own clear scatter.</summary>
 /// <param name="LevelSigma">The level's log excess over the expectation, in sigma.</param>
@@ -33,7 +35,7 @@ public readonly record struct SkyExcess(double LevelSigma, double GradientSigma)
 public sealed record ExpectedSkyModel
 {
     /// <summary>The format version of the serialised model.</summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     /// <summary>Every term the model can carry, in its fixed order.</summary>
     public static IReadOnlyList<string> AllTerms { get; } = ["1", "X", "X2", "west*(X-1)", "moon*falloff", "moonAlt", "midnight"];
@@ -67,6 +69,30 @@ public sealed record ExpectedSkyModel
     public int OfferedCount { get; init; }
 
     /// <summary>
+    /// The clear zero point extrapolated to no air, in magnitudes (<c>zp = ZeroPoint0 - Extinction * X</c>), NaN where no frame had
+    /// a WCS (and in a version 1 file, which reads with no zero point).
+    /// </summary>
+    public double ZeroPoint0 { get; init; } = double.NaN;
+
+    /// <summary>The extinction in magnitudes per airmass the zero point falls by (<see cref="ZeroPoint0"/>).</summary>
+    public double Extinction { get; init; } = double.NaN;
+
+    /// <summary>The robust sd of the clear frames' zero point about <c>ZeroPoint0 - Extinction * X</c>, in magnitudes.</summary>
+    public double ZeroPointScatter { get; init; } = double.NaN;
+
+    /// <summary>The frames the zero-point fit kept after clipping; 0 when there is no zero point.</summary>
+    public int ZeroPointCount { get; init; }
+
+    /// <summary>Whether the model carries a clear zero point.</summary>
+    public bool HasZeroPoint => ZeroPointCount > 0 && double.IsFinite(ZeroPoint0) && double.IsFinite(Extinction);
+
+    /// <summary>The fewest frames with a zero point the zero-point line is fitted from.</summary>
+    public const int MinZeroPointFrames = 12;
+
+    /// <summary>An airmass spread under which the slope is not fitted and the extinction stays the default (<c>Session.AtmosphericExtinctionMagPerAirmass</c>).</summary>
+    private const double MinAirmassSpanForSlope = 0.15;
+
+    /// <summary>
     /// Fits the model to <paramref name="samples"/>, which should be mostly clear frames of one rig. <see langword="null"/>
     /// when fewer than a dozen are usable.
     /// </summary>
@@ -76,6 +102,7 @@ public sealed record ExpectedSkyModel
         var features = new List<double[]>(samples.Count);
         var yLevel = new List<double>(samples.Count);
         var yGradient = new List<double>(samples.Count);
+        var zeroPoints = new List<(double Airmass, double ZeroPoint)>();
         foreach (var s in samples)
         {
             if (!(s.Level > 0) || !(s.GradientStrength > 0) || !double.IsFinite(s.Level) || !double.IsFinite(s.GradientStrength))
@@ -90,6 +117,10 @@ public sealed record ExpectedSkyModel
             features.Add(f);
             yLevel.Add(Math.Log(s.Level));
             yGradient.Add(Math.Log(s.GradientStrength));
+            if (double.IsFinite(s.ZeroPoint))
+            {
+                zeroPoints.Add((s.Covariates.Airmass, s.ZeroPoint));
+            }
         }
         var n = features.Count;
         if (n < MinFrames)
@@ -165,7 +196,92 @@ public sealed record ExpectedSkyModel
             GradientScatter = sdG,
             FrameCount = kept,
             OfferedCount = n,
-        };
+        }.WithZeroPoint(zeroPoints);
+    }
+
+    /// <summary>
+    /// The clear zero point <c>zp = zp0 - k X</c> from the frames that had one (#1974 section 2): the slope by Theil-Sen over the
+    /// airmass (or the default extinction when the airmass barely varies), the intercept by the median, then a clip at three robust
+    /// sigma and a least-squares refit of what is kept, which a minority of dim frames does not move. The model is returned as it
+    /// was where fewer than <see cref="MinZeroPointFrames"/> frames had one.
+    /// </summary>
+    private ExpectedSkyModel WithZeroPoint(List<(double Airmass, double ZeroPoint)> points)
+    {
+        if (points.Count < MinZeroPointFrames)
+        {
+            return this;
+        }
+        var ordered = points.OrderBy(static p => p.Airmass).ToList();
+        var span = ordered[^1].Airmass - ordered[0].Airmass;
+        var k = TianWen.Lib.Sequencing.Session.AtmosphericExtinctionMagPerAirmass;
+        if (span >= MinAirmassSpanForSlope)
+        {
+            // Over every pair when there are few frames and over a stride of them when there are many.
+            var step = Math.Max(1, ordered.Count / 200);
+            var slopes = new List<double>();
+            for (var i = 0; i < ordered.Count; i += step)
+            {
+                for (var j = i + step; j < ordered.Count; j += step)
+                {
+                    var dx = ordered[j].Airmass - ordered[i].Airmass;
+                    if (dx > 1e-3)
+                    {
+                        slopes.Add((ordered[j].ZeroPoint - ordered[i].ZeroPoint) / dx);
+                    }
+                }
+            }
+            if (slopes.Count > 0)
+            {
+                k = -Median(slopes);
+            }
+        }
+        var zp0 = Median(ordered.ConvertAll(p => p.ZeroPoint + k * p.Airmass));
+        var sd = SdAbout(ordered, zp0, k);
+        var kept = ordered;
+        for (var round = 0; round < 3 && sd > 0; round++)
+        {
+            var round0 = zp0;
+            var round1 = k;
+            var clipped = ordered.Where(p => Math.Abs(p.ZeroPoint - (round0 - round1 * p.Airmass)) <= ClipSigma * sd).ToList();
+            if (clipped.Count < MinZeroPointFrames)
+            {
+                break;
+            }
+            kept = clipped;
+            // A least-squares line of the kept points, when the airmass spreads enough to carry a slope.
+            var meanX = kept.Average(static p => p.Airmass);
+            var meanY = kept.Average(static p => p.ZeroPoint);
+            var sxx = kept.Sum(p => (p.Airmass - meanX) * (p.Airmass - meanX));
+            if (span >= MinAirmassSpanForSlope && sxx > 1e-9)
+            {
+                k = -kept.Sum(p => (p.Airmass - meanX) * (p.ZeroPoint - meanY)) / sxx;
+            }
+            zp0 = meanY + k * meanX;
+            sd = SdAbout(kept, zp0, k);
+        }
+        return this with { ZeroPoint0 = zp0, Extinction = k, ZeroPointScatter = sd, ZeroPointCount = kept.Count };
+    }
+
+    private static double SdAbout(List<(double Airmass, double ZeroPoint)> points, double zp0, double k)
+    {
+        var residuals = points.ConvertAll(p => p.ZeroPoint - (zp0 - k * p.Airmass));
+        var median = Median(residuals);
+        return 1.4826 * Median(residuals.ConvertAll(r => Math.Abs(r - median)));
+    }
+
+    /// <summary>
+    /// How much of a clear night's light a frame transmits (#1974 section 2): <c>10^(-0.4 (expected - zp))</c>, where the expected
+    /// zero point is the clear one at the frame's airmass. Below 1 the frame is dimmer than the rig's clear sky would make it. NaN
+    /// where the model has no zero point or the frame has none or no airmass.
+    /// </summary>
+    public double Transparency(in SkyCovariates covariates, double zeroPoint)
+    {
+        if (!HasZeroPoint || !double.IsFinite(zeroPoint) || !double.IsFinite(covariates.Airmass))
+        {
+            return double.NaN;
+        }
+        var expected = ZeroPoint0 - Extinction * covariates.Airmass;
+        return Math.Pow(10.0, -0.4 * (expected - zeroPoint));
     }
 
     /// <summary>The log level and log gradient strength the model expects at <paramref name="covariates"/>; NaN where a fitted term cannot be read.</summary>

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.Lib.Imaging.Stacking;
 using TwilightPeriod = TianWen.Lib.Sequencing.TwilightPeriod;
 
@@ -61,10 +63,12 @@ public readonly record struct LightGradeKey(
 /// <see cref="Surface"/> is the sky's fitted surface in the frame's counts (<see cref="Image.SkySurface"/>, scaled as the sky level
 /// is) and <see cref="Covariates"/> where the frame pointed (<see cref="SkyCovariates.From"/>), which the expected sky
 /// (<see cref="ExpectedSkyModel"/>) reads a veil against (#1974). A default surface has a level of 0, which reads as unread.
+/// <see cref="ZeroPoint"/> is the frame's photometric zero point in its counts (<see cref="PhotometricZeroPoint"/>), NaN where it
+/// had no WCS, no catalogue or too few matched stars: the absolute transparency reads it against the rig's clear one.
 /// </remarks>
 public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN,
     TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default, string Rig = "",
-    double SiteLatitude = double.NaN, double SiteLongitude = double.NaN, SkySurface Surface = default, SkyCovariates Covariates = default)
+    double SiteLatitude = double.NaN, double SiteLongitude = double.NaN, SkySurface Surface = default, SkyCovariates Covariates = default, float ZeroPoint = float.NaN)
 {
     /// <summary>Whether the sky's level and gradient were read, which the expected sky needs.</summary>
     internal bool SurfaceRead => Surface.Level > 0f && Surface.GradientStrength > 0f
@@ -114,11 +118,13 @@ public enum GradeCause
 /// <see cref="LevelSigma"/> and <see cref="GradientSigma"/> are the frame's sky level and gradient strength above the expected sky
 /// for where it pointed, in units of that model's clear scatter (NaN where unread or with no model); at
 /// <see cref="LightGrading.ExpectedSkyCloudFrom"/> summed the frame is Cloud. <see cref="ExpectedFromStore"/> says whether the model was
-/// the site's stored one (true) or the night's own frames fitted (false).
+/// the site's stored one (true) or the night's own frames fitted (false). <see cref="Transparency"/> is the share of a clear night's
+/// light the frame transmits (<see cref="ExpectedSkyModel.Transparency"/>), read only against the site's STORED model and only for a
+/// frame with a WCS; NaN otherwise. Below <see cref="LightGrading.TransparencyCloudBelow"/> the frame is Cloud, whatever its group.
 /// </remarks>
 public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN,
     float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false,
-    float LevelSigma = float.NaN, float GradientSigma = float.NaN, bool ExpectedFromStore = false)
+    float LevelSigma = float.NaN, float GradientSigma = float.NaN, bool ExpectedFromStore = false, float Transparency = float.NaN)
 {
     /// <summary>The summed level and gradient excess over the expected sky, NaN where either is unread.</summary>
     public float ExpectedSkySigma => LevelSigma + GradientSigma;
@@ -145,8 +151,11 @@ public static class LightGrading
     /// <b>It reads the planes</b> (the sky's patchiness and level), so call it while they are resident: the viewer does, inside
     /// <c>AstroImageDocument.DetectStarsAsync</c>'s <c>whileResident</c>. Called on an evicted image it restores the
     /// planes and leaves them so (<c>DocumentResidencyTests</c>).
+    /// <para>With a <paramref name="wcs"/> the frame already has (a header's or a solve the caller ran, never one started for the
+    /// grade) and the Tycho-2 <paramref name="catalogue"/>, it also reads the frame's photometric zero point (#1974 section 2), in
+    /// the same counts as the sky level.</para>
     /// </remarks>
-    public static LightGrade? Grade(Image image, StarList stars, float? fullScaleAdu = null)
+    public static LightGrade? Grade(Image image, StarList stars, float? fullScaleAdu = null, WCS? wcs = null, ICelestialObjectDB? catalogue = null)
     {
         var meta = image.ImageMeta;
         // A default time is a frame that never said when it was taken (an in-memory frame, a header with no DATE-OBS).
@@ -171,10 +180,17 @@ public static class LightGrading
         var read = image.SkySurface(image.ReferenceStarChannel);
         var scale = fullScaleAdu ?? 1f;
         var surface = new SkySurface(read.Level * scale, read.GradientStrength * scale, read.GradientAngleDeg, read.Patchiness * scale);
+        var zeroPoint = float.NaN;
+        if (twilight is null && wcs is { HasCDMatrix: true } solution && catalogue is not null
+            && PhotometricZeroPoint.TryMeasure(image, stars, solution, catalogue, out var measured))
+        {
+            // The stars were measured on the plane's own scale, so the zero point is put into counts as the level is.
+            zeroPoint = measured.ZeroPoint + 2.5f * MathF.Log10(scale);
+        }
         return new LightGrade(LightGradeKey.Of(image), metrics, score, surface.Patchiness, twilight,
             SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime, RigOf(meta),
             SiteKnown(meta) ? RoundSite(meta.Latitude) : double.NaN, SiteKnown(meta) ? RoundSite(meta.Longitude) : double.NaN,
-            surface, SkyCovariates.From(meta));
+            surface, SkyCovariates.From(meta), zeroPoint);
     }
 
     // The patchiness is read in the plane's own value space, so it is put back into counts by the same scale as the sky level
@@ -254,6 +270,7 @@ public static class LightGrading
         DateOnly referenceNight = default;
         var unjudged = false;
         var (levelSigma, gradientSigma, fromStore) = ExpectedSkyExcess(grades, grade, expectedSky);
+        var transparency = TransparencyOf(grade, expectedSky);
         if (!references.IsDefault && grade.Twilight is null)
         {
             (patchiness, local, nightSky, referenceNight, unjudged) = AgainstReferences(grades, grade, references, patchiness, local, nightSky);
@@ -282,9 +299,35 @@ public static class LightGrading
                 causes |= GradeCause.Cloud;
                 shown = MathF.Min(shown, PoorBelow);
             }
+            // The absolute guard: a whole run uniformly dim has no clear frame to be relative to.
+            if (transparency < TransparencyCloudBelow)
+            {
+                causes |= GradeCause.Cloud;
+                shown = MathF.Min(shown, PoorBelow);
+            }
         }
         return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local, referenceNight, unjudged,
-            levelSigma, gradientSigma, fromStore);
+            levelSigma, gradientSigma, fromStore, transparency);
+    }
+
+    /// <summary>
+    /// The share of a clear night's light <paramref name="grade"/> transmits (#1974 section 2): its zero point against the site's
+    /// STORED model's clear zero point at its airmass. Only the stored model serves, never the frames of the group itself, which a
+    /// run dim from first frame to last would only agree with (that is #1976's relative guard). NaN where the frame has no zero
+    /// point, no site, or the rig has no stored zero point; a twilight frame is never judged.
+    /// </summary>
+    private static float TransparencyOf(in LightGrade grade, ImmutableArray<ExpectedSkyEntry> stored)
+    {
+        if (grade.Twilight is not null || !float.IsFinite(grade.ZeroPoint) || stored.IsDefaultOrEmpty
+            || !double.IsFinite(grade.SiteLatitude) || !double.IsFinite(grade.SiteLongitude))
+        {
+            return float.NaN;
+        }
+        var key = new ExpectedSkyKey(grade.SiteLatitude, grade.SiteLongitude, grade.Rig, grade.Key.SensorType, grade.Key.FilterKey,
+            grade.Key.ExposureMs, grade.Key.Bin);
+        return ExpectedSkyStore.Find(stored, key) is { } entry
+            ? (float)entry.Model.Transparency(grade.Covariates, grade.ZeroPoint)
+            : float.NaN;
     }
 
     /// <summary>
@@ -521,13 +564,26 @@ public static class LightGrading
     {
         var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
         var bright = verdict.NightSky >= NightSkyCloudFrom;
+        var dim = verdict.Transparency < TransparencyCloudBelow;
+        var transmits = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"transmits {verdict.Transparency * 100:0} % of a clear night's light");
+        if (dim && !patchy && !bright && !(verdict.ExpectedSkySigma >= ExpectedSkyCloudFrom))
+        {
+            return $"Cloud: the frame {transmits}";
+        }
+        var words = CloudWordsOfSky(verdict, patchy, bright);
+        return dim ? $"{words}; it also {transmits}" : words;
+    }
+
+    private static string CloudWordsOfSky(in LightGradeVerdict verdict, bool patchy, bool bright)
+    {
         if (!patchy && !bright && verdict.ExpectedSkySigma >= ExpectedSkyCloudFrom)
         {
             var against = verdict.ExpectedFromStore ? "as this site's stored model expects it" : "as this night's own frames expect it";
             return string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Cloud: the sky is {verdict.LevelSigma:0.0} sigma brighter and {verdict.GradientSigma:0.0} sigma more graded than this pointing's clear sky, {against}");
         }
-        var words = (patchy, bright) switch
+        var skyWords = (patchy, bright) switch
         {
             (true, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest and {verdict.NightSky:0.0}x as bright as the night's darkest"),
@@ -537,9 +593,9 @@ public static class LightGrading
                 $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest"),
         };
         return verdict.ReferenceNight == default
-            ? words
+            ? skyWords
             : string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                $"{words}; no clear frame in this run: judged against {verdict.ReferenceNight:yyyy-MM-dd}");
+                $"{skyWords}; no clear frame in this run: judged against {verdict.ReferenceNight:yyyy-MM-dd}");
     }
 
     /// <summary>The state of a run whose rig has no clear reference, for the Grade line and a cloud mark's tooltip alike.</summary>
@@ -840,6 +896,12 @@ public static class LightGrading
     /// tens, neither past what the star-masked tests see, but each is several sigma of the clear scatter of its own half.
     /// </summary>
     public const float ExpectedSkyCloudFrom = 5f;
+
+    /// <summary>
+    /// Below this share of a clear night's light (<see cref="LightGradeVerdict.Transparency"/>) a frame is Cloud (#1974 section 2).
+    /// A uniform 40 % dimming reads 0.6; night-to-night clear transparency varies by a tenth or so, which this leaves room for.
+    /// </summary>
+    public const float TransparencyCloudBelow = 0.7f;
 
     /// <summary>The fewest frames of one night, rig and object a self-fitted expected sky needs; fewer reads no expected-sky term, not a guess.</summary>
     public const int SelfFitMinFrames = 30;

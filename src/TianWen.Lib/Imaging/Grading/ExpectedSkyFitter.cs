@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.IO;
 
@@ -21,8 +23,9 @@ namespace TianWen.Lib.Imaging.Grading;
 /// <param name="NotLights">Left out as no raw light: calibration frames, integrations, unreadable headers, a frame with no site, time or pointing.</param>
 /// <param name="Unmeasured">Lights whose sky could not be read (too small a frame).</param>
 /// <param name="TooFew">Keys that had frames but not enough (<see cref="ExpectedSkyFitter.MinFrames"/> over <see cref="ExpectedSkyFitter.MinNights"/> nights).</param>
+/// <param name="WithZeroPoint">Measured frames whose photometric zero point was read (a WCS in the header and enough Tycho-2 matches).</param>
 public sealed record ExpectedSkyFitResult(ImmutableArray<ExpectedSkyEntry> Entries, int FilesSeen, int Measured, int Rejected, int Twilight,
-    int NotLights, int Unmeasured, int TooFew);
+    int NotLights, int Unmeasured, int TooFew, int WithZeroPoint = 0);
 
 /// <summary>
 /// Fits an <see cref="ExpectedSkyModel"/> per site, rig, sensor, filter, exposure and bin from a tree of lights (#1974): reads
@@ -40,9 +43,14 @@ public static class ExpectedSkyFitter
 
     private sealed record Row(ExpectedSkyKey Key, DateOnly Night, SkySample Sample);
 
-    /// <summary>Fits every key found under <paramref name="folders"/> (recursive); nothing is saved, <see cref="ExpectedSkyStore.SaveAsync"/> does that.</summary>
+    /// <summary>
+    /// Fits every key found under <paramref name="folders"/> (recursive); nothing is saved, <see cref="ExpectedSkyStore.SaveAsync"/> does that.
+    /// With a Tycho-2 <paramref name="catalogue"/>, a frame whose header holds a WCS also has its photometric zero point measured
+    /// (<see cref="PhotometricZeroPoint"/>) and each model carries the clear zero point and extinction (#1974 section 2). No plate
+    /// solve is started: a frame with no WCS in its header simply contributes to the sky model alone.
+    /// </summary>
     public static async Task<ExpectedSkyFitResult> FitAsync(IReadOnlyList<string> folders, ILogger? logger, IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, ICelestialObjectDB? catalogue = null)
     {
         ArgumentNullException.ThrowIfNull(folders);
         var files = new List<string>();
@@ -53,7 +61,7 @@ public static class ExpectedSkyFitter
         files.Sort(StringComparer.OrdinalIgnoreCase);
 
         var rows = new ConcurrentBag<Row>();
-        int rejected = 0, twilight = 0, notLights = 0, unmeasured = 0, done = 0;
+        int rejected = 0, twilight = 0, notLights = 0, unmeasured = 0, done = 0, withZeroPoint = 0;
         var options = new ParallelOptions
         {
             MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 4),
@@ -85,15 +93,25 @@ public static class ExpectedSkyFitter
                     Interlocked.Increment(ref twilight);
                     return;
                 }
-                if (!Image.TryReadFitsFile(path, out var image))
+                if (!Image.TryReadFitsFile(path, out var image, out var wcs))
                 {
                     Interlocked.Increment(ref notLights);
                     return;
                 }
                 SkySurface surface;
+                var zeroPoint = double.NaN;
                 try
                 {
                     surface = image.SkySurface(image.ReferenceStarChannel);
+                    if (catalogue is not null && wcs is { HasCDMatrix: true } headerWcs && float.IsFinite(surface.Level))
+                    {
+                        var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: ct).ConfigureAwait(false);
+                        if (PhotometricZeroPoint.TryMeasure(image, stars, headerWcs, catalogue, out var measured))
+                        {
+                            zeroPoint = measured.ZeroPoint;
+                            Interlocked.Increment(ref withZeroPoint);
+                        }
+                    }
                 }
                 finally
                 {
@@ -107,7 +125,7 @@ public static class ExpectedSkyFitter
                 var key = new ExpectedSkyKey(LightGrading.RoundSite(meta.Latitude), LightGrading.RoundSite(meta.Longitude), LightGrading.RigOf(meta),
                     meta.SensorType, meta.Filter.Name is null ? string.Empty : meta.Filter.IdentityKey,
                     (long)Math.Round(meta.ExposureDuration.TotalMilliseconds), meta.BinX);
-                rows.Add(new Row(key, LightGrading.NightOf(meta), new SkySample(SkyCovariates.From(meta), surface.Level, surface.GradientStrength)));
+                rows.Add(new Row(key, LightGrading.NightOf(meta), new SkySample(SkyCovariates.From(meta), surface.Level, surface.GradientStrength, zeroPoint)));
             }
             finally
             {
@@ -135,6 +153,6 @@ public static class ExpectedSkyFitter
             entries.Add(new ExpectedSkyEntry(group.Key, model, nights));
         }
         entries.Sort((a, b) => b.Model.FrameCount.CompareTo(a.Model.FrameCount));
-        return new ExpectedSkyFitResult([.. entries], files.Count, rows.Count, rejected, twilight, notLights, unmeasured, tooFew);
+        return new ExpectedSkyFitResult([.. entries], files.Count, rows.Count, rejected, twilight, notLights, unmeasured, tooFew, withZeroPoint);
     }
 }
