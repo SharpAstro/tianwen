@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;

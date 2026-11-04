@@ -10,6 +10,7 @@ using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Planetary;

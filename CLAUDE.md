@@ -1368,7 +1368,9 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   (`InfoPanelData.GetStatisticsTable`). The rule is about ROOM (the owner, 2026-09-11), so a verdict on what a section
   reports may sit on its line: the Grade section's verdict (#1951, `VerdictButtons`, once the frame is graded).
 - **A light's grade is its sharpness AND what the sharpness cannot see** (#1951): `LightGrading.Verdict` is the ONE place
-  a grade becomes a colour (the file list's row, the Grade line), capped by the sky's patchiness against the group's
+  a frame is judged, in the LIB (`TianWen.Lib.Imaging.Grading`, #1981) so the stacker and the node read the same verdict, which
+  a caller outside the viewer takes BEFORE background normalization (it erases the night-sky term); only its colours stay in the
+  UI (`LightGradeColours`, the file list's row and the Grade line). The verdict is capped by the sky's patchiness against the group's
   clearest tenth (`Image.SkyPatchiness`: cloud is unevenness LARGER than a tile, which a uniform dimming and the star score
   never show; 1.3x, and only where it is also 1.2x the 20th percentile of the frames within 60 minutes, `LocalCloudFrom`,
   which is what stops a rising target's first hour reading as cloud), by the sky LEVEL against the NIGHT's darkest tenth

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 

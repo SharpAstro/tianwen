@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using DIR.Lib;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Enhancement;

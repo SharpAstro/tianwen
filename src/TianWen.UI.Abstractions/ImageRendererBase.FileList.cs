@@ -8,6 +8,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions.Overlays;
 
@@ -320,7 +321,7 @@ namespace TianWen.UI.Abstractions
                 {
                     // A graded frame's row says how it compares with the best of its group seen so far (LightGrading),
                     // under the selection and the hover, which say something about the row the pointer or the load is on.
-                    highlight = highlight.Bg(LightGrading.RowTint(ViewerTheme.Palette, shownVerdict.Shown));
+                    highlight = highlight.Bg(LightGradeColours.RowTint(ViewerTheme.Palette, shownVerdict.Shown));
                 }
 
                 var row = Layout.Builder.HStack(highlight).PadX(2f)

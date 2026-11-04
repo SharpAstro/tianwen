@@ -8,6 +8,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.UI.Abstractions.Overlays;
@@ -144,7 +145,7 @@ namespace TianWen.UI.Abstractions
                     for (var i = 0; i < readout.Lines.Length; i++)
                     {
                         grade.Add(WrappedText(readout.Lines[i], i == 0 && readout.Shown is { } shown
-                            ? LightGrading.Colour(ViewerTheme.Palette, shown)
+                            ? LightGradeColours.Colour(ViewerTheme.Palette, shown)
                             : body));
                     }
                     if (readout.BestName is { } bestName)

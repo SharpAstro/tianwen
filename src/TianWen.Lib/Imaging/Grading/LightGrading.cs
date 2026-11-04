@@ -2,14 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using DIR.Lib;
-using TianWen.Lib;
 using TianWen.Lib.Astrometry;
-using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using TwilightPeriod = TianWen.Lib.Sequencing.TwilightPeriod;
 
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Imaging.Grading;
 
 /// <summary>
 /// What a grade is measured against: frames of the same field through the same filter, exposure and binning on the
@@ -110,6 +107,9 @@ public readonly record struct LightGradeVerdict(float Relative, float Patchiness
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
 /// a grade of 1 is the best yet, 0.5 a frame scoring half of it. Relative because an absolute score means nothing
 /// across fields, optics and nights, while the question a blink asks is which of THESE subs are the bad ones.
+/// In the Lib so the viewer, the stacker and the node read ONE verdict (#1981); only the palette colours a grade is drawn in
+/// stay with the UI (<c>LightGradeColours</c>). A caller outside the viewer grades a frame BEFORE background normalization,
+/// which erases the night-sky term.
 /// </summary>
 public static class LightGrading
 {
@@ -122,7 +122,7 @@ public static class LightGrading
     /// </summary>
     /// <remarks>
     /// <b>It reads the planes</b> (the sky's patchiness and level), so call it while they are resident: the viewer does, inside
-    /// <see cref="AstroImageDocument.DetectStarsAsync"/>'s <c>whileResident</c>. Called on an evicted image it restores the
+    /// <c>AstroImageDocument.DetectStarsAsync</c>'s <c>whileResident</c>. Called on an evicted image it restores the
     /// planes and leaves them so (<c>DocumentResidencyTests</c>).
     /// </remarks>
     public static LightGrade? Grade(Image image, StarList stars, float? fullScaleAdu = null)
@@ -154,9 +154,9 @@ public static class LightGrading
     // (above): left in each frame's own peak units, two frames of one sky read a different patchiness by their peak ratio.
     /// <summary>
     /// The star-masked sky median in the frame's own counts (ADU): the median itself, not above the frame's darkest pixel, in the
-    /// file's counts. The viewer grades the image <see cref="AstroImageDocument.AdoptImageAsync"/> already scaled to [0, 1] by
+    /// file's counts. The viewer grades the image <c>AstroImageDocument.AdoptImageAsync</c> already scaled to [0, 1] by
     /// the frame's own observed peak, which differs from frame to frame, so <paramref name="fullScaleAdu"/> (the count a sample
-    /// of 1 stood for, <see cref="AstroImageDocument.FullScaleAdu"/>) puts it back; null for an image still in counts or
+    /// of 1 stood for, <c>AstroImageDocument.FullScaleAdu</c>) puts it back; null for an image still in counts or
     /// genuinely on [0, 1]. A mosaic is read at its green photosites, the masked statistics' own convention. NaN without a star mask.
     /// </summary>
     private static float SkyLevelOf(Image image, StarList stars, float? fullScaleAdu)
@@ -688,31 +688,6 @@ public static class LightGrading
     private static Baselines BaselinesOf(ImmutableDictionary<string, LightGrade> grades)
         => _baselines.GetValue(grades, static g => new Baselines(g).Build());
 
-    /// <summary>
-    /// The colour a relative grade reads as, from the palette's own semantic colours: Error below
-    /// <see cref="PoorBelow"/>, Success from <see cref="GoodFrom"/>, Warn between, blended continuously so two frames
-    /// a few percent apart do not jump a band.
-    /// </summary>
-    public static RGBAColor32 Colour(UiPalette palette, float relative)
-    {
-        if (relative <= PoorBelow)
-        {
-            return palette.Error;
-        }
-        if (relative >= GoodFrom)
-        {
-            return palette.Success;
-        }
-
-        var middle = (PoorBelow + GoodFrom) * 0.5f;
-        return relative < middle
-            ? GuiTheme.Mix(palette.Error, palette.Warn, (relative - PoorBelow) / (middle - PoorBelow))
-            : GuiTheme.Mix(palette.Warn, palette.Success, (relative - middle) / (GoodFrom - middle));
-    }
-
-    /// <summary>A row's background for a relative grade: its colour laid over the panel faintly, so the name stays the thing read.</summary>
-    public static RGBAColor32 RowTint(UiPalette palette, float relative) => GuiTheme.Mix(palette.PanelBg, Colour(palette, relative), RowTintShare);
-
     /// <summary>At or below this share of the best, a frame reads as poor.</summary>
     public const float PoorBelow = 0.5f;
 
@@ -749,7 +724,4 @@ public static class LightGrading
 
     /// <summary>From this multiple, the cloud holds the colour at poor.</summary>
     public const float HeavyCloudFrom = 4f;
-
-    /// <summary>How much of the grade colour a row's background takes over the panel.</summary>
-    private const float RowTintShare = 0.35f;
 }

@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Imaging.Grading;
 
 /// <summary>
 /// The clear nights of each rig, kept across folders and runs of the viewer (#1976) so a run that is cloud from first frame to last
