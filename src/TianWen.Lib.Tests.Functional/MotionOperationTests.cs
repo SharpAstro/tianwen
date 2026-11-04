@@ -158,7 +158,10 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
     // The pole of the site's own hemisphere has no right ascension: on a mount that can find home a goto there IS going
     // home. Any other Dec, and the other hemisphere's pole, is an ordinary slew.
-    [Theory(Timeout = 60_000)]
+    // The fake mount slews in real time at 1.5 degrees a second, from its pole: a goto to Dec 40 is 50 degrees, 33 s on an
+    // idle machine, and a runner that skips slew ticks takes far longer (#2000: cancelled at 60 s on CI). So the ceiling is
+    // generous; the test still ends the moment the job does.
+    [Theory(Timeout = 180_000)]
     [InlineData(90.0, 1, "is at home")]
     [InlineData(89.7, 1, "is at home")]
     [InlineData(70.0, 0, null)]
