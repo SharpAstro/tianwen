@@ -3,6 +3,7 @@ using Shouldly;
 using System;
 using System.Linq;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Devices.OpenPHD2;
 using TianWen.Lib.Extensions;
 using Xunit;
