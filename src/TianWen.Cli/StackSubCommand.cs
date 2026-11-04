@@ -28,6 +28,8 @@ internal sealed class StackSubCommand(
     ILogger<StackingPipeline> pipelineLogger,
     ICelestialObjectDB catalogDb,
     TianWen.Lib.Imaging.Enhancement.SharpenPipeline sharpenPipeline,
+    // The data folder the viewer's clear-night references (#1976) are read from, so the stack judges cloud as the viewer does.
+    TianWen.Lib.Devices.IExternal external,
     // Optional: --remove-stars needs it, nothing else does, and a host that registered no AI backend
     // must still be able to run an ordinary stack.
     TianWen.Lib.Imaging.Enhancement.IStarRemover? starRemover = null)
@@ -671,7 +673,8 @@ internal sealed class StackSubCommand(
                 // isolate the body it then subtracts from every frame. Passing it costs nothing when
                 // unused -- the RC-vs-in-house choice and its licence probe are deferred to the first
                 // EnhanceAsync, so merely holding the reference spawns no process.
-                starRemover: options.RemoveStarsPerFrame || options.CometStarLayer ? starRemover : null);
+                starRemover: options.RemoveStarsPerFrame || options.CometStarLayer ? starRemover : null,
+                external: external);
             // The preview PNG + split-plate TIFFs are rendered INSIDE the pipeline
             // (MasterPostProcessor) now, so they share one WB + bg-neut solve and the
             // plates come out colour-matched to the preview. EXR is still written here
