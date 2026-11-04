@@ -88,7 +88,7 @@ internal static class SessionTestHelper
         var external = new FakeExternal(output, timeProvider, callerName: SessionFolderName());
         if (withCatalogStarField)
         {
-            // FakeExternal THROWS from GetCelestialObjectDBAsync unless this is set, and
+            // The provider FakeExternal builds throws when ICelestialObjectDB is resolved unless this is set, and
             // FakeCameraDriver swallows that failure and renders a RANDOM star field instead. A random
             // field cannot plate-solve against a real catalog by construction, so anything that solves
             // needs this. Shared process-wide, so the Tycho-2 bulk load is paid once for the suite.

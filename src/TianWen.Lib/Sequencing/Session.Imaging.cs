@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -6,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
@@ -1787,7 +1789,13 @@ internal partial record Session
             if (!FilterCurveDatabase.IsLoaded)
                 await FilterCurveDatabase.LoadAsync(ct);
 
-            var db = await External.GetCelestialObjectDBAsync(ct);
+            // No catalogue registered: SPCC cannot match stars, the same as a catalogue that failed to load.
+            if (ServiceProvider.GetService<ICelestialObjectDB>() is not { } db)
+            {
+                _logger.LogDebug("SPCC: no catalogue registered; skipping spectrophotometric calibration");
+                return;
+            }
+            await db.InitDBAsync(cancellationToken: ct);
 
             // T_sys keyed on (sensorModel | filterRawName | sensorType)
             var meta = image.ImageMeta;

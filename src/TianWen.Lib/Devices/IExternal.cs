@@ -8,7 +8,6 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.IO;
@@ -34,12 +33,6 @@ public interface IExternal
     /// Folder where profiles are stored
     /// </summary>
     DirectoryInfo ProfileFolder { get; }
-
-    /// <summary>
-    /// Lazily initialized celestial object database. The DB is initialized on first access
-    /// and cached for subsequent calls. Thread-safe.
-    /// </summary>
-    ValueTask<ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically writes to a file by writing to a temporary file first, then renaming.

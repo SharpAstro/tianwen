@@ -45,7 +45,6 @@ public class GeminiFocuserHardwareTests(ITestOutputHelper testOutputHelper)
 
         await using var sp = new ServiceCollection()
             .AddExternal()
-            .AddAstrometry() // External's ctor resolves ICelestialObjectDB; the Gemini driver never touches it.
             .AddLogging(b => b.AddProvider(new XUnitLoggerProvider(testOutputHelper, false)).SetMinimumLevel(LogLevel.Trace))
             .BuildServiceProvider();
 

@@ -35,8 +35,18 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     /// constructed by DI with this same provider, so the camera's
     /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> resolves the very same hub.
     /// </summary>
-    private ServiceProvider BuildHubServiceProvider(FakeExternal external) =>
-        new ServiceCollection()
+    private ServiceProvider BuildHubServiceProvider(FakeExternal external)
+    {
+        var services = new ServiceCollection();
+
+        // The camera takes the catalogue from its service provider (IExternal no longer serves it),
+        // so a test that set one on the FakeExternal registers it here, and one that did not has none.
+        if (external.CelestialObjectDB is { } db)
+        {
+            services.AddSingleton<ICelestialObjectDB>(db);
+        }
+
+        return services
             .AddSingleton<IExternal>(external)
             .AddSingleton<ITimeProvider>(external.TimeProvider)
             // Route driver logs to the test output so the new GuideLoop telemetry is visible
@@ -48,6 +58,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
                 .AddProvider(new XUnitLoggerProvider(output, false)))
             .AddSingleton<IDeviceHub, DeviceHub>()
             .BuildServiceProvider();
+    }
 
     private static async Task<IMountDriver> ConnectMisalignedMountAsync(IDeviceHub hub, CancellationToken ct,
         double azArcmin = TestAzMisalignArcmin, double altArcmin = TestAltMisalignArcmin)

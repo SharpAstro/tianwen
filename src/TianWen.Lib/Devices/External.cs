@@ -16,11 +16,9 @@ namespace TianWen.Lib.Devices;
 internal sealed class External(
     IUtf8TextBasedConnectionFactory textBasedConnectionFactory,
     ILogger<External> logger,
-    Astrometry.Catalogs.ICelestialObjectDB celestialObjectDB,
     ITimeProvider timeProvider
 ) : IExternal, IDisposable, IAsyncDisposable
 {
-    private Task? _dbInitTask;
     private readonly SemaphoreSlim _serialPortEnumerationSemaphore = new SemaphoreSlim(1, 1);
     private readonly ConcurrentDictionary<string, ISerialConnection> _serialConnections = [];
 
@@ -62,17 +60,6 @@ internal sealed class External(
     /// Profiles are shared between every consumer of this library, for ease of use
     /// </summary>
     public DirectoryInfo ProfileFolder { get; } = SharedStaticData.CommonDataRoot.CreateSubdirectory("Profiles");
-
-    public async ValueTask<Astrometry.Catalogs.ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
-    {
-        // Double-checked lazy init: InitDBAsync is idempotent but expensive
-        if (_dbInitTask is null or { IsCompleted: false })
-        {
-            _dbInitTask ??= celestialObjectDB.InitDBAsync(cancellationToken: cancellationToken);
-            await _dbInitTask;
-        }
-        return celestialObjectDB;
-    }
 
     public bool IsSerialPortInUse(string port) => _serialConnections.TryGetValue(port, out var connection) && connection.IsOpen;
 
