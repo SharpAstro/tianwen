@@ -243,6 +243,15 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
         var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
         var renderer = (renderPreviewPng || emitUltraHdr || splitPlates) ? new MasterPreviewRenderer(catalogDb, logger) : null;
+        // The saturation sidecar beside the master (nothing writes one until the stacker counts saturated subs): SPCC's
+        // clip gate reads it, cropped as the master is. Absent, the peak gate stands alone, as before.
+        var saturationMap = master.ChannelCount >= 3
+            ? LoadSaturationMap(masterPath, croppedResult is not null ? autocropRect : null)
+            : null;
+        if (saturationMap is not null)
+        {
+            logger.LogInformation("  [SPCC] saturation map found beside the master; stars touching a saturated pixel are dropped");
+        }
         WCS? croppedWcs = solvedWcs is { } cw && croppedResult is not null
             ? cw with { CRPix1 = cw.CRPix1 - autocropRect.X, CRPix2 = cw.CRPix2 - autocropRect.Y }
             : null;
@@ -261,7 +270,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             enhanced = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
                 croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
-                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, alignment, ct);
+                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, alignment, saturationMap, ct);
             render = enhanced.Value.Render;
         }
         else if (enhance && sharpenPipeline is null)
@@ -293,7 +302,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             render = await RenderPreviewAsync(
                 renderer, master, croppedResult?.Master, refMeta, solvedWcs, croppedWcs,
-                masterPath, autocropRect, previewBoost, outputs, ultraHdrPeakNits, inheritedWhiteBalance, ct);
+                masterPath, autocropRect, previewBoost, outputs, ultraHdrPeakNits, inheritedWhiteBalance, saturationMap, ct);
         }
 
         // 4) Stamp the colour calibration onto every linear master this run produced.
@@ -527,6 +536,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         float ultraHdrPeakNits,
         ColourCalibration? inheritedWhiteBalance,
         AlignmentProvenance? alignment,
+        Image? saturationMap,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -570,7 +580,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             else
             {
                 solve = await (renderer ?? new MasterPreviewRenderer(catalogDb, logger)).SolveWhiteBalanceAsync(
-                    croppedResult?.Master ?? master.Master, croppedResult is not null ? croppedWcs : solvedWcs, refMeta, ct);
+                    croppedResult?.Master ?? master.Master, croppedResult is not null ? croppedWcs : solvedWcs, refMeta, ct, saturationMap);
                 toApply = solve.ToApply;
             }
             if (toApply is { } applying)
@@ -731,6 +741,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         WCS? fullWcs, WCS? cropWcs, string masterPath, PixelRect autocropRect,
         MaskedBoostOptions? previewBoost, MasterRenderOutputs outputs, float ultraHdrPeakNits,
         ColourCalibration? inheritedWhiteBalance,
+        Image? saturationMap,
         CancellationToken ct)
     {
         var previewImg = cropMaster ?? fullMaster;
@@ -747,7 +758,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var render = await renderer.RenderAsync(
             previewImg, sensorMeta, previewWcs, statsSource: previewImg, pngPath, statsWcs: previewWcs,
             peakNits: ultraHdrPeakNits, whiteBalanceOverride: inheritedWhiteBalance is { } inh ? (inh.R, inh.G, inh.B) : null,
-            maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
+            maskedBoost: previewBoost, ultraHdrPath: uhdrPath, saturationMap: saturationMap, ct: ct);
         return render;
     }
 
@@ -769,6 +780,18 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             if (doCrop) src.Release(); // CropImage allocated a copy; the original plate is released by the caller
         }
+    }
+
+    /// <summary>The saturation sidecar beside <paramref name="masterPath"/>, cropped to <paramref name="crop"/> when the
+    /// SPCC solve runs on the autocrop; null when the master has none (the peak gate then stands alone) or its size is not
+    /// the master's.</summary>
+    internal static Image? LoadSaturationMap(string masterPath, PixelRect? crop)
+    {
+        if (!IntegrationFitsWriter.TryReadSaturationMap(masterPath, out var full))
+        {
+            return null;
+        }
+        return crop is { } rect ? CropImage(full, rect) : full;
     }
 
     private static IntegrationResult CropIntegrationResult(IntegrationResult full, PixelRect rect)

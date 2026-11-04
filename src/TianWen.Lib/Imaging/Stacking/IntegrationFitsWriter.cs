@@ -77,6 +77,14 @@ public static class IntegrationFitsWriter
     /// <summary>Per-pixel "do not trust this photosite": what a bad pixel map holds.</summary>
     public const string BadPixelMapKind = "BADPIXEL";
 
+    /// <summary>Suffix of the saturation sidecar: per master pixel, how many contributing frames had that
+    /// photosite at the ADC ceiling, on the MASTER's geometry. SPCC's clip gate reads it, since a star saturated in
+    /// the subs can sit well below the master's peak once the stack has smeared it.</summary>
+    public const string SaturationMapSuffix = ".saturation.fits";
+
+    /// <summary>Per-pixel count of frames whose photosite was saturated.</summary>
+    public const string SaturationMapKind = "SATURATION";
+
     /// <summary>Suffix of the standard-error sidecar (<see cref="IntegrationResult.StandardError"/>), on the master's
     /// stem like the others.</summary>
     public const string StandardErrorMapSuffix = ".stderr.fits";
@@ -652,7 +660,44 @@ public static class IntegrationFitsWriter
         return name.EndsWith(RejectionMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(CoverageMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(BadPixelMapSuffix, StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(SaturationMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(StandardErrorMapSuffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The saturation sibling of a master: the stem plus <see cref="SaturationMapSuffix"/>.</summary>
+    public static string SaturationPathFor(string masterPath) => SiblingPath(masterPath, SaturationMapSuffix);
+
+    /// <summary>
+    /// Writes the per-pixel saturated-frame count beside a master, at the master's path plus
+    /// <see cref="SaturationMapSuffix"/>. The values are whole counts, so <see cref="MapStorage"/> keeps unit steps
+    /// and they read back exactly. It must be on the master's own geometry.
+    /// </summary>
+    public static void WriteSaturationMap(string masterPath, Image saturation, int frameCount, IntegrationStrategyKind? strategy = null)
+    {
+        var extras = new Dictionary<string, (object Value, string Comment)>
+        {
+            ["STACK_N"] = (frameCount, "Frames the saturation was counted over"),
+            ["SWCREATE"] = (SoftwareCreator, "Software that created this saturation map"),
+            ["IMAGETYP"] = ("SATURATION", "Per-pixel count of frames saturated at the ADC ceiling"),
+            [MapKindCard] = (SaturationMapKind, "Frames whose photosite was saturated; nonzero means a clipped star"),
+        };
+        if (strategy is { } s)
+        {
+            extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
+        WriteMapSidecar(SaturationPathFor(masterPath), saturation, extras);
+    }
+
+    /// <summary>
+    /// Loads the saturation map beside <paramref name="masterPath"/>. False where there is none (every master written
+    /// before it existed) or it cannot be read.
+    /// </summary>
+    public static bool TryReadSaturationMap(string masterPath, [NotNullWhen(true)] out Image? saturation)
+    {
+        saturation = null;
+        return !string.IsNullOrEmpty(masterPath)
+            && ExistingSidecarPath(SaturationPathFor(masterPath)) is { } path
+            && Image.TryReadFitsFile(path, out saturation);
     }
 
     /// <summary>The standard-error sibling of a master: the stem plus <see cref="StandardErrorMapSuffix"/>.</summary>
