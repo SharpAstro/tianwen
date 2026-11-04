@@ -26,7 +26,10 @@ namespace TianWen.Lib.Tests.Functional;
 public class NodeRunsProcessTests(ITestOutputHelper output)
 {
     /// <summary>Long enough for a window to come back inside it, short enough to wait out.</summary>
-    private static readonly TimeSpan Grace = TimeSpan.FromSeconds(5);
+    // Long enough that a second window, which has to connect and then beat before the node counts it, still comes back
+    // WITHIN it on a loaded 2-core runner (#2000: at 5 s the run was stopped before the window was counted, and the test
+    // read "a client came back within the grace" off a run that had ended). Every wait on it is a condition wait.
+    private static readonly TimeSpan Grace = TimeSpan.FromSeconds(15);
     private static readonly Guid ProfileId = Guid.Parse("7e57ab1e-0b0e-4e5d-9a5e-000000000934");
     private static readonly Uri Mount = new Uri("Mount://FakeDevice/FakeMount1?latitude=48.2&longitude=16.3");
     private static readonly Uri Camera = new Uri("Camera://FakeDevice/FakeCamera1");
