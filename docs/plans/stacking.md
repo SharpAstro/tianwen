@@ -432,7 +432,9 @@ other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nig
 references from the viewer's store (`LightGradeReferenceStore`, `Viewer/clear-sky.json`) and passes them to `CloudRejection`, so
 a run cloudy from first light to last (07-06) can be judged against them; with none on file it judges on the group's own baselines.
 **The grade's sky LEVEL is the raw light's** (`LightGrading.RawSkyLevel`, read before `Calibrator.Apply` consumes the frame,
-#2003), the scale the viewer's references and `NightSkyCloudFrom` were measured on; patchiness stays the calibrated frame's. Read on
+#2003), the scale the viewer's references and `NightSkyCloudFrom` were measured on. Patchiness stays the calibrated frame's (the MAD of its
+tile medians about a fitted surface, in counts, so a dark offset leaves it alone and a flat rescales it); on the reference path it is
+compared with the viewer's patchiness of RAW frames, and that scale has not been measured through the stacker either (#2005). Read on
 the calibrated frame, the level was off by what calibration subtracts (2026-09-10 with its matching dark: raw 3300 against 1996 at
 the darkest, 1.65x), so a ratio against the darkest read high (the BAD_ frame at 01:24: 1.64x raw, 2.05x calibrated; 1.8 calibrated
 is about 1.48x raw on that rig, and nearer 1.0x the closer a rig's sky sits to its dark) and one against a reference read low (a
