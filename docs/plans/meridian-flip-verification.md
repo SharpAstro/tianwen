@@ -204,7 +204,7 @@ the printed precision. **It was never the metadata, the projection, or the solve
 
 Two real causes, both in the test harness:
 
-1. **`FakeExternal.GetCelestialObjectDBAsync` throws unless `CelestialObjectDB` is set**, and
+1. **The `ICelestialObjectDB` that `FakeExternal.BuildServiceProvider` registers throws unless `FakeExternal.CelestialObjectDB` is set** (it was `FakeExternal.GetCelestialObjectDBAsync` until #1985 took the catalogue off `IExternal`), and
    `SessionTestHelper` never set it. `FakeCameraDriver` catches that, logs at Debug, and renders a
    **random star field** -- whose ~50 stars are the "43 detected" that was read as a density
    measurement. A random field cannot solve against a real catalog by construction.

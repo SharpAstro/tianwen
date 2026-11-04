@@ -1047,10 +1047,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         // Fake-only: the synthetic-star renderer needs the celestial catalog to
         // project real stars at the target, so the (real) plate solver in a
         // centering / focus / guider loop can match the rendered frame. Resolve
-        // it lazily from the same DI-provided IExternal the rest of the app uses
+        // it lazily from the same DI container the rest of the app uses
         // -- the session / shared layer stays unaware of this fake-only need.
-        // GetCelestialObjectDBAsync performs the (idempotent) DB init, so by the
-        // time StopExposureCore renders, the catalog is loaded. Explicit test
+        // InitDBAsync is idempotent and serialised, so by the
+        // time StopExposureCore renders, the catalog is loaded. A host that
+        // registered no catalogue leaves it unavailable. Explicit test
         // wiring of CelestialObjectDB short-circuits this; on failure the synth
         // falls back to a random star field (the prior behaviour).
         // Claim the resolve atomically: only the caller that flips the gate 0 -> 1
@@ -1061,8 +1062,16 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         {
             try
             {
-                CelestialObjectDB = await External.GetCelestialObjectDBAsync(cancellationToken).ConfigureAwait(false);
-                // Success: leave the gate claimed (1) -- never re-attempt.
+                if (ServiceProvider.GetService<Astrometry.Catalogs.ICelestialObjectDB>() is { } db)
+                {
+                    await db.InitDBAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+                    CelestialObjectDB = db;
+                }
+                else
+                {
+                    Logger.LogWarning("FakeCamera: no catalog DB registered; synthetic frames will use a RANDOM star field, which cannot plate-solve");
+                }
+                // Success or nothing registered: leave the gate claimed (1) -- never re-attempt.
             }
             catch (OperationCanceledException)
             {
