@@ -175,6 +175,23 @@ public static class LightGrading
     }
 
     /// <summary>
+    /// The sky level of a RAW light in its own counts, for a caller that grades the frame after calibration (the stacker, #2003): the
+    /// viewer grades the raw file, records its clear-night references from raw frames, and <see cref="NightSkyCloudFrom"/> was measured
+    /// on raw levels, while a calibrated sky has the bias and dark taken out (2026-09-10, QHY294C, 60 s: 3300 raw against 1996
+    /// calibrated at the night's darkest), which would read every ratio against the darkest high and every ratio against a reference
+    /// low. Read before calibration, which consumes the frame, so before its stars are known: the median over the whole frame (the
+    /// green photosites of a mosaic), which a field's stars move little, beside the viewer's star-masked one.
+    /// </summary>
+    public static float RawSkyLevel(Image raw)
+    {
+        var (_, median, _) = raw.IsCfaMosaic
+            ? raw.GetPedestralMedianAndMADScaledToUnit(0, cfa: CfaChannel.Green)
+            : raw.GetPedestralMedianAndMADScaledToUnit(raw.ReferenceStarChannel);
+        var divisor = raw.HasUnitScalePeak ? 1f : raw.MaxValue;
+        return median * divisor + raw.MinValue;
+    }
+
+    /// <summary>
     /// Whether the header names a site: a finite latitude and longitude that are not both exactly 0, which is what a capture
     /// profile with no site set writes. Read as unknown like NaN, since nothing else lies at (0, 0) and every frame of a night
     /// far from it would read as taken in twilight.

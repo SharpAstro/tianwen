@@ -431,10 +431,16 @@ E:/Captures nights read the same through the stacker as through the viewer. Two 
 other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nights. The stacker reads the rig's clear-night
 references from the viewer's store (`LightGradeReferenceStore`, `Viewer/clear-sky.json`) and passes them to `CloudRejection`, so
 a run cloudy from first light to last (07-06) can be judged against them; with none on file it judges on the group's own baselines.
-**That check is not yet the viewer's on real data (#2003):** the viewer records a reference from RAW lights and the stacker grades
-CALIBRATED ones, so its sky level reads low against a reference (2026-09-10 with its matching dark: raw 3300 against calibrated
-1996 at the darkest, 1.65x), and a cloudy-throughout run needs about 3x rather than 1.8x to be called cloud. No real night has
-engaged the reference path through the stacker yet. Patchiness is floored per rig within a group. It says
+**The grade's sky LEVEL is the raw light's** (`LightGrading.RawSkyLevel`, read before `Calibrator.Apply` consumes the frame,
+#2003), the scale the viewer's references and `NightSkyCloudFrom` were measured on; patchiness stays the calibrated frame's. Read on
+the calibrated frame, the level was off by what calibration subtracts (2026-09-10 with its matching dark: raw 3300 against 1996 at
+the darkest, 1.65x), so a ratio against the darkest read high (the BAD_ frame at 01:24: 1.64x raw, 2.05x calibrated; 1.8 calibrated
+is about 1.48x raw on that rig, and nearer 1.0x the closer a rig's sky sits to its dark) and one against a reference read low (a
+cloudy-throughout run needed about 3x). Re-read through the stacker with the raw level, both labelled nights give the same result
+(09-10: 169 of 181 agree, 09-12: 321 of 325, the same frames left out), but neither night can tell the scales apart: the six
+09-10 frames between 1.48x and 1.8x raw are all left out by the star-quality filter or by patchiness either way. The level is the
+whole frame's median (a mosaic's green photosites), since the stars are found only after calibration, against the viewer's
+star-masked one. No real night has engaged the reference path through the stacker yet (07-06 is still unread). Patchiness is floored per rig within a group. It says
 why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
 
 **First read through the stacker (2026-11-04, `--reject-cloud`, step 2 of #1981).** The night was 2026-09-10 (QHY294C, Helix, 220
