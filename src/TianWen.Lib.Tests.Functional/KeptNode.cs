@@ -20,7 +20,11 @@ namespace TianWen.Lib.Tests.Functional;
 /// </summary>
 internal sealed class KeptNode : IAsyncDisposable
 {
-    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// Dispose has no test token, so its wait for a stopping keeper stays bounded here; past it the whole tree is killed.
+    /// Generous for a loaded runner, and it only ever runs after the test itself has finished.
+    /// </summary>
+    private static readonly TimeSpan DisposeBudget = TimeSpan.FromSeconds(60);
 
     private readonly HttpClient _http;
 
@@ -33,8 +37,8 @@ internal sealed class KeptNode : IAsyncDisposable
         SocketPath = socketPath;
         DataRoot = dataRoot;
         _folders = folders;
-        _http = NodeTransport.OverSocket(socketPath).CreateHttpClient();
-        Client = new TianWenNodeClient(_http);
+        _http = NodeTestClients.Create(NodeTransport.OverSocket(socketPath));
+        Client = NodeTestClients.ClientOf(_http);
     }
 
     public Process Keeper { get; }
@@ -155,26 +159,26 @@ internal sealed class KeptNode : IAsyncDisposable
     /// restarted, does not answer at all for a moment.</summary>
     public async Task<NodeInfoDto> WaitForNodeAsync(Func<NodeInfoDto, bool> until, CancellationToken cancellationToken)
     {
-        var deadline = Stopwatch.StartNew();
-        while (deadline.Elapsed < Budget)
+        var clock = Stopwatch.StartNew();
+        // Bounded by the test's own timeout (NodeWait), not a budget of its own.
+        var info = await NodeWait.UntilAsync<NodeInfoDto>($"a node to answer on {SocketPath}", async token =>
         {
             if (Keeper.HasExited)
             {
                 throw new InvalidOperationException($"The keeper exited with {Keeper.ExitCode} while the test waited for its node");
             }
-            if ((await Client.GetNodeAsync(cancellationToken)).Value is { } info && until(info))
-            {
-                return info;
-            }
-            await Task.Delay(100, cancellationToken);
-        }
-        throw new TimeoutException($"No node answered as expected on {SocketPath} within {Budget}");
+            var node = (await Client.GetNodeAsync(token)).Value;
+            return (node is not null && until(node) ? node : null, node is null ? "no answer" : "answered, not as expected");
+        }, cancellationToken);
+        TestContext.Current.TestOutputHelper?.WriteLine($"{DateTime.Now:HH:mm:ss.fff} node on {SocketPath} answered as expected after {clock.ElapsedMilliseconds} ms");
+        return info;
     }
 
     /// <summary>The keeper's exit code, once it has ended.</summary>
     public async Task<int> KeeperExitAsync(CancellationToken cancellationToken)
     {
-        await Keeper.WaitForExitAsync(cancellationToken).WaitAsync(Budget, cancellationToken);
+        // Bounded by the test's own timeout through its token.
+        await Keeper.WaitForExitAsync(cancellationToken);
         return Keeper.ExitCode;
     }
 
@@ -186,7 +190,7 @@ internal sealed class KeptNode : IAsyncDisposable
             {
                 // The node's own safe stop, which ends the keeper too.
                 await _http.PostAsync("api/v1/node/shutdown", content: null);
-                await Keeper.WaitForExitAsync().WaitAsync(Budget);
+                await Keeper.WaitForExitAsync().WaitAsync(DisposeBudget);
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or IOException)

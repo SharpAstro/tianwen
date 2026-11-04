@@ -39,7 +39,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
             onItsSocket: onItsSocket);
         await node.ActivateRigAsync(Camera, mount: null, ct);
         var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
-        (await new TianWenNodeClient(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
         return (node, window);
     }
 
@@ -200,7 +200,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         var ct = TestContext.Current.CancellationToken;
         var node = await NodeHarness.StartAsync(outputHelper, ct);
         await node.ActivateRigAsync(Camera, mount: null, ct);
-        (await new TianWenNodeClient(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
         await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, SystemTimeProvider.Instance, ct);
         await ReadAsync(stream, new FrameReader(), (640, 320, 1), ct);
 

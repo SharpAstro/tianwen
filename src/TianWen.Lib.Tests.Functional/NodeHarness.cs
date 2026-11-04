@@ -37,7 +37,7 @@ internal sealed class NodeHarness : IAsyncDisposable
     {
         App = app;
         Transport = transport;
-        Client = transport.CreateHttpClient();
+        Client = NodeTestClients.Create(transport);
         Factory = factory;
         External = external;
         _held = held;
@@ -93,6 +93,7 @@ internal sealed class NodeHarness : IAsyncDisposable
     private static async Task<NodeHarness> StartAsync(ITestOutputHelper outputHelper, Action<IServiceCollection>? configure,
         string? socketPath, TempFolders folders, CancellationToken cancellationToken)
     {
+        var startClock = System.Diagnostics.Stopwatch.StartNew();
         var builder = WebApplication.CreateBuilder();
         NodeLock? held = null;
         if (socketPath is null)
@@ -156,7 +157,20 @@ internal sealed class NodeHarness : IAsyncDisposable
         var transport = held is not null
             ? NodeTransport.OverSocket(held.SocketPath)
             : NodeTransport.OverTcp(new Uri(app.Urls.First()), await NodeAccessForTests.TrustTheTestAsync(app, cancellationToken));
-        return new NodeHarness(app, transport, factory, external, held, folders);
+        var harness = new NodeHarness(app, transport, factory, external, held, folders);
+        // How long the node took to come up and answer its first request, so a slow CI start shows in the output.
+        var hostedMs = startClock.ElapsedMilliseconds;
+        try
+        {
+            using var first = await harness.Client.GetAsync("api/v1/node", cancellationToken);
+            outputHelper.WriteLine($"{DateTime.Now:HH:mm:ss.fff} node started in {hostedMs} ms, first request answered {(int)first.StatusCode} after {startClock.ElapsedMilliseconds} ms in all");
+        }
+        catch
+        {
+            await harness.DisposeAsync();
+            throw;
+        }
+        return harness;
     }
 
     /// <summary>
@@ -212,11 +226,8 @@ internal sealed class NodeHarness : IAsyncDisposable
     /// <summary>The node's run task completes a moment after the session's own run returns.</summary>
     public async Task UntilTheNodeIsIdleAsync(CancellationToken ct)
     {
-        for (var i = 0; i < 100 && Node.IsRunning; i++)
-        {
-            await Task.Delay(20, ct);
-        }
-        Node.IsRunning.ShouldBeFalse();
+        // Bounded by the test's own timeout, as every wait here is (NodeWait).
+        await NodeWait.UntilAsync("the node's run task to complete", _ => ValueTask.FromResult((!Node.IsRunning, Node.IsRunning ? "still running" : "idle")), ct);
     }
 
     public async ValueTask DisposeAsync()
