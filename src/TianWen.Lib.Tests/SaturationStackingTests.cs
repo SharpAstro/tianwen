@@ -22,8 +22,7 @@ public class SaturationStackingTests(ITestOutputHelper output)
     private const int BlobY = 150;
 
     /// <summary>The fixture's lights, with a star at (BlobX, BlobY) (moved by each frame's dither) clipped at the ceiling
-    /// when <paramref name="clip"/>. The ceiling sits above anything the fixture renders (4096 + the pedestal), so only
-    /// the blob can reach it.</summary>
+    /// when <paramref name="clip"/>. Every other photosite is held just under the ceiling, so only the blob reaches it.</summary>
     private static void WriteLights(string lightsDir, bool clip)
     {
         for (var i = 0; i < RgbBayerSyntheticFixture.LightCount; i++)
@@ -35,6 +34,15 @@ public class SaturationStackingTests(ITestOutputHelper output)
                 starCount: RgbBayerSyntheticFixture.StarCount, seed: 1337, hotPixelCount: 0, maxADU: 4096.0,
                 noiseSeed: 1337 + i);
             var bayered = RgbBayerSyntheticFixture.BuildBayerMosaic(mono, RgbBayerSyntheticFixture.DarkLevel);
+            // The renderer does not clamp star peaks (maxADU only sets hot pixels), so bring every photosite
+            // under the ceiling: only the blob below may reach it.
+            for (var y = 0; y < bayered.GetLength(0); y++)
+            {
+                for (var x = 0; x < bayered.GetLength(1); x++)
+                {
+                    bayered[y, x] = Math.Min(bayered[y, x], Ceiling - 1f);
+                }
+            }
             if (clip)
             {
                 var cx = (int)Math.Round(BlobX + dx);
