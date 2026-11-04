@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
