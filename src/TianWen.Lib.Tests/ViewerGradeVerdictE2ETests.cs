@@ -107,6 +107,37 @@ public class ViewerGradeVerdictE2ETests
         PaintedStripText(e2e).ShouldContain("Folder: 1 rejected, 2 unmarked");
     }
 
+    /// <summary>
+    /// #1974: the open frame carries a thin veil against its folder's own night (the stored models none), and the Grade section says
+    /// Cloud with the expected-sky words, naming where the clear sky came from.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AThinVeilIsSaidInTheGradeSectionAgainstTheFoldersOwnNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(1f);
+        var path = e2e.WriteColourFits("light_0200.fits", level: 3f);
+        await e2e.OpenAsync(path, ct);
+
+        // The folder's night, 300 synthetic frames, the open one (285) in the middle of the veil.
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        for (var i = 0; i < 300; i++)
+        {
+            if (i == 285)
+            {
+                continue;
+            }
+            e2e.State.RecordFrameGrade(Path.Combine(Path.GetDirectoryName(path)!, $"light_{i:0000}.fits"), night[i]);
+        }
+        e2e.State.RecordFrameGrade(path, night[285]);
+        e2e.State.ExpectedSky = [];
+        e2e.Frame();
+
+        var verdict = LightGrading.Verdict(e2e.State.FrameGrades, night[285], e2e.State.GradeReferences, e2e.State.ExpectedSky);
+        verdict.Causes.HasFlag(GradeCause.Cloud).ShouldBeTrue("the veiled last frame reads as cloud");
+        PaintedStripText(e2e).ShouldContain("sigma brighter");
+    }
+
     /// <summary>The info strip's painted words in reading order, joined by spaces: what the strip says, read off the captured layout.</summary>
     private static string PaintedStripText(ViewerE2E e2e)
     {

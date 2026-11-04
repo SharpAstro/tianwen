@@ -57,9 +57,19 @@ public readonly record struct LightGradeKey(
 /// offset, instrument and telescope), which the star-score group (<see cref="Key"/>) does not carry: the night's darkest is read
 /// per rig, so two rigs or two gains of one night are never compared with each other.
 /// </summary>
+/// <remarks>
+/// <see cref="Surface"/> is the sky's fitted surface in the frame's counts (<see cref="Image.SkySurface"/>, scaled as the sky level
+/// is) and <see cref="Covariates"/> where the frame pointed (<see cref="SkyCovariates.From"/>), which the expected sky
+/// (<see cref="ExpectedSkyModel"/>) reads a veil against (#1974). A default surface has a level of 0, which reads as unread.
+/// </remarks>
 public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN,
     TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default, string Rig = "",
-    double SiteLatitude = double.NaN, double SiteLongitude = double.NaN);
+    double SiteLatitude = double.NaN, double SiteLongitude = double.NaN, SkySurface Surface = default, SkyCovariates Covariates = default)
+{
+    /// <summary>Whether the sky's level and gradient were read, which the expected sky needs.</summary>
+    internal bool SurfaceRead => Surface.Level > 0f && Surface.GradientStrength > 0f
+        && float.IsFinite(Surface.Level) && float.IsFinite(Surface.GradientStrength) && double.IsFinite(Covariates.Airmass);
+}
 
 /// <summary>What a rig's clearest tenth of patchiness read on one clear night, for one object.</summary>
 public readonly record struct LightGradeObjectClearest(string ObjectKey, float Clearest);
@@ -100,8 +110,19 @@ public enum GradeCause
 /// the cloud was judged against because the run's own baselines were implausible (default when they were its own), and
 /// <see cref="CloudUnjudged"/> says references were asked and the rig has none, so cloud cannot be judged (the colour is unchanged).
 /// </summary>
+/// <remarks>
+/// <see cref="LevelSigma"/> and <see cref="GradientSigma"/> are the frame's sky level and gradient strength above the expected sky
+/// for where it pointed, in units of that model's clear scatter (NaN where unread or with no model); at
+/// <see cref="LightGrading.ExpectedSkyCloudFrom"/> summed the frame is Cloud. <see cref="ExpectedFromStore"/> says whether the model was
+/// the site's stored one (true) or the night's own frames fitted (false).
+/// </remarks>
 public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN,
-    float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false);
+    float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false,
+    float LevelSigma = float.NaN, float GradientSigma = float.NaN, bool ExpectedFromStore = false)
+{
+    /// <summary>The summed level and gradient excess over the expected sky, NaN where either is unread.</summary>
+    public float ExpectedSkySigma => LevelSigma + GradientSigma;
+}
 
 /// <summary>
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
@@ -145,9 +166,15 @@ public static class LightGrading
         {
             return null;
         }
-        return new LightGrade(LightGradeKey.Of(image), metrics, score, image.SkyPatchiness(image.ReferenceStarChannel) * (fullScaleAdu ?? 1f), twilight,
+        // One pass over the tiles gives the patchiness and the level and gradient the expected sky reads; all three are put into counts
+        // by the one scale.
+        var read = image.SkySurface(image.ReferenceStarChannel);
+        var scale = fullScaleAdu ?? 1f;
+        var surface = new SkySurface(read.Level * scale, read.GradientStrength * scale, read.GradientAngleDeg, read.Patchiness * scale);
+        return new LightGrade(LightGradeKey.Of(image), metrics, score, surface.Patchiness, twilight,
             SkyLevelOf(image, stars, fullScaleAdu), NightOf(meta), meta.ExposureStartTime, RigOf(meta),
-            SiteKnown(meta) ? RoundSite(meta.Latitude) : double.NaN, SiteKnown(meta) ? RoundSite(meta.Longitude) : double.NaN);
+            SiteKnown(meta) ? RoundSite(meta.Latitude) : double.NaN, SiteKnown(meta) ? RoundSite(meta.Longitude) : double.NaN,
+            surface, SkyCovariates.From(meta));
     }
 
     // The patchiness is read in the plane's own value space, so it is put back into counts by the same scale as the sky level
@@ -216,7 +243,7 @@ public static class LightGrading
     /// file list's row and the panel's line alike.
     /// </summary>
     public static LightGradeVerdict Verdict(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade,
-        ImmutableArray<LightGradeReference> references = default)
+        ImmutableArray<LightGradeReference> references = default, ImmutableArray<ExpectedSkyEntry> expectedSky = default)
     {
         var relative = Relative(grades, grade);
         var patchiness = RelativePatchiness(grades, grade);
@@ -226,6 +253,7 @@ public static class LightGrading
         var nightSky = RelativeNightSky(grades, grade);
         DateOnly referenceNight = default;
         var unjudged = false;
+        var (levelSigma, gradientSigma, fromStore) = ExpectedSkyExcess(grades, grade, expectedSky);
         if (!references.IsDefault && grade.Twilight is null)
         {
             (patchiness, local, nightSky, referenceNight, unjudged) = AgainstReferences(grades, grade, references, patchiness, local, nightSky);
@@ -249,8 +277,53 @@ public static class LightGrading
                 causes |= GradeCause.Cloud;
                 shown = MathF.Min(shown, PoorBelow);
             }
+            if (levelSigma + gradientSigma >= ExpectedSkyCloudFrom)
+            {
+                causes |= GradeCause.Cloud;
+                shown = MathF.Min(shown, PoorBelow);
+            }
         }
-        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local, referenceNight, unjudged);
+        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local, referenceNight, unjudged,
+            levelSigma, gradientSigma, fromStore);
+    }
+
+    /// <summary>
+    /// A frame's sky against the expected sky for where it pointed (#1974): the site's stored model for the frame's rig when
+    /// <paramref name="stored"/> has one, else one fitted robustly from the frames of its night, rig and object (see
+    /// <see cref="SelfFitMinFrames"/>), else none, which reads NaN. A twilight frame is never judged.
+    /// </summary>
+    private static (float LevelSigma, float GradientSigma, bool FromStore) ExpectedSkyExcess(
+        ImmutableDictionary<string, LightGrade> grades, in LightGrade grade, ImmutableArray<ExpectedSkyEntry> stored)
+    {
+        if (grade.Twilight is not null || !grade.SurfaceRead)
+        {
+            return (float.NaN, float.NaN, false);
+        }
+        ExpectedSkyModel? model = null;
+        var fromStore = false;
+        if (!stored.IsDefaultOrEmpty && double.IsFinite(grade.SiteLatitude) && double.IsFinite(grade.SiteLongitude))
+        {
+            var key = new ExpectedSkyKey(grade.SiteLatitude, grade.SiteLongitude, grade.Rig, grade.Key.SensorType, grade.Key.FilterKey,
+                grade.Key.ExposureMs, grade.Key.Bin);
+            if (ExpectedSkyStore.Find(stored, key) is { } entry)
+            {
+                model = entry.Model;
+                fromStore = true;
+            }
+        }
+        if (model is null && grade.Night != default)
+        {
+            model = BaselinesOf(grades).SelfFit.TryGetValue(new ObjectNight(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night),
+                grade.Key.ObjectKey), out var lazy) ? lazy.Value : null;
+        }
+        if (model is null)
+        {
+            return (float.NaN, float.NaN, false);
+        }
+        var excess = model.Excess(grade.Covariates, grade.Surface.Level, grade.Surface.GradientStrength);
+        return (float.IsFinite((float)excess.LevelSigma) && float.IsFinite((float)excess.GradientSigma)
+            ? ((float)excess.LevelSigma, (float)excess.GradientSigma, fromStore)
+            : (float.NaN, float.NaN, false));
     }
 
     /// <summary>
@@ -448,6 +521,12 @@ public static class LightGrading
     {
         var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
         var bright = verdict.NightSky >= NightSkyCloudFrom;
+        if (!patchy && !bright && verdict.ExpectedSkySigma >= ExpectedSkyCloudFrom)
+        {
+            var against = verdict.ExpectedFromStore ? "as this site's stored model expects it" : "as this night's own frames expect it";
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Cloud: the sky is {verdict.LevelSigma:0.0} sigma brighter and {verdict.GradientSigma:0.0} sigma more graded than this pointing's clear sky, {against}");
+        }
         var words = (patchy, bright) switch
         {
             (true, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
@@ -534,6 +613,8 @@ public static class LightGrading
 
     private readonly record struct TimedGroup(RigGroup Group, DateTimeOffset Taken);
 
+    private readonly record struct ObjectNight(NightGroup Night, string ObjectKey);
+
     /// <summary>
     /// What every verdict of one grade table is read against: each group's best score and clearest patchiness, each night's
     /// darkest sky, each frame's local patchiness floor. Built in one pass over the table, ONCE per snapshot (<see cref="BaselinesOf"/>), so a verdict is a lookup and a
@@ -546,8 +627,16 @@ public static class LightGrading
         public Dictionary<NightGroup, float> NightDarkest { get; } = [];
         public Dictionary<TimedGroup, float> LocalFloor { get; } = [];
 
+        /// <summary>
+        /// The expected sky of each night, rig and OBJECT, fitted from the non-twilight frames that read a sky surface, on first use
+        /// (a verdict of a frame with a stored model never pays for it). Per object because a target's own nebula or galaxy moves its
+        /// sky level for the whole night, which would otherwise read as veil against the night's other targets.
+        /// </summary>
+        public Dictionary<ObjectNight, Lazy<ExpectedSkyModel?>> SelfFit { get; } = [];
+
         public Baselines Build()
         {
+            Dictionary<ObjectNight, List<(DateTimeOffset Taken, SkySample Sample)>> samples = [];
             Dictionary<RigGroup, List<float>> patchiness = [];
             Dictionary<NightGroup, List<float>> sky = [];
             Dictionary<RigGroup, List<(DateTimeOffset Taken, float Patchiness)>> timed = [];
@@ -572,6 +661,21 @@ public static class LightGrading
                 if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f && grade.Night != default)
                 {
                     Add(sky, new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night), grade.SkyLevel);
+                }
+                if (grade.Night != default && grade.SurfaceRead)
+                {
+                    Add(samples, new ObjectNight(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night), grade.Key.ObjectKey),
+                        (grade.Taken, new SkySample(grade.Covariates, grade.Surface.Level, grade.Surface.GradientStrength)));
+                }
+            }
+            foreach (var (key, list) in samples)
+            {
+                if (list.Count >= SelfFitMinFrames && AirmassSpan(list) >= SelfFitMinAirmassSpan)
+                {
+                    // In time order, never the table's own (a string-hashed dictionary enumerates differently per process), so the fit is repeatable.
+                    list.Sort(static (a, b) => a.Taken.CompareTo(b.Taken));
+                    var ordered = list.ConvertAll(static t => t.Sample);
+                    SelfFit[key] = new Lazy<ExpectedSkyModel?>(() => ExpectedSkyModel.Fit(ordered));
                 }
             }
             foreach (var (key, values) in patchiness)
@@ -665,6 +769,17 @@ public static class LightGrading
             return lo;
         }
 
+        private static double AirmassSpan(List<(DateTimeOffset Taken, SkySample Sample)> list)
+        {
+            double lo = double.MaxValue, hi = double.MinValue;
+            foreach (var s in list)
+            {
+                lo = Math.Min(lo, s.Sample.Covariates.Airmass);
+                hi = Math.Max(hi, s.Sample.Covariates.Airmass);
+            }
+            return hi - lo;
+        }
+
         private static void Add<TKey, TValue>(Dictionary<TKey, List<TValue>> into, TKey key, TValue value) where TKey : notnull
         {
             if (!into.TryGetValue(key, out var list))
@@ -718,6 +833,19 @@ public static class LightGrading
     /// to 0, 9, 4 and 0 (09-10: 72 to 9 on the shipping grade), for 40 of 44 catches kept on 09-10 and 3 of 52 lost on 07-06, where 1.15 left 50 flagged on 09-10.
     /// </summary>
     public const float LocalCloudFrom = 1.2f;
+
+    /// <summary>
+    /// From this many sigma of summed level and gradient excess over the expected sky (<see cref="ExpectedSkyModel.Excess"/>), a frame
+    /// reads as cloud and its colour is held at poor (#1974). A thin smooth veil lifts the level a few per cent and the gradient by
+    /// tens, neither past what the star-masked tests see, but each is several sigma of the clear scatter of its own half.
+    /// </summary>
+    public const float ExpectedSkyCloudFrom = 5f;
+
+    /// <summary>The fewest frames of one night, rig and object a self-fitted expected sky needs; fewer reads no expected-sky term, not a guess.</summary>
+    public const int SelfFitMinFrames = 30;
+
+    /// <summary>The least airmass range those frames must span for the airmass terms to be told apart from the night's drift.</summary>
+    public const double SelfFitMinAirmassSpan = 0.15;
 
     /// <summary>How far either side of a frame its neighbours are taken from: shorter than a target's climb, longer than a cloud.</summary>
     public static readonly TimeSpan LocalWindow = TimeSpan.FromMinutes(60);

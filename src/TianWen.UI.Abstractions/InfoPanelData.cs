@@ -395,7 +395,7 @@ public static class InfoPanelData
                 [document.Findings.Stars is null ? "Measuring the stars..." : "Not graded: no stars found"], null, null);
         }
 
-        var verdict = LightGrading.Verdict(grades, grade, state.GradeReferences);
+        var verdict = LightGrading.Verdict(grades, grade, state.GradeReferences, state.ExpectedSky);
         var relative = verdict.Relative;
         var graded = 0;
         string? bestPath = null;

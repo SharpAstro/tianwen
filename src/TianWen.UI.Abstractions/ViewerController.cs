@@ -1784,12 +1784,36 @@ public sealed class ViewerController(
     /// <summary>A table of grades this still while it grows is taken as settled, and its clear nights recorded.</summary>
     private const double GradesSettleSeconds = 5;
 
+    // The stored expected-sky models (#1974): read off the render thread once per folder opened, published as one swap. The frame loop
+    // only polls the task; a failed read leaves the previous models (or none, and the night fits itself).
+    private Task<ImmutableArray<ExpectedSkyEntry>>? _expectedSkyTask;
+    private string? _expectedSkyFolder;
+
+    private void FollowExpectedSky(TianWen.Lib.Devices.IExternal store)
+    {
+        if (_expectedSkyTask is { IsCompleted: true } done)
+        {
+            _expectedSkyTask = null;
+            if (done.IsCompletedSuccessfully)
+            {
+                state.ExpectedSky = done.Result;
+            }
+        }
+        if (_expectedSkyTask is null && state.CurrentFolder is { Length: > 0 } folder
+            && !string.Equals(folder, _expectedSkyFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            _expectedSkyFolder = folder;
+            _expectedSkyTask = Task.Run(() => ExpectedSkyStore.LoadAsync(store, CancellationToken.None));
+        }
+    }
+
     private void FollowGradeReferences()
     {
         if (external is not { } store)
         {
             return;
         }
+        FollowExpectedSky(store);
         if (_referencesTask is { IsCompleted: true } done)
         {
             _referencesTask = null;

@@ -112,8 +112,10 @@ public sealed record ExpectedSkyModel
             used.Remove(2);
         }
 
-        var keep = new bool[n];
-        Array.Fill(keep, true);
+        // A veil over the end of a night (a rising or setting target's last hour) is a high-leverage run that a flexible least-squares
+        // fit bends toward and so hides from its own clip (34 veiled frames of 300, +7 % level and +86 % gradient, kept 23 of them),
+        // so the clip starts from the best of many elemental fits judged by their scatter, which a minority cannot lower.
+        var keep = RobustStart(features, yLevel, yGradient, used);
         double[] cl = [], cg = [];
         var sdL = 0.0;
         var sdG = 0.0;
@@ -125,8 +127,8 @@ public sealed record ExpectedSkyModel
             // The scatter comes from EVERY row's residuals through the MAD, which a minority of outliers does not move.
             var rl = Residuals(features, yLevel, used, cl);
             var rg = Residuals(features, yGradient, used, cg);
-            sdL = RobustSd(rl, keep, onlyKept: round > 0);
-            sdG = RobustSd(rg, keep, onlyKept: round > 0);
+            sdL = RobustSd(rl, keep, onlyKept: true);
+            sdG = RobustSd(rg, keep, onlyKept: true);
             var changed = false;
             kept = 0;
             for (var i = 0; i < n; i++)
@@ -269,6 +271,131 @@ public sealed record ExpectedSkyModel
         var mean = sum / rows.Count;
         return sum2 / rows.Count - mean * mean;
     }
+
+    private const int RobustTrials = 250;
+    private const int RobustCandidates = 12;
+    private const double StartClipSigma = 2.5;
+
+    /// <summary>
+    /// The rows to start the clip from: of <see cref="RobustTrials"/> least-squares fits to <c>4p</c> random rows (a fixed seed, so a fit is
+    /// repeatable), the one whose best 85 % of residuals have the smallest rms in both halves together (the product of the two, a least-trimmed-squares criterion over the best 85 % of rows, which a minority of veiled rows cannot lower), and the rows it holds within
+    /// <see cref="StartClipSigma"/> of its scatter. Every row when that leaves too few.
+    /// </summary>
+    private static bool[] RobustStart(List<double[]> features, List<double> yLevel, List<double> yGradient, List<int> used)
+    {
+        var n = features.Count;
+        var p = used.Count;
+        var all = new bool[n];
+        Array.Fill(all, true);
+        if (n < 3 * p)
+        {
+            return all;
+        }
+        var random = new Random(0x5EED);
+        var subset = new bool[n];
+        var size = Math.Min(n / 2, 4 * p);
+        // The best few trials by scatter over every row, kept as candidates (score, level coefficients, gradient coefficients).
+        var candidates = new List<(double Score, double[] L, double[] G)>(RobustCandidates + 1);
+        for (var trial = 0; trial < RobustTrials; trial++)
+        {
+            Array.Clear(subset);
+            for (var k = 0; k < size; k++)
+            {
+                int row;
+                do
+                {
+                    row = random.Next(n);
+                }
+                while (subset[row]);
+                subset[row] = true;
+            }
+            var cl = Solve(features, yLevel, subset, used);
+            var cg = Solve(features, yGradient, subset, used);
+            var score = ScatterProduct(features, yLevel, yGradient, used, cl, cg, all);
+            if (double.IsFinite(score) && score > 0 && (candidates.Count < RobustCandidates || score < candidates[^1].Score))
+            {
+                candidates.Add((score, cl, cg));
+                candidates.Sort(static (x, y) => x.Score.CompareTo(y.Score));
+                if (candidates.Count > RobustCandidates)
+                {
+                    candidates.RemoveAt(candidates.Count - 1);
+                }
+            }
+        }
+        if (candidates.Count == 0)
+        {
+            return all;
+        }
+
+        // Each candidate is polished by concentration steps (refit on the 70 % of rows closest to the current fit, both halves together)
+        // and the polished fit with the least scatter wins: two attractors, one bent toward a veil at the leverage end of the night and
+        // one not, sit within a rounding error of each other before the polish, and the scatter tells them apart after it.
+        var hKeep = (int)(0.7 * n);
+        var trimmed = new bool[n];
+        var distance = new double[n];
+        var order = new int[n];
+        var bestScore = double.PositiveInfinity;
+        double[] bestL = [], bestG = [];
+        foreach (var (_, startL, startG) in candidates)
+        {
+            var cl = startL;
+            var cg = startG;
+            for (var step = 0; step < 12; step++)
+            {
+                var rl = Residuals(features, yLevel, used, cl);
+                var rg = Residuals(features, yGradient, used, cg);
+                var sl = RobustSd(rl, all, onlyKept: false);
+                var sg = RobustSd(rg, all, onlyKept: false);
+                if (!(sl > 0) || !(sg > 0))
+                {
+                    break;
+                }
+                for (var i = 0; i < n; i++)
+                {
+                    distance[i] = rl[i] * rl[i] / (sl * sl) + rg[i] * rg[i] / (sg * sg);
+                    order[i] = i;
+                }
+                Array.Sort(order, (a, b) => distance[a].CompareTo(distance[b]));
+                Array.Clear(trimmed);
+                for (var k = 0; k < hKeep; k++)
+                {
+                    trimmed[order[k]] = true;
+                }
+                cl = Solve(features, yLevel, trimmed, used);
+                cg = Solve(features, yGradient, trimmed, used);
+            }
+            var score = ScatterProduct(features, yLevel, yGradient, used, cl, cg, all);
+            if (double.IsFinite(score) && score > 0 && score < bestScore)
+            {
+                bestScore = score;
+                bestL = cl;
+                bestG = cg;
+            }
+        }
+        if (bestL.Length == 0)
+        {
+            return all;
+        }
+        var resL = Residuals(features, yLevel, used, bestL);
+        var resG = Residuals(features, yGradient, used, bestG);
+        var sdL = RobustSd(resL, all, onlyKept: false);
+        var sdG = RobustSd(resG, all, onlyKept: false);
+        var keep = new bool[n];
+        var kept = 0;
+        for (var i = 0; i < n; i++)
+        {
+            keep[i] = Math.Abs(resL[i]) <= StartClipSigma * sdL && Math.Abs(resG[i]) <= StartClipSigma * sdG;
+            if (keep[i])
+            {
+                kept++;
+            }
+        }
+        return kept >= MinFrames ? keep : all;
+    }
+
+    private static double ScatterProduct(List<double[]> features, List<double> yLevel, List<double> yGradient, List<int> used,
+        double[] cl, double[] cg, bool[] all)
+        => RobustSd(Residuals(features, yLevel, used, cl), all, onlyKept: false) * RobustSd(Residuals(features, yGradient, used, cg), all, onlyKept: false);
 
     private static double[] Solve(List<double[]> rows, List<double> y, bool[] keep, List<int> used)
     {

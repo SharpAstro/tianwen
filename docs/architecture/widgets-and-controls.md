@@ -539,7 +539,7 @@ toolbar label-width rule: `docs/architecture/widgets-and-controls.md` § The FIT
   owner asked for the statistics to stop taking "a shitton of space" and the white-balance sliders to move
   out (2026-09-11, "feat(viewer): the info strip reports"). So a verdict on what a section reports may sit
   on that section's line, which takes no room a reading needs: the Grade section's verdict, Good or a
-  rejection's cause (#1951, `VerdictButtons`), drawn only once the frame is graded. **The live rolling stack adds one wrapped "Live stack" line** (#1881):
+  rejection's cause (#1951, `VerdictButtons`), drawn only once the frame is graded. A thin veil the star and patchiness tests cannot see is found against the expected sky for where the frame pointed (`LightGrading.ExpectedSkyCloudFrom`, #1974): the site's stored `ExpectedSkyModel` when the store has one for the rig, else the night's own frames fitted robustly, else no term, and the Cloud words name which. **The live rolling stack adds one wrapped "Live stack" line** (#1881):
   which raw frame its picture was built at, how far behind the playhead and how old, set on
   `ViewerState.LiveStackBuiltLine` by the controller's playback tick only while the Live view is on show
   (never Raw, never the Auto view's `FixedMaster`) and only when its wording changes, so the age costs
