@@ -426,8 +426,21 @@ unless it was rejected by hand (`CaptureRejection`, the `BAD_<CAUSE>_` name).
 The stacker's cloud filter grades each light after calibration and BEFORE normalization (F). Background matching erases the
 night-sky term (a frame's sky against its night's darkest), while patchiness, a ratio of medians, survives either way. The
 thresholds (`CloudFrom` 1.3, `LocalCloudFrom` 1.2, `NightSkyCloudFrom` 1.8) were measured on uncalibrated raw lights. A flat
-lowers every frame's patchiness about alike, so the ratios should hold, but the filter is an option until the owner's labelled
-E:/Captures nights (2026-05-14, 07-06, 08-31, 09-10, 09-12) read the same through the stacker as through the viewer. It says
+lowers every frame's patchiness about alike, so the ratios should hold, but the filter was an option until the owner's labelled
+E:/Captures nights read the same through the stacker as through the viewer. Two of the five (2026-09-10, 09-12) were read; the
+other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nights. The stacker reads the rig's clear-night
+references from the viewer's store (`LightGradeReferenceStore`, `Viewer/clear-sky.json`) and passes them to `CloudRejection`, so
+a run cloudy from first light to last (07-06) can be judged against them; with none on file it judges on the group's own baselines.
+**The grade's sky LEVEL is the raw light's** (`LightGrading.RawSkyLevel`, read before `Calibrator.Apply` consumes the frame,
+#2003), the scale the viewer's references and `NightSkyCloudFrom` were measured on; patchiness stays the calibrated frame's. Read on
+the calibrated frame, the level was off by what calibration subtracts (2026-09-10 with its matching dark: raw 3300 against 1996 at
+the darkest, 1.65x), so a ratio against the darkest read high (the BAD_ frame at 01:24: 1.64x raw, 2.05x calibrated; 1.8 calibrated
+is about 1.48x raw on that rig, and nearer 1.0x the closer a rig's sky sits to its dark) and one against a reference read low (a
+cloudy-throughout run needed about 3x). Re-read through the stacker with the raw level, both labelled nights give the same result
+(09-10: 169 of 181 agree, 09-12: 321 of 325, the same frames left out), but neither night can tell the scales apart: the six
+09-10 frames between 1.48x and 1.8x raw are all left out by the star-quality filter or by patchiness either way. The level is the
+whole frame's median (a mosaic's green photosites), since the stars are found only after calibration, against the viewer's
+star-masked one. No real night has engaged the reference path through the stacker yet (07-06 is still unread). Patchiness is floored per rig within a group. It says
 why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
 
 **First read through the stacker (2026-11-04, `--reject-cloud`, step 2 of #1981).** The night was 2026-09-10 (QHY294C, Helix, 220
@@ -441,7 +454,28 @@ filters kept 42 of the 44 marked frames out of the master:
 They lost 11 unmarked frames: 9 to the star-quality filter and 2 to the cloud filter. The stacker's cloud verdict agreed with the
 viewer's on raw frames for 169 of the 181 frames that reached it. With no dark matched, a flat dividing frames still carrying the
 pedestal imprints its own shape, and the filter caught only 7 marked frames (0 unmarked). So the grade reads CALIBRATED frames as
-it should, provided they are calibrated properly. The option stays off by default until a second night agrees.
+it should, provided they are calibrated properly.
+
+**Second read, and the default (2026-11-04).** The second night was 2026-09-12 (QHY294C on the SV545, IDAS), with the library dark
+and the SV545's 2026-09-10 IDAS flats and dark-flats.
+- Helix: 150 lights, the stacker's cloud verdict agreed with the viewer's on 135 of 135.
+- LMC: 200 lights, it agreed on 186 of 190.
+- 2 unmarked frames were left out.
+- Of the owner's 42 marks, the cloud and star-quality filters took 19. The 23 still stacked are the faint end-of-night cloud the
+  viewer's grade misses too: a limit of the grade, #1974, not of the filter.
+
+Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `--reject-cloud` is now ON by default.
+`--reject-cloud false` turns it off.
+
+Cloud is judged only where its baselines have at least 10 lights (`CloudRejection.MinGradedForCloud`, the viewer's own bar for a
+clear night), because a handful of frames gives the verdict no baseline: a 4-frame group's clearest tenth is its one clearest
+frame. The patchiness term is judged over the group, counting the lights that baseline is built from (outside twilight, a finite
+patchiness); the night-sky term per rig and night, counting lights outside twilight with a finite sky level above 0 and a night.
+A term that was not judged is not worded in the reason given.
+
+Twilight is read off the Sun's altitude and needs no baseline, but a night is judged for it only when at least 10 of its graded
+lights are outside twilight. A night that never reaches astro dark keeps every twilight light (and is not judged for cloud either),
+and a sliver of dark (the Sun under -18 degrees for a few minutes only) does not take the rest of the night with it.
 
 ## Phasing
 

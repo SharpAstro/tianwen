@@ -15,6 +15,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.IO;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Grading;
@@ -62,7 +63,8 @@ public sealed class StackingPipeline(
     IProgress<StackingProgress>? progress = null,
     Enhancement.SharpenPipeline? sharpenPipeline = null,
     IProgress<Enhancement.EnhanceProgress>? enhanceProgress = null,
-    Enhancement.IStarRemover? starRemover = null)
+    Enhancement.IStarRemover? starRemover = null,
+    IExternal? external = null)
 {
     /// <summary>
     /// Picks a pixel rejector for the integration step based on frame
@@ -843,6 +845,9 @@ public sealed class StackingPipeline(
             ct.ThrowIfCancellationRequested();
             var raw = await lf.LoadFullAsync(ct);
             measuredPixels += (long)raw.Width * raw.Height;
+            // The grade's sky LEVEL is the raw light's, the scale the viewer's references and NightSkyCloudFrom are on (#2003); read
+            // here because calibration consumes the frame.
+            var rawSky = cloudGrades is not null ? LightGrading.RawSkyLevel(raw) : float.NaN;
             var calibrated = calibrator.Apply(raw);
             // BEFORE DetectAsync, whose internal debayer can rescale the calibrated frame in
             // place: the accumulator must see the same values the integration producers' own
@@ -862,7 +867,8 @@ public sealed class StackingPipeline(
             var metrics = FrameRegistration.MetricsFrom(stars);
             if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
             {
-                cloudGrades[lf.Path] = grade;
+                // Patchiness stays the calibrated frame's (a ratio of medians, which an uncorrected flat would imprint).
+                cloudGrades[lf.Path] = float.IsFinite(grade.SkyLevel) ? grade with { SkyLevel = rawSky } : grade;
             }
             // The star list is RETAINED (the dataset registrar's model): registration is centroid
             // work, so keeping it makes the register pass below pixel-free instead of reloading,
@@ -1324,7 +1330,12 @@ public sealed class StackingPipeline(
         var leftOutForCloud = 0;
         if (cloudGrades is { Count: > 0 })
         {
-            var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable());
+            // The rig's clear nights the viewer keeps (#1976), so a run cloudy from first light to last is judged against them and not
+            // against itself, as the viewer judges it. No IExternal (a host with no data folder) judges on the group's own baselines.
+            ImmutableArray<LightGradeReference> references = external is null
+                ? []
+                : await LightGradeReferenceStore.LoadAsync(external, ct);
+            var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable(), references);
             var kept = new List<(FrameInfo Light, FrameInfo? Starless, Matrix3x2 Transform, Matrix3x2 StarTransform, FrameMetrics Metrics)>(matched.Count);
             foreach (var m in matched)
             {
