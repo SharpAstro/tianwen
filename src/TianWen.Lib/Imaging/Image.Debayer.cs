@@ -903,7 +903,7 @@ public partial class Image
         var gR = mR > 0f && mG > 0f && float.IsFinite(mR / mG) ? mR / mG : 1f;
         var gB = mB > 0f && mG > 0f && float.IsFinite(mB / mG) ? mB / mG : 1f;
         _cfaGains = [gR, gB];
-        return (gR, gB);
+        return (1f, 1f);
     }
 
     private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, PixelRect? sourceRect = null)
