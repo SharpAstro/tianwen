@@ -64,4 +64,33 @@ public class CloudRejectionTests
         rejected.Keys.ShouldBe(["dawn"]);
         rejected["dawn"].Causes.ShouldBe(GradeCause.Sunrise);
     }
+
+    /// <summary>
+    /// A night that never reaches astronomical dark (50.9N at the June solstice: the Sun bottoms at -15.7 degrees) grades every light as
+    /// twilight; none is judged for it, or the whole group would be dropped.
+    /// </summary>
+    [Fact]
+    public void ANightWithNoAstronomicalDarkKeepsItsTwilightLights()
+    {
+        var grades = Grades([.. Enumerable.Range(0, 20).Select(i => ($"f{i}", Frame(i, 1f, i < 10 ? TwilightPeriod.Dusk : TwilightPeriod.Dawn)))]);
+
+        CloudRejection.Rejected(grades).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The night-sky baseline is one rig's night, so a group of 12 lights from 4 nights is not judged on the sky term (3 lights a night),
+    /// while patchiness, read over the group, still is.
+    /// </summary>
+    [Fact]
+    public void AMultiNightGroupOfFewLightsPerNightIsNotJudgedOnTheSkyTerm()
+    {
+        LightGrade Night(int n, int i, float sky) => Frame(n * 600 + i, 1f) with
+        {
+            Night = new DateOnly(2026, 9, 1 + n), SkyLevel = sky, Rig = "rig", Taken = Start.AddDays(n).AddMinutes(i),
+        };
+        var entries = Enumerable.Range(0, 4)
+            .SelectMany(n => Enumerable.Range(0, 3).Select(i => ($"n{n}_{i}", Night(n, i, n == 3 && i == 2 ? 100f : 10f)))).ToArray();
+
+        CloudRejection.Rejected(Grades(entries)).ShouldBeEmpty();
+    }
 }

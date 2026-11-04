@@ -77,6 +77,14 @@ public sealed class StackOptionDefaultsTests : IDisposable
         (await ResolveAsync("--require-gain-match", "false")).RequireGainMatch.ShouldBeFalse();
     }
 
+    /// <summary><c>--reject-cloud</c> is on by default and <c>--reject-cloud false</c> turns the filter off.</summary>
+    [Fact]
+    public async Task CloudRejectionIsOnByDefaultAndTheOptionTurnsThatOff()
+    {
+        (await ResolveAsync()).RejectCloud.ShouldBeTrue();
+        (await ResolveAsync("--reject-cloud", "false")).RejectCloud.ShouldBeFalse();
+    }
+
     /// <summary>
     /// The class of bug, not the one instance: a bare line resolves to the record a library caller gets, compared WHOLE, so a
     /// member added to <see cref="StackingOptions"/> later is compared without anyone listing it. The list of members this
