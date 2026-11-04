@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using TianWen.Lib.Geometry;
 using System.IO;
@@ -16,6 +17,7 @@ using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -825,6 +827,9 @@ public sealed class StackingPipeline(
         var measureStart = StageTimings.Start();
         long measuredPixels = 0;
         var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score, StarList Stars)>(lightList.Count);
+        // The viewer's grade of each light, taken here because this is the one place a light is calibrated and its stars found
+        // BEFORE normalization (CloudRejection; null when the option is off, so nothing extra is read).
+        var cloudGrades = options.RejectCloud ? ImmutableDictionary.CreateBuilder<string, LightGrade>(StringComparer.OrdinalIgnoreCase) : null;
         foreach (var lf in lightList)
         {
             ct.ThrowIfCancellationRequested();
@@ -847,6 +852,10 @@ public sealed class StackingPipeline(
             var (stars, _) = await FrameRegistration.DetectAsync(
                 calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, knownBad: knownBad, cancellationToken: ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
+            if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
+            {
+                cloudGrades[lf.Path] = grade;
+            }
             // The star list is RETAINED (the dataset registrar's model): registration is centroid
             // work, so keeping it makes the register pass below pixel-free instead of reloading,
             // re-calibrating and re-detecting every frame this loop just measured. Centroids only,
@@ -1300,6 +1309,33 @@ public sealed class StackingPipeline(
             {
                 logger.LogInformation("  [quality] sigma={Sigma:F2}: no frames rejected", qSigma);
             }
+        }
+
+        // Cloud and twilight, by the viewer's verdict over every graded light of the group (the baselines read the whole group,
+        // as the viewer's do over a folder), then applied to the frames still matched.
+        if (cloudGrades is { Count: > 0 })
+        {
+            var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable());
+            var kept = new List<(FrameInfo Light, FrameInfo? Starless, Matrix3x2 Transform, Matrix3x2 StarTransform, FrameMetrics Metrics)>(matched.Count);
+            foreach (var m in matched)
+            {
+                if (!rejected.TryGetValue(m.Light.Path, out var verdict))
+                {
+                    kept.Add(m);
+                    continue;
+                }
+                logger.LogInformation("  [cloud] reject {Name}: {Why}", Path.GetFileNameWithoutExtension(m.Light.Path), CloudRejection.InWords(verdict));
+                for (var f = 0; f < manifestFates.Count; f++)
+                {
+                    if (ReferenceEquals(manifestFates[f].Frame, m.Light))
+                    {
+                        manifestFates[f] = (manifestFates[f].Frame, FrameFate.SkippedCloud, manifestFates[f].Star);
+                        break;
+                    }
+                }
+            }
+            logger.LogInformation("  [cloud] {Rejected} of {Total} matched frames left out for cloud or twilight", matched.Count - kept.Count, matched.Count);
+            matched = kept;
         }
 
         if (matched.Count < 2)

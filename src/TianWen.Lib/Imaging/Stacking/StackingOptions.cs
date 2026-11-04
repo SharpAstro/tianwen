@@ -302,5 +302,10 @@ public sealed record StackingOptions(
     // a pixel of FWHM in quadrature at 2 px seeing; the clamp bounds the ring the plain kernel draws
     // on a debayered OSC plane, where every star is a spike (13 percent of the peak, measured). The
     // measurements: docs/plans/deconvolver-training.md, R1, and the enum's own remarks.
-    WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped);
+    WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped,
+    // Leave out the lights the viewer's grade calls cloud or twilight (CloudRejection, LightGrading.Verdict, #1981): each light is
+    // graded on its calibrated frame before normalization, which would erase the night-sky term, and every frame dropped is
+    // logged with the verdict's own words and marked SkippedCloud in the manifest. Off by default until the owner's labelled
+    // nights read the same through the stacker as through the viewer (docs/plans/stacking.md, section O).
+    bool RejectCloud = false);
 
