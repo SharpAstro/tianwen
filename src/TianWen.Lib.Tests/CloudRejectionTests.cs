@@ -51,18 +51,52 @@ public class CloudRejectionTests
 
     /// <summary>
     /// A handful of frames gives the cloud verdict no baseline (a 4-frame group's clearest tenth is its one clearest frame), so cloud is
-    /// judged only from <see cref="CloudRejection.MinGradedForCloud"/> graded frames; twilight, read off the Sun, drops a frame at any size.
+    /// judged only from <see cref="CloudRejection.MinGradedForCloud"/> graded frames; a night with fewer lights outside twilight is
+    /// not judged for twilight either.
     /// </summary>
     [Fact]
-    public void ASmallGroupIsNotJudgedForCloudButTwilightStillDrops()
+    public void ASmallGroupIsNotJudgedForCloudNorTwilight()
     {
         var few = Enumerable.Range(0, CloudRejection.MinGradedForCloud - 3).Select(i => ($"f{i}", Frame(i, 1f))).ToArray();
         var grades = Grades([.. few, ("patchy", Frame(4, 2.5f)), ("dawn", Frame(5, 1f, TwilightPeriod.Dawn))]);
+
+        CloudRejection.Rejected(grades).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ANightWithEnoughDarkLightsDropsItsTwilightLights()
+    {
+        var dark = Enumerable.Range(0, CloudRejection.MinGradedForCloud).Select(i => ($"f{i}", Frame(i, 1f))).ToArray();
+        var grades = Grades([.. dark, ("dawn", Frame(40, 1f, TwilightPeriod.Dawn))]);
 
         var rejected = CloudRejection.Rejected(grades);
 
         rejected.Keys.ShouldBe(["dawn"]);
         rejected["dawn"].Causes.ShouldBe(GradeCause.Sunrise);
+    }
+
+    /// <summary>A sliver of dark (50.9N near the solstice) must not take the rest of the night with it.</summary>
+    [Fact]
+    public void ASliverOfDarkDoesNotDropTheRestOfTheNight()
+    {
+        var grades = Grades([.. Enumerable.Range(0, 20).Select(i =>
+            ($"f{i}", Frame(i, 1f, i == 0 ? null : i < 10 ? TwilightPeriod.Dusk : TwilightPeriod.Dawn)))]);
+
+        CloudRejection.Rejected(grades).ShouldBeEmpty();
+    }
+
+    /// <summary>The floor counts the lights the baselines are built from: twilight lights are not among them.</summary>
+    [Fact]
+    public void TwilightLightsDoNotLiftAThinNightOverTheSkyFloor()
+    {
+        LightGrade Night(int i, float sky, TwilightPeriod? twilight = null) => Frame(i, 1f, twilight) with
+        {
+            Night = new DateOnly(2026, 9, 10), SkyLevel = sky, Rig = "rig",
+        };
+        var entries = new[] { ("a", Night(0, 10f)), ("b", Night(1, 10f)), ("c", Night(2, 100f)) }
+            .Concat(Enumerable.Range(3, 7).Select(i => ($"d{i}", Night(i, 10f, TwilightPeriod.Dusk)))).ToArray();
+
+        CloudRejection.Rejected(Grades(entries)).ShouldBeEmpty();
     }
 
     /// <summary>
@@ -79,7 +113,7 @@ public class CloudRejectionTests
 
     /// <summary>
     /// The night-sky baseline is one rig's night, so a group of 12 lights from 4 nights is not judged on the sky term (3 lights a night),
-    /// while patchiness, read over the group, still is.
+    /// (patchiness, read over the group, is judged separately).
     /// </summary>
     [Fact]
     public void AMultiNightGroupOfFewLightsPerNightIsNotJudgedOnTheSkyTerm()

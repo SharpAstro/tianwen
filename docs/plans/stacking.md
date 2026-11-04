@@ -426,8 +426,9 @@ unless it was rejected by hand (`CaptureRejection`, the `BAD_<CAUSE>_` name).
 The stacker's cloud filter grades each light after calibration and BEFORE normalization (F). Background matching erases the
 night-sky term (a frame's sky against its night's darkest), while patchiness, a ratio of medians, survives either way. The
 thresholds (`CloudFrom` 1.3, `LocalCloudFrom` 1.2, `NightSkyCloudFrom` 1.8) were measured on uncalibrated raw lights. A flat
-lowers every frame's patchiness about alike, so the ratios should hold, but the filter is an option until the owner's labelled
-E:/Captures nights (2026-05-14, 07-06, 08-31, 09-10, 09-12) read the same through the stacker as through the viewer. It says
+lowers every frame's patchiness about alike, so the ratios should hold, but the filter was an option until the owner's labelled
+E:/Captures nights read the same through the stacker as through the viewer. Two of the five (2026-09-10, 09-12) were read; the
+other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nights. It says
 why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
 
 **First read through the stacker (2026-11-04, `--reject-cloud`, step 2 of #1981).** The night was 2026-09-10 (QHY294C, Helix, 220
@@ -454,9 +455,15 @@ and the SV545's 2026-09-10 IDAS flats and dark-flats.
 Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `--reject-cloud` is now ON by default.
 `--reject-cloud false` turns it off.
 
-Cloud is judged only in a group of at least 10 graded lights (`CloudRejection.MinGradedForCloud`, the viewer's own bar for a clear
-night), because a handful of frames gives the verdict no baseline: a 4-frame group's clearest tenth is its one clearest frame.
-Twilight is read off the Sun's altitude and needs no baseline, so it drops a frame in a group of any size.
+Cloud is judged only where its baselines have at least 10 lights (`CloudRejection.MinGradedForCloud`, the viewer's own bar for a
+clear night), because a handful of frames gives the verdict no baseline: a 4-frame group's clearest tenth is its one clearest
+frame. The patchiness term is judged over the group, counting the lights that baseline is built from (outside twilight, a finite
+patchiness); the night-sky term per rig and night, counting lights outside twilight with a finite sky level above 0 and a night.
+A term that was not judged is not worded in the reason given.
+
+Twilight is read off the Sun's altitude and needs no baseline, but a night is judged for it only when at least 10 of its graded
+lights are outside twilight. A night that never reaches astro dark keeps every twilight light (and is not judged for cloud either),
+and a sliver of dark (the Sun under -18 degrees for a few minutes only) does not take the rest of the night with it.
 
 ## Phasing
 
