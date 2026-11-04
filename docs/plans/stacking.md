@@ -428,7 +428,10 @@ night-sky term (a frame's sky against its night's darkest), while patchiness, a 
 thresholds (`CloudFrom` 1.3, `LocalCloudFrom` 1.2, `NightSkyCloudFrom` 1.8) were measured on uncalibrated raw lights. A flat
 lowers every frame's patchiness about alike, so the ratios should hold, but the filter was an option until the owner's labelled
 E:/Captures nights read the same through the stacker as through the viewer. Two of the five (2026-09-10, 09-12) were read; the
-other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nights. It says
+other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nights. The stacker reads the rig's clear-night
+references from the viewer's store (`LightGradeReferenceStore`, `Viewer/clear-sky.json`) and passes them to `CloudRejection`, so
+a run cloudy from first light to last (07-06) is judged against them as the viewer does; with none on file it judges on the group's
+own baselines. Patchiness is floored per rig within a group. It says
 why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
 
 **First read through the stacker (2026-11-04, `--reject-cloud`, step 2 of #1981).** The night was 2026-09-10 (QHY294C, Helix, 220

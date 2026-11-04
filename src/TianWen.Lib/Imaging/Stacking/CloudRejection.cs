@@ -18,7 +18,7 @@ internal static class CloudRejection
 
     /// <summary>
     /// The fewest graded lights a baseline needs before it judges cloud: the group's clearest tenth and its neighbours within an hour
-    /// (patchiness, counted over the whole group) and a night's darkest tenth of sky (counted per rig and night, since that baseline is
+    /// (patchiness, counted per rig within the group, since the baseline is keyed on the rig) and a night's darkest tenth of sky (counted per rig and night, since that baseline is
     /// one night's) are what a cloud verdict reads, and a handful of frames gives none of them (a 4-frame night's "darkest tenth" is its
     /// one darkest frame). The viewer's own bar for a clear night, <see cref="LightGrading.MinClearFramesPerReference"/>.
     /// </summary>
@@ -39,7 +39,8 @@ internal static class CloudRejection
     {
         // Each count is of the lights its baseline is BUILT from (LightGrading.Baselines.Build leaves out twilight lights, and takes a
         // finite patchiness for one baseline, a finite sky level above 0 and a night for the other), never of every graded light.
-        var patchinessLights = 0;
+        // The patchiness baseline is keyed on the grade's key AND its rig (one group can hold two rigs: one camera on two OTAs).
+        var patchinessPerRig = new Dictionary<(LightGradeKey Key, string Rig), int>();
         var perRigNight = new Dictionary<(string Rig, DateOnly Night), int>();
         var darkPerNight = new Dictionary<DateOnly, int>();
         foreach (var g in grades.Values)
@@ -51,14 +52,13 @@ internal static class CloudRejection
             darkPerNight[g.Night] = darkPerNight.GetValueOrDefault(g.Night) + 1;
             if (float.IsFinite(g.Patchiness))
             {
-                patchinessLights++;
+                patchinessPerRig[(g.Key, g.Rig)] = patchinessPerRig.GetValueOrDefault((g.Key, g.Rig)) + 1;
             }
             if (float.IsFinite(g.SkyLevel) && g.SkyLevel > 0f && g.Night != default)
             {
                 perRigNight[(g.Rig, g.Night)] = perRigNight.GetValueOrDefault((g.Rig, g.Night)) + 1;
             }
         }
-        var judgePatchiness = patchinessLights >= MinGradedForCloud;
         var rejected = ImmutableDictionary.CreateBuilder<string, LightGradeVerdict>(grades.KeyComparer);
         foreach (var (path, grade) in grades)
         {
@@ -66,7 +66,7 @@ internal static class CloudRejection
             var causes = verdict.Causes & Rejects;
             if ((causes & GradeCause.Cloud) != GradeCause.None)
             {
-                var byPatchiness = judgePatchiness && LightGrading.PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
+                var byPatchiness = patchinessPerRig.GetValueOrDefault((grade.Key, grade.Rig)) >= MinGradedForCloud &&LightGrading.PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
                 var bySky = verdict.NightSky >= LightGrading.NightSkyCloudFrom && perRigNight.GetValueOrDefault((grade.Rig, grade.Night)) >= MinGradedForCloud;
                 if (!byPatchiness && !bySky)
                 {

@@ -117,7 +117,8 @@ public sealed class StackOptionDefaultsTests : IDisposable
             Substitute.For<IConsoleHost>(),
             NullLogger<StackingPipeline>.Instance,
             Substitute.For<ICelestialObjectDB>(),
-            new SharpenPipeline())
+            new SharpenPipeline(),
+            Substitute.For<TianWen.Lib.Devices.IExternal>())
         {
             OptionsSink = options =>
             {
