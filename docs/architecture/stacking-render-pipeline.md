@@ -545,6 +545,16 @@ light group register (star-quad match) -> integrate (strategy auto-picked: Bayer
 separate from**, the Planetary stacker below. **Full flowcharts, the render model, the two opt-in
 display stages and the parity notes: `docs/architecture/stacking-render-pipeline.md`.**
 
+**AHD equalises the CFA gains before interpolating (#1991).** Each AHD channel is interpolated from
+photosites at different positions, so on a mosaic with a colour cast (a 3:1 red to green gain) an
+undersampled star or a 2 px point source got its red and blue peaks displaced and its colour ratio
+inflated: M83's nucleus read R/G 3.03 in a 5x5 sum on the AHD master against 2.08 on the Bayer-drizzle
+master, with red and blue peaking a row apart. `DebayerAHDAsync` now divides R and B by their gain to
+green (the median of each colour's own photosites, one pair per frame, whole-frame so every
+`DebayerRegionIntoAsync` strip agrees) into a scratch mosaic, runs the four phases unchanged, and
+multiplies R and B back on write, so a flat field's level is unchanged. Pinned by
+`DebayerAhdGainEqualisationTests`.
+
 **Output contract is by data type -- do not regress it:** **Linear (canonical)** is FITS, full-frame
 `master_<slug>.fits` AND cropped `_autocrop.fits` (`--output-format exr` mirrors both; full-frame linear
 pixels live only here). **Display / stretched** (the PNG quick-look, `--split-plates` TIFFs) is ALWAYS
