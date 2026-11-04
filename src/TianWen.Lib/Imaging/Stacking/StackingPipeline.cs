@@ -867,7 +867,9 @@ public sealed class StackingPipeline(
             var metrics = FrameRegistration.MetricsFrom(stars);
             if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
             {
-                // Patchiness stays the calibrated frame's (a ratio of medians, which an uncorrected flat would imprint).
+                // Patchiness stays the calibrated frame's: the MAD of its tile medians about a fitted surface, in counts, which a dark
+                // offset leaves alone but an uncorrected flat would imprint. Against a reference it is still compared with the viewer's
+                // raw-frame patchiness, a scale that has not been measured through the stacker (#2005).
                 cloudGrades[lf.Path] = float.IsFinite(grade.SkyLevel) ? grade with { SkyLevel = rawSky } : grade;
             }
             // The star list is RETAINED (the dataset registrar's model): registration is centroid
