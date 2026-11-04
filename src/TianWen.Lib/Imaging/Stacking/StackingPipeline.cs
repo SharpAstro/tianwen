@@ -1319,9 +1319,9 @@ public sealed class StackingPipeline(
             }
         }
 
-        var leftOutForCloud = 0;
         // Cloud and twilight, by the viewer's verdict over every graded light of the group (the baselines read the whole group,
         // as the viewer's do over a folder), then applied to the frames still matched.
+        var leftOutForCloud = 0;
         if (cloudGrades is { Count: > 0 })
         {
             var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable());
