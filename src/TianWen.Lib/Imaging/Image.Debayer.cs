@@ -772,7 +772,7 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f, PixelRect? activeRect = null)
+    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f, PixelRect? activeRect = null, float[,]? source = null)
     {
         // If the caller is debayering a sub-region, restrict edge-pixel
         // filling to the canvas-edge zone INSIDE that rect; pixels outside
@@ -792,7 +792,7 @@ public partial class Image
 
             for (int x = rx0; x < rx1; x++)
             {
-                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale, source);
             }
         }
 
@@ -803,37 +803,38 @@ public partial class Image
         {
             for (int x = rx0; x < Math.Min(rx1, radius); x++)
             {
-                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale, source);
             }
             for (int x = Math.Max(rx0, width - radius); x < rx1; x++)
             {
-                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale, source);
             }
         }
     }
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixel(float[][,] debayered, int x, int y, int width, int height, int[,] bayerPattern, float scale)
+    private void ProcessEdgePixel(float[][,] debayered, int x, int y, int width, int height, int[,] bayerPattern, float scale, float[,]? source)
     {
+        var src = source ?? Planes[0].Data;
         int knownColor = bayerPattern[y & 1, x & 1];
-        debayered[knownColor][y, x] = Planes[0].Data[y, x] * scale;
+        debayered[knownColor][y, x] = src[y, x] * scale;
 
         for (int c = 0; c < 3; c++)
         {
             if (c != knownColor)
             {
-                debayered[c][y, x] = BilinearInterpolateColorFast(x, y, c, width, height, bayerPattern) * scale;
+                debayered[c][y, x] = BilinearInterpolateColorFast(x, y, c, width, height, bayerPattern, src) * scale;
             }
         }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private float BilinearInterpolateColorFast(int x, int y, int targetColor, int width, int height, int[,] bayerPattern)
+    private float BilinearInterpolateColorFast(int x, int y, int targetColor, int width, int height, int[,] bayerPattern, float[,]? source = null)
     {
         float sum = 0;
         int count = 0;
-        var srcChannel = Planes[0].Data;
+        var srcChannel = source ?? Planes[0].Data;
 
         int yMin = Math.Max(0, y - 2);
         int yMax = Math.Min(height - 1, y + 2);
@@ -854,6 +855,55 @@ public partial class Image
         }
 
         return count > 0 ? sum / count : 0;
+    }
+
+    private float[]? _cfaGains;
+
+    /// <summary>
+    /// The red and blue gains relative to green (#1991), from each colour's OWN photosites (never a
+    /// statistic across the mixed mosaic): the median of a row-strided sample of that colour. One pair per
+    /// frame, whole-frame, so every strip of <see cref="DebayerRegionIntoAsync"/> uses the same one.
+    /// Unity for a non-positive or non-finite level. Cached; pixels are never mutated.
+    /// </summary>
+    private (float R, float B) GetCfaGains(int[,] bayerPattern)
+    {
+        if (_cfaGains is { } cached) return (cached[0], cached[1]);
+
+        var data = Planes[0].Data;
+        var h = Height;
+        var w = Width;
+        const int rowStep = 7; // odd, so the sample walks both row parities
+        var counts = new int[3];
+        var buffers = new float[3][];
+        var capacity = (h / rowStep + 1) * w / 2 + w;
+        buffers[0] = new float[capacity];
+        buffers[1] = new float[capacity * 2];
+        buffers[2] = new float[capacity];
+        for (var y = 0; y < h; y += rowStep)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                var k = bayerPattern[y & 1, x & 1];
+                var v = data[y, x];
+                if (float.IsFinite(v)) buffers[k][counts[k]++] = v;
+            }
+        }
+
+        static float Median(float[] buf, int n)
+        {
+            if (n == 0) return 0f;
+            var span = buf.AsSpan(0, n);
+            span.Sort();
+            return span[n / 2];
+        }
+
+        var mR = Median(buffers[0], counts[0]);
+        var mG = Median(buffers[1], counts[1]);
+        var mB = Median(buffers[2], counts[2]);
+        var gR = mR > 0f && mG > 0f && float.IsFinite(mR / mG) ? mR / mG : 1f;
+        var gB = mB > 0f && mG > 0f && float.IsFinite(mB / mG) ? mB / mG : 1f;
+        _cfaGains = [gR, gB];
+        return (gR, gB);
     }
 
     private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, PixelRect? sourceRect = null)
@@ -932,7 +982,29 @@ public partial class Image
         using var vB = Array2DPool<float>.RentScoped(height, width);
         var rgbV = new float[][,] { vR.Array, vG.Array, vB.Array };
 
-        var srcChannel = Planes[0].Data;
+        // Equalise the CFA gains (#1991): a scratch mosaic with R and B divided by their gain to
+        // green, over every photosite phase 1 and the edge fill can read. Undone on write in phase 4.
+        var (gainR, gainB) = GetCfaGains(bayerPattern);
+        using var eqMosaic = Array2DPool<float>.RentScoped(height, width);
+        var srcChannel = eqMosaic.Array;
+        {
+            const int readHalo = 2;
+            var fy0 = Math.Max(0, rect.Y - phase1Grow - readHalo);
+            var fy1 = Math.Min(height, rectBottom + phase1Grow + readHalo);
+            var fx0 = Math.Max(0, rect.X - phase1Grow - readHalo);
+            var fx1 = Math.Min(width, rectRight + phase1Grow + readHalo);
+            var raw = Planes[0].Data;
+            var invR = 1f / gainR;
+            var invB = 1f / gainB;
+            for (var y = fy0; y < fy1; y++)
+            {
+                for (var x = fx0; x < fx1; x++)
+                {
+                    var k = bayerPattern[y & 1, x & 1];
+                    srcChannel[y, x] = k == R ? raw[y, x] * invR : k == B ? raw[y, x] * invB : raw[y, x];
+                }
+            }
+        }
         var rgbH_R = rgbH[R]; var rgbH_G = rgbH[G]; var rgbH_B = rgbH[B];
         var rgbV_R = rgbV[R]; var rgbV_G = rgbV[G]; var rgbV_B = rgbV[B];
 
@@ -1146,7 +1218,7 @@ public partial class Image
         // Fill edge pixels with bilinear interpolation before artifact reduction.
         // For sub-region calls, only process canvas-edge pixels intersecting
         // the rect-grown-by-Phase4-halo (typically zero work for interior strips).
-        ProcessEdgePixels(debayered, width, height, totalRadius, bayerPattern, scale: 1.0f, edgeFillRect);
+        ProcessEdgePixels(debayered, width, height, totalRadius, bayerPattern, scale: 1.0f, edgeFillRect, srcChannel);
 
         // Phase 4: Artifact reduction - 3×3 median filter on color differences (R-G) and (B-G)
         // This smooths the abrupt H/V direction switching that causes per-pixel colour noise
@@ -1180,14 +1252,14 @@ public partial class Image
                             }
                         }
 
-                        filtered[c][y, x] = (gCenter + MedianFast(medianBuf)) * scale;
+                        filtered[c][y, x] = (gCenter + MedianFast(medianBuf)) * (scale * (c == R ? gainR : gainB));
                     }
                 }
                 else
                 {
                     // Edge pixels: copy as-is
-                    filtR[y, x] = dstR[y, x] * scale;
-                    filtB[y, x] = dstB[y, x] * scale;
+                    filtR[y, x] = dstR[y, x] * (scale * gainR);
+                    filtB[y, x] = dstB[y, x] * (scale * gainB);
                 }
             }
         });
