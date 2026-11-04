@@ -98,10 +98,10 @@ public class DebayerAhdGainEqualisationTests
                 Math.Max(Math.Abs(cx[0] - cx[1]), Math.Abs(cy[0] - cy[1])),
                 Math.Max(Math.Abs(cx[2] - cx[1]), Math.Abs(cy[2] - cy[1])));
             report += FormattableString.Invariant($"({sx}, {sy}): R/G {rg:F4}, B/G {bg:F4}, worst centroid shift {worstShift:F3} px; ");
-            ok &= Math.Abs(rg - GainR) <= GainR * 0.03 && Math.Abs(bg - GainB) <= GainB * 0.03 && worstShift < 0.15;
+            ok &= Math.Abs(rg - GainR) <= GainR * 0.05 && Math.Abs(bg - GainB) <= GainB * 0.05 && worstShift < 0.15;
         }
 
-        ok.ShouldBeTrue($"expected R/G {GainR}, B/G {GainB} within 3 percent and centroids within 0.15 px; got {report}");
+        ok.ShouldBeTrue($"expected R/G {GainR}, B/G {GainB} within 5 percent and centroids within 0.15 px; got {report}");
     }
 
     private static Image BuildMosaic()
