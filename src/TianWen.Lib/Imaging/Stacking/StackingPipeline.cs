@@ -1319,6 +1319,7 @@ public sealed class StackingPipeline(
             }
         }
 
+        var leftOutForCloud = 0;
         // Cloud and twilight, by the viewer's verdict over every graded light of the group (the baselines read the whole group,
         // as the viewer's do over a folder), then applied to the frames still matched.
         if (cloudGrades is { Count: > 0 })
@@ -1343,7 +1344,17 @@ public sealed class StackingPipeline(
                 }
             }
             logger.LogInformation("  [cloud] {Rejected} of {Total} matched frames left out for cloud or twilight", matched.Count - kept.Count, matched.Count);
+            leftOutForCloud = matched.Count - kept.Count;
             matched = kept;
+        }
+
+        if (matched.Count < 2 && CloudRejection.EmptiedGroupReason(matched.Count + leftOutForCloud, leftOutForCloud) is { } cloudReason)
+        {
+            // The frames registered; the cloud filter took them, so the registration census below would point at the wrong step.
+            logger.LogWarning("  [skip] {Reason}", cloudReason);
+            try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
+            return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: cloudReason, Stages: timings.Snapshot());
         }
 
         if (matched.Count < 2)
