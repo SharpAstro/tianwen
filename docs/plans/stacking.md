@@ -430,6 +430,19 @@ lowers every frame's patchiness about alike, so the ratios should hold, but the 
 E:/Captures nights (2026-05-14, 07-06, 08-31, 09-10, 09-12) read the same through the stacker as through the viewer. It says
 why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
 
+**First read through the stacker (2026-11-04, `--reject-cloud`, step 2 of #1981).** The night was 2026-09-10 (QHY294C, Helix, 220
+lights, 44 of them the owner's BAD_ marks). The check ran on a copy with the BAD_ prefixes stripped, so the marked frames reached
+the grade. With the night's own matching 60 s dark (Organized `QHYCCD-QHY294C/DARK/2026-08-22-g1600-o20-t-5-e60s`), the stacker's
+filters kept 42 of the 44 marked frames out of the master:
+- the cloud filter took 12 of them;
+- the star-quality filter took 25;
+- registration took the other 5.
+
+They lost 11 unmarked frames: 9 to the star-quality filter and 2 to the cloud filter. The stacker's cloud verdict agreed with the
+viewer's on raw frames for 169 of the 181 frames that reached it. With no dark matched, a flat dividing frames still carrying the
+pedestal imprints its own shape, and the filter caught only 7 marked frames (0 unmarked). So the grade reads CALIBRATED frames as
+it should, provided they are calibrated properly. The option stays off by default until a second night agrees.
+
 ## Phasing
 
 CLI-first: end-to-end pipeline shipped as `tianwen stack` before any GUI work.

@@ -20,6 +20,8 @@ namespace TianWen.Lib.Imaging.Stacking
         SkippedTooFewStars,
         SkippedNoQuadFit,
         SkippedQualityReject,
+        // Left out by StackingOptions.RejectCloud: the viewer's grade called it cloud or twilight (#1981).
+        SkippedCloud,
     }
 
     /// <param name="Path">Frame path as this run saw it. For legibility in a log; NEVER identity.</param>

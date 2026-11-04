@@ -173,6 +173,10 @@ internal sealed class StackSubCommand(
             // deferring to it, which switched the gate off for every run that did not type the flag (#1370).
             DefaultValueFactory = _ => DefaultQualityRejectSigma,
         };
+        var rejectCloudOpt = new Option<bool>("--reject-cloud")
+        {
+            Description = "Leave out the lights the FITS viewer's grade calls cloud or twilight: each light is graded on its calibrated frame before normalization (the sky's patchiness against the group's clearest and its neighbours within an hour, the sky against the night's darkest, the Sun's altitude), and every frame left out is logged with the reason and marked SkippedCloud in the manifest. Off by default until it is checked against labelled nights.",
+        };
         var rejectLowSigmaOpt = new Option<float?>("--reject-low-sigma")
         {
             Description = "Override the PIXEL rejector's low (dark-outlier) threshold. Default 3. This clips individual samples inside one pixel's stack and is a different knob from --quality-reject-sigma, which drops whole frames. The rejector kind is still chosen by frame count (LinearFitClip under 30 frames, Winsorized under 60, SigmaClip at or above 60); this only moves its thresholds.",
@@ -324,7 +328,7 @@ internal sealed class StackSubCommand(
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, requireGainMatchOpt, hotPixelSigmaOpt,
-                qualityRejectSigmaOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
+                qualityRejectSigmaOpt, rejectCloudOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
                 starRemovalModeOpt, saveCalibratedOpt, saveNormalizedOpt,
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
@@ -494,6 +498,7 @@ internal sealed class StackSubCommand(
                 CentroidDebayerAlg: parseResult.GetValue(centroidDebayerOpt),
                 StackDebayerAlg: parseResult.GetValue(stackDebayerOpt),
                 WarpInterpolation: parseResult.GetValue(warpInterpolationOpt),
+                RejectCloud: parseResult.GetValue(rejectCloudOpt),
                 SnrMin: parseResult.GetValue(snrMinOpt),
                 MinStars: parseResult.GetValue(minStarsOpt),
                 QuadStars: parseResult.GetValue(quadStarsOpt),
