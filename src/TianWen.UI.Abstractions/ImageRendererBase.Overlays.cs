@@ -823,10 +823,11 @@ namespace TianWen.UI.Abstractions
         /// pair, which is the atlas's rule and now this one's. The name sits to the right of the
         /// ring's widest point on the screen's X axis, which for a rotated ellipse is neither
         /// semi-axis but the projection of both.
-        /// <para><b>Placed by whoever owns the object.</b> Inside the frame's five degrees the ring is
+        /// <para><b>Placed by whoever owns the object.</b> Inside the picture the ring is
         /// projected through the frame's WCS, the one mapping every WCS-drawn thing uses, so it lands
-        /// on the object's marker and on its light. Beyond that, while the sky map is painted behind
-        /// the frame, the map places it (<see cref="SkyMapTab{TSurface}.TryPlaceSelectionForHost"/>):
+        /// on the object's marker and on its light. Past the picture's edge, or beyond five degrees,
+        /// while the sky map is painted behind the frame, the map places it, since it draws the marker
+        /// there with a rigid view that cannot follow the frame's distortion (#1994) (<see cref="SkyMapTab{TSurface}.TryPlaceSelectionForHost"/>):
         /// a gnomonic solution fitted to one field says nothing about a point thirty degrees from it,
         /// and put NGC 7320's ring 330 px from where the map had drawn the galaxy.</para>
         /// </remarks>
@@ -851,8 +852,13 @@ namespace TianWen.UI.Abstractions
             var nameDrawnByMap = false;
 
             var framePx = wcs.SkyToPixel(selection.RA, selection.Dec);
+            // The map draws the marker of every object OUTSIDE the picture, through its own rigid view,
+            // which cannot follow a plate solution's distortion. The ring goes where that marker is
+            // (#1994), so past the picture's edge there is one transform, the map's.
             var beyondFrame = framePx is not { } fp
-                || !(SkyBackdropView.TangentAngleDeg(in wcs, fp.X, fp.Y) <= MaxOffFrameClickAngleDeg);
+                || !(SkyBackdropView.TangentAngleDeg(in wcs, fp.X, fp.Y) <= MaxOffFrameClickAngleDeg)
+                || (PaintedSkyBackdrop is not null
+                    && (fp.X < -0.5 || fp.Y < -0.5 || fp.X > ImageWidth - 0.5 || fp.Y > ImageHeight - 0.5));
             if (beyondFrame && PaintedSkyBackdrop is { } sky)
             {
                 // The map's object, the map's projection: see the remarks.
