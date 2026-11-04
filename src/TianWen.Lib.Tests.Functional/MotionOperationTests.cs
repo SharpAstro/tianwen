@@ -309,12 +309,13 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
         var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 1.0, ct)).Value.ShouldNotBeNull();
         job.Kind.ShouldBe("move-axis");
-        await UntilAsync("the axis to move", async token => (await mount.IsSlewingAsync(token) && await mount.GetRightAscensionAsync(token) != ra, "not moving"), ct);
-
+        // The lease is only NodeWire.MoveAxisLease long, so a poll for "moving" on a loaded runner can start after it lapsed (#2000):
+        // wait for the end instead, and read the motion off where the axis got to.
         var stopped = await UntilEndedAsync(job.Id, ct);
         stopped.State.ShouldBe(JobState.Succeeded);
         stopped.Step.ShouldNotBeNull().ShouldContain("nothing renewed");
         (await mount.IsSlewingAsync(ct)).ShouldBeFalse("the lease lapsed and the node stopped the axis");
+        (await mount.GetRightAscensionAsync(ct)).ShouldNotBe(ra, "the axis moved while it was leased");
     }
 
     [Fact(Timeout = 60_000)]
