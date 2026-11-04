@@ -424,7 +424,8 @@ node during a run (`NightSkyGauge`) each judged a frame their own way, so a fram
 unless it was rejected by hand (`CaptureRejection`, the `BAD_<CAUSE>_` name).
 
 The stacker's cloud filter grades each light after calibration and BEFORE normalization (F). Background matching erases the
-night-sky term (a frame's sky against its night's darkest), while patchiness, a ratio of medians, survives either way. The
+night-sky term (a frame's sky against its night's darkest), and patchiness (the MAD of tile medians about a fitted surface, in
+counts) is read before normalization too, since a per-frame multiplicative background match would rescale it. The
 thresholds (`CloudFrom` 1.3, `LocalCloudFrom` 1.2, `NightSkyCloudFrom` 1.8) were measured on uncalibrated raw lights. A flat
 lowers every frame's patchiness about alike, so the ratios should hold, but the filter was an option until the owner's labelled
 E:/Captures nights read the same through the stacker as through the viewer. Two of the five (2026-09-10, 09-12) were read; the

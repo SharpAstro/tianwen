@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
@@ -18,7 +19,7 @@ namespace TianWen.Lib.Tests;
 /// (#1998). Ten dark lights of one rig and night are judged against that rig's clear-night reference (the viewer's store, #1976):
 /// a reference sky far darker than the run's makes every light cloud, so the group is emptied, and the skip says so rather than
 /// "fewer than 2 matched frames". With the filter off the same frames stack, so the branch is not reached by a registration
-/// shortfall. (A group taken wholly in twilight no longer empties: a night with fewer than ten dark lights keeps its twilight lights.)
+/// shortfall. A second test pins where the sky level is read (raw, not calibrated). (A group taken wholly in twilight no longer empties: a night with fewer than ten dark lights keeps its twilight lights.)
 /// </summary>
 [Collection("Imaging")]
 public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
@@ -73,7 +74,8 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
     /// The grade reads its sky LEVEL off the raw light, not the calibrated one (#2003): the viewer's references and
     /// <see cref="LightGrading.NightSkyCloudFrom"/> are on the raw scale. Here a matched dark takes 60 counts off a sky of 160, and the
     /// rig's clear night is placed between the two scales: 160 against 80 is 2x, cloud, while the calibrated 100 against 80 is 1.25x,
-    /// clear. So the group is left out only when the level is read raw; read calibrated, every light would stack.
+    /// clear. So the group is left out only when the level is read raw; read calibrated, the cloud filter would keep every light (the
+    /// star-quality filter still drops a couple, with or without it). The dark's use is asserted from the pipeline's log line.
     /// </summary>
     [Fact]
     public async Task TheReferenceIsComparedWithTheRawSkyNotTheCalibratedOne()
@@ -89,18 +91,40 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
         await WriteClearReferenceAsync(external, first, nightDarkestSky: 80f, ct);
 
         var options = new StackingOptions(DataRoot: workspace.RootDir, OutputDir: workspace.OutputDir, RejectCloud: true);
-        var pipeline = new StackingPipeline(options, new XunitLogger(output), catalogDb: null, external: external);
+        var logger = new CapturingLogger(new XunitLogger(output));
+        var pipeline = new StackingPipeline(options, logger, catalogDb: null, external: external);
         var results = new List<GroupResult>();
         await foreach (var r in pipeline.RunAsync(ct))
         {
             results.Add(r);
         }
 
+        // Without a matched dark calibrated equals raw and the swap below is a no-op, so the match itself is asserted (from the
+        // pipeline's own "dark master: <slug>" line, "NONE" when nothing matched), or a change to the dark matching key would
+        // leave this test green while it no longer pins #2003.
+        logger.Messages.ShouldContain(m => m.StartsWith("  dark master: dark_", StringComparison.Ordinal),
+            $"the matched dark must be applied for the calibrated sky to differ from the raw one: {string.Join(" | ", logger.Messages.Where(m => m.Contains("dark master")))}");
+
         var lights = results.ShouldHaveSingleItem();
         // Every frame that registered is left out (how many register is the synthetic field's business, not this test's).
         var leftOut = CountLeftOut(lights.SkipReason);
         leftOut.ShouldBeGreaterThanOrEqualTo(2, $"the frames registered before the filter took them: '{lights.SkipReason}'");
         lights.SkipReason.ShouldBe($"{leftOut} of {leftOut} matched frames left out for cloud or twilight, fewer than 2 remain");
+    }
+
+    /// <summary>Forwards to an inner logger and keeps every formatted message, so a test can assert what the pipeline said it did.</summary>
+    private sealed class CapturingLogger(ILogger inner) : ILogger
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _messages = new();
+        public IReadOnlyCollection<string> Messages => [.. _messages];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => inner.BeginScope(state);
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            _messages.Enqueue(formatter(state, exception));
+            inner.Log(logLevel, eventId, state, exception, formatter);
+        }
     }
 
     /// <summary>The N of an "N of N matched frames left out" skip reason, or 0 for any other reason.</summary>
