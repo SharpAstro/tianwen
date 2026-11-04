@@ -62,7 +62,13 @@ internal static class NodeTestClients
             var clock = Stopwatch.StartNew();
             try
             {
-                var response = await inner.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                // The outer client has marked this message sent, and an HttpClient refuses one twice: pass on a copy.
+                using var forwarded = new HttpRequestMessage(request.Method, request.RequestUri) { Content = request.Content, Version = request.Version, VersionPolicy = request.VersionPolicy };
+                foreach (var header in request.Headers)
+                {
+                    forwarded.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                }
+                var response = await inner.SendAsync(forwarded, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 logger?.LogInformation("{Method} {Path} -> {Status} in {Ms} ms", request.Method, request.RequestUri?.PathAndQuery, (int)response.StatusCode, clock.ElapsedMilliseconds);
                 return response;
             }
