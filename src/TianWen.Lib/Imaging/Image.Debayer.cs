@@ -867,7 +867,7 @@ public partial class Image
     /// </summary>
     private (float R, float B) GetCfaGains(int[,] bayerPattern)
     {
-        if (_cfaGains is { } cached) return (1f, 1f); // TEMPORARY negative check
+        if (_cfaGains is { } cached) return (cached[0], cached[1]);
 
         var data = Planes[0].Data;
         var h = Height;
@@ -903,7 +903,7 @@ public partial class Image
         var gR = mR > 0f && mG > 0f && float.IsFinite(mR / mG) ? mR / mG : 1f;
         var gB = mB > 0f && mG > 0f && float.IsFinite(mB / mG) ? mB / mG : 1f;
         _cfaGains = [gR, gB];
-        return (1f, 1f);
+        return (gR, gB);
     }
 
     private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, PixelRect? sourceRect = null)
