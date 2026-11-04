@@ -867,7 +867,7 @@ public partial class Image
     /// </summary>
     private (float R, float B) GetCfaGains(int[,] bayerPattern)
     {
-        if (_cfaGains is { } cached) return (cached[0], cached[1]);
+        if (_cfaGains is { } cached) return (1f, 1f); // TEMPORARY negative check
 
         var data = Planes[0].Data;
         var h = Height;
