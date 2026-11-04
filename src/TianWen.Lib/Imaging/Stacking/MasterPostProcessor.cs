@@ -806,8 +806,10 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var croppedRejection = full.RejectionMap is { } rejection ? CropImage(rejection, rect) : null;
         var croppedCoverage = full.Coverage is { } coverage ? CropImage(coverage, rect) : null;
         var croppedStandardError = full.StandardError is { } standardError ? CropImage(standardError, rect) : null;
+        var croppedSaturation = full.Saturation is { } saturation ? CropImage(saturation, rect) : null;
         return full with
         {
+            Saturation = croppedSaturation,
             Master = croppedMaster,
             RejectionMap = croppedRejection,
             Coverage = croppedCoverage,

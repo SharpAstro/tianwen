@@ -1912,6 +1912,21 @@ public sealed class StackingPipeline(
             // producer yields warped frames), so its cost is inseparable from integration here, whereas
             // the registrar warps eagerly to scratch FITS and legitimately times it apart.
             timings.Record(StageNames.Integrate, integrateStart, matched.Count, (long)matched.Count * outWidth * outHeight);
+            // Which spots were at the ADC ceiling in the subs (#1991), judged on the RAW photosites of the original
+            // lights (a starless plate is unit-referred and has no ceiling) and carried through the same transforms
+            // the strategy used. Colour sensors only: the count exists for SPCC's clip gate.
+            if (key.CalibrationKey.SensorType == SensorType.RGGB)
+            {
+                var saturationSources = new List<RawLightSource>(matched.Count);
+                for (var fi = 0; fi < matched.Count; fi++)
+                {
+                    saturationSources.Add(new RawLightSource(matched[fi].Light.Path, layerTransforms[fi] * canvasShift));
+                }
+                if (SaturationCounter.Count(saturationSources, outWidth, outHeight, logger, ct) is { } saturationCount)
+                {
+                    intResult = intResult with { Saturation = saturationCount };
+                }
+            }
             logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
                 (long)Stopwatch.GetElapsedTime(integrateStart).TotalMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
             if (intResult.DrizzleTotalDeposits > 0)

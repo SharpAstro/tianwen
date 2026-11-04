@@ -210,6 +210,10 @@ public static class IntegrationFitsWriter
         {
             WriteStandardErrorMap(masterPath, standardError, result.FrameCount, strategy);
         }
+        if (result.Saturation is { } saturation)
+        {
+            WriteSaturationMap(masterPath, saturation, result.FrameCount, strategy);
+        }
         WriteBadPixelMap(masterPath, badPixelMask, result.Master.ImageMeta, result.FrameCount);
     }
 
