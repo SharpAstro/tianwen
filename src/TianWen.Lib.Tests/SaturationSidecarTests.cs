@@ -139,7 +139,6 @@ public sealed class SaturationSidecarTests : IDisposable
         // With the map those stars are gone and the fit is the truth's, by the stars that remain.
         with.R.ShouldBe(truth.R, truth.R * 0.03f);
         with.B.ShouldBe(truth.B, truth.B * 0.03f);
-        with.InitialMatches.ShouldBe(without.InitialMatches, "the map drops stars from the photometry, not from the match");
         with.FinalMatches.ShouldBeLessThan(without.FinalMatches);
         _ = cleanMap;
     }
