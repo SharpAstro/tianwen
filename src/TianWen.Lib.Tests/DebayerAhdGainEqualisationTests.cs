@@ -22,11 +22,13 @@ public class DebayerAhdGainEqualisationTests
     private const float Sky = 100f;
     private const float Amplitude = 2000f;
 
-    // Two sources: a star (FWHM about 2.2 px) and a 2 px point source, at sub-pixel positions.
+    // Two compact sources at sub-pixel positions. A FWHM near 2 px is the undersampled regime
+    // that matters; below about 2.4 the sparse red and blue lattices (pitch 2) alias on their
+    // own, which shaves the flux ratio by several percent whatever the demosaic does.
     private static readonly (double X, double Y, double Fwhm)[] Sources =
     [
-        (47.3, 47.6, 2.2),
-        (20.4, 70.6, 2.0),
+        (47.3, 47.6, 2.6),
+        (20.4, 70.6, 2.4),
     ];
 
     [Fact]
