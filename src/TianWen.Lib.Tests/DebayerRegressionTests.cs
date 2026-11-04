@@ -54,7 +54,36 @@ public class DebayerRegressionTests
     public async Task DebayerAHD_OnIMX533Fixture_OutputHashStable()
         => await AssertDebayerHashAsync(
             DebayerAlgorithm.AHD,
-            expectedSha256: "c0db123e76a930186385d6d7ab0b59478ccd6490e309a0782f0be1291c163a97");
+            // Re-pinned 2026-11-04 (#1991): AHD now equalises the CFA gains before interpolating and undoes
+            // them afterwards, so a colour-cast mosaic gives different bits. The new value was confirmed
+            // correct by AHD_OnIMX533Fixture_ChannelLevelsAgreeWithMhc (same per-channel levels as MHC)
+            // and by DebayerAhdGainEqualisationTests (colour ratio and centroid of undersampled sources).
+            expectedSha256: "6da14e318644d74b1c789312fef95a567c1ee561d4b59a85595251bdb00f872f");
+
+    [Fact]
+    public async Task AHD_OnIMX533Fixture_ChannelLevelsAgreeWithMhc()
+    {
+        var raw = await SharedTestData.ExtractGZippedFitsImageAsync(FixtureName, isReadOnly: false);
+        var ahd = await raw.DebayerAsync(DebayerAlgorithm.AHD);
+        var mhc = await raw.DebayerAsync(DebayerAlgorithm.MHC);
+        for (var ch = 0; ch < 3; ch++)
+        {
+            var a = StridedMedian(ahd.GetChannelSpan(ch));
+            var m = StridedMedian(mhc.GetChannelSpan(ch));
+            (a / m).ShouldBe(1f, 0.03f, $"channel {ch}: AHD median {a}, MHC median {m}");
+        }
+    }
+
+    private static float StridedMedian(ReadOnlySpan<float> plane)
+    {
+        var sample = new float[(plane.Length + 996) / 997];
+        for (int i = 0, k = 0; i < plane.Length; i += 997, k++)
+        {
+            sample[k] = plane[i];
+        }
+        Array.Sort(sample);
+        return sample[sample.Length / 2];
+    }
 
     [Fact]
     public async Task DebayerMHC_OnIMX533Fixture_OutputHashStable()
