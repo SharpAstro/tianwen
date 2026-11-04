@@ -16,19 +16,30 @@ internal static class CloudRejection
     public const GradeCause Rejects = GradeCause.Cloud | GradeCause.Sunrise | GradeCause.Sunset;
 
     /// <summary>
+    /// The fewest graded lights a group needs before cloud is judged at all: the group's clearest tenth and its neighbours within an hour
+    /// are the baselines a cloud verdict reads, and a handful of frames gives neither (a 4-frame group's "clearest tenth" is its one
+    /// clearest frame). The viewer's own bar for a clear night, <see cref="LightGrading.MinClearFramesPerReference"/>. Twilight reads the
+    /// Sun's altitude, no baseline, so it drops a frame in a group of any size.
+    /// </summary>
+    public const int MinGradedForCloud = LightGrading.MinClearFramesPerReference;
+
+    /// <summary>
     /// The verdict of every frame in <paramref name="grades"/> that carries a rejecting cause, keyed as the grades are. Read against
     /// <paramref name="references"/> where a rig's clear nights are known (the viewer's store), else on the group's own baselines.
+    /// Under <see cref="MinGradedForCloud"/> graded frames only twilight drops a frame.
     /// </summary>
     public static ImmutableDictionary<string, LightGradeVerdict> Rejected(ImmutableDictionary<string, LightGrade> grades,
         ImmutableArray<LightGradeReference> references = default)
     {
+        var judgeCloud = grades.Count >= MinGradedForCloud;
         var rejected = ImmutableDictionary.CreateBuilder<string, LightGradeVerdict>(grades.KeyComparer);
         foreach (var (path, grade) in grades)
         {
             var verdict = LightGrading.Verdict(grades, grade, references);
-            if ((verdict.Causes & Rejects) != GradeCause.None)
+            var causes = judgeCloud ? verdict.Causes & Rejects : verdict.Causes & (GradeCause.Sunrise | GradeCause.Sunset);
+            if (causes != GradeCause.None)
             {
-                rejected[path] = verdict;
+                rejected[path] = verdict with { Causes = causes };
             }
         }
         return rejected.ToImmutable();

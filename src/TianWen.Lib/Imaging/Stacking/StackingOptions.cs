@@ -305,7 +305,8 @@ public sealed record StackingOptions(
     WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped,
     // Leave out the lights the viewer's grade calls cloud or twilight (CloudRejection, LightGrading.Verdict, #1981): each light is
     // graded on its calibrated frame before normalization, which would erase the night-sky term, and every frame dropped is
-    // logged with the verdict's own words and marked SkippedCloud in the manifest. Off by default until the owner's labelled
-    // nights read the same through the stacker as through the viewer (docs/plans/stacking.md, section O).
-    bool RejectCloud = false);
+    // logged with the verdict's own words and marked SkippedCloud in the manifest. ON by default since two of the owner's labelled
+    // nights read the same through the stacker as through the viewer: 490 of 506 frames, 4 unmarked frames dropped (2026-09-10 and
+    // 09-12, docs/plans/stacking.md, section O).
+    bool RejectCloud = true);
 
