@@ -705,6 +705,13 @@ wait for twilight → `CoolCamerasToSetpointAsync` → `InitialRoughFocusAsync` 
   `FocusDriftThreshold`): **the LSQ divisor is the INCLUDED-sample count**; **the window is cleared on a drift
   refocus and on target change**; **one baseline per ACQUISITION SETTING** (`AcquisitionSetting`, #820). Assert
   through `Session.DriftRefocusCount`. `docs/plans/focus-tolerance.md`.
+- **A light judged CLOUD as it lands is a suspicion the session acts on, never a reject** (#1977, `LiveCloudJudge`, the
+  viewer grade's own `LightGrading.Verdict`, with the rig's clear nights; on by `SessionConfiguration.DetectCloudWhileImaging`):
+  written `MAYBE_CLOUD_`, no drift refocus, no focus-history sample, and while the OTA's latest light is cloud a flip runs no
+  plate solve (`FlipEvidence.Inconclusive`, the mount believed); a clear light resumes all of it, and every verdict lands
+  through ONE method, `Session.RecordLatestLightCloud`. Cloud past `CloudWaitTimeout` (15 min) takes the
+  condition-deterioration path, so a sudden cloud-over now images on for up to 15 minutes instead of pausing at once.
+  In full: `docs/architecture/session-invariants.md`, "Cloud while imaging".
 
 **Mount safety limits are NOT the meridian flip.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`, pure) is
 the mechanical bound, where the TUBE meets the pier or the ground; a flip is a *scheduling* choice. Derivations,
@@ -1383,6 +1390,11 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   (`ImageRendererBase.GradeMarks.cs`, `GradeMarksInColour`); a reject is the `BAD_` rename the stacker reads, its CAUSE in the
   name (`BAD_CLOUD_`, `BAD_STREAKY_`, `BAD_DEFOCUSED_`, `BAD_OBSTRUCTION_`; a bare `BAD_` is N.I.N.A.'s, unspecified), Good takes
   both off (`CaptureRejection.TryMark` / `CauseOf`, this name only, the count of other hard links said). **A run is not its own clear baseline** (#1976): a group or night baseline far above the rig's clear reference from another night (`Viewer/clear-sky.json`, `LightGradeReferenceStore`, recorded from folders whose frames graded clear) is replaced by it, said in the tooltip, and with none the run cannot be judged for cloud.
+  **A `MAYBE_CLOUD_` name is the session's SUSPICION, never a reject** (#1977, `CaptureRejection.IsSuspectedCloud`;
+  `IsRejectedAtCapture` is false for it): the stacker leaves it out unless `--include-maybe-cloud`; the row carries its own mark
+  (`GradeMark.SuspectedCloud`, a sun behind cloud, the cloud mask at half ink), neither thumb is inked as its state, Cloud confirms
+  it as `BAD_CLOUD_` and Good drops the prefix, through the same rename; and the Grade section counts the folder's suspected
+  frames apart from the rejected and the unmarked (`FolderMarkTally`, by name alone).
 - **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare**
   (`WindowUiSettings.PaintedPopovers`). A viewer toolbar button is a node that declares its own press
   (`ToolbarButtonNode`), so a new one cannot be silently dead under the router. `docs/plans/dir-lib-10.md`. The **tone popover** (`ToolbarAction.Tone`): `docs/plans/hdr-display.md`.

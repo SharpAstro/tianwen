@@ -942,7 +942,10 @@ public class SessionImagingTests(ITestOutputHelper output)
             ConditionDeteriorationThreshold = 0.6f, // 60% star count drop triggers
             ConditionRecoveryTimeout = TimeSpan.FromMinutes(3), // short timeout for test
             BaselineHfdFrameCount = 2,
-            DitherEveryNthFrame = 0 // disable dithering for this test
+            DitherEveryNthFrame = 0, // disable dithering for this test
+            // The live cloud judge (#1977) would take these cloud lights out of the star-count test and route them through
+            // CloudWaitTimeout instead; off, this keeps covering the star-count path it names. SessionCloudTests covers the other.
+            DetectCloudWhileImaging = false
         };
 
         var observations = new[]
