@@ -7,6 +7,7 @@ using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using TwilightPeriod = TianWen.Lib.Sequencing.TwilightPeriod;
@@ -416,11 +417,11 @@ public class LightGradingTests
     {
         var palette = GuiTheme.DarkPalette;
 
-        LightGrading.Colour(palette, 0.2f).ShouldBe(palette.Error);
-        LightGrading.Colour(palette, LightGrading.PoorBelow).ShouldBe(palette.Error);
-        LightGrading.Colour(palette, (LightGrading.PoorBelow + LightGrading.GoodFrom) / 2f).ShouldBe(palette.Warn);
-        LightGrading.Colour(palette, LightGrading.GoodFrom).ShouldBe(palette.Success);
-        LightGrading.Colour(palette, 1f).ShouldBe(palette.Success);
+        LightGradeColours.Colour(palette, 0.2f).ShouldBe(palette.Error);
+        LightGradeColours.Colour(palette, LightGrading.PoorBelow).ShouldBe(palette.Error);
+        LightGradeColours.Colour(palette, (LightGrading.PoorBelow + LightGrading.GoodFrom) / 2f).ShouldBe(palette.Warn);
+        LightGradeColours.Colour(palette, LightGrading.GoodFrom).ShouldBe(palette.Success);
+        LightGradeColours.Colour(palette, 1f).ShouldBe(palette.Success);
     }
 
     [Fact]
@@ -508,9 +509,9 @@ public class LightGradingTests
 
         var palette = ViewerTheme.Palette;
         RowColour(viewer, renderer, 0).ShouldBe(palette.Selection);
-        RowColour(viewer, renderer, 1).ShouldBe(LightGrading.RowTint(palette, 1f));
-        RowColour(viewer, renderer, 2).ShouldBe(LightGrading.RowTint(palette, 0.3f));
-        RowColour(viewer, renderer, 3).ShouldNotBe(LightGrading.RowTint(palette, 1f), "an ungraded row is not tinted");
+        RowColour(viewer, renderer, 1).ShouldBe(LightGradeColours.RowTint(palette, 1f));
+        RowColour(viewer, renderer, 2).ShouldBe(LightGradeColours.RowTint(palette, 0.3f));
+        RowColour(viewer, renderer, 3).ShouldNotBe(LightGradeColours.RowTint(palette, 1f), "an ungraded row is not tinted");
     }
 
     // A row's highlight colour, read just inside its left edge where the name is not drawn.

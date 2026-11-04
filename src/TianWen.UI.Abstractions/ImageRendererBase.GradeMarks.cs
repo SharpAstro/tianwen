@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using DIR.Lib;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Grading;
 
 namespace TianWen.UI.Abstractions
 {

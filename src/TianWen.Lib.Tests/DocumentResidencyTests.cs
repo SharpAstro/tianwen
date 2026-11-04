@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using SharpAstro.Png;
 using SharpAstro.Tiff;
 using Shouldly;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;

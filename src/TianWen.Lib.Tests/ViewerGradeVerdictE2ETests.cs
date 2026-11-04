@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.UI.Abstractions;
 using Xunit;

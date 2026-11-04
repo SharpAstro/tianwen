@@ -414,6 +414,22 @@ masters (`image align`). This is the push side of what [wcs-reprojection](wcs-re
 drizzle" keeps separate from its pull-based reprojection of finished masters; a target grid shared by several rigs
 also needs registration across groups (each group registers to its own reference today).
 
+### O. One frame grade for the viewer, the stacker and the node
+
+Tracked by #1981. The light grade the viewer shows (#1951, #1975, #1976) is `LightGrading` in `TianWen.Lib.Imaging.Grading`. It
+covers the star score (`FrameRegistration.ReferenceScore`), the sky's patchiness, the night's darkest sky, twilight from the Sun's
+altitude, and a rig's clear-night references (`LightGradeReferenceStore`). Only its palette colours stay with the UI
+(`LightGradeColours`). Until that move, the stacker (`FrameQualityFilter`), the dataset bake (`SessionFrameAnalyzer`) and the
+node during a run (`NightSkyGauge`) each judged a frame their own way, so a frame the viewer marked as cloud went into a stack
+unless it was rejected by hand (`CaptureRejection`, the `BAD_<CAUSE>_` name).
+
+The stacker's cloud filter grades each light after calibration and BEFORE normalization (F). Background matching erases the
+night-sky term (a frame's sky against its night's darkest), while patchiness, a ratio of medians, survives either way. The
+thresholds (`CloudFrom` 1.3, `LocalCloudFrom` 1.2, `NightSkyCloudFrom` 1.8) were measured on uncalibrated raw lights. A flat
+lowers every frame's patchiness about alike, so the ratios should hold, but the filter is an option until the owner's labelled
+E:/Captures nights (2026-05-14, 07-06, 08-31, 09-10, 09-12) read the same through the stacker as through the viewer. It says
+why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
+
 ## Phasing
 
 CLI-first: end-to-end pipeline shipped as `tianwen stack` before any GUI work.
