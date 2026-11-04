@@ -28,24 +28,37 @@ internal static class CloudRejection
     /// The verdict of every frame in <paramref name="grades"/> that carries a rejecting cause, keyed as the grades are. Read against
     /// <paramref name="references"/> where a rig's clear nights are known (the viewer's store), else on the group's own baselines.
     /// Patchiness is judged only in a group of <see cref="MinGradedForCloud"/> graded lights, the night-sky term only for a rig's night
-    /// with that many. Twilight reads the Sun's altitude and needs no baseline, but only a night that reaches astronomical dark (some
-    /// graded light of that night outside twilight) is judged for it: where the Sun never gets below -18 degrees every light reads as
-    /// twilight, and dropping them all would empty the group (no astro dark is a fallback, never a throw).
+    /// with that many. Twilight reads the Sun's altitude and needs no baseline, but only a night that reaches astronomical dark is judged
+    /// for it, meaning at least <see cref="MinGradedForCloud"/> of its graded lights are outside twilight: where the Sun never gets
+    /// below -18 degrees every light reads as twilight, and where it dips under for a few minutes only, those few lights would take the
+    /// rest of the night with them, and dropping them all would empty the group (no astro dark is a fallback, never a throw). Each
+    /// count is of the lights its baseline is built from (not twilight, a finite patchiness or sky level).
     /// </summary>
     public static ImmutableDictionary<string, LightGradeVerdict> Rejected(ImmutableDictionary<string, LightGrade> grades,
         ImmutableArray<LightGradeReference> references = default)
     {
-        var judgePatchiness = grades.Count >= MinGradedForCloud;
+        // Each count is of the lights its baseline is BUILT from (LightGrading.Baselines.Build leaves out twilight lights, and takes a
+        // finite patchiness for one baseline, a finite sky level above 0 and a night for the other), never of every graded light.
+        var patchinessLights = 0;
         var perRigNight = new Dictionary<(string Rig, DateOnly Night), int>();
-        var darkNights = new HashSet<DateOnly>();
+        var darkPerNight = new Dictionary<DateOnly, int>();
         foreach (var g in grades.Values)
         {
-            perRigNight[(g.Rig, g.Night)] = perRigNight.GetValueOrDefault((g.Rig, g.Night)) + 1;
-            if (g.Twilight is null)
+            if (g.Twilight is not null)
             {
-                darkNights.Add(g.Night);
+                continue;
+            }
+            darkPerNight[g.Night] = darkPerNight.GetValueOrDefault(g.Night) + 1;
+            if (float.IsFinite(g.Patchiness))
+            {
+                patchinessLights++;
+            }
+            if (float.IsFinite(g.SkyLevel) && g.SkyLevel > 0f && g.Night != default)
+            {
+                perRigNight[(g.Rig, g.Night)] = perRigNight.GetValueOrDefault((g.Rig, g.Night)) + 1;
             }
         }
+        var judgePatchiness = patchinessLights >= MinGradedForCloud;
         var rejected = ImmutableDictionary.CreateBuilder<string, LightGradeVerdict>(grades.KeyComparer);
         foreach (var (path, grade) in grades)
         {
@@ -54,13 +67,23 @@ internal static class CloudRejection
             if ((causes & GradeCause.Cloud) != GradeCause.None)
             {
                 var byPatchiness = judgePatchiness && LightGrading.PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
-                var bySky = verdict.NightSky >= LightGrading.NightSkyCloudFrom && perRigNight[(grade.Rig, grade.Night)] >= MinGradedForCloud;
+                var bySky = verdict.NightSky >= LightGrading.NightSkyCloudFrom && perRigNight.GetValueOrDefault((grade.Rig, grade.Night)) >= MinGradedForCloud;
                 if (!byPatchiness && !bySky)
                 {
                     causes &= ~GradeCause.Cloud;
                 }
+                else
+                {
+                    // A term that was not judged must not be worded as a finding.
+                    verdict = verdict with
+                    {
+                        Patchiness = byPatchiness ? verdict.Patchiness : float.NaN,
+                        LocalPatchiness = byPatchiness ? verdict.LocalPatchiness : float.NaN,
+                        NightSky = bySky ? verdict.NightSky : float.NaN,
+                    };
+                }
             }
-            if (!darkNights.Contains(grade.Night))
+            if (darkPerNight.GetValueOrDefault(grade.Night) < MinGradedForCloud)
             {
                 causes &= GradeCause.Cloud;
             }
