@@ -45,4 +45,14 @@ internal static class CloudRejection
             : (verdict.Causes & GradeCause.Sunset) != GradeCause.None ? "taken past astronomical dark as the Sun set"
             : throw new ArgumentException("the verdict carries no rejecting cause", nameof(verdict));
     }
+
+    /// <summary>
+    /// The skip reason for a group left with fewer than two frames, when it was THIS filter that emptied it (#1998): at least two
+    /// frames registered, and leaving out <paramref name="leftOut"/> of them for cloud or twilight took the group below two.
+    /// <see langword="null"/> when registration was already short, so the registration census stays the diagnosis there.
+    /// </summary>
+    public static string? EmptiedGroupReason(int matchedBeforeCloud, int leftOut)
+        => leftOut > 0 && matchedBeforeCloud >= 2 && matchedBeforeCloud - leftOut < 2
+            ? $"{leftOut} of {matchedBeforeCloud} matched frames left out for cloud or twilight, fewer than 2 remain"
+            : null;
 }
