@@ -48,7 +48,6 @@ public class GeminiFlatPanelHardwareTests(ITestOutputHelper testOutputHelper)
         // and any driver warnings surface in the test output.
         await using var sp = new ServiceCollection()
             .AddExternal()
-            .AddAstrometry() // External's ctor resolves ICelestialObjectDB; the Gemini driver never touches it.
             .AddLogging(b => b.AddProvider(new XUnitLoggerProvider(testOutputHelper, false)))
             .BuildServiceProvider();
 

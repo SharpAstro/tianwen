@@ -1787,7 +1787,13 @@ internal partial record Session
             if (!FilterCurveDatabase.IsLoaded)
                 await FilterCurveDatabase.LoadAsync(ct);
 
-            var db = await External.GetCelestialObjectDBAsync(ct);
+            // No catalogue registered: SPCC cannot match stars, the same as a catalogue that failed to load.
+            if (ServiceProvider.GetService<ICelestialObjectDB>() is not { } db)
+            {
+                _logger.LogDebug("SPCC: no catalogue registered; skipping spectrophotometric calibration");
+                return;
+            }
+            await db.InitDBAsync(cancellationToken: ct);
 
             // T_sys keyed on (sensorModel | filterRawName | sensorType)
             var meta = image.ImageMeta;

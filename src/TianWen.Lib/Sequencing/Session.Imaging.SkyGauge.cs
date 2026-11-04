@@ -114,7 +114,11 @@ internal partial record Session
 
         var apertureScale = ComputeApertureScaleFactor(t);
         var theoreticalLimit = StarDetectionModel.DetectabilityMagCutoff(apertureScale, exposureSeconds, snrThreshold: snrThreshold);
-        var db = await External.GetCelestialObjectDBAsync(cancellationToken);
+        if (ServiceProvider.GetService<ICelestialObjectDB>() is not { } db)
+        {
+            return NightSkyGauge.None;
+        }
+        await db.InitDBAsync(cancellationToken: cancellationToken);
         var magBins = CatalogStarCounter.CountStarsByMagnitude(db, raHours, decDeg, fovW, fovH);
         return NightSkyGauge.FromCounts(detectedStars, magBins, theoreticalLimit, Configuration.MinOracleStarCount);
     }
@@ -186,13 +190,19 @@ internal partial record Session
         }
         EnsureNightSkyGaugeArray();
 
-        // Defensive: the catalog DB resolve can fail (not configured, transient load error). Mirror the
+        // Defensive: the catalog DB resolve can fail (not registered, not configured, transient load error). Mirror the
         // fake camera's catch-and-fall-back behaviour -- an unavailable catalog means the oracle simply
         // can't judge (return null -> caller proceeds), never an exception that aborts the scout.
         ICelestialObjectDB db;
         try
         {
-            db = await External.GetCelestialObjectDBAsync(cancellationToken);
+            if (ServiceProvider.GetService<ICelestialObjectDB>() is not { } resolved)
+            {
+                _logger.LogWarning("First-scout oracle: no catalog DB registered for {Target}; proceeding without obstruction judgement.", observation.Target);
+                return null;
+            }
+            await resolved.InitDBAsync(cancellationToken: cancellationToken);
+            db = resolved;
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
