@@ -48,4 +48,20 @@ public class CloudRejectionTests
         CloudRejection.InWords(rejected["dawn"]).ShouldBe("taken past astronomical dark as the Sun rose");
         rejected["cloud"].ShouldBe(LightGrading.Verdict(grades, cloud), "the stacker's verdict is the viewer's");
     }
+
+    /// <summary>
+    /// A handful of frames gives the cloud verdict no baseline (a 4-frame group's clearest tenth is its one clearest frame), so cloud is
+    /// judged only from <see cref="CloudRejection.MinGradedForCloud"/> graded frames; twilight, read off the Sun, drops a frame at any size.
+    /// </summary>
+    [Fact]
+    public void ASmallGroupIsNotJudgedForCloudButTwilightStillDrops()
+    {
+        var few = Enumerable.Range(0, CloudRejection.MinGradedForCloud - 3).Select(i => ($"f{i}", Frame(i, 1f))).ToArray();
+        var grades = Grades([.. few, ("patchy", Frame(4, 2.5f)), ("dawn", Frame(5, 1f, TwilightPeriod.Dawn))]);
+
+        var rejected = CloudRejection.Rejected(grades);
+
+        rejected.Keys.ShouldBe(["dawn"]);
+        rejected["dawn"].Causes.ShouldBe(GradeCause.Sunrise);
+    }
 }

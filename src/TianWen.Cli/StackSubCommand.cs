@@ -175,7 +175,9 @@ internal sealed class StackSubCommand(
         };
         var rejectCloudOpt = new Option<bool>("--reject-cloud")
         {
-            Description = "Leave out the lights the FITS viewer's grade calls cloud or twilight: each light is graded on its calibrated frame before normalization (the sky's patchiness against the group's clearest and its neighbours within an hour, the sky against the night's darkest, the Sun's altitude), and every frame left out is logged with the reason and marked SkippedCloud in the manifest. Off by default until it is checked against labelled nights.",
+            Description = "Leave out the lights the FITS viewer's grade calls cloud or twilight: each light is graded on its calibrated frame before normalization (the sky's patchiness against the group's clearest and its neighbours within an hour, the sky against the night's darkest, the Sun's altitude), and every frame left out is logged with the reason and marked SkippedCloud in the manifest. On by default; --reject-cloud false stacks every light the other gates keep.",
+            // The record's own default, so an absent option defers to it rather than replacing it (#1370's lesson).
+            DefaultValueFactory = _ => new StackingOptions(string.Empty, string.Empty).RejectCloud,
         };
         var rejectLowSigmaOpt = new Option<float?>("--reject-low-sigma")
         {

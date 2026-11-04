@@ -441,7 +441,22 @@ filters kept 42 of the 44 marked frames out of the master:
 They lost 11 unmarked frames: 9 to the star-quality filter and 2 to the cloud filter. The stacker's cloud verdict agreed with the
 viewer's on raw frames for 169 of the 181 frames that reached it. With no dark matched, a flat dividing frames still carrying the
 pedestal imprints its own shape, and the filter caught only 7 marked frames (0 unmarked). So the grade reads CALIBRATED frames as
-it should, provided they are calibrated properly. The option stays off by default until a second night agrees.
+it should, provided they are calibrated properly.
+
+**Second read, and the default (2026-11-04).** The second night was 2026-09-12 (QHY294C on the SV545, IDAS), with the library dark
+and the SV545's 2026-09-10 IDAS flats and dark-flats.
+- Helix: 150 lights, the stacker's cloud verdict agreed with the viewer's on 135 of 135.
+- LMC: 200 lights, it agreed on 186 of 190.
+- 2 unmarked frames were left out.
+- Of the owner's 42 marks, the cloud and star-quality filters took 19. The 23 still stacked are the faint end-of-night cloud the
+  viewer's grade misses too: a limit of the grade, #1974, not of the filter.
+
+Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `--reject-cloud` is now ON by default.
+`--reject-cloud false` turns it off.
+
+Cloud is judged only in a group of at least 10 graded lights (`CloudRejection.MinGradedForCloud`, the viewer's own bar for a clear
+night), because a handful of frames gives the verdict no baseline: a 4-frame group's clearest tenth is its one clearest frame.
+Twilight is read off the Sun's altitude and needs no baseline, so it drops a frame in a group of any size.
 
 ## Phasing
 
