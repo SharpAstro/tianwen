@@ -619,6 +619,18 @@ ask `IsMapSidecarPath` before treating a `.fits` in a master folder as a master.
 APP's format (`BITPIX = 8`, 127 linear / 255 hot / 0 cold) so their maps and ours are interchangeable,
 and it is on the SENSOR's geometry, never the master's canvas.
 
+**The saturation sidecar counts, per master pixel, the subs that had a photosite at the ADC ceiling there**
+(#1991, `master_<slug>.saturation.fits.gz`, `MAPKIND = SATURATION`, `SaturationCounter`). Registration and
+rejection smear a star clipped in every sub to a peak well under the master's own, so SPCC's peak gate cannot
+see it; this count can, and SPCC's clip gate is its only reader. **It is judged on the RAW decode**, never a
+calibrated frame: the ceiling is what the raw frame states (`ImageMeta.SensorFullScaleAdu`, a `SATURATE` card,
+else the container's full scale), never the observed `MaxValue`. **It is one pass beside the strategies, not
+inside each**: each raw light is read once and its clipped photosites go through the same source-to-canvas
+transform the strategy warps with (`RawLightSource.TransformToCanvas`), each marking its pixel and the eight
+around it (the demosaic's and a drop's footprint), once per frame, so a count never exceeds the frame count and
+the cost is linear in frames. That covers the AHD tile path and both drizzle paths alike. **A set with nothing at
+the ceiling writes NO sidecar**, and absence means "the peak gate alone". Pinned by `SaturationStackingTests`.
+
 **Drizzle rejects per DEPOSITED SAMPLE, at the stack's own thresholds, and coverage is not a
 substitute** (#93). Coverage says whether any frame reached a cell; a satellite trail has full
 coverage. Both drizzle strategies used to ignore `job.Options.Rejector`, so every trail and airplane
