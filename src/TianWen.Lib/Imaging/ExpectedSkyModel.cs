@@ -83,6 +83,9 @@ public sealed record ExpectedSkyModel
     /// <summary>The frames the zero-point fit kept after clipping; 0 when there is no zero point.</summary>
     public int ZeroPointCount { get; init; }
 
+    /// <summary>What the fitted frames covered, so a frame outside it is not read against the model (a guess); see <see cref="Covers"/>.</summary>
+    public SkyCoverage Coverage { get; init; } = new();
+
     /// <summary>Whether the model carries a clear zero point.</summary>
     public bool HasZeroPoint => ZeroPointCount > 0 && double.IsFinite(ZeroPoint0) && double.IsFinite(Extinction);
 
@@ -103,6 +106,7 @@ public sealed record ExpectedSkyModel
         var yLevel = new List<double>(samples.Count);
         var yGradient = new List<double>(samples.Count);
         var zeroPoints = new List<(double Airmass, double ZeroPoint)>();
+        var covered = new List<SkyCovariates>(samples.Count);
         foreach (var s in samples)
         {
             if (!(s.Level > 0) || !(s.GradientStrength > 0) || !double.IsFinite(s.Level) || !double.IsFinite(s.GradientStrength))
@@ -115,6 +119,7 @@ public sealed record ExpectedSkyModel
                 continue;
             }
             features.Add(f);
+            covered.Add(s.Covariates);
             yLevel.Add(Math.Log(s.Level));
             yGradient.Add(Math.Log(s.GradientStrength));
             if (double.IsFinite(s.ZeroPoint))
@@ -196,6 +201,7 @@ public sealed record ExpectedSkyModel
             GradientScatter = sdG,
             FrameCount = kept,
             OfferedCount = n,
+            Coverage = SkyCoverage.Of(covered),
         }.WithZeroPoint(zeroPoints);
     }
 
@@ -311,12 +317,24 @@ public sealed record ExpectedSkyModel
     public SkyExcess Excess(in SkyCovariates covariates, double level, double gradientStrength)
     {
         var (l, g) = Expected(covariates);
+        if (!Covers(covariates))
+        {
+            return new SkyExcess(double.NaN, double.NaN);
+        }
         if (!(level > 0) || !(gradientStrength > 0) || !(LevelScatter > 0) || !(GradientScatter > 0))
         {
             return new SkyExcess(double.NaN, double.NaN);
         }
         return new SkyExcess((Math.Log(level) - l) / LevelScatter, (Math.Log(gradientStrength) - g) / GradientScatter);
     }
+
+    /// <summary>
+    /// Whether a frame with these <paramref name="covariates"/> lies inside what the fitted frames covered: its meridian side, the
+    /// Moon up or down, its airmass and its hours from midnight. A term the fit left out (no Moon in the clear nights) says nothing
+    /// about a Moon-lit frame, so such a frame is not read at all; the verdict falls back to the night's own fit or to no term.
+    /// A model with no recorded coverage (an older file) covers everything.
+    /// </summary>
+    public bool Covers(in SkyCovariates covariates) => Coverage.Contains(covariates);
 
     private static int IndexOf(string term)
     {
@@ -611,5 +629,77 @@ public sealed record ExpectedSkyModel
         values.Sort();
         var n = values.Count;
         return n == 0 ? double.NaN : n % 2 == 1 ? values[n / 2] : 0.5 * (values[n / 2 - 1] + values[n / 2]);
+    }
+}
+
+/// <summary>What the frames a model was fitted from covered (#1974): the sides of the meridian, the Moon up and down, the airmass and hours-from-midnight ranges.</summary>
+public sealed record SkyCoverage
+{
+    /// <summary>Airmass slack past the fitted range a frame may still be read at.</summary>
+    private const double AirmassSlack = 0.15;
+
+    /// <summary>Hours-from-midnight slack past the fitted range.</summary>
+    private const double HoursSlack = 1.5;
+
+    public bool Recorded { get; init; }
+    public bool SawEast { get; init; }
+    public bool SawWest { get; init; }
+    public bool SawMoonUp { get; init; }
+    public bool SawMoonDown { get; init; }
+    public double MinAirmass { get; init; }
+    public double MaxAirmass { get; init; }
+    public double MinHours { get; init; }
+    public double MaxHours { get; init; }
+
+    public static SkyCoverage Of(IReadOnlyList<SkyCovariates> frames)
+    {
+        var c = new SkyCoverage
+        {
+            Recorded = frames.Count > 0,
+            MinAirmass = double.PositiveInfinity, MaxAirmass = double.NegativeInfinity,
+            MinHours = double.PositiveInfinity, MaxHours = double.NegativeInfinity,
+        };
+        bool east = false, west = false, up = false, down = false;
+        double minX = double.PositiveInfinity, maxX = double.NegativeInfinity, minH = double.PositiveInfinity, maxH = double.NegativeInfinity;
+        foreach (var f in frames)
+        {
+            east |= !f.West;
+            west |= f.West;
+            if (double.IsFinite(f.MoonAltitudeDeg))
+            {
+                up |= f.MoonAltitudeDeg > 0;
+                down |= f.MoonAltitudeDeg <= 0;
+            }
+            minX = Math.Min(minX, f.Airmass);
+            maxX = Math.Max(maxX, f.Airmass);
+            if (double.IsFinite(f.HoursFromLocalMidnight))
+            {
+                minH = Math.Min(minH, f.HoursFromLocalMidnight);
+                maxH = Math.Max(maxH, f.HoursFromLocalMidnight);
+            }
+        }
+        return c with { SawEast = east, SawWest = west, SawMoonUp = up, SawMoonDown = down, MinAirmass = minX, MaxAirmass = maxX, MinHours = minH, MaxHours = maxH };
+    }
+
+    public bool Contains(in SkyCovariates c)
+    {
+        if (!Recorded)
+        {
+            return true;
+        }
+        if (c.West ? !SawWest : !SawEast)
+        {
+            return false;
+        }
+        if (double.IsFinite(c.MoonAltitudeDeg) && (c.MoonAltitudeDeg > 0 ? !SawMoonUp : !SawMoonDown))
+        {
+            return false;
+        }
+        if (double.IsFinite(c.Airmass) && (c.Airmass < MinAirmass - AirmassSlack || c.Airmass > MaxAirmass + AirmassSlack))
+        {
+            return false;
+        }
+        return !double.IsFinite(c.HoursFromLocalMidnight) || !double.IsFinite(MinHours)
+            || (c.HoursFromLocalMidnight >= MinHours - HoursSlack && c.HoursFromLocalMidnight <= MaxHours + HoursSlack);
     }
 }

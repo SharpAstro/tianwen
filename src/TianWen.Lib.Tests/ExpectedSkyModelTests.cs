@@ -50,6 +50,27 @@ public class ExpectedSkyModelTests
     }
 
     [Fact]
+    public void AFrameOutsideWhatTheModelWasFittedOnIsNotReadAgainstIt()
+    {
+        var r = new Random(7);
+        var model = ExpectedSkyModel.Fit([.. Enumerable.Range(0, 300).Select(_ => Draw(r, moonVaries: false))]);
+        model.ShouldNotBeNull();
+        model.Terms.ShouldNotContain("moon*falloff");
+
+        // A clear frame with the Moon up: the model has no Moon term, so it must say nothing rather than read the Moon as a veil.
+        var moonlit = new SkyCovariates(0, 0, -2, 0, 0, 1.3, false, 0, 50, 0.9, 30, 0, 0, 0);
+        var (l, g) = Truth(moonlit);
+        model.Covers(moonlit).ShouldBeFalse();
+        var excess = model.Excess(moonlit, Math.Exp(l), Math.Exp(g));
+        double.IsNaN(excess.LevelSigma).ShouldBeTrue();
+        double.IsNaN(excess.GradientSigma).ShouldBeTrue();
+
+        // Past the fitted airmass range likewise; inside it the model still reads.
+        model.Covers(moonlit with { MoonAltitudeDeg = -20, Airmass = 5 }).ShouldBeFalse();
+        model.Covers(moonlit with { MoonAltitudeDeg = -20 }).ShouldBeTrue();
+    }
+
+    [Fact]
     public void AFitToClearFramesRecoversTheLawWithinItsScatter()
     {
         var r = new Random(1974);

@@ -259,7 +259,7 @@ public static class LightGrading
     /// file list's row and the panel's line alike.
     /// </summary>
     public static LightGradeVerdict Verdict(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade,
-        ImmutableArray<LightGradeReference> references = default, ImmutableArray<ExpectedSkyEntry> expectedSky = default)
+        ImmutableArray<LightGradeReference> references = default, ImmutableArray<ExpectedSkyEntry> expectedSky = default, bool selfFit = true)
     {
         var relative = Relative(grades, grade);
         var patchiness = RelativePatchiness(grades, grade);
@@ -269,7 +269,7 @@ public static class LightGrading
         var nightSky = RelativeNightSky(grades, grade);
         DateOnly referenceNight = default;
         var unjudged = false;
-        var (levelSigma, gradientSigma, fromStore) = ExpectedSkyExcess(grades, grade, expectedSky);
+        var (levelSigma, gradientSigma, fromStore) = ExpectedSkyExcess(grades, grade, expectedSky, selfFit);
         var transparency = TransparencyOf(grade, expectedSky);
         if (!references.IsDefault && grade.Twilight is null)
         {
@@ -336,7 +336,7 @@ public static class LightGrading
     /// <see cref="SelfFitMinFrames"/>), else none, which reads NaN. A twilight frame is never judged.
     /// </summary>
     private static (float LevelSigma, float GradientSigma, bool FromStore) ExpectedSkyExcess(
-        ImmutableDictionary<string, LightGrade> grades, in LightGrade grade, ImmutableArray<ExpectedSkyEntry> stored)
+        ImmutableDictionary<string, LightGrade> grades, in LightGrade grade, ImmutableArray<ExpectedSkyEntry> stored, bool selfFit)
     {
         if (grade.Twilight is not null || !grade.SurfaceRead)
         {
@@ -354,7 +354,7 @@ public static class LightGrading
                 fromStore = true;
             }
         }
-        if (model is null && grade.Night != default)
+        if (model is null && selfFit && grade.Night != default)
         {
             model = BaselinesOf(grades).SelfFit.TryGetValue(new ObjectNight(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night),
                 grade.Key.ObjectKey), out var lazy) ? lazy.Value : null;
