@@ -149,9 +149,10 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
 
         // Polar alignment, likewise: rotating the mount for nobody is the case the grace is for.
         var third = await WindowAsync(kept, ct);
+        // A ramp that outlasts the grace twice over, or the run would end on its own before the grace could stop it.
         var polar = new PolarAlignmentRequestDto
         {
-            Configuration = new PolarAlignmentConfigDto { ExposureRampSeconds = [.. Enumerable.Repeat(1.0, 8)], ReferenceFrameAverages = 1 },
+            Configuration = new PolarAlignmentConfigDto { ExposureRampSeconds = [.. Enumerable.Repeat(1.0, (int)(Grace.TotalSeconds * 2))], ReferenceFrameAverages = 1 },
         };
         (await client.StartPolarAlignmentAsync(polar, ct)).IsSuccess.ShouldBeTrue();
         await third.DisposeAsync();
@@ -174,9 +175,10 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         var client = kept.Client;
 
         // A dark library: its window goes at once, and it takes every frame regardless. It lasts well past a grace
-        // (six 2 s frames), or an interactive dark library would finish before the grace could stop it.
+        // (twelve 2 s frames against the 15 s grace), or an interactive dark library would finish before the grace could stop it.
+        const int darkFrames = 12;
         var window = await WindowAsync(kept, ct);
-        (await client.StartDarkLibraryAsync(new DarkLibraryRequestDto { DeviceUri = Camera.ToString(), ExposureSeconds = 2, Count = 6 }, ct))
+        (await client.StartDarkLibraryAsync(new DarkLibraryRequestDto { DeviceUri = Camera.ToString(), ExposureSeconds = 2, Count = darkFrames }, ct))
             .IsSuccess.ShouldBeTrue();
         await window.DisposeAsync();
         var darks = await UntilAsync<DarkLibraryStateDto>("the dark library to end", async token =>
@@ -184,7 +186,7 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
             var state = (await client.GetDarkLibraryAsync(token)).Value;
             return (state is { Running: false } ? state : null, state is null ? "none" : $"{state.Frames.Length} of {state.Count}");
         }, ct);
-        (darks.Frames.Length, darks.Stopped, darks.FailureReason).ShouldBe((6, false, (string?)null), "a dark library finishes unwatched");
+        (darks.Frames.Length, darks.Stopped, darks.FailureReason).ShouldBe((darkFrames, false, (string?)null), "a dark library finishes unwatched");
 
         // A session: on for twice the grace after its window has gone, until it is aborted.
         window = await WindowAsync(kept, ct);
