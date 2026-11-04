@@ -64,6 +64,8 @@ public class DebayerAhdGainEqualisationTests
     private static void AssertSources(Image result)
     {
         var skyOut = new[] { Sky * GainR, Sky, Sky * GainB };
+        var report = "";
+        var ok = true;
 
         foreach (var (sx, sy, _) in Sources)
         {
@@ -88,15 +90,16 @@ public class DebayerAhdGainEqualisationTests
                 cy[c] /= flux[c];
             }
 
-            (flux[0] / flux[1]).ShouldBe(GainR, GainR * 0.03, $"R/G flux ratio of the source at ({sx}, {sy})");
-            (flux[2] / flux[1]).ShouldBe(GainB, GainB * 0.03, $"B/G flux ratio of the source at ({sx}, {sy})");
-
-            for (var c = 0; c < 3; c += 2)
-            {
-                Math.Abs(cx[c] - cx[1]).ShouldBeLessThan(0.15, $"channel {c} x centroid vs green at ({sx}, {sy})");
-                Math.Abs(cy[c] - cy[1]).ShouldBeLessThan(0.15, $"channel {c} y centroid vs green at ({sx}, {sy})");
-            }
+            var rg = flux[0] / flux[1];
+            var bg = flux[2] / flux[1];
+            var worstShift = Math.Max(
+                Math.Max(Math.Abs(cx[0] - cx[1]), Math.Abs(cy[0] - cy[1])),
+                Math.Max(Math.Abs(cx[2] - cx[1]), Math.Abs(cy[2] - cy[1])));
+            report += FormattableString.Invariant($"({sx}, {sy}): R/G {rg:F4}, B/G {bg:F4}, worst centroid shift {worstShift:F3} px; ");
+            ok &= Math.Abs(rg - GainR) <= GainR * 0.03 && Math.Abs(bg - GainB) <= GainB * 0.03 && worstShift < 0.15;
         }
+
+        ok.ShouldBeTrue($"expected R/G {GainR}, B/G {GainB} within 3 percent and centroids within 0.15 px; got {report}");
     }
 
     private static Image BuildMosaic()
