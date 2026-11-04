@@ -39,6 +39,21 @@ public class LiveCloudJudgeTests
     }
 
     /// <summary>
+    /// The judge holds no night to fit: without a stored model it reads no veil term (the viewer's self-fit is the viewer's),
+    /// so a thin veil over a night's last frames is not called cloud here.
+    /// </summary>
+    [Fact]
+    public void AThinVeilIsNotReadWithoutAStoredModel()
+    {
+        var judge = new LiveCloudJudge();
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        for (var i = 0; i < night.Length; i++)
+        {
+            LiveCloudJudge.IsCloud(judge.Add($"f{i}", night[i])).ShouldBeFalse($"frame {i}");
+        }
+    }
+
+    /// <summary>
     /// A target cloudy from its first light is its own darkest sky and reads clear against itself; given a clear night of the
     /// same rig (#1976, the viewer's <c>clear-sky.json</c>) the judge calls it cloud from that first light on.
     /// </summary>

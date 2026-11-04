@@ -364,13 +364,6 @@ public class LightGradingTests
         LightGrading.LocalPatchiness(grades, frames[390].Item2).ShouldBe(3f, 0.01f, "the middle is read against the clear part, not itself");
     }
 
-    /// <summary>
-    /// 100,000 frames in one group (one a minute) build their baselines in one pass, plateau test included: the bound is the
-    /// test's timeout, so a scan of the group per frame cannot creep back. The plateau test's two side windows scanned over the
-    /// whole group are about 20 billion comparisons (n squared, twice): with that scan put back the test timed out at 20 s,
-    /// while the binary search passes in under a second (both measured on the desktop), so the bound fails the scan and
-    /// passes the search with a wide margin on a slower runner too.
-    /// </summary>
     private const double SiteLat = -37.9;
     private const double SiteLon = 145.2;
     private static readonly DateOnly SyntheticNight = new(2026, 7, 6);
@@ -486,6 +479,13 @@ public class LightGradingTests
         }
     }
 
+    /// <summary>
+    /// 100,000 frames in one group (one a minute) build their baselines in one pass, plateau test included: the bound is the
+    /// test's timeout, so a scan of the group per frame cannot creep back. The plateau test's two side windows scanned over the
+    /// whole group are about 20 billion comparisons (n squared, twice): with that scan put back the test timed out at 20 s,
+    /// while the binary search passes in under a second (both measured on the desktop), so the bound fails the scan and
+    /// passes the search with a wide margin on a slower runner too.
+    /// </summary>
     [Fact(Timeout = 20_000)]
     public async Task ALargeGroupBuildsItsBaselinesInTime()
     {
