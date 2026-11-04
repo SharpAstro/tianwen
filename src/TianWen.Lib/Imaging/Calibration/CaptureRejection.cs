@@ -20,6 +20,11 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// sub, which no rejector can remove: rejection drops outliers, and a defect present in every frame
 /// is the consensus.</para>
 ///
+/// <para><b>A <c>MAYBE_CLOUD_</c> prefix (#1977) is a suspicion, not a rejection.</b> The session writes it on a frame it
+/// thinks was shot through cloud; <see cref="IsRejectedAtCapture"/> is false for it, the stacker leaves it out by default
+/// (an option includes it), and <see cref="MarkedPath"/> / <see cref="TryMark"/> take it off in the same rename that
+/// confirms the frame as <c>BAD_CLOUD_</c> or keeps it under its capture name.</para>
+///
 /// <para>Matched on the name alone and nothing else: the prefix is what the tool writes, and reading
 /// it costs no I/O at all, which is what lets the check sit in front of a header read.</para>
 /// </summary>
@@ -38,6 +43,31 @@ public static class CaptureRejection
     /// </remarks>
     public static bool IsRejectedAtCapture(string path)
         => Path.GetFileName(path.AsSpan()).StartsWith(RejectedPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The prefix a session gives a frame it SUSPECTS is cloud (#1977). A suspicion is not a rejection:
+    /// <see cref="IsRejectedAtCapture"/> stays false for it, so every <c>BAD_</c> reader keeps its meaning,
+    /// and the stacker leaves such a frame out by default with an option to include it. The viewer's Grade
+    /// section turns it into <c>BAD_CLOUD_</c> (a confirmed reject) or into the bare capture name (a keep).
+    /// </summary>
+    public const string SuspectedCloudPrefix = "MAYBE_CLOUD_";
+
+    /// <summary>Whether <paramref name="path"/> names a frame suspected of being cloud. File name only, ignoring case.</summary>
+    public static bool IsSuspectedCloud(string path)
+        => Path.GetFileName(path.AsSpan()).StartsWith(SuspectedCloudPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// <paramref name="path"/> with <see cref="SuspectedCloudPrefix"/> added to its file name, for a bare capture name.
+    /// A name already carrying it or a <c>BAD_</c> prefix is returned unchanged.
+    /// </summary>
+    public static string SuspectedPath(string path)
+    {
+        if (IsSuspectedCloud(path) || IsRejectedAtCapture(path))
+        {
+            return path;
+        }
+        return Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, SuspectedCloudPrefix + Path.GetFileName(path));
+    }
 
     /// <summary>
     /// Why a rejected frame was rejected, as the viewer's Grade section names it (#1951): written into the name after the
@@ -83,7 +113,11 @@ public static class CaptureRejection
     {
         var name = Path.GetFileName(path);
         var bare = name;
-        if (CauseOf(path) is { } current)
+        if (IsSuspectedCloud(path))
+        {
+            bare = name[SuspectedCloudPrefix.Length..];
+        }
+        else if (CauseOf(path) is { } current)
         {
             bare = name[RejectedPrefix.Length..];
             if (current != Cause.Unspecified)

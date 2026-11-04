@@ -252,6 +252,31 @@ public class FitsFolderFrameSourceTests : IDisposable
         source.RejectedAtCapture.ShouldBe(2, "lower case counts too, and the count is what keeps the drop visible");
     }
 
+    /// <summary>#1977: a MAYBE_CLOUD_ frame is a suspicion, skipped by default, kept on request, counted apart from BAD_.</summary>
+    [Fact]
+    public async Task ASuspectedCloudFrameIsSkippedByDefaultIncludedOnRequestAndCountedApart()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var dir = CreateTempDir();
+        WriteFits(dir, "light_01.fits", MakeSynthetic(FrameType.Light, 30f));
+        WriteFits(dir, "MAYBE_CLOUD_light_02.fits", MakeSynthetic(FrameType.Light, 30f));
+        WriteFits(dir, "maybe_cloud_light_03.fits", MakeSynthetic(FrameType.Light, 30f));
+        WriteFits(dir, "BAD_light_04.fits", MakeSynthetic(FrameType.Light, 30f));
+
+        var byDefault = new FitsFolderFrameSource(dir);
+        var kept = await CollectAsync(byDefault.EnumerateAsync(ct), ct);
+        kept.Select(f => Path.GetFileName(f.Path)).ShouldBe(new[] { "light_01.fits" });
+        byDefault.SuspectedCloudSkipped.ShouldBe(2);
+        byDefault.RejectedAtCapture.ShouldBe(1, "a suspicion is not counted as a BAD_ rejection");
+
+        var asked = new FitsFolderFrameSource(dir) { IncludeSuspectedCloud = true };
+        var all = await CollectAsync(asked.EnumerateAsync(ct), ct);
+        all.Select(f => Path.GetFileName(f.Path)).ShouldBe(
+            new[] { "light_01.fits", "MAYBE_CLOUD_light_02.fits", "maybe_cloud_light_03.fits" }, ignoreOrder: true);
+        asked.SuspectedCloudSkipped.ShouldBe(0);
+        asked.RejectedAtCapture.ShouldBe(1);
+    }
+
     private static async Task<System.Collections.Generic.List<FrameInfo>> CollectAsync(System.Collections.Generic.IAsyncEnumerable<FrameInfo> source, CancellationToken ct)
     {
         var list = new System.Collections.Generic.List<FrameInfo>();

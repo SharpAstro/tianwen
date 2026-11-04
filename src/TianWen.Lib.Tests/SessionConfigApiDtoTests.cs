@@ -77,7 +77,9 @@ public class SessionConfigApiDtoTests
         FocusDriftSampleSize: 40,
         FocusDriftMinSamples: 6,
         SaveIntermediates: true,
-        UnparkMount: false);
+        UnparkMount: false,
+        DetectCloudWhileImaging: false,
+        CloudWaitTimeout: TimeSpan.FromMinutes(25));
 
     [Fact]
     public void EveryFieldSurvivesTheWire()

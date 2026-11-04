@@ -63,3 +63,62 @@ amateur-astro −15° → nautical −12° → polar-night 24h). It must **never
 for astronomical twilight: at high-summer mid-latitudes (e.g. 50.9°N at solstice the sun bottoms ~−15.7°)
 the sun never reaches −18°, and the old strict read threw, killing the session at a site that simply has
 no astro-dark. Pinned by a no-dark German-solstice test in `SessionLifecycleTests`.
+
+## Cloud while imaging (#1977)
+
+N.I.N.A. once refocused the owner's rig because the stars looked bad, and they looked bad because of cloud. A refocus, a
+plate solve or a focus trend fed by a cloudy frame wastes time at best and moves focus or the pointing the wrong way at
+worst, so the session asks of every light, as it lands, whether it was shot through cloud.
+
+**One judge, the viewer's.** `LiveCloudJudge` (`TianWen.Lib.Imaging.Grading`) grades each light on the stars the imaging loop
+already found on it (`LightGrading.Grade`) and answers through `LightGrading.Verdict`, the one place the viewer's file list
+and Grade section judge a frame too, so the session and the viewer cannot disagree. One judge per OTA per observation (a new
+target starts with none). It is handed the rig's clear nights the viewer recorded (`LightGradeReferenceStore`,
+`Viewer/clear-sky.json`, #1976), so a target cloudy from its first light is judged against another night rather than being
+its own clear baseline; with none on file the run's own frames decide, exactly as before. A light with no grade (no stars, no
+usable score) is NOT JUDGED, which leaves the state as it was: never read it as clear. On by default,
+`SessionConfiguration.DetectCloudWhileImaging`; `false` images through cloud as before #1977.
+
+**What a cloud light changes, and what a clear one gives back.** Every verdict lands through ONE method,
+`Session.RecordLatestLightCloud`, which keeps, per OTA, when the run of cloud began (null while the latest judged light was
+clear). While an OTA's latest light is cloud:
+
+- the light is written `MAYBE_CLOUD_frame_...fits` (`CaptureRejection.SuspectedCloudPrefix`, `QueuedImageWrite.SuspectedCloud`),
+  the nearly-done frame kept before a flip included;
+- it adds no sample to the focus-drift window (`_frameMetricsHistory`) and runs no drift check, no baseline and no star-count
+  test of its own: its HFD and star count describe the sky, not the focus;
+- a meridian flip skips its recentre and its field-rotation check (`CompleteMeridianFlipAsync`): the verdict is
+  `FlipEvidence.Inconclusive` and the mount's own report is believed. Pinned, with a clear-again positive control, by
+  `MeridianFlipVerificationSessionTests.AFlipUnderCloudRunsNoPlateSolveAndOnceClearTheSolvesResume`.
+
+The next clear light resumes all three. **What it does not give back**: a flip made under cloud is not recentred once the sky
+clears, so the target stays where the flip's goto left it for the rest of that observation (the next observation centres as
+usual). Accepted, since the issue asks only that the solve be skipped; a recentre on the first clear light would be its own change.
+
+**Cloud that lasts is a condition deterioration.** Cloud on an OTA for longer than `SessionConfiguration.CloudWaitTimeout`
+(null is `DefaultCloudWaitTimeout`, 15 minutes) takes the existing path (`PauseForConditionRecoveryAsync`, shared with the
+star-count test): guiding paused, a wait up to `ConditionRecoveryTimeout` for the sky to come back to the drift baseline (or,
+with none yet, the last clear light's metrics; never a clear light at all gives the target up at once), then imaging
+resumes or the observation is given up. Parking stays with the safety and weather paths. **This is a behaviour change for
+every run on the defaults**: a sudden cloud-over used to pause guiding at once through the star-count test (no frames
+written); it now images on for up to 15 minutes, every frame saved `MAYBE_CLOUD_`, before the same pause. Long enough that a
+passing cloud does not abandon the target, short enough that an overcast hour does not burn the observation into suspect
+files. `SessionImagingTests.GivenCloudsRollingInWhenStarCountDropsThenConditionDetected` keeps the star-count path covered
+by turning the judge off; `SessionCloudTests` covers the cloud path.
+
+**`MAYBE_CLOUD_` is a suspicion, never a reject.** `CaptureRejection.IsRejectedAtCapture` is false for it, so every `BAD_`
+reader keeps its meaning. The stacker leaves such frames out by default and says how many (`StackingOptions.IncludeSuspectedCloud`,
+`tianwen stack --include-maybe-cloud`). The viewer draws it with its own mark (`GradeMark.SuspectedCloud`: a sun behind cloud in
+colour, the cloud mask at half ink in Night), inks neither thumb as its state, and its verdict settles it through the ordinary
+background rename: Cloud confirms it as `BAD_CLOUD_`, Good drops the prefix (`CaptureRejection.MarkedPath` strips it in the
+same rename). The Grade section counts the folder's suspected frames apart from the rejected and the unmarked
+(`FolderMarkTally`, read off the listed names, no I/O).
+
+**The fake sky holds a floor.** `FakeCameraDriver.SkyMottle` (1 % by default, a fixed gain per 64 px block) gives the
+simulated clear sky the fixed structure a real one carries. Without it a clear fake sky is shot noise alone, whose
+patchiness is the ratio of two noise draws, and the judge called about one clear frame in five cloud: every fake-driven
+session, the functional suites and an unattended GUI or TUI run alike, would write `MAYBE_CLOUD_` files and thin its focus
+history at that rate. **The field must be smooth**: a block keeps its gain across its interior and eases to its
+neighbour's over 8 px either side of the edge. A hard step there was found as faint "stars" on a starless overcast frame,
+and the built-in guider re-acquired one every frame where it should have failed acquisition
+(`FakeCameraMountCouplingTests.GivenCloudWhenGuidingRestartsWithReusedCalibrationThenAcquisitionFailsLoudly` hung).

@@ -11,6 +11,7 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
+using TianWen.Lib.Imaging.Grading;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Sequencing;
@@ -344,6 +345,21 @@ internal partial record Session
             _frameMetricsHistory = CreateFrameMetricsHistory(scopes);
         }
         var frameNumbers = new int[scopes];
+
+        // Live cloud judgement (#1977): one judge per OTA for this observation, so a new target starts with none, and the
+        // newest clear light's metrics as the recovery baseline when cloud outlasts the wait and no drift baseline exists yet.
+        // The rig's clear nights the viewer recorded (#1976) let a target cloudy from its first light be judged against one;
+        // an absent or unreadable file is none, and the run's own frames decide.
+        var clearNights = Configuration.DetectCloudWhileImaging
+            ? await LightGradeReferenceStore.LoadAsync(External, cancellationToken)
+            : [];
+        var cloudJudges = new LiveCloudJudge[scopes];
+        var lastClearMetrics = new FrameMetrics[scopes];
+        for (var i = 0; i < scopes; i++)
+        {
+            cloudJudges[i] = new LiveCloudJudge(clearNights);
+        }
+        _cloudySince = new DateTimeOffset?[scopes];
 
         // Per-telescope filter plan state
         // The plan is an altitude ladder: narrowband first (index 0), broadband last.
@@ -721,7 +737,8 @@ internal partial record Session
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
                             // 1. Enqueue raw image for FITS write: image holds its own ChannelBuffer ref via AddRef in GetImageAsync
-                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
+                            var queuedWrite = new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i);
+                            imageWriteQueue.Enqueue(queuedWrite);
 
                             // Drop camera's ref: the Image's ChannelBuffer ref keeps the float[,] alive until Release()
 
@@ -739,7 +756,16 @@ internal partial record Session
                                 var currentGain = await camDriver.GetGainAsync(cancellationToken);
                                 metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain, frameFilterPositions[i], image.Width, image.Height);
                                 _lastFrameMetrics[i] = metrics;
-                                _frameMetricsHistory[i].Add(metrics);
+
+                                // Is this light cloud? A cloud light is kept out of the focus trend and baselines, since its
+                                // HFD and star count describe the sky, not the focus (#1977).
+                                JudgeCloud(i, frameNo, image, stars, queuedWrite);
+
+                                if (!IsCloudy(i))
+                                {
+                                    _frameMetricsHistory[i].Add(metrics);
+                                    lastClearMetrics[i] = metrics;
+                                }
                             }
 
                             // 3. Add to exposure log + frame history with metrics
@@ -911,7 +937,15 @@ internal partial record Session
                                     camDriver, camDriver.GetImageAsync,
                                     ResilientCallOptions.IdempotentRead, cancellationToken) is { Width: > 0, Height: > 0 } image)
                             {
-                                imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total, i));
+                                var lastWrite = new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total, i);
+                                imageWriteQueue.Enqueue(lastWrite);
+                                // Judged like every other light (#1977): saved MAYBE_CLOUD_ when cloud, and the newest light the
+                                // flip below asks about before it plate-solves.
+                                if (Configuration.DetectCloudWhileImaging)
+                                {
+                                    var lastStars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
+                                    JudgeCloud(i, frameNumbers[i], image, lastStars, lastWrite);
+                                }
                             }
                             await WriteQueuedImagesToFitsFilesAsync();
                         }
@@ -966,6 +1000,35 @@ internal partial record Session
                     for (var i = 0; i < scopes && i < _lastFrameMetrics.Length; i++)
                     {
                         var currentMetrics = _lastFrameMetrics[i];
+
+                        // A cloud light says nothing about focus: no drift check, no baseline sample, no star-count test of
+                        // its own. Cloud that lasts past CloudWaitTimeout is a condition deterioration all the same, so it
+                        // takes the existing pause, wait and advance path; parking stays with the safety and weather paths (#1977).
+                        if (_cloudySince[i] is { } cloudySince)
+                        {
+                            var cloudWait = Configuration.CloudWaitTimeout ?? SessionConfiguration.DefaultCloudWaitTimeout;
+                            if (_timeProvider.GetUtcNow() - cloudySince < cloudWait)
+                            {
+                                continue;
+                            }
+
+                            var cloudBaseline = TryGetDriftBaseline(i, lastClearMetrics[i], out var driftBaseline) ? driftBaseline : lastClearMetrics[i];
+                            _logger.LogWarning("Cloud on telescope #{TelescopeNumber} has lasted {Duration}, past {Timeout}: treating it as a condition deterioration.",
+                                i + 1, _timeProvider.GetUtcNow() - cloudySince, cloudWait);
+                            _cloudySince[i] = null;
+                            if (!cloudBaseline.IsValid)
+                            {
+                                // Never saw a clear light: nothing to recover to, so give the target up.
+                                ConditionDeteriorationCount++;
+                                return ImageLoopNextAction.AdvanceToNextObservation;
+                            }
+                            if (!await PauseForConditionRecoveryAsync(i, cloudBaseline))
+                            {
+                                return ImageLoopNextAction.AdvanceToNextObservation;
+                            }
+                            continue;
+                        }
+
                         if (currentMetrics.StarCount <= 3)
                         {
                             continue;
@@ -1032,26 +1095,9 @@ internal partial record Session
                             _logger.LogWarning(
                                 "Condition deterioration detected on telescope #{TelescopeNumber}: {CurrentStars} stars vs baseline {BaselineStars} (ratio={Ratio:F2}), pausing guiding.",
                                 i + 1, currentMetrics.StarCount, baseline.StarCount, starCountRatio);
-                            ConditionDeteriorationCount++;
 
-                            await WriteQueuedImagesToFitsFilesAsync();
-                            await guider.Driver.PauseAsync(cancellationToken).ConfigureAwait(false);
-
-                            var recoveryTimeout = Configuration.ConditionRecoveryTimeout ?? TimeSpan.FromMinutes(10);
-                            var recovered = await WaitForConditionRecoveryAsync(
-                                i, baseline, recoveryTimeout, cancellationToken);
-
-                            if (recovered)
+                            if (!await PauseForConditionRecoveryAsync(i, baseline))
                             {
-                                _logger.LogInformation("Conditions recovered on telescope #{TelescopeNumber}, resuming imaging.", i + 1);
-                                ConditionRecoveryCount++;
-                                await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
-                            }
-                            else
-                            {
-                                _logger.LogWarning("Conditions did not recover within {Timeout} on telescope #{TelescopeNumber}, advancing to next observation.",
-                                    recoveryTimeout, i + 1);
-                                await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
                                 return ImageLoopNextAction.AdvanceToNextObservation;
                             }
                         }
@@ -1129,6 +1175,59 @@ internal partial record Session
         _logger.LogInformation("ImagingLoop ended. Frames written: {Total}, total exposure: {Exposure}",
             TotalFramesWritten, TotalExposureTime);
         return next ?? ImageLoopNextAction.AdvanceToNextObservation;
+
+        // The one condition-deterioration path (star-count loss and, past CloudWaitTimeout, cloud): pause guiding, wait for the
+        // sky to recover, resume or give the observation up. True when imaging may resume.
+        async ValueTask<bool> PauseForConditionRecoveryAsync(int telescopeIndex, FrameMetrics recoveryBaseline)
+        {
+            ConditionDeteriorationCount++;
+
+            await WriteQueuedImagesToFitsFilesAsync();
+            await guider.Driver.PauseAsync(cancellationToken).ConfigureAwait(false);
+
+            var recoveryTimeout = Configuration.ConditionRecoveryTimeout ?? TimeSpan.FromMinutes(10);
+            var recovered = await WaitForConditionRecoveryAsync(
+                telescopeIndex, recoveryBaseline, recoveryTimeout, cancellationToken);
+
+            if (recovered)
+            {
+                _logger.LogInformation("Conditions recovered on telescope #{TelescopeNumber}, resuming imaging.", telescopeIndex + 1);
+                ConditionRecoveryCount++;
+            }
+            else
+            {
+                _logger.LogWarning("Conditions did not recover within {Timeout} on telescope #{TelescopeNumber}, advancing to next observation.",
+                    recoveryTimeout, telescopeIndex + 1);
+            }
+            await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
+            return recovered;
+        }
+
+        // The live cloud judgement of one light (#1977), on the stars already found on it, by the viewer's own measures: a cloud
+        // light is written MAYBE_CLOUD_ and starts (or continues) the OTA's run of cloud, a clear one ends it. A light with no
+        // grade is "not judged", which leaves the state as it was.
+        void JudgeCloud(int telescopeIndex, int frameNo, Image image, StarList stars, QueuedImageWrite write)
+        {
+            if (!Configuration.DetectCloudWhileImaging
+                || cloudJudges[telescopeIndex].Add($"ota{telescopeIndex + 1}_{frameNo}", LightGrading.Grade(image, stars)) is not { } verdict)
+            {
+                return;
+            }
+            var cloud = LiveCloudJudge.IsCloud(verdict);
+            if (cloud)
+            {
+                write.SuspectedCloud = true;
+                Interlocked.Increment(ref _cloudFrameCount);
+                _logger.LogWarning("Frame #{FrameNo} on camera #{CameraNum} is suspected cloud, saved as MAYBE_CLOUD_: {Cause}",
+                    frameNo, telescopeIndex + 1, LightGrading.CloudInWords(verdict));
+            }
+            else if (IsCloudy(telescopeIndex))
+            {
+                _logger.LogInformation("Camera #{CameraNum}: the sky is clear again at frame #{FrameNo}, resuming focus tracking and plate solves.",
+                    telescopeIndex + 1, frameNo);
+            }
+            RecordLatestLightCloud(telescopeIndex, cloud);
+        }
 
         async ValueTask WriteQueuedImagesToFitsFilesAsync()
         {
@@ -1406,16 +1505,28 @@ internal partial record Session
         var newPierSide = await GetSideOfPierAsync(cancellationToken);
 
         // Iterative plate-solve centering after flip
-        _currentActivity = $"Centering on {observation.Target.Name} after flip\u2026";
-        if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 5, cancellationToken))
+        // A plate solve through cloud finds no field, or a wrong one: while the OTA's latest light is cloud the recentre and the
+        // image-based flip check are skipped, and the flip is read off the mount's own report (#1977).
+        var cloudy = IsCloudy(0);
+        if (cloudy)
         {
-            _logger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
+            _logger.LogWarning("Meridian flip: the latest light is cloud, skipping the recentre and the field-rotation check; going on the mount's own report.");
+        }
+        else
+        {
+            _currentActivity = $"Centering on {observation.Target.Name} after flip\u2026";
+            if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 5, cancellationToken))
+            {
+                _logger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
+            }
         }
 
         // The recentre has just solved this OTA's field; comparing its orientation against the
         // pre-flip one is the only check here that does not go through the mount.
-        var verdict = MeridianFlipVerification.FromSolves(
-            preFlipSolution, LastFieldOrientationSolve(Setup.Telescopes[0].Name));
+        var verdict = cloudy
+            ? FlipVerdict.Inconclusive
+            : MeridianFlipVerification.FromSolves(
+                preFlipSolution, LastFieldOrientationSolve(Setup.Telescopes[0].Name));
         switch (verdict.Evidence)
         {
             case FlipEvidence.Flipped:

@@ -330,7 +330,7 @@ public sealed class StackingPipeline(
         // -----------------------------------------------------------------
         progress?.Report(new StackingProgress(StackingPhase.Scanning, "", 0, 0));
         var sw = Stopwatch.StartNew();
-        var source = new FitsFolderFrameSource(options.DataRoot, recursive: true);
+        var source = new FitsFolderFrameSource(options.DataRoot, recursive: true) { IncludeSuspectedCloud = options.IncludeSuspectedCloud };
         var allFrames = new List<FrameInfo>();
         var outputDirNormalised = Path.GetFullPath(outputDir);
         var integrationSkipped = 0;
@@ -421,6 +421,11 @@ public sealed class StackingPipeline(
             logger.LogInformation("[scan] keeping {Count} integration(s) as input (IncludeIntegrations=true)",
                 integrationKept);
         }
+        if (source.SuspectedCloudSkipped > 0)
+        {
+            logger.LogInformation("[scan] left out {Count} frame(s) named {Prefix}...; pass --include-maybe-cloud to keep them",
+                source.SuspectedCloudSkipped, CaptureRejection.SuspectedCloudPrefix);
+        }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
         // Surface the scan summary on the progress channel (a CLI / TUI floors
         // its console at Warning, so the LogInformation lines above are file-only
@@ -428,7 +433,10 @@ public sealed class StackingPipeline(
         // just guarded against, so it must be visible).
         progress?.Report(new StackingProgress(
             StackingPhase.Scanning, "", 0, 0,
-            Scan: new ScanSummary(allFrames.Count, integrationSkipped, rejectionMapSkipped, integrationKept)));
+            Scan: new ScanSummary(allFrames.Count, integrationSkipped, rejectionMapSkipped, integrationKept)
+            {
+                SuspectedCloudSkipped = source.SuspectedCloudSkipped,
+            }));
         hostTracker.Log(logger, "scan");
 
         var byType = allFrames.GroupBy(f => f.FrameType).ToDictionary(g => g.Key, g => g.ToList());

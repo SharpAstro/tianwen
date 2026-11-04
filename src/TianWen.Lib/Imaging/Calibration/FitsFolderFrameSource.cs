@@ -42,6 +42,7 @@ public sealed class FitsFolderFrameSource : IFrameSource
     private int _filterFilled;
     private int _filterAlreadyPresent;
     private int _rejectedAtCapture;
+    private int _suspectedCloudSkipped;
 
     /// <param name="folder">Folder to scan. Must exist.</param>
     /// <param name="recursive">If true, descend into subdirectories. Default false.</param>
@@ -74,6 +75,14 @@ public sealed class FitsFolderFrameSource : IFrameSource
     /// had them.</summary>
     public int RejectedAtCapture => _rejectedAtCapture;
 
+    /// <summary>Frames the most recent enumeration left out because they are named
+    /// <see cref="CaptureRejection.SuspectedCloudPrefix"/> (#1977) and <see cref="IncludeSuspectedCloud"/> is off.
+    /// Counted apart from <see cref="RejectedAtCapture"/>: a suspicion is not a rejection.</summary>
+    public int SuspectedCloudSkipped => _suspectedCloudSkipped;
+
+    /// <summary>Keep frames named <c>MAYBE_CLOUD_</c> instead of skipping them before the header read. Off by default.</summary>
+    public bool IncludeSuspectedCloud { get; init; }
+
     /// <summary>
     /// Headers remembered from earlier scans (<see cref="FitsHeaderIndex"/>): an unchanged file is
     /// parsed from its stored header instead of being read. The caller loads and saves it.
@@ -98,6 +107,12 @@ public sealed class FitsFolderFrameSource : IFrameSource
             if (CaptureRejection.IsRejectedAtCapture(stamp.Path))
             {
                 _rejectedAtCapture++;
+                continue;
+            }
+            // A suspicion, not a rejection (#1977): counted apart, and let through when asked.
+            if (!IncludeSuspectedCloud && CaptureRejection.IsSuspectedCloud(stamp.Path))
+            {
+                _suspectedCloudSkipped++;
                 continue;
             }
             var info = await Task.Run(() => TryReadFrameInfo(stamp), cancellationToken);

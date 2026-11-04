@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Stat;
 using TianWen.Lib.Extensions;
 
@@ -32,6 +33,11 @@ internal partial record Session
 
         var fitsFileName = External.GetSafeFileName($"frame_{imageWrite.ExpStartTime:yyyy-MM-ddTHH_mm_ss}_{imageWrite.FrameNumber:0000}.fits");
         var fitsFilePath = Path.Combine(frameFolder, fitsFileName);
+        if (imageWrite.SuspectedCloud)
+        {
+            // A suspicion, not a rejection: the stacker leaves it out unless asked, and the owner can rename it back (#1977).
+            fitsFilePath = CaptureRejection.SuspectedPath(fitsFilePath);
+        }
 
         _logger.LogInformation("Writing FITS file {FitsFilePath}", fitsFilePath);
         await External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);

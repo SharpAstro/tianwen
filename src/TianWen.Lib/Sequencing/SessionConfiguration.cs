@@ -277,7 +277,22 @@ public record struct SessionConfiguration(
     /// evening wait. When <c>false</c> a parked mount ends the run at its start, with a reason, since unparking is then
     /// the operator's own act. A goto or Home never unparks either way (<c>MountGoto.IsParkedAsync</c>).
     /// </summary>
-    bool UnparkMount = true
+    bool UnparkMount = true,
+    /// <summary>
+    /// When <c>true</c> (the default), each light is judged cloud or clear as it lands (<c>LiveCloudJudge</c>, the very
+    /// measures the viewer's grade uses). A light judged cloud triggers no focus-drift refocus, feeds no focus trend or
+    /// baseline, lets no centring or flip-verification plate solve run, and is saved as <c>MAYBE_CLOUD_</c> so the
+    /// stacker leaves it out unless asked (#1977). A clear light resumes all of it. Set <c>false</c> to image through
+    /// cloud exactly as before.
+    /// </summary>
+    bool DetectCloudWhileImaging = true,
+    /// <summary>
+    /// How long cloud (consecutive lights judged cloud on one OTA) may last before the session treats it as a condition
+    /// deterioration: guiding paused, a wait for recovery, and on no recovery the observation is advanced. <c>null</c> =
+    /// <see cref="DefaultCloudWaitTimeout"/> (15 min): long enough that a passing cloud does not abandon the target,
+    /// short enough that an overcast hour does not burn the whole observation into suspect files.
+    /// </summary>
+    TimeSpan? CloudWaitTimeout = null
 )
 {
     /// <summary>
@@ -305,6 +320,9 @@ public record struct SessionConfiguration(
         GuidingTries: 3)
     {
     }
+
+    /// <summary>Effective default for <see cref="CloudWaitTimeout"/> when unset.</summary>
+    public static readonly TimeSpan DefaultCloudWaitTimeout = TimeSpan.FromMinutes(15);
 
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>
     public static readonly TimeSpan DefaultGuiderRecoveryGrace = TimeSpan.FromMinutes(3);
