@@ -179,7 +179,7 @@ public static class LightGrading
     /// profile with no site set writes. Read as unknown like NaN, since nothing else lies at (0, 0) and every frame of a night
     /// far from it would read as taken in twilight.
     /// </summary>
-    private static bool SiteKnown(in ImageMeta meta)
+    internal static bool SiteKnown(in ImageMeta meta)
         => double.IsFinite(meta.Latitude) && double.IsFinite(meta.Longitude) && !(meta.Latitude == 0 && meta.Longitude == 0);
 
     /// <summary>A site coordinate to 0.1 degree (about 11 km), what a reference's site is matched on.</summary>
