@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
@@ -105,7 +106,7 @@ public sealed class SaturationSidecarTests : IDisposable
         return (master, new StarList(detections), catalogue.Build(), wcs, map);
     }
 
-    private static async Task<SpccWhiteBalanceResult> FitAsync(Image master, StarList stars, ICelestialObjectDB db, WCS wcs, Image? saturation)
+    private static async Task<Tycho2ColorCalibration.SpccWhiteBalanceResult> FitAsync(Image master, StarList stars, ICelestialObjectDB db, WCS wcs, Image? saturation)
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
         var r = FilterCurveDatabase.ComputeSystemThroughput("IMX533", "Baader R").ShouldNotBeNull();
