@@ -430,8 +430,11 @@ lowers every frame's patchiness about alike, so the ratios should hold, but the 
 E:/Captures nights read the same through the stacker as through the viewer. Two of the five (2026-09-10, 09-12) were read; the
 other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nights. The stacker reads the rig's clear-night
 references from the viewer's store (`LightGradeReferenceStore`, `Viewer/clear-sky.json`) and passes them to `CloudRejection`, so
-a run cloudy from first light to last (07-06) is judged against them as the viewer does; with none on file it judges on the group's
-own baselines. Patchiness is floored per rig within a group. It says
+a run cloudy from first light to last (07-06) can be judged against them; with none on file it judges on the group's own baselines.
+**That check is not yet the viewer's on real data (#2003):** the viewer records a reference from RAW lights and the stacker grades
+CALIBRATED ones, so its sky level reads low against a reference (2026-09-10 with its matching dark: raw 3300 against calibrated
+1996 at the darkest, 1.65x), and a cloudy-throughout run needs about 3x rather than 1.8x to be called cloud. No real night has
+engaged the reference path through the stacker yet. Patchiness is floored per rig within a group. It says
 why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
 
 **First read through the stacker (2026-11-04, `--reject-cloud`, step 2 of #1981).** The night was 2026-09-10 (QHY294C, Helix, 220
