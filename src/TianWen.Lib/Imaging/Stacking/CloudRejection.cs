@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using TianWen.Lib.Imaging.Grading;
 
@@ -16,27 +17,53 @@ internal static class CloudRejection
     public const GradeCause Rejects = GradeCause.Cloud | GradeCause.Sunrise | GradeCause.Sunset;
 
     /// <summary>
-    /// The fewest graded lights a group needs before cloud is judged at all: the group's clearest tenth and its neighbours within an hour
-    /// are the baselines a cloud verdict reads, and a handful of frames gives neither (a 4-frame group's "clearest tenth" is its one
-    /// clearest frame). The viewer's own bar for a clear night, <see cref="LightGrading.MinClearFramesPerReference"/>. Twilight reads the
-    /// Sun's altitude, no baseline, so it drops a frame in a group of any size.
+    /// The fewest graded lights a baseline needs before it judges cloud: the group's clearest tenth and its neighbours within an hour
+    /// (patchiness, counted over the whole group) and a night's darkest tenth of sky (counted per rig and night, since that baseline is
+    /// one night's) are what a cloud verdict reads, and a handful of frames gives none of them (a 4-frame night's "darkest tenth" is its
+    /// one darkest frame). The viewer's own bar for a clear night, <see cref="LightGrading.MinClearFramesPerReference"/>.
     /// </summary>
     public const int MinGradedForCloud = LightGrading.MinClearFramesPerReference;
 
     /// <summary>
     /// The verdict of every frame in <paramref name="grades"/> that carries a rejecting cause, keyed as the grades are. Read against
     /// <paramref name="references"/> where a rig's clear nights are known (the viewer's store), else on the group's own baselines.
-    /// Under <see cref="MinGradedForCloud"/> graded frames only twilight drops a frame.
+    /// Patchiness is judged only in a group of <see cref="MinGradedForCloud"/> graded lights, the night-sky term only for a rig's night
+    /// with that many. Twilight reads the Sun's altitude and needs no baseline, but only a night that reaches astronomical dark (some
+    /// graded light of that night outside twilight) is judged for it: where the Sun never gets below -18 degrees every light reads as
+    /// twilight, and dropping them all would empty the group (no astro dark is a fallback, never a throw).
     /// </summary>
     public static ImmutableDictionary<string, LightGradeVerdict> Rejected(ImmutableDictionary<string, LightGrade> grades,
         ImmutableArray<LightGradeReference> references = default)
     {
-        var judgeCloud = grades.Count >= MinGradedForCloud;
+        var judgePatchiness = grades.Count >= MinGradedForCloud;
+        var perRigNight = new Dictionary<(string Rig, DateOnly Night), int>();
+        var darkNights = new HashSet<DateOnly>();
+        foreach (var g in grades.Values)
+        {
+            perRigNight[(g.Rig, g.Night)] = perRigNight.GetValueOrDefault((g.Rig, g.Night)) + 1;
+            if (g.Twilight is null)
+            {
+                darkNights.Add(g.Night);
+            }
+        }
         var rejected = ImmutableDictionary.CreateBuilder<string, LightGradeVerdict>(grades.KeyComparer);
         foreach (var (path, grade) in grades)
         {
             var verdict = LightGrading.Verdict(grades, grade, references);
-            var causes = judgeCloud ? verdict.Causes & Rejects : verdict.Causes & (GradeCause.Sunrise | GradeCause.Sunset);
+            var causes = verdict.Causes & Rejects;
+            if ((causes & GradeCause.Cloud) != GradeCause.None)
+            {
+                var byPatchiness = judgePatchiness && LightGrading.PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
+                var bySky = verdict.NightSky >= LightGrading.NightSkyCloudFrom && perRigNight[(grade.Rig, grade.Night)] >= MinGradedForCloud;
+                if (!byPatchiness && !bySky)
+                {
+                    causes &= ~GradeCause.Cloud;
+                }
+            }
+            if (!darkNights.Contains(grade.Night))
+            {
+                causes &= GradeCause.Cloud;
+            }
             if (causes != GradeCause.None)
             {
                 rejected[path] = verdict with { Causes = causes };

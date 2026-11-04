@@ -440,7 +440,7 @@ public static class LightGrading
     /// (<see cref="HeavyCloudFrom"/>) needs no local test, which a cloud bank lasting past the window would pass; nor does a
     /// frame with no time to place it by (a NaN local).
     /// </summary>
-    private static bool PatchyCloud(float patchiness, float local)
+    internal static bool PatchyCloud(float patchiness, float local)
         => patchiness >= HeavyCloudFrom || (patchiness >= CloudFrom && !(local < LocalCloudFrom));
 
     /// <summary>The cloud cause in words, saying which measure found it, for the Grade line and the file list's mark alike.</summary>
