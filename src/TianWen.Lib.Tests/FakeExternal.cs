@@ -58,15 +58,14 @@ public class FakeExternal : IExternal
 
     public ILogger AppLogger { get; }
 
-    /// <summary>Optional catalog DB for tests. Set explicitly when catalog-based star rendering is needed.</summary>
+    /// <summary>
+    /// Optional catalog DB for tests. Set explicitly when catalog-based star rendering is needed. The provider
+    /// <see cref="BuildServiceProvider(ILoggerProvider?, LogLevel)"/> builds registers <see cref="ICelestialObjectDB"/> with a
+    /// factory that reads this when first resolved, and THROWS while it is unset (a failed catalogue, to the callers).
+    /// </summary>
     public ICelestialObjectDB? CelestialObjectDB { get; set; }
 
     internal FakeTimeProviderWrapper TimeProvider => _timeProvider;
-
-    public ValueTask<ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
-        => CelestialObjectDB is { } db
-            ? ValueTask.FromResult(db)
-            : throw new InvalidOperationException("CelestialObjectDB not configured in FakeExternal");
 
     public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
         => throw new ArgumentException($"No guider connection defined for address={address}", nameof(address));
@@ -134,6 +133,9 @@ public class FakeExternal : IExternal
             .AddSingleton<IExternal>(this)
             .AddSingleton<ITimeProvider>(_timeProvider)
             .AddSingleton<IDeviceHub, DeviceHub>()
+            // MS DI caches a singleton only once its factory has returned, so a test that sets CelestialObjectDB after
+            // building the provider still gets it on the first resolve after that.
+            .AddSingleton<ICelestialObjectDB>(_ => CelestialObjectDB ?? throw new InvalidOperationException("CelestialObjectDB not configured in FakeExternal"))
             .AddLogging(builder =>
             {
                 if (logTo is not null)
