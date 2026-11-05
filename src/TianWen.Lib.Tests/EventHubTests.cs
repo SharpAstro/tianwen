@@ -136,7 +136,7 @@ public class EventHubTests
     public async Task AStalledClientHoldsUpNeitherTheBroadcastNorAnyOtherClient()
     {
         var ct = TestContext.Current.CancellationToken;
-        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
+        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMinutes(5), SystemTimeProvider.Instance);
         hub.AddClient(Stalled());
         var received = new ConcurrentQueue<string>();
         hub.AddClient(Recording(received));
@@ -154,7 +154,7 @@ public class EventHubTests
     public async Task EveryClientReceivesTheEventsInTheOrderTheyWereBroadcast()
     {
         var ct = TestContext.Current.CancellationToken;
-        var hub = new EventHub(queueCapacity: 256, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
+        var hub = new EventHub(queueCapacity: 256, sendTimeout: TimeSpan.FromMinutes(5), SystemTimeProvider.Instance);
         var first = new ConcurrentQueue<string>();
         var second = new ConcurrentQueue<string>();
         hub.AddClient(Recording(first));
@@ -182,7 +182,7 @@ public class EventHubTests
     public async Task AClientThatFallsBehindIsDroppedSoItResyncsByPolling()
     {
         var ct = TestContext.Current.CancellationToken;
-        var hub = new EventHub(queueCapacity: 2, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
+        var hub = new EventHub(queueCapacity: 2, sendTimeout: TimeSpan.FromMinutes(5), SystemTimeProvider.Instance);
         var stalled = Stalled();
         hub.AddClient(stalled);
 
@@ -200,7 +200,7 @@ public class EventHubTests
     public async Task ASendThatNeverCompletesIsGivenUpAfterTheTimeout()
     {
         var ct = TestContext.Current.CancellationToken;
-        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMilliseconds(100), new SystemTimeProvider());
+        var hub = new EventHub(queueCapacity: 64, sendTimeout: TimeSpan.FromMilliseconds(100), SystemTimeProvider.Instance);
         var stalled = Stalled();
         hub.AddClient(stalled);
 
@@ -214,7 +214,7 @@ public class EventHubTests
     public void OnlyANativeClientCanAnswerAPrompt()
     {
         // A ninaAPI v2 socket (Touch N Stars) has no prompt route, so it is nobody to hold a prompt for.
-        var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5), new SystemTimeProvider());
+        var hub = new EventHub(queueCapacity: 4, sendTimeout: TimeSpan.FromMinutes(5), SystemTimeProvider.Instance);
         hub.RecordBeat(hub.AddClient(Recording(new ConcurrentQueue<string>()), ninaV2: true));
 
         hub.ClientCount.ShouldBe(1);

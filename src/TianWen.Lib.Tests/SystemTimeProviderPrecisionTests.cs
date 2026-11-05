@@ -44,7 +44,7 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         SkipUnlessMeasurable();
         var ct = TestContext.Current.CancellationToken;
         var duration = TimeSpan.FromMilliseconds(milliseconds);
-        var provider = new SystemTimeProvider();
+        var provider = SystemTimeProvider.Instance;
 
         var precise = await MeasureAsync(() => provider.SleepAsync(duration, ct).AsTask());
         var delay = await MeasureAsync(() => Task.Delay(duration, ct));
@@ -63,7 +63,7 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         SkipUnlessMeasurable();
         var ct = TestContext.Current.CancellationToken;
         var duration = TimeSpan.FromMilliseconds(milliseconds);
-        var provider = new SystemTimeProvider();
+        var provider = SystemTimeProvider.Instance;
 
         // Created disarmed and armed by Change, as the DAL camera's pulse timer is.
         var precise = await MeasureAsync(async () =>
@@ -84,7 +84,7 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
     public async Task ACancelledShortWaitThrowsAndReleasesItsTimer()
     {
         var ct = TestContext.Current.CancellationToken;
-        var provider = new SystemTimeProvider();
+        var provider = SystemTimeProvider.Instance;
         using var process = Process.GetCurrentProcess();
         process.Refresh();
         var handlesBefore = process.HandleCount;
@@ -108,7 +108,7 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
     public async Task ASupersededOrDisposedOneShotFiresNothing()
     {
         var ct = TestContext.Current.CancellationToken;
-        var provider = new SystemTimeProvider();
+        var provider = SystemTimeProvider.Instance;
         var fires = 0;
 
         var rearmed = provider.CreateTimer(_ => Interlocked.Increment(ref fires), null, TimeSpan.FromMilliseconds(30), Timeout.InfiniteTimeSpan);
@@ -138,7 +138,7 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         var external = new FakeExternal(output, new FakeTimeProviderWrapper());
         var services = new ServiceCollection()
             .AddSingleton<IExternal>(external)
-            .AddSingleton<ITimeProvider>(new SystemTimeProvider())
+            .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
             .AddSingleton<IDeviceHub, DeviceHub>()
             .AddLogging()
             .BuildServiceProvider();

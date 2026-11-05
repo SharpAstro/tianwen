@@ -35,7 +35,7 @@ public class QuitDialogKeysTests
         using var renderer = new RgbaImageRenderer(1280, 800);
         var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = 1f, FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
         var state = new LiveSessionState { QuitDialog = QuitDialog.DevicesConnected(2, aCameraNeedsWarming: true) };
-        tab.Render(state, new RectF32(0f, 0f, 1280f, 800f), new SystemTimeProvider());
+        tab.Render(state, new RectF32(0f, 0f, 1280f, 800f), SystemTimeProvider.Instance);
 
         tab.HandleInput(Key(InputKey.L)).ShouldBeTrue();
         tab.HandleInput(Key(InputKey.Enter)).ShouldBeTrue();

@@ -37,7 +37,7 @@ public class LiveStackPeerTests
 
     private static async Task<LiveStackPreviewSource> PublishedAsync(Image master, string name)
     {
-        var source = new LiveStackPreviewSource(new FixedMaster(master), name, new SystemTimeProvider());
+        var source = new LiveStackPreviewSource(new FixedMaster(master), name, SystemTimeProvider.Instance);
         source.RequestFollow(0);
         while (!source.TryPublishMaster())
         {
@@ -95,7 +95,7 @@ public class LiveStackPeerTests
     [Fact]
     public void AViewWithNoOtherStackKnowsNoPeerAndAFileBesideTheSerCountsAsKnown()
     {
-        using var alone = new LiveStackPreviewSource(new NodeMasters(), "alone", new SystemTimeProvider());
+        using var alone = new LiveStackPreviewSource(new NodeMasters(), "alone", SystemTimeProvider.Instance);
         alone.PeerKnown.ShouldBeFalse();
         alone.CanShowPeer.ShouldBeFalse();
 

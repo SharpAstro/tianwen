@@ -107,7 +107,7 @@ public class GeminiPowerBoxHardwareProbe(ITestOutputHelper output)
 
         public override async ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
         {
-            var conn = await SerialConnection.OpenAsync(address, baud, encoding, _logger, assertControlLines, new SystemTimeProvider(), cancellationToken);
+            var conn = await SerialConnection.OpenAsync(address, baud, encoding, _logger, assertControlLines, SystemTimeProvider.Instance, cancellationToken);
             conn.LogVerbose = Environment.GetEnvironmentVariable("TIANWEN_GEMINI_POWERBOX_TRAFFIC") == "1";
             return conn;
         }
