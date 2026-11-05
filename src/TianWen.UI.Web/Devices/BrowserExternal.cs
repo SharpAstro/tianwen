@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib;
-using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
@@ -28,9 +27,8 @@ namespace TianWen.UI.Web.Devices
     /// <see cref="PlatformNotSupportedException"/> rather than pretending to work.
     /// </para>
     /// </summary>
-    public sealed class BrowserExternal(ICelestialObjectDB celestialObjectDB) : IExternal
+    public sealed class BrowserExternal : IExternal
     {
-        private readonly ICelestialObjectDB _celestialObjectDB = celestialObjectDB;
         private DirectoryInfo? _appData;
         private DirectoryInfo? _images;
         private DirectoryInfo? _profiles;
@@ -44,12 +42,6 @@ namespace TianWen.UI.Web.Devices
 
         public DirectoryInfo ProfileFolder => _profiles ??= Directory.CreateDirectory(
             Path.Combine(AppContext.BaseDirectory, "appdata", "profiles"));
-
-        public async ValueTask<ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
-        {
-            await _celestialObjectDB.InitDBAsync(cancellationToken: cancellationToken);
-            return _celestialObjectDB;
-        }
 
         public ValueTask WriteFitsFileAsync(Image image, string fileName)
             => throw new PlatformNotSupportedException("FITS writing is unavailable in the browser.");
