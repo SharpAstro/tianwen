@@ -151,7 +151,7 @@ public class ViewerSkyBackdropAgreementTests
     }
 
     /// <summary>Taps the first catalogue object the map resolves in the screen band and returns the selected one.</summary>
-    private static CatalogIndex SelectIn(ViewerE2E e2e, MapWithObjectOverlay tab, ICelestialObjectDB db, DateTimeOffset when,
+    private static CatalogIndex? SelectIn(ViewerE2E e2e, MapWithObjectOverlay tab, ICelestialObjectDB db, DateTimeOffset when,
         float x0, float x1, float y0, float y1)
     {
         // An object the map PAINTED a marker for, in the band: the first by catalogue index, so the pick is deterministic.
@@ -160,7 +160,10 @@ public class ViewerSkyBackdropAgreementTests
             .OrderBy(m => m.Key.ToCanonical(), StringComparer.Ordinal)
             .Select(m => m.Key)
             .ToArray();
-        painted.Length.ShouldBeGreaterThan(0, $"the map painted {tab.DrawnMarkers.Count} markers, none in the band");
+        if (painted.Length == 0)
+        {
+            return null;
+        }
 
         var index = painted[0];
         db.TryLookupByIndex(index, out var obj).ShouldBeTrue();
@@ -194,15 +197,34 @@ public class ViewerSkyBackdropAgreementTests
     [InlineData(1.5f, true)]
     public async Task SelectionMarkerAndWcsPositionAgreePastTheEdge(float dpi, bool distorted)
     {
+        // Zoomed out so the backdrop past the edge spans a degree or so and holds catalogued objects the map paints; the
+        // view is widened until the map paints one in the band (what it paints depends on the pane's size at this DPI).
+        float[] zooms = [0.3f, 0.15f, 0.08f, 0.04f];
+        foreach (var zoom in zooms)
+        {
+            if (await AgreePastTheEdgeAsync(dpi, distorted, zoom, zoom == zooms[^1]))
+            {
+                return;
+            }
+        }
+    }
+
+    private static async Task<bool> AgreePastTheEdgeAsync(float dpi, bool distorted, float zoom, bool last)
+    {
         var ct = TestContext.Current.CancellationToken;
         await using var e2e = ViewerE2E.Start(dpi);
-        // Zoomed out so the backdrop past the edge spans a degree or so and holds catalogued objects the map paints.
-        var (tab, db, when) = await PrepareAsync(e2e, ct, distorted, zoom: 0.3f);
+        var (tab, db, when) = await PrepareAsync(e2e, ct, distorted, zoom);
         var area = e2e.Viewer.ImageArea;
         var placed = e2e.Viewer.Placement;
         var frameRight = placed.OffsetX + placed.DrawW;
 
-        var index = SelectIn(e2e, tab, db, when, frameRight + 30f, area.X + area.Width - 20f, area.Y + 20f, area.Y + area.Height - 20f);
+        var picked = SelectIn(e2e, tab, db, when, frameRight + 30f, area.X + area.Width - 20f, area.Y + 20f, area.Y + area.Height - 20f);
+        if (picked is not { } index)
+        {
+            last.ShouldBeFalse($"the map painted {tab.DrawnMarkers.Count} markers at zoom {zoom}, none in the band; {tab.DrawInfo}");
+            return false;
+        }
+
         db.TryLookupByIndex(index, out var obj).ShouldBeTrue();
         var ring = e2e.Viewer.Ellipses[^1];
         tab.DrawnMarkers.TryGetValue(index, out var marker).ShouldBeTrue($"the map painted no marker for {index}");
@@ -222,6 +244,8 @@ public class ViewerSkyBackdropAgreementTests
             ((double)Math.Abs(marker.X - wx)).ShouldBeLessThan(1.0, message);
             ((double)Math.Abs(marker.Y - wy)).ShouldBeLessThan(1.0, message);
         }
+
+        return true;
     }
 
     /// <summary>Inside the picture the ring is the frame's own mapping of the object, on the SIP frame as on the plain one.</summary>
