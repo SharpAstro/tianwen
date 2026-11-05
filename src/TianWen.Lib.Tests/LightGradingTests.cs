@@ -364,8 +364,8 @@ public class LightGradingTests
         LightGrading.LocalPatchiness(grades, frames[390].Item2).ShouldBe(3f, 0.01f, "the middle is read against the clear part, not itself");
     }
 
-    private const double SiteLat = -37.9;
-    private const double SiteLon = 145.2;
+    internal const double SiteLat = -37.9;
+    internal const double SiteLon = 145.2;
     private static readonly DateOnly SyntheticNight = new(2026, 7, 6);
 
     /// <summary>
@@ -402,7 +402,7 @@ public class LightGradingTests
         ImmutableArray<ExpectedSkyEntry> stored = default)
         => names.Count(n => LightGrading.Verdict(grades, grades[n], expectedSky: stored).Causes.HasFlag(GradeCause.Cloud));
 
-    private static ImmutableDictionary<string, LightGrade> Table(LightGrade[] frames)
+    internal static ImmutableDictionary<string, LightGrade> Table(LightGrade[] frames)
         => frames.Select((g, i) => ($"f{i:000}", g)).ToImmutableDictionary(e => e.Item1, e => e.g, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>#1974: a veil of +7 % level and +86 % gradient over the night's last 34 of 300 frames, found against the night's own sky.</summary>

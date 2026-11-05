@@ -331,7 +331,8 @@ public sealed record ExpectedSkyModel
     /// <summary>
     /// Whether a frame with these <paramref name="covariates"/> lies inside what the fitted frames covered: its meridian side, the
     /// Moon up or down, its airmass and its hours from midnight. A term the fit left out (no Moon in the clear nights) says nothing
-    /// about a Moon-lit frame, so such a frame is not read at all; the verdict falls back to the night's own fit or to no term.
+    /// about a Moon-lit frame, so such a frame is not read at all: a stored model that does not cover it gives the verdict no
+    /// expected-sky term (the night's own fit is not tried in its place).
     /// A model with no recorded coverage (an older file) covers everything.
     /// </summary>
     public bool Covers(in SkyCovariates covariates) => Coverage.Contains(covariates);

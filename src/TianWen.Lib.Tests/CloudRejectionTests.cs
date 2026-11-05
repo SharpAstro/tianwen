@@ -195,4 +195,28 @@ public class CloudRejectionTests
 
         CloudRejection.Rejected(Grades(entries)).ShouldBeEmpty();
     }
+
+    /// <summary>
+    /// #1974: the stacker never reads a night against its own fitted sky (the viewer may; the stacker and the session's judge take
+    /// the stored model only), so a thin veil over the last 34 of 300 frames rejects nothing, and a frame rejected inside it for its
+    /// patchiness carries no expected-sky excess and is not worded against "this night's own frames". With the night's self-fit
+    /// read, that frame's verdict carries the veil's sigma.
+    /// </summary>
+    [Fact]
+    public void TheStackerDoesNotReadAVeilAgainstTheNightsOwnSky()
+    {
+        var frames = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266)
+            .Select(static g => g with { Patchiness = 1f }).ToArray();
+        frames[290] = frames[290] with { Patchiness = 2.5f };
+        var grades = LightGradingTests.Table(frames);
+
+        LightGrading.Verdict(grades, grades["f290"]).LevelSigma.ShouldBeGreaterThan(0f, "the viewer's self-fit sees the veil");
+
+        var rejected = CloudRejection.Rejected(grades);
+
+        rejected.Keys.ShouldBe(["f290"], "the veil alone rejects nothing");
+        rejected["f290"].LevelSigma.ShouldBe(float.NaN);
+        rejected["f290"].GradientSigma.ShouldBe(float.NaN);
+        CloudRejection.InWords(rejected["f290"]).ShouldNotContain("this night's own frames");
+    }
 }

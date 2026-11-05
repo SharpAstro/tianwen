@@ -54,6 +54,43 @@ public class LiveCloudJudgeTests
     }
 
     /// <summary>
+    /// Given the site's stored expected sky for the rig (as the session loads it from <c>ExpectedSkyStore</c>), the judge reads the
+    /// same veil as the viewer does: the veiled frames are cloud, the clear ones are not.
+    /// </summary>
+    [Fact]
+    public void AThinVeilIsCloudAgainstTheStoredModel()
+    {
+        var clearSamples = new System.Collections.Generic.List<SkySample>();
+        foreach (var g in LightGradingTests.SyntheticSkyNight(300, seed: 3))
+        {
+            clearSamples.Add(new SkySample(g.Covariates, g.Surface.Level, g.Surface.GradientStrength));
+        }
+        foreach (var g in LightGradingTests.SyntheticSkyNight(300, seed: 5))
+        {
+            clearSamples.Add(new SkySample(g.Covariates, g.Surface.Level, g.Surface.GradientStrength));
+        }
+        var model = ExpectedSkyModel.Fit(clearSamples) ?? throw new InvalidOperationException("the clear nights fit");
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        var sample = night[0];
+        var key = new ExpectedSkyKey(LightGradingTests.SiteLat, LightGradingTests.SiteLon, sample.Rig, sample.Key.SensorType,
+            sample.Key.FilterKey, sample.Key.ExposureMs, sample.Key.Bin);
+        var judge = new LiveCloudJudge(expectedSky: [new ExpectedSkyEntry(key, model, 2)]);
+
+        var clearCloud = 0;
+        var veiledCloud = 0;
+        for (var i = 0; i < night.Length; i++)
+        {
+            if (LiveCloudJudge.IsCloud(judge.Add($"f{i}", night[i])))
+            {
+                if (i < 266) { clearCloud++; } else { veiledCloud++; }
+            }
+        }
+
+        veiledCloud.ShouldBeGreaterThanOrEqualTo(27, "the veiled frames are caught");
+        clearCloud.ShouldBeLessThanOrEqualTo(3, "the clear ones are not");
+    }
+
+    /// <summary>
     /// A target cloudy from its first light is its own darkest sky and reads clear against itself; given a clear night of the
     /// same rig (#1976, the viewer's <c>clear-sky.json</c>) the judge calls it cloud from that first light on.
     /// </summary>
