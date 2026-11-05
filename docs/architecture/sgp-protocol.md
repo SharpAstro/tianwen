@@ -19,6 +19,20 @@ driver uses it, and the firmware analysis closes the document.
 - **Command prefix**: `:M` (mount command)
 - **Response prefix**: `:H` (host response) or `:R` (read response)
 
+### Ports
+
+The command set is iOptron's own and undocumented; it is not the iOptron RS-232 command language of
+their goto mounts. Two ports carry it, at 28800 baud, 8-N-1:
+
+- **The HBX port**, through a USB-to-serial cable. Source: the Stargazers Lounge thread
+  [Is there a way to control the RA on the SkyGuider Pro with a laptop?](https://stargazerslounge.com/topic/356836-is-there-a-way-to-control-the-ra-on-the-skyguider-pro-with-a-laptop/).
+- **The mount's own USB socket**, a Prolific PL2303 bridge (`067B:2303`), which is DUAL USE: firmware
+  updates and this control protocol. Measured on the bench on 2026-11-05 (firmware `170518`): discovery
+  found the mount on it, and it answered every query and moved and stopped the RA axis.
+
+The firmware has only two UARTs (see Firmware Analysis): 9600 baud between the hand controller and the
+head, and 28800 baud for control, so both ports most likely reach the same command parser.
+
 ## Command Reference
 
 ### Mount Info
