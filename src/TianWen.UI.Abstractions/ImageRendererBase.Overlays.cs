@@ -331,7 +331,8 @@ namespace TianWen.UI.Abstractions
         {
             // Rounded to the label's own precision BEFORE it is split into units: flooring the minutes of 0.9 h read
             // 53.99999 and printed 53 (#1994).
-            var totalSec = Math.Round(raHours * 3600.0, spacingArcsec >= 60 ? 0 : 1);
+            // Wrapped after rounding, so 23h59m59.96s reads 0h and never 24h.
+            var totalSec = Math.Round(raHours * 3600.0, spacingArcsec >= 60 ? 0 : 1) % (24.0 * 3600.0);
             var h = (int)Math.Floor(totalSec / 3600.0);
             var mi = (int)Math.Floor((totalSec - (h * 3600.0)) / 60.0);
             var s = totalSec - (h * 3600.0) - (mi * 60.0);
@@ -851,10 +852,10 @@ namespace TianWen.UI.Abstractions
         /// <para><b>Placed by whoever owns the object.</b> Inside the picture the ring is
         /// projected through the frame's WCS, the one mapping every WCS-drawn thing uses, so it lands
         /// on the object's marker and on its light. Past the picture's edge, or beyond five degrees,
-        /// while the sky map is painted behind the frame, the map places it, since it draws the marker
-        /// there with a rigid view that cannot follow the frame's distortion (#1994) (<see cref="SkyMapTab{TSurface}.TryPlaceSelectionForHost"/>):
-        /// a gnomonic solution fitted to one field says nothing about a point thirty degrees from it,
-        /// and put NGC 7320's ring 330 px from where the map had drawn the galaxy.</para>
+        /// while the sky map is painted behind the frame, the map places it
+        /// (<see cref="SkyMapTab{TSurface}.TryPlaceSelectionForHost"/>), since it draws the marker there with a rigid view
+        /// that cannot follow the frame's distortion (#1994). Beyond five degrees a gnomonic solution fitted to one field says nothing about a point thirty degrees from it,
+        /// which put NGC 7320's ring 330 px from where the map had drawn the galaxy.</para>
         /// </remarks>
         private SelectionRingGeometry? SolveSelectionRing(ViewerState state, WCS wcs)
             => state.SelectedObject is { } selection ? SolveObjectRing(in selection, state, wcs) : null;
