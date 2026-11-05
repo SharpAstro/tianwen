@@ -6,8 +6,10 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Console.Lib;
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
@@ -34,8 +36,11 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
 {
     private sealed class Cli : IAsyncDisposable
     {
-        private Cli(NodeHarness node, ConsoleHost host, StringWriter written, StringWriter errors)
+        private readonly ILoggerFactory _logs;
+
+        private Cli(NodeHarness node, ConsoleHost host, StringWriter written, StringWriter errors, ILoggerFactory logs)
         {
+            _logs = logs;
             Node = node;
             Host = host;
             Written = written;
@@ -61,10 +66,13 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
             node.Factory.Initialised.TrySetResult();
             var written = new StringWriter();
             var errors = new StringWriter();
+            // The CLI's own log goes to the test's output beside the node's: how its launcher found the node (or why it did
+            // not) is what a hung verb leaves nowhere else (#2000: a flat run silent for 60 s with nothing logged on either side).
+            var logs = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Debug).AddProvider(new XUnitLoggerProvider(output, false)));
             var host = new ConsoleHost(node.External, Substitute.For<IHostApplicationLifetime>(), Substitute.For<IVirtualTerminal>(),
-                SystemTimeProvider.Instance, NullLogger<ConsoleHost>.Instance,
+                SystemTimeProvider.Instance, logs.CreateLogger<ConsoleHost>(),
                 new LocalNodeOptions { NamedSocket = socket, AnotherAccountProbe = null, LocalOnly = LocalOnlyMode.Off }, written, errors);
-            return new Cli(node, host, written, errors);
+            return new Cli(node, host, written, errors, logs);
         }
 
         /// <summary>The verbs as <c>tianwen</c> composes them, run on <paramref name="args"/>.</summary>
@@ -100,6 +108,7 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
         {
             Host.Dispose();
             await Node.DisposeAsync();
+            _logs.Dispose();
         }
     }
 
