@@ -45,8 +45,9 @@ public readonly record struct LightGradeKey(
 }
 
 /// <summary>
-/// One frame's quality as the stacker scores it: <see cref="FrameRegistration.ReferenceScore"/> over the stars the viewer
-/// found on it, the composite that picks a stack's reference frame (many, sharp and round together). Beside it, the two
+/// One frame's quality: <see cref="FrameRegistration.ReferenceScore"/>, the composite the stacker picks its reference frame by,
+/// over the stars the viewer found on it that clear <see cref="ScoredSnrFloor"/> (<see cref="ScoredStars"/>; the stacker's own
+/// reference score still counts every star, #2011), the composite that picks a stack's reference frame (many, sharp and round together). Beside it, the two
 /// things that score cannot see (#1951): how patchy the sky is (<see cref="Image.SkyPatchiness"/>, NaN on a frame too small
 /// to read it), which cloud raises, and which twilight the frame was taken in, null in a dark sky or where the frame does
 /// not say when and where it was taken. <see cref="SkyLevel"/> is the star-masked sky median in the frame's own counts (ADU,
@@ -98,7 +99,7 @@ public enum GradeCause
 /// against the frames taken within an hour of it (NaN where unread), and the share it is SHOWN at, which those causes cap so a
 /// sharp frame through cloud or in twilight cannot read good. <see cref="ReferenceNight"/> is the night of the rig's clear reference
 /// the cloud was judged against because the run's own baselines were implausible (default when they were its own), and
-/// <see cref="CloudUnjudged"/> says references were asked and the rig has none, so cloud cannot be judged (the colour is unchanged).
+/// <see cref="CloudUnjudged"/> says references were asked and the rig has none, so cloud is judged on the run's own baselines alone (the colour is unchanged).
 /// </summary>
 public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN,
     float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false);
@@ -184,7 +185,12 @@ public static class LightGrading
     /// </summary>
     public const float ScoredSnrFloor = 30f;
 
-    /// <summary>The stars a frame is scored on (<see cref="ScoredSnrFloor"/>), all of them when too few clear it.</summary>
+    /// <summary>
+    /// The stars a frame is scored on: those over <see cref="ScoredSnrFloor"/>, and when fewer than <see cref="MinScoredStars"/>
+    /// clear it, the <see cref="MinScoredStars"/> brightest by SNR (all of them on a field with fewer). Never ALL its stars once a
+    /// few clear the bar: that fallback was per frame and not continuous, so a frame with 19 strong stars and 280 faint ones scored
+    /// on 299 and one with 21 strong ones on 21, and the first became the group's yardstick.
+    /// </summary>
     internal static StarList ScoredStars(StarList stars)
     {
         var scored = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
@@ -195,11 +201,20 @@ public static class LightGrading
                 scored.Add(star);
             }
         }
-        return scored.Count >= MinScoredStars ? new StarList(scored) : stars;
+        if (scored.Count >= MinScoredStars || stars.Count <= MinScoredStars)
+        {
+            return scored.Count >= MinScoredStars ? new StarList(scored) : stars;
+        }
+        var brightest = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+        foreach (var star in stars.OrderByDescending(static s => s.SNR).Take(MinScoredStars))
+        {
+            brightest.Add(star);
+        }
+        return new StarList(brightest);
     }
 
-    /// <summary>The fewest stars over <see cref="ScoredSnrFloor"/> a frame is scored on; a sparser field is scored on all it has.</summary>
-    private const int MinScoredStars = 20;
+    /// <summary>The fewest stars a frame is scored on: below it the brightest are taken, never every faint one.</summary>
+    internal const int MinScoredStars = 20;
 
     /// <summary>
     /// The sky level of a RAW light in its own counts, for a caller that grades the frame after calibration (the stacker, #2003): the
@@ -303,7 +318,7 @@ public static class LightGrading
     /// itself. When the darkest tenth sits <see cref="NightSkyCloudFrom"/> or more above the most recent OTHER night's clear
     /// reference of the same rig and site, and the clearest patchiness <see cref="CloudFrom"/> or more above that reference's for the
     /// same object (where it knows the object), the frame is judged against the reference instead, with no local test (a local floor
-    /// of the same cloudy run is no floor). With no reference for the rig the run cannot be judged for cloud, and says so; nothing
+    /// of the same cloudy run is no floor). With no reference for the rig the run is judged for cloud on its own baselines alone, and says so; nothing
     /// else about the verdict changes. A run whose baselines are plausible keeps its numbers exactly.
     /// </summary>
     private static (float Patchiness, float Local, float NightSky, DateOnly ReferenceNight, bool Unjudged) AgainstReferences(
@@ -563,7 +578,8 @@ public static class LightGrading
             ? grade.Patchiness / floor
             : float.NaN;
 
-    /// <summary>The best score among the graded frames of <paramref name="key"/>'s group, or 0 when none is graded.</summary>
+    /// <summary>The best score among the graded frames of <paramref name="key"/>'s group that the run's own baselines call clear
+    /// (the plain best where none is), or 0 when none is graded: the yardstick a share is of.</summary>
     public static float BestScore(ImmutableDictionary<string, LightGrade> grades, LightGradeKey key)
         => BaselinesOf(grades).BestScore.GetValueOrDefault(key);
 

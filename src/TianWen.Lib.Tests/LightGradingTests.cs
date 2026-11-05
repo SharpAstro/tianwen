@@ -64,8 +64,33 @@ public class LightGradingTests
 
         LightGrading.ScoredStars(shallow).Count.ShouldBe(1300);
         LightGrading.ScoredStars(deep).Count.ShouldBe(1300);
+
+        // Through Grade itself, the one line that changed what a frame is scored on.
+        var image = Frame(Filter.Luminance);
+        var a = LightGrading.Grade(image, shallow).ShouldNotBeNull();
+        var b = LightGrading.Grade(image, deep).ShouldNotBeNull();
+        a.Metrics.StarCount.ShouldBe(1300);
+        b.Metrics.StarCount.ShouldBe(a.Metrics.StarCount);
+        b.Score.ShouldBe(a.Score);
+
         var sparse = new StarList(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>([.. Enumerable.Range(0, 5).Select(i => Star(i, 50f)), Star(9, 12f)]));
-        LightGrading.ScoredStars(sparse).Count.ShouldBe(6, "a field too sparse to score on its bright stars is scored on all of them");
+        LightGrading.ScoredStars(sparse).Count.ShouldBe(6, "a field with fewer stars than the minimum is scored on all of them");
+    }
+
+    /// <summary>
+    /// Near the minimum the score stays continuous: under <see cref="LightGrading.MinScoredStars"/> strong stars a frame is scored on
+    /// that many of its brightest, never on every faint one, so 19 strong stars beside 280 faint ones score about as 21 strong ones.
+    /// </summary>
+    [Fact]
+    public void AFrameJustUnderTheMinimumIsScoredOnItsBrightestNotOnEveryStar()
+    {
+        static ImagedStar Star(int i, float snr) => new(HFD: 2.5f, StarFWHM: 2.2f, SNR: snr, Flux: snr * 100f, XCentroid: i, YCentroid: i, Ellipticity: 0.4f);
+        var under = new StarList(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>([.. Enumerable.Range(0, 19).Select(i => Star(i, 60f)), .. Enumerable.Range(0, 280).Select(i => Star(i, 12f))]));
+        var over = new StarList(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>([.. Enumerable.Range(0, 21).Select(i => Star(i, 60f))]));
+
+        LightGrading.ScoredStars(under).Count.ShouldBe(LightGrading.MinScoredStars);
+        LightGrading.ScoredStars(under).Count(st => st.SNR >= LightGrading.ScoredSnrFloor).ShouldBe(19, "the brightest are taken first");
+        LightGrading.ScoredStars(over).Count.ShouldBe(21);
     }
 
     /// <summary>
@@ -494,6 +519,28 @@ public class LightGradingTests
         readout.Lines[0].ShouldBe("Quality: 50% of the best of 2 (0 s)");
         readout.Lines[1].ShouldBe("Scored stars: 800, HFD 2.50, FWHM 2.80, ecc 0.12");
         readout.BestName.ShouldBe("best.fits");
+    }
+
+    /// <summary>The Best the Grade line names is the frame the share is of: the best CLEAR frame, not a cloud frame scoring higher.</summary>
+    [Fact]
+    public async Task TheBestNamedIsTheYardstickNotACloudFrameScoringHigher()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+        var state = new ViewerState();
+        var key = LightGradeKey.Of(document.UnstretchedImage);
+        var folder = Path.GetDirectoryName(Path.GetFullPath(document.FilePath))!;
+        state.RecordFrameGrade(document.FilePath, new LightGrade(key, new FrameMetrics(2.5f, 2.8f, 0.12f, 800), 4f, Patchiness: 1f));
+        for (var i = 0; i < 10; i++)
+        {
+            state.RecordFrameGrade(Path.Combine(folder, i == 0 ? "clear-best.fits" : $"clear{i}.fits"),
+                new LightGrade(key, new FrameMetrics(2f, 2.2f, 0.1f, 1000), i == 0 ? 8f : 6f, Patchiness: 1f + i * 0.01f));
+        }
+        state.RecordFrameGrade(Path.Combine(folder, "BAD_cloud.fits"), new LightGrade(key, new FrameMetrics(1.8f, 2f, 0.1f, 1000), 10f, Patchiness: 3f));
+
+        var readout = InfoPanelData.GetGradeReadout(state, document) ?? throw new InvalidOperationException("a file has a grade section");
+        readout.Relative.ShouldBe(0.5f, "a share of the best clear frame, 8");
+        readout.BestName.ShouldBe("clear-best.fits");
     }
 
     [Fact]

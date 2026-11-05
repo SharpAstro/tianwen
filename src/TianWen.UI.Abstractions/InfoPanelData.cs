@@ -397,9 +397,11 @@ public static class InfoPanelData
 
         var verdict = LightGrading.Verdict(grades, grade, state.GradeReferences);
         var relative = verdict.Relative;
+        // The best named is the frame the share is OF (LightGrading.BestScore): the best clear frame, which a cloud frame with a
+        // higher raw score is not (2026-09-10's top score was a BAD_ cloud frame).
         var graded = 0;
         string? bestPath = null;
-        var bestScore = 0f;
+        var yardstick = LightGrading.BestScore(grades, grade.Key);
         foreach (var (path, other) in grades)
         {
             if (other.Key != grade.Key)
@@ -407,9 +409,8 @@ public static class InfoPanelData
                 continue;
             }
             graded++;
-            if (other.Score > bestScore)
+            if (bestPath is null && other.Score == yardstick)
             {
-                bestScore = other.Score;
                 bestPath = path;
             }
         }
