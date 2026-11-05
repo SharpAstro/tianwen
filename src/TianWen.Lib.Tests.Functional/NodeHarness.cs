@@ -123,7 +123,7 @@ internal sealed class NodeHarness : IAsyncDisposable
         // A REAL clock: the node's background loops (the broadcaster's 1 s poll, the limit watcher) must wait
         // as they do in production. The fake clock's auto-advancing SleepAsync made them spin, which hid the
         // second a run's broadcaster used to miss (P0b item 13): attaching from a spinning poll is instant.
-        builder.Services.AddSingleton<ITimeProvider>(new SystemTimeProvider());
+        builder.Services.AddSingleton<ITimeProvider>(SystemTimeProvider.Instance);
         builder.Services.AddAstrometry();
         builder.Services.AddFake();
         builder.Services.AddDevices();

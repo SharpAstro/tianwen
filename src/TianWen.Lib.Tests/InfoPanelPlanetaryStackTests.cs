@@ -50,7 +50,7 @@ public class InfoPanelPlanetaryStackTests
 
     private static async Task<LiveStackPreviewSource> ShownAsync(ILiveMasterSource masters, CancellationToken ct)
     {
-        var source = new LiveStackPreviewSource(masters, "x.ser", new SystemTimeProvider());
+        var source = new LiveStackPreviewSource(masters, "x.ser", SystemTimeProvider.Instance);
         while (source.DisplayMaster is null)
         {
             source.TryPublishMaster();

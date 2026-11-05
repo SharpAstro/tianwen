@@ -106,6 +106,6 @@ public class RigControlTests(ITestOutputHelper outputHelper)
     };
 
     private static RemoteRigConnection Connect(RemoteRigBinding binding, NodeGrants grants, System.Threading.CancellationToken ct) =>
-        RemoteRigConnection.TryConnect(binding, new ViewContexts(), peers: null, grants, new SystemTimeProvider(), NullLogger.Instance, ct)
+        RemoteRigConnection.TryConnect(binding, new ViewContexts(), peers: null, grants, SystemTimeProvider.Instance, NullLogger.Instance, ct)
             .ShouldNotBeNull();
 }
