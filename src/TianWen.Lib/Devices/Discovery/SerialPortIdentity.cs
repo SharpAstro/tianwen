@@ -23,6 +23,16 @@ public readonly record struct SerialPortIdentity(SerialIdentityKind Kind, string
         _ => "name",
     };
 
+    /// <summary>
+    /// The key as a device id ends in it (#1090 step 2): <c>usb-0403-6001-A10MOSEFA</c> for <c>usb:0403:6001:A10MOSEFA</c>, the
+    /// characters a probe's <c>SafeName</c> also replaces (<c>_</c>, <c>/</c>, <c>:</c>) made <c>-</c>. Only a <c>device</c> port's
+    /// key is ever put into an id, since only that one survives a move to another socket.
+    /// </summary>
+    public string IdSuffix => IdSuffixOf(Key);
+
+    /// <summary><see cref="IdSuffix"/> for a key read back from a URI's <see cref="DeviceQueryKey.PortKey"/>.</summary>
+    public static string IdSuffixOf(string key) => key.Replace('_', '-').Replace('/', '-').Replace(':', '-');
+
     /// <summary>The identity of a port Serial.Lib described.</summary>
     public static SerialPortIdentity Of(SerialPortInfo info) => new(info.Identity, info.IdentityKey);
 }

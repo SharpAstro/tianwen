@@ -346,9 +346,16 @@ Serial.Lib already classifies every port this way, per port, from what the chip 
 - A client can say so: a serial device on a `socket` or `name` port is one that a re-plug elsewhere may lose ("keep it in
   the same USB socket, or use an adapter with a serial number"). A follow-up, not part of the first step.
 
-**What does not change (yet):** device ids. The path keeps the port where it did, so no profile, backlash file or credential
-moves and nothing needs migrating. Keying a `device`-kind port's family on its `portKey` instead of its port is a possible
-later step, once the notes have been seen working.
+**Step 2: on a `device` port the id ends in the cable.** The same place (`SerialProbeService.WithPortIdentity`, applied before
+the pinned-port check so it compares the id a profile was saved with) swaps the port ending of an id that ends in its port
+(`Uri.ModelKey`) for the cable's key made path-safe (`SerialPortIdentity.IdSuffix`): `SkyGuider-Pro_170518_COM14` on the
+FTDI cable is `SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA`, the same device on any socket and COM number, its port in the
+query where a re-discovery refreshes it; `ReconcileUri` then matches it by identity, with no model guess. `ModelKey` strips the
+cable ending as it strips a port, so the model rule still recognises the family. A `socket` or `name` port keeps its port id
+(a move changes the very thing that names it), and an id that names the hardware itself (a UUID, a serial) is never touched.
+So for every port-keyed family in the table above, "survives a re-plug" becomes **yes on a serial-numbered cable** (FTDI, most
+CDC-ACM), and stays no on a CH340, a Prolific or a plain port. **No migration** (the owner, 2026-11-05: profiles start fresh):
+a profile saved with a port id on such a cable finds the device once by the model rule and is then saved with the cable id.
 
 Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep, Gemini and QHY serial rows have no such option, and rely on the model match above.
 
