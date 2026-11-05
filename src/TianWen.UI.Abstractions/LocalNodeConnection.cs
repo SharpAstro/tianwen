@@ -62,7 +62,7 @@ public sealed class LocalNodeConnection : NodeConnection
         ViewContexts contexts, GuiAppState app, LocalNodeOptions options, NodeGrants? grants, ITimeProvider timeProvider,
         ILogger logger, CancellationToken cancellationToken)
     {
-        var found = await new LocalNodeLauncher(options, logger).FindOrStartAsync(cancellationToken).ConfigureAwait(false);
+        var found = await new LocalNodeLauncher(options, timeProvider, logger).FindOrStartAsync(cancellationToken).ConfigureAwait(false);
         if (found is not { Transport: { } transport, Node: { } node })
         {
             logger.LogWarning("No node to hold this computer's rig ({Outcome}): {Message}", found.Outcome, found.Message);

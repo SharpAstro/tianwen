@@ -190,7 +190,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
         // Drain any stale data from the serial buffer
         await DrainSerialBufferAsync(serial, TimeProvider, cancellationToken);
 
-        await Task.Delay(150, cancellationToken);
+        await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(150), cancellationToken);
 
         // Send init command and read response
         var initResponse = await SendAndReadAsync<QfocInitCommand, QfocInitResponse>(
@@ -209,7 +209,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
 
         // Set speed: normal (0); caller can change via URI params or settings later
         await SendCommandAsync(new QfocSetSpeedCommand(0), QfocJsonContext.Default.QfocSetSpeedCommand, cancellationToken);
-        await Task.Delay(200, cancellationToken);
+        await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), cancellationToken);
 
         // Query initial position
         await PollPositionAsync(serial, cancellationToken);
@@ -277,7 +277,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
         {
             return null;
         }
-        await Task.Delay(50, cancellationToken);
+        await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(50), cancellationToken);
         return await ReadJsonResponseAsync(serial, responseTypeInfo, cancellationToken);
     }
 
@@ -355,7 +355,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
         // Drain stale data
         await DrainSerialBufferAsync(serial, timeProvider, cancellationToken);
 
-        await Task.Delay(150, cancellationToken);
+        await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(150), cancellationToken);
 
         // Send init command
         var initJson = JsonSerializer.Serialize(new QfocInitCommand(), QfocJsonContext.Default.QfocInitCommand);
@@ -367,7 +367,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
             }
         }
 
-        await Task.Delay(300, cancellationToken);
+        await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(300), cancellationToken);
 
         // Read and deserialise response
         var response = await ReadJsonResponseAsync(serial, QfocJsonContext.Default.QfocInitResponse, cancellationToken);

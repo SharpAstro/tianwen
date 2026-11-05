@@ -166,7 +166,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var issued = await Access.GrantAsync("Laptop", ct);
 
         var restarted = new NodeAccess(_harness.External, _harness.App.Services.GetRequiredService<NodeSettingsStore>(),
-            _harness.App.Services.GetRequiredService<EventHub>(), new SystemTimeProvider(), new LoopbackNamed(), NullLogger<NodeAccess>.Instance);
+            _harness.App.Services.GetRequiredService<EventHub>(), SystemTimeProvider.Instance, new LoopbackNamed(), NullLogger<NodeAccess>.Instance);
         var context = new DefaultHttpContext();
         context.Request.Headers.Authorization = "Bearer " + issued.Token;
         context.Connection.RemoteIpAddress = IPAddress.Loopback;
@@ -213,7 +213,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var address = IPAddress.Loopback;
         var settings = _harness.App.Services.GetRequiredService<NodeSettingsStore>();
         NodeAccess Restarted() => new NodeAccess(_harness.External, settings, _harness.App.Services.GetRequiredService<EventHub>(),
-            new SystemTimeProvider(), new LoopbackNamed(), NullLogger<NodeAccess>.Instance);
+            SystemTimeProvider.Instance, new LoopbackNamed(), NullLogger<NodeAccess>.Instance);
 
         (await Access.AppMayCommandAsync(address, ct)).ShouldBeTrue("the harness allowed loopback");
         (await Restarted().AppMayCommandAsync(address, ct)).ShouldBeFalse("an Allow lasts until the node restarts");
@@ -274,8 +274,8 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
-        await using var watcher = NodeTransport.OverTcp(_harness.Transport.BaseAddress).CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
-        await using var owner = _harness.Transport.CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
+        await using var watcher = NodeTransport.OverTcp(_harness.Transport.BaseAddress).CreateEventStream(SystemTimeProvider.Instance, NullLogger.Instance);
+        await using var owner = _harness.Transport.CreateEventStream(SystemTimeProvider.Instance, NullLogger.Instance);
         watcher.Start(ct);
         owner.Start(ct);
 
@@ -298,7 +298,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         _harness.Factory.Initialised.SetResult();
         var run = await _harness.StartSessionAsync(ct);
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
-        await using var watcher = NodeTransport.OverTcp(_harness.Transport.BaseAddress).CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
+        await using var watcher = NodeTransport.OverTcp(_harness.Transport.BaseAddress).CreateEventStream(SystemTimeProvider.Instance, NullLogger.Instance);
         watcher.Start(ct);
         await BeatingAsync([watcher], async () =>
         {
@@ -318,8 +318,8 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         _harness.Factory.Initialised.SetResult();
         var run = await _harness.StartSessionAsync(ct);
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
-        await using var watcher = NodeTransport.OverTcp(_harness.Transport.BaseAddress).CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
-        await using var owner = _harness.Transport.CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
+        await using var watcher = NodeTransport.OverTcp(_harness.Transport.BaseAddress).CreateEventStream(SystemTimeProvider.Instance, NullLogger.Instance);
+        await using var owner = _harness.Transport.CreateEventStream(SystemTimeProvider.Instance, NullLogger.Instance);
         watcher.Start(ct);
         owner.Start(ct);
         await BeatingAsync([watcher], async () =>
@@ -346,7 +346,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
         var issued = await Access.GrantAsync("Laptop", ct);
         await using var laptop = NodeTransport.OverTcp(_harness.Transport.BaseAddress, new NodeGrant(issued.Token))
-            .CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
+            .CreateEventStream(SystemTimeProvider.Instance, NullLogger.Instance);
         var drops = 0;
         laptop.ConnectedChanged += (_, connected) =>
         {
@@ -397,7 +397,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         (await client.GetAccessAsync(ct)).IsSuccess.ShouldBeTrue("this machine manages who may command its rig");
 
         var hub = local.App.Services.GetRequiredService<EventHub>();
-        await using var window = local.Transport.CreateEventStream(new SystemTimeProvider(), NullLogger.Instance);
+        await using var window = local.Transport.CreateEventStream(SystemTimeProvider.Instance, NullLogger.Instance);
         window.Start(ct);
         await BeatingAsync([window], () => NodeWait.UntilAsync("this machine's window present", _ =>
             ValueTask.FromResult((hub.AnsweringClientCount == 1 && hub.CommandingClientCount == 1,

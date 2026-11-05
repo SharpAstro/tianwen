@@ -75,7 +75,7 @@ public class EquipmentFlowProcessTests(ITestOutputHelper output)
 
         // The event stream, as the GUI will hold it: every DEVICE-STATE the node pushes.
         var pushed = new ConcurrentQueue<DeviceStateDto>();
-        await using var stream = NodeTransport.OverSocket(kept.SocketPath).CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(output));
+        await using var stream = NodeTransport.OverSocket(kept.SocketPath).CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(output));
         stream.EventReceived += (_, e) =>
         {
             if (DeviceStateDto.TryFromEvent(e, out var state))

@@ -51,7 +51,7 @@ public class LiveSessionTabCompositionTests
             FontPath = FontResolver.ResolveSystemFont(),
             PlanetaryView = view,
         };
-        tab.Render(new LiveSessionState { Mode = LiveSessionMode.Planetary }, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
+        tab.Render(new LiveSessionState { Mode = LiveSessionMode.Planetary }, new RectF32(0f, 0f, SurfaceW, SurfaceH), SystemTimeProvider.Instance);
         return (tab, view);
     }
 
@@ -113,7 +113,7 @@ public class LiveSessionTabCompositionTests
     {
         using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
         var planetary = new ViewerState();
-        var controller = new PlanetaryCaptureController(planetary, new SystemTimeProvider(),
+        var controller = new PlanetaryCaptureController(planetary, SystemTimeProvider.Instance,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<PlanetaryCaptureController>.Instance);
         var tab = new LiveSessionTab<RgbaImage>(renderer)
         {
@@ -122,7 +122,7 @@ public class LiveSessionTabCompositionTests
             PlanetaryView = new PlanetaryViewer(renderer) { FontPath = FontResolver.ResolveSystemFont() },
             PlanetaryCapture = controller,
         };
-        tab.Render(new LiveSessionState { Mode = LiveSessionMode.Planetary }, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
+        tab.Render(new LiveSessionState { Mode = LiveSessionMode.Planetary }, new RectF32(0f, 0f, SurfaceW, SurfaceH), SystemTimeProvider.Instance);
         planetary.ZoomToFit = false;
         planetary.Zoom = 3f;
 
@@ -166,7 +166,7 @@ public class LiveSessionTabCompositionTests
             PlanetaryView = new PanelView(renderer) { FontPath = FontResolver.ResolveSystemFont() },
         };
         var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), static () => { }) { Widgets = () => [tab] };
-        void Paint() => tab.Render(state, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
+        void Paint() => tab.Render(state, new RectF32(0f, 0f, SurfaceW, SurfaceH), SystemTimeProvider.Instance);
         void Press(ClickableRegion region)
         {
             var (x, y) = (region.X + region.Width / 2f, region.Y + region.Height / 2f);
@@ -205,7 +205,7 @@ public class LiveSessionTabCompositionTests
         var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont() };
         var state = new LiveSessionState { Mode = LiveSessionMode.Preview, PreviewOTATelemetry = [PreviewOTATelemetry.Unknown] };
         var area = new RectF32(0f, 0f, SurfaceW, SurfaceH);
-        tab.Render(state, area, new SystemTimeProvider());
+        tab.Render(state, area, SystemTimeProvider.Instance);
 
         var setPark = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "PreviewMountSetPark" });
         var lastRowBottom = setPark.Y + setPark.Height;
@@ -227,7 +227,7 @@ public class LiveSessionTabCompositionTests
         using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
         var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont() };
         var dialog = QuitDialog.DevicesConnected(1, aCameraNeedsWarming: true);
-        tab.Render(new LiveSessionState { QuitDialog = dialog }, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
+        tab.Render(new LiveSessionState { QuitDialog = dialog }, new RectF32(0f, 0f, SurfaceW, SurfaceH), SystemTimeProvider.Instance);
 
         var regions = tab.GetRegisteredRegions();
         var other = regions.Single(r => r.Result is HitResult.ButtonHit { Action: "QuitOther" });

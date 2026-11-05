@@ -138,7 +138,7 @@ var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 var generation = GuiSuccession.GenerationOf(Environment.GetEnvironmentVariable);
 if (GuiSuccession.PredecessorOf(Environment.GetEnvironmentVariable) is { } predecessor)
 {
-    var gone = await GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, CancellationToken.None);
+    var gone = await GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, timeProvider, CancellationToken.None);
     logger.LogWarning("This window replaces {Predecessor}, whose display was lost (window {Generation} in a row){Gone}",
         predecessor, generation, gone ? "" : "; it had not exited in time");
     appState.RecordNotification(timeProvider.GetUtcNow(), NotificationSeverity.Warning,
