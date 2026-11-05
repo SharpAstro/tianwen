@@ -74,7 +74,7 @@ internal static class NodeTestClients
             }
             catch (Exception ex)
             {
-                logger?.LogInformation("{Method} {Path} -> {Error} after {Ms} ms", request.Method, request.RequestUri?.PathAndQuery, ex.GetType().Name, clock.ElapsedMilliseconds);
+                logger?.LogInformation("{Method} {Path} -> {Error} after {Ms} ms; {Pool}", request.Method, request.RequestUri?.PathAndQuery, ex.GetType().Name, clock.ElapsedMilliseconds, NodeWait.PoolState());
                 throw;
             }
         }

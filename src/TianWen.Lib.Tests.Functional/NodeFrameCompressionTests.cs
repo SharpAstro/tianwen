@@ -92,7 +92,7 @@ public class NodeFrameCompressionTests(ITestOutputHelper output)
         var frame = Frame();
         await using var node = await RunningAsync(output, frame, onItsSocket: false, ct);
 
-        var got = await new TianWenNodeClient(node.Client).GetLatestFrameAsync(FrameSources.Ota(0), after: null, new FrameReader(), ct);
+        var got = await NodeTestClients.ClientOf(node.Client).GetLatestFrameAsync(FrameSources.Ota(0), after: null, new FrameReader(), ct);
 
         var image = got.Image.ShouldNotBeNull(got.Error);
         image.GetChannelSpan(0).SequenceEqual(frame.GetChannelSpan(0)).ShouldBeTrue();

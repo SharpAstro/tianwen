@@ -111,7 +111,7 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         }, ct);
 
     private static async Task<IEnumerable<string>> NotesAsync(TianWenNodeClient client, CancellationToken ct)
-        => ((await client.GetNotificationsAsync(ct)).Value ?? []).Select(n => n.Message);
+        => (await UntilAnsweredAsync("the node's notifications", client.GetNotificationsAsync, ct)).Select(n => n.Message);
 
     [Fact(Timeout = 240_000)]
     public async Task AnInteractiveRunStopsAGraceAfterItsLastClientGoesAndAClientBackWithinItKeepsIt()
@@ -132,7 +132,7 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         await UntilNobodyIsAttachedAsync(client, ct);
         var second = await WindowAsync(kept, ct);
         await Task.Delay(Grace * 2, ct);
-        (await client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Running.ShouldBeTrue("a client came back within the grace");
+        (await UntilAnsweredAsync("the planetary state", client.GetPlanetaryAsync, ct)).Running.ShouldBeTrue("a client came back within the grace");
 
         // Its last window goes: it stops once the grace is spent, and says so.
         await second.DisposeAsync();
@@ -200,10 +200,9 @@ public class NodeRunsProcessTests(ITestOutputHelper output)
         await UntilNobodyIsAttachedAsync(client, ct);
         await Task.Delay(Grace * 2, ct);
 
-        var state = await client.GetSessionStateAsync(ct);
-        var session = state.Value.ShouldNotBeNull(state.Error);
+        var session = await UntilAnsweredAsync("the session's state", client.GetSessionStateAsync, ct);
         session.Phase.ShouldNotBeOneOf([SessionPhase.Failed, SessionPhase.Aborted, SessionPhase.Complete], session.FailureReason);
-        (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().Run.ShouldNotBeNull().Kind.ShouldBe(NodeRunKind.Session, "a session goes on");
+        (await UntilAnsweredAsync("the node", client.GetNodeAsync, ct)).Run.ShouldNotBeNull().Kind.ShouldBe(NodeRunKind.Session, "a session goes on");
         (await client.AbortSessionAsync(ct)).IsSuccess.ShouldBeTrue();
         await UntilAsync<NodeInfoDto>("the session to end", async token =>
         {
