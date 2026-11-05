@@ -540,12 +540,17 @@ public static class LightGrading
     /// <summary>The cloud cause in words, saying which measure found it, for the Grade line and the file list's mark alike.</summary>
     public static string CloudInWords(in LightGradeVerdict verdict)
     {
-        var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness, verdict.LocalNoise, verdict.StarRatio) || verdict.InCloudRun;
+        // A frame that joined a run frame by frame is past the plain patchiness bar; one the bracket filled need not be, so it is
+        // worded by the cloud around it, never by a patchiness that reads clear.
+        var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness, verdict.LocalNoise, verdict.StarRatio)
+            || (verdict.InCloudRun && verdict.Patchiness >= CloudFrom);
         var bright = verdict.NightSky >= NightSkyCloudFrom;
         var words = (patchy, bright) switch
         {
             (false, false) when verdict.SkyRising => string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Cloud: the sky is {(verdict.SkyOverTrend - 1f) * 100f:0}% brighter than its trend over the hour before"),
+            (false, false) when verdict.InCloudRun => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Cloud: between cloud frames of this group at most {CloudBracketSpan.TotalMinutes:0} minutes apart"),
             (true, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest and {verdict.NightSky:0.0}x as bright as the night's darkest"),
             (false, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
@@ -638,6 +643,11 @@ public static class LightGrading
     /// moves smoothly all night as it climbs or sets, so a sky that turns against its own line is something else: on 2026-09-12 the
     /// second target's sky fell from 1.39 to 1.12 times the night's darkest over three hours, then turned at 03:55 and climbed to
     /// 1.21 by 04:37, the owner's end-of-night cloud marks, with the Moon down (new on 09-11) and the Sun still below -18 degrees.
+    /// <para>It sees a CHANGE, so a haze that stays is caught for its first hour or so only: a risen frame leaves every later frame's
+    /// line, and once fewer than <see cref="SkyTrendMinFrames"/> clear frames remain in the window the frame is not read (a +6 % step
+    /// held for two hours reads cloud for its first 51 minutes). Deliberately: a line latched at the last clear frame would call any
+    /// lasting change cloud for the rest of the night, and one that re-admits risen frames would absorb a slow haze. A sky that stays
+    /// bright for good is the night-sky term's (<see cref="NightSkyCloudFrom"/>) or a reference's (#1976).</para>
     /// </summary>
     public static float SkyOverTrend(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
         => grade.Taken != default && BaselinesOf(grades).SkyTrend.TryGetValue(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken), out var ratio)

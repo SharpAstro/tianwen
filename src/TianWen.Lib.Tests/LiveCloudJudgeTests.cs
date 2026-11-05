@@ -39,6 +39,38 @@ public class LiveCloudJudgeTests
     }
 
     /// <summary>
+    /// The session judges each light against the frames BEFORE it, and the sky's trend is read from those alone, so a sky that
+    /// turns against its own line is cloud live as in the viewer (2026-09-12's end-of-night rise), from its first risen frame.
+    /// A sustained rise reads cloud for about its first hour (<see cref="LightGrading.SkyOverTrend"/>), so a session's
+    /// <c>CloudWaitTimeout</c> (15 min) is reached by a lasting veil, as by any other cloud. The bracket fill needs the cloud frame
+    /// AFTER a frame, so a live verdict never carries it.
+    /// </summary>
+    [Fact]
+    public void ASkyTurningAgainstItsTrendReadsCloudLiveFromItsFirstRisenFrame()
+    {
+        var judge = new LiveCloudJudge();
+        var start = new DateTimeOffset(2026, 9, 12, 17, 0, 0, TimeSpan.Zero);
+        var random = new Random(5);
+        var risen = 0;
+        for (var m = 0; m < 120; m++)
+        {
+            var jitter = 1f + 0.002f * (random.NextSingle() + random.NextSingle() - 1f);
+            var sky = (1400f - 1.4f * m) * (m >= 80 ? 1.06f : 1f) * jitter;
+            var verdict = judge.Add($"f{m}", Graded(1f) with { Taken = start.AddMinutes(m), SkyLevel = sky });
+            if (m < 80)
+            {
+                LiveCloudJudge.IsCloud(verdict).ShouldBeFalse($"minute {m} is on its trend");
+            }
+            else if (LiveCloudJudge.IsCloud(verdict))
+            {
+                verdict.ShouldNotBeNull().SkyRising.ShouldBeTrue();
+                risen++;
+            }
+        }
+        risen.ShouldBe(40, "every frame of the first 40 minutes of the rise");
+    }
+
+    /// <summary>
     /// A target cloudy from its first light is its own darkest sky and reads clear against itself; given a clear night of the
     /// same rig (#1976, the viewer's <c>clear-sky.json</c>) the judge calls it cloud from that first light on.
     /// </summary>

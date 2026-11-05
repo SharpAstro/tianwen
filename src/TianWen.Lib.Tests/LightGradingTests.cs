@@ -556,6 +556,11 @@ public class LightGradingTests
         var climbing = Enumerable.Range(0, 200).Select(m => ($"c{m}", Timed(start, m, 1120f + 1.4f * m, 1f, random))).ToArray();
         var smooth = Grades(climbing);
         smooth.Values.Count(g => (LightGrading.Verdict(smooth, g).Causes & GradeCause.Cloud) != 0).ShouldBe(0);
+
+        // And curving ever faster, which no line fits exactly: 1000 + 0.012 m^2 over 300 minutes (2.08x by the end).
+        var curving = Enumerable.Range(0, 300).Select(m => ($"q{m}", Timed(start, m, 1000f + 0.012f * m * m, 1f, random))).ToArray();
+        var convex = Grades(curving);
+        convex.Values.Count(g => (LightGrading.Verdict(convex, g).Causes & GradeCause.Cloud) != 0).ShouldBe(0);
     }
 
     /// <summary>
@@ -577,6 +582,10 @@ public class LightGradingTests
         bool Cloud(int m) => (LightGrading.Verdict(grades, grades[$"f{m}"]).Causes & GradeCause.Cloud) != 0;
 
         Enumerable.Range(100, 13).All(Cloud).ShouldBeTrue("12 minutes apart: everything between is cloud");
+        var filled = LightGrading.Verdict(grades, grades["f105"]);
+        filled.InCloudRun.ShouldBeTrue();
+        LightGrading.CloudInWords(filled).ShouldContain("between cloud frames", customMessage: "worded by the cloud around it, not its clear patchiness");
+        LightGrading.CloudInWords(filled).ShouldNotContain("patchy");
         Cloud(150).ShouldBeTrue();
         Cloud(170).ShouldBeTrue();
         Enumerable.Range(151, 19).Count(Cloud).ShouldBe(0, "20 minutes apart: the frames between keep their own verdict");

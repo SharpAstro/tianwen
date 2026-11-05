@@ -465,6 +465,22 @@ and the SV545's 2026-09-10 IDAS flats and dark-flats.
   viewer's grade misses too: a limit of the grade, #1974, not of the filter.
 
 Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `--reject-cloud` is now ON by default.
+
+**Third read: the sky trend and the bracket (2026-11-06, #2030).** The same copies, data and calibration, through the stacker with
+`LightGrading.SkyOverTrend` (cloud from 4 % and 6x its trend's scatter) and `CloudBracketSpan` (15 min):
+
+| night | marked left out (any filter) | unmarked left out | cloud filter: marked / unmarked |
+|---|---|---|---|
+| 09-10 before / after | 42 / 43 of 44 | 11 / 16 | 12 / 13, 2 / 7 |
+| 09-12 before / after | 19 / 37 of 42 | 20 / 25 | 12 / 30, 2 / 7 |
+
+- **09-12:** the 18 newly left out are the end-of-night run (03:55 to 04:37). The 5 unmarked are the evening's 0006-0011
+  (patchiness 1.36-1.41, between marked cloud), as in the viewer.
+- **09-10:** the newly left out are 0206 (marked), 0204 (between the owner's by-eye cloud calls 0203 and 0205), and 0154-0158
+  (23:56 to 00:00). The viewer keeps 0154-0158: 3-6 % over the sky's trend, where 0157 and 0158 also lost about 10 % of their
+  stars. The stacker reads the raw sky as the whole frame's median (`RawSkyLevel`), whose trend scatters less than the viewer's
+  star-masked level, so the same 4 % passes its 6-sigma gate there. Whether those four are thin cloud is the owner's call; until
+  then the default stays on, at five more unmarked frames left out per night of 220 to 350.
 `--reject-cloud false` turns it off.
 
 Cloud is judged only where its baselines have at least 10 lights (`CloudRejection.MinGradedForCloud`, the viewer's own bar for a
