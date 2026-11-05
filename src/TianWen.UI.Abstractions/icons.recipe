@@ -93,3 +93,7 @@ HeavyCheck = U+2714    # Kept baked as a FALLBACK for a solved plate solve. The 
                        # now that the viewer bundles DejaVu Sans, which carries it; before that it
                        # resolved Consolas, which has no check mark, so the tick drew nothing. Note
                        # U+2713 (plain check) is absent from Noto, so heavy check is the one in both.
+Warning    = U+26A0    # A warning's FORM (#2025): the notification feed's row and the status bar's message carry it, so a warning
+                       # is told from an accented control by shape as well as by hue (the accent is orange now, as Warn is amber).
+                       # DIR.Lib's IconKind has no warning member, so it is baked here, as the grade marks are.
+Cross      = U+2716    # An error's FORM (#2025), beside Warning: a heavy multiplication X, a different silhouette from the triangle.
