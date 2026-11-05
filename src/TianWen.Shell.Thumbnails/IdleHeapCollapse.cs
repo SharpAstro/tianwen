@@ -74,6 +74,8 @@ namespace TianWen.Shell.Thumbnails
         {
             _collapse = collapse;
             _quietMilliseconds = quietMilliseconds;
+            // A raw timer, not an ITimeProvider (#2021): the shell's surrogate is its own host with no DI, a 3 s quiet window
+            // needs no precision, and a test drives Tick by hand (Timeout.Infinite) rather than through a clock.
             _timer = new Timer(static state => ((IdleHeapCollapse)state!).Tick(), this, Timeout.Infinite, Timeout.Infinite);
         }
 

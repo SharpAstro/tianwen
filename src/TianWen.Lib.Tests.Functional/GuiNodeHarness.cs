@@ -102,7 +102,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     /// <summary>The host's quit over this harness, as the GUI composes it: its background work is the handler's.</summary>
     public AppQuit Quit()
     {
-        var clock = new SystemTimeProvider();
+        var clock = SystemTimeProvider.Instance;
         return new AppQuit(AppState, Contexts, new RigShutdown(clock, NullLogger.Instance), Tracker, _cts, clock, NullLogger.Instance);
     }
 
@@ -181,7 +181,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         comets.All.Returns(System.Collections.Immutable.ImmutableArray<CometElements>.Empty);
         var services = new ServiceCollection()
             .AddSingleton<IExternal>(external)
-            .AddSingleton<ITimeProvider>(new SystemTimeProvider())
+            .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
             .AddLogging()
             .AddSingleton<ViewerState>()
             .AddSingleton<PlanetaryCaptureController>()
@@ -239,7 +239,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     {
         var sent = new ConcurrentQueue<string>();
         var http = new HttpClient(new RecordingNode(sent)) { BaseAddress = new Uri("http://rig.local:1888/") };
-        var clock = new SystemTimeProvider();
+        var clock = SystemTimeProvider.Instance;
         var mirror = new RemoteSessionMirror(new TianWenNodeClient(http),
             new TianWenEventStream(http.BaseAddress, clock, NullLogger.Instance), clock, NullLogger.Instance);
         _mirrors.Add(mirror);
@@ -283,7 +283,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             Alias = "Observatory",
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
-        var rig = RemoteRigConnection.TryConnect(binding, Contexts, peers: null, AppState.NodeGrants, new SystemTimeProvider(),
+        var rig = RemoteRigConnection.TryConnect(binding, Contexts, peers: null, AppState.NodeGrants, SystemTimeProvider.Instance,
             NullLogger.Instance, _cts.Token).ShouldNotBeNull();
         _rigs.Add(rig);
         Handler.Rigs.Upsert(binding);

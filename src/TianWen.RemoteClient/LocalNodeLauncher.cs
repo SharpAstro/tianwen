@@ -123,9 +123,12 @@ namespace TianWen.RemoteClient
     /// <c>tianwen-server --keeper</c> from its own directory, broken away from its job, and waits for the node to
     /// answer.
     /// </summary>
-    public sealed class LocalNodeLauncher(LocalNodeOptions options, ILogger logger)
+    public sealed class LocalNodeLauncher(LocalNodeOptions options, ITimeProvider timeProvider, ILogger logger)
     {
         private static readonly TimeSpan AskBudget = TimeSpan.FromSeconds(2);
+
+        /// <summary>How often a wait for the node asks again; waited on the client's clock, as the budget is read off it (#2021).</summary>
+        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
 
         public static string ServerFileName => OperatingSystem.IsWindows() ? "tianwen-server.exe" : "tianwen-server";
 
@@ -294,8 +297,8 @@ namespace TianWen.RemoteClient
             logger.LogInformation("Started the node's keeper {Server}, pid {Pid}{Breakaway}", server, keeper.Id,
                 keeper.OutlivesClient ? "" : ", which could not break away from this program's job");
 
-            var deadline = Stopwatch.StartNew();
-            while (deadline.Elapsed < options.ReadyBudget)
+            var started = timeProvider.GetTimestamp();
+            while (timeProvider.GetElapsedTime(started) < options.ReadyBudget)
             {
                 if (await AskAsync(transport, cancellationToken) is { } node)
                 {
@@ -312,7 +315,7 @@ namespace TianWen.RemoteClient
                         $"The node's keeper ended with {exit} before the node answered; {WhyItDidNotStart(dataRoot)}");
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
+                await timeProvider.SleepAsync(PollInterval, cancellationToken).ConfigureAwait(false);
             }
 
             return new LocalNode(LocalNodeOutcome.CouldNotStart, null, null,
@@ -330,14 +333,14 @@ namespace TianWen.RemoteClient
                 logger.LogWarning("Asking node pid {Pid} to stop failed: {Error}", running.ProcessId, asked.Error);
             }
 
-            var deadline = Stopwatch.StartNew();
-            while (deadline.Elapsed < options.ReadyBudget)
+            var started = timeProvider.GetTimestamp();
+            while (timeProvider.GetElapsedTime(started) < options.ReadyBudget)
             {
                 if (await AskAsync(transport, cancellationToken) is null)
                 {
                     return true;
                 }
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
+                await timeProvider.SleepAsync(PollInterval, cancellationToken).ConfigureAwait(false);
             }
             return false;
         }
@@ -353,16 +356,16 @@ namespace TianWen.RemoteClient
             NodeResult<NodeInfoDto> first, CancellationToken cancellationToken)
         {
             var last = first;
-            var deadline = Stopwatch.StartNew();
+            var started = timeProvider.GetTimestamp();
             var said = false;
-            while (deadline.Elapsed < options.ReadyBudget && await NodeSocket.IsListeningAsync(socketPath, cancellationToken).ConfigureAwait(false))
+            while (timeProvider.GetElapsedTime(started) < options.ReadyBudget && await NodeSocket.IsListeningAsync(socketPath, cancellationToken).ConfigureAwait(false))
             {
                 if (!said)
                 {
                     logger.LogInformation("The node on {Socket} is listening but did not answer ({Error}); asking again", socketPath, first.Error);
                     said = true;
                 }
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
+                await timeProvider.SleepAsync(PollInterval, cancellationToken).ConfigureAwait(false);
                 last = await AskWithReasonAsync(transport, cancellationToken);
                 if (last.Value is not null)
                 {
