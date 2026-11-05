@@ -421,7 +421,7 @@ public static class InfoPanelData
             : $"Quality: {relative * 100f:0}% of the best of {graded} ({group})");
         var metrics = grade.Metrics;
         lines.Add(string.Create(CultureInfo.InvariantCulture,
-            $"Stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, FWHM {metrics.MedianFwhm:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
+            $"Scored stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, FWHM {metrics.MedianFwhm:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
         // What the stars cannot say (#1951): the sky's patchiness against the group's clearest tenth, and a twilight, each a
         // line only when it holds the colour down, so a clear dark frame's section is as short as it was.
         if ((verdict.Causes & GradeCause.Cloud) != 0)

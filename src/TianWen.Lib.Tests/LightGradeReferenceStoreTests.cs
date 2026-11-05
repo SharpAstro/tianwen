@@ -97,6 +97,28 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
         System.IO.File.Exists(LightGradeReferenceStore.PathFor(external)).ShouldBeFalse("nothing qualified, so nothing was written");
     }
 
+    /// <summary>
+    /// A rig's first reference comes from a night that is mostly clear and clouds over late (2026-09-10: two clear hours, cloud
+    /// after midnight), which the rule that demanded no cloud at all never recorded; a night mostly in cloud still makes none.
+    /// </summary>
+    [Fact]
+    public void AMostlyClearNightThatCloudsOverLateIsARigsFirstReference()
+    {
+        var night = new DateOnly(2026, 9, 10);
+        var clear = ClearNight(night);
+        var late = Enumerable.Range(12, 4).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i)).ToArray();
+        var table = Table("mixed", [.. clear, .. late]);
+        late.ShouldAllBe(f => (LightGrading.Verdict(table, f, default).Causes & GradeCause.Cloud) != 0, "the late frames must read as cloud");
+
+        var made = LightGrading.ClearNights(table);
+        made.Length.ShouldBe(1);
+        made[0].Night.ShouldBe(night);
+
+        var mostlyCloud = Table("cloudy", [.. clear.Take(LightGrading.MinClearFramesPerReference),
+            .. Enumerable.Range(20, 12).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i))]);
+        LightGrading.ClearNights(mostlyCloud).ShouldBeEmpty("most of the night in cloud is no night to judge a rig by");
+    }
+
     [Fact]
     public void TooFewClearFramesAndTwilightFramesDoNotMakeAReference()
     {

@@ -139,7 +139,7 @@ public static class LightGrading
                 : null;
         }
 
-        var metrics = FrameRegistration.MetricsFrom(stars);
+        var metrics = FrameRegistration.MetricsFrom(ScoredStars(stars));
         var score = FrameRegistration.ReferenceScore(metrics);
         if (!float.IsFinite(score) || score <= 0f)
         {
@@ -173,6 +173,33 @@ public static class LightGrading
         var divisor = image.HasUnitScalePeak ? 1f : image.MaxValue;
         return (median * divisor + image.MinValue) * (fullScaleAdu ?? 1f);
     }
+
+    /// <summary>
+    /// The SNR a star needs to count towards a frame's score. Detection is a ladder that lowers its threshold until it has
+    /// <c>maxStars</c>, so how DEEP a frame is read depends on whether its first pass fell short: on 2026-09-10 one clear frame's
+    /// first pass accepted 1,911 stars, retried at 7 sigma and ended with 4,346, while its neighbour a minute later accepted 2,056,
+    /// stopped and ended with 1,737, and the score (stars over HFD) made the few frames that retried the night's best and every
+    /// other clear frame 0.4 of it. Above 30 the two neighbours agree to 1 % (1,343 against 1,357, both passes hold every such
+    /// star), and a frame through cloud still loses its share (1,001).
+    /// </summary>
+    public const float ScoredSnrFloor = 30f;
+
+    /// <summary>The stars a frame is scored on (<see cref="ScoredSnrFloor"/>), all of them when too few clear it.</summary>
+    internal static StarList ScoredStars(StarList stars)
+    {
+        var scored = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+        foreach (var star in stars)
+        {
+            if (star.SNR >= ScoredSnrFloor)
+            {
+                scored.Add(star);
+            }
+        }
+        return scored.Count >= MinScoredStars ? new StarList(scored) : stars;
+    }
+
+    /// <summary>The fewest stars over <see cref="ScoredSnrFloor"/> a frame is scored on; a sparser field is scored on all it has.</summary>
+    private const int MinScoredStars = 20;
 
     /// <summary>
     /// The sky level of a RAW light in its own counts, for a caller that grades the frame after calibration (the stacker, #2003): the
@@ -345,7 +372,9 @@ public static class LightGrading
     /// <see cref="MinClearFramesPerReference"/> such frames and NONE of its frames was judged against another night's reference,
     /// since a night that needed one is not itself clear. Where the rig has no reference from another night to check against, the
     /// night must also look clear on its own terms: its median sky within <see cref="NightSkyCloudFrom"/> of its darkest tenth, and
-    /// no cloud among its frames. A uniform overcast cannot be told from a clear night by one night alone, so the first reference
+    /// at least half its frames clear (a night that clears and then clouds over is evidence its clear stretch is clear: 2026-09-10
+    /// had two clear hours and cloud after midnight, and the rule that demanded no cloud at all left that rig with no reference
+    /// ever). A uniform overcast cannot be told from a clear night by one night alone, so the first reference
     /// of a rig can be wrong; it is replaced as soon as a later clear night of the rig is graded, since the most recent other
     /// night wins. The sky level is the clear frames' darkest tenth, and each object's clearest patchiness their tenth for it.
     /// </summary>
@@ -396,7 +425,7 @@ public static class LightGrading
             }
             List<float> sky = [.. clear.Select(static g => g.SkyLevel)];
             sky.Sort();
-            if (!checkedAgainstAnother && (clear.Count < frames || sky[sky.Count / 2] / sky[sky.Count / 10] >= NightSkyCloudFrom))
+            if (!checkedAgainstAnother && (clear.Count * 2 < frames || sky[sky.Count / 2] / sky[sky.Count / 10] >= NightSkyCloudFrom))
             {
                 continue;
             }
@@ -481,7 +510,7 @@ public static class LightGrading
     }
 
     /// <summary>The state of a run whose rig has no clear reference, for the Grade line and a cloud mark's tooltip alike.</summary>
-    public const string CloudUnjudgedInWords = "Cloud cannot be judged: no clear night of this rig yet";
+    public const string CloudUnjudgedInWords = "Cloud judged on this night alone: no clear night of this rig on file yet";
 
     /// <summary>
     /// A frame's sky level as a multiple of its NIGHT's darkest tenth (the 10th percentile of the night's sky levels): every
@@ -603,7 +632,38 @@ public static class LightGrading
             {
                 AddLocalFloors(key, frames);
             }
+
+            // The yardstick is the best frame the run's own baselines call CLEAR: thin cloud can take the faint, broad stars away
+            // and leave a tighter median, so the best score of 2026-09-10 was one of its cloud frames (BAD_ 01:06:52), and every
+            // clear frame read as a share of it. With no clear frame in a group the plain best stands.
+            Dictionary<LightGradeKey, float> clearBest = [];
+            foreach (var grade in grades.Values)
+            {
+                if (grade.Twilight is null && !CloudyOnOwnBaselines(grade) && grade.Score > clearBest.GetValueOrDefault(grade.Key))
+                {
+                    clearBest[grade.Key] = grade.Score;
+                }
+            }
+            foreach (var (key, best) in clearBest)
+            {
+                BestScore[key] = best;
+            }
             return this;
+        }
+
+        /// <summary>Whether the run's own baselines call <paramref name="grade"/> cloud, by either term, as <see cref="Verdict"/> reads them.</summary>
+        private bool CloudyOnOwnBaselines(in LightGrade grade)
+        {
+            var rig = new RigGroup(grade.Key, grade.Rig);
+            var patchiness = float.IsFinite(grade.Patchiness) && ClearestPatchiness.TryGetValue(rig, out var clearest) && clearest > 0f
+                ? grade.Patchiness / clearest : float.NaN;
+            var local = float.IsFinite(grade.Patchiness) && grade.Taken != default
+                && LocalFloor.TryGetValue(new TimedGroup(rig, grade.Taken), out var floor) && floor > 0f
+                ? grade.Patchiness / floor : float.NaN;
+            var nightSky = grade.Night != default && float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f
+                && NightDarkest.TryGetValue(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night), out var darkest) && darkest > 0f
+                ? grade.SkyLevel / darkest : float.NaN;
+            return PatchyCloud(patchiness, local) || nightSky >= NightSkyCloudFrom;
         }
 
         // A window sliding over the group's frames in time order: O(n w log w) for w frames in a window, never a scan of the
