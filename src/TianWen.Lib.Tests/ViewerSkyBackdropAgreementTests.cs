@@ -165,7 +165,7 @@ public class ViewerSkyBackdropAgreementTests
         var selected = e2e.State.SelectedObject.ShouldNotBeNull($"tap ({tapX:F1},{tapY:F1}) {index}");
         e2e.Viewer.Ellipses.Clear();
         e2e.Frame();
-        return selected.Index;
+        return selected.Index ?? throw new InvalidOperationException("the selection carries no catalogue index");
     }
 
     /// <summary>Where the frame's own mapping (SkyToPixel, then the viewer's frame-to-screen) puts a sky point.</summary>
@@ -174,7 +174,7 @@ public class ViewerSkyBackdropAgreementTests
         var wcs = e2e.Controller.Document.ShouldNotBeNull().Findings.Wcs.ShouldNotBeNull();
         var px = wcs.SkyToPixel(ra, dec).ShouldNotBeNull();
         var (wx, wy, _) = e2e.Viewer.FrameToScreen(e2e.State, px.X, px.Y);
-        return (wx, wy);
+        return ((float)wx, (float)wy);
     }
 
     /// <summary>
