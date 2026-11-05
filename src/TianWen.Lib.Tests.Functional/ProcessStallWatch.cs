@@ -42,7 +42,7 @@ internal static class ProcessStallWatch
             var gen2 = GC.CollectionCount(2);
             if (woke - Tick >= Late)
             {
-                Console.Out.WriteLine(
+                System.Console.Out.WriteLine(
                     $"{DateTime.Now:HH:mm:ss.fff} info process stall: a thread that asked for {Tick.TotalMilliseconds:0} ms of sleep woke after {woke.TotalSeconds:0.0} s; "
                     + $"the GC paused {(paused - pausedBefore).TotalSeconds:0.0} s of it over {gen2 - gen2Before} gen2 collection(s); {NodeWait.PoolState()}");
             }
