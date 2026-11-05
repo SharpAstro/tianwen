@@ -322,6 +322,25 @@ public class DeviceDiscoveryExtensionsTests
         reconciled.ShouldBe(data);
     }
 
+    /// <summary>
+    /// Step 2 of #1090: on a serial-numbered cable the id ends in the cable, so a mount found on another COM port is the SAME
+    /// device: the identity match takes it, keeping the user's keys, with no model guess needed.
+    /// </summary>
+    [Fact]
+    public void ACableKeyedMountOnANewComPortIsTheSameDevice()
+    {
+        static Uri Sgp(string port, string query = "")
+            => new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3AA10MOSEFA{query}#iOptron SkyGuider Pro (170518) on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(Sgp("COM15"))] };
+
+        var resolved = discovery.ReconcileUri(Sgp("COM14", "&latitude=-33.9"));
+
+        resolved.DeviceKey.ShouldBe(Sgp("COM15").DeviceKey);
+        var query = System.Web.HttpUtility.ParseQueryString(resolved.Query);
+        query["port"].ShouldBe("serial:COM15", "the port is transport and follows the discovery");
+        query["latitude"].ShouldBe("-33.9", "the user's keys are kept");
+    }
+
     /// <summary>The notes are transport state: a re-discovery's port identity replaces the stored one, never the reverse.</summary>
     [Fact]
     public void ARediscoveryRefreshesThePortIdentityNotes()

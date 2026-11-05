@@ -68,7 +68,41 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         byPort["serial:COM14"].DeviceUri.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A10MOSEFA");
         byPort["serial:COM13"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBe("socket");
         byPort["serial:COM9"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBeNull("nothing was known of COM9");
-        byPort["serial:COM14"].DeviceUri.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM14").DeviceKey, "the id is untouched");
+    }
+
+    /// <summary>
+    /// Step 2 of #1090: on a serial-numbered cable an id that ends in its port ends in the CABLE, so the device is the same in
+    /// any socket and on any COM number; the port stays in the query. A socket port, which a move changes, keeps its port id,
+    /// and an id that names the hardware itself (an OnStep UUID) is never touched.
+    /// </summary>
+    [Fact]
+    public async Task OnASerialNumberedCableAPortKeyedIdEndsInTheCable()
+    {
+        // Each device on its own port: a port one probe matched is offered to no probe after it.
+        var external = new ProbeTestExternal { Ports = ["serial:COM14", "serial:COM13", "serial:COM15"] };
+        external.Identities["serial:COM14"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:A10MOSEFA");
+        external.Identities["serial:COM13"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Socket, "socket:PCIROOT(0)#USB(3)");
+        external.Identities["serial:COM15"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:B20NOTSGP");
+        var sgp = StubProbe.Sync("iOptron", baud: 28800,
+            match: (port, _) => port is "serial:COM15" ? null
+                : new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_{port[7..]}?port={port}#iOptron SkyGuider Pro (170518) on {port[7..]}")));
+        var onStep = StubProbe.Sync("OnStep", baud: 9600,
+            match: (port, _) => port is "serial:COM15" ? new SerialProbeMatch(port, new Uri($"Mount://OnStepDevice/OnStep_1_abc-uuid?port={port}")) : null);
+        var service = BuildService(external, output, sgp, onStep);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var sgps = service.ResultsFor("iOptron").ToDictionary(m => m.Port);
+        var onCable = sgps["serial:COM14"].DeviceUri;
+        onCable.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA").DeviceKey);
+        onCable.QueryValue(DeviceQueryKey.Port).ShouldBe("serial:COM14", "the port is transport, in the query");
+        onCable.Fragment.ShouldBe("#iOptron%20SkyGuider%20Pro%20(170518)%20on%20COM14");
+        onCable.ModelKey.ShouldBe("mount://ioptrondevice/SkyGuider-Pro_170518", "the model is recognised on the cable's id too");
+
+        sgps["serial:COM13"].DeviceUri.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM13").DeviceKey, "a socket port keeps its port id");
+
+        service.ResultsFor("OnStep").ShouldHaveSingleItem().DeviceUri.DeviceKey
+            .ShouldBe(new Uri("Mount://OnStepDevice/OnStep_1_abc-uuid").DeviceKey, "a UUID names the hardware, whatever the cable");
     }
 
     [Fact]
