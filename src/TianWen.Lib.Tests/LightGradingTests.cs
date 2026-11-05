@@ -522,6 +522,45 @@ public class LightGradingTests
     }
 
     /// <summary>
+    /// Past the 1.20 local bar by no more than its neighbours' jitter, a frame needs a second sign: on 2026-09-10 nine clear frames
+    /// sat 1.20 to 1.24 against their floor with their stars at 0.995 of their neighbours'. The same frame losing a third of its stars
+    /// is cloud, and a marginal frame inside a cloud run joins it (the owner's backtracking): cloud creeps in and fades out.
+    /// </summary>
+    [Fact]
+    public void AMarginalFrameIsCloudOnlyWithASecondSignOrBesideConfirmedCloud()
+    {
+        var start = new DateTimeOffset(2026, 9, 10, 11, 0, 0, TimeSpan.Zero);
+        // An evening of steady frames at 1.10 (a rising target's sky, 1.4x the night's clearest) with the 1.5 % random jitter
+        // 2026-09-10 measured (seeded: a periodic pattern's successive differences are nearly all equal, a jitter of zero), then a
+        // clear stretch at 0.80 that sets the clearest.
+        LightGrade At(int minute, float patchiness, int stars = 1000)
+            => Patchy(10f, patchiness) with { Taken = start.AddMinutes(minute), Metrics = new FrameMetrics(2f, 2.2f, 0.1f, stars) };
+        var random = new Random(7);
+        var frames = new System.Collections.Generic.List<(string, LightGrade)>();
+        for (var m = 0; m < 240; m++)
+        {
+            var jitter = 0.015f * (random.NextSingle() + random.NextSingle() + random.NextSingle() - 1.5f) * 2f;
+            frames.Add(($"f{m}", At(m, m < 160 ? 1.10f * (1f + jitter) : 0.80f)));
+        }
+        frames[30] = ("flicker", At(30, 1.10f * 1.22f));
+        frames[60] = ("dimmed", At(60, 1.10f * 1.22f, stars: 650));
+        frames[100] = ("bank0", At(100, 1.10f * 2.2f));
+        frames[101] = ("inside", At(101, 1.10f * 1.22f));
+        frames[102] = ("bank1", At(102, 1.10f * 2.2f));
+        var grades = Grades([.. frames]);
+        bool Cloud(string name) => (LightGrading.Verdict(grades, grades[name]).Causes & GradeCause.Cloud) != 0;
+
+        LightGrading.Verdict(grades, grades["flicker"]).LocalPatchiness.ShouldBeGreaterThan(LightGrading.LocalCloudFrom, "past the plain bar");
+        var fv = LightGrading.Verdict(grades, grades["flicker"]);
+        Cloud("flicker").ShouldBeFalse($"within its neighbours' jitter and no star lost: patch {fv.Patchiness} local {fv.LocalPatchiness} noise {fv.LocalNoise} stars {fv.StarRatio} run {fv.InCloudRun} sky {fv.NightSky}");
+        Cloud("dimmed").ShouldBeTrue("the same patchiness with a third of its stars gone");
+        Cloud("bank0").ShouldBeTrue();
+        Cloud("inside").ShouldBeTrue("marginal, but between two confirmed cloud frames");
+        LightGrading.InCloudRun(grades, grades["inside"]).ShouldBeTrue();
+        LightGrading.InCloudRun(grades, grades["flicker"]).ShouldBeFalse();
+    }
+
+    /// <summary>
     /// The yardstick's cloud test reads both of Verdict's terms: a top-scoring frame that is cloud by its sky LEVEL alone (the
     /// 2026-07-06 LMC case, a flat patchiness) is not the yardstick, and a rising target's early frame, patchy against the night's
     /// clearest but not against its neighbours (the local floor), stays eligible. Every frame Verdict calls cloud is left out.

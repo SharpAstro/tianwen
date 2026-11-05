@@ -106,7 +106,9 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
     {
         var night = new DateOnly(2026, 9, 10);
         var clear = ClearNight(night);
-        var late = Enumerable.Range(12, 4).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i)).ToArray();
+        // The cloud comes 25 minutes after the clear stretch, past CloudRunGap: frames rising into it would read as its onset
+        // (LightGrading.InCloudRun), and this test is about the first reference, not about runs.
+        var late = Enumerable.Range(36, 4).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i)).ToArray();
         var table = Table("mixed", [.. clear, .. late]);
         late.ShouldAllBe(f => (LightGrading.Verdict(table, f, default).Causes & GradeCause.Cloud) != 0, "the late frames must read as cloud");
 
@@ -115,7 +117,7 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
         made[0].Night.ShouldBe(night);
 
         // The boundary: exactly half clear is taken, one cloud frame more is not.
-        LightGrade[] Cloud(int n) => [.. Enumerable.Range(20, n).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i))];
+        LightGrade[] Cloud(int n) => [.. Enumerable.Range(36, n).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i))];
         LightGrading.ClearNights(Table("half", [.. clear, .. Cloud(clear.Length)])).Length.ShouldBe(1, "exactly half clear is a reference");
         LightGrading.ClearNights(Table("less", [.. clear, .. Cloud(clear.Length + 1)])).ShouldBeEmpty("under half clear is not");
     }
