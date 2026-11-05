@@ -84,7 +84,7 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task ACloudyOnlyFolderWithNoStoreSaysCloudCannotBeJudgedAndRecordsNothing()
+    public async Task ACloudyOnlyFolderWithNoStoreSaysItIsJudgedOnThatNightAloneAndRecordsNothing()
     {
         var external = MakeExternal();
         var ct = TestContext.Current.CancellationToken;
@@ -114,9 +114,10 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
         made.Length.ShouldBe(1);
         made[0].Night.ShouldBe(night);
 
-        var mostlyCloud = Table("cloudy", [.. clear.Take(LightGrading.MinClearFramesPerReference),
-            .. Enumerable.Range(20, 12).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i))]);
-        LightGrading.ClearNights(mostlyCloud).ShouldBeEmpty("most of the night in cloud is no night to judge a rig by");
+        // The boundary: exactly half clear is taken, one cloud frame more is not.
+        LightGrade[] Cloud(int n) => [.. Enumerable.Range(20, n).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i))];
+        LightGrading.ClearNights(Table("half", [.. clear, .. Cloud(clear.Length)])).Length.ShouldBe(1, "exactly half clear is a reference");
+        LightGrading.ClearNights(Table("less", [.. clear, .. Cloud(clear.Length + 1)])).ShouldBeEmpty("under half clear is not");
     }
 
     [Fact]
