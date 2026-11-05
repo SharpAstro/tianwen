@@ -65,9 +65,11 @@ export function attach(ref, canvasId) {
   };
 }
 
+// Sends key AND code: the component maps them through WebGl.Renderer's WebInputMapping.ToInputKey(key, code),
+// which needs the physical code to tell the keypad +/- and an unshifted '=' (the + key on a US layout) apart.
 function invoke(ref, e) {
   // Fire-and-forget, like the repaint pump: a throw here is the component having gone away between
   // the keypress and the call, and an unhandled rejection would be the only thing it produced.
-  ref.invokeMethodAsync("HandleDocumentKey", e.key, e.shiftKey, e.ctrlKey, e.altKey)
+  ref.invokeMethodAsync("HandleDocumentKey", e.key, e.code, e.shiftKey, e.ctrlKey, e.altKey)
     .catch(() => { /* component gone */ });
 }
