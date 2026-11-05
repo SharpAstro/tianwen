@@ -45,6 +45,9 @@ env:
   # Every test named in #2000 and its 2026-11-05 comment, by name (a theory's rows all match).
   NAMED_FILTER: 'FullyQualifiedName~NodeFrameStreamTests.TheLiveFrameStreamsNewestFirstAndAReaderThatFallsBehindSkipsWhatItMissed|FullyQualifiedName~NodePlanetaryTests.ARefusedStartSaysWhyAndHoldsNothing|FullyQualifiedName~NodeRunsProcessTests.AnInteractiveRunStopsAGraceAfterItsLastClientGoesAndAClientBackWithinItKeepsIt|FullyQualifiedName~MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot|FullyQualifiedName~NodeGuidingTests.NodeGuidingCalibratesOnDemandAndReportsTheResultThenTheLoopComesBack|FullyQualifiedName~NodeGuidingTests.NodeGuidingGuidesFromTheLoopOnTheChosenStarAndProducesSamples'
   NAMED_COUNT: 9   # 5 facts + the 4 rows of the goto theory
+  # --hangdump-timeout 120s (in both loops): a run where no test moves for 120 s leaves a dump of every thread, so a hang
+  # says what it waited on. Above the slowest healthy test measured here (82 s, EquipmentFlowProcessTests on run
+  # 42021732287); a test xunit stops at its own Timeout first is explained by its log instead.
 
 jobs:
   alone:
@@ -78,7 +81,7 @@ jobs:
           for i in $(seq 1 "$ITERATIONS"); do
             echo "::group::iteration $i of $ITERATIONS"
             if ! dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build \
-                 --filter "$NAMED_FILTER" --minimum-expected-tests "$NAMED_COUNT" --output Detailed \
+                 --filter "$NAMED_FILTER" --minimum-expected-tests "$NAMED_COUNT" --output Detailed --hangdump --hangdump-timeout 120s \
                  --report-trx --report-trx-filename "alone-$i.trx" --results-directory test-results-alone/; then
               echo "::endgroup::"
               echo "::error::iteration $i of $ITERATIONS failed"
@@ -125,7 +128,7 @@ jobs:
         run: |
           for i in $(seq 1 "$ITERATIONS"); do
             echo "::group::iteration $i of $ITERATIONS"
-            if ! dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build --output Detailed \
+            if ! dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build --output Detailed --hangdump --hangdump-timeout 120s \
                  --report-trx --report-trx-filename "suite-$i.trx" --results-directory test-results-suite/; then
               echo "::endgroup::"
               echo "::error::iteration $i of $ITERATIONS failed"
