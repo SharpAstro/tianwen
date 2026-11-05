@@ -521,6 +521,38 @@ public class LightGradingTests
         readout.BestName.ShouldBe("best.fits");
     }
 
+    /// <summary>
+    /// The yardstick's cloud test reads both of Verdict's terms: a top-scoring frame that is cloud by its sky LEVEL alone (the
+    /// 2026-07-06 LMC case, a flat patchiness) is not the yardstick, and a rising target's early frame, patchy against the night's
+    /// clearest but not against its neighbours (the local floor), stays eligible. Every frame Verdict calls cloud is left out.
+    /// </summary>
+    [Fact]
+    public void TheYardstickLeavesOutEveryFrameVerdictCallsCloudAndNoOther()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var start = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
+        var clear = Enumerable.Range(0, 12).Select(i => ($"c{i}", Run("LMC", 1000f + i, 1f, night, start.AddMinutes(i)) with { Score = 8f })).ToArray();
+        var bright = Run("LMC", 2500f, 1f, night, start.AddMinutes(13)) with { Score = 10f };
+        var sky = Grades([.. clear, ("bright", bright)]);
+        (LightGrading.Verdict(sky, bright).Causes & GradeCause.Cloud).ShouldNotBe(GradeCause.None, "cloud by the sky term alone");
+        LightGrading.BestScore(sky, bright.Key).ShouldBe(8f);
+
+        // A rising target: patchiness falling 1.73 -> 1.0 over three hours, as on 2026-09-10; its first frame scores best.
+        static float Climb(int i) => i < 90 ? 1.73f - 0.44f * i / 90f : i < 180 ? 1.29f - 0.29f * (i - 90) / 90f : 1f;
+        var rising = Enumerable.Range(0, 300)
+            .Select(i => ($"f{i}", Patchy(i == 0 ? 12f : 10f, Climb(i)) with { Taken = start.AddMinutes(i) })).ToArray();
+        var grades = Grades(rising);
+        LightGrading.Verdict(grades, rising[0].Item2).Patchiness.ShouldBeGreaterThan(LightGrading.CloudFrom, "patchy against the clearest");
+        LightGrading.BestScore(grades, rising[0].Item2.Key).ShouldBe(12f, "not cloud against its neighbours, so it stays the yardstick");
+
+        foreach (var table in new[] { sky, grades })
+        {
+            var best = LightGrading.BestScore(table, table.Values.First().Key);
+            var clearMax = table.Values.Where(g => (LightGrading.Verdict(table, g).Causes & GradeCause.Cloud) == 0).Max(g => g.Score);
+            best.ShouldBe(clearMax, "the yardstick is exactly the best frame Verdict calls clear");
+        }
+    }
+
     /// <summary>The Best the Grade line names is the frame the share is of: the best CLEAR frame, not a cloud frame scoring higher.</summary>
     [Fact]
     public async Task TheBestNamedIsTheYardstickNotACloudFrameScoringHigher()
