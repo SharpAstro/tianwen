@@ -214,6 +214,14 @@ public static class IntegrationFitsWriter
         {
             WriteSaturationMap(masterPath, saturation, result.FrameCount, strategy);
         }
+        else
+        {
+            // Nothing was clipped this run: a sidecar of an earlier run would describe a different stack.
+            while (ExistingSidecarPath(SaturationPathFor(masterPath)) is { } stale)
+            {
+                File.Delete(stale);
+            }
+        }
         WriteBadPixelMap(masterPath, badPixelMask, result.Master.ImageMeta, result.FrameCount);
     }
 

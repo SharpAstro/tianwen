@@ -243,10 +243,10 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
         var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
         var renderer = (renderPreviewPng || emitUltraHdr || splitPlates) ? new MasterPreviewRenderer(catalogDb, logger) : null;
-        // The saturation sidecar beside the master (nothing writes one until the stacker counts saturated subs): SPCC's
-        // clip gate reads it, cropped as the master is. Absent, the peak gate stands alone, as before.
+        // The saturation count of THIS run (the stacker's, in memory, cropped as the master is): SPCC's clip gate reads it.
+        // Never reloaded from disk, where a sidecar of an earlier run could linger. Absent, the peak gate stands alone.
         var saturationMap = master.ChannelCount >= 3
-            ? LoadSaturationMap(masterPath, croppedResult is not null ? autocropRect : null)
+            ? (croppedResult is not null ? croppedResult.Saturation : result.Saturation)
             : null;
         if (saturationMap is not null)
         {

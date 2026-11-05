@@ -42,10 +42,10 @@ internal static class SaturationCounter
         foreach (var source in sources)
         {
             ct.ThrowIfCancellationRequested();
-            Image raw;
+            Image? raw;
             try
             {
-                if (!Image.TryReadFitsFile(source.Path, out raw!))
+                if (!Image.TryReadFitsFile(source.Path, out raw))
                 {
                     continue;
                 }
@@ -110,11 +110,17 @@ internal static class SaturationCounter
         return new Image([plane], BitDepth.Float32, maxCount, 0f, 0f, new ImageMeta { SensorType = SensorType.Monochrome });
     }
 
-    /// <summary>The ADC ceiling the raw frame states: its declared full scale, else its container's.</summary>
+    /// <summary>A container-derived threshold is this fraction of the container's full scale: N.I.N.A. and SharpCap
+    /// left-align a 14-bit ADC into the 16-bit container (clip 65532; 12-bit 65520; 10-bit 65472) and write no
+    /// <c>SATURATE</c> card, so the container's own maximum is never reached. 0.999 (65469 of 65535) admits all of them.</summary>
+    internal const float ContainerCeilingFraction = 0.999f;
+
+    /// <summary>The level at or above which a photosite counts as clipped, from what the raw frame states: its declared
+    /// full scale exactly, else just under its container's (see <see cref="ContainerCeilingFraction"/>).</summary>
     internal static float? CeilingOf(Image raw)
         => raw.ImageMeta.SensorFullScaleAdu is { } declared and > 0
             ? declared
-            : raw.BitDepth.UnsignedFullScale is { } container ? container : null;
+            : raw.BitDepth.UnsignedFullScale is { } container ? container * ContainerCeilingFraction : null;
 
     /// <summary>Marks, on a canvas-sized plane, the pixels reached by a photosite at or above
     /// <paramref name="ceiling"/>. True when there was any.</summary>

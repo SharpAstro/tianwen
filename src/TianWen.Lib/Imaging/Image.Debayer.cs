@@ -863,7 +863,8 @@ public partial class Image
     /// The red and blue gains relative to green (#1991), from each colour's OWN photosites (never a
     /// statistic across the mixed mosaic): the median of a row-strided sample of that colour. One pair per
     /// frame, whole-frame, so every strip of <see cref="DebayerRegionIntoAsync"/> uses the same one.
-    /// Unity for a non-positive or non-finite level. Cached; pixels are never mutated.
+    /// Unity for a non-positive, non-finite or out-of-[0.25, 4] level. Cached on the first debayer, so an in-place
+    /// mutator (<c>Calibrator.Apply</c>) must run BEFORE a frame is debayered; no caller debayers first.
     /// </summary>
     private (float R, float B) GetCfaGains(int[,] bayerPattern)
     {
@@ -900,8 +901,16 @@ public partial class Image
         var mR = Median(buffers[0], counts[0]);
         var mG = Median(buffers[1], counts[1]);
         var mB = Median(buffers[2], counts[2]);
-        var gR = mR > 0f && mG > 0f && float.IsFinite(mR / mG) ? mR / mG : 1f;
-        var gB = mB > 0f && mG > 0f && float.IsFinite(mB / mG) ? mB / mG : 1f;
+        // Bounded like dcraw's pre_mul: a near-zero sky or a line-selective filter must not multiply that colour's
+        // noise by hundreds into the green interpolation, so a ratio outside [0.25, 4] falls back to unity.
+        static float Bounded(float m, float g)
+        {
+            var r = m / g;
+            return m > 0f && g > 0f && float.IsFinite(r) && r is >= 0.25f and <= 4f ? r : 1f;
+        }
+
+        var gR = Bounded(mR, mG);
+        var gB = Bounded(mB, mG);
         _cfaGains = [gR, gB];
         return (gR, gB);
     }

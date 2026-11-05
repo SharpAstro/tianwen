@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices.Fake;
@@ -108,6 +109,7 @@ public class SaturationStackingTests(ITestOutputHelper output)
     {
         var plane = map.GetChannelArray(0);
         int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1, nonzero = 0;
+        double sumW = 0, sumX = 0, sumY = 0;
         float peak = 0;
         for (var y = 0; y < plane.GetLength(0); y++)
         {
@@ -116,6 +118,7 @@ public class SaturationStackingTests(ITestOutputHelper output)
                 if (plane[y, x] > 0)
                 {
                     nonzero++;
+                    sumW += plane[y, x]; sumX += plane[y, x] * x; sumY += plane[y, x] * y;
                     minX = Math.Min(minX, x); maxX = Math.Max(maxX, x);
                     minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
                     peak = Math.Max(peak, plane[y, x]);
@@ -127,6 +130,19 @@ public class SaturationStackingTests(ITestOutputHelper output)
         (maxY - minY).ShouldBeLessThan(14);
         peak.ShouldBeLessThanOrEqualTo(frames);
         peak.ShouldBeGreaterThan(1f, "the star is clipped in every sub, so overlapping subs add up");
+
+        // WHERE it is marked: the dithered blob registers back onto frame 0's grid, where it sits at (BlobX, BlobY);
+        // the canvas then adds a non-negative origin shift of at most its excess over the frame size. A fixed offset in
+        // the source-to-canvas transform (a shift left out, or applied twice) lands outside this window.
+        var excessX = plane.GetLength(1) - RgbBayerSyntheticFixture.FrameSize;
+        var excessY = plane.GetLength(0) - RgbBayerSyntheticFixture.FrameSize;
+        var centroidX = sumX / sumW;
+        var centroidY = sumY / sumW;
+        centroidX.ShouldBeInRange(BlobX - 2.0, BlobX + excessX + 2.0);
+        centroidY.ShouldBeInRange(BlobY - 2.0, BlobY + excessY + 2.0);
+        // And nothing else is marked far from it.
+        (maxX - centroidX).ShouldBeLessThan(10);
+        (centroidX - minX).ShouldBeLessThan(10);
     }
 
     [Fact(Timeout = 300_000)]
@@ -143,6 +159,42 @@ public class SaturationStackingTests(ITestOutputHelper output)
         var (result, map) = await StackAsync(clip: true, IntegrationStrategyKind.BayerDrizzle, new DrizzleOptions(MinFrameCount: 6));
         map.ShouldNotBeNull();
         ShouldCoverOnlyTheBlob(map, result.FramesMatched);
+    }
+
+    private static Image ClippedAt(float clip, ImageMeta meta, out Matrix3x2 identity)
+    {
+        identity = Matrix3x2.Identity;
+        var plane = new float[16, 16];
+        for (var y = 0; y < 16; y++)
+        {
+            for (var x = 0; x < 16; x++)
+            {
+                plane[y, x] = 1000f;
+            }
+        }
+        plane[8, 8] = clip;
+        return new Image([plane], BitDepth.Int16, clip, 0f, 0f, meta);
+    }
+
+    [Theory]
+    [InlineData(65535f)]
+    [InlineData(65532f)] // N.I.N.A. 14-bit left-aligned (the SV605CC fixture's clip)
+    [InlineData(65520f)] // 12-bit left-aligned
+    public void ContainerCeiling_CountsLeftAlignedClipsWithNoSaturateCard(float clip)
+    {
+        var raw = ClippedAt(clip, new ImageMeta { SensorType = SensorType.RGGB }, out var toCanvas);
+        var ceiling = SaturationCounter.CeilingOf(raw).ShouldNotBeNull();
+        var mark = new byte[16 * 16];
+        SaturationCounter.MarkFrame(raw.GetChannelArray(0), ceiling, toCanvas, 16, 16, mark).ShouldBeTrue();
+        mark[(8 * 16) + 8].ShouldBe((byte)1);
+    }
+
+    [Fact]
+    public void ContainerCeiling_IgnoresAnOrdinaryBrightPhotosite()
+    {
+        var raw = ClippedAt(40000f, new ImageMeta { SensorType = SensorType.RGGB }, out var toCanvas);
+        var mark = new byte[16 * 16];
+        SaturationCounter.MarkFrame(raw.GetChannelArray(0), SaturationCounter.CeilingOf(raw).ShouldNotBeNull(), toCanvas, 16, 16, mark).ShouldBeFalse();
     }
 
     [Fact(Timeout = 300_000)]
