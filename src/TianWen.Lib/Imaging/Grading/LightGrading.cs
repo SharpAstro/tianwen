@@ -103,7 +103,7 @@ public enum GradeCause
 /// </summary>
 public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN,
     float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false, float LocalNoise = float.NaN,
-    float StarRatio = float.NaN, bool InCloudRun = false);
+    float StarRatio = float.NaN, bool InCloudRun = false, float SkyOverTrend = float.NaN, bool SkyRising = false);
 
 /// <summary>
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
@@ -284,6 +284,8 @@ public static class LightGrading
         var localNoise = LocalPatchinessNoise(grades, grade);
         var starRatio = LocalStarRatio(grades, grade);
         var inRun = InCloudRun(grades, grade);
+        var skyOverTrend = SkyOverTrend(grades, grade);
+        var skyRising = SkyRising(grades, grade);
         var causes = GradeCause.None;
         var shown = relative;
         var nightSky = RelativeNightSky(grades, grade);
@@ -302,7 +304,7 @@ public static class LightGrading
         }
         else
         {
-            if (PatchyCloud(patchiness, local, localNoise, starRatio) || (inRun && referenceNight == default))
+            if (PatchyCloud(patchiness, local, localNoise, starRatio) || ((inRun || skyRising) && referenceNight == default))
             {
                 causes |= GradeCause.Cloud;
                 shown = MathF.Min(shown, patchiness >= HeavyCloudFrom ? PoorBelow : (PoorBelow + GoodFrom) * 0.5f);
@@ -314,7 +316,7 @@ public static class LightGrading
             }
         }
         return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local, referenceNight, unjudged, localNoise, starRatio,
-            inRun && referenceNight == default);
+            inRun && referenceNight == default, skyOverTrend, skyRising && referenceNight == default);
     }
 
     /// <summary>
@@ -542,6 +544,8 @@ public static class LightGrading
         var bright = verdict.NightSky >= NightSkyCloudFrom;
         var words = (patchy, bright) switch
         {
+            (false, false) when verdict.SkyRising => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Cloud: the sky is {(verdict.SkyOverTrend - 1f) * 100f:0}% brighter than its trend over the hour before"),
             (true, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Cloud: the sky is {verdict.Patchiness:0.0}x as patchy as the group's clearest and {verdict.NightSky:0.0}x as bright as the night's darkest"),
             (false, true) => string.Create(System.Globalization.CultureInfo.InvariantCulture,
@@ -628,6 +632,43 @@ public static class LightGrading
     public static bool InCloudRun(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
         => grade.Taken != default && BaselinesOf(grades).CloudRun.Contains(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken));
 
+    /// <summary>
+    /// A frame's sky level as a multiple of the line its group's sky followed over the <see cref="LocalWindow"/> before it (frames
+    /// not already called cloud, at least <see cref="SkyTrendMinFrames"/> of them), NaN where it cannot be read. A target's sky
+    /// moves smoothly all night as it climbs or sets, so a sky that turns against its own line is something else: on 2026-09-12 the
+    /// second target's sky fell from 1.39 to 1.12 times the night's darkest over three hours, then turned at 03:55 and climbed to
+    /// 1.21 by 04:37, the owner's end-of-night cloud marks, with the Moon down (new on 09-11) and the Sun still below -18 degrees.
+    /// </summary>
+    public static float SkyOverTrend(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+        => grade.Taken != default && BaselinesOf(grades).SkyTrend.TryGetValue(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken), out var ratio)
+            ? ratio : float.NaN;
+
+    /// <summary>Whether <paramref name="grade"/>'s sky stands above its trend (<see cref="SkyOverTrend"/>) by at least
+    /// <see cref="SkyRiseFrom"/> and by <see cref="SkyRiseSigmas"/> times the trend's own scatter, which the baselines then call cloud.</summary>
+    public static bool SkyRising(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+        => grade.Taken != default && BaselinesOf(grades).SkyRise.Contains(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken));
+
+    /// <summary>
+    /// The least rise of a frame's sky over its trend that reads as cloud. Measured on the owner's marks (2026-11-06): at 4 % with
+    /// <see cref="SkyRiseSigmas"/> 6 neither 2026-09-10 nor 2026-09-12 flagged an unmarked frame by it; at 2 % 2026-09-10 flagged
+    /// eight frames before midnight (1.025 to 1.063 over trend) the owner left clear.
+    /// </summary>
+    public const float SkyRiseFrom = 0.04f;
+
+    /// <summary>How many times the trend's own residual scatter (MAD) a frame's sky must stand above it to read as cloud.</summary>
+    public const float SkyRiseSigmas = 6f;
+
+    /// <summary>The fewest earlier frames a sky trend is fitted to.</summary>
+    public const int SkyTrendMinFrames = 10;
+
+    /// <summary>
+    /// The longest span between two cloud frames of one group across which every frame between them is cloud too (the owner's
+    /// backtracking, 2026-11-05): broken cloud leaves clear-looking frames inside a bank, and on 2026-09-12 the owner marked all of
+    /// 04:06 to 04:37 though its patchiness flickered between 1.0 and 1.76 from frame to frame. Wider than <see cref="CloudRunGap"/>,
+    /// which joins frames one at a time and only past the plain bars.
+    /// </summary>
+    public static readonly TimeSpan CloudBracketSpan = TimeSpan.FromMinutes(15);
+
     /// <summary>The longest gap between two frames of one cloud run.</summary>
     public static readonly TimeSpan CloudRunGap = TimeSpan.FromMinutes(10);
 
@@ -669,7 +710,10 @@ public static class LightGrading
         public Dictionary<TimedGroup, float> LocalNoise { get; } = [];
         public Dictionary<TimedGroup, float> LocalStars { get; } = [];
         public HashSet<TimedGroup> CloudRun { get; } = [];
+        public Dictionary<TimedGroup, float> SkyTrend { get; } = [];
+        public HashSet<TimedGroup> SkyRise { get; } = [];
         private readonly Dictionary<TimedGroup, float> _starCount = [];
+        private readonly Dictionary<TimedGroup, float> _sky = [];
 
         public Baselines Build()
         {
@@ -694,6 +738,10 @@ public static class LightGrading
                     {
                         Add(timed, new RigGroup(grade.Key, grade.Rig), (grade.Taken, grade.Patchiness));
                         Add(timedStars, new RigGroup(grade.Key, grade.Rig), (grade.Taken, (float)grade.Metrics.StarCount));
+                        if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f)
+                        {
+                            _sky[new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken)] = grade.SkyLevel;
+                        }
                     }
                 }
                 if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f && grade.Night != default)
@@ -756,7 +804,7 @@ public static class LightGrading
             var noise = grade.Taken != default && LocalNoise.TryGetValue(timed, out var n) ? n : float.NaN;
             var starRatio = grade.Taken != default && grade.Metrics.StarCount > 0 && LocalStars.TryGetValue(timed, out var st) && st > 0f
                 ? grade.Metrics.StarCount / st : float.NaN;
-            return PatchyCloud(patchiness, local, noise, starRatio) || CloudRun.Contains(timed) || nightSky >= NightSkyCloudFrom;
+            return PatchyCloud(patchiness, local, noise, starRatio) || CloudRun.Contains(timed) || SkyRise.Contains(timed) || nightSky >= NightSkyCloudFrom;
         }
 
         // A window sliding over the group's frames in time order: O(n w log w) for w frames in a window, never a scan of the
@@ -864,6 +912,24 @@ public static class LightGrading
                     run[k] = true;
                 }
             }
+            // Bracket fill: every frame between two cloud frames no more than CloudBracketSpan apart joins them, whatever its own
+            // bars. The sky's rises are read after the runs, from frames outside them, and are not ends of a bracket.
+            var last = -1;
+            for (var k = 0; k < n; k++)
+            {
+                if (!run[k])
+                {
+                    continue;
+                }
+                if (last >= 0 && k - last > 1 && frames[k].Taken - frames[last].Taken <= CloudBracketSpan)
+                {
+                    for (var j = last + 1; j < k; j++)
+                    {
+                        run[j] = true;
+                    }
+                }
+                last = k;
+            }
             for (var k = 0; k < n; k++)
             {
                 if (run[k] && !strong[k])
@@ -871,6 +937,88 @@ public static class LightGrading
                     CloudRun.Add(new TimedGroup(key, frames[k].Taken));
                 }
             }
+            AddSkyRises(key, frames, run);
+        }
+
+        // Each frame's sky over the line the group's sky followed in the LocalWindow before it (SkyOverTrend), in time order, so a
+        // frame read as risen stays out of every later frame's line as a frame of a cloud run does: a least-squares line over the
+        // earlier frames' minutes, its scatter the MAD of their residuals.
+        private void AddSkyRises(RigGroup key, List<(DateTimeOffset Taken, float Patchiness)> frames, bool[] cloud)
+        {
+            List<(double Minutes, double Sky)> prior = [];
+            List<double> residuals = [];
+            var risen = new bool[frames.Count];
+            var start = 0;
+            for (var k = 0; k < frames.Count; k++)
+            {
+                var timed = new TimedGroup(key, frames[k].Taken);
+                if (!_sky.TryGetValue(timed, out var sky))
+                {
+                    continue;
+                }
+                while (frames[start].Taken < frames[k].Taken - LocalWindow)
+                {
+                    start++;
+                }
+                prior.Clear();
+                for (var i = start; i < k; i++)
+                {
+                    if (!cloud[i] && !risen[i] && _sky.TryGetValue(new TimedGroup(key, frames[i].Taken), out var earlier))
+                    {
+                        prior.Add(((frames[i].Taken - frames[k].Taken).TotalMinutes, earlier));
+                    }
+                }
+                if (prior.Count < SkyTrendMinFrames)
+                {
+                    continue;
+                }
+                double mx = 0, my = 0;
+                foreach (var (x, y) in prior)
+                {
+                    mx += x;
+                    my += y;
+                }
+                mx /= prior.Count;
+                my /= prior.Count;
+                double sxx = 0, sxy = 0;
+                foreach (var (x, y) in prior)
+                {
+                    sxx += (x - mx) * (x - mx);
+                    sxy += (x - mx) * (y - my);
+                }
+                var slope = sxx > 0 ? sxy / sxx : 0;
+                // The line at this frame's own time, which is minute 0.
+                var at = my - slope * mx;
+                if (!(at > 0))
+                {
+                    continue;
+                }
+                residuals.Clear();
+                foreach (var (x, y) in prior)
+                {
+                    residuals.Add(y - (my + slope * (x - mx)));
+                }
+                var scatter = 1.4826 * MedianAbsoluteDeviation(residuals);
+                var ratio = (float)(sky / at);
+                SkyTrend[timed] = ratio;
+                if (!cloud[k] && ratio >= 1f + MathF.Max(SkyRiseFrom, (float)(SkyRiseSigmas * scatter / at)))
+                {
+                    risen[k] = true;
+                    SkyRise.Add(timed);
+                }
+            }
+        }
+
+        private static double MedianAbsoluteDeviation(List<double> values)
+        {
+            values.Sort();
+            var median = values[values.Count / 2];
+            for (var i = 0; i < values.Count; i++)
+            {
+                values[i] = Math.Abs(values[i] - median);
+            }
+            values.Sort();
+            return values[values.Count / 2];
         }
 
         // Each frame's neighbours' median star count within the local window, the frame itself left out.
