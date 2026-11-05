@@ -33,7 +33,8 @@ namespace TianWen.Lib.Tests;
 public class QhyVideoProbe(ITestOutputHelper output)
 {
     private const string GateVar = "TIANWEN_QHY_VIDEO_PROBE";
-    private static readonly TimeSpan StreamFor = TimeSpan.FromSeconds(5);
+    /// <summary>How long a stream runs: <c>TIANWEN_QHY_VIDEO_SECONDS</c>, 5 by default.</summary>
+    private static TimeSpan StreamFor => TimeSpan.FromSeconds(double.TryParse(Environment.GetEnvironmentVariable("TIANWEN_QHY_VIDEO_SECONDS"), out var s) ? s : 5);
 
     [Fact(Timeout = 300_000)]
     public async Task AQhyCameraStreamsThroughTheDriverAndExposesAfter()
@@ -154,6 +155,52 @@ public class QhyVideoProbe(ITestOutputHelper output)
 
                     QHYCCD.SDK.QHYCamera.SetQHYCCDResolution(handle, 0, 0, w, h);
                     QHYCCD.SDK.QHYCamera.SetQHYCCDParam(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_EXPOSURE, 1000);
+
+                    // WHEN a USB traffic write takes: SharpCap's 255 on a running stream halves the rate (1.7 against 3.9 fps,
+                    // 2026-11-05) while a write before BeginQHYCCDLive showed nothing. Each case reads the traffic back too.
+                    double Gap(TimeSpan span)
+                    {
+                        var clock = Stopwatch.StartNew();
+                        var at = new System.Collections.Generic.List<double>();
+                        while (clock.Elapsed < span)
+                        {
+                            if (QHYCCD.SDK.QHYCamera.GetQHYCCDLiveFrame(handle, out _, out _, out _, out _, buffer) is 0)
+                            {
+                                at.Add(clock.Elapsed.TotalMilliseconds);
+                            }
+                            else
+                            {
+                                Thread.Sleep(1);
+                            }
+                        }
+
+                        var gaps = at.Zip(at.Skip(1), (a, b) => b - a).Order().ToArray();
+                        return gaps.Length > 0 ? gaps[gaps.Length / 2] : double.NaN;
+                    }
+
+                    double Traffic() => QHYCCD.SDK.QHYCamera.GetQHYCCDParam(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_USBTRAFFIC);
+                    void SetTraffic(double t) => QHYCCD.SDK.QHYCamera.SetQHYCCDParam(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_USBTRAFFIC, t);
+
+                    SetTraffic(255);
+                    QHYCCD.SDK.QHYCamera.BeginQHYCCDLive(handle);
+                    output.WriteLine($"traffic 255 written BEFORE begin (reads {Traffic()}): gap {Gap(TimeSpan.FromSeconds(4)):F0} ms");
+                    SetTraffic(0);
+                    output.WriteLine($"then 0 written on the RUNNING stream (reads {Traffic()}): gap {Gap(TimeSpan.FromSeconds(4)):F0} ms");
+                    SetTraffic(255);
+                    output.WriteLine($"then 255 written on the RUNNING stream (reads {Traffic()}): gap {Gap(TimeSpan.FromSeconds(4)):F0} ms");
+                    QHYCCD.SDK.QHYCamera.StopQHYCCDLive(handle);
+
+                    // The driver's order: the write, then a re-init (stream mode, InitQHYCCD), then begin.
+                    SetTraffic(255);
+                    QHYCCD.SDK.QHYCamera.SetQHYCCDStreamMode(handle, 1);
+                    QHYCCD.SDK.QHYCamera.InitQHYCCD(handle);
+                    QHYCCD.SDK.QHYCamera.SetQHYCCDBitsMode(handle, 8);
+                    QHYCCD.SDK.QHYCamera.SetQHYCCDResolution(handle, 0, 0, w, h);
+                    QHYCCD.SDK.QHYCamera.SetQHYCCDParam(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_EXPOSURE, 1000);
+                    output.WriteLine($"after a re-init the traffic reads {Traffic()}");
+                    QHYCCD.SDK.QHYCamera.BeginQHYCCDLive(handle);
+                    output.WriteLine($"255 written, then re-init, then begin (reads {Traffic()}): gap {Gap(TimeSpan.FromSeconds(4)):F0} ms");
+                    QHYCCD.SDK.QHYCamera.StopQHYCCDLive(handle);
                     QHYCCD.SDK.QHYCamera.GetQHYCCDParamMinMaxStep(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_SPEED, out var sMin, out var sMax, out _);
                     foreach (var (traffic, speed) in new[] { (tMin, sMin), (tMax, sMin), (tMin, sMin + 1), (tMin, sMax) })
                     {
@@ -207,27 +254,36 @@ public class QhyVideoProbe(ITestOutputHelper output)
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var clock = Stopwatch.StartNew();
         TimeSpan? first = null;
+        var last = TimeSpan.Zero;
         var frames = 0;
         var distinct = 0;
-        double previousSum = double.NaN;
+        var repeatsAt = new System.Collections.Generic.List<int>();
+        ulong previousHash = 0;
         float median = 0, max = 0;
         await foreach (var frame in camera.CaptureVideoAsync(options, stop.Token))
         {
             try
             {
                 first ??= clock.Elapsed;
+                last = clock.Elapsed;
                 frames++;
+                // Every pixel hashed (FNV-1a over the float bits), so only a byte-identical frame counts as a repeat: a noisy
+                // frame read twice from the SDK, not two frames that merely look alike.
                 var plane = frame.GetChannelSpan(0);
-                double sum = 0;
-                for (var i = 0; i < plane.Length; i += 97)
+                var hash = 14695981039346656037UL;
+                foreach (var bits in System.Runtime.InteropServices.MemoryMarshal.Cast<float, uint>(plane))
                 {
-                    sum += plane[i];
+                    hash = (hash ^ bits) * 1099511628211UL;
                 }
 
-                if (sum != previousSum)
+                if (hash != previousHash)
                 {
                     distinct++;
-                    previousSum = sum;
+                    previousHash = hash;
+                }
+                else
+                {
+                    repeatsAt.Add(frames);
                 }
 
                 if (frames == 10)
@@ -250,8 +306,12 @@ public class QhyVideoProbe(ITestOutputHelper output)
             }
         }
 
-        var fps = (frames - 1) / (clock.Elapsed - (first ?? TimeSpan.Zero)).TotalSeconds;
-        output.WriteLine($"{label}: first frame after {first?.TotalMilliseconds:F0} ms, {fps:F1} fps ({frames} frames, {distinct} distinct), dropped {camera.DroppedFrames}");
+        // From the first frame to the LAST one, both taken inside the loop: leaving it disposes the stream, and on QHY that stop is
+        // a re-init of about a second, which measured from after the loop read as a fifth off the rate (3.2 fps for 3.8).
+        var fps = (frames - 1) / (last - (first ?? TimeSpan.Zero)).TotalSeconds;
+        output.WriteLine($"{label}: first frame after {first?.TotalMilliseconds:F0} ms, {fps:F1} fps ({frames} frames, {distinct} distinct), "
+            + $"stopped {(clock.Elapsed - last).TotalMilliseconds:F0} ms after the last, dropped {camera.DroppedFrames}, "
+            + $"repeats {repeatsAt.Count}{(repeatsAt.Count > 0 ? $" (frames {string.Join(", ", repeatsAt)})" : "")}");
         return (frames, fps, distinct);
     }
 
