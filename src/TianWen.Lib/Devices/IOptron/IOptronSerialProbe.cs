@@ -29,24 +29,18 @@ internal sealed partial class IOptronSerialProbe : ISerialProbe
     private static readonly IReadOnlyCollection<string> _hosts = [nameof(IOptronDevice)];
     public IReadOnlyCollection<string> MatchesDeviceHosts => _hosts;
 
-    private static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
-
     public async ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken)
     {
         using var @lock = await conn.WaitAsync(cancellationToken);
 
-        if (!await conn.TryWriteAsync(":MRSVE#", cancellationToken))
+        // Through SgpWire, never a single read: a mount a previous session left out of step answers the first query with
+        // a reply it was holding, and the probe used to read that as "not an SGP" (bench, 2026-11-05).
+        var (response, _) = await SgpWire.ExchangeAsync(conn, ":MRSVE#", repeatable: true, sendTwice: false, logger: null, cancellationToken);
+        if (response is null || SgpFirmwareRegex().Match(response) is not { Success: true } fwMatch)
         {
             return null;
         }
 
-        var response = await conn.TryReadTerminatedAsync(HashTerminator, cancellationToken);
-        if (response is null || !SgpFirmwareRegex().IsMatch(response))
-        {
-            return null;
-        }
-
-        var fwMatch = SgpFirmwareRegex().Match(response);
         var firmwareVersion = fwMatch.Groups[1].Value;
 
         var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(port);
