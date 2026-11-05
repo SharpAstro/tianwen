@@ -1,4 +1,8 @@
 using System;
+using System.Globalization;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -53,14 +57,14 @@ public class ViewerSkyBackdropAgreementTests
                 site, dimBelowHorizon, plannerState, showAllOverlays);
     }
 
-    [Theory(Timeout = 120_000)]
-    [InlineData(1f)]
-    [InlineData(1.5f)]
-    public async Task SelectionMarkerAndWcsPositionAgree(float dpi)
+    /// <summary>
+    /// The owner's M83 autocrop, opened with the sky backdrop on at 132 % and panned so the frame's right edge sits in the
+    /// left third of the pane and the rest is backdrop.
+    /// </summary>
+    private static async Task<(MapWithObjectOverlay Tab, ICelestialObjectDB Db, DateTimeOffset When)> PrepareAsync(
+        ViewerE2E e2e, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(ct);
-        await using var e2e = ViewerE2E.Start(dpi);
 
         // M83's field. The WCS is the FULL master's moved by the crop, so CRPIX is not the frame's centre.
         var scaleDeg = ArcsecPerPixel / 3600.0;
@@ -109,8 +113,19 @@ public class ViewerSkyBackdropAgreementTests
         e2e.State.PanOffset = (e2e.State.PanOffset.X + dx, e2e.State.PanOffset.Y);
         e2e.Frame();
         e2e.Frame();
+        return (tab, db, when);
+    }
 
-        placed = e2e.Viewer.Placement;
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task SelectionMarkerAndWcsPositionAgree(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpi);
+        var (tab, db, when) = await PrepareAsync(e2e, ct);
+        var area = e2e.Viewer.ImageArea;
+        var placed = e2e.Viewer.Placement;
         var frameRight = placed.OffsetX + placed.DrawW;
 
         // An object the map draws in the band past the frame's right edge, found by the map's own resolver.
@@ -159,5 +174,58 @@ public class ViewerSkyBackdropAgreementTests
         // the ring lands on the marker the user sees.
         ((double)Math.Abs(ring.Cx - markerX)).ShouldBeLessThan(1.0, message);
         ((double)Math.Abs(ring.Cy - markerY)).ShouldBeLessThan(1.0, message);
+    }
+
+    /// <summary>A declination label's own value in degrees, from its text ("-30d04'" form, seconds optional).</summary>
+    private static double DecOfLabel(string text)
+    {
+        var m = Regex.Match(text, "^([+-])(\\d+)°(?:(\\d+)')?(?:(\\d+(?:\\.\\d+)?)\")?$");
+        m.Success.ShouldBeTrue($"a declination label, got '{text}'");
+        var deg = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture)
+            + (m.Groups[3].Success ? double.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture) / 60.0 : 0.0)
+            + (m.Groups[4].Success ? double.Parse(m.Groups[4].Value, CultureInfo.InvariantCulture) / 3600.0 : 0.0);
+        return m.Groups[1].Value == "-" ? -deg : deg;
+    }
+
+    /// <summary>
+    /// With the backdrop on, the frame's grid and the backdrop's are ONE grid (#1994): the lines the shader draws across the
+    /// pane are the frame's tangent plane (CRPIX, CD, no SIP), so a label naming a declination where its line leaves the
+    /// picture must sit on that very line, and the map draws no grid of its own beside it. The labels read the frame's
+    /// SIP-corrected solution and the shader does not, so on a distorted frame a label named a declination its line was
+    /// not on, by the distortion at the edge.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task GridLabelsSitOnTheLinesThatContinueIntoTheBackdrop(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpi);
+        var (tab, _, _) = await PrepareAsync(e2e, ct);
+
+        e2e.Viewer.PaneWideGrid.ShouldBeTrue("the pane is a few degrees across, well inside the tangent plane");
+        tab.State.DrawOwnGrid.ShouldBeFalse("the map stands its own grid and its Dec labels down, so no second set shows");
+
+        var placed = e2e.Viewer.Placement;
+        var frameRight = placed.OffsetX + placed.DrawW;
+        var wcs = e2e.Controller.Document.ShouldNotBeNull().Findings.Wcs.ShouldNotBeNull();
+
+        // What the shader draws: the same reference, the same CD, and no distortion polynomial.
+        var gridWcs = wcs with { SipOrder = 0 };
+        var arcsecPerScreenPx = gridWcs.PixelScaleArcsec / placed.Scale;
+
+        var rightEdge = e2e.Viewer.GridLabelPlacements
+            .Where(l => l.IsDec && Math.Abs(l.LineX - frameRight) < 2f)
+            .ToArray();
+        rightEdge.Length.ShouldBeGreaterThanOrEqualTo(2, "two declinations leave the picture through its right edge");
+
+        foreach (var label in rightEdge)
+        {
+            var px = ((label.LineX - placed.OffsetX) / placed.Scale) - 0.5;
+            var py = ((label.LineY - placed.OffsetY) / placed.Scale) - 0.5;
+            var sky = gridWcs.PixelToSky(px, py).ShouldNotBeNull();
+            var offPx = Math.Abs(sky.Dec - DecOfLabel(label.Text)) * 3600.0 / arcsecPerScreenPx;
+            offPx.ShouldBeLessThan(1.0, $"'{label.Text}' ({DecOfLabel(label.Text):F5}) is {offPx:F1} screen px off the grid line it names (line dec {sky.Dec:F5} at {px:F1},{py:F1})");
+        }
     }
 }
