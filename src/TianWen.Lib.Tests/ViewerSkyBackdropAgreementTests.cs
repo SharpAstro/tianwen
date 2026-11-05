@@ -43,6 +43,9 @@ public class ViewerSkyBackdropAgreementTests
         /// <summary>Where the map PAINTED each catalogue marker in its last overlay pass, read off the draw call's own items.</summary>
         internal System.Collections.Generic.Dictionary<CatalogIndex, (float X, float Y)> DrawnMarkers { get; } = [];
 
+        /// <summary>What the last overlay pass drew with, for a failure message.</summary>
+        internal string DrawInfo { get; private set; } = "";
+
         protected override void DrawOverlayMarkers(
             System.Collections.Generic.IReadOnlyList<TianWen.UI.Abstractions.Overlays.OverlayCandidate> candidates,
             System.Collections.Generic.IReadOnlyList<TianWen.UI.Abstractions.Overlays.OverlayItem> items,
@@ -50,6 +53,9 @@ public class ViewerSkyBackdropAgreementTests
             float dpiScale, float fovAlpha, bool dimBelowHorizon, SiteContext site)
         {
             DrawnMarkers.Clear();
+            DrawInfo = $"draw: centre ({State.CenterRA:F4}h,{State.CenterDec:F3}) roll {State.CenterRoll:F3} fov {State.FieldOfViewDeg:F3} "
+                + $"view ({cxView:F1},{cyView:F1}) ppr {ppr:F1} items {items.Count} cands {candidates.Count}"
+                + string.Concat(items.Take(3).Select(i => $" [item {i.RA:F4}h,{i.Dec:F3} at {i.ScreenX:F1},{i.ScreenY:F1}]"));
             foreach (var item in items)
             {
                 if ((uint)item.CandidateIndex < (uint)candidates.Count)
@@ -199,7 +205,7 @@ public class ViewerSkyBackdropAgreementTests
         var framePx = docWcs.SkyToPixel(obj.RA, obj.Dec);
         var message = $"ring ({ring.Cx:F1},{ring.Cy:F1}) marker ({marker.X:F1},{marker.Y:F1}) wcs ({wx:F1},{wy:F1}) for {index}; "
             + $"framePx ({framePx?.X:F1},{framePx?.Y:F1}) frameRight {frameRight:F1} area ({area.X:F1},{area.Y:F1},{area.Width:F1},{area.Height:F1}) "
-            + $"obj ({obj.RA:F4}h,{obj.Dec:F3}) mapCentre ({tab.State.CenterRA:F4},{tab.State.CenterDec:F3}) roll {tab.State.CenterRoll:F3} mirror {tab.State.MirrorView} markers {tab.DrawnMarkers.Count}";
+            + $"obj ({obj.RA:F4}h,{obj.Dec:F3}) mapCentre ({tab.State.CenterRA:F4},{tab.State.CenterDec:F3}) roll {tab.State.CenterRoll:F3} mirror {tab.State.MirrorView} markers {tab.DrawnMarkers.Count}; {tab.DrawInfo}";
         ((double)Math.Abs(ring.Cx - marker.X)).ShouldBeLessThan(1.0, message);
         ((double)Math.Abs(ring.Cy - marker.Y)).ShouldBeLessThan(1.0, message);
         if (!distorted)
