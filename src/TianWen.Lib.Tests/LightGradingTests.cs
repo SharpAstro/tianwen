@@ -50,6 +50,44 @@ public class LightGradingTests
         => Graded(Filter.Luminance, score) with { Patchiness = patchiness, Twilight = twilight };
 
     /// <summary>
+    /// A frame is scored on its stars over <see cref="LightGrading.ScoredSnrFloor"/>, so how deep the detection ladder read it does
+    /// not move its score: on 2026-09-10 a frame that retried ended with 4,346 stars and its neighbour that did not with 1,737, and
+    /// the few that retried were the night's best by 2.5x. The same bright stars with 3,000 faint ones added score the same.
+    /// </summary>
+    [Fact]
+    public void HowDeepTheDetectionReadDoesNotMoveTheScore()
+    {
+        static ImagedStar Star(int i, float snr) => new(HFD: 2.5f, StarFWHM: 2.2f, SNR: snr, Flux: snr * 100f, XCentroid: i, YCentroid: i, Ellipticity: 0.4f);
+        var bright = Enumerable.Range(0, 1300).Select(i => Star(i, 40f + i % 200)).ToArray();
+        var shallow = new StarList(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>([.. bright, .. Enumerable.Range(0, 400).Select(i => Star(i, 15f))]));
+        var deep = new StarList(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>([.. bright, .. Enumerable.Range(0, 3000).Select(i => Star(i, 12f))]));
+
+        LightGrading.ScoredStars(shallow).Count.ShouldBe(1300);
+        LightGrading.ScoredStars(deep).Count.ShouldBe(1300);
+        var sparse = new StarList(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>([.. Enumerable.Range(0, 5).Select(i => Star(i, 50f)), Star(9, 12f)]));
+        LightGrading.ScoredStars(sparse).Count.ShouldBe(6, "a field too sparse to score on its bright stars is scored on all of them");
+    }
+
+    /// <summary>
+    /// The yardstick is the best CLEAR frame: on 2026-09-10 the best score was a cloud frame (thin cloud took the faint, broad
+    /// stars and left a tighter median), and every clear frame read as a share of it. With no clear frame the plain best stands.
+    /// </summary>
+    [Fact]
+    public void ACloudFrameWithTheBestScoreIsNotTheYardstick()
+    {
+        var clear = Enumerable.Range(0, 10).Select(i => ($"c{i}", Patchy(8f, 1f + i * 0.01f))).ToArray();
+        var cloud = Patchy(10f, 3f);
+        var grades = Grades([.. clear, ("cloud", cloud)]);
+
+        (LightGrading.Verdict(grades, cloud).Causes & GradeCause.Cloud).ShouldNotBe(GradeCause.None, "the outlier must read as cloud");
+        LightGrading.Relative(grades, clear[0].Item2).ShouldBe(1f, "the best clear frame is the yardstick");
+        LightGrading.Relative(grades, cloud).ShouldBe(1f, "a share is capped at 1");
+
+        var allCloud = Grades(("a", Patchy(10f, 3f)), ("b", Patchy(5f, 3f)));
+        LightGrading.Relative(allCloud, allCloud["b"]).ShouldBe(0.5f, "with no clear frame the plain best stands");
+    }
+
+    /// <summary>
     /// #1951: a frame through cloud scored as well as a clear one (its stars are as many, as sharp and as round), so a sharp
     /// cloudy frame read green. Its patchy sky now holds the colour at warn, at poor when heavy, and says why.
     /// </summary>
@@ -300,11 +338,11 @@ public class LightGradingTests
     }
 
     /// <summary>
-    /// With no clear night of the rig on file, a run cannot be judged for cloud: the verdict says so and its colour is exactly the
-    /// run-relative one, so nothing is called clear by a measure that cannot tell.
+    /// With no clear night of the rig on file, a run is judged for cloud on its own baselines alone: the verdict says so and its
+    /// colour is exactly the run-relative one, so a run cloudy throughout is not called clear without a warning.
     /// </summary>
     [Fact]
-    public void ARunWithNoReferenceForItsRigSaysCloudCannotBeJudged()
+    public void ARunWithNoReferenceForItsRigSaysItIsJudgedOnThatNightAlone()
     {
         var night = new DateOnly(2026, 7, 6);
         var lmc = Enumerable.Range(0, 10).Select(i => ($"lmc{i}", Run("LMC", 2200f + i * 20, 1f, night))).ToArray();
@@ -318,7 +356,7 @@ public class LightGradingTests
         verdict.Shown.ShouldBe(plain.Shown);
         verdict.Causes.ShouldBe(plain.Causes);
         plain.CloudUnjudged.ShouldBeFalse("references not asked");
-        LightGrading.CloudUnjudgedInWords.ShouldContain("cannot be judged");
+        LightGrading.CloudUnjudgedInWords.ShouldContain("judged on this night alone");
     }
 
     /// <summary>A night whose own darkest tenth is plausible keeps today's numbers to the bit when a reference is supplied.</summary>
@@ -454,7 +492,7 @@ public class LightGradingTests
         var readout = InfoPanelData.GetGradeReadout(state, document) ?? throw new InvalidOperationException("a file has a grade section");
         readout.Relative.ShouldBe(0.5f);
         readout.Lines[0].ShouldBe("Quality: 50% of the best of 2 (0 s)");
-        readout.Lines[1].ShouldBe("Stars: 800, HFD 2.50, FWHM 2.80, ecc 0.12");
+        readout.Lines[1].ShouldBe("Scored stars: 800, HFD 2.50, FWHM 2.80, ecc 0.12");
         readout.BestName.ShouldBe("best.fits");
     }
 
@@ -477,7 +515,7 @@ public class LightGradingTests
             new LightGrade(LightGradeKey.Of(document.UnstretchedImage), new FrameMetrics(2.5f, 2.8f, 0.1f, 1), 4f));
         InfoPanelData.StarsStatus(document, state, findings).ShouldBeNull();
         var readout = InfoPanelData.GetGradeReadout(state, document) ?? throw new InvalidOperationException("a file has a grade section");
-        readout.Lines[1].ShouldBe("Stars: 1, HFD 2.50, FWHM 2.80, ecc 0.10");
+        readout.Lines[1].ShouldBe("Scored stars: 1, HFD 2.50, FWHM 2.80, ecc 0.10");
     }
 
     /// <summary>
