@@ -479,10 +479,10 @@ Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `-
 
 - **09-12:** the 18 newly left out are the end-of-night run (03:55 to 04:37). The 5 unmarked are the evening's 0006-0011
   (patchiness 1.36-1.41, between marked cloud), as in the viewer.
-- **09-10:** the newly left out are 0206 (marked), 0204 (between the owner's by-eye cloud calls 0203 and 0205), and 0154-0158
-  (23:56 to 00:00). The viewer keeps 0154-0158: 3-6 % over the sky's trend, where 0157 and 0158 also lost about 10 % of their
+- **09-10:** the newly left out are 0206 (marked), 0204 (between the owner's by-eye cloud calls 0203 and 0205), and 0154-0156 and
+  0158 (23:56 to 00:00; 0157 was already left out as cloud). The viewer keeps 0154-0158: 3-6 % over the sky's trend, where 0157 and 0158 also lost about 10 % of their
   stars. The stacker reads the raw sky as the whole frame's median (`RawSkyLevel`), whose trend scatters less than the viewer's
-  star-masked level, so the same 4 % passes its 6-sigma gate there. Whether those frames (0154-0158) are thin cloud is the
+  star-masked level, so the same 4 % passes its 6-sigma gate there. Whether 0154-0158 are thin cloud is the
   owner's call; until then the default stays on, at five more unmarked frames left out per night of 220 to 350.
 
 `--reject-cloud false` turns it off.
