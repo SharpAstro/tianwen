@@ -2470,12 +2470,19 @@ public sealed class ViewerController(
     }
 
     /// <summary>
+    /// TEST SEAM (#2012), never set in production: run by <see cref="SaveLeavingDisplayAsync"/> after it followed the frame renames
+    /// and before it reads <see cref="ViewerState.PendingMark"/>, so a test can finish a rename in exactly that gap.
+    /// </summary>
+    internal Action? AfterLeavingFollow { get; set; }
+
+    /// <summary>
     /// Writes the display of the file on show, when the user changed it since it opened (#1814). The record is captured on the calling
     /// thread. A follower of a held run keeps nothing: its display is the anchor's, not its own, and neither does an enhance result,
     /// which carries its source's path but shows the enhanced view's display (and drops its crop): the source's record stays as it was.
     /// </summary>
     private Task SaveLeavingDisplayAsync()
     {
+        // The follow below is where a finished rename is taken; the test seam runs right after it.
         FollowFrameRenames();
         if (external is null
             || _displayPath is not { } path
@@ -2491,7 +2498,10 @@ public sealed class ViewerController(
         // A thumbs rename of THIS file still running (a slow folder): the leave waits for it before it settles the path, so the record
         // lands under the name the file ends with. Written under the old one, the completion (applied with another document open) would
         // match no path state and the renamed frame would reopen at its defaults.
-        var renaming = state.PendingMark is { Rename.IsCompleted: false } pending && ReferenceEquals(pending.Document, document) ? pending.Rename : null;
+        // Taken whether or not it has finished: a rename that completes after the follow above (and before this read) is still not
+        // applied to the path state, so only awaiting it here sends the record to the new name.
+        AfterLeavingFollow?.Invoke();
+        var renaming = state.PendingMark is { } pending && ReferenceEquals(pending.Document, document) ? pending.Rename : null;
         var now = ViewerDisplayMemory.Capture(state);
         if (now == atOpen && !_displaySaveOwed && !(renaming is not null && _displayRemembered))
         {
