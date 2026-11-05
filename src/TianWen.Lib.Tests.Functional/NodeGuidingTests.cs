@@ -73,7 +73,7 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
                         {
                             Clock.Advance(TimeSpan.FromMilliseconds(100));
                         }
-                        catch (ObjectDisposedException)
+                        catch (ObjectDisposedException) when (Volatile.Read(ref _nodeEnding) != 0)
                         {
                             // A timer of the node that is shutting down fired in the window its provider is disposed in: its owner is
                             // gone, and a pump that died of it would leave what is still ending (the run's finally) waiting on a clock
@@ -90,6 +90,24 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         }
 
         public FakeTimeProviderWrapper Clock { get; }
+
+        private int _nodeEnding;
+
+        /// <summary>
+        /// Marks the node's shutdown window when disposed: declare it AFTER the node's own <c>await using</c>, so it runs first.
+        /// A disposed provider is tolerated from the pump only from then on, so one anywhere earlier (a node that died
+        /// mid-test) still fails the test.
+        /// </summary>
+        public IAsyncDisposable NodeShutdownWindow() => new ShutdownMark(this);
+
+        private sealed class ShutdownMark(PumpedClock owner) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                Volatile.Write(ref owner._nodeEnding, 1);
+                return ValueTask.CompletedTask;
+            }
+        }
 
         public async ValueTask DisposeAsync()
         {
@@ -190,6 +208,7 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         await using var pumped = new PumpedClock();
         var (client, node) = await LoopAsync(ct, clock: pumped.Clock);
         await using var rig = node;
+        await using var shutdown = pumped.NodeShutdownWindow();
         var star = await PickAStarAsync(client, ct);
 
         var started = await client.CalibrateGuiderAsync(new GuidingRequestDto { StarX = star.X, StarY = star.Y }, ct);
@@ -225,6 +244,7 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         await using var pumped = new PumpedClock();
         var (client, node) = await LoopAsync(ct, clock: pumped.Clock);
         await using var rig = node;
+        await using var shutdown = pumped.NodeShutdownWindow();
         var star = await PickAStarAsync(client, ct);
 
         var started = await client.StartGuidingAsync(new GuidingRequestDto { StarX = star.X, StarY = star.Y, SettleTimeSeconds = 2 }, ct);

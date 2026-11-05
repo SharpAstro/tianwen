@@ -11,7 +11,7 @@ namespace TianWen.Lib.Tests.Functional;
 /// shared 2-core CI runner several of them starting at once, beside in-process nodes doing the same, stalled each other
 /// for tens of seconds and timed out tests that take a second on a quiet machine. Collections run in parallel with each
 /// other; <c>DisableParallelization</c> is what stops the runner starting any other test while one of this collection's
-/// runs. The Hosting collection is left parallel unless a measured run says otherwise (see the commit that added this).
+/// runs. The Hosting collection was not measured and is left parallel.
 /// </remarks>
 [CollectionDefinition("NodeProcesses", DisableParallelization = true)]
 public sealed class NodeProcessesCollection;
