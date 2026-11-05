@@ -125,7 +125,7 @@ internal sealed class KeptNode : IAsyncDisposable
         }
         try
         {
-            await node.WaitForNodeAsync(static _ => true, cancellationToken);
+            node.FirstAnswer = await node.WaitForNodeAsync(static _ => true, cancellationToken);
             return node;
         }
         catch
@@ -134,6 +134,13 @@ internal sealed class KeptNode : IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>
+    /// What the node answered when <see cref="StartAsync"/> first reached it. A test whose node may already have ended by
+    /// its next line (a short <c>--idle-exit</c>, counted from the node's start, which a loaded runner can spend before
+    /// the first answer comes back) reads this rather than asking the node again (#2000).
+    /// </summary>
+    public NodeInfoDto? FirstAnswer { get; private set; }
 
     /// <summary>
     /// A new keeper on this one's socket and data root, as the next client to start would start one after this keeper
