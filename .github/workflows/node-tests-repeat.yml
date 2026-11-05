@@ -1,0 +1,144 @@
+name: Node tests repeat
+
+# The proof #2000 asks for: the functional tests that failed on CI runners (the node-process tests, the fake mount's
+# goto and the guiding lifecycle), run in a loop on ubuntu-latest, 30 times by default, stopping at the first failure.
+#   alone: only the tests named below, so a failure here is in the test or the node itself.
+#   suite: the whole TianWen.Lib.Tests.Functional project each iteration, so a failure ONLY here points at
+#          interference between tests (thread-pool starvation, a shared clock, a node left running).
+# It runs once on the PR that adds or changes this file (the paths filter keeps it off every other PR) and on demand:
+#   gh workflow run node-tests-repeat.yml -f ref=<branch-or-sha> [-f iterations=30] [-f mode=alone|suite|both]
+# The tests named (9 cases): NodeFrameStreamTests.TheLiveFrameStreamsNewestFirst...,
+# NodePlanetaryTests.ARefusedStartSaysWhyAndHoldsNothing, NodeRunsProcessTests.AnInteractiveRunStopsAGrace...,
+# MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot (a theory of 4 rows), and two NodeGuidingTests:
+# ...CalibratesOnDemandAndReportsTheResultThenTheLoopComesBack and ...GuidesFromTheLoopOnTheChosenStarAndProducesSamples.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/SHA to test'
+        required: false
+        default: 'main'
+        type: string
+      iterations:
+        description: 'Iterations per mode'
+        required: false
+        default: '30'
+        type: string
+      mode:
+        description: 'alone, suite or both'
+        required: false
+        default: 'both'
+        type: choice
+        options: [both, alone, suite]
+  pull_request:
+    paths:
+      - '.github/workflows/node-tests-repeat.yml'
+
+permissions:
+  contents: read
+
+env:
+  BUILD_CONF: Release
+  DOTNET_NOLOGO: 1
+  ITERATIONS: ${{ inputs.iterations || '30' }}
+  # Every test named in #2000 and its 2026-11-05 comment, by name (a theory's rows all match).
+  NAMED_FILTER: 'FullyQualifiedName~NodeFrameStreamTests.TheLiveFrameStreamsNewestFirstAndAReaderThatFallsBehindSkipsWhatItMissed|FullyQualifiedName~NodePlanetaryTests.ARefusedStartSaysWhyAndHoldsNothing|FullyQualifiedName~NodeRunsProcessTests.AnInteractiveRunStopsAGraceAfterItsLastClientGoesAndAClientBackWithinItKeepsIt|FullyQualifiedName~MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot|FullyQualifiedName~NodeGuidingTests.NodeGuidingCalibratesOnDemandAndReportsTheResultThenTheLoopComesBack|FullyQualifiedName~NodeGuidingTests.NodeGuidingGuidesFromTheLoopOnTheChosenStarAndProducesSamples'
+  NAMED_COUNT: 9   # 5 facts + the 4 rows of the goto theory
+
+jobs:
+  alone:
+    if: ${{ inputs.mode != 'suite' }}
+    timeout-minutes: 120   # 30 iterations of about 2 to 3 minutes; NOT measured, the first run sets it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: SharpAstro/cache-apt-pkgs-action@v1
+        with:
+          packages: astrometry.net astrometry-data-2mass-08-19
+          version: 1.0
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          submodules: recursive
+          lfs: false
+      - name: Fetch required LFS objects
+        uses: SharpAstro/tianwen/.github/actions/lfs-pull@main
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
+          cache-prefix: lfs-tests
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # Builds the project and tianwen-server beside it (src/ExeBeside.targets); the build also preprocesses the catalogs.
+      - name: Build the functional tests (Release, matches CI)
+        run: dotnet build TianWen.Lib.Tests.Functional -c $BUILD_CONF -p:ContinuousIntegrationBuild=true
+        working-directory: src
+      - name: Loop the named tests
+        run: |
+          for i in $(seq 1 "$ITERATIONS"); do
+            echo "::group::iteration $i of $ITERATIONS"
+            if ! dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build \
+                 --filter "$NAMED_FILTER" --minimum-expected-tests "$NAMED_COUNT" --output Detailed \
+                 --report-trx --report-trx-filename "alone-$i.trx" --results-directory test-results-alone/; then
+              echo "::endgroup::"
+              echo "::error::iteration $i of $ITERATIONS failed"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+        working-directory: src
+      - name: Upload TRX files
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: node-tests-alone-trx
+          path: src/test-results-alone/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  suite:
+    if: ${{ inputs.mode != 'alone' }}
+    timeout-minutes: 360   # 30 iterations of the healthy 4m24s is 132 min; NOT measured under repetition
+    runs-on: ubuntu-latest
+    steps:
+      - uses: SharpAstro/cache-apt-pkgs-action@v1
+        with:
+          packages: astrometry.net astrometry-data-2mass-08-19
+          version: 1.0
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          submodules: recursive
+          lfs: false
+      - name: Fetch required LFS objects
+        uses: SharpAstro/tianwen/.github/actions/lfs-pull@main
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
+          cache-prefix: lfs-tests
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the functional tests (Release, matches CI)
+        run: dotnet build TianWen.Lib.Tests.Functional -c $BUILD_CONF -p:ContinuousIntegrationBuild=true
+        working-directory: src
+      - name: Loop the whole functional suite
+        run: |
+          for i in $(seq 1 "$ITERATIONS"); do
+            echo "::group::iteration $i of $ITERATIONS"
+            if ! dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build --output Detailed \
+                 --report-trx --report-trx-filename "suite-$i.trx" --results-directory test-results-suite/; then
+              echo "::endgroup::"
+              echo "::error::iteration $i of $ITERATIONS failed"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+        working-directory: src
+      - name: Upload TRX files
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: node-tests-suite-trx
+          path: src/test-results-suite/
+          if-no-files-found: ignore
+          retention-days: 14
