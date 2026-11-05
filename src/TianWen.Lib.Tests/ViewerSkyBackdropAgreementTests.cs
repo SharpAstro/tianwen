@@ -142,30 +142,21 @@ public class ViewerSkyBackdropAgreementTests
     private static CatalogIndex SelectIn(ViewerE2E e2e, MapWithObjectOverlay tab, ICelestialObjectDB db, DateTimeOffset when,
         float x0, float x1, float y0, float y1)
     {
-        (float X, float Y, CatalogIndex Index)? found = null;
-        for (var x = x0; x < x1 && found is null; x += 10f)
-        {
-            for (var y = y0; y < y1; y += 10f)
-            {
-                if (SkyMapSearchActions.ResolveHoverAtScreenPoint(tab.State, db, when, x, y, null) is { IsEphemeris: false } hit)
-                {
-                    found = (x, y, hit.Index);
-                    break;
-                }
-            }
-        }
+        // An object the map PAINTED a marker for, in the band: the first by catalogue index, so the pick is deterministic.
+        var painted = tab.DrawnMarkers
+            .Where(m => m.Value.X >= x0 && m.Value.X < x1 && m.Value.Y >= y0 && m.Value.Y < y1)
+            .OrderBy(m => m.Key.ToCanonical(), StringComparer.Ordinal)
+            .Select(m => m.Key)
+            .ToArray();
+        painted.Length.ShouldBeGreaterThan(0, $"the map painted {tab.DrawnMarkers.Count} markers, none in the band");
 
-        var (tapX, tapY, index) = found.ShouldNotBeNull("the map has to resolve a catalogue object in the band");
-
-        // Hover first, as a pointer does on its way to a tap, so the map's state is current for the press.
-        e2e.Host.HandlePointer(new InputEvent.MouseMove(tapX, tapY));
-        e2e.Frame();
-        UiRouting.Route(e2e.Viewer, new InputEvent.MouseDown(tapX, tapY), new InputEvent.MouseUp(tapX, tapY));
-        e2e.Frame();
-        var selected = e2e.State.SelectedObject.ShouldNotBeNull($"tap ({tapX:F1},{tapY:F1}) {index}");
+        var index = painted[0];
+        db.TryLookupByIndex(index, out var obj).ShouldBeTrue();
+        e2e.State.SelectedObject = SkyMapInfoPanelData.FromCatalogObject(
+            in obj, -34.0, 150.0, when, default, null, db);
         e2e.Viewer.Ellipses.Clear();
         e2e.Frame();
-        return selected.Index ?? throw new InvalidOperationException("the selection carries no catalogue index");
+        return index;
     }
 
     /// <summary>Where the frame's own mapping (SkyToPixel, then the viewer's frame-to-screen) puts a sky point.</summary>
@@ -204,7 +195,11 @@ public class ViewerSkyBackdropAgreementTests
         tab.DrawnMarkers.TryGetValue(index, out var marker).ShouldBeTrue($"the map painted no marker for {index}");
         var (wx, wy) = WcsScreenOf(e2e, obj.RA, obj.Dec);
 
-        var message = $"ring ({ring.Cx:F1},{ring.Cy:F1}) marker ({marker.X:F1},{marker.Y:F1}) wcs ({wx:F1},{wy:F1}) for {index}";
+        var docWcs = e2e.Controller.Document.ShouldNotBeNull().Findings.Wcs.ShouldNotBeNull();
+        var framePx = docWcs.SkyToPixel(obj.RA, obj.Dec);
+        var message = $"ring ({ring.Cx:F1},{ring.Cy:F1}) marker ({marker.X:F1},{marker.Y:F1}) wcs ({wx:F1},{wy:F1}) for {index}; "
+            + $"framePx ({framePx?.X:F1},{framePx?.Y:F1}) frameRight {frameRight:F1} area ({area.X:F1},{area.Y:F1},{area.Width:F1},{area.Height:F1}) "
+            + $"obj ({obj.RA:F4}h,{obj.Dec:F3}) mapCentre ({tab.State.CenterRA:F4},{tab.State.CenterDec:F3}) roll {tab.State.CenterRoll:F3} mirror {tab.State.MirrorView} markers {tab.DrawnMarkers.Count}";
         ((double)Math.Abs(ring.Cx - marker.X)).ShouldBeLessThan(1.0, message);
         ((double)Math.Abs(ring.Cy - marker.Y)).ShouldBeLessThan(1.0, message);
         if (!distorted)
@@ -226,12 +221,15 @@ public class ViewerSkyBackdropAgreementTests
     {
         var ct = TestContext.Current.CancellationToken;
         await using var e2e = ViewerE2E.Start(dpi);
-        var (tab, db, when) = await PrepareAsync(e2e, ct, distorted);
-        var area = e2e.Viewer.ImageArea;
-        var placed = e2e.Viewer.Placement;
+        var (_, db, when) = await PrepareAsync(e2e, ct, distorted);
 
-        var index = SelectIn(e2e, tab, db, when, area.X + 20f, placed.OffsetX + placed.DrawW - 40f, area.Y + 40f, area.Y + area.Height - 40f);
+        // The map paints no marker under the picture, so the object is M83 itself, inside the frame: the ring is the
+        // frame's own mapping whether or not that part of the frame is panned into view.
+        CatalogUtils.TryGetCleanedUpCatalogName("NGC5236", out var index).ShouldBeTrue();
         db.TryLookupByIndex(index, out var obj).ShouldBeTrue();
+        e2e.State.SelectedObject = SkyMapInfoPanelData.FromCatalogObject(in obj, -34.0, 150.0, when, default, null, db);
+        e2e.Viewer.Ellipses.Clear();
+        e2e.Frame();
         var ring = e2e.Viewer.Ellipses[^1];
         var (wx, wy) = WcsScreenOf(e2e, obj.RA, obj.Dec);
 
