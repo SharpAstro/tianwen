@@ -76,8 +76,15 @@ namespace TianWen.UI.Abstractions
         /// Renders RA/Dec labels at grid line intersections with image edges.
         /// The grid lines themselves are drawn by the GPU shader.
         /// </summary>
-        private void RenderGridLabels(ViewerState state, WCS wcs)
+        private void RenderGridLabels(ViewerState state, WCS solution)
         {
+            // The lines are the shader's, and the shader deprojects through CRPIX and CD alone (the grid's UBO carries no
+            // distortion polynomial), so a label that names where ITS line leaves the picture reads the same linear
+            // solution. Read through the SIP-corrected one it named a declination the line drawn there was not on, by the
+            // distortion at the edge (52 px on a distorted frame, #1994), and the backdrop's continuation of that line
+            // sat that far from its label. One transform for a grid's lines and its labels.
+            var wcs = GridWcs(solution);
+            GridLabelPlacements.Clear();
             if (string.IsNullOrEmpty(FontPath) || ImageWidth <= 0 || ImageHeight <= 0)
             {
                 return;
@@ -248,7 +255,7 @@ namespace TianWen.UI.Abstractions
                                 var normalizedRA = gridRA % 24.0;
                                 if (normalizedRA < 0) normalizedRA += 24.0;
                                 var raLabel = FormatRALabel(normalizedRA, spacingArcsec);
-                                PlaceEdgeLabel(raLabel, lx, ly, labelSize, labelPad, isHoriz, isFirstEdge);
+                                PlaceEdgeLabel(raLabel, false, lx, ly, labelSize, labelPad, isHoriz, isFirstEdge);
                             }
                         }
 
@@ -274,7 +281,7 @@ namespace TianWen.UI.Abstractions
                                 }
 
                                 var decLabel = FormatDecLabel(gridDec, spacingArcsec);
-                                PlaceEdgeLabel(decLabel, lx, ly, labelSize, labelPad, isHoriz, isFirstEdge);
+                                PlaceEdgeLabel(decLabel, true, lx, ly, labelSize, labelPad, isHoriz, isFirstEdge);
                             }
                         }
                     }
@@ -287,30 +294,47 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        private void PlaceEdgeLabel(string label, float lx, float ly, float labelSize, float labelPad,
+        /// <summary>
+        /// The solution the coordinate grid is drawn in: the frame's tangent plane (reference pixel and CD matrix), which is all
+        /// the grid shader is given. A backend that draws the lines from a solution with a distortion polynomial owes the labels
+        /// the same one.
+        /// </summary>
+        internal static WCS GridWcs(in WCS wcs) => wcs with { SipOrder = 0 };
+
+        /// <summary>One grid label as placed: its text, which axis it names, the screen point where its grid line leaves the picture, and where it is drawn.</summary>
+        internal readonly record struct GridLabelPlacement(string Text, bool IsDec, float LineX, float LineY, float LabelX, float LabelY);
+
+        /// <summary>The labels of the last <see cref="RenderGridLabels"/>, so a test reads where they sit rather than reading pixels.</summary>
+        internal List<GridLabelPlacement> GridLabelPlacements { get; } = [];
+
+        private void PlaceEdgeLabel(string label, bool isDec, float lx, float ly, float labelSize, float labelPad,
             bool isHoriz, bool isFirstEdge)
         {
             var lineOffset = labelPad + 2f;
+            float labelX, labelY;
             if (isHoriz)
             {
-                var labelX = isFirstEdge ? lx + lineOffset : lx - MeasureText(label, labelSize) - lineOffset;
-                var labelY = isFirstEdge ? ly + labelPad : ly - labelSize - labelPad;
-                DrawText(label, labelX, labelY, labelSize, GridLabelColor);
+                labelX = isFirstEdge ? lx + lineOffset : lx - MeasureText(label, labelSize) - lineOffset;
+                labelY = isFirstEdge ? ly + labelPad : ly - labelSize - labelPad;
             }
             else
             {
-                var labelX = isFirstEdge ? lx + labelPad : lx - MeasureText(label, labelSize) - labelPad;
-                var labelY = isFirstEdge ? ly + lineOffset : ly - labelSize - lineOffset;
-                DrawText(label, labelX, labelY, labelSize, GridLabelColor);
+                labelX = isFirstEdge ? lx + labelPad : lx - MeasureText(label, labelSize) - labelPad;
+                labelY = isFirstEdge ? ly + lineOffset : ly - labelSize - lineOffset;
             }
+
+            GridLabelPlacements.Add(new GridLabelPlacement(label, isDec, lx, ly, labelX, labelY));
+            DrawText(label, labelX, labelY, labelSize, GridLabelColor);
         }
 
         private static string FormatRALabel(double raHours, double spacingArcsec)
         {
-            var h = (int)Math.Floor(raHours);
-            var m = (raHours - h) * 60.0;
-            var mi = (int)Math.Floor(m);
-            var s = (m - mi) * 60.0;
+            // Rounded to the label's own precision BEFORE it is split into units: flooring the minutes of 0.9 h read
+            // 53.99999 and printed 53 (#1994).
+            var totalSec = Math.Round(raHours * 3600.0, spacingArcsec >= 60 ? 0 : 1);
+            var h = (int)Math.Floor(totalSec / 3600.0);
+            var mi = (int)Math.Floor((totalSec - (h * 3600.0)) / 60.0);
+            var s = totalSec - (h * 3600.0) - (mi * 60.0);
 
             if (spacingArcsec >= 3600)
             {
@@ -326,11 +350,12 @@ namespace TianWen.UI.Abstractions
         private static string FormatDecLabel(double decDeg, double spacingArcsec)
         {
             var sign = decDeg >= 0 ? "+" : "-";
-            var abs = Math.Abs(decDeg);
-            var d = (int)Math.Floor(abs);
-            var m = (abs - d) * 60.0;
-            var mi = (int)Math.Floor(m);
-            var s = (m - mi) * 60.0;
+            // Rounded to the label's own precision BEFORE it is split (#1994): flooring the minutes of -29.9 deg read
+            // 53.99999 and the label said -29d53' on the line that is -29d54', a whole arcminute (50 px) off.
+            var totalSec = Math.Round(Math.Abs(decDeg) * 3600.0, spacingArcsec >= 60 ? 0 : 1);
+            var d = (int)Math.Floor(totalSec / 3600.0);
+            var mi = (int)Math.Floor((totalSec - (d * 3600.0)) / 60.0);
+            var s = totalSec - (d * 3600.0) - (mi * 60.0);
 
             if (spacingArcsec >= 3600)
             {
