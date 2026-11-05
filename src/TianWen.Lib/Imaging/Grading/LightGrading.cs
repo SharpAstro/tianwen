@@ -639,15 +639,17 @@ public static class LightGrading
 
     /// <summary>
     /// A frame's sky level as a multiple of the line its group's sky followed over the <see cref="LocalWindow"/> before it (frames
-    /// not already called cloud, at least <see cref="SkyTrendMinFrames"/> of them), NaN where it cannot be read. A target's sky
+    /// not already called cloud: at least <see cref="SkyTrendMinFrames"/> of them, or <see cref="SkyTrendMinFramesOverSpan"/> spanning
+    /// <see cref="SkyTrendMinSpan"/>), NaN where it cannot be read. A target's sky
     /// moves smoothly all night as it climbs or sets, so a sky that turns against its own line is something else: on 2026-09-12 the
     /// second target's sky fell from 1.39 to 1.12 times the night's darkest over three hours, then turned at 03:55 and climbed to
     /// 1.21 by 04:37, the owner's end-of-night cloud marks, with the Moon down (new on 09-11) and the Sun still below -18 degrees.
     /// <para>It sees a CHANGE, so a haze that stays is caught for its first hour or so only: a risen frame leaves every later frame's
     /// line, and once too few clear frames remain in the window the frame is not read (at least <see cref="SkyTrendMinFrames"/>, or
     /// <see cref="SkyTrendMinFramesOverSpan"/> spanning <see cref="SkyTrendMinSpan"/>). The reach therefore depends on the cadence: a
-    /// +6 % step held for two hours reads cloud for its first 51 minutes at 1 minute subs, and for roughly the window less the
-    /// span the fit needs at longer ones. Deliberately: a line latched at the last clear frame would call any
+    /// +6 % step held for two hours reads cloud for its first 51 minutes at 1 minute subs, about 40 at 3 to 5 minutes, 30 at 10,
+    /// 15 at 15 and not at all at 20 minute subs (the window then holds three frames, under the four the span path needs), so a
+    /// narrowband run at 10 to 20 minute subs gets little or no sky-trend cloud. Deliberately: a line latched at the last clear frame would call any
     /// lasting change cloud for the rest of the night, and one that re-admits risen frames would absorb a slow haze. A sky that stays
     /// bright for good is the night-sky term's (<see cref="NightSkyCloudFrom"/>) or a reference's (#1976).</para>
     /// </summary>

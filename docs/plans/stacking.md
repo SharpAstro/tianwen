@@ -487,7 +487,9 @@ Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `-
 **The sky trend's reach follows the exposure.** The fit needs ten earlier clear frames, or four spanning 20 minutes
 (`SkyTrendMinFramesOverSpan`, `SkyTrendMinSpan`), within the 60 minute `LocalWindow`. At 1 minute subs (both nights above) the
 count decides, so those nights read exactly as before; a +6 % step held reads cloud for 51 minutes there. A count alone read 11
-frames at 3 minute subs, 3 at 5 and none from 6 up; the span path is what lets longer subs read. The 4 % and 6-sigma bars were
+frames at 3 minute subs, 3 at 5 and none from 6 up; the span path is what lets longer subs read, and it ends where the window
+holds fewer than four frames: the held step reads for about 40 minutes at 3 to 5 minute subs, 30 at 10, 15 at 15 and not at all
+at 20 (pilot's probe on #2030), so a narrowband run at 10 to 20 minute subs gets little or no sky-trend cloud. The 4 % and 6-sigma bars were
 tuned on 1 minute data only. A rise the line tracks (a Moon rising, at about 0.5 % a minute or less) reads clear, while one near
 1 % a minute reads cloud for the reach: the Moon is the known limit of this rule, not yet measured.
 

@@ -102,7 +102,9 @@ public class LiveCloudJudgeTests
                 risen++;
             }
         }
-        risen.ShouldBeGreaterThan(3, "more than the three a count of ten allowed at 5 minute subs");
+        // The window holds 12 earlier frames; each risen frame leaves the later lines, so a read lasts while four or more clear
+        // frames spanning 20 minutes or more remain: 8 frames (40 minutes), against the 3 a count of ten allowed.
+        risen.ShouldBe(8, "the span path's reach at 5 minute subs");
     }
 
     /// <summary>
