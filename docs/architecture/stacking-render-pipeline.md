@@ -630,8 +630,11 @@ inside each**: each raw light is read once and its clipped photosites go through
 transform the strategy warps with (`RawLightSource.TransformToCanvas`), each marking its pixel and the eight
 around it (the demosaic's and a drop's footprint), once per frame, so a count never exceeds the frame count and
 the cost is linear in frames. That covers the AHD tile path and both drizzle paths alike. **A set with nothing at
-the ceiling writes NO sidecar** (and deletes one an earlier run left), and absence means "the peak gate alone";
-the post-processor uses the run's in-memory count, never a reload from disk. Pinned by `SaturationStackingTests`.
+the ceiling writes NO sidecar** (and removes one an earlier run left, best effort: a file a viewer holds open
+stays), and absence means "the peak gate alone"; the post-processor uses the run's in-memory count, cropped with
+the master (`CropIntegrationResult`), never a reload from disk, so `TryReadSaturationMap` is the read path for
+anything outside the run. Pinned by `SaturationStackingTests`, whose wide dither puts the canvas origin about
+13 px from the reference frame's, so the marks are checked against where the master itself has the clipped star.
 
 **Drizzle rejects per DEPOSITED SAMPLE, at the stack's own thresholds, and coverage is not a
 substitute** (#93). Coverage says whether any frame reached a cell; a satellite trail has full

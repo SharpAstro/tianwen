@@ -19,16 +19,38 @@ namespace TianWen.Lib.Tests;
 public class SaturationStackingTests(ITestOutputHelper output)
 {
     private const float Ceiling = 4500f;
+    /// <summary>Every photosite but the clipped star's is held at or under this, so the star is also the brightest thing
+    /// in the master and can be found there without the saturation count.</summary>
+    private const float OtherCap = 3000f;
     private const int BlobX = 200;
     private const int BlobY = 150;
 
-    /// <summary>The fixture's lights, with a star at (BlobX, BlobY) (moved by each frame's dither) clipped at the ceiling
-    /// when <paramref name="clip"/>. Every other photosite is held just under the ceiling, so only the blob reaches it.</summary>
+    /// <summary>
+    /// A wide dither, so the master's canvas is offset from the reference frame by about 13 px on both axes. Frame 0, the
+    /// pinned reference, sits at the origin; one frame reaches +12.4 px in x and another +12.7 px in y, and no frame holds
+    /// both maxima. A count that left the canvas origin shift out of its transform would mark the star about 18 px from
+    /// where the master has it, against a 2 px tolerance.
+    /// </summary>
+    private static readonly (double DX, double DY)[] Dither =
+    [
+        (0.0, 0.0),
+        (12.4, 0.6),
+        (0.3, 12.7),
+        (1.6, 1.3),
+        (-1.1, 2.2),
+        (2.4, -1.6),
+        (11.6, -0.8),
+        (-0.7, 11.9),
+    ];
+
+    /// <summary>The lights, with a star at (BlobX, BlobY) (moved by each frame's dither) clipped at the ceiling when
+    /// <paramref name="clip"/>. Every other photosite is held at <see cref="OtherCap"/>, so only the blob reaches the
+    /// ceiling.</summary>
     private static void WriteLights(string lightsDir, bool clip)
     {
-        for (var i = 0; i < RgbBayerSyntheticFixture.LightCount; i++)
+        for (var i = 0; i < Dither.Length; i++)
         {
-            var (dx, dy) = RgbBayerSyntheticFixture.DitherOffsets[i];
+            var (dx, dy) = Dither[i];
             var mono = SyntheticStarFieldRenderer.Render(
                 width: RgbBayerSyntheticFixture.FrameSize, height: RgbBayerSyntheticFixture.FrameSize, defocusSteps: 0,
                 offsetX: dx, offsetY: dy, exposureSeconds: 10.0, skyBackground: 100.0, readNoise: 5.0,
@@ -36,12 +58,12 @@ public class SaturationStackingTests(ITestOutputHelper output)
                 noiseSeed: 1337 + i);
             var bayered = RgbBayerSyntheticFixture.BuildBayerMosaic(mono, RgbBayerSyntheticFixture.DarkLevel);
             // The renderer does not clamp star peaks (maxADU only sets hot pixels), so bring every photosite
-            // under the ceiling: only the blob below may reach it.
+            // well under the ceiling: only the blob below may reach it.
             for (var y = 0; y < bayered.GetLength(0); y++)
             {
                 for (var x = 0; x < bayered.GetLength(1); x++)
                 {
-                    bayered[y, x] = Math.Min(bayered[y, x], Ceiling - 1f);
+                    bayered[y, x] = Math.Min(bayered[y, x], OtherCap);
                 }
             }
             if (clip)
@@ -82,14 +104,17 @@ public class SaturationStackingTests(ITestOutputHelper output)
         }
     }
 
-    private async Task<(GroupResult Result, Image? Saturation)> StackAsync(bool clip, IntegrationStrategyKind? forced, DrizzleOptions? drizzle)
+    private async Task<(GroupResult Result, Image? Saturation, (double X, double Y) StarInMaster)> StackAsync(
+        bool clip, IntegrationStrategyKind? forced, DrizzleOptions? drizzle)
     {
         var ct = TestContext.Current.CancellationToken;
         using var workspace = new TempStackingWorkspace();
         WriteLights(workspace.LightsDir, clip);
         var options = new StackingOptions(
             DataRoot: workspace.RootDir, OutputDir: workspace.OutputDir,
-            ForcedStrategy: forced, DrizzleOptions: drizzle);
+            ForcedStrategy: forced, DrizzleOptions: drizzle,
+            // Frame 0 is the reference, so the canvas shift is the dither's own spread (about 13 px on each axis).
+            ReferenceFrameHint: "light_00");
         var pipeline = new StackingPipeline(options, new XunitLogger(output), catalogDb: null);
         var results = new List<GroupResult>();
         await foreach (var r in pipeline.RunAsync(ct))
@@ -100,12 +125,71 @@ public class SaturationStackingTests(ITestOutputHelper output)
         var result = results[0];
         result.SkipReason.ShouldBeEmpty();
         result.MasterFitsPath.ShouldNotBeNull();
+        // Both are read while the workspace is alive.
         IntegrationFitsWriter.TryReadSaturationMap(result.MasterFitsPath, out var map);
-        // The sidecar is read while the workspace is alive; detach the pixels from the file.
-        return (result, map);
+        Image.TryReadFitsFile(result.MasterFitsPath, out var master).ShouldBeTrue();
+        var star = clip ? BrightestSpot(master) : (double.NaN, double.NaN);
+        master.Release();
+        return (result, map, star);
     }
 
-    private static void ShouldCoverOnlyTheBlob(Image map, int frames)
+    /// <summary>Where the clipped star IS in the integrated master, from the master's own pixels: the centroid of the
+    /// brightest spot (summed over the channels) above half its height over the frame's median. It is the only spot that
+    /// reached the ceiling, so it is by far the brightest; nothing here reads the saturation count.</summary>
+    private static (double X, double Y) BrightestSpot(Image master)
+    {
+        var w = master.Width;
+        var h = master.Height;
+        var sum = new float[h, w];
+        var sample = new List<float>();
+        var peak = float.NegativeInfinity;
+        int px = -1, py = -1;
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                var v = 0f;
+                for (var c = 0; c < master.ChannelCount; c++)
+                {
+                    v += master[c, y, x];
+                }
+                sum[y, x] = v;
+                if (!float.IsFinite(v))
+                {
+                    continue;
+                }
+                if ((x % 7) == 0 && (y % 7) == 0)
+                {
+                    sample.Add(v);
+                }
+                if (v > peak)
+                {
+                    peak = v;
+                    px = x;
+                    py = y;
+                }
+            }
+        }
+        sample.Sort();
+        var threshold = 0.5f * (peak + sample[sample.Count / 2]);
+        double sw = 0, sx = 0, sy = 0;
+        for (var y = Math.Max(0, py - 5); y <= Math.Min(h - 1, py + 5); y++)
+        {
+            for (var x = Math.Max(0, px - 5); x <= Math.Min(w - 1, px + 5); x++)
+            {
+                var v = sum[y, x];
+                if (float.IsFinite(v) && v > threshold)
+                {
+                    sw += v - threshold;
+                    sx += (v - threshold) * x;
+                    sy += (v - threshold) * y;
+                }
+            }
+        }
+        return (sx / sw, sy / sw);
+    }
+
+    private void ShouldCoverOnlyTheBlob(Image map, int frames, (double X, double Y) star)
     {
         var plane = map.GetChannelArray(0);
         int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1, nonzero = 0;
@@ -131,15 +215,17 @@ public class SaturationStackingTests(ITestOutputHelper output)
         peak.ShouldBeLessThanOrEqualTo(frames);
         peak.ShouldBeGreaterThan(1f, "the star is clipped in every sub, so overlapping subs add up");
 
-        // WHERE it is marked: the dithered blob registers back onto frame 0's grid, where it sits at (BlobX, BlobY);
-        // the canvas then adds a non-negative origin shift of at most its excess over the frame size. A fixed offset in
-        // the source-to-canvas transform (a shift left out, or applied twice) lands outside this window.
-        var excessX = plane.GetLength(1) - RgbBayerSyntheticFixture.FrameSize;
-        var excessY = plane.GetLength(0) - RgbBayerSyntheticFixture.FrameSize;
+        // WHERE it is marked: where the star is in the master, found from the master's own pixels. The fixture must be able
+        // to catch a count that left the canvas origin shift out: the star's place on the reference frame, (BlobX, BlobY),
+        // is where such a count would mark it, so it has to lie well outside the tolerance.
         var centroidX = sumX / sumW;
         var centroidY = sumY / sumW;
-        centroidX.ShouldBeInRange(BlobX - 2.0, BlobX + excessX + 2.0);
-        centroidY.ShouldBeInRange(BlobY - 2.0, BlobY + excessY + 2.0);
+        output.WriteLine(FormattableString.Invariant(
+            $"marked centroid ({centroidX:F2}, {centroidY:F2}); star in the master ({star.X:F2}, {star.Y:F2}); on the reference frame ({BlobX}, {BlobY}); canvas {plane.GetLength(1)}x{plane.GetLength(0)}"));
+        Math.Max(Math.Abs(star.X - BlobX), Math.Abs(star.Y - BlobY)).ShouldBeGreaterThan(6.0,
+            "the canvas origin shift must be large enough that an unshifted count would miss the star");
+        centroidX.ShouldBe(star.X, 2.0, "the marks must sit on the clipped star where the master has it");
+        centroidY.ShouldBe(star.Y, 2.0, "the marks must sit on the clipped star where the master has it");
         // And nothing else is marked far from it.
         (maxX - centroidX).ShouldBeLessThan(10);
         (centroidX - minX).ShouldBeLessThan(10);
@@ -148,17 +234,17 @@ public class SaturationStackingTests(ITestOutputHelper output)
     [Fact(Timeout = 300_000)]
     public async Task DefaultAhdPath_WritesASaturationSidecarOverTheClippedStar()
     {
-        var (result, map) = await StackAsync(clip: true, forced: null, drizzle: null);
+        var (result, map, star) = await StackAsync(clip: true, forced: null, drizzle: null);
         map.ShouldNotBeNull("a master with clipped subs carries a saturation sidecar");
-        ShouldCoverOnlyTheBlob(map, result.FramesMatched);
+        ShouldCoverOnlyTheBlob(map, result.FramesMatched, star);
     }
 
     [Fact(Timeout = 300_000)]
     public async Task BayerDrizzlePath_WritesASaturationSidecarOverTheClippedStar()
     {
-        var (result, map) = await StackAsync(clip: true, IntegrationStrategyKind.BayerDrizzle, new DrizzleOptions(MinFrameCount: 6));
+        var (result, map, star) = await StackAsync(clip: true, IntegrationStrategyKind.BayerDrizzle, new DrizzleOptions(MinFrameCount: 6));
         map.ShouldNotBeNull();
-        ShouldCoverOnlyTheBlob(map, result.FramesMatched);
+        ShouldCoverOnlyTheBlob(map, result.FramesMatched, star);
     }
 
     private static Image ClippedAt(float clip, ImageMeta meta, out Matrix3x2 identity)
@@ -201,7 +287,7 @@ public class SaturationStackingTests(ITestOutputHelper output)
     public async Task NoClippedPhotosite_WritesNoSaturationSidecar()
     {
         // Stated choice: a set with nothing at the ceiling writes NO sidecar (absence means "peak gate alone").
-        var (_, map) = await StackAsync(clip: false, forced: null, drizzle: null);
+        var (_, map, _) = await StackAsync(clip: false, forced: null, drizzle: null);
         map.ShouldBeNull();
     }
 }
