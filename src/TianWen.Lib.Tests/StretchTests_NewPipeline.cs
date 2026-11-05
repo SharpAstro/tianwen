@@ -462,7 +462,8 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         //
         // Re-baselined on 2026-11-05 (#1991): this document demosaics with AHD, which now equalises the CFA
         // photosite gains before interpolating (the "AHD equalises CFA gains" fix), so the red level the
-        // photometry reads rose relative to green and the fit moved from R 0.999 to R 1.067. Blue stays
+        // photometry reads FELL relative to green (the red multiplier the fit needs went up) and the fit moved from
+        // R 0.999 to R 1.067. Blue stays
         // inside its tolerance (1.115). SPCC itself is unchanged with no saturation map.
         wb.R.ShouldBe(1.067f, 0.05f, "SPCC fit on the synthetic Sony OSC field (red)");
         wb.B.ShouldBe(1.137f, 0.05f, "SPCC fit on the synthetic Sony OSC field (blue)");

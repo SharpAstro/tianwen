@@ -548,8 +548,8 @@ display stages and the parity notes: `docs/architecture/stacking-render-pipeline
 **AHD equalises the CFA gains before interpolating (#1991).** Each AHD channel is interpolated from
 photosites at different positions, so on a mosaic with a colour cast (a 3:1 red to green gain) an
 undersampled star or a 2 px point source got its red and blue peaks displaced and its colour ratio
-inflated: M83's nucleus read R/G 3.03 in a 5x5 sum on the AHD master against 2.08 on the Bayer-drizzle
-master, with red and blue peaking a row apart. `DebayerAHDAsync` now divides R and B by their gain to
+inflated: on M83's stars the AHD master read R/G 2.82 to 3.06 against 2.05 to 2.15 on the Bayer-drizzle
+master (the issue's stars table). `DebayerAHDAsync` now divides R and B by their gain to
 green (the median of each colour's own photosites, one pair per frame, whole-frame so every
 `DebayerRegionIntoAsync` strip agrees) into a scratch mosaic, runs the four phases unchanged, and
 multiplies R and B back on write, so a flat field's level is unchanged. Pinned by
@@ -624,12 +624,14 @@ and it is on the SENSOR's geometry, never the master's canvas.
 rejection smear a star clipped in every sub to a peak well under the master's own, so SPCC's peak gate cannot
 see it; this count can, and SPCC's clip gate is its only reader. **It is judged on the RAW decode**, never a
 calibrated frame: the ceiling is what the raw frame states (`ImageMeta.SensorFullScaleAdu`, a `SATURATE` card,
-else the container's full scale), never the observed `MaxValue`. **It is one pass beside the strategies, not
+else 0.999 of the container's full scale, since N.I.N.A. and SharpCap left-align a 14-bit ADC into 16 bits and
+clip at 65532, never 65535), never the observed `MaxValue`. **It is one pass beside the strategies, not
 inside each**: each raw light is read once and its clipped photosites go through the same source-to-canvas
 transform the strategy warps with (`RawLightSource.TransformToCanvas`), each marking its pixel and the eight
 around it (the demosaic's and a drop's footprint), once per frame, so a count never exceeds the frame count and
 the cost is linear in frames. That covers the AHD tile path and both drizzle paths alike. **A set with nothing at
-the ceiling writes NO sidecar**, and absence means "the peak gate alone". Pinned by `SaturationStackingTests`.
+the ceiling writes NO sidecar** (and deletes one an earlier run left), and absence means "the peak gate alone";
+the post-processor uses the run's in-memory count, never a reload from disk. Pinned by `SaturationStackingTests`.
 
 **Drizzle rejects per DEPOSITED SAMPLE, at the stack's own thresholds, and coverage is not a
 substitute** (#93). Coverage says whether any frame reached a cell; a satellite trail has full

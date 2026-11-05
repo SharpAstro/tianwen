@@ -47,7 +47,7 @@ public sealed class SaturationSidecarTests : IDisposable
 
     private static ImageMeta Meta() => new() { Instrument = "synth", SensorType = SensorType.Color };
 
-    /// <summary>A 49-star field on the shared fake catalogue. <paramref name="smear"/> renders the odd-indexed stars with their
+    /// <summary>A 49-star field on the shared fake catalogue. <paramref name="smear"/> renders the even-indexed stars with their
     /// colour compressed and returns, beside the master and the star list, the saturation map that marks them.</summary>
     private static (Image Master, StarList Stars, ICelestialObjectDB Db, WCS Wcs, Image Saturation) BuildField(bool smear)
     {
