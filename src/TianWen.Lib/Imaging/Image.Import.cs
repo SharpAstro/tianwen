@@ -48,6 +48,14 @@ public partial class Image
     /// the search -- and the previous shape pushed it to call TryReadFitsFile directly, which THROWS
     /// on a non-FITS file instead of returning false.
     /// </summary>
+    /// <summary>
+    /// Whether <see cref="TryReadImageFile(string, out Image?, out WCS?)"/> reads <paramref name="fileName"/> as FITS, by
+    /// its extension. <c>.fz</c> is fpack tile compression, which FITS.Lib decodes as an ordinary image, and
+    /// <c>Path.GetExtension("x.fit.fz")</c> is <c>.fz</c>, so matching that alone covers <c>.fit.fz</c> and <c>.fits.fz</c>.
+    /// </summary>
+    public static bool IsFitsPath(string fileName)
+        => Path.GetExtension(fileName).ToLowerInvariant() is ".fits" or ".fit" or ".fts" or ".fz";
+
     public static bool TryReadImageFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs)
     {
         wcs = null;
@@ -65,10 +73,7 @@ public partial class Image
             // the downstream preprocess / matrix / ImageMeta wiring is shared.
             return TryReadCanonRaw(fileName, out image);
         }
-        // .fz is fpack tile compression, which FITS.Lib decodes as an ordinary image, so it
-        // goes down the same path. Path.GetExtension("x.fit.fz") is ".fz", so matching that
-        // alone covers .fit.fz and .fits.fz too.
-        if (ext is ".fits" or ".fit" or ".fts" or ".fz")
+        if (IsFitsPath(fileName))
         {
             return TryReadFitsFile(fileName, out image, out wcs);
         }
