@@ -17,6 +17,12 @@ internal class TuiSubCommand(
     PlannerState plannerState,
     ProfileSelector profileSelector)
 {
+    /// <summary>
+    /// The idle frame pace, a 60 Hz frame, waited on the host's clock (#2021). A raw <c>Task.Delay(16)</c> waited out two
+    /// 15.6 ms Windows timer ticks (about 32 fps); the real clock now ends a short wait on time.
+    /// </summary>
+    private static readonly TimeSpan FrameInterval = TimeSpan.FromMilliseconds(16);
+
     private readonly Option<bool> _fakeOption = new("--fake", "-f")
     {
         Description = "Include fake/simulated devices and auto-discover on startup"
@@ -302,7 +308,7 @@ internal class TuiSubCommand(
             if (contexts.Active.LiveSession.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
             {
                 activeTab.NeedsRedraw = true;
-                await Task.Delay(500, cts.Token);
+                await consoleHost.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(500), cts.Token);
             }
             else if (!appState.NeedsRedraw && !activeTab.NeedsRedraw)
             {
@@ -313,7 +319,7 @@ internal class TuiSubCommand(
                     lastClockSecond = currentSecond;
                     appState.NeedsRedraw = true;
                 }
-                await Task.Delay(16, cts.Token);
+                await consoleHost.TimeProvider.SleepAsync(FrameInterval, cts.Token);
             }
 
 #if SIBLING_DEBUG_INSPECTORS
