@@ -660,11 +660,27 @@ internal sealed class SerialProbeService : ISerialProbeService
 
     private void PublishMatch(string probeName, SerialProbeMatch match)
     {
+        match = WithPortIdentity(match);
         _results.AddOrUpdate(
             probeName,
             _ => [match],
             (_, existing) => existing.Add(match));
     }
+
+    /// <summary>
+    /// The match with its port's own identity noted on its URI (#1090): <see cref="DeviceQueryKey.PortIdentity"/>, how stable the
+    /// port is, and <see cref="DeviceQueryKey.PortKey"/>, the key that names it. Written here, for every serial family at once, so
+    /// no probe has to know about it; a port the enumeration did not describe is published as it came.
+    /// </summary>
+    private SerialProbeMatch WithPortIdentity(SerialProbeMatch match)
+        => _external.SerialPortIdentityOf(match.Port) is { } identity
+            ? match with
+            {
+                DeviceUri = match.DeviceUri.WithQueryValues(
+                    (DeviceQueryKey.PortIdentity.Key, identity.KindName),
+                    (DeviceQueryKey.PortKey.Key, identity.Key)),
+            }
+            : match;
 
     /// <summary>
     /// Lower values probe first. 9600 is the LX200 workhorse and hosts the most probes

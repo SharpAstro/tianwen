@@ -100,13 +100,36 @@ public static class DeviceDiscoveryExtensions
         public Uri FollowMovedPort(Uri storedUri, ISet<string> taken)
         {
             var deviceType = DeviceTypeHelper.TryParseDeviceType(storedUri.Scheme);
-            if (deviceType is DeviceType.Unknown || storedUri.ModelKey is not { } model)
+            if (deviceType is DeviceType.Unknown)
             {
                 return storedUri;
             }
 
             var discovered = discovery.RegisteredDevices(deviceType).ToList();
             if (discovered.Exists(c => DeviceBase.SameDevice(c.DeviceUri, storedUri)))
+            {
+                return storedUri;
+            }
+
+            // The same CABLE first (#1090): an adapter that reports a USB serial number names itself in any socket, so the
+            // discovered device of this family on the port with the stored port key is this one, however many of its model
+            // are about. Only a `device` key: a `socket` or `name` key is the very thing a move changes.
+            if (storedUri.QueryValue(DeviceQueryKey.PortIdentity) is "device"
+                && storedUri.QueryValue(DeviceQueryKey.PortKey) is { Length: > 0 } portKey)
+            {
+                var sameCable = discovered
+                    .Where(c => string.Equals(c.DeviceUri.Host, storedUri.Host, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(c.DeviceUri.QueryValue(DeviceQueryKey.PortKey), portKey, StringComparison.OrdinalIgnoreCase)
+                        && !taken.Contains(c.DeviceUri.DeviceKey))
+                    .ToList();
+                if (sameCable is [var cable])
+                {
+                    taken.Add(cable.DeviceUri.DeviceKey);
+                    return MergeDiscoveredIntoStored(storedUri, cable.DeviceUri, identityFromDiscovered: true);
+                }
+            }
+
+            if (storedUri.ModelKey is not { } model)
             {
                 return storedUri;
             }
