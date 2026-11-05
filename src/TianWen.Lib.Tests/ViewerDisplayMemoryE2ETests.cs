@@ -271,6 +271,53 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         ShouldBeTuned(e2e.State, 0f);
     }
 
+    /// <summary>
+    /// The gap between the leave's follow of the renames and its read of the pending mark (#2012): the rename is held behind a gate and
+    /// finished inside that gap by the controller's test seam, so the follow never sees it and the leave must take it itself.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ARenameThatFinishesBetweenTheFollowAndTheLeaveStillMovesTheDisplayToTheNewName(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = MakeExternal();
+        await using var e2e = ViewerE2E.Start(dpi, external: external);
+        var a = e2e.WriteColourFits("a.fits");
+        var b = e2e.WriteColourFits("b.fits", level: 500f);
+
+        await e2e.OpenAsync(a, ct);
+        Tune(e2e.State, 0f);
+        await e2e.OpenAsync(b, ct);
+        await e2e.OpenAsync(a, ct);
+        ShouldBeTuned(e2e.State, 0f);
+
+        using var gate = new System.Threading.ManualResetEventSlim();
+        var document = e2e.Controller.Document.ShouldNotBeNull();
+        ViewerActions.StartMarkFrame(e2e.State, document, CaptureRejection.Cause.Cloud, (path, cause) =>
+        {
+            gate.Wait(ct);
+            return ViewerActions.RenameOnDisk(path, cause);
+        });
+        var state = e2e.State;
+        e2e.Controller.AfterLeavingFollow = () =>
+        {
+            e2e.Controller.AfterLeavingFollow = null;
+            var rename = state.PendingMark.ShouldNotBeNull().Rename;
+            rename.IsCompleted.ShouldBeFalse();
+            gate.Set();
+            rename.Wait(ct);
+        };
+
+        await e2e.OpenAsync(b, ct);
+        var rejected = Path.Combine(Path.GetDirectoryName(a).ShouldNotBeNull(), "BAD_CLOUD_a.fits");
+        File.Exists(rejected).ShouldBeTrue();
+
+        Tune(e2e.State, 3f);
+        await e2e.OpenAsync(rejected, ct);
+        ShouldBeTuned(e2e.State, 0f);
+    }
+
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
