@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
 using Xunit;
 
@@ -44,6 +45,30 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
 
         service.ResultsFor("Skywatcher").ShouldHaveSingleItem().DeviceUri.ShouldBe(new Uri("Mount://Skywatcher/cool"));
         external.OpenCalls.Count.ShouldBe(1, "one probe, one port → one open");
+    }
+
+    /// <summary>
+    /// Every match is published with its port's own identity noted (#1090), whatever the probe wrote: the FTDI HBX cable of the
+    /// bench (2026-11-05) is <c>device</c>, the SkyGuider Pro's own Prolific socket is <c>socket</c>, and a port the enumeration
+    /// did not describe is published as the probe made it.
+    /// </summary>
+    [Fact]
+    public async Task EveryMatchCarriesItsPortsOwnIdentity()
+    {
+        var external = new ProbeTestExternal { Ports = ["serial:COM14", "serial:COM13", "serial:COM9"] };
+        external.Identities["serial:COM14"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:A10MOSEFA");
+        external.Identities["serial:COM13"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Socket, "socket:PCIROOT(0)#USB(3)");
+        var probe = StubProbe.Sync("iOptron", baud: 28800, match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_{port[7..]}?port={port}")));
+        var service = BuildService(external, output, probe);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var byPort = service.ResultsFor("iOptron").ToDictionary(m => m.Port);
+        byPort["serial:COM14"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBe("device");
+        byPort["serial:COM14"].DeviceUri.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A10MOSEFA");
+        byPort["serial:COM13"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBe("socket");
+        byPort["serial:COM9"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBeNull("nothing was known of COM9");
+        byPort["serial:COM14"].DeviceUri.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM14").DeviceKey, "the id is untouched");
     }
 
     [Fact]
@@ -602,6 +627,11 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public Dictionary<string, string> NotToProbe { get; } = [];
 
         public override string? ReasonNotToProbeSerialPort(string port) => NotToProbe.GetValueOrDefault(port);
+
+        /// <summary>Each port's own identity, as the enumeration would have described it (#1090).</summary>
+        public Dictionary<string, SerialPortIdentity> Identities { get; } = [];
+
+        public override SerialPortIdentity? SerialPortIdentityOf(string port) => Identities.TryGetValue(port, out var identity) ? identity : null;
     }
 
     /// <summary>Minimal <see cref="ITestOutputHelper"/> for the zero-arg FakeExternal path.</summary>

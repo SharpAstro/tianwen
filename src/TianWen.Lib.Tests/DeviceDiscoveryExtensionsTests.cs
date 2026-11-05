@@ -278,6 +278,64 @@ public class DeviceDiscoveryExtensionsTests
         reconciled.ShouldBe(data);
     }
 
+    /// <summary>A Gemini focuser on a port whose own identity discovery noted (#1090): an FTDI-like cable with a serial is <c>device</c>.</summary>
+    private static Uri GeminiFocuserOn(string port, string identity, string portKey, string query = "")
+        => GeminiFocuser(port, $"&portIdentity={identity}&portKey={Uri.EscapeDataString(portKey)}{query}");
+
+    /// <summary>
+    /// The case the model rule must refuse (<see cref="TwoMovedFocusersOfOneModelAreLeftAlone"/>), made certain by the cables: two
+    /// identical focusers on adapters with USB serial numbers swapped COM ports, and each slot follows ITS cable (#1090).
+    /// </summary>
+    [Fact]
+    public void TwoMovedFocusersOnSerialNumberedCablesEachFollowTheirOwnCable()
+    {
+        var discovery = new StubDiscovery
+        {
+            Mounts = [new FakeDeviceRecord(OnStepSerialCom5)],
+            Focusers = [new FakeDeviceRecord(GeminiFocuserOn("COM6", "device", "usb:0403:6001:BBB")), new FakeDeviceRecord(GeminiFocuserOn("COM5", "device", "usb:0403:6001:AAA"))],
+        };
+        var data = WithFocusers(GeminiFocuserOn("COM3", "device", "usb:0403:6001:AAA", "&focuserBacklashIn=40"), GeminiFocuserOn("COM4", "device", "usb:0403:6001:BBB"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeTrue();
+        var first = reconciled.OTAs[0].Focuser.ShouldNotBeNull();
+        first.DeviceKey.ShouldBe(GeminiFocuser("COM5").DeviceKey, "the slot whose cable is AAA follows AAA to COM5");
+        System.Web.HttpUtility.ParseQueryString(first.Query)["focuserBacklashIn"].ShouldBe("40", "the user's keys travel with the device");
+        reconciled.OTAs[1].Focuser.ShouldNotBeNull().DeviceKey.ShouldBe(GeminiFocuser("COM6").DeviceKey, "and BBB to COM6");
+    }
+
+    /// <summary>A <c>socket</c> key names the very socket a move leaves, so it is no evidence: the model rule decides, and with two about it refuses.</summary>
+    [Fact]
+    public void ASocketKeyIsNotFollowedByItsKey()
+    {
+        var discovery = new StubDiscovery
+        {
+            Mounts = [new FakeDeviceRecord(OnStepSerialCom5)],
+            Focusers = [new FakeDeviceRecord(GeminiFocuserOn("COM5", "socket", "socket:USB(3)")), new FakeDeviceRecord(GeminiFocuserOn("COM6", "socket", "socket:USB(4)"))],
+        };
+        var data = WithFocusers(GeminiFocuserOn("COM3", "socket", "socket:USB(3)"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse();
+        reconciled.ShouldBe(data);
+    }
+
+    /// <summary>The notes are transport state: a re-discovery's port identity replaces the stored one, never the reverse.</summary>
+    [Fact]
+    public void ARediscoveryRefreshesThePortIdentityNotes()
+    {
+        var stored = GeminiFocuserOn("COM3", "device", "usb:0403:6001:AAA", "&focuserBacklashIn=40");
+        var discovery = new StubDiscovery { Focusers = [new FakeDeviceRecord(GeminiFocuserOn("COM3", "socket", "socket:USB(3)"))] };
+
+        var query = System.Web.HttpUtility.ParseQueryString(discovery.ReconcileUri(stored).Query);
+
+        query["portIdentity"].ShouldBe("socket");
+        query["portKey"].ShouldBe("socket:USB(3)");
+        query["focuserBacklashIn"].ShouldBe("40");
+    }
+
     private static ProfileData MakeProfileData(Uri mount, ImmutableArray<OTAData>? otas = null)
         => new ProfileData(
             Mount: mount,
