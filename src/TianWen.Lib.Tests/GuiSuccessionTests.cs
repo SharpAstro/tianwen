@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Shouldly;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -108,14 +109,14 @@ public class GuiSuccessionTests
         var predecessor = await StartPredecessorAsync(ct);
         try
         {
-            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), ct))
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), new SystemTimeProvider(), ct))
                 .ShouldBeFalse("it was still running when the budget ran out");
 
-            var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, ct);
+            var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, new SystemTimeProvider(), ct);
             End(predecessor);
             (await waiting).ShouldBeTrue("it exited within the budget");
 
-            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), ct))
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), new SystemTimeProvider(), ct))
                 .ShouldBeTrue("a predecessor gone already needs no waiting for");
         }
         finally
