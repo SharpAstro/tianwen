@@ -84,7 +84,7 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task ACloudyOnlyFolderWithNoStoreSaysCloudCannotBeJudgedAndRecordsNothing()
+    public async Task ACloudyOnlyFolderWithNoStoreSaysItIsJudgedOnThatNightAloneAndRecordsNothing()
     {
         var external = MakeExternal();
         var ct = TestContext.Current.CancellationToken;
@@ -95,6 +95,31 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
         LightGrading.Verdict(table, cloudy[0], references).CloudUnjudged.ShouldBeTrue();
         (await LightGradeReferenceStore.RecordAsync(external, table, references, ct)).ShouldBeEmpty();
         System.IO.File.Exists(LightGradeReferenceStore.PathFor(external)).ShouldBeFalse("nothing qualified, so nothing was written");
+    }
+
+    /// <summary>
+    /// A rig's first reference comes from a night that is mostly clear and clouds over late (2026-09-10: two clear hours, cloud
+    /// after midnight), which the rule that demanded no cloud at all never recorded; a night mostly in cloud still makes none.
+    /// </summary>
+    [Fact]
+    public void AMostlyClearNightThatCloudsOverLateIsARigsFirstReference()
+    {
+        var night = new DateOnly(2026, 9, 10);
+        var clear = ClearNight(night);
+        // The cloud comes 25 minutes after the clear stretch, past CloudRunGap: frames rising into it would read as its onset
+        // (LightGrading.InCloudRun), and this test is about the first reference, not about runs.
+        var late = Enumerable.Range(36, 4).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i)).ToArray();
+        var table = Table("mixed", [.. clear, .. late]);
+        late.ShouldAllBe(f => (LightGrading.Verdict(table, f, default).Causes & GradeCause.Cloud) != 0, "the late frames must read as cloud");
+
+        var made = LightGrading.ClearNights(table);
+        made.Length.ShouldBe(1);
+        made[0].Night.ShouldBe(night);
+
+        // The boundary: exactly half clear is taken, one cloud frame more is not.
+        LightGrade[] Cloud(int n) => [.. Enumerable.Range(36, n).Select(i => Frame("LMC", 1100f + i * 10, 4f, night, i))];
+        LightGrading.ClearNights(Table("half", [.. clear, .. Cloud(clear.Length)])).Length.ShouldBe(1, "exactly half clear is a reference");
+        LightGrading.ClearNights(Table("less", [.. clear, .. Cloud(clear.Length + 1)])).ShouldBeEmpty("under half clear is not");
     }
 
     [Fact]
