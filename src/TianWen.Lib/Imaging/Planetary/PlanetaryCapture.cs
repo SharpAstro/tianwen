@@ -906,6 +906,41 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         return outcome;
     }
 
+    /// <summary>How long a capture's start waits for a camera still busy (guiding just handed it over, its last exposure ending) to go idle (#2026).</summary>
+    internal static readonly TimeSpan CameraIdleBudget = TimeSpan.FromSeconds(5);
+
+    // A camera still exposing, reading or downloading as the loop starts refuses its first exposure; wait a bounded time on
+    // the injected clock for it to go idle. Error and NotConnected are not busy and fail at once, naming the state.
+    private async ValueTask WaitForCameraIdleAsync(ICameraDriver camera, CancellationToken token)
+    {
+        var state = await camera.GetCameraStateAsync(token);
+        if (state is CameraState.Idle)
+        {
+            return;
+        }
+
+        var from = timeProvider.GetTimestamp();
+        while (state is CameraState.Waiting or CameraState.Exposing or CameraState.Reading or CameraState.Download)
+        {
+            var waited = timeProvider.GetElapsedTime(from);
+            if (waited >= CameraIdleBudget)
+            {
+                break;
+            }
+
+            await timeProvider.SleepAsync(_readyPollInterval, token);
+            state = await camera.GetCameraStateAsync(token);
+            if (state is CameraState.Idle)
+            {
+                logger.LogInformation("The {Name} waited {Waited} for the camera {Camera} to go idle before its first exposure",
+                    Name, timeProvider.GetElapsedTime(from), camera.Name);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"The {Name} cannot start: the camera {camera.Name} stayed in state {state} and did not go idle.");
+    }
+
     // The camera's frames over every segment of the capture's stream: the stream, and after an interlude taken between two of
     // its frames, the next, started at the settings the interlude left. Leaving a segment's enumeration is what stops it (a
     // driver's stop is its enumerator's end, IVideoCameraDriver), so a stream stopped on purpose is never a stream gone quiet:
@@ -921,6 +956,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         // Where the window stood as the stream stopped: a new stream starts its window centred, so the pans and the recenter's
         // jogs are given back as one jog on its first frame, while the frames after the change are still being dropped.
         RoiRect? returnTo = null;
+        // Once per capture start, before the first exposure of either path (the rapid fallback and a native stream). An
+        // interlude restart does not need it: the loop itself stopped that stream a moment ago, so nothing else holds the camera.
+        await WaitForCameraIdleAsync(camera, token);
         while (true)
         {
             InterludeRequest? interlude = null;

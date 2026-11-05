@@ -73,6 +73,59 @@ public class PlanetaryCaptureLiveViewTests
         capture.Name.ShouldBe(PlanetaryCapture.LiveViewLeaseOwner);
     }
 
+    // A camera that reports `busyReads` busy states (then Idle), and whose exposure start throws while it is not idle.
+    private static ICameraDriver BusyCamera(int busyReads)
+    {
+        var (camera, _) = Camera();
+        var state = CameraState.Exposing;
+        var reads = 0;
+        camera.Name.Returns("Busy Cam");
+        camera.GetCameraStateAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (Interlocked.Increment(ref reads) > busyReads)
+            {
+                state = CameraState.Idle;
+            }
+            return ValueTask.FromResult(state);
+        });
+        camera.StartExposureAsync(Arg.Any<TimeSpan>(), Arg.Any<FrameType>(), Arg.Any<CancellationToken>())
+            .Returns(_ => state is CameraState.Idle
+                ? ValueTask.FromResult(DateTimeOffset.UnixEpoch)
+                : ValueTask.FromException<DateTimeOffset>(new InvalidOperationException($"due to camera state being {state}")));
+        return camera;
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ALiveViewWaitsForACameraStillBusyAtItsStartInsteadOfFaulting()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = BusyCamera(busyReads: 4);
+        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance, kind: LiveCaptureKind.LiveView);
+        capture.ArmFrameGate();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
+
+        await StepAsync(capture, 2, ct);
+
+        capture.FramesReceived.ShouldBe(2);
+        capture.FailureReason.ShouldBeNull();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ACameraThatNeverGoesIdleEndsTheLoopWithAFailureNamingItsState()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = BusyCamera(busyReads: int.MaxValue);
+        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance, kind: LiveCaptureKind.LiveView);
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
+
+        await capture.WaitForNextFrameAsync(ct);
+
+        capture.IsCapturing.ShouldBeFalse();
+        capture.FramesReceived.ShouldBe(0);
+        capture.FailureReason.ShouldNotBeNull().ShouldContain("Exposing");
+        capture.FailureReason.ShouldContain("Busy Cam");
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task ACameraWithoutVideoTakesANewExposureFromItsNextFrame()
     {
