@@ -40,7 +40,7 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
             Host = host;
             Written = written;
             Errors = errors;
-            Client = new TianWenNodeClient(node.Client);
+            Client = NodeTestClients.ClientOf(node.Client);
         }
 
         public NodeHarness Node { get; }

@@ -33,7 +33,7 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
     private IDeviceHub Hub => _node.App.Services.GetRequiredService<IDeviceHub>();
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     // The fake mount's own site, so the profile's transform and the mount's sidereal time agree.
     private static readonly FakeDevice Mount = new FakeDevice(DeviceType.Mount, 1);
@@ -158,8 +158,10 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
     // The pole of the site's own hemisphere has no right ascension: on a mount that can find home a goto there IS going
     // home. Any other Dec, and the other hemisphere's pole, is an ordinary slew.
-    // The fake mount slews in real time at 1.5 degrees a second, from its pole: a goto to Dec 40 is 50 degrees, 33 s on an
-    // idle machine, and a runner that skips slew ticks takes far longer (#2000: cancelled at 60 s on CI). So the ceiling is
+    // The fake mount slews in real time at 1.5 degrees a second, from its pole: a goto to Dec 40 was 50 degrees, 33 s on an
+    // idle machine, and a runner that skips slew ticks takes far longer (#2000, #2001: cancelled at 60 s on CI, the pole rows
+    // always passing, since they never slew). There was no hang, only a real-time slew too long for the budget: the ordinary
+    // row now goes to Dec 80 (10 degrees, about 7 s), still far from the 0.5 degree pole tolerance, and the ceiling stays
     // generous; the test still ends the moment the job does.
     [Theory(Timeout = 180_000)]
     [InlineData(90.0, 1, "is at home")]

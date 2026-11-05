@@ -91,7 +91,7 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper) : IDisposable
 
         var stacking = await UntilStateAsync(client, "a master to be stacked", s => s.Masters > 0, ct);
         stacking.StackedFrames.ShouldBeGreaterThan(0);
-        (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().Run.ShouldNotBeNull().Kind.ShouldBe(NodeRunKind.Planetary);
+        (await UntilAnsweredAsync("the node", client.GetNodeAsync, ct)).Run.ShouldNotBeNull().Kind.ShouldBe(NodeRunKind.Planetary);
 
         // The live frame is the camera's own, a Bayer mosaic at the window's size; the master is demosaiced at the same size.
         var live = await FrameAsync(client, FrameSources.PlanetaryLive, ct);
@@ -197,7 +197,7 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper) : IDisposable
         var ended = await UntilStateAsync(client, "the capture to stop", s => !s.Running, ct);
         (DateTimeOffset.UtcNow - frozeAt).ShouldBeGreaterThan(grace, "the grace is whole before it is stopped");
         ended.FailureReason.ShouldBeNull();
-        var notes = (await client.GetNotificationsAsync(ct)).Value.ShouldNotBeNull();
+        var notes = await UntilAnsweredAsync("the node's notifications", client.GetNotificationsAsync, ct);
         notes.ShouldContain(n => n.Message.StartsWith("The planetary capture stopped: no client has watched it"));
         (await CommandTheCameraAsync(client, ct)).IsSuccess.ShouldBeTrue("the camera is given back as the run ends");
     }
@@ -241,7 +241,7 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper) : IDisposable
 
         var ended = await UntilStateAsync(client, "the live view to stop", s => !s.Running, ct);
         ended.FailureReason.ShouldBeNull();
-        (await client.GetNotificationsAsync(ct)).Value.ShouldNotBeNull()
+        (await UntilAnsweredAsync("the node's notifications", client.GetNotificationsAsync, ct))
             .ShouldContain(n => n.Message.StartsWith("The planetary capture stopped: no client has watched it"));
     }
 

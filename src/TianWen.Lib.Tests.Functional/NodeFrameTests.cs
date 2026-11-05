@@ -41,7 +41,7 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
         }
     }
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     private static Image Frame(int width, int height, Func<int, int, float> sample)
     {

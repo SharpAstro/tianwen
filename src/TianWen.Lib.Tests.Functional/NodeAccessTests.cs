@@ -71,7 +71,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     private HttpClient Stranger() => NodeTransport.OverTcp(_harness.Transport.BaseAddress).CreateHttpClient();
 
     /// <summary>The harness's own client, which holds a grant: the rig's owner, for these tests.</summary>
-    private TianWenNodeClient Owner => new TianWenNodeClient(_harness.Client);
+    private TianWenNodeClient Owner => NodeTestClients.ClientOf(_harness.Client);
 
     [Fact(Timeout = 60_000)]
     public async Task OverTcpSeeingIsFreeAndACommandNeedsControl()
@@ -390,7 +390,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         await using var local = await NodeHarness.StartAsync(outputHelper, ct,
             onItsSocket: true);
-        var client = new TianWenNodeClient(local.Client);
+        var client = NodeTestClients.ClientOf(local.Client);
 
         (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().CallerMayCommand.ShouldBeTrue();
         (await client.RequestControlAsync("This machine", ct)).StatusCode.ShouldBe(400);

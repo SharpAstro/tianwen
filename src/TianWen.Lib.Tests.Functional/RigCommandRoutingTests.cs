@@ -33,8 +33,8 @@ public class RigCommandRoutingTests(ITestOutputHelper output)
         await h.UntilSettledAsync(ct);
 
         h.ShouldHaveRefused("needs control of it: ask its owner for it");
-        (await new TianWenNodeClient(rigNode.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull().ShouldBeEmpty("the rig's mount was slewed");
-        (await new TianWenNodeClient(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull()
+        (await NodeTestClients.ClientOf(rigNode.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull().ShouldBeEmpty("the rig's mount was slewed");
+        (await NodeTestClients.ClientOf(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull()
             .ShouldNotContain(job => job.Kind == "slew", "this computer's mount was slewed from the rig's view");
     }
 
@@ -53,9 +53,9 @@ public class RigCommandRoutingTests(ITestOutputHelper output)
         h.Post(new SkyMapSlewToObjectSignal("Near the pole", await mount.GetRightAscensionAsync(ct), 85, Index: null, ObjectType.Unknown));
         await h.UntilSettledAsync(ct);
 
-        (await new TianWenNodeClient(rigNode.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull()
+        (await NodeTestClients.ClientOf(rigNode.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull()
             .ShouldContain(job => job.Kind == "slew" && DeviceBase.SameDevice(new Uri(job.DeviceUri!), rigMount), "the rig slewed its own mount");
-        (await new TianWenNodeClient(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull()
+        (await NodeTestClients.ClientOf(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull()
             .ShouldNotContain(job => job.Kind == "slew", "this computer's mount was slewed from the rig's view");
     }
 

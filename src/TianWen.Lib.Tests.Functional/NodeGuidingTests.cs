@@ -46,7 +46,7 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
     // Binned 2: the fake's whole guide sensor is slow to render at full resolution.
     private static readonly LiveViewRequestDto Loop = new LiveViewRequestDto { CameraRole = LiveViewCamera.Guider, ExposureMs = 100, Binning = 2 };
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     /// <summary>
     /// The node's clock for a calibration or a guide run, which the test drives (the guider's own end-to-end test does the same): on
@@ -69,7 +69,16 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
                     // A step well under a frame's render, so the mount's drift between two frames stays a pixel or so.
                     while (!_stop.IsCancellationRequested)
                     {
-                        Clock.Advance(TimeSpan.FromMilliseconds(100));
+                        try
+                        {
+                            Clock.Advance(TimeSpan.FromMilliseconds(100));
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // A timer of the node that is shutting down fired in the window its provider is disposed in: its owner is
+                            // gone, and a pump that died of it would leave what is still ending (the run's finally) waiting on a clock
+                            // nobody advances (#2000).
+                        }
                         await Task.Delay(1, _stop.Token);
                     }
                 }

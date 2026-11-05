@@ -59,6 +59,18 @@ internal static class NodeWait
             return (journal is null && seen == NoJournal, seen);
         }, ct);
 
+    /// <summary>
+    /// A read of the node that waits for an answer: a one-shot read comes back with a null Value when the node has not yet
+    /// answered, which on a loaded runner says nothing about the node's state. Returns the value once there is one.
+    /// </summary>
+    public static Task<T> UntilAnsweredAsync<T>(string what, Func<CancellationToken, Task<NodeResult<T>>> read, CancellationToken ct)
+        where T : class =>
+        UntilAsync<T>(what, async token =>
+        {
+            var result = await read(token);
+            return (result.Value, result.Value is null ? $"no answer: {result.Error}" : "answered");
+        }, ct);
+
     /// <summary>Waits until the node's job <paramref name="id"/> has ended, and returns it as it ended.</summary>
     public static Task<JobDto> UntilTheJobEndsAsync(TianWenNodeClient client, string id, CancellationToken ct) =>
         UntilAsync<JobDto>($"job {id} to end", async token =>
@@ -105,7 +117,17 @@ internal static class NodeWait
         string? lastSeen = null;
         while (true)
         {
-            var (value, seen) = await look(ct);
+            (T? value, string seen) found;
+            try
+            {
+                found = await look(ct);
+            }
+            catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+            {
+                throw TimedOut(waitingFor, clock.Elapsed, lastSeen, ex);
+            }
+
+            var (value, seen) = found;
             if (value is not null)
             {
                 return value;
@@ -118,14 +140,44 @@ internal static class NodeWait
             }
             else if (clock.Elapsed >= nextHeartbeat)
             {
-                logger?.LogInformation("Still waiting for {What} after {Seconds:0} s: {Seen}; thread pool {Threads} threads, {Queued} queued",
-                    waitingFor, clock.Elapsed.TotalSeconds, seen, ThreadPool.ThreadCount, ThreadPool.PendingWorkItemCount);
+                logger?.LogInformation("Still waiting for {What} after {Seconds:0} s: {Seen}; {Pool}",
+                    waitingFor, clock.Elapsed.TotalSeconds, seen, PoolState());
                 nextHeartbeat += Heartbeat;
             }
 
             // The test's own token: xunit cancels it at the test's timeout, which is what bounds the wait.
-            await Task.Delay(Poll, ct);
+            try
+            {
+                await Task.Delay(Poll, ct);
+            }
+            catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+            {
+                throw TimedOut(waitingFor, clock.Elapsed, lastSeen, ex);
+            }
         }
+    }
+
+    /// <summary>
+    /// The thread pool's state, for a message about a node test that ran out of time (#2000): a pool starved by work holding
+    /// its workers shows as every thread busy and a queue that does not drain, and a node that was merely slow shows neither.
+    /// The ONE place that words it; the waits and the clients' request log both read it.
+    /// </summary>
+    public static string PoolState()
+    {
+        ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
+        ThreadPool.GetAvailableThreads(out var freeWorkers, out _);
+        ThreadPool.GetMaxThreads(out var maxWorkers, out _);
+        return $"thread pool: {ThreadPool.ThreadCount} threads ({maxWorkers - freeWorkers} busy workers, minimum {minWorkers} workers and {minIo} I/O), {ThreadPool.PendingWorkItemCount} queued";
+    }
+
+    private static OperationCanceledException TimedOut(string waitingFor, TimeSpan waited, string? lastSeen, OperationCanceledException inner)
+    {
+        var message = $"The test timed out after waiting {waited.TotalSeconds:0.0} s for {waitingFor}; last saw: {lastSeen ?? "nothing"}; {PoolState()}";
+        if (TestContext.Current.TestOutputHelper is { } output)
+        {
+            output.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {message}");
+        }
+        return new OperationCanceledException(message, inner, inner.CancellationToken);
     }
 
     private const string NoJournal = "no journal";

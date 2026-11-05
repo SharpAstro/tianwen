@@ -242,6 +242,11 @@ internal sealed class NodeHarness : IAsyncDisposable
 
         Client.Dispose();
         await App.StopAsync();
+        // The rig's devices come down while the provider still answers: DI marks a provider disposed BEFORE it disposes its
+        // singletons, and in that window a driver's timer on a clock a test keeps pumping (a fake camera's exposure timer
+        // resolving its coupled mount) threw ObjectDisposedException on IServiceProvider out of the test (#2000, #1945). The hub's
+        // own disposal, run again by the provider, finds nothing left to do.
+        await App.Services.GetRequiredService<IDeviceHub>().DisposeAsync();
         await App.DisposeAsync();
         _held?.Dispose();
         _folders.Dispose();
