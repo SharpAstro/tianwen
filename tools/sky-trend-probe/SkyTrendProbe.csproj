@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Dev-only: grades a folder of lights as the FITS viewer and the session's live judge do, and writes CSVs for
+       measuring #2030's sky-trend rule. Not in TianWen.slnx, never built by CI. See README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SkyTrendProbe</RootNamespace>
+    <!-- TianWen.Lib lets this assembly name see its internals (LightGrading.RigOf, MeeusMoon, the unit-scale helpers),
+         which the viewer's own path uses. A dev tool, so the borrowed name is deliberate. -->
+    <AssemblyName>TianWen.Lib.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <!-- -p:SkyTrend=true reads #2030's fields (SkyOverTrend, SkyRising, SkyRiseFrom); without it those columns are blank. -->
+  <PropertyGroup Condition="'$(SkyTrend)' == 'true'">
+    <DefineConstants>$(DefineConstants);SKY_TREND</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>
