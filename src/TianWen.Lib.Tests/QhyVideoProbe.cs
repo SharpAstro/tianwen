@@ -124,6 +124,36 @@ public class QhyVideoProbe(ITestOutputHelper output)
                 try
                 {
                     QHYCCD.SDK.QHYCamera.GetQHYCCDParamMinMaxStep(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_USBTRAFFIC, out var tMin, out var tMax, out _);
+                    // Exposure and window: if the frame time stays put as the exposure grows and a small window is much
+                    // faster, the pace is the readout or the link, not the exposure.
+                    foreach (var (ew, eh, exposureUs) in new (uint, uint, double)[] { (w, h, 1_000), (w, h, 50_000), (w, h, 120_000), (640, 480, 1_000) })
+                    {
+                        QHYCCD.SDK.QHYCamera.SetQHYCCDParam(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_USBTRAFFIC, tMin);
+                        QHYCCD.SDK.QHYCamera.SetQHYCCDResolution(handle, (w - ew) / 2, (h - eh) / 2, ew, eh);
+                        QHYCCD.SDK.QHYCamera.SetQHYCCDParam(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_EXPOSURE, exposureUs);
+                        (QHYCCD.SDK.QHYCamera.BeginQHYCCDLive(handle) is 0).ShouldBeTrue();
+                        var sweep = Stopwatch.StartNew();
+                        var times = new System.Collections.Generic.List<double>();
+                        while (sweep.Elapsed < TimeSpan.FromSeconds(5))
+                        {
+                            if (QHYCCD.SDK.QHYCamera.GetQHYCCDLiveFrame(handle, out _, out _, out _, out _, buffer) is 0)
+                            {
+                                times.Add(sweep.Elapsed.TotalMilliseconds);
+                            }
+                            else
+                            {
+                                Thread.Sleep(1);
+                            }
+                        }
+
+                        QHYCCD.SDK.QHYCamera.StopQHYCCDLive(handle);
+                        var gaps = times.Zip(times.Skip(1), (a, b) => b - a).Order().ToArray();
+                        output.WriteLine($"{ew} x {eh}, exposure {exposureUs / 1000:F0} ms: {times.Count} frames in 5 s, "
+                            + (gaps.Length > 0 ? $"frame gap median {gaps[gaps.Length / 2]:F0} ms ({1000 / gaps[gaps.Length / 2]:F1} fps), min {gaps[0]:F0}, max {gaps[^1]:F0}" : "no gaps"));
+                    }
+
+                    QHYCCD.SDK.QHYCamera.SetQHYCCDResolution(handle, 0, 0, w, h);
+                    QHYCCD.SDK.QHYCamera.SetQHYCCDParam(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_EXPOSURE, 1000);
                     QHYCCD.SDK.QHYCamera.GetQHYCCDParamMinMaxStep(handle, QHYCCD.SDK.QHYCamera.CONTROL_ID.CONTROL_SPEED, out var sMin, out var sMax, out _);
                     foreach (var (traffic, speed) in new[] { (tMin, sMin), (tMax, sMin), (tMin, sMin + 1), (tMin, sMax) })
                     {
