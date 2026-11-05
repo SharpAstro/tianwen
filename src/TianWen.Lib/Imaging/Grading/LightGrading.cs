@@ -45,8 +45,9 @@ public readonly record struct LightGradeKey(
 }
 
 /// <summary>
-/// One frame's quality as the stacker scores it: <see cref="FrameRegistration.ReferenceScore"/> over the stars the viewer
-/// found on it, the composite that picks a stack's reference frame (many, sharp and round together). Beside it, the two
+/// One frame's quality: <see cref="FrameRegistration.ReferenceScore"/> (many, sharp and round together) over the stars found on it
+/// that clear <see cref="ScoredSnrFloor"/> (<see cref="ScoredStars"/>), whoever grades it: the viewer, the stacker's cloud filter or the
+/// live judge. The stacker's own reference choice still counts every star (#2011). Beside it, the two
 /// things that score cannot see (#1951): how patchy the sky is (<see cref="Image.SkyPatchiness"/>, NaN on a frame too small
 /// to read it), which cloud raises, and which twilight the frame was taken in, null in a dark sky or where the frame does
 /// not say when and where it was taken. <see cref="SkyLevel"/> is the star-masked sky median in the frame's own counts (ADU,
@@ -98,10 +99,11 @@ public enum GradeCause
 /// against the frames taken within an hour of it (NaN where unread), and the share it is SHOWN at, which those causes cap so a
 /// sharp frame through cloud or in twilight cannot read good. <see cref="ReferenceNight"/> is the night of the rig's clear reference
 /// the cloud was judged against because the run's own baselines were implausible (default when they were its own), and
-/// <see cref="CloudUnjudged"/> says references were asked and the rig has none, so cloud cannot be judged (the colour is unchanged).
+/// <see cref="CloudUnjudged"/> says references were asked and the rig has none, so cloud is judged on the run's own baselines alone (the colour is unchanged).
 /// </summary>
 public readonly record struct LightGradeVerdict(float Relative, float Patchiness, GradeCause Causes, float Shown, float NightSky = float.NaN,
-    float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false);
+    float LocalPatchiness = float.NaN, DateOnly ReferenceNight = default, bool CloudUnjudged = false, float LocalNoise = float.NaN,
+    float StarRatio = float.NaN, bool InCloudRun = false);
 
 /// <summary>
 /// Grades the frames of a folder as the viewer loads them, each RELATIVE to the best frame of its group seen so far:
@@ -139,7 +141,7 @@ public static class LightGrading
                 : null;
         }
 
-        var metrics = FrameRegistration.MetricsFrom(stars);
+        var metrics = FrameRegistration.MetricsFrom(ScoredStars(stars));
         var score = FrameRegistration.ReferenceScore(metrics);
         if (!float.IsFinite(score) || score <= 0f)
         {
@@ -173,6 +175,47 @@ public static class LightGrading
         var divisor = image.HasUnitScalePeak ? 1f : image.MaxValue;
         return (median * divisor + image.MinValue) * (fullScaleAdu ?? 1f);
     }
+
+    /// <summary>
+    /// The SNR a star needs to count towards a frame's score. Detection is a ladder that lowers its threshold until it has
+    /// <c>maxStars</c>, so how DEEP a frame is read depends on whether its first pass fell short: on 2026-09-10 one clear frame's
+    /// first pass accepted 1,911 stars, retried at 7 sigma and ended with 4,346, while its neighbour a minute later accepted 2,056,
+    /// stopped and ended with 1,737, and the score (stars over HFD) made the few frames that retried the night's best and every
+    /// other clear frame 0.4 of it. Above 30 the two neighbours agree to 1 % (1,343 against 1,357, both passes hold every such
+    /// star), and a frame through cloud still loses its share (1,001).
+    /// </summary>
+    public const float ScoredSnrFloor = 30f;
+
+    /// <summary>
+    /// The stars a frame is scored on: those over <see cref="ScoredSnrFloor"/>, and when fewer than <see cref="MinScoredStars"/>
+    /// clear it, the <see cref="MinScoredStars"/> brightest by SNR (all of them on a field with fewer). Never ALL its stars once a
+    /// few clear the bar: that fallback was per frame and not continuous, so a frame with 19 strong stars and 280 faint ones scored
+    /// on 299 and one with 21 strong ones on 21, and the first became the group's yardstick.
+    /// </summary>
+    internal static StarList ScoredStars(StarList stars)
+    {
+        var scored = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+        foreach (var star in stars)
+        {
+            if (star.SNR >= ScoredSnrFloor)
+            {
+                scored.Add(star);
+            }
+        }
+        if (scored.Count >= MinScoredStars || stars.Count <= MinScoredStars)
+        {
+            return scored.Count >= MinScoredStars ? new StarList(scored) : stars;
+        }
+        var brightest = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+        foreach (var star in stars.OrderByDescending(static s => s.SNR).Take(MinScoredStars))
+        {
+            brightest.Add(star);
+        }
+        return new StarList(brightest);
+    }
+
+    /// <summary>The fewest stars a frame is scored on: below it the brightest are taken, never every faint one.</summary>
+    internal const int MinScoredStars = 20;
 
     /// <summary>
     /// The sky level of a RAW light in its own counts, for a caller that grades the frame after calibration (the stacker, #2003): the
@@ -238,6 +281,9 @@ public static class LightGrading
         var relative = Relative(grades, grade);
         var patchiness = RelativePatchiness(grades, grade);
         var local = LocalPatchiness(grades, grade);
+        var localNoise = LocalPatchinessNoise(grades, grade);
+        var starRatio = LocalStarRatio(grades, grade);
+        var inRun = InCloudRun(grades, grade);
         var causes = GradeCause.None;
         var shown = relative;
         var nightSky = RelativeNightSky(grades, grade);
@@ -256,7 +302,7 @@ public static class LightGrading
         }
         else
         {
-            if (PatchyCloud(patchiness, local))
+            if (PatchyCloud(patchiness, local, localNoise, starRatio) || (inRun && referenceNight == default))
             {
                 causes |= GradeCause.Cloud;
                 shown = MathF.Min(shown, patchiness >= HeavyCloudFrom ? PoorBelow : (PoorBelow + GoodFrom) * 0.5f);
@@ -267,7 +313,8 @@ public static class LightGrading
                 shown = MathF.Min(shown, PoorBelow);
             }
         }
-        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local, referenceNight, unjudged);
+        return new LightGradeVerdict(relative, patchiness, causes, shown, nightSky, local, referenceNight, unjudged, localNoise, starRatio,
+            inRun && referenceNight == default);
     }
 
     /// <summary>
@@ -276,7 +323,7 @@ public static class LightGrading
     /// itself. When the darkest tenth sits <see cref="NightSkyCloudFrom"/> or more above the most recent OTHER night's clear
     /// reference of the same rig and site, and the clearest patchiness <see cref="CloudFrom"/> or more above that reference's for the
     /// same object (where it knows the object), the frame is judged against the reference instead, with no local test (a local floor
-    /// of the same cloudy run is no floor). With no reference for the rig the run cannot be judged for cloud, and says so; nothing
+    /// of the same cloudy run is no floor). With no reference for the rig the run is judged for cloud on its own baselines alone, and says so; nothing
     /// else about the verdict changes. A run whose baselines are plausible keeps its numbers exactly.
     /// </summary>
     private static (float Patchiness, float Local, float NightSky, DateOnly ReferenceNight, bool Unjudged) AgainstReferences(
@@ -345,7 +392,9 @@ public static class LightGrading
     /// <see cref="MinClearFramesPerReference"/> such frames and NONE of its frames was judged against another night's reference,
     /// since a night that needed one is not itself clear. Where the rig has no reference from another night to check against, the
     /// night must also look clear on its own terms: its median sky within <see cref="NightSkyCloudFrom"/> of its darkest tenth, and
-    /// no cloud among its frames. A uniform overcast cannot be told from a clear night by one night alone, so the first reference
+    /// at least half its frames clear (a night that clears and then clouds over is evidence its clear stretch is clear: 2026-09-10
+    /// had two clear hours and cloud after midnight, and the rule that demanded no cloud at all left that rig with no reference
+    /// ever). A uniform overcast cannot be told from a clear night by one night alone, so the first reference
     /// of a rig can be wrong; it is replaced as soon as a later clear night of the rig is graded, since the most recent other
     /// night wins. The sky level is the clear frames' darkest tenth, and each object's clearest patchiness their tenth for it.
     /// </summary>
@@ -396,7 +445,7 @@ public static class LightGrading
             }
             List<float> sky = [.. clear.Select(static g => g.SkyLevel)];
             sky.Sort();
-            if (!checkedAgainstAnother && (clear.Count < frames || sky[sky.Count / 2] / sky[sky.Count / 10] >= NightSkyCloudFrom))
+            if (!checkedAgainstAnother && (clear.Count * 2 < frames || sky[sky.Count / 2] / sky[sky.Count / 10] >= NightSkyCloudFrom))
             {
                 continue;
             }
@@ -456,14 +505,40 @@ public static class LightGrading
     /// and a rising target's first hour read as cloud against its clearest (2026-09-10: 72 of 176 clear frames). Heavy cloud
     /// (<see cref="HeavyCloudFrom"/>) needs no local test, which a cloud bank lasting past the window would pass; nor does a
     /// frame with no time to place it by (a NaN local).
+    /// <para>Past <see cref="LocalCloudFrom"/> by no more than its neighbours' own frame-to-frame jitter (<see cref="LocalNoiseSigmas"/>
+    /// times <paramref name="localNoise"/>) a frame needs a SECOND sign, starlight lost against its neighbours
+    /// (<paramref name="starRatio"/> under <see cref="StarLossFrom"/>): on 2026-09-10 nine clear frames sat 1.20 to 1.24 against their
+    /// floor, a percent from frames read clear, their stars at 0.995 of their neighbours', while the owner's cloud frames lost a third
+    /// of theirs (median 0.67). The rule took the unmarked frames flagged from 9 to 0 and the owner's 44 marks caught from 40 to 39.</para>
     /// </summary>
-    internal static bool PatchyCloud(float patchiness, float local)
-        => patchiness >= HeavyCloudFrom || (patchiness >= CloudFrom && !(local < LocalCloudFrom));
+    internal static bool PatchyCloud(float patchiness, float local, float localNoise = float.NaN, float starRatio = float.NaN)
+    {
+        if (patchiness >= HeavyCloudFrom)
+        {
+            return true;
+        }
+        if (!(patchiness >= CloudFrom))
+        {
+            return false;
+        }
+        if (float.IsNaN(local))
+        {
+            return true;
+        }
+        var bar = LocalCloudFrom * (1f + LocalNoiseSigmas * (float.IsFinite(localNoise) ? localNoise : 0f));
+        return local >= bar || (local >= LocalCloudFrom && starRatio < StarLossFrom);
+    }
+
+    /// <summary>How many of its neighbours' frame-to-frame jitters past <see cref="LocalCloudFrom"/> a frame must stand to be cloud alone.</summary>
+    public const float LocalNoiseSigmas = 3f;
+
+    /// <summary>The share of its neighbours' stars (over <see cref="ScoredSnrFloor"/>) under which a frame has lost starlight, a second sign of cloud.</summary>
+    public const float StarLossFrom = 0.9f;
 
     /// <summary>The cloud cause in words, saying which measure found it, for the Grade line and the file list's mark alike.</summary>
     public static string CloudInWords(in LightGradeVerdict verdict)
     {
-        var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
+        var patchy = PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness, verdict.LocalNoise, verdict.StarRatio) || verdict.InCloudRun;
         var bright = verdict.NightSky >= NightSkyCloudFrom;
         var words = (patchy, bright) switch
         {
@@ -481,7 +556,7 @@ public static class LightGrading
     }
 
     /// <summary>The state of a run whose rig has no clear reference, for the Grade line and a cloud mark's tooltip alike.</summary>
-    public const string CloudUnjudgedInWords = "Cloud cannot be judged: no clear night of this rig yet";
+    public const string CloudUnjudgedInWords = "Cloud judged on this night alone: no clear night of this rig on file yet";
 
     /// <summary>
     /// A frame's sky level as a multiple of its NIGHT's darkest tenth (the 10th percentile of the night's sky levels): every
@@ -534,7 +609,36 @@ public static class LightGrading
             ? grade.Patchiness / floor
             : float.NaN;
 
-    /// <summary>The best score among the graded frames of <paramref name="key"/>'s group, or 0 when none is graded.</summary>
+    /// <summary>
+    /// The frame-to-frame jitter of <paramref name="grade"/>'s neighbours' patchiness as a share of its floor (successive differences,
+    /// so a target's smooth climb does not count), NaN with too few neighbours or no time.
+    /// </summary>
+    public static float LocalPatchinessNoise(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+        => grade.Taken != default && BaselinesOf(grades).LocalNoise.TryGetValue(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken), out var noise)
+            ? noise : float.NaN;
+
+    /// <summary>
+    /// Whether <paramref name="grade"/> belongs to a run of cloud (the owner's 'backtracking', 2026-11-05): a frame confirmed by
+    /// <see cref="PatchyCloud"/> starts it, and consecutive frames, each within <see cref="CloudRunGap"/> of the last, still past the
+    /// plain bars (<see cref="CloudFrom"/> against the clearest, <see cref="LocalCloudFrom"/> against the floor) join it either way.
+    /// Cloud creeps in and fades out around its peak, and inside a bank a frame's neighbours are cloudy too, so neither the margin
+    /// nor a star loss against them can confirm it (2026-09-11 01:15:11, the owner's mark: 1.25 against its floor, between 01:14:10
+    /// at 1.33 and 01:20:29 at 1.48). A marginal frame with no confirmed cloud beside it (the evening's flicker) stays clear.
+    /// </summary>
+    public static bool InCloudRun(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+        => grade.Taken != default && BaselinesOf(grades).CloudRun.Contains(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken));
+
+    /// <summary>The longest gap between two frames of one cloud run.</summary>
+    public static readonly TimeSpan CloudRunGap = TimeSpan.FromMinutes(10);
+
+    /// <summary>A frame's scored stars as a share of its neighbours' median (within <see cref="LocalWindow"/>), NaN where unread.</summary>
+    public static float LocalStarRatio(ImmutableDictionary<string, LightGrade> grades, in LightGrade grade)
+        => grade.Taken != default && grade.Metrics.StarCount > 0
+            && BaselinesOf(grades).LocalStars.TryGetValue(new TimedGroup(new RigGroup(grade.Key, grade.Rig), grade.Taken), out var stars) && stars > 0f
+            ? grade.Metrics.StarCount / stars : float.NaN;
+
+    /// <summary>The best score among the graded frames of <paramref name="key"/>'s group that the run's own baselines call clear
+    /// (the plain best where none is), or 0 when none is graded: the yardstick a share is of.</summary>
     public static float BestScore(ImmutableDictionary<string, LightGrade> grades, LightGradeKey key)
         => BaselinesOf(grades).BestScore.GetValueOrDefault(key);
 
@@ -562,12 +666,17 @@ public static class LightGrading
         public Dictionary<RigGroup, float> ClearestPatchiness { get; } = [];
         public Dictionary<NightGroup, float> NightDarkest { get; } = [];
         public Dictionary<TimedGroup, float> LocalFloor { get; } = [];
+        public Dictionary<TimedGroup, float> LocalNoise { get; } = [];
+        public Dictionary<TimedGroup, float> LocalStars { get; } = [];
+        public HashSet<TimedGroup> CloudRun { get; } = [];
+        private readonly Dictionary<TimedGroup, float> _starCount = [];
 
         public Baselines Build()
         {
             Dictionary<RigGroup, List<float>> patchiness = [];
             Dictionary<NightGroup, List<float>> sky = [];
             Dictionary<RigGroup, List<(DateTimeOffset Taken, float Patchiness)>> timed = [];
+            Dictionary<RigGroup, List<(DateTimeOffset Taken, float Patchiness)>> timedStars = [];
             foreach (var grade in grades.Values)
             {
                 if (grade.Score > BestScore.GetValueOrDefault(grade.Key))
@@ -584,6 +693,7 @@ public static class LightGrading
                     if (grade.Taken != default)
                     {
                         Add(timed, new RigGroup(grade.Key, grade.Rig), (grade.Taken, grade.Patchiness));
+                        Add(timedStars, new RigGroup(grade.Key, grade.Rig), (grade.Taken, (float)grade.Metrics.StarCount));
                     }
                 }
                 if (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f && grade.Night != default)
@@ -603,7 +713,50 @@ public static class LightGrading
             {
                 AddLocalFloors(key, frames);
             }
+            foreach (var (key, frames) in timedStars)
+            {
+                AddLocalStars(key, frames);
+            }
+            foreach (var (key, frames) in timed)
+            {
+                AddCloudRuns(key, frames);
+            }
+
+            // The yardstick is the best frame the run's own baselines call CLEAR: thin cloud can take the faint, broad stars away
+            // and leave a tighter median, so the best score of 2026-09-10 was one of its cloud frames (BAD_ 01:06:52), and every
+            // clear frame read as a share of it. With no clear frame in a group the plain best stands.
+            Dictionary<LightGradeKey, float> clearBest = [];
+            foreach (var grade in grades.Values)
+            {
+                if (grade.Twilight is null && !CloudyOnOwnBaselines(grade) && grade.Score > clearBest.GetValueOrDefault(grade.Key))
+                {
+                    clearBest[grade.Key] = grade.Score;
+                }
+            }
+            foreach (var (key, best) in clearBest)
+            {
+                BestScore[key] = best;
+            }
             return this;
+        }
+
+        /// <summary>Whether the run's own baselines call <paramref name="grade"/> cloud, by either term, as <see cref="Verdict"/> reads them.</summary>
+        private bool CloudyOnOwnBaselines(in LightGrade grade)
+        {
+            var rig = new RigGroup(grade.Key, grade.Rig);
+            var patchiness = float.IsFinite(grade.Patchiness) && ClearestPatchiness.TryGetValue(rig, out var clearest) && clearest > 0f
+                ? grade.Patchiness / clearest : float.NaN;
+            var local = float.IsFinite(grade.Patchiness) && grade.Taken != default
+                && LocalFloor.TryGetValue(new TimedGroup(rig, grade.Taken), out var floor) && floor > 0f
+                ? grade.Patchiness / floor : float.NaN;
+            var nightSky = grade.Night != default && float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f
+                && NightDarkest.TryGetValue(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night), out var darkest) && darkest > 0f
+                ? grade.SkyLevel / darkest : float.NaN;
+            var timed = new TimedGroup(rig, grade.Taken);
+            var noise = grade.Taken != default && LocalNoise.TryGetValue(timed, out var n) ? n : float.NaN;
+            var starRatio = grade.Taken != default && grade.Metrics.StarCount > 0 && LocalStars.TryGetValue(timed, out var st) && st > 0f
+                ? grade.Metrics.StarCount / st : float.NaN;
+            return PatchyCloud(patchiness, local, noise, starRatio) || CloudRun.Contains(timed) || nightSky >= NightSkyCloudFrom;
         }
 
         // A window sliding over the group's frames in time order: O(n w log w) for w frames in a window, never a scan of the
@@ -643,6 +796,115 @@ public static class LightGrading
                     floor = MathF.Max(before, after);
                 }
                 LocalFloor[new TimedGroup(key, taken)] = floor;
+                LocalNoise[new TimedGroup(key, taken)] = SuccessiveJitter(frames, start, end, floor, window);
+            }
+        }
+
+        // The window's frame-to-frame jitter as a share of the floor: the MAD of successive differences over sqrt 2, which a smooth
+        // climb (a rising target) leaves out; NaN under four differences.
+        private static float SuccessiveJitter(List<(DateTimeOffset Taken, float Patchiness)> frames, int start, int end, float floor, List<float> scratch)
+        {
+            if (end - start < 5 || !(floor > 0f))
+            {
+                return float.NaN;
+            }
+            scratch.Clear();
+            for (var i = start + 1; i < end; i++)
+            {
+                scratch.Add((frames[i].Patchiness - frames[i - 1].Patchiness) / floor);
+            }
+            scratch.Sort();
+            var median = scratch[scratch.Count / 2];
+            for (var i = 0; i < scratch.Count; i++)
+            {
+                scratch[i] = MathF.Abs(scratch[i] - median);
+            }
+            scratch.Sort();
+            return 1.4826f * scratch[scratch.Count / 2] / MathF.Sqrt(2f);
+        }
+
+        // The cloud runs of one rig's group (InCloudRun), its frames in time order: confirmed frames, then two passes that let a
+        // frame past the plain bars join a run that its neighbour within CloudRunGap belongs to.
+        private void AddCloudRuns(RigGroup key, List<(DateTimeOffset Taken, float Patchiness)> frames)
+        {
+            if (!ClearestPatchiness.TryGetValue(key, out var clearest) || !(clearest > 0f))
+            {
+                return;
+            }
+            frames.Sort(static (a, b) => a.Taken.CompareTo(b.Taken));
+            var n = frames.Count;
+            var strong = new bool[n];
+            var weak = new bool[n];
+            for (var k = 0; k < n; k++)
+            {
+                var timed = new TimedGroup(key, frames[k].Taken);
+                var patchiness = frames[k].Patchiness / clearest;
+                var local = LocalFloor.TryGetValue(timed, out var floor) && floor > 0f ? frames[k].Patchiness / floor : float.NaN;
+                var noise = LocalNoise.TryGetValue(timed, out var jitter) ? jitter : float.NaN;
+                var stars = _starCount.TryGetValue(timed, out var count) && LocalStars.TryGetValue(timed, out var around) && around > 0f && count > 0f
+                    ? count / around : float.NaN;
+                strong[k] = PatchyCloud(patchiness, local, noise, stars);
+                // Joining a run asks the plain bars and nothing less. A looser test (above its own floor by more than the jitter)
+                // chained down a slow trend: on 2026-09-12 the sky's patchiness fell for an hour, every frame sat ~10 % over a +-60
+                // minute floor, and a run from one short event took 49 clear frames; it recovered no onset frame on 09-10 either.
+                weak[k] = patchiness >= CloudFrom && local >= LocalCloudFrom;
+            }
+            bool[] run = [.. strong];
+            for (var k = 1; k < n; k++)
+            {
+                if (!run[k] && weak[k] && run[k - 1] && frames[k].Taken - frames[k - 1].Taken <= CloudRunGap)
+                {
+                    run[k] = true;
+                }
+            }
+            for (var k = n - 2; k >= 0; k--)
+            {
+                if (!run[k] && weak[k] && run[k + 1] && frames[k + 1].Taken - frames[k].Taken <= CloudRunGap)
+                {
+                    run[k] = true;
+                }
+            }
+            for (var k = 0; k < n; k++)
+            {
+                if (run[k] && !strong[k])
+                {
+                    CloudRun.Add(new TimedGroup(key, frames[k].Taken));
+                }
+            }
+        }
+
+        // Each frame's neighbours' median star count within the local window, the frame itself left out.
+        private void AddLocalStars(RigGroup key, List<(DateTimeOffset Taken, float Patchiness)> frames)
+        {
+            frames.Sort(static (a, b) => a.Taken.CompareTo(b.Taken));
+            List<float> window = [];
+            var start = 0;
+            var end = 0;
+            for (var k = 0; k < frames.Count; k++)
+            {
+                var taken = frames[k].Taken;
+                while (frames[start].Taken < taken - LocalWindow)
+                {
+                    start++;
+                }
+                while (end < frames.Count && frames[end].Taken <= taken + LocalWindow)
+                {
+                    end++;
+                }
+                window.Clear();
+                for (var i = start; i < end; i++)
+                {
+                    if (i != k)
+                    {
+                        window.Add(frames[i].Patchiness);
+                    }
+                }
+                _starCount[new TimedGroup(key, taken)] = frames[k].Patchiness;
+                if (window.Count > 0)
+                {
+                    window.Sort();
+                    LocalStars[new TimedGroup(key, taken)] = window[window.Count / 2];
+                }
             }
         }
 
