@@ -1,5 +1,7 @@
+using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace TianWen.Lib.Tests.Functional;
 
