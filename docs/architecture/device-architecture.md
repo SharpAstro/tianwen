@@ -315,6 +315,41 @@ several leaves the slot as stored, never guessed. A focuser's backlash history, 
 swapped sockets stay unresolved until #783's board fingerprint. Pinned by `DeviceDiscoveryExtensionsTests` and
 `BacklashHistoryPersistenceTests` over stub discovery; **not yet seen with a real device moved** (bench check #1746).
 
+#### A serial port's own identity: discovery notes whether the port is stable (design, #1090)
+
+**Whether a serial device survives a re-plug depends on the cable as much as the family.** The table above classifies by
+family, but on the bench of 2026-11-05 one SkyGuider Pro answered through two cables with opposite answers: its own USB
+socket (a Prolific PL2303, no USB serial number) came back as COM12, COM13 and COM14 as it moved between power-box
+sockets, while the owner's HBX cable (an FTDI FT232R) carries the serial `A10MOSEFA` and is the same device in any socket.
+Serial.Lib already classifies every port this way, per port, from what the chip and the OS report
+(`SerialPortInfo.Identity`, `SerialPortInfo.IdentityKey`):
+
+| `SerialIdentityKind` | When | Stable? | Seen on the bench |
+|---|---|---|---|
+| `Device`: `usb:VID:PID:SERIAL` | the chip reports a USB serial number (FTDI, most CDC-ACM) | yes, in any socket | FTDI HBX cable, `usb:0403:6001:A10MOSEFA` |
+| `Socket`: `socket:<location path>` | no serial number, but a USB location path | only in the same socket; it does survive COM renumbering | the SGP's own Prolific; the Gemini hub's CH340 |
+| `PortName`: `name:COM14` | nothing better (a motherboard port, a virtual one) | no | |
+
+**Discovery notes it on every serial device's URI, in one place:**
+- `External.EnumerateAvailableSerialPorts` records each port's kind and key as it already records the probe exclusion
+  (`SerialProbeExclusion`), and `IExternal` answers them for a port name (null where the host has no serial ports).
+- `SerialProbeService.PublishMatch` adds two query keys to every match it publishes, so every serial family gets them with
+  no change to any probe: `portIdentity=device|socket|name` and `portKey=<IdentityKey>`.
+- Both are TRANSPORT keys (`DeviceQueryKey.IsTransport`): a re-discovery refreshes them, as it does `port` and `baud`, and
+  a stale profile never keeps an old value (`MergeDiscoveredIntoStored`).
+
+**What uses it:**
+- `FollowMovedPort` follows a stored device whose `portIdentity` is `device` to the discovered one with the SAME `portKey`,
+  even with several of its model about: the same cable on a new COM port is certain, which the model rule rightly refuses
+  to guess between (#783's case, for a cable that has a serial). A stored device without a `device` key keeps the model
+  rule.
+- A client can say so: a serial device on a `socket` or `name` port is one that a re-plug elsewhere may lose ("keep it in
+  the same USB socket, or use an adapter with a serial number"). A follow-up, not part of the first step.
+
+**What does not change (yet):** device ids. The path keeps the port where it did, so no profile, backlash file or credential
+moves and nothing needs migrating. Keying a `device`-kind port's family on its `portKey` instead of its port is a possible
+later step, once the notes have been seen working.
+
 Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep, Gemini and QHY serial rows have no such option, and rely on the model match above.
 
 ### Known limitations of device keys
