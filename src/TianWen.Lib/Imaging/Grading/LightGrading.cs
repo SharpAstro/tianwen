@@ -45,9 +45,9 @@ public readonly record struct LightGradeKey(
 }
 
 /// <summary>
-/// One frame's quality: <see cref="FrameRegistration.ReferenceScore"/>, the composite the stacker picks its reference frame by,
-/// over the stars the viewer found on it that clear <see cref="ScoredSnrFloor"/> (<see cref="ScoredStars"/>; the stacker's own
-/// reference score still counts every star, #2011), the composite that picks a stack's reference frame (many, sharp and round together). Beside it, the two
+/// One frame's quality: <see cref="FrameRegistration.ReferenceScore"/> (many, sharp and round together) over the stars found on it
+/// that clear <see cref="ScoredSnrFloor"/> (<see cref="ScoredStars"/>), whoever grades it: the viewer, the stacker's cloud filter or the
+/// live judge. The stacker's own reference choice still counts every star (#2011). Beside it, the two
 /// things that score cannot see (#1951): how patchy the sky is (<see cref="Image.SkyPatchiness"/>, NaN on a frame too small
 /// to read it), which cloud raises, and which twilight the frame was taken in, null in a dark sky or where the frame does
 /// not say when and where it was taken. <see cref="SkyLevel"/> is the star-masked sky median in the frame's own counts (ADU,
