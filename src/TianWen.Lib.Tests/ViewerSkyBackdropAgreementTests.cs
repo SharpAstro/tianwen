@@ -40,6 +40,28 @@ public class ViewerSkyBackdropAgreementTests
 
     private sealed class MapWithObjectOverlay(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
     {
+        /// <summary>Where the map PAINTED each catalogue marker in its last overlay pass, read off the draw call's own items.</summary>
+        internal System.Collections.Generic.Dictionary<CatalogIndex, (float X, float Y)> DrawnMarkers { get; } = [];
+
+        protected override void DrawOverlayMarkers(
+            System.Collections.Generic.IReadOnlyList<TianWen.UI.Abstractions.Overlays.OverlayCandidate> candidates,
+            System.Collections.Generic.IReadOnlyList<TianWen.UI.Abstractions.Overlays.OverlayItem> items,
+            int candidateVersion, float arcminToPixels, double ppr, float cxView, float cyView,
+            float dpiScale, float fovAlpha, bool dimBelowHorizon, SiteContext site)
+        {
+            DrawnMarkers.Clear();
+            foreach (var item in items)
+            {
+                if ((uint)item.CandidateIndex < (uint)candidates.Count)
+                {
+                    DrawnMarkers[candidates[item.CandidateIndex].CatalogIndex] = (item.ScreenX, item.ScreenY);
+                }
+            }
+
+            base.DrawOverlayMarkers(candidates, items, candidateVersion, arcminToPixels, ppr, cxView, cyView,
+                dpiScale, fovAlpha, dimBelowHorizon, site);
+        }
+
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
             DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site,
@@ -62,7 +84,7 @@ public class ViewerSkyBackdropAgreementTests
     /// left third of the pane and the rest is backdrop.
     /// </summary>
     private static async Task<(MapWithObjectOverlay Tab, ICelestialObjectDB Db, DateTimeOffset When)> PrepareAsync(
-        ViewerE2E e2e, CancellationToken ct)
+        ViewerE2E e2e, CancellationToken ct, bool distorted = true)
     {
         var db = await SharedCatalogDB.InitAsync(ct);
 
@@ -77,9 +99,9 @@ public class ViewerSkyBackdropAgreementTests
             CD2_1 = 0.0,
             CD2_2 = scaleDeg,
             // A plate solution's own distortion: about 20 px at the frame's edge, which a rigid view cannot follow.
-            SipOrder = 2,
-            SipA = SipTerm(2, 0, 4e-5),
-            SipB = SipTerm(0, 2, 4e-5),
+            SipOrder = distorted ? 2 : 0,
+            SipA = distorted ? SipTerm(2, 0, 4e-5) : null,
+            SipB = distorted ? SipTerm(0, 2, 4e-5) : null,
         };
         var wcs = full.CroppedTo(CropX, CropY);
         var path = e2e.WriteSolvedFits("m83-cropped.fits", FrameW, FrameH, wcs);
@@ -116,23 +138,14 @@ public class ViewerSkyBackdropAgreementTests
         return (tab, db, when);
     }
 
-    [Theory(Timeout = 120_000)]
-    [InlineData(1f)]
-    [InlineData(1.5f)]
-    public async Task SelectionMarkerAndWcsPositionAgree(float dpi)
+    /// <summary>Taps the first catalogue object the map resolves in the screen band and returns the selected one.</summary>
+    private static CatalogIndex SelectIn(ViewerE2E e2e, MapWithObjectOverlay tab, ICelestialObjectDB db, DateTimeOffset when,
+        float x0, float x1, float y0, float y1)
     {
-        var ct = TestContext.Current.CancellationToken;
-        await using var e2e = ViewerE2E.Start(dpi);
-        var (tab, db, when) = await PrepareAsync(e2e, ct);
-        var area = e2e.Viewer.ImageArea;
-        var placed = e2e.Viewer.Placement;
-        var frameRight = placed.OffsetX + placed.DrawW;
-
-        // An object the map draws in the band past the frame's right edge, found by the map's own resolver.
         (float X, float Y, CatalogIndex Index)? found = null;
-        for (var x = frameRight + 30f; x < area.X + area.Width - 20f && found is null; x += 10f)
+        for (var x = x0; x < x1 && found is null; x += 10f)
         {
-            for (var y = area.Y + 20f; y < area.Y + area.Height - 20f; y += 10f)
+            for (var y = y0; y < y1; y += 10f)
             {
                 if (SkyMapSearchActions.ResolveHoverAtScreenPoint(tab.State, db, when, x, y, null) is { IsEphemeris: false } hit)
                 {
@@ -142,38 +155,89 @@ public class ViewerSkyBackdropAgreementTests
             }
         }
 
-        var (tapX, tapY, index) = found.ShouldNotBeNull("the map has to draw a catalogue object past the frame's edge");
-        db.TryLookupByIndex(index, out var obj).ShouldBeTrue();
+        var (tapX, tapY, index) = found.ShouldNotBeNull("the map has to resolve a catalogue object in the band");
 
         // Hover first, as a pointer does on its way to a tap, so the map's state is current for the press.
         e2e.Host.HandlePointer(new InputEvent.MouseMove(tapX, tapY));
         e2e.Frame();
         UiRouting.Route(e2e.Viewer, new InputEvent.MouseDown(tapX, tapY), new InputEvent.MouseUp(tapX, tapY));
         e2e.Frame();
-        var diag = $"tap ({tapX:F1},{tapY:F1}) {index} area {area} placed {placed.OffsetX:F1}+{placed.DrawW:F1} "
-            + $"hostResolve {tab.ResolveCatalogObjectAt(tapX, tapY)} hover {e2e.State.HoverObject?.Name} overlays {e2e.State.ShowOverlays} rect {tab.State.LastContentRect}";
-        e2e.State.SelectedObject.ShouldNotBeNull(diag).Index.ShouldBe(index);
-
+        var selected = e2e.State.SelectedObject.ShouldNotBeNull($"tap ({tapX:F1},{tapY:F1}) {index}");
         e2e.Viewer.Ellipses.Clear();
         e2e.Frame();
-        var ring = e2e.Viewer.Ellipses[^1];
+        return selected.Index;
+    }
 
-        // Three draws of one sky point: the selection ring, the map's marker and the frame's own mapping.
-        var rect = tab.State.LastContentRect;
-        var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, tab.State.FieldOfViewDeg);
-        SkyMapProjection.ProjectWithMatrix(obj.RA, obj.Dec, tab.State.CurrentViewMatrix, ppr,
-            rect.X + (rect.Width * 0.5f), rect.Y + (rect.Height * 0.5f), out var markerX, out var markerY).ShouldBeTrue();
-
-        var currentWcs = e2e.Controller.Document.ShouldNotBeNull().Findings.Wcs.ShouldNotBeNull();
-        var px = currentWcs.SkyToPixel(obj.RA, obj.Dec).ShouldNotBeNull();
+    /// <summary>Where the frame's own mapping (SkyToPixel, then the viewer's frame-to-screen) puts a sky point.</summary>
+    private static (float X, float Y) WcsScreenOf(ViewerE2E e2e, double ra, double dec)
+    {
+        var wcs = e2e.Controller.Document.ShouldNotBeNull().Findings.Wcs.ShouldNotBeNull();
+        var px = wcs.SkyToPixel(ra, dec).ShouldNotBeNull();
         var (wx, wy, _) = e2e.Viewer.FrameToScreen(e2e.State, px.X, px.Y);
+        return (wx, wy);
+    }
 
-        var message = $"ring ({ring.Cx:F1},{ring.Cy:F1}) marker ({markerX:F1},{markerY:F1}) wcs ({wx:F1},{wy:F1}) for {index}";
-        // Past the picture the map draws the object, and a rigid view cannot follow the frame's distortion
-        // there, so the WCS position (the polynomial extrapolated off the sensor) is not the reference:
-        // the ring lands on the marker the user sees.
-        ((double)Math.Abs(ring.Cx - markerX)).ShouldBeLessThan(1.0, message);
-        ((double)Math.Abs(ring.Cy - markerY)).ShouldBeLessThan(1.0, message);
+    /// <summary>
+    /// Past the picture's right edge the ring is the map's marker, three draws of one sky point (#1994): the ring the viewer
+    /// strokes, the marker the map PAINTED (read off its draw call) and the frame's own mapping of the object. On the
+    /// undistorted frame all three agree within 1 px. On the SIP frame the WCS position past the edge is the distortion
+    /// polynomial extrapolated off the sensor, which legitimately differs from the map's rigid view by the distortion there
+    /// (about 20 px), so only ring against marker is asserted there: the marker is what the user sees.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.5f, true)]
+    public async Task SelectionMarkerAndWcsPositionAgreePastTheEdge(float dpi, bool distorted)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpi);
+        var (tab, db, when) = await PrepareAsync(e2e, ct, distorted);
+        var area = e2e.Viewer.ImageArea;
+        var placed = e2e.Viewer.Placement;
+        var frameRight = placed.OffsetX + placed.DrawW;
+
+        var index = SelectIn(e2e, tab, db, when, frameRight + 30f, area.X + area.Width - 20f, area.Y + 20f, area.Y + area.Height - 20f);
+        db.TryLookupByIndex(index, out var obj).ShouldBeTrue();
+        var ring = e2e.Viewer.Ellipses[^1];
+        tab.DrawnMarkers.TryGetValue(index, out var marker).ShouldBeTrue($"the map painted no marker for {index}");
+        var (wx, wy) = WcsScreenOf(e2e, obj.RA, obj.Dec);
+
+        var message = $"ring ({ring.Cx:F1},{ring.Cy:F1}) marker ({marker.X:F1},{marker.Y:F1}) wcs ({wx:F1},{wy:F1}) for {index}";
+        ((double)Math.Abs(ring.Cx - marker.X)).ShouldBeLessThan(1.0, message);
+        ((double)Math.Abs(ring.Cy - marker.Y)).ShouldBeLessThan(1.0, message);
+        if (!distorted)
+        {
+            ((double)Math.Abs(ring.Cx - wx)).ShouldBeLessThan(1.0, message);
+            ((double)Math.Abs(ring.Cy - wy)).ShouldBeLessThan(1.0, message);
+            ((double)Math.Abs(marker.X - wx)).ShouldBeLessThan(1.0, message);
+            ((double)Math.Abs(marker.Y - wy)).ShouldBeLessThan(1.0, message);
+        }
+    }
+
+    /// <summary>Inside the picture the ring is the frame's own mapping of the object, on the SIP frame as on the plain one.</summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.5f, true)]
+    public async Task SelectionRingInsideThePictureIsOnTheWcsPosition(float dpi, bool distorted)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpi);
+        var (tab, db, when) = await PrepareAsync(e2e, ct, distorted);
+        var area = e2e.Viewer.ImageArea;
+        var placed = e2e.Viewer.Placement;
+
+        var index = SelectIn(e2e, tab, db, when, area.X + 20f, placed.OffsetX + placed.DrawW - 40f, area.Y + 40f, area.Y + area.Height - 40f);
+        db.TryLookupByIndex(index, out var obj).ShouldBeTrue();
+        var ring = e2e.Viewer.Ellipses[^1];
+        var (wx, wy) = WcsScreenOf(e2e, obj.RA, obj.Dec);
+
+        var message = $"ring ({ring.Cx:F1},{ring.Cy:F1}) wcs ({wx:F1},{wy:F1}) for {index}";
+        ((double)Math.Abs(ring.Cx - wx)).ShouldBeLessThan(1.0, message);
+        ((double)Math.Abs(ring.Cy - wy)).ShouldBeLessThan(1.0, message);
     }
 
     /// <summary>A declination label's own value in degrees, from its text ("-30d04'" form, seconds optional).</summary>
