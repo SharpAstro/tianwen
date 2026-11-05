@@ -51,7 +51,7 @@ public class NodeRunLifecycleTests(ITestOutputHelper outputHelper) : IAsyncLifet
     /// </summary>
     private sealed class RampSkippingTimeProvider : ITimeProvider
     {
-        private readonly ITimeProvider _real = new SystemTimeProvider();
+        private readonly ITimeProvider _real = SystemTimeProvider.Instance;
 
         public volatile bool SkipRampSteps;
 

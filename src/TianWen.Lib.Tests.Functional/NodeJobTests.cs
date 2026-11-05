@@ -223,7 +223,7 @@ public class NodeJobTests(ITestOutputHelper outputHelper)
         await using var host = node;
 
         var ended = new TaskCompletionSource<WebSocketEventDto>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var stream = node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (e.Event == "JOB-PROGRESS" && e.Data?["State"]?.ToString() == nameof(JobState.Succeeded))

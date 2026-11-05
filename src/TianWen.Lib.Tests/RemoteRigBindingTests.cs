@@ -295,7 +295,7 @@ namespace TianWen.Lib.Tests
         /// interval is 2 s, so each swept rig polls at most once before the test disposes it.
         /// </para>
         /// </summary>
-        private static ITimeProvider RealClock() => new SystemTimeProvider();
+        private static ITimeProvider RealClock() => SystemTimeProvider.Instance;
 
         /// <summary>
         /// An address that fails to connect immediately rather than hanging: port 1 on loopback refuses,

@@ -69,7 +69,7 @@ public class LiveSessionPreviewViewerTests
     }
 
     private static void Render(Pane pane)
-        => pane.Tab.Render(pane.State, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
+        => pane.Tab.Render(pane.State, new RectF32(0f, 0f, SurfaceW, SurfaceH), SystemTimeProvider.Instance);
 
     private static void Click(Pane pane, RectF32 rect)
     {
@@ -108,7 +108,7 @@ public class LiveSessionPreviewViewerTests
         ClickLive(pane);
         starts.ShouldBeEmpty("no live view is wired, so the button is dim");
 
-        pane.Tab.LiveView = new LiveViewController(new SystemTimeProvider(),
+        pane.Tab.LiveView = new LiveViewController(SystemTimeProvider.Instance,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
         Render(pane);
         ClickLive(pane);

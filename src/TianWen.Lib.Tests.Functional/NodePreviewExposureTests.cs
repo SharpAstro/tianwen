@@ -70,7 +70,7 @@ public class NodePreviewExposureTests(ITestOutputHelper outputHelper)
         var client = ClientOf(node);
         var exposing = (await client.StartPreviewExposureAsync(0, new PreviewExposureRequestDto { ExposureSeconds = 600 }, ct)).Value.ShouldNotBeNull();
 
-        var stopped = await PictureJobs.StopPreviewsAsync(client, new SystemTimeProvider(), progress: null, ct);
+        var stopped = await PictureJobs.StopPreviewsAsync(client, SystemTimeProvider.Instance, progress: null, ct);
 
         stopped.Select(j => j.Id).ShouldBe([exposing.Id]);
         (await client.GetJobAsync(exposing.Id, ct)).Value.ShouldNotBeNull().State.ShouldBe(JobState.Cancelled);
@@ -88,7 +88,7 @@ public class NodePreviewExposureTests(ITestOutputHelper outputHelper)
         await using var node = await NodeHarness.StartAsync(outputHelper, ct);
         await ActiveRigAsync(node, ct);
 
-        (await PictureJobs.StopPreviewsAsync(ClientOf(node), new SystemTimeProvider(), progress: null, ct)).ShouldBeEmpty();
+        (await PictureJobs.StopPreviewsAsync(ClientOf(node), SystemTimeProvider.Instance, progress: null, ct)).ShouldBeEmpty();
     }
 
     [Fact(Timeout = 60_000)]
@@ -100,7 +100,7 @@ public class NodePreviewExposureTests(ITestOutputHelper outputHelper)
         await ActiveRigAsync(node, ct);
         var client = ClientOf(node);
         var pushed = new ConcurrentQueue<FrameAvailableDto>();
-        await using var stream = node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (FrameAvailableDto.TryFromEvent(e, out var frame))

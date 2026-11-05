@@ -76,7 +76,7 @@ internal sealed class ConsoleHost(
         {
             if (_node is null && _unreachable is null)
             {
-                var found = await new LocalNodeLauncher(nodeOptions ?? new LocalNodeOptions(), logger).FindOrStartAsync(cancellationToken);
+                var found = await new LocalNodeLauncher(nodeOptions ?? new LocalNodeOptions(), TimeProvider, logger).FindOrStartAsync(cancellationToken);
                 if (found is { Transport: { } transport })
                 {
                     logger.LogInformation("This computer's node ({Outcome}): {Message}", found.Outcome, found.Message);

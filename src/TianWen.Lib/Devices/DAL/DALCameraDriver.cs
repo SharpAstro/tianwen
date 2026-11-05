@@ -1325,6 +1325,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         // A device that times its own pulse is TOLD the duration; one that does not is started here
         // and stopped by the timer below. The timer runs either way, because the in-flight bookkeeping
         // that IsPulseGuidingAsync reports has to be cleared when the pulse ends whoever ended it.
+        // The real clock times a short one-shot to the millisecond (HighResolutionTimer, #2020): a ZWO or PlayerOne
+        // ST-4 pulse lasts as long as this timer, and a timer that waited out the 15.6 ms Windows tick was guiding error.
         var selfTimed = _deviceInfo.CanPulseGuideForDuration;
         var startCode = selfTimed
             ? _deviceInfo.PulseGuideOn(guideDirection, duration)

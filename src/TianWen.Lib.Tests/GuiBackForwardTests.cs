@@ -37,7 +37,7 @@ public class GuiBackForwardTests
         {
             var sp = new ServiceCollection()
                 .AddLogging()
-                .AddSingleton<ITimeProvider>(new SystemTimeProvider())
+                .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
                 .AddSingleton(Substitute.For<ICelestialObjectDB>())
                 .AddSingleton<LiveViewController>()
                 .AddSingleton<GuideLoopController>()
