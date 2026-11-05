@@ -954,7 +954,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     internal async ValueTask<Image> CaptureCorrectedFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
     {
-        var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct);
+        var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct, Logger);
         return _darks?.For(camera.Name) is { } correction ? correction.Correct(frame, exposure, frame.ImageMeta.Gain) : frame;
     }
 
@@ -963,7 +963,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref; 
     /// caller must call <see cref="Image.Release"/> when done to allow buffer reuse.
     /// </summary>
-    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
+    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct, ILogger? logger = null)
     {
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
@@ -983,12 +983,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             // would go on Exposing after the loop is gone, and the next consumer's first StartExposureAsync would meet a busy
             // camera (#1945: a guiding stop handed the camera back to the live view mid-exposure and its capture loop died on
             // it). Whoever stops the loop is owed an idle camera, so the exposure ends before the cancellation propagates.
-            await EndExposureInFlightAsync(camera, exposure, timeProvider, imageReadyPollInterval);
+            await EndExposureInFlightAsync(camera, exposure, timeProvider, imageReadyPollInterval, logger);
             throw;
         }
     }
 
-    private static async ValueTask EndExposureInFlightAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval)
+    private static async ValueTask EndExposureInFlightAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, ILogger? logger)
     {
         try
         {
@@ -1005,7 +1005,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // The camera is the stop's to find busy, not this frame's to fail on: the loop is ending either way.
-            System.Diagnostics.Debug.WriteLine($"Built-in guider: ending the exposure in flight failed: {ex.Message}");
+            logger?.LogWarning(ex, "Built-in guider: ending the exposure in flight on {Camera} failed", camera.Name);
         }
     }
 
