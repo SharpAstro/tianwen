@@ -482,9 +482,17 @@ Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `-
 - **09-10:** the newly left out are 0206 (marked), 0204 (between the owner's by-eye cloud calls 0203 and 0205), and 0154-0158
   (23:56 to 00:00). The viewer keeps 0154-0158: 3-6 % over the sky's trend, where 0157 and 0158 also lost about 10 % of their
   stars. The stacker reads the raw sky as the whole frame's median (`RawSkyLevel`), whose trend scatters less than the viewer's
-  star-masked level, so the same 4 % passes its 6-sigma gate there. Whether those four are thin cloud is the owner's call; until
-  then the default stays on, at five more unmarked frames left out per night of 220 to 350.
+  star-masked level, so the same 4 % passes its 6-sigma gate there. Whether those frames (0154-0158) are thin cloud is the
+  owner's call; until then the default stays on, at five more unmarked frames left out per night of 220 to 350.
+
 `--reject-cloud false` turns it off.
+
+**The sky trend's reach follows the exposure.** The fit needs ten earlier clear frames, or four spanning 20 minutes
+(`SkyTrendMinFramesOverSpan`, `SkyTrendMinSpan`), within the 60 minute `LocalWindow`. At 1 minute subs (both nights above) the
+count decides, so those nights read exactly as before; a +6 % step held reads cloud for 51 minutes there. A count alone read 11
+frames at 3 minute subs, 3 at 5 and none from 6 up; the span path is what lets longer subs read. The 4 % and 6-sigma bars were
+tuned on 1 minute data only. A rise the line tracks (a Moon rising, at about 0.5 % a minute or less) reads clear, while one near
+1 % a minute reads cloud for the reach: the Moon is the known limit of this rule, not yet measured.
 
 Cloud is judged only where its baselines have at least 10 lights (`CloudRejection.MinGradedForCloud`, the viewer's own bar for a
 clear night), because a handful of frames gives the verdict no baseline: a 4-frame group's clearest tenth is its one clearest

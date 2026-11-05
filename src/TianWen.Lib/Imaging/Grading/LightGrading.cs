@@ -644,8 +644,10 @@ public static class LightGrading
     /// second target's sky fell from 1.39 to 1.12 times the night's darkest over three hours, then turned at 03:55 and climbed to
     /// 1.21 by 04:37, the owner's end-of-night cloud marks, with the Moon down (new on 09-11) and the Sun still below -18 degrees.
     /// <para>It sees a CHANGE, so a haze that stays is caught for its first hour or so only: a risen frame leaves every later frame's
-    /// line, and once fewer than <see cref="SkyTrendMinFrames"/> clear frames remain in the window the frame is not read (a +6 % step
-    /// held for two hours reads cloud for its first 51 minutes). Deliberately: a line latched at the last clear frame would call any
+    /// line, and once too few clear frames remain in the window the frame is not read (at least <see cref="SkyTrendMinFrames"/>, or
+    /// <see cref="SkyTrendMinFramesOverSpan"/> spanning <see cref="SkyTrendMinSpan"/>). The reach therefore depends on the cadence: a
+    /// +6 % step held for two hours reads cloud for its first 51 minutes at 1 minute subs, and for roughly the window less the
+    /// span the fit needs at longer ones. Deliberately: a line latched at the last clear frame would call any
     /// lasting change cloud for the rest of the night, and one that re-admits risen frames would absorb a slow haze. A sky that stays
     /// bright for good is the night-sky term's (<see cref="NightSkyCloudFrom"/>) or a reference's (#1976).</para>
     /// </summary>
@@ -670,6 +672,15 @@ public static class LightGrading
 
     /// <summary>The fewest earlier frames a sky trend is fitted to.</summary>
     public const int SkyTrendMinFrames = 10;
+
+    /// <summary>The fewest earlier frames a sky trend is fitted to when they span at least <see cref="SkyTrendMinSpan"/>: a
+    /// count alone made the rule's reach depend on the exposure (60 min less ten frames: 51 min at 1 min subs, 11 frames at 3 min,
+    /// 3 at 5 min, none from 6 min up), so long subs would never read. At 1 min cadence ten frames are 9 minutes, so the
+    /// count path decides there and the measured nights (2026-09-10, 09-12) are read exactly as before.</summary>
+    public const int SkyTrendMinFramesOverSpan = 4;
+
+    /// <summary>The least time the earlier frames must span for a fit of fewer than <see cref="SkyTrendMinFrames"/> to be read.</summary>
+    public static readonly TimeSpan SkyTrendMinSpan = TimeSpan.FromMinutes(20);
 
     /// <summary>
     /// The longest span between two cloud frames of one group across which every frame between them is cloud too (the owner's
@@ -978,7 +989,8 @@ public static class LightGrading
                         prior.Add(((frames[i].Taken - frames[k].Taken).TotalMinutes, earlier));
                     }
                 }
-                if (prior.Count < SkyTrendMinFrames)
+                if (prior.Count < SkyTrendMinFrames
+                    && !(prior.Count >= SkyTrendMinFramesOverSpan && prior[^1].Minutes - prior[0].Minutes >= SkyTrendMinSpan.TotalMinutes))
                 {
                     continue;
                 }
