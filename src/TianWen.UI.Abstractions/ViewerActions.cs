@@ -515,13 +515,17 @@ public static class ViewerActions
     /// <see cref="TryCompleteMark"/> from the frame loop, never on the task.
     /// </summary>
     public static void StartMarkFrame(ViewerState state, AstroImageDocument document, CaptureRejection.Cause? rejectAs)
+        => StartMarkFrame(state, document, rejectAs, RenameOnDisk);
+
+    /// <summary>TEST SEAM (#2012): <see cref="StartMarkFrame(ViewerState, AstroImageDocument, CaptureRejection.Cause?)"/> with the rename work supplied, so a test can hold it behind a gate.</summary>
+    internal static void StartMarkFrame(ViewerState state, AstroImageDocument document, CaptureRejection.Cause? rejectAs, Func<string, CaptureRejection.Cause?, MarkOutcome> renameWork)
     {
         if (state.PendingMark is not null)
         {
             return;
         }
         var path = document.FilePath;
-        var rename = Task.Run(() => RenameOnDisk(path, rejectAs));
+        var rename = Task.Run(() => renameWork(path, rejectAs));
         state.PendingMark = new PendingMark(document, rejectAs, rename);
         // The demand-driven loop draws only when asked: the completion wakes it once, as the enhance path's does.
         _ = rename.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
@@ -550,7 +554,7 @@ public static class ViewerActions
     /// <summary>What <see cref="CaptureRejection.TryMark"/> answered.</summary>
     public readonly record struct MarkOutcome(string? Marked, int OtherNames, string? Error);
 
-    private static MarkOutcome RenameOnDisk(string path, CaptureRejection.Cause? rejectAs)
+    internal static MarkOutcome RenameOnDisk(string path, CaptureRejection.Cause? rejectAs)
     {
         var marked = CaptureRejection.TryMark(path, rejectAs, out var otherNames, out var error);
         return new MarkOutcome(marked, otherNames, error);

@@ -48,7 +48,7 @@ public class ProfileFlowProcessTests(ITestOutputHelper output)
         var client = kept.Client;
 
         var pushed = new ConcurrentQueue<ProfileChangedDto>();
-        await using var stream = NodeTransport.OverSocket(kept.SocketPath).CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(output));
+        await using var stream = NodeTransport.OverSocket(kept.SocketPath).CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(output));
         stream.EventReceived += (_, e) =>
         {
             if (ProfileChangedDto.TryFromEvent(e, out var change))

@@ -58,7 +58,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
         node.Factory.Initialised.SetResult();
 
         var received = new TaskCompletionSource<WebSocketEventDto>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var stream = node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (e.Event == "SESSION-PHASE-CHANGED")

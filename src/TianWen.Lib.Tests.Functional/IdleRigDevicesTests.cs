@@ -77,7 +77,7 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, SystemTimeProvider.Instance, NullLogger.Instance, ct)
             .ShouldNotBeNull();
         (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
         var remote = rig.Context.LiveSession;
@@ -148,7 +148,7 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, SystemTimeProvider.Instance, NullLogger.Instance, ct)
             .ShouldNotBeNull();
         await NodeWait.UntilAsync("the rig to answer", _ =>
             ValueTask.FromResult((rig.Mirror.Contact.State is NodeContactState.Answering, rig.Mirror.Contact.State.ToString())), ct);
@@ -193,7 +193,7 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, SystemTimeProvider.Instance, NullLogger.Instance, ct)
             .ShouldNotBeNull();
         (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
         var remote = rig.Context.LiveSession;
@@ -203,7 +203,7 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
             return (!double.IsNaN(remote.MountState.RaJ2000), remote.MountState.ToString());
         }, ct);
 
-        var clock = new SystemTimeProvider();
+        var clock = SystemTimeProvider.Instance;
         var read = (await hub.ReadMountAsync(mount.DeviceUri, () => TransformFactory.FromProfile(profile, clock, out _), NullLogger.Instance, ct))
             .ShouldNotBeNull();
         var seen = remote.MountState;

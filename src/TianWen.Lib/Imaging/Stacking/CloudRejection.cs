@@ -66,7 +66,7 @@ internal static class CloudRejection
             var causes = verdict.Causes & Rejects;
             if ((causes & GradeCause.Cloud) != GradeCause.None)
             {
-                var byPatchiness = patchinessPerRig.GetValueOrDefault((grade.Key, grade.Rig)) >= MinGradedForCloud &&LightGrading.PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness);
+                var byPatchiness = patchinessPerRig.GetValueOrDefault((grade.Key, grade.Rig)) >= MinGradedForCloud &&(LightGrading.PatchyCloud(verdict.Patchiness, verdict.LocalPatchiness, verdict.LocalNoise, verdict.StarRatio) || verdict.InCloudRun);
                 var bySky = verdict.NightSky >= LightGrading.NightSkyCloudFrom && perRigNight.GetValueOrDefault((grade.Rig, grade.Night)) >= MinGradedForCloud;
                 if (!byPatchiness && !bySky)
                 {

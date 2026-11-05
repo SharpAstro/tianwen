@@ -23,7 +23,7 @@ public static class LightGradeReferenceStore
     /// <summary>Where the references are kept: <c>Viewer/clear-sky.json</c>.</summary>
     public static string PathFor(IExternal external) => Path.Combine(external.AppDataFolder.FullName, "Viewer", "clear-sky.json");
 
-    /// <summary>Every kept reference; empty (never default) when none was saved, so a verdict read through it says cloud cannot be judged.</summary>
+    /// <summary>Every kept reference; empty (never default) when none was saved, so a verdict read through it says cloud was judged on that night alone.</summary>
     public static async Task<ImmutableArray<LightGradeReference>> LoadAsync(IExternal external, CancellationToken cancellationToken)
         => await external.TryReadJsonAsync(PathFor(external), LightGradeReferenceJsonContext.Default.LightGradeReferenceFile, logger: null, cancellationToken)
             .ConfigureAwait(false) is { } saved

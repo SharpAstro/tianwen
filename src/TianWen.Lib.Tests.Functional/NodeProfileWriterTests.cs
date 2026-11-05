@@ -131,7 +131,7 @@ public class NodeProfileWriterTests(ITestOutputHelper output) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         var pushed = new ConcurrentQueue<ProfileChangedDto>();
-        await using var stream = _node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(output));
+        await using var stream = _node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(output));
         stream.EventReceived += (_, e) =>
         {
             if (ProfileChangedDto.TryFromEvent(e, out var change))

@@ -88,7 +88,7 @@ public class LiveStackRawFrameTests
     {
         var ct = TestContext.Current.CancellationToken;
         using var frames = new Frames();
-        await using var source = new LiveStackPreviewSource(new StackedMasters(frames, options: null, ownsStream: false), "raw-test", new SystemTimeProvider());
+        await using var source = new LiveStackPreviewSource(new StackedMasters(frames, options: null, ownsStream: false), "raw-test", SystemTimeProvider.Instance);
 
         source.CanShowRaw.ShouldBeFalse("no stack yet");
         source.RequestFollow(2);
@@ -125,7 +125,7 @@ public class LiveStackRawFrameTests
     [Fact]
     public void ANodesMastersAndAMasterFileHaveNoFramesToCompare()
     {
-        using var node = new LiveStackPreviewSource(new NodeMasters(), "node", new SystemTimeProvider());
+        using var node = new LiveStackPreviewSource(new NodeMasters(), "node", SystemTimeProvider.Instance);
         node.CanShowRaw.ShouldBeFalse();
     }
 }

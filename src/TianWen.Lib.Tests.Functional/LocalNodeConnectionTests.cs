@@ -47,7 +47,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
             catalog.AllObjectIndices.Returns(new HashSet<CatalogIndex>());
             _services = new ServiceCollection()
                 .AddSingleton<IExternal>(new FakeExternal(output))
-                .AddSingleton<ITimeProvider>(new SystemTimeProvider())
+                .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
                 .AddLogging()
                 .AddSingleton<ViewerState>()
                 .AddSingleton<PlanetaryCaptureController>()
@@ -266,7 +266,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         var cards = HomeBoard.BuildCards(client.Contexts, client.Handler.Rigs, client.AppState, DateTimeOffset.UtcNow);
         cards.ShouldHaveSingleItem().IsLocal.ShouldBeTrue();
         var sweep = await RemoteRigActions.ConnectAllAsync(client.Handler.Rigs, client.Contexts, client.AppState,
-            new FakeExternal(outputHelper), new SystemTimeProvider(), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, ct);
+            new FakeExternal(outputHelper), SystemTimeProvider.Instance, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, ct);
         sweep.DidAnything.ShouldBeFalse();
         client.Handler.Rigs.IsConnected(ownBinding.BindingId).ShouldBeFalse();
     }
