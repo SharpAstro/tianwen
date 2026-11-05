@@ -910,35 +910,33 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     internal static readonly TimeSpan CameraIdleBudget = TimeSpan.FromSeconds(5);
 
     // A camera still exposing, reading or downloading as the loop starts refuses its first exposure; wait a bounded time on
-    // the injected clock for it to go idle. Error and NotConnected are not busy and fail at once, naming the state.
+    // the injected clock for it to go idle. Only a busy state is waited on: Error and NotConnected neither wait nor fail the
+    // start (a native stream ignored the state, and a DAL camera's Error stays until its next successful exposure).
+    private static bool IsBusy(CameraState state) =>
+        state is CameraState.Waiting or CameraState.Exposing or CameraState.Reading or CameraState.Download;
+
     private async ValueTask WaitForCameraIdleAsync(ICameraDriver camera, CancellationToken token)
     {
         var state = await camera.GetCameraStateAsync(token);
-        if (state is CameraState.Idle)
+        if (!IsBusy(state))
         {
             return;
         }
 
         var from = timeProvider.GetTimestamp();
-        while (state is CameraState.Waiting or CameraState.Exposing or CameraState.Reading or CameraState.Download)
+        while (IsBusy(state))
         {
-            var waited = timeProvider.GetElapsedTime(from);
-            if (waited >= CameraIdleBudget)
+            if (timeProvider.GetElapsedTime(from) >= CameraIdleBudget)
             {
-                break;
+                throw new InvalidOperationException($"The {Name} cannot start: the camera {camera.Name} stayed in state {state} and did not go idle.");
             }
 
             await timeProvider.SleepAsync(_readyPollInterval, token);
             state = await camera.GetCameraStateAsync(token);
-            if (state is CameraState.Idle)
-            {
-                logger.LogInformation("The {Name} waited {Waited} for the camera {Camera} to go idle before its first exposure",
-                    Name, timeProvider.GetElapsedTime(from), camera.Name);
-                return;
-            }
         }
 
-        throw new InvalidOperationException($"The {Name} cannot start: the camera {camera.Name} stayed in state {state} and did not go idle.");
+        logger.LogInformation("The {Name} waited {Waited} for the camera {Camera} to leave state {State} before its first exposure",
+            Name, timeProvider.GetElapsedTime(from), camera.Name, state);
     }
 
     // The camera's frames over every segment of the capture's stream: the stream, and after an interlude taken between two of

@@ -115,7 +115,9 @@ public class PlanetaryCaptureLiveViewTests
     {
         var ct = TestContext.Current.CancellationToken;
         var camera = BusyCamera(busyReads: int.MaxValue);
-        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance, kind: LiveCaptureKind.LiveView);
+        var clock = new FakeTimeProviderWrapper();
+        var begun = clock.GetUtcNow();
+        await using var capture = new PlanetaryCapture(clock, NullLogger.Instance, kind: LiveCaptureKind.LiveView);
         capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
 
         await capture.WaitForNextFrameAsync(ct);
@@ -124,6 +126,31 @@ public class PlanetaryCaptureLiveViewTests
         capture.FramesReceived.ShouldBe(0);
         capture.FailureReason.ShouldNotBeNull().ShouldContain("Exposing");
         capture.FailureReason.ShouldContain("Busy Cam");
+        (clock.GetUtcNow() - begun).ShouldBeGreaterThanOrEqualTo(PlanetaryCapture.CameraIdleBudget,
+            "the failure came only once the whole budget had run out");
+        _ = camera.DidNotReceive().StartExposureAsync(Arg.Any<TimeSpan>(), Arg.Any<FrameType>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory(Timeout = 30_000)]
+    [InlineData(CameraState.Error)]
+    [InlineData(CameraState.NotConnected)]
+    public async Task ACameraNotBusyButNotIdleAtTheStartNeitherWaitsNorFailsTheLoop(CameraState state)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, _) = Camera();
+        camera.Name.Returns("Odd Cam");
+        camera.GetCameraStateAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(state));
+        var clock = new FakeTimeProviderWrapper();
+        var begun = clock.GetUtcNow();
+        await using var capture = new PlanetaryCapture(clock, NullLogger.Instance, kind: LiveCaptureKind.LiveView);
+        capture.ArmFrameGate();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
+
+        await StepAsync(capture, 2, ct);
+
+        capture.FramesReceived.ShouldBe(2);
+        capture.FailureReason.ShouldBeNull();
+        (clock.GetUtcNow() - begun).ShouldBeLessThan(PlanetaryCapture.CameraIdleBudget, "an Error camera is not waited on");
     }
 
     [Fact(Timeout = 30_000)]
