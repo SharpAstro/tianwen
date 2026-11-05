@@ -3078,7 +3078,8 @@
     /// This is the same path as the canvas's own keydown, deliberately -- there is one keyboard and one
     /// meaning for [O], so a second entry point that handled keys its own way would be two behaviours
     /// waiting to diverge. Both feed WebGl.Renderer's <c>WebInputMapping.ToInputKey(key, code)</c>, so a
-    /// shifted or layout-changed key falls back to its physical <c>code</c> on either path (#2009). The JS side has already decided the app is entitled to this key (it skips
+    /// shifted or layout-changed key falls back to its physical <c>code</c> on either path (#2009).
+    /// The JS side has already decided the app is entitled to this key (it skips
     /// editables, the canvas itself, Tab, and a button's activation keys), so nothing is re-judged here.
     /// </remarks>
     [JSInvokable]

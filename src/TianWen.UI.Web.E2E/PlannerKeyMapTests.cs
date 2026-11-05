@@ -27,12 +27,15 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
         return (page, page.Locator("#planner"));
     }
 
-    private static async Task<double> FovAsync(IPage page)
+    private static async Task<(double Fov, double Ra, double Dec)> ViewAsync(IPage page)
     {
         var json = await page.EvaluateAsync<string>("async () => await window.__tianwenTest.getSkyView()");
         using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.GetProperty("fovDeg").GetDouble();
+        var r = doc.RootElement;
+        return (r.GetProperty("fovDeg").GetDouble(), r.GetProperty("centerRA").GetDouble(), r.GetProperty("centerDec").GetDouble());
     }
+
+    private static async Task<double> FovAsync(IPage page) => (await ViewAsync(page)).Fov;
 
     private static async Task<double> PressAsync(IPage page, ILocator canvas, string chord)
     {
@@ -63,5 +66,26 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
         var before = await FovAsync(page);
         var after = await PressAsync(page, canvas, chord);
         Assert.True(after > before, $"{chord} should grow the FOV; before={before}, after={after}");
+    }
+
+    /// <summary>
+    /// A named key (not a symbol) reaches the sky map through the same mapping. In the planner the arrows
+    /// step the sky map's clock (Up/Down an hour), which in Horizon mode turns the sky under the fixed
+    /// view: the centre moves and the FOV does not.
+    /// </summary>
+    [Theory]
+    [InlineData("ArrowUp")]
+    [InlineData("ArrowDown")]
+    public async Task AnArrowKeyMovesTheViewCentreAndLeavesTheZoom(string key)
+    {
+        var (page, canvas) = await SkyMapAsync();
+        var before = await ViewAsync(page);
+        await canvas.PressAsync(key);
+        await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+        await Task.Delay(150);
+        var after = await ViewAsync(page);
+        Assert.Equal(before.Fov, after.Fov, 6);
+        Assert.True(before.Ra != after.Ra || before.Dec != after.Dec,
+            $"{key} should move the view centre; before=({before.Ra},{before.Dec}), after=({after.Ra},{after.Dec})");
     }
 }
