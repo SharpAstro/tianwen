@@ -167,7 +167,10 @@ internal static class NodeWait
         ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
         ThreadPool.GetAvailableThreads(out var freeWorkers, out _);
         ThreadPool.GetMaxThreads(out var maxWorkers, out _);
-        return $"thread pool: {ThreadPool.ThreadCount} threads ({maxWorkers - freeWorkers} busy workers, minimum {minWorkers} workers and {minIo} I/O), {ThreadPool.PendingWorkItemCount} queued";
+        var memory = GC.GetGCMemoryInfo();
+        return $"thread pool: {ThreadPool.ThreadCount} threads ({maxWorkers - freeWorkers} busy workers, minimum {minWorkers} workers and {minIo} I/O), {ThreadPool.PendingWorkItemCount} queued; "
+            + $"GC: {GC.GetTotalPauseDuration().TotalSeconds:0.0} s paused in all, {GC.CollectionCount(2)} gen2, heap {GC.GetTotalMemory(false) / (1024 * 1024)} MB, "
+            + $"memory load {memory.MemoryLoadBytes / (1024 * 1024)} of {memory.TotalAvailableMemoryBytes / (1024 * 1024)} MB";
     }
 
     private static OperationCanceledException TimedOut(string waitingFor, TimeSpan waited, string? lastSeen, OperationCanceledException inner)
