@@ -1623,10 +1623,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 && InverseTanProject(Vector2.Transform(new Vector2((float)cx, (float)cy), seedInv),
                     currentOrigin, pixelScaleRad, cx, cy, xSign) is { } seededWcs)
             {
+                // The seed's transform was measured against the projection tangent at the OLD origin; the loop
+                // projects about the seeded one, so its rotation is carried over (CarryFitToNewTangentPoint).
+                lastFitted = CarryFitToNewTangentPoint(locked.Transform, currentOrigin, seededWcs, pixelScaleRad, cx, cy, xSign);
                 currentOrigin = seededWcs;
                 lastMinv = seedInv;
                 hasMinv = true;
-                lastFitted = locked.Transform;
                 seeded = true;
             }
         }
@@ -1865,7 +1867,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             var dRA = Math.Abs(refinedWcs.CenterRA - currentOrigin.CenterRA) * 15.0;
             var dDec = Math.Abs(refinedWcs.CenterDec - currentOrigin.CenterDec);
 
-
+            // This iteration's fit is against the projection about the origin it is leaving.
+            lastFitted = CarryFitToNewTangentPoint(M.Value, currentOrigin, refinedWcs, pixelScaleRad, cx, cy, xSign);
             currentOrigin = refinedWcs;
 
             projectedCount = projected.Count;
@@ -2705,23 +2708,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
         foreach (var (ra, dec, _) in catalogCoords)
         {
-            var alpha = ra * HOURS2RADIANS;
-            var deltaAlpha = alpha - alpha0;
-
-            var (sinDelta, cosDelta) = Math.SinCos(double.DegreesToRadians(dec));
-            var cosDeltaAlpha = Math.Cos(deltaAlpha);
-
-            var cosC = sinDelta0 * sinDelta + cosDelta0 * cosDelta * cosDeltaAlpha;
-            if (cosC <= 0)
+            if (!TryTanProject(ra, dec, alpha0, sinDelta0, cosDelta0, pixelScaleRad, cx, cy, xSign, out var x, out var y))
             {
                 continue; // behind the tangent plane
             }
 
-            var xi = cosDelta * Math.Sin(deltaAlpha) / cosC;
-            var eta = (cosDelta0 * sinDelta - sinDelta0 * cosDelta * cosDeltaAlpha) / cosC;
-
-            var xPix = (float)(cx + xSign * xi / pixelScaleRad);
-            var yPix = (float)(cy - eta / pixelScaleRad);
+            var xPix = (float)x;
+            var yPix = (float)y;
 
             bool keep;
             if (rotationInvariant)
@@ -2744,6 +2737,67 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         }
 
         return projected;
+    }
+
+    /// <summary>
+    /// The gnomonic (TAN) projection of one sky position onto the pixel plane tangent at the origin whose RA (radians) and
+    /// Dec sine and cosine are given; false behind the tangent plane. The one copy of the forward projection.
+    /// </summary>
+    private static bool TryTanProject(double raHours, double decDeg, double alpha0, double sinDelta0, double cosDelta0,
+        double pixelScaleRad, double cx, double cy, double xSign, out double x, out double y)
+    {
+        var deltaAlpha = raHours * HOURS2RADIANS - alpha0;
+        var (sinDelta, cosDelta) = Math.SinCos(double.DegreesToRadians(decDeg));
+        var cosDeltaAlpha = Math.Cos(deltaAlpha);
+
+        var cosC = sinDelta0 * sinDelta + cosDelta0 * cosDelta * cosDeltaAlpha;
+        if (cosC <= 0)
+        {
+            x = y = double.NaN;
+            return false;
+        }
+
+        var xi = cosDelta * Math.Sin(deltaAlpha) / cosC;
+        var eta = (cosDelta0 * sinDelta - sinDelta0 * cosDelta * cosDeltaAlpha) / cosC;
+        x = cx + xSign * xi / pixelScaleRad;
+        y = cy - eta / pixelScaleRad;
+        return true;
+    }
+
+    /// <summary>
+    /// Carries the LINEAR part of a fit made against the projection tangent at <paramref name="from"/> over to the projection
+    /// tangent at <paramref name="to"/>, so the prediction step (which applies it about the frame centre) still points
+    /// where the stars are. Moving the tangent point turns the projection's north by about dRA x sin(Dec): nothing at the
+    /// moves and declinations the solver was tuned on, but at Dec -80 a seed that moved the centre 15 degrees of RA left a
+    /// stale 15 degree rotation in the prediction, about 200 px at a PoleMaster frame's edge against a 4.8 px tolerance, and
+    /// the loop matched nothing after a 94/160 lock (bench, 2026-11-05). The returned matrix applies the local Jacobian
+    /// from the new plane to the old one first, then <paramref name="fit"/>; its translation is <paramref name="fit"/>'s,
+    /// which the prediction never reads. Falls back to <paramref name="fit"/> when either plane cannot see the other.
+    /// </summary>
+    private static Matrix3x2 CarryFitToNewTangentPoint(Matrix3x2 fit, WCS from, WCS to, double pixelScaleRad, double cx, double cy, double xSign)
+    {
+        // Small enough that the Jacobian is local, large enough that float pixel coordinates keep their precision.
+        const float Step = 50f;
+
+        var fromAlpha = from.CenterRA * HOURS2RADIANS;
+        var (fromSin, fromCos) = Math.SinCos(double.DegreesToRadians(from.CenterDec));
+        if (!TryTanProject(to.CenterRA, to.CenterDec, fromAlpha, fromSin, fromCos, pixelScaleRad, cx, cy, xSign, out var ox, out var oy)
+            || InverseTanProject(new Vector2((float)cx + Step, (float)cy), to, pixelScaleRad, cx, cy, xSign) is not { } east
+            || InverseTanProject(new Vector2((float)cx, (float)cy + Step), to, pixelScaleRad, cx, cy, xSign) is not { } down
+            || !TryTanProject(east.CenterRA, east.CenterDec, fromAlpha, fromSin, fromCos, pixelScaleRad, cx, cy, xSign, out var ex, out var ey)
+            || !TryTanProject(down.CenterRA, down.CenterDec, fromAlpha, fromSin, fromCos, pixelScaleRad, cx, cy, xSign, out var dx, out var dy))
+        {
+            return fit;
+        }
+
+        // Row-vector convention (Vector2.Transform): x' = x*M11 + y*M21, y' = x*M12 + y*M22.
+        var jacobian = new Matrix3x2(
+            (float)((ex - ox) / Step), (float)((ey - oy) / Step),
+            (float)((dx - ox) / Step), (float)((dy - oy) / Step),
+            0f, 0f);
+        var carried = jacobian * fit;
+        carried.Translation = fit.Translation;
+        return carried;
     }
 
     private static WCS? InverseTanProject(
