@@ -81,8 +81,14 @@ public class ViewerSkyBackdropAgreementTests
             ICelestialObjectDB db, RectF32 contentRect,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
-            => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
+        {
+            // A pass that paints nothing (no item in view) never reaches DrawOverlayMarkers, so what an earlier pass
+            // painted must not outlive it: the markers read back are THIS frame's.
+            DrawnMarkers.Clear();
+            DrawInfo = "no marker pass this frame";
+            RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
                 site, dimBelowHorizon, plannerState, showAllOverlays);
+        }
     }
 
     /// <summary>
@@ -90,7 +96,7 @@ public class ViewerSkyBackdropAgreementTests
     /// left third of the pane and the rest is backdrop.
     /// </summary>
     private static async Task<(MapWithObjectOverlay Tab, ICelestialObjectDB Db, DateTimeOffset When)> PrepareAsync(
-        ViewerE2E e2e, CancellationToken ct, bool distorted = true)
+        ViewerE2E e2e, CancellationToken ct, bool distorted = true, float zoom = 1.32f)
     {
         var db = await SharedCatalogDB.InitAsync(ct);
 
@@ -131,7 +137,7 @@ public class ViewerSkyBackdropAgreementTests
         e2e.State.ShowSkyBackdrop = true;
         e2e.State.ShowOverlays = true;
         e2e.State.ZoomToFit = false;
-        e2e.State.Zoom = 1.32f;
+        e2e.State.Zoom = zoom;
         e2e.Frame();
 
         // Pan so the frame's right edge sits in the left third of the pane and the rest is backdrop.
@@ -190,7 +196,8 @@ public class ViewerSkyBackdropAgreementTests
     {
         var ct = TestContext.Current.CancellationToken;
         await using var e2e = ViewerE2E.Start(dpi);
-        var (tab, db, when) = await PrepareAsync(e2e, ct, distorted);
+        // Zoomed out so the backdrop past the edge spans a degree or so and holds catalogued objects the map paints.
+        var (tab, db, when) = await PrepareAsync(e2e, ct, distorted, zoom: 0.3f);
         var area = e2e.Viewer.ImageArea;
         var placed = e2e.Viewer.Placement;
         var frameRight = placed.OffsetX + placed.DrawW;
