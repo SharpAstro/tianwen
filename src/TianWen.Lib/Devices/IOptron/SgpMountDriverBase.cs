@@ -27,7 +27,13 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     internal const int SGP_BAUD_RATE = IOptronDevice.SGP_BAUD_RATE;
 
     private static readonly Encoding _encoding = Encoding.ASCII;
-    private static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
+
+    /// <summary>
+    /// Set once the mount has answered a command with an earlier command's reply (<see cref="SgpWire"/>): from then on each
+    /// repeatable command goes twice, so a status read is the mount's state now and not at the previous poll. Never cleared
+    /// while connected; when the mount is in step the extra send costs one more reply, about 25 ms.
+    /// </summary>
+    private volatile bool _outOfStep;
 
     private string _firmwareVersion = "Unknown";
     private bool _isNorthernHemisphere = true;
@@ -116,11 +122,12 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         _trackingSpeed = value;
     }
 
-    public async ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
-    {
-        var status = await GetMountStatusAsync(cancellationToken);
-        return status.TrackingRate >= 0;
-    }
+    /// <summary>
+    /// Always true while connected: the SkyGuider Pro has no tracking-off (a stop resumes tracking), so this asks the mount
+    /// nothing. It used to read the status and answer false whenever the reply did not parse, which was every read during a
+    /// move (the mount answers <c>:HRAS02...</c> while moving) and every stale reply (bench, 2026-11-05).
+    /// </summary>
+    public ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Connected);
 
     public async ValueTask SetTrackingAsync(bool tracking, CancellationToken cancellationToken)
     {
@@ -172,8 +179,20 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #region Slew & Move Axis
 
-    public ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_isMoving);
+    /// <summary>
+    /// Read from the mount's status (its first field: <c>01</c> at rest, <c>02</c> moving), so it stays true while the RA servo
+    /// winds down after a stop (about 1.6 s at full speed, bench 2026-11-05) and never trusts the driver's own record of what
+    /// it commanded. The record answers only when the status cannot be read.
+    /// </summary>
+    public async ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
+    {
+        if (await GetMountStatusAsync(cancellationToken) is { IsValid: true } status)
+        {
+            _isMoving = status.IsMoving;
+        }
+
+        return _isMoving;
+    }
 
     public async ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
     {
@@ -184,8 +203,8 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
         if (rate == 0.0)
         {
+            // Not cleared here: the servo is still turning, and IsSlewingAsync asks the mount.
             await SendCommandAsync(":MSMR2#", cancellationToken);
-            _isMoving = false;
             return;
         }
 
@@ -207,10 +226,8 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
             using var @lock = await port.WaitAsync(cancellationToken);
-            await WriteAsync(port, $":MSMS{speedIndex}#", cancellationToken);
-            await port.TryReadTerminatedAsync(HashTerminator, cancellationToken);
-            await WriteAsync(port, dirCmd, cancellationToken);
-            await port.TryReadTerminatedAsync(HashTerminator, cancellationToken);
+            await ExchangeLockedAsync(port, $":MSMS{speedIndex}#", repeatable: true, cancellationToken);
+            await ExchangeLockedAsync(port, dirCmd, repeatable: true, cancellationToken);
         }
 
         _slewSpeedIndex = speedIndex;
@@ -221,10 +238,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         => throw new InvalidOperationException("SGP does not support goto slewing");
 
     public async ValueTask AbortSlewAsync(CancellationToken cancellationToken)
-    {
-        await SendCommandAsync(":MSMR2#", cancellationToken);
-        _isMoving = false;
-    }
+        => await SendCommandAsync(":MSMR2#", cancellationToken);
 
     public ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
@@ -403,7 +417,8 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         var interval = (int)settings.Interval.TotalSeconds;
         var cmd = $":MSCA1{shutter:D4}{interval:D3}{settings.ShotCount:D3}#";
 
-        await SendCommandAsync(cmd, cancellationToken);
+        // The one command that is never sent twice: it starts the shutter sequence.
+        await SendCommandAsync(cmd, cancellationToken, repeatable: false);
         _cameraSnapSettings = settings;
     }
 
@@ -487,6 +502,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
             }
 
             var status = await GetMountStatusAsync(cancellationToken);
+            _isMoving = status.IsValid && status.IsMoving;
             _isNorthernHemisphere = status.IsNorthern;
             _dec = _isNorthernHemisphere ? 90.0 : -90.0;
             _targetDec = _dec;
@@ -532,6 +548,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #region Serial Protocol Helpers
 
+    /// <summary>The reply to a query, matched to it by <see cref="SgpWire"/>; null when the mount answered nothing usable.</summary>
     private async ValueTask<string?> SendAndReceiveAsync(string command, CancellationToken cancellationToken)
     {
         if (_deviceInfo.SerialDevice is not { IsOpen: true } port)
@@ -540,11 +557,10 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         }
 
         using var @lock = await port.WaitAsync(cancellationToken);
-        await WriteAsync(port, command, cancellationToken);
-        return await port.TryReadTerminatedAsync(HashTerminator, cancellationToken);
+        return await ExchangeLockedAsync(port, command, repeatable: true, cancellationToken);
     }
 
-    private async ValueTask SendCommandAsync(string command, CancellationToken cancellationToken)
+    private async ValueTask SendCommandAsync(string command, CancellationToken cancellationToken, bool repeatable = true)
     {
         if (_deviceInfo.SerialDevice is not { IsOpen: true } port)
         {
@@ -552,41 +568,46 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         }
 
         using var @lock = await port.WaitAsync(cancellationToken);
-        await WriteAsync(port, command, cancellationToken);
-        await port.TryReadTerminatedAsync(HashTerminator, cancellationToken);
+        await ExchangeLockedAsync(port, command, repeatable, cancellationToken);
     }
 
-    private static async ValueTask WriteAsync(ISerialConnection port, string command, CancellationToken cancellationToken)
+    /// <summary>One exchange through <see cref="SgpWire"/>, the caller holding the port's lock; notes a mount out of step.</summary>
+    private async ValueTask<string?> ExchangeLockedAsync(ISerialConnection port, string command, bool repeatable, CancellationToken cancellationToken)
     {
-        if (!await port.TryWriteAsync(command, cancellationToken))
+        var (reply, sawStale) = await SgpWire.ExchangeAsync(port, command, repeatable, sendTwice: _outOfStep, Logger, cancellationToken);
+        if (sawStale && !_outOfStep)
         {
-            throw new InvalidOperationException($"Failed to write command {command}");
+            _outOfStep = true;
+            Logger.LogInformation("SGP answered {Command} with an earlier command's reply; sending each query twice from now on", command);
         }
+
+        return reply;
     }
 
-    private record struct MountStatus(int TrackingRate, int Speed, bool IsNorthern);
+    private readonly record struct MountStatus(bool IsValid, bool IsMoving, int TrackingRate, int Speed, bool IsNorthern);
 
     private async ValueTask<MountStatus> GetMountStatusAsync(CancellationToken cancellationToken)
     {
         var response = await SendAndReceiveAsync(":MGAS#", cancellationToken);
-        if (response is not null && MountStatusRegex().IsMatch(response))
+        if (response is not null && MountStatusRegex().Match(response) is { Success: true } match)
         {
-            var match = MountStatusRegex().Match(response);
             return new MountStatus(
+                IsValid: true,
+                IsMoving: match.Groups["Motion"].Value == "2",
                 int.Parse(match.Groups["TrackingRate"].Value, CultureInfo.InvariantCulture),
                 int.Parse(match.Groups["Speed"].Value, CultureInfo.InvariantCulture),
                 match.Groups["Hemisphere"].Value == "1"
             );
         }
 
-        return new MountStatus(-1, 0, _isNorthernHemisphere);
+        return new MountStatus(IsValid: false, IsMoving: false, -1, 0, _isNorthernHemisphere);
     }
 
     /// <summary>
-    /// Matches :HRAS01{TrackingRate}{Speed}0{Hemisphere}1{Unknown}
-    /// Example: :HRAS013501105
+    /// Matches :HRAS0{Motion}{TrackingRate}{Speed}0{Hemisphere}1{Unknown}, Motion 1 at rest and 2 moving.
+    /// Examples (bench, 2026-11-05): :HRAS013900105 at rest, :HRAS023900105 moving.
     /// </summary>
-    [GeneratedRegex(@"^:HRAS01(?<TrackingRate>\d)(?<Speed>\d)0(?<Hemisphere>\d)1\d\d$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^:HRAS0(?<Motion>[12])(?<TrackingRate>\d)(?<Speed>\d)0(?<Hemisphere>\d)1\d\d$", RegexOptions.CultureInvariant)]
     private static partial Regex MountStatusRegex();
 
     [GeneratedRegex(@"^:RMRVE12(\d{6})$", RegexOptions.CultureInvariant)]
