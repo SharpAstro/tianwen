@@ -109,14 +109,14 @@ public class GuiSuccessionTests
         var predecessor = await StartPredecessorAsync(ct);
         try
         {
-            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), new SystemTimeProvider(), ct))
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
                 .ShouldBeFalse("it was still running when the budget ran out");
 
-            var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, new SystemTimeProvider(), ct);
+            var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, SystemTimeProvider.Instance, ct);
             End(predecessor);
             (await waiting).ShouldBeTrue("it exited within the budget");
 
-            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), new SystemTimeProvider(), ct))
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
                 .ShouldBeTrue("a predecessor gone already needs no waiting for");
         }
         finally

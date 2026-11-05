@@ -43,7 +43,7 @@ public class NodeJobsPerDeviceTests
         }
     }
 
-    private static NodeJobs Jobs() => new NodeJobs(Substitute.For<IHostApplicationLifetime>(), new SystemTimeProvider(), NullLogger<NodeJobs>.Instance);
+    private static NodeJobs Jobs() => new NodeJobs(Substitute.For<IHostApplicationLifetime>(), SystemTimeProvider.Instance, NullLogger<NodeJobs>.Instance);
 
     private static async Task UntilEndedAsync(NodeJobs jobs, string id, CancellationToken ct)
     {

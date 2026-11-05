@@ -41,7 +41,7 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         // Register TianWen services with fake devices (mirrors CLI registration chain)
         builder.Services.AddSingleton<IExternal>(fakeExternal);
         // A real clock, as NodeHarness uses: on the fake one the node's background loops spin.
-        builder.Services.AddSingleton<ITimeProvider>(new SystemTimeProvider());
+        builder.Services.AddSingleton<ITimeProvider>(SystemTimeProvider.Instance);
         builder.Services.AddAstrometry();
         builder.Services.AddFake();
         builder.Services.AddDevices();

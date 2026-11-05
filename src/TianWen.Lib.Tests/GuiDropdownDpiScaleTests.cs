@@ -77,7 +77,7 @@ public class GuiDropdownDpiScaleTests
                 new DropdownItem<LiveSessionMode>("Preview", LiveSessionMode.Preview),
                 new DropdownItem<LiveSessionMode>("Planetary", LiveSessionMode.Planetary)));
 
-        tab.Render(state, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
+        tab.Render(state, new RectF32(0f, 0f, SurfaceW, SurfaceH), SystemTimeProvider.Instance);
 
         return DropdownRows.First(tab);
     }
