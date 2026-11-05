@@ -782,19 +782,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         }
     }
 
-    /// <summary>The saturation sidecar beside <paramref name="masterPath"/>, cropped to <paramref name="crop"/> when the
-    /// SPCC solve runs on the autocrop; null when the master has none (the peak gate then stands alone) or its size is not
-    /// the master's.</summary>
-    internal static Image? LoadSaturationMap(string masterPath, PixelRect? crop)
-    {
-        if (!IntegrationFitsWriter.TryReadSaturationMap(masterPath, out var full))
-        {
-            return null;
-        }
-        return crop is { } rect ? CropImage(full, rect) : full;
-    }
-
-    private static IntegrationResult CropIntegrationResult(IntegrationResult full, PixelRect rect)
+    internal static IntegrationResult CropIntegrationResult(IntegrationResult full, PixelRect rect)
     {
         // Both sidecars are per-pixel maps OF the master, so both follow it through the crop. The
         // rejection map is null for a strategy that rejects nothing (drizzle), and the coverage plane

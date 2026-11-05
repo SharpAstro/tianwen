@@ -216,10 +216,20 @@ public static class IntegrationFitsWriter
         }
         else
         {
-            // Nothing was clipped this run: a sidecar of an earlier run would describe a different stack.
-            while (ExistingSidecarPath(SaturationPathFor(masterPath)) is { } stale)
+            // Nothing was clipped this run: a sidecar of an earlier run would describe a different stack. Best effort,
+            // after the master is written: a file a viewer holds open stays, and the run itself never reads it back
+            // (the post-processor takes the in-memory count), so it can only mislead a later reader of the folder.
+            var logical = SaturationPathFor(masterPath);
+            foreach (var stale in (ReadOnlySpan<string>)[CompressedPathFor(logical), logical])
             {
-                File.Delete(stale);
+                try
+                {
+                    File.Delete(stale);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Left for the next run that writes this master to remove.
+                }
             }
         }
         WriteBadPixelMap(masterPath, badPixelMask, result.Master.ImageMeta, result.FrameCount);

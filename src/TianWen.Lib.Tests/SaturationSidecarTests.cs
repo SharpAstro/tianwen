@@ -159,7 +159,7 @@ public sealed class SaturationSidecarTests : IDisposable
     }
 
     [Fact]
-    public void ThePostProcessorFindsTheSidecarBesideTheMasterAndCropsItWithTheMaster()
+    public void TheSidecarSitsBesideTheMasterAndTheRunsCountIsCroppedWithTheMaster()
     {
         var dir = _folders.Create("saturation-sidecar-").FullName;
         var masterPath = Path.Combine(dir, "master_M83.fits");
@@ -168,7 +168,7 @@ public sealed class SaturationSidecarTests : IDisposable
         counts[11, 21] = 1f;
         var map = new Image([counts], BitDepth.Float32, 3f, 0f, 0f, Meta());
 
-        MasterPostProcessor.LoadSaturationMap(masterPath, crop: null).ShouldBeNull("a master with no sidecar keeps the peak gate alone");
+        IntegrationFitsWriter.TryReadSaturationMap(masterPath, out _).ShouldBeFalse("a master with no sidecar keeps the peak gate alone");
 
         IntegrationFitsWriter.WriteSaturationMap(masterPath, map, frameCount: 3);
 
@@ -183,12 +183,17 @@ public sealed class SaturationSidecarTests : IDisposable
         read[0, 11, 21].ShouldBe(1f);
         read[0, 0, 0].ShouldBe(0f);
 
-        var loaded = MasterPostProcessor.LoadSaturationMap(masterPath, crop: null).ShouldNotBeNull();
-        (loaded.Width, loaded.Height).ShouldBe((60, 40));
-
-        var cropped = MasterPostProcessor.LoadSaturationMap(masterPath, new PixelRect(18, 8, 10, 10)).ShouldNotBeNull();
+        // The run's own count (never the file) is what SPCC reads, cropped with the master it describes.
+        var master = new Image([new float[40, 60], new float[40, 60], new float[40, 60]], BitDepth.Float32, 1f, 0f, 0f,
+            new ImageMeta { SensorType = SensorType.Color });
+        var result = new IntegrationResult(master, RejectionMap: null, FrameCount: 3, TotalRejections: 0, MeanRejectionRate: 0)
+        {
+            Saturation = map,
+        };
+        var cropped = MasterPostProcessor.CropIntegrationResult(result, new PixelRect(18, 8, 10, 10)).Saturation.ShouldNotBeNull();
         (cropped.Width, cropped.Height).ShouldBe((10, 10));
         cropped[0, 2, 2].ShouldBe(3f, "the crop keeps the map over the same pixels as the cropped master");
+        cropped[0, 3, 3].ShouldBe(1f);
     }
 
     [Fact]
