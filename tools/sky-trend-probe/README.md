@@ -54,13 +54,13 @@ With it, code inside `#if SKY_TREND` reads `LightGradeVerdict.SkyOverTrend` and 
 
 ```pwsh
 git fetch origin fix/grade-sky-trend
-git show FETCH_HEAD:src/TianWen.Lib/Imaging/Grading/LightGrading.cs | Set-Content -NoNewline src/TianWen.Lib/Imaging/Grading/LightGrading.cs
-git show FETCH_HEAD:src/TianWen.Lib/Imaging/Stacking/CloudRejection.cs | Set-Content -NoNewline src/TianWen.Lib/Imaging/Stacking/CloudRejection.cs
+git checkout FETCH_HEAD -- src/TianWen.Lib/Imaging/Grading/LightGrading.cs src/TianWen.Lib/Imaging/Stacking/CloudRejection.cs
 dotnet build tools/sky-trend-probe/SkyTrendProbe.csproj -c Release -p:SkyTrend=true
-git checkout -- src/TianWen.Lib/Imaging/Grading/LightGrading.cs src/TianWen.Lib/Imaging/Stacking/CloudRejection.cs
+git checkout HEAD -- src/TianWen.Lib/Imaging/Grading/LightGrading.cs src/TianWen.Lib/Imaging/Stacking/CloudRejection.cs
 ```
 
-Check `git status` shows nothing under `src/` afterwards. Build into its own output (the build above does); do not run a plain build
+(A pipe through `Set-Content -NoNewline` joins the lines of the file with no separator in pwsh and breaks the C#, so use the
+checkout form.) Check `git status` shows nothing under `src/` afterwards. Build into its own output (the build above does); do not run a plain build
 in between and expect the SKY_TREND one to survive.
 
 ## Running
