@@ -278,6 +278,138 @@ public class DeviceDiscoveryExtensionsTests
         reconciled.ShouldBe(data);
     }
 
+    /// <summary>A Gemini focuser on a port whose own identity discovery noted (#1090): an FTDI-like cable with a serial is <c>device</c>.</summary>
+    private static Uri GeminiFocuserOn(string port, string identity, string portKey, string query = "")
+        => GeminiFocuser(port, $"&portIdentity={identity}&portKey={Uri.EscapeDataString(portKey)}{query}");
+
+    /// <summary>
+    /// The case the model rule must refuse (<see cref="TwoMovedFocusersOfOneModelAreLeftAlone"/>), made certain by the cables: two
+    /// identical focusers on adapters with USB serial numbers swapped COM ports, and each slot follows ITS cable (#1090).
+    /// </summary>
+    [Fact]
+    public void TwoMovedFocusersOnSerialNumberedCablesEachFollowTheirOwnCable()
+    {
+        var discovery = new StubDiscovery
+        {
+            Mounts = [new FakeDeviceRecord(OnStepSerialCom5)],
+            Focusers = [new FakeDeviceRecord(GeminiFocuserOn("COM6", "device", "usb:0403:6001:BBB")), new FakeDeviceRecord(GeminiFocuserOn("COM5", "device", "usb:0403:6001:AAA"))],
+        };
+        var data = WithFocusers(GeminiFocuserOn("COM3", "device", "usb:0403:6001:AAA", "&focuserBacklashIn=40"), GeminiFocuserOn("COM4", "device", "usb:0403:6001:BBB"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeTrue();
+        var first = reconciled.OTAs[0].Focuser.ShouldNotBeNull();
+        first.DeviceKey.ShouldBe(GeminiFocuser("COM5").DeviceKey, "the slot whose cable is AAA follows AAA to COM5");
+        System.Web.HttpUtility.ParseQueryString(first.Query)["focuserBacklashIn"].ShouldBe("40", "the user's keys travel with the device");
+        reconciled.OTAs[1].Focuser.ShouldNotBeNull().DeviceKey.ShouldBe(GeminiFocuser("COM6").DeviceKey, "and BBB to COM6");
+    }
+
+    /// <summary>
+    /// A cable follow is for the same MODEL (the ladder: "bridge serial, a DIFFERENT model: do not follow", #2040 step 3 widens
+    /// it with a notification): an EQ6 on a stored cable is not replaced by an AZ-GTi that now sits on that cable, which would
+    /// have kept the slot's site, backlash and filter keys for another mount.
+    /// </summary>
+    [Fact]
+    public void ADifferentModelOnTheSameCableIsNotFollowed()
+    {
+        static Uri Skywatcher(string model, string port)
+            => new Uri($"Mount://SkywatcherDevice/Skywatcher_{model}_3.39_{port}?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3AAAA#Skywatcher {model} on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(Skywatcher("AZGTI", "COM6"))] };
+        var data = MakeProfileData(mount: Skywatcher("EQ6", "COM4"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse("another model on the cable is a new device, not this slot's");
+        reconciled.ShouldBe(data);
+    }
+
+    /// <summary>
+    /// The same model on the cable IS followed (the rule the test above narrows, not removes), whatever else of that model is
+    /// about, and with the model's own key unchanged by the cable ending.
+    /// </summary>
+    [Fact]
+    public void TheSameModelOnTheSameCableIsFollowedWhateverElseIsAbout()
+    {
+        static Uri Skywatcher(string port, string cable)
+            => new Uri($"Mount://SkywatcherDevice/Skywatcher_EQ6_3.39_{port}?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3A{cable}#Skywatcher EQ6 on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(Skywatcher("COM6", "BBB")), new FakeDeviceRecord(Skywatcher("COM7", "AAA"))] };
+        var data = MakeProfileData(mount: Skywatcher("COM4", "AAA"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeTrue();
+        reconciled.Mount.DeviceKey.ShouldBe(Skywatcher("COM7", "AAA").DeviceKey, "the EQ6 on cable AAA, not the other EQ6");
+    }
+
+    /// <summary>
+    /// A device whose id names the hardware (an OnStep with a UUID) has no model key and is the device its id says: another
+    /// unit that now sits on its cable is not it, and does not take the slot.
+    /// </summary>
+    [Fact]
+    public void AnIdNamedDeviceIsNotReplacedByWhateverNowSitsOnItsCable()
+    {
+        static Uri OnStep(string uuid, string port)
+            => new Uri($"Mount://OnStepDevice/OnStep_1_{uuid}?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3AAAA&latitude=-33.9#OnStep on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(OnStep("other-uuid", "COM6"))] };
+        var data = MakeProfileData(mount: OnStep("abc-uuid", "COM5"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse("a different UUID is a different unit, whatever cable it is on");
+        reconciled.ShouldBe(data);
+    }
+
+    /// <summary>A <c>socket</c> key names the very socket a move leaves, so it is no evidence: the model rule decides, and with two about it refuses.</summary>
+    [Fact]
+    public void ASocketKeyIsNotFollowedByItsKey()
+    {
+        var discovery = new StubDiscovery
+        {
+            Mounts = [new FakeDeviceRecord(OnStepSerialCom5)],
+            Focusers = [new FakeDeviceRecord(GeminiFocuserOn("COM5", "socket", "socket:USB(3)")), new FakeDeviceRecord(GeminiFocuserOn("COM6", "socket", "socket:USB(4)"))],
+        };
+        var data = WithFocusers(GeminiFocuserOn("COM3", "socket", "socket:USB(3)"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse();
+        reconciled.ShouldBe(data);
+    }
+
+    /// <summary>
+    /// Step 2 of #1090: on a serial-numbered cable the id ends in the cable, so a mount found on another COM port is the SAME
+    /// device: the identity match takes it, keeping the user's keys, with no model guess needed.
+    /// </summary>
+    [Fact]
+    public void ACableKeyedMountOnANewComPortIsTheSameDevice()
+    {
+        static Uri Sgp(string port, string query = "")
+            => new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3AA10MOSEFA{query}#iOptron SkyGuider Pro (170518) on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(Sgp("COM15"))] };
+
+        var resolved = discovery.ReconcileUri(Sgp("COM14", "&latitude=-33.9"));
+
+        resolved.DeviceKey.ShouldBe(Sgp("COM15").DeviceKey);
+        var query = System.Web.HttpUtility.ParseQueryString(resolved.Query);
+        query["port"].ShouldBe("serial:COM15", "the port is transport and follows the discovery");
+        query["latitude"].ShouldBe("-33.9", "the user's keys are kept");
+    }
+
+    /// <summary>The notes are transport state: a re-discovery's port identity replaces the stored one, never the reverse.</summary>
+    [Fact]
+    public void ARediscoveryRefreshesThePortIdentityNotes()
+    {
+        var stored = GeminiFocuserOn("COM3", "device", "usb:0403:6001:AAA", "&focuserBacklashIn=40");
+        var discovery = new StubDiscovery { Focusers = [new FakeDeviceRecord(GeminiFocuserOn("COM3", "socket", "socket:USB(3)"))] };
+
+        var query = System.Web.HttpUtility.ParseQueryString(discovery.ReconcileUri(stored).Query);
+
+        query["portIdentity"].ShouldBe("socket");
+        query["portKey"].ShouldBe("socket:USB(3)");
+        query["focuserBacklashIn"].ShouldBe("40");
+    }
+
     private static ProfileData MakeProfileData(Uri mount, ImmutableArray<OTAData>? otas = null)
         => new ProfileData(
             Mount: mount,

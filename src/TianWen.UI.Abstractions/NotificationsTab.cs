@@ -117,30 +117,54 @@ namespace TianWen.UI.Abstractions
             {
                 var entry = entries[i];
 
-                // One row tree: [severity stripe | gap | timestamp | message] with an alternating
-                // background. Was a FillRect bg + FillRect stripe + two hand-positioned DrawTexts.
-                var stripeColor = entry.Severity switch
-                {
-                    NotificationSeverity.Error   => ErrorStripe,
-                    NotificationSeverity.Warning => WarnStripe,
-                    _                            => InfoStripe
-                };
                 // Timestamp (HH:mm:ss) in the single app-wide site timezone -- never the machine TZ.
                 var tsText = entry.When.ToOffset(appState.SiteTimeZone).ToString("HH:mm:ss");
 
-                var row = Layout.Builder.HStack(
-                        Layout.Builder.Box(3f, 0f, stripeColor).WFixed(3f).HStar(),
-                        Layout.Builder.Spacer().WFixed(7f).HStar(),
-                        Layout.Builder.Text(tsText, BaseFontSize * 0.9f, DimText).WFixed(70f).HStar(),
-                        Layout.Builder.Spacer().WFixed(8f).HStar(),
-                        Layout.Builder.Text(entry.Message, BaseFontSize, BodyText).WStar().HStar(),
-                        Layout.Builder.Spacer().WFixed(BasePadding).HStar());
-                if ((i & 1) == 1) row = row.Bg(RowAltBg);
-                RenderLayout(row, rowRect);
+                var row = BuildRow(entry, tsText, alternate: (i & 1) == 1);
+                // The severity mark is a keyed baked-icon Fill (SeverityMarks), painted here; DrawCoverageMask is
+                // not a re-entry into the layout, so it is safe inside the drawFill callback.
+                RenderLayout(row, rowRect, drawFill: (fill, rect) =>
+                {
+                    if (SeverityMarks.TryPlace(fill.Key, rect, out var mask, out var sq, out var ink))
+                    {
+                        DrawCoverageMask(mask, sq.X, sq.Y, sq.Width, ink);
+                    }
+                });
             }
 
             // Interactive scrollbar at the right edge (hidden when the list fits).
             _scroll.DrawScrollBar(FillRect);
+        }
+
+        // Width of the severity-mark slot, in design units: the mark's own square. Reserved for Info rows too (an empty
+        // spacer), so the timestamp column never moves with a row's severity.
+        internal const float SeverityMarkWidth = BaseFontSize;
+
+        /// <summary>
+        /// One row tree: [severity stripe | gap | mark slot | gap | timestamp | message] with an alternating background.
+        /// A Warning and an Error carry a mark beside the stripe (#2025), so they are told from an accented control by
+        /// form as well as colour; an Info row reserves the slot, empty. Was a FillRect bg + FillRect stripe + two
+        /// hand-positioned DrawTexts.
+        /// </summary>
+        internal static Layout.Node BuildRow(NotificationEntry entry, string timestamp, bool alternate)
+        {
+            var stripeColor = entry.Severity switch
+            {
+                NotificationSeverity.Error   => ErrorStripe,
+                NotificationSeverity.Warning => WarnStripe,
+                _                            => InfoStripe
+            };
+
+            var row = Layout.Builder.HStack(
+                    Layout.Builder.Box(3f, 0f, stripeColor).WFixed(3f).HStar(),
+                    Layout.Builder.Spacer().WFixed(7f).HStar(),
+                    SeverityMarks.Slot(entry.Severity, SeverityMarkWidth),
+                    Layout.Builder.Spacer().WFixed(6f).HStar(),
+                    Layout.Builder.Text(timestamp, BaseFontSize * 0.9f, DimText).WFixed(70f).HStar(),
+                    Layout.Builder.Spacer().WFixed(8f).HStar(),
+                    Layout.Builder.Text(entry.Message, BaseFontSize, BodyText).WStar().HStar(),
+                    Layout.Builder.Spacer().WFixed(BasePadding).HStar());
+            return alternate ? row.Bg(RowAltBg) : row;
         }
 
         public override bool HandleInput(InputEvent evt) => evt switch

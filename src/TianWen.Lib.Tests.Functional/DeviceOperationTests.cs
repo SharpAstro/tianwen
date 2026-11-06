@@ -29,7 +29,7 @@ public class DeviceOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
     private IDeviceHub Hub => _node.App.Services.GetRequiredService<IDeviceHub>();
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     private Task<JobDto> UntilEndedAsync(string id, CancellationToken ct) =>
         UntilAsync<JobDto>($"job {id} to end", async token =>

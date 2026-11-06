@@ -29,7 +29,7 @@ public class RemoteRigProfileTests(ITestOutputHelper output)
         var named = At(Guid.NewGuid(), "Siding Spring", -31.27, 149.06);
         await running.SaveAsync(node.External, ct);
         await named.SaveAsync(node.External, ct);
-        (await new TianWenNodeClient(node.Client).SetActiveProfileAsync(running.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).SetActiveProfileAsync(running.ProfileId, ct)).IsSuccess.ShouldBeTrue();
 
         var binding = new RemoteRigBinding
         {
@@ -39,7 +39,7 @@ public class RemoteRigProfileTests(ITestOutputHelper output)
             LastAddress = node.Transport.BaseAddress.ToString(),
         };
         var contexts = new ViewContexts();
-        await using (var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, new SystemTimeProvider(), NullLogger.Instance, ct)
+        await using (var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, SystemTimeProvider.Instance, NullLogger.Instance, ct)
             .ShouldNotBeNull())
         {
             (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
@@ -54,7 +54,7 @@ public class RemoteRigProfileTests(ITestOutputHelper output)
 
         // A binding that names a profile is planned with that one, whichever the rig runs.
         await using var bound = RemoteRigConnection.TryConnect(binding with { RemoteProfileId = named.ProfileId }, contexts, peers: null, grants: null,
-            new SystemTimeProvider(), NullLogger.Instance, ct).ShouldNotBeNull();
+            SystemTimeProvider.Instance, NullLogger.Instance, ct).ShouldNotBeNull();
         (await bound.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
         bound.Context.RigProfile.ShouldNotBeNull().Data.ShouldNotBeNull().SiteLatitude.ShouldBe(-31.27);
     }

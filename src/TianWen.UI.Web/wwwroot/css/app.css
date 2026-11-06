@@ -1,5 +1,5 @@
 /* Chrome styled after the desktop SDL GUI: dark slate panels (#1a1a22 header, #101018 content),
-   teal accent (#66ddcc - the GUI's pinned-target colour), minimal text. The app is a fixed
+   orange accent (#ff5e00, GuiTheme.DarkPalette.Accent: the logo's orange), minimal text. The app is a fixed
    full-viewport layout like a native window: no page scroll, no overscroll bounce, no text
    selection dragging the document around while interacting with the canvas. */
 :root {
@@ -9,7 +9,7 @@
     --border: #26263a;
     --text: #dddddd;
     --dim: #9a9aab;
-    --accent: #66ddcc;
+    --accent: #ff5e00;
     /* The logo's sharp: tianwen's night-mode text colour (NightPalette.BodyText), as on the site. */
     --mark: #e04a00;
 }
@@ -183,7 +183,7 @@ button.chip {
 }
 
 button.chip.active {
-    border-color: var(--accent, #66ddcc);
+    border-color: var(--accent, #ff5e00);
 }
 
 button.chip:disabled {

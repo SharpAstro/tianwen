@@ -159,7 +159,7 @@ namespace TianWen.Lib.Tests
         {
             using var renderer = new RgbaImageRenderer(1280, 800);
             var bus = new SignalBus();
-            var loop = new GuideLoopController(new SystemTimeProvider(),
+            var loop = new GuideLoopController(SystemTimeProvider.Instance,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
             var tab = new GuiderTab<RgbaImage>(renderer)
             {
@@ -214,7 +214,7 @@ namespace TianWen.Lib.Tests
         {
             using var renderer = new RgbaImageRenderer(1600, 800);
             var bus = new SignalBus();
-            var loop = new GuideLoopController(new SystemTimeProvider(),
+            var loop = new GuideLoopController(SystemTimeProvider.Instance,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
             var tab = LoopTab(renderer, bus, dpi);
             tab.GuideLoop = loop;
@@ -252,7 +252,7 @@ namespace TianWen.Lib.Tests
                 DpiScale = dpiScale,
                 FontPath = FontResolver.ResolveSystemFont(),
                 Bus = bus,
-                GuideLoop = new GuideLoopController(new SystemTimeProvider(),
+                GuideLoop = new GuideLoopController(SystemTimeProvider.Instance,
                     Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance),
             };
 

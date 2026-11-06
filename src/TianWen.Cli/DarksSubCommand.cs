@@ -188,7 +188,9 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
 
             try
             {
-                var started = await node.StartDarkLibraryAsync(request, ct);
+                // Sent without the command's token, as the flats verb's start is: a Ctrl+C while it is in flight must still
+                // reach the follow below, which stops the library on the node rather than leaving it going.
+                var started = await node.StartDarkLibraryAsync(request, CancellationToken.None);
                 if (!started.IsSuccess)
                 {
                     consoleHost.WriteScrollable($"[{tag}] the node did not start the library: {started.Error}");

@@ -197,6 +197,9 @@ public class ViewerE2ETests
         var ct = TestContext.Current.CancellationToken;
         await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+        // Opening a file starts its own star detection on the pool, which ends by recording what it found: recorded before
+        // it lands, the star below was replaced by the frame's real (empty) list and the tap selected nothing (ARM CI, #2000).
+        await e2e.PumpUntilAsync(() => e2e.Controller.Document?.Findings.Stars is not null, "the opened frame's star detection", ct);
 
         var star = new ImagedStar(HFD: 6f, StarFWHM: 7f, SNR: 40f, Flux: 1000f, XCentroid: 32f, YCentroid: 24f,
             Ellipticity: 0.1f, LocalBackground: 10f);

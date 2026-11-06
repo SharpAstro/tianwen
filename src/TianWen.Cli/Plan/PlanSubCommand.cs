@@ -17,6 +17,9 @@ internal class PlanSubCommand(
     ProfileSelector profileSelector
 )
 {
+    /// <summary>How often the inline input loop looks for a key, waited on the host's clock (#2021).</summary>
+    private static readonly TimeSpan InputPollInterval = TimeSpan.FromMilliseconds(16);
+
     public Command Build()
     {
         var planCommand = new Command("plan", "Observation planner, show tonight's best targets and build a schedule");
@@ -223,7 +226,7 @@ internal class PlanSubCommand(
         {
             if (!terminal.HasInput())
             {
-                await Task.Delay(16, ct);
+                await consoleHost.TimeProvider.SleepAsync(InputPollInterval, ct);
                 continue;
             }
 

@@ -26,7 +26,7 @@ public class RigControlTests(ITestOutputHelper outputHelper)
     {
         var ct = TestContext.Current.CancellationToken;
         await using var node = await NodeHarness.StartAsync(outputHelper, ct);
-        var owner = new TianWenNodeClient(node.Client);
+        var owner = NodeTestClients.ClientOf(node.Client);
         var hub = node.App.Services.GetRequiredService<EventHub>();
         var grants = new NodeGrants(new FileCredentialStore(new FakeExternal(outputHelper)), NullLogger.Instance);
         var binding = await BindingOfAsync(node, owner);
@@ -78,7 +78,7 @@ public class RigControlTests(ITestOutputHelper outputHelper)
     {
         var ct = TestContext.Current.CancellationToken;
         await using var node = await NodeHarness.StartAsync(outputHelper, ct);
-        var owner = new TianWenNodeClient(node.Client);
+        var owner = NodeTestClients.ClientOf(node.Client);
         var grants = new NodeGrants(new FileCredentialStore(new FakeExternal(outputHelper)), NullLogger.Instance);
         var binding = await BindingOfAsync(node, owner);
         await using var rig = Connect(binding, grants, ct);
@@ -106,6 +106,6 @@ public class RigControlTests(ITestOutputHelper outputHelper)
     };
 
     private static RemoteRigConnection Connect(RemoteRigBinding binding, NodeGrants grants, System.Threading.CancellationToken ct) =>
-        RemoteRigConnection.TryConnect(binding, new ViewContexts(), peers: null, grants, new SystemTimeProvider(), NullLogger.Instance, ct)
+        RemoteRigConnection.TryConnect(binding, new ViewContexts(), peers: null, grants, SystemTimeProvider.Instance, NullLogger.Instance, ct)
             .ShouldNotBeNull();
 }

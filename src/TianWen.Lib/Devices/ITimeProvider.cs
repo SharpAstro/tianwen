@@ -35,7 +35,8 @@ public interface ITimeProvider
     /// <summary>
     /// Delays execution for the specified <paramref name="duration"/>.
     /// <para>
-    /// Production (<see cref="SystemTimeProvider"/>): delegates to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.
+    /// Production (<see cref="SystemTimeProvider"/>): <see cref="Task.Delay(TimeSpan, CancellationToken)"/>, except a short wait on
+    /// Windows, which waits on a high-resolution timer so it does not last a whole 15.6 ms timer tick (<see cref="HighResolutionWait"/>).
     /// Test (FakeTimeProviderWrapper): auto-advances the fake clock, enabling deterministic
     /// time-dependent tests without an external pump loop.
     /// </para>

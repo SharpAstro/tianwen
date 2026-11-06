@@ -41,7 +41,7 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
         }
     }
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     private static Image Frame(int width, int height, Func<int, int, float> sample)
     {
@@ -153,7 +153,7 @@ public class NodeFrameTests(ITestOutputHelper output) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         var pushed = new ConcurrentQueue<FrameAvailableDto>();
-        await using var stream = _node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(output));
+        await using var stream = _node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(output));
         stream.EventReceived += (_, e) =>
         {
             if (FrameAvailableDto.TryFromEvent(e, out var frame))

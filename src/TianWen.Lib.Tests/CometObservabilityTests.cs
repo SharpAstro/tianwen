@@ -85,7 +85,7 @@ public class CometObservabilityTests
     }
 
     private static Transform SiteTransform(double latitude, double longitude)
-        => new(new SystemTimeProvider())
+        => new(SystemTimeProvider.Instance)
         {
             SiteLatitude = latitude,
             SiteLongitude = longitude,

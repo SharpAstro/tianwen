@@ -21,7 +21,7 @@ public static class GuideScatterRenderer
     private static RGBAColor32 RmsRingColor   => GuiTheme.Mix(GuiTheme.Palette.ContentBg, GuiTheme.Palette.Success, 0.5f);
     private static RGBAColor32 RecentDotColor => GuiTheme.InkOn(GuiTheme.Palette.ContentBg);
     private static RGBAColor32 OldDotColor    => GuiTheme.Palette.DimText.WithAlpha(0x88);
-    private static RGBAColor32 LatestDotColor => GuiTheme.Palette.Accent.WithAlpha(0xaa); // matches the guide crosshair
+    private static RGBAColor32 LatestDotColor => GuiTheme.Palette.Success.WithAlpha(0xaa); // matches the guide crosshair (Success, not the orange Accent that is the Dec label's hue, #2025)
 
     /// <summary>Renders the target scatter (rings, crosshair, axis labels, error dots) into <paramref name="rect"/>.</summary>
     public static void Render<TSurface>(

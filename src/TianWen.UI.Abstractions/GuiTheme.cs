@@ -42,10 +42,16 @@ namespace TianWen.UI.Abstractions
             SeparatorStrong = new RGBAColor32(0xbc, 0xc5, 0xcf, 0xff),
             BodyText        = new RGBAColor32(0x14, 0x18, 0x1d, 0xff),
             DimText         = new RGBAColor32(0x5a, 0x62, 0x6c, 0xff),
-            Accent          = new RGBAColor32(0x0a, 0x63, 0xa8, 0xff),
-            Selection       = new RGBAColor32(0xd6, 0xe6, 0xf5, 0xff),
+            // The logo's orange (#e04a00) in its darker site shade: the logo value itself is about 4:1 on white, below
+            // the 4.5:1 body text needs, and #b83c00 is the shade sharpastro.github.io already uses on a light page (#2025).
+            Accent          = new RGBAColor32(0xb8, 0x3c, 0x00, 0xff),
+            // A warm neutral, not the old blue: Accent text on the blue fill measured 4.48:1 (below AA), and an orange
+            // mark on a blue wash reads as two themes. Still 1.22:1 against the panel, the same subtle band as before.
+            Selection       = new RGBAColor32(0xf6, 0xe6, 0xda, 0xff),
             Info            = new RGBAColor32(0x0a, 0x63, 0xa8, 0xff),
-            Warn            = new RGBAColor32(0x8a, 0x50, 0x00, 0xff),
+            // An olive-ochre (hue 45 degrees) where it was a burnt amber (36 degrees): the amber sat 16 degrees from the orange
+            // Accent and a highlighted control read as a warning (#2025). Now 26 degrees clear of Accent and 41 of Error.
+            Warn            = new RGBAColor32(0x7a, 0x5c, 0x00, 0xff),
             Error           = new RGBAColor32(0xb0, 0x2a, 0x20, 0xff),
             Success         = new RGBAColor32(0x1a, 0x7f, 0x4b, 0xff),
         };
@@ -54,16 +60,25 @@ namespace TianWen.UI.Abstractions
         /// The default, and a retune of the scheme this app always had rather than a replacement:
         /// same cool-neutral family, but the ramp gains a real blue bias (the old
         /// <c>#1e1e28</c> had R=G with only blue lifted, which reads faintly violet) and every text
-        /// pair gains contrast -- body 10.29:1 -> 13.78:1, dim 4.66:1 -> 5.57:1, accent 6.96:1 ->
-        /// 9.21:1 against <see cref="UiPalette.PanelBg"/>.
+        /// pair gains contrast -- body 10.29:1 -> 13.78:1, dim 4.66:1 -> 5.57:1 against
+        /// <see cref="UiPalette.PanelBg"/>. The accent was that blue (9.21:1) until #2025 gave Light
+        /// and Dark the logo's orange, as Night always had.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// <see cref="UiPalette.Success"/> is stated rather than left to its accent fallback, and the
         /// bug that forced it is why Light states one too. The home board's status dot is a THREE-way
         /// mark (offline / online / running) drawn from <c>DimText</c> / <c>Success</c> / <c>Info</c>
-        /// -- and here <c>Info</c> IS <c>Accent</c>, so an unstated Success collapsed online and
+        /// -- and when <c>Info</c> was <c>Accent</c>, an unstated Success collapsed online and
         /// running onto the identical dot. The accent fallback is correct only where the green
         /// channel is genuinely unavailable, which is Night alone.
+        /// </para>
+        /// <para>
+        /// <see cref="UiPalette.Info"/> is the blue the accent used to be and is NOT the accent any
+        /// more (#2025): <see cref="SkyBand"/> draws the twilight ramp from its hue, and the status
+        /// dot needs Info, Success and DimText three ways apart. <see cref="UiPalette.Warn"/> moved
+        /// towards yellow so an orange accent never reads as a warning.
+        /// </para>
         /// </remarks>
         public static UiPalette DarkPalette { get; } = new UiPalette
         {
@@ -74,10 +89,15 @@ namespace TianWen.UI.Abstractions
             SeparatorStrong = new RGBAColor32(0x3c, 0x44, 0x4f, 0xff),
             BodyText        = new RGBAColor32(0xe2, 0xe6, 0xec, 0xff),
             DimText         = new RGBAColor32(0x8b, 0x93, 0x9f, 0xff),
-            Accent          = new RGBAColor32(0x7c, 0xc4, 0xff, 0xff),
-            Selection       = new RGBAColor32(0x22, 0x30, 0x3d, 0xff),
+            // A logo-family orange (hue 22 degrees against the logo's 20), 5.6:1 on PanelBg and 5.1:1 on HeaderBg (#2025).
+            Accent          = new RGBAColor32(0xff, 0x5e, 0x00, 0xff),
+            // A warm neutral for the same reason as in Light: Accent text on the old blue measured 4.40:1.
+            Selection       = new RGBAColor32(0x30, 0x28, 0x20, 0xff),
             Info            = new RGBAColor32(0x7c, 0xc4, 0xff, 0xff),
-            Warn            = new RGBAColor32(0xe8, 0xa3, 0x3c, 0xff),
+            // A yellow-amber (hue 49 degrees) where it was an orange-amber (36 degrees), for the reason Light's is an olive (#2025).
+            // Kept dark enough that BodyText on EquipmentTab's ConfirmForceBg (a half mix with the panel) is 4.71:1, as it
+            // was before, and the Caution mix still carries a white label at 5.3:1.
+            Warn            = new RGBAColor32(0xcc, 0xac, 0x18, 0xff),
             Error           = new RGBAColor32(0xff, 0x7a, 0x70, 0xff),
             Success         = new RGBAColor32(0x4c, 0xc3, 0x8a, 0xff),
         };

@@ -216,7 +216,7 @@ video-mode stall that `INativeDeviceInfo.ResetDevice` recovers) are in the ToupT
 ## Device management rules (moved from CLAUDE.md, 2026-09-29)
 
 URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends),
-`ICombinedDeviceManager` (coordinates sources), `IDeviceUriRegistry` (URI → instance map).
+`IDeviceDiscovery` (aggregates the sources; what is present now), `IDeviceHub` (URI → instance, connections, leases).
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
 for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
 `docs/architecture/device-architecture.md`.
@@ -294,8 +294,8 @@ the device source writes, and these families write the port or the USB path into
 | Canon over WiFi | the PTP/IP responder GUID, else the IP address | yes with the GUID; **no** on the IP fallback |
 | Canon, Windows' stock driver (WPD; the same USB cable) | the body's own DeviceInfo serial (32 hex digits), read once per path with no PTP session; the WPD path (the USB device instance, which on a body with no USB serial, an EOS 6D, is the hub and the hub port) rides in the `wpd=` query as transport state that `ReconcileUri` refreshes; a body that reports no serial, or does not answer a 3 s read, keeps the path as its key | yes with a serial: replugged into another port it is the same key (#1097); **no** on the path fallback |
 | Alpaca | `uniqueId`; host, port and device number are query | yes |
-| Meade, OnStep **with a UUID** (the probe writes one into a spare site slot) | model plus UUID | yes, and the same across USB and WiFi |
-| Meade, OnStep **without a UUID** | model, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port |
+| Meade, OnStep **with a UUID** (the probe writes one into a spare site slot) | product (`:GVP#`), **firmware number (`:GVN#`)** and UUID | yes, and the same across USB and WiFi; **no** across a firmware update (#2040) |
+| Meade, OnStep **without a UUID** | product, firmware number, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port, a firmware update and a renamed site |
 | Skywatcher | `Skywatcher_<model>_<fw>_<port>` (`SkywatcherSerialProbe`) | **no** |
 | iOptron SkyGuider Pro | `SkyGuider-Pro_<fw>_<port>` (`IOptronSerialProbe`) | **no** |
 | Gemini Focuser Pro, FlatPanel Lite, Power&Data Hub Advanced 3 (CH340, no USB serial, no board id) | `GeminiFocuser_<port>`, `Gemini_<port>`, `GeminiPowerBox_<port>` | **no** |
@@ -315,6 +315,166 @@ several leaves the slot as stored, never guessed. A focuser's backlash history, 
 swapped sockets stay unresolved until #783's board fingerprint. Pinned by `DeviceDiscoveryExtensionsTests` and
 `BacklashHistoryPersistenceTests` over stub discovery; **not yet seen with a real device moved** (bench check #1746).
 
+#### A serial port's own identity: discovery notes whether the port is stable (design, #1090)
+
+**Whether a serial device survives a re-plug depends on the cable as much as the family.** The table above classifies by
+family, but on the bench of 2026-11-05 one SkyGuider Pro answered through two cables with opposite answers: its own USB
+socket (a Prolific PL2303, no USB serial number) came back as COM12, COM13 and COM14 as it moved between power-box
+sockets, while the owner's HBX cable (an FTDI FT232R) carries the serial `A10MOSEFA` and is the same device in any socket.
+Serial.Lib already classifies every port this way, per port, from what the chip and the OS report
+(`SerialPortInfo.Identity`, `SerialPortInfo.IdentityKey`):
+
+| `SerialIdentityKind` | When | Stable? | Seen on the bench |
+|---|---|---|---|
+| `Device`: `usb:VID:PID:SERIAL` | the chip reports a USB serial number (FTDI, most CDC-ACM) | yes, in any socket | FTDI HBX cable, `usb:0403:6001:A10MOSEFA` |
+| `Socket`: `socket:<location path>` | no serial number, but a USB location path | only in the same socket; it does survive COM renumbering | the SGP's own Prolific; the Gemini hub's CH340 |
+| `PortName`: `name:COM14` | nothing better (a motherboard port, a virtual one) | no | |
+
+**Discovery notes it on every serial device's URI, in one place:**
+- `External.EnumerateAvailableSerialPorts` records each port's kind and key as it already records the probe exclusion
+  (`SerialProbeExclusion`), and `IExternal` answers them for a port name (null where the host has no serial ports). It also
+  records whether another port of the same enumeration reports the same key (`SerialPortIdentity.SharedWithAnotherPort`,
+  judged over the whole list, the ports a driver holds included).
+- `SerialProbeService.WithPortIdentity` (called once per probe attempt, just before `PublishMatch`) adds two query keys to
+  every match it publishes, so every serial family gets them with no change to any probe: `portIdentity=device|socket|name`
+  and `portKey=<IdentityKey>`.
+- Both are TRANSPORT keys (`DeviceQueryKey.IsTransport`): a re-discovery refreshes them, as it does `port` and `baud`, and
+  a stale profile never keeps an old value (`MergeDiscoveredIntoStored`).
+
+**What uses it:**
+- `FollowMovedPort` follows a stored device whose `portIdentity` is `device` to the discovered device **of the same model**
+  (`ModelKey`) with the SAME `portKey`, even with several of its model about: the same cable on a new COM port is certain,
+  which the model rule rightly refuses to guess between (#783's case, for a cable that has a serial). **The model is still
+  required** (the ladder's "bridge serial, a DIFFERENT model: do not follow"): another model on the cable is a new device, and
+  a device whose id names the hardware (an OnStep with a UUID; it has no `ModelKey`) is never followed on a cable, since only
+  its own id finds it. Step 3 (#2040) widens this with a notification. A stored device without a `device` key keeps the model
+  rule.
+- A client can say so: a serial device on a `socket` or `name` port is one that a re-plug elsewhere may lose ("keep it in
+  the same USB socket, or use an adapter with a serial number"). A follow-up, not part of the first step.
+
+**Step 2: on a `device` port the id ends in the cable.** The same place (`SerialProbeService.WithPortIdentity`, applied before
+the pinned-port check so it compares the id a profile was saved with) swaps the port ending of an id that ends in its port
+(`Uri.ModelKey`) for the cable's key made path-safe (`SerialPortIdentity.IdSuffix`): `SkyGuider-Pro_170518_COM14` on the
+FTDI cable is `SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA`, the same device on any socket and COM number, its port in the
+query where a re-discovery refreshes it; `ReconcileUri` then matches it by identity, with no model guess. `ModelKey` strips the
+cable ending as it strips a port, so the model rule still recognises the family. A `socket` or `name` port keeps its port id
+(a move changes the very thing that names it), and an id that names the hardware itself (a UUID, a serial) is never touched.
+**A serial that two listed ports report is not put into an id** (`SerialPortIdentity.NamesTheDeviceInItsId`): the hub's URI to
+driver map is keyed on the id, so two units given one id would be one device and one of them lost. Their ids keep the COM
+port, as before the key existed, and the key stays in the notes. It is judged over one enumeration: a unit plugged in alone
+is keyed on its cable, and when a second with the same serial appears both fall back to their port ids. A slot saved with the
+cable id then has two candidates of its model on that cable, and stays unresolved (several candidates).
+So for every port-keyed family in the table above, "survives a re-plug" becomes **yes on a serial-numbered cable** (FTDI, most
+CDC-ACM), and stays no on a CH340, a Prolific or a plain port. **No migration** (the owner, 2026-11-05: profiles start fresh):
+a profile saved with a port id on such a cable finds the device once by the model rule and is then saved with the cable id.
+
+**A USB serial names its bridge chip, and where that chip sits decides what it names.** Serial.Lib reads the serial off the
+Windows instance path (`USB\VID_067B&PID_23D3\DRDEN10CD20`: no `&` in the last segment means the device reported a unique id,
+`CM_DEVCAP_UNIQUEID`), and nothing tells a chip inside the device from one in a cable:
+
+| Where the bridge is | What its serial names | Seen |
+|---|---|---|
+| inside the device | the device itself: stable across sockets, ports and cables, until its board is replaced | EQ6-R Pro's own USB socket, a PL2303GL, `usb:067b:23d3:DRDEN10CD20` (the owner's laptop, 2026-11-06) |
+| in an adapter cable | the cable: right only while that cable stays on that device | the FTDI HBX cable on the SGP; an AZ-GTi's USB cable, which carries its controller |
+
+So a cable moved from one mount to another carries its key with it, and the same mount reached by two paths (an EQ6-R's own
+socket, and EQDIR or the hand controller) is two keys. A serial number is also only as unique as the vendor made it: a clone
+adapter that ships one serial on every unit (`A50285BI` on cheap FT232 copies) gives two of them one key. Those two are never
+told apart by it: both keep their port ids and stay two devices (see above), and a stored slot that cannot pick between them
+stays unresolved (several candidates).
+
+#### Step 3 (planned): match on the evidence, and say what was followed
+
+Tracked by #2040; validated on hardware by #2041 (one card per mount and connection path, milestone `hardware-verification`). **The identity ladder**, the most stable name a device offers first:
+
+| Rung | What names the device | Who |
+|---|---|---|
+| 1 | its own serial from its API | ZWO, QHY, Player One, ToupTek, SVBONY; Canon's USB serial, body serial or PTP/IP GUID; Alpaca `uniqueId`; ASCOM ProgID |
+| 2 | an id we wrote into it | ZWO custom id (USB3 cameras); the `TW@` UUID in a spare LX200/OnStep site slot |
+| 3 | its USB bridge chip's serial (`portIdentity=device`) | the device when the chip is built in (EQ6-R Pro), the cable when it is in an adapter (FTDI HBX, AZ-GTi) |
+| 4 | its USB socket (`portIdentity=socket`) | CH340, older Prolific |
+| 5 | its COM name (`portIdentity=name`), or over the network its host address | a motherboard or virtual port; Skywatcher over WiFi (`Skywatcher_<model>_<fw>_<ip>`), and LX200/OnStep without a UUID |
+
+**Over WiFi the host address is the weakest rung, and the mode decides how weak.** In access-point mode the unit hosts its
+own network at a fixed address (a Sky-Watcher dongle is usually 192.168.4.1, whatever the mount), so the address names
+nothing; in station mode it joins the home network and takes whatever DHCP hands it, unique but free to change. One mount is
+therefore a different id per mode, and in station mode can change id by itself. What is the same in both is the radio's MAC
+address, which the host reads from its own ARP table for the address it reached (no help from the mount): the network twin
+of the USB bridge serial (rung 3), naming the mount where its WiFi is built in (AZ-GTi, an OnStep controller) and the dongle
+where it is not (the EQ6-R's HBX dongle). Step 3 keys a network device on its MAC, the address in the query as `port` is
+(#2040).
+| 6 | model plus firmware: EVIDENCE in matching, never in the id | every port-keyed family |
+| 7 | model alone: the selected profile's device when it is the one candidate | every port-keyed family |
+
+The firmware a handshake reports is not identity (an update changes it) but it is evidence, useful exactly where a device has
+no serial of its own (the SGP), so it leaves the id for the query (`SkyGuider-Pro_170518_COM14` becomes
+`SkyGuider-Pro_COM14?firmware=170518`), and a serial-less port's socket key (`socket:<location path>`) takes the place of its
+COM name. Where firmware is today (swept 2026-11-06):
+
+| Family | Firmware today | Step 3 |
+|---|---|---|
+| Skywatcher, SkyGuider Pro | in the id | to `?firmware=` |
+| Meade, OnStep | in the id as `:GVN#`, **even beside a UUID**, so an update loses a UUID-identified mount; the UUID-less id also carries the site names, so a renamed site loses it too | the UUID id becomes `<product>_<uuid>`; `:GVN#` to `?firmware=`; the site names leave the id |
+| Gemini focuser, flat panel, power box | probe metadata only | to `?firmware=`, so matching can read it |
+| QFOC | display name only | to `?firmware=` |
+| QHY CFW3, SDK cameras and focusers, Canon, Alpaca, ASCOM | not read, or not in the id | nothing |
+
+A stored device is then matched against what discovery found on all of it, strongest first (and `DeviceIdentityLadderTests`,
+one table-driven theory over stub discovery, has a row per line, so a change to the order fails a row):
+
+| What matches | Most likely | What happens |
+|---|---|---|
+| id (serial, written UUID, bridge serial or socket), model and firmware | the same device | follow |
+| id and model, firmware changed, the one candidate | the firmware was updated | follow, the profile takes the new firmware |
+| bridge serial, a DIFFERENT model | the cable moved to another device | do not follow: a new device |
+| model only (and firmware, where known), the one unclaimed candidate | probably the same unit, re-plugged | follow |
+| several candidates at any rung | cannot tell | do not guess: the slot stays unresolved |
+
+**No dialogue: a follow connects, and says so** (the owner, 2026-11-06). Every follow other than an exact match adds a
+notification to the node's feed (`HostedSession.AddNotification`, raised from `NodeProfiles.ReconcileAllAsync`, where the
+follow happens), naming the device and what changed ("AZ-GTi: firmware 3.39 to 3.40", "Gemini focuser now on COM4"), so a
+wrong follow is visible in the Notifications tab instead of silent.
+
+**The last fallback is the device the selected profile names, and some churn is accepted** (the owner, 2026-11-06). One node
+drives one rig today, so a laptop carried between rigs compares what it finds with the PROFILE selected, not with every rig it
+has seen: a unit of the same model and firmware on the configured cable IS that profile's device, whether or not it is
+physically the same one, since everything a session does with it is the same. The one thing that knows the difference is
+anything learned per unit (a trained guider model, backlash history), which a physical swap carries over to the wrong unit;
+accepted. So nothing tries to tell two such units apart: neither a Skywatcher's axis counters (they restart at `0x800000` on
+power-up, so they would only ever tell units apart within one power-on) nor anything else.
+
+#### Step 4 (planned): a machine-wide device registry, and a profile that refers to it
+
+Tracked by #2047, after #2040. **A physical device has several identities, one per path** (the SGP's own USB and its FTDI
+cable; the EQ6-R's USB and its WiFi in either mode; the AZ-GTi's cable and WiFi), while a profile slot holds ONE URI, a copy
+per profile, which reconcile rewrites in every profile on every move. So one layer of indirection is added (the owner,
+2026-11-06):
+
+| Layer | Today | With the registry |
+|---|---|---|
+| `IDeviceSource<T>` | hardware into `DeviceBase`, concrete URI | unchanged; the evidence (`portKey`, firmware, MAC) in the query |
+| `IDeviceDiscovery` | what is present NOW (`RegisteredDevices`) | unchanged; no memory |
+| `IDeviceRegistry` (new) | | machine-wide, persistent: an entry is one physical device (own id, model, firmware, the identities it is known by, its last concrete URI). After each discovery it runs step 3's ladder ONCE, updates entries, creates new ones, raises the follow notifications |
+| profiles | a URI per slot; `ReconcileProfileData` / `FollowMovedPort` rewrite every profile | a typed `DeviceRef` (registry id plus per-rig settings); discovery no longer writes a profile |
+| `IDeviceHub` | instances, connections and leases on the concrete URI's `DeviceKey` | unchanged, except that a lease holds the registry ENTRY: a second path to a leased device is refused, naming the holder (`IDeviceRegistry.EntryOf(uri)`) |
+| consumers | read a URI from the profile | `IDeviceRegistry.Resolve(DeviceRef)` where a profile becomes a setup, then today's code |
+
+- **The reference is a type, never a `registry://` URI**: everything downstream builds a driver from a `Uri`, and a URI that is
+  not an address would type-check everywhere and fail wherever a path forgot to resolve it. The compiler finds every consumer,
+  and the cut is one wave.
+- **The query's two halves part**: the profile keeps what was chosen per rig (site, gain, filter names, backlash overrides),
+  the entry what discovery owns (port, baud, `portIdentity`, `portKey`, firmware); `DeviceQueryKey.IsTransport` already draws
+  that line. `Resolve` merges them into the present path's concrete URI.
+- **Per-device files key on the registry id** (backlash history, the credential store), so they stop splitting by path.
+- **Every slot is a ref**: a device with no identity to resolve (the built-in guider, weather, manual filter and cover) is an
+  entry with a constant id.
+- **No snapshot and no merge across machines**: a profile is node-local, and a remote rig's node resolves its own devices
+  (a mirror only shows the rig's profile). A ref the local registry does not know is an unassigned slot naming what it was
+  ("AZ-GTi (EQ), not known here"), which is the fresh-start path; an export bundling entries can come if copying profiles
+  between machines ever becomes a workflow. No migration (profiles start fresh).
+- The registry is ONE machine-wide file under AppData written by one writer (as `NodeProfiles` writes profiles), atomic, read
+  by clients over a read endpoint; it joins the runtime-data tree.
+
 Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep, Gemini and QHY serial rows have no such option, and rely on the model match above.
 
 ### Known limitations of device keys
@@ -327,8 +487,8 @@ Canon through WPD is keyed by the body's serial, because that is readable (`Cano
   hands the second the first's driver, which reads its filter from its own device: on a rig with manual holders on
   two OTAs, the second reports the first's filter. The owner has accepted this for now (review of #1089).
 - **The port-qualified ids above** (Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep) cannot be improved by reading more
-  from the hardware, which offers no identity; what is left is a profile migration or a rule for matching a moved mount,
-  which is work of its own (#1090).
+  from the hardware, which offers no identity. A serial-numbered USB bridge names them (step 2), and the rest is matching
+  on the evidence (step 3, #2040), never a profile migration.
 
 ### Every call into a vendor SDK passes the gate
 
