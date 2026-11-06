@@ -332,16 +332,22 @@ Serial.Lib already classifies every port this way, per port, from what the chip 
 
 **Discovery notes it on every serial device's URI, in one place:**
 - `External.EnumerateAvailableSerialPorts` records each port's kind and key as it already records the probe exclusion
-  (`SerialProbeExclusion`), and `IExternal` answers them for a port name (null where the host has no serial ports).
-- `SerialProbeService.PublishMatch` adds two query keys to every match it publishes, so every serial family gets them with
-  no change to any probe: `portIdentity=device|socket|name` and `portKey=<IdentityKey>`.
+  (`SerialProbeExclusion`), and `IExternal` answers them for a port name (null where the host has no serial ports). It also
+  records whether another port of the same enumeration reports the same key (`SerialPortIdentity.SharedWithAnotherPort`,
+  judged over the whole list, the ports a driver holds included).
+- `SerialProbeService.WithPortIdentity` (called once per probe attempt, just before `PublishMatch`) adds two query keys to
+  every match it publishes, so every serial family gets them with no change to any probe: `portIdentity=device|socket|name`
+  and `portKey=<IdentityKey>`.
 - Both are TRANSPORT keys (`DeviceQueryKey.IsTransport`): a re-discovery refreshes them, as it does `port` and `baud`, and
   a stale profile never keeps an old value (`MergeDiscoveredIntoStored`).
 
 **What uses it:**
-- `FollowMovedPort` follows a stored device whose `portIdentity` is `device` to the discovered one with the SAME `portKey`,
-  even with several of its model about: the same cable on a new COM port is certain, which the model rule rightly refuses
-  to guess between (#783's case, for a cable that has a serial). A stored device without a `device` key keeps the model
+- `FollowMovedPort` follows a stored device whose `portIdentity` is `device` to the discovered device **of the same model**
+  (`ModelKey`) with the SAME `portKey`, even with several of its model about: the same cable on a new COM port is certain,
+  which the model rule rightly refuses to guess between (#783's case, for a cable that has a serial). **The model is still
+  required** (the ladder's "bridge serial, a DIFFERENT model: do not follow"): another model on the cable is a new device, and
+  a device whose id names the hardware (an OnStep with a UUID; it has no `ModelKey`) is never followed on a cable, since only
+  its own id finds it. Step 3 (#2040) widens this with a notification. A stored device without a `device` key keeps the model
   rule.
 - A client can say so: a serial device on a `socket` or `name` port is one that a re-plug elsewhere may lose ("keep it in
   the same USB socket, or use an adapter with a serial number"). A follow-up, not part of the first step.
@@ -353,6 +359,11 @@ FTDI cable is `SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA`, the same device on
 query where a re-discovery refreshes it; `ReconcileUri` then matches it by identity, with no model guess. `ModelKey` strips the
 cable ending as it strips a port, so the model rule still recognises the family. A `socket` or `name` port keeps its port id
 (a move changes the very thing that names it), and an id that names the hardware itself (a UUID, a serial) is never touched.
+**A serial that two listed ports report is not put into an id** (`SerialPortIdentity.NamesTheDeviceInItsId`): the hub's URI to
+driver map is keyed on the id, so two units given one id would be one device and one of them lost. Their ids keep the COM
+port, as before the key existed, and the key stays in the notes. It is judged over one enumeration: a unit plugged in alone
+is keyed on its cable, and when a second with the same serial appears both fall back to their port ids. A slot saved with the
+cable id then has two candidates of its model on that cable, and stays unresolved (several candidates).
 So for every port-keyed family in the table above, "survives a re-plug" becomes **yes on a serial-numbered cable** (FTDI, most
 CDC-ACM), and stays no on a CH340, a Prolific or a plain port. **No migration** (the owner, 2026-11-05: profiles start fresh):
 a profile saved with a port id on such a cable finds the device once by the model rule and is then saved with the cable id.
@@ -368,7 +379,9 @@ Windows instance path (`USB\VID_067B&PID_23D3\DRDEN10CD20`: no `&` in the last s
 
 So a cable moved from one mount to another carries its key with it, and the same mount reached by two paths (an EQ6-R's own
 socket, and EQDIR or the hand controller) is two keys. A serial number is also only as unique as the vendor made it: a clone
-adapter that ships one serial on every unit gives two of them one key, and they stay unresolved (several candidates).
+adapter that ships one serial on every unit (`A50285BI` on cheap FT232 copies) gives two of them one key. Those two are never
+told apart by it: both keep their port ids and stay two devices (see above), and a stored slot that cannot pick between them
+stays unresolved (several candidates).
 
 #### Step 3 (planned): match on the evidence, and say what was followed
 

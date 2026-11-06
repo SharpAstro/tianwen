@@ -1,5 +1,6 @@
 using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.Logging;
+using SharpAstro.Serial;
 using Shouldly;
 using System;
 using System.Collections.Concurrent;
@@ -103,6 +104,41 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
 
         service.ResultsFor("OnStep").ShouldHaveSingleItem().DeviceUri.DeviceKey
             .ShouldBe(new Uri("Mount://OnStepDevice/OnStep_1_abc-uuid").DeviceKey, "a UUID names the hardware, whatever the cable");
+    }
+
+    /// <summary>
+    /// Two units on adapters that ship ONE USB serial (a clone FT232's <c>A50285BI</c>) must stay two devices. The cable's key
+    /// as their id would be the same <c>DeviceKey</c> on both, and the hub's URI to driver map is keyed on it, so one of the
+    /// rig's two mounts would be lost. A serial another listed port reports too is never put into an id: both keep the COM id
+    /// they had before the key existed, with the key still noted. The identities come from <see cref="SerialPortIdentity.Of"/>
+    /// over the described ports, the way the real enumeration builds them.
+    /// </summary>
+    [Fact]
+    public async Task TwoUnitsOnAdaptersSharingOneSerialStayTwoDevices()
+    {
+        static SerialPortInfo Clone(string name) => new(name) { VendorId = 0x0403, ProductId = 0x6001, SerialNumber = "A50285BI" };
+        IReadOnlyList<SerialPortInfo> listed = [Clone("COM5"), Clone("COM6")];
+        var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
+        foreach (var info in listed)
+        {
+            external.Identities[$"serial:{info.PortName}"] = SerialPortIdentity.Of(info, listed);
+        }
+
+        var sgp = StubProbe.Sync("iOptron", baud: 28800,
+            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_{port[7..]}?port={port}#iOptron SkyGuider Pro (170518) on {port[7..]}")));
+        var service = BuildService(external, output, sgp);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var found = service.ResultsFor("iOptron").ToDictionary(m => m.Port);
+        found.Count.ShouldBe(2);
+        var com5 = found["serial:COM5"].DeviceUri;
+        var com6 = found["serial:COM6"].DeviceUri;
+        com5.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM5").DeviceKey, "a shared serial keeps the port id");
+        com6.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM6").DeviceKey);
+        com5.DeviceKey.ShouldNotBe(com6.DeviceKey, "two units are two devices to the hub");
+        com5.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A50285BI", "what the port reports is still noted");
+        com6.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A50285BI");
     }
 
     [Fact]

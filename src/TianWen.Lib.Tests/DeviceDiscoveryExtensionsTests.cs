@@ -305,6 +305,61 @@ public class DeviceDiscoveryExtensionsTests
         reconciled.OTAs[1].Focuser.ShouldNotBeNull().DeviceKey.ShouldBe(GeminiFocuser("COM6").DeviceKey, "and BBB to COM6");
     }
 
+    /// <summary>
+    /// A cable follow is for the same MODEL (the ladder: "bridge serial, a DIFFERENT model: do not follow", #2040 step 3 widens
+    /// it with a notification): an EQ6 on a stored cable is not replaced by an AZ-GTi that now sits on that cable, which would
+    /// have kept the slot's site, backlash and filter keys for another mount.
+    /// </summary>
+    [Fact]
+    public void ADifferentModelOnTheSameCableIsNotFollowed()
+    {
+        static Uri Skywatcher(string model, string port)
+            => new Uri($"Mount://SkywatcherDevice/Skywatcher_{model}_3.39_{port}?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3AAAA#Skywatcher {model} on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(Skywatcher("AZGTI", "COM6"))] };
+        var data = MakeProfileData(mount: Skywatcher("EQ6", "COM4"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse("another model on the cable is a new device, not this slot's");
+        reconciled.ShouldBe(data);
+    }
+
+    /// <summary>
+    /// The same model on the cable IS followed (the rule the test above narrows, not removes), whatever else of that model is
+    /// about, and with the model's own key unchanged by the cable ending.
+    /// </summary>
+    [Fact]
+    public void TheSameModelOnTheSameCableIsFollowedWhateverElseIsAbout()
+    {
+        static Uri Skywatcher(string port, string cable)
+            => new Uri($"Mount://SkywatcherDevice/Skywatcher_EQ6_3.39_{port}?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3A{cable}#Skywatcher EQ6 on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(Skywatcher("COM6", "BBB")), new FakeDeviceRecord(Skywatcher("COM7", "AAA"))] };
+        var data = MakeProfileData(mount: Skywatcher("COM4", "AAA"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeTrue();
+        reconciled.Mount.DeviceKey.ShouldBe(Skywatcher("COM7", "AAA").DeviceKey, "the EQ6 on cable AAA, not the other EQ6");
+    }
+
+    /// <summary>
+    /// A device whose id names the hardware (an OnStep with a UUID) has no model key and is the device its id says: another
+    /// unit that now sits on its cable is not it, and does not take the slot.
+    /// </summary>
+    [Fact]
+    public void AnIdNamedDeviceIsNotReplacedByWhateverNowSitsOnItsCable()
+    {
+        static Uri OnStep(string uuid, string port)
+            => new Uri($"Mount://OnStepDevice/OnStep_1_{uuid}?port=serial:{port}&portIdentity=device&portKey=usb%3A0403%3A6001%3AAAA&latitude=-33.9#OnStep on {port}");
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(OnStep("other-uuid", "COM6"))] };
+        var data = MakeProfileData(mount: OnStep("abc-uuid", "COM5"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse("a different UUID is a different unit, whatever cable it is on");
+        reconciled.ShouldBe(data);
+    }
+
     /// <summary>A <c>socket</c> key names the very socket a move leaves, so it is no evidence: the model rule decides, and with two about it refuses.</summary>
     [Fact]
     public void ASocketKeyIsNotFollowedByItsKey()

@@ -679,7 +679,10 @@ internal sealed class SerialProbeService : ISerialProbeService
     ///   (<see cref="DeviceUriExtensions.ModelKey"/>: <c>SkyGuider-Pro_170518_COM14</c>) ends in the cable instead
     ///   (<c>SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA</c>), so it is the same device in any socket and on any COM
     ///   number; the port stays in the query, where a re-discovery refreshes it. An id that names the hardware itself (a UUID,
-    ///   a serial) has no port in it and is left alone, and so is a <c>socket</c> or <c>name</c> port, which a move changes.</item>
+    ///   a serial) has no port in it and is left alone, and so is a <c>socket</c> or <c>name</c> port, which a move changes.
+    ///   <b>So is a serial that another listed port reports too</b> (<see cref="SerialPortIdentity.SharedWithAnotherPort"/>:
+    ///   clone FT232 adapters ship one serial on every unit): the key would name two units as one device, the hub's driver map
+    ///   is keyed on the id, and one of them would be lost; they keep their COM ids, as before the key existed.</item>
     /// </list>
     /// </summary>
     private SerialProbeMatch WithPortIdentity(SerialProbeMatch match)
@@ -692,7 +695,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         var uri = match.DeviceUri.WithQueryValues(
             (DeviceQueryKey.PortIdentity.Key, identity.KindName),
             (DeviceQueryKey.PortKey.Key, identity.Key));
-        if (identity.Kind is SharpAstro.Serial.SerialIdentityKind.Device && uri.ModelKey is { } model)
+        if (identity.NamesTheDeviceInItsId && uri.ModelKey is { } model)
         {
             uri = new Uri($"{model}_{identity.IdSuffix}{uri.Query}{uri.Fragment}");
         }
