@@ -97,6 +97,38 @@ public class TestTempFoldersTests
         offenders.ShouldBeEmpty("a test's output folder comes from SharedTestData.CreateTempTestOutputDir, which removes it when the test ends");
     }
 
+    /// <summary>
+    /// The date in a dated output folder's name is <see cref="TestOutput"/>'s to format (#2035). A test that formats its own
+    /// <c>yyyyMMdd</c> into a path, or starts from the root <see cref="TestOutput"/> keeps in its <c>DefaultRoot</c>, builds a dated folder
+    /// whose end nothing owns, and the guard above never sees it when the tests' folder name reaches it through a constant or a
+    /// variable rather than a literal.
+    /// </summary>
+    [Fact]
+    public void NoTestFormatsADateIntoItsOutputPathByHand()
+    {
+        if (FindSourceRoot() is not { } root)
+        {
+            return;
+        }
+
+        // Built from parts, so this file does not match its own search.
+        var dateFormat = "\"yyyy" + "MMdd\"";
+        var defaultRoot = "TestOutput." + "DefaultRoot";
+        string[] owners = ["TestOutput.cs", "SharedTestData.cs"];
+        var offenders = TestSources(root)
+            .Where(f => !owners.Contains(Path.GetFileName(f), StringComparer.Ordinal))
+            .Where(f =>
+            {
+                var text = File.ReadAllText(f);
+                return text.Contains(dateFormat, StringComparison.Ordinal) || text.Contains(defaultRoot, StringComparison.Ordinal);
+            })
+            .Select(f => Path.GetRelativePath(root, f))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        offenders.ShouldBeEmpty("a dated output folder comes from SharedTestData.CreateTempTestOutputDir, which names it by date and removes it when the test ends");
+    }
+
     // #1626: a planetary capture's path is read for its telescope folder by folder outward, so a random folder name holding a digit beside a
     // letter ("4in" read as a 102 mm telescope) failed ViewerAutoViewTests on a CI leg. A folder TempFolders makes names none.
     [Fact]
