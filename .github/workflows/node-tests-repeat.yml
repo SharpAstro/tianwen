@@ -5,7 +5,7 @@ name: Node tests repeat
 #   alone: only the tests named below, so a failure here is in the test or the node itself.
 #   suite: the whole TianWen.Lib.Tests.Functional project each iteration, so a failure ONLY here points at
 #          interference between tests (thread-pool starvation, a shared clock, a node left running).
-# It runs once on the PR that adds or changes this file (the paths filter keeps it off every other PR) and on demand:
+# It runs only on demand, never on a PR push (the owner: a 30-pass proof on every push holds a PR up for most of an hour):
 #   gh workflow run node-tests-repeat.yml -f ref=<branch-or-sha> [-f iterations=30] [-f mode=alone|suite|both]
 # The tests named: 9 cases, of which 7 run. The last two (the NodeGuidingTests) are out of the proof set until #2050, see UNPROVEN_FILTER.
 # Run (7 cases): NodeFrameStreamTests.TheLiveFrameStreamsNewestFirst...,
@@ -33,9 +33,6 @@ on:
         default: 'both'
         type: choice
         options: [both, alone, suite]
-  pull_request:
-    paths:
-      - '.github/workflows/node-tests-repeat.yml'
 
 # Two pushes to the PR in a row would otherwise run two proofs at once on the same ref (up to 9 runners each), the older one
 # proving a commit that is no longer the head. The newer cancels the older; a dispatch for another ref or mode is its own group.
