@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices.Fake;
@@ -105,9 +106,8 @@ public class SaturationStackingTests(ITestOutputHelper output)
     }
 
     private async Task<(GroupResult Result, Image? Saturation, (double X, double Y) StarInMaster)> StackAsync(
-        bool clip, IntegrationStrategyKind? forced, DrizzleOptions? drizzle)
+        bool clip, IntegrationStrategyKind? forced, DrizzleOptions? drizzle, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
         using var workspace = new TempStackingWorkspace();
         WriteLights(workspace.LightsDir, clip);
         var options = new StackingOptions(
@@ -234,7 +234,7 @@ public class SaturationStackingTests(ITestOutputHelper output)
     [Fact(Timeout = 300_000)]
     public async Task DefaultAhdPath_WritesASaturationSidecarOverTheClippedStar()
     {
-        var (result, map, star) = await StackAsync(clip: true, forced: null, drizzle: null);
+        var (result, map, star) = await StackAsync(clip: true, forced: null, drizzle: null, TestContext.Current.CancellationToken);
         map.ShouldNotBeNull("a master with clipped subs carries a saturation sidecar");
         ShouldCoverOnlyTheBlob(map, result.FramesMatched, star);
     }
@@ -242,7 +242,7 @@ public class SaturationStackingTests(ITestOutputHelper output)
     [Fact(Timeout = 300_000)]
     public async Task BayerDrizzlePath_WritesASaturationSidecarOverTheClippedStar()
     {
-        var (result, map, star) = await StackAsync(clip: true, IntegrationStrategyKind.BayerDrizzle, new DrizzleOptions(MinFrameCount: 6));
+        var (result, map, star) = await StackAsync(clip: true, IntegrationStrategyKind.BayerDrizzle, new DrizzleOptions(MinFrameCount: 6), TestContext.Current.CancellationToken);
         map.ShouldNotBeNull();
         ShouldCoverOnlyTheBlob(map, result.FramesMatched, star);
     }
@@ -287,7 +287,7 @@ public class SaturationStackingTests(ITestOutputHelper output)
     public async Task NoClippedPhotosite_WritesNoSaturationSidecar()
     {
         // Stated choice: a set with nothing at the ceiling writes NO sidecar (absence means "peak gate alone").
-        var (_, map, _) = await StackAsync(clip: false, forced: null, drizzle: null);
+        var (_, map, _) = await StackAsync(clip: false, forced: null, drizzle: null, TestContext.Current.CancellationToken);
         map.ShouldBeNull();
     }
 }
