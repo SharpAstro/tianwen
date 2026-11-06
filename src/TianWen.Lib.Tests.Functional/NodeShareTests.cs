@@ -62,7 +62,7 @@ public class NodeShareTests(ITestOutputHelper outputHelper) : IDisposable
         share.ShouldNotBeNull().Shared.ShouldBeTrue();
         logon.ServerPath.ShouldBe(Environment.ProcessPath, "the entry starts the executable the node runs from");
         JsonDocument.Parse(await File.ReadAllTextAsync(settingsFile, ct)).RootElement.GetProperty("shareOnLan").GetBoolean().ShouldBeTrue();
-        (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().ShareOnLan.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().ShareOnLan.ShouldBeTrue();
 
         (status, share) = await ShareAsync(node.Client, shared: false);
 
@@ -137,7 +137,7 @@ public class NodeShareTests(ITestOutputHelper outputHelper) : IDisposable
         node.App.Lifetime.ApplicationStopping.IsCancellationRequested.ShouldBeFalse("a restart would come back local-only");
         role.ExitCode.ShouldBe(NodeExitCodes.Stopped);
         // What the GUI's share toggle shows: the answer's error, as a warning.
-        var said = await new TianWenNodeClient(node.Client).SetShareAsync(true, ct);
+        var said = await NodeTestClients.ClientOf(node.Client).SetShareAsync(true, ct);
         said.IsSuccess.ShouldBeFalse();
         said.Error.ShouldNotBeNull().ShouldContain("a local-only node cannot share the rig");
 

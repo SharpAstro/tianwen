@@ -49,7 +49,7 @@ public class NodeProfileOwnWritesTests(ITestOutputHelper output) : IAsyncLifetim
         }
     }
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     private IDeviceHub Hub => _node.App.Services.GetRequiredService<IDeviceHub>();
 

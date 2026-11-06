@@ -22,7 +22,7 @@ public class NodeShutdownClientTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using (var overTcp = await NodeHarness.StartAsync(output, ct))
         {
-            var client = new TianWenNodeClient(overTcp.Client);
+            var client = NodeTestClients.ClientOf(overTcp.Client);
             (await client.ShutdownNodeAsync(ct)).StatusCode.ShouldBe(403);
             (await client.GetNodeAsync(ct)).IsSuccess.ShouldBeTrue("a refused stop stops nothing");
         }
@@ -31,7 +31,7 @@ public class NodeShutdownClientTests(ITestOutputHelper output)
             onItsSocket: true);
         var stopping = onItsSocket.App.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
 
-        (await new TianWenNodeClient(onItsSocket.Client).ShutdownNodeAsync(ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(onItsSocket.Client).ShutdownNodeAsync(ct)).IsSuccess.ShouldBeTrue();
 
         await NodeWait.UntilAsync("the node to start stopping", _ => ValueTask.FromResult((stopping.IsCancellationRequested, "running")), ct);
     }

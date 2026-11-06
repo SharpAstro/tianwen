@@ -31,7 +31,7 @@ public class NodeDarkLibraryTests(ITestOutputHelper outputHelper) : IDisposable
 
     public void Dispose() => _folders.Dispose();
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     private static async Task<FakeDevice> ConnectedCameraAsync(NodeHarness node, CancellationToken ct)
     {
