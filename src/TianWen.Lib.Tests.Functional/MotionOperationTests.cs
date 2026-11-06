@@ -146,9 +146,11 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var fake = (await Hub.ConnectAsync(Mount, ct)).ShouldBeOfType<FakeMountDriver>();
         fake.CanFindHome = true;
         await ActiveRigAsync(ct);
+        // Where the mount points in RA, so the slew is the Dec alone and short whatever the hour (see the next test).
+        var ra = await fake.GetRightAscensionAsync(ct);
         var reads = fake.SiteLatitudeReads;
 
-        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = 0, DecJ2000 = 40 }, ct)).Value.ShouldNotBeNull();
+        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = ra, DecJ2000 = 70 }, ct)).Value.ShouldNotBeNull();
         await UntilEndedAsync(job.Id, ct);
 
         fake.SiteLatitudeReads.ShouldBe(reads, "a Dec away from a pole needs no site");
@@ -159,7 +161,7 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
     [Theory(Timeout = 60_000)]
     [InlineData(90.0, 1, "is at home")]
     [InlineData(89.7, 1, "is at home")]
-    [InlineData(40.0, 0, null)]
+    [InlineData(70.0, 0, null)]
     [InlineData(-90.0, 0, null)]
     public async Task AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot(double dec, int expectedHomeCalls, string? expectedStep)
     {
@@ -168,7 +170,10 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         fake.CanFindHome = true;
         await ActiveRigAsync(ct); // site latitude 48.2: north
 
-        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = 0, DecJ2000 = dec }, ct)).Value.ShouldNotBeNull();
+        // The fake slews at a fixed rate on the REAL clock, from where it parked (RA = LST - 6 h): aimed at RA 0, how far it had
+        // to go was the time of day, up to two minutes against the 60 s bound (#2025's CI). Aimed where it already points in RA,
+        // and a Dec 20 degrees off the pole, the slew is the Dec alone, about 13 s, whatever the hour.
+        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = await fake.GetRightAscensionAsync(ct), DecJ2000 = dec }, ct)).Value.ShouldNotBeNull();
         var ended = await UntilEndedAsync(job.Id, ct);
 
         fake.FindHomeCalls.ShouldBe(expectedHomeCalls);
