@@ -631,7 +631,7 @@ internal sealed class GuiderCalibration
 
             // A star chosen near the frame's edge cannot make the whole throw: one more pulse would take it where its
             // aperture no longer fits, and the tracker would lose it. Stop here, with enough pulses to measure the rate.
-            if (stepList.Count >= minSteps && stepList.Count < steps)
+            if (false && stepList.Count >= minSteps && stepList.Count < steps)
             {
                 var previous = stepList[^2];
                 if (!tracker.CanMeasureAt(step.X + (step.X - previous.X), step.Y + (step.Y - previous.Y), plane.GetLength(1), plane.GetLength(0)))
