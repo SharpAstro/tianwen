@@ -161,7 +161,7 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
     // The fake mount slews in real time at 1.5 degrees a second, from its pole: a goto to Dec 40 was 50 degrees, 33 s on an
     // idle machine, and a runner that skips slew ticks takes far longer (#2000, #2001: cancelled at 60 s on CI, the pole rows
     // always passing, since they never slew). There was no hang, only a real-time slew too long for the budget: the ordinary
-    // row now goes to Dec 80 (10 degrees, about 7 s), still far from the 0.5 degree pole tolerance, and the ceiling stays
+    // row now goes to Dec 70 at the mount's own RA (20 degrees, about 13 s), still far from the 0.5 degree pole tolerance, and the ceiling stays
     // generous; the test still ends the moment the job does.
     [Theory(Timeout = 180_000)]
     [InlineData(90.0, 1, "is at home")]
