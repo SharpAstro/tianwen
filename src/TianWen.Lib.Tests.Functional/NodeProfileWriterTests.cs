@@ -74,7 +74,7 @@ public class NodeProfileWriterTests(ITestOutputHelper output) : IAsyncLifetime
         }
     }
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     /// <summary>The profile as another process saves it, the GUI's way until P6: straight to the file.</summary>
     private static Task SeedAsync(IExternal external, ProfileData data) =>
@@ -182,7 +182,7 @@ public class NodeProfileWriterTests(ITestOutputHelper output) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         await using var lan = await NodeHarness.StartAsync(output, ct);
         await SeedAsync(lan.External, Everything);
-        var client = new TianWenNodeClient(lan.Client);
+        var client = NodeTestClients.ClientOf(lan.Client);
 
         var read = (await client.GetProfileAsync(Rig, ct)).Value.ShouldNotBeNull();
         read.Data.ShouldNotBeNull();

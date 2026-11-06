@@ -31,7 +31,7 @@ public class NodeMountPositionLossTests(ITestOutputHelper outputHelper) : IAsync
 
     private IDeviceHub Hub => _node.App.Services.GetRequiredService<IDeviceHub>();
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     // Melbourne, where the AZ-GTi this was found on stands; the profile names the same site.
     private static readonly FakeDevice Mount = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection

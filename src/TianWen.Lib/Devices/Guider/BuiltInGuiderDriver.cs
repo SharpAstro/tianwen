@@ -954,7 +954,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     internal async ValueTask<Image> CaptureCorrectedFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
     {
-        var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct);
+        var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct, Logger);
         return _darks?.For(camera.Name) is { } correction ? correction.Correct(frame, exposure, frame.ImageMeta.Gain) : frame;
     }
 
@@ -963,17 +963,50 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref; 
     /// caller must call <see cref="Image.Release"/> when done to allow buffer reuse.
     /// </summary>
-    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
+    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct, ILogger? logger = null)
     {
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
-        // Adaptive wait: sleep through the exposure's dead time in one chunk, then
-        // tighten the poll cadence as the predicted end approaches (coarse, then 1 ms
-        // in the final window) so pickup latency stays minimal without burning poll
-        // round-trips. No overall timeout: the guide loop's own token bounds this.
-        await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: null, ct);
+        try
+        {
+            // Adaptive wait: sleep through the exposure's dead time in one chunk, then
+            // tighten the poll cadence as the predicted end approaches (coarse, then 1 ms
+            // in the final window) so pickup latency stays minimal without burning poll
+            // round-trips. No overall timeout: the guide loop's own token bounds this.
+            await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: null, ct);
 
-        return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame, no image data");
+            return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame, no image data");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The loop was stopped with its exposure in flight, and cancelling the wait does not end the exposure: the camera
+            // would go on Exposing after the loop is gone, and the next consumer's first StartExposureAsync would meet a busy
+            // camera (#1945: a guiding stop handed the camera back to the live view mid-exposure and its capture loop died on
+            // it). Whoever stops the loop is owed an idle camera, so the exposure ends before the cancellation propagates.
+            await EndExposureInFlightAsync(camera, exposure, timeProvider, imageReadyPollInterval, logger);
+            throw;
+        }
+    }
+
+    private static async ValueTask EndExposureInFlightAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, ILogger? logger)
+    {
+        try
+        {
+            if (camera.CanAbortExposure)
+            {
+                await camera.AbortExposureAsync(CancellationToken.None);
+            }
+            else
+            {
+                // No abort: the exposure runs out, a guide exposure being short.
+                await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: exposure + TimeSpan.FromSeconds(5), CancellationToken.None);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The camera is the stop's to find busy, not this frame's to fail on: the loop is ending either way.
+            logger?.LogWarning(ex, "Built-in guider: ending the exposure in flight on {Camera} failed", camera.Name);
+        }
     }
 
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)

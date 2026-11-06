@@ -24,6 +24,9 @@ internal sealed class External(
 
     // Why a port the latest enumeration listed is not to be probed (SerialProbeExclusion), keyed as that list names it.
     private readonly ConcurrentDictionary<string, string> _serialPortsNotToProbe = new(StringComparer.OrdinalIgnoreCase);
+
+    // Each listed port's own identity as the latest enumeration found it (#1090), keyed as that list names it.
+    private readonly ConcurrentDictionary<string, Discovery.SerialPortIdentity> _serialPortIdentities = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     /// <summary>
@@ -78,6 +81,7 @@ internal sealed class External(
             }
 
             // Per port, as of this enumeration: a COM name can come back with another device behind it.
+            _serialPortIdentities[port] = Discovery.SerialPortIdentity.Of(info, described);
             if (Discovery.SerialProbeExclusion.ReasonNotToProbe(info) is { } reason)
             {
                 _serialPortsNotToProbe[port] = reason;
@@ -92,6 +96,9 @@ internal sealed class External(
     }
 
     public string? ReasonNotToProbeSerialPort(string port) => _serialPortsNotToProbe.GetValueOrDefault(port);
+
+    public Discovery.SerialPortIdentity? SerialPortIdentityOf(string port)
+        => _serialPortIdentities.TryGetValue(port, out var identity) ? identity : null;
 
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => _serialPortEnumerationSemaphore.AcquireLockAsync(cancellationToken);
 

@@ -39,7 +39,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
             onItsSocket: onItsSocket);
         await node.ActivateRigAsync(Camera, mount: null, ct);
         var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
-        (await new TianWenNodeClient(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
         return (node, window);
     }
 
@@ -78,9 +78,30 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         // every one, the first of them 33 ms after the frame before the pause. The frame's number cannot say: it is the
         // node's token for the source, moved only when a reader looks.
         await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        // Asserted against what the node itself showed as the reader came back, never against a duration, which a loaded
+        // runner stretches: the frame read is that one or a newer, and newer than the last read before the pause.
+        var shown = await NewestShownAsync(node, ct);
         var after = await ReadAsync(stream, reader, (640, 320, 1), ct);
-        (after.Arrived - frames[^1].Arrived).ShouldBeGreaterThan(TimeSpan.FromSeconds(1.5),
-            "a reader that fell behind is sent the newest frame, not every frame it missed");
+        after.Arrived.ShouldBeGreaterThanOrEqualTo(shown, "a reader that fell behind is sent the newest frame, not every frame it missed");
+        after.Arrived.ShouldBeGreaterThan(frames[^1].Arrived, "and a newer one than the last it read before it fell behind");
+    }
+
+    /// <summary>When the node's own newest live frame arrived, read under a lease; a frame replaced mid-ask is asked for again.</summary>
+    private static async Task<DateTimeOffset> NewestShownAsync(NodeHarness node, CancellationToken ct)
+    {
+        var frames = node.App.Services.GetRequiredService<NodeFrames>();
+        var at = await UntilAsync<string>("the node's live frame", _ =>
+        {
+            if (frames.Named(FrameSources.PlanetaryLive).Frame is { } published && published.TryLease(out var lease))
+            {
+                using (lease)
+                {
+                    return ValueTask.FromResult<(string? Value, string Seen)>((lease.Image.ImageMeta.ExposureStartTime.ToString("O"), "a frame"));
+                }
+            }
+            return ValueTask.FromResult<(string? Value, string Seen)>((null, "no frame to lease"));
+        }, ct);
+        return DateTimeOffset.Parse(at, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -200,7 +221,7 @@ public class NodeFrameStreamTests(ITestOutputHelper outputHelper)
         var ct = TestContext.Current.CancellationToken;
         var node = await NodeHarness.StartAsync(outputHelper, ct);
         await node.ActivateRigAsync(Camera, mount: null, ct);
-        (await new TianWenNodeClient(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
         await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, SystemTimeProvider.Instance, ct);
         await ReadAsync(stream, new FrameReader(), (640, 320, 1), ct);
 

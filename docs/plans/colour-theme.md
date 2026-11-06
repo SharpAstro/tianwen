@@ -108,16 +108,35 @@ Twelve roles, four states, identical role names on every surface so consumers ar
 | `SeparatorStrong` | `#bcc5cf` | `#3c444f` | `#4d1e00` |
 | `BodyText` | `#14181d` | `#e2e6ec` | `#e04a00` |
 | `DimText` | `#5a626c` | `#8b939f` | `#b83c00` |
-| `Accent` | `#0a63a8` | `#7cc4ff` | `#ff6a00` |
-| `AccentAlt` | `#0a63a8` | `#7cc4ff` | `#a83c00` |
+| `Accent` | `#b83c00` | `#ff5e00` | `#ff6a00` |
+| `AccentAlt` | `#b83c00` | `#ff5e00` | `#a83c00` |
 | `Info` | `#0a63a8` | `#7cc4ff` | `#8c3000` |
-| `Warn` | `#8a5000` | `#e8a33c` | `#cc5c00` |
+| `Warn` | `#7a5c00` | `#ccac18` | `#cc5c00` |
 | `Error` | `#b02a20` | `#ff7a70` | `#ff1500` |
 
 `HeaderText` folds into `Accent` (see the widening section: they were the same field, which is why
 the app had no accent). Light and Dark share one accent, so `AccentAlt` equals `Accent` there and
 the guide graph's two traces separate by dash rather than hue; Night gives `AccentAlt` a muted
 variant so it does not collide with `Warn`.
+
+**2026-11-05, #2025: the accent is the logo's orange in Light and Dark** (it was blue, `#0a63a8` /
+`#7cc4ff`; the web planner's CSS was teal). Light takes the site's darker shade `#b83c00` (5.70:1 on
+`PanelBg`, 4.84:1 on `HeaderBg`; the logo's own `#e04a00` is about 4:1 on white), Dark `#ff5e00` (5.63:1
+and 5.15:1), hues 19.6 and 22.1 degrees against the logo's 19.6. Night is untouched, pinned by its exact
+values. What moved with it, and why:
+- **`Warn` moved towards yellow** (Light `#8a5000` to the olive-ochre `#7a5c00`, Dark `#e8a33c` to the
+  yellow-amber `#ccac18`). The old amber was 16 degrees from the orange accent, so a highlighted
+  control read as a warning; it is now 26 degrees clear of `Accent` and at least 41 clear of `Error`
+  (`GuiThemeTests.AccentWarnAndErrorStayApartByHue`). Dark's is held dark enough that BodyText on `ConfirmForceBg` stays at 4.71:1 (the first
+  pick, `#dcb81c`, dropped it to 4.29:1) and the Caution mix carries a white label at 5.3:1.
+- **`Info` is no longer `Accent`**: it stays the blue, because `SkyBand` draws the twilight ramp from its
+  hue and the home board's dot needs Info, Success and DimText three ways apart.
+- **`Selection` went from a blue wash to a warm neutral** (Light `#f6e6da`, Dark `#302820`): accent text
+  on the old blue measured 4.48:1 and 4.40:1, under AA, and it is the same subtle 1.2:1 band as before.
+- **The guide frame's crosshair and the scatter's latest dot are `Success`, not `Accent`**: the RA/Dec
+  literals keep their hues (the calibration reticle's RA arm and the Dec label are orange), and an
+  orange crosshair beside them was no mark at all. Night has no green, so there `Success` is its accent,
+  which is what both drew before.
 
 **Dark is `GuiTheme` retuned, not replaced.** Same cool-neutral family, but the ramp gains a real
 blue bias (today's `#1e1e28` has R=G with only blue lifted, which reads faintly violet; `#171b22`

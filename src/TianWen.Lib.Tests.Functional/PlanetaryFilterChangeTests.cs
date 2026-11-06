@@ -81,7 +81,7 @@ public class PlanetaryFilterChangeTests(ITestOutputHelper outputHelper)
         var (hub, camera, wheel, focuser) = await MonoRigAsync(node, ct);
         var luminanceFocus = await focuser.GetPositionAsync(ct);
 
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
         (await client.StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
         await UntilStateAsync(client, "the capture to stream", s => s.FramesReceived > 0, ct);
         camera.VideoStarts.Length.ShouldBe(1);
@@ -139,7 +139,7 @@ public class PlanetaryFilterChangeTests(ITestOutputHelper outputHelper)
         var ct = TestContext.Current.CancellationToken;
         await using var node = await NodeHarness.StartAsync(outputHelper, ct);
         await MonoRigAsync(node, ct);
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
         (await client.StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
         var stacking = await UntilStateAsync(client, "a master to be stacked", s => s is { Masters: > 0, StackedFrames: > 0 }, ct);
         var run = node.Node.CurrentRun.ShouldBeOfType<NodePlanetaryRun>();

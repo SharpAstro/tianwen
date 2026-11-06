@@ -163,7 +163,11 @@ internal sealed class FlatsSubCommand(
             var flatsRoot = Path.Combine(consoleHost.External.ImageOutputFolder.FullName, "Flats");
             var before = CountFlats(flatsRoot);
 
-            var started = await node.StartFlatsAsync(request, profile.ProfileId, ct);
+            // The start is sent WITHOUT the command's token: a Ctrl+C while it is in flight would otherwise end the command
+            // before the follow below, the one place that stops the run on the node, so a run the node had already begun went
+            // on with nobody watching it (#2000: AFlatRunIsTheNodesRunWithTheCommandsKnobsAndACtrlCStopsItThere hung for its
+            // 60 s). The request has its own budget; the follow sees the cancel at once and stops the run.
+            var started = await node.StartFlatsAsync(request, profile.ProfileId, CancellationToken.None);
             if (!started.IsSuccess)
             {
                 consoleHost.WriteError($"[flats] the node did not start the flat run: {started.Error}");

@@ -275,7 +275,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         await hub.ConnectAsync(camera, ct);
         await hub.ConnectAsync(focuser, ct);
 
-        var nodeId = (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().NodeId;
+        var nodeId = (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().NodeId;
         var binding = new RemoteRigBinding
         {
             BindingId = Guid.NewGuid(),

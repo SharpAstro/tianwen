@@ -853,8 +853,17 @@ namespace TianWen.UI.Gui
                 // third, since each of the three zones takes a third of the content area.
                 var contentW = w - (SidebarWidth + 6f) - 4f;
                 var msgCellW = Math.Max(contentW / 3f, 40f);
-                var displayMsg = TruncateToFit(msg, msgCellW, FontSize * 0.85f);
-                statusNode = Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, Palette.Warn, TextAlign.Near, TextAlign.Center)
+                // The warning mark (#2025) leads the message, so a status message is told from an accented control by
+                // form as well as colour. StatusMessage carries no severity, and the message has always been drawn in
+                // Warn, so it is treated as a Warning here. The mark and its gap come off the cell BEFORE the message is
+                // truncated, so a long message still ends in an ellipsis rather than being clipped by the mark.
+                var markDu = BaseFontSize * 0.85f;
+                // The lead's footprint is SeverityMarks.LeadWidth, read once for the node AND the budget.
+                var displayMsg = TruncateToFit(msg, Math.Max(msgCellW - SeverityMarks.LeadWidth(markDu, gapDu) * DpiScale, 40f), FontSize * 0.85f);
+                statusNode = Layout.Builder.HStack(
+                        SeverityMarks.Lead(NotificationSeverity.Warning, markDu, gapDu),
+                        Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, Palette.Warn, TextAlign.Near, TextAlign.Center)
+                            .WStar().HStar())
                     .WStar().HStar();
             }
             else
@@ -960,7 +969,14 @@ namespace TianWen.UI.Gui
 
             // Arrange + paint the bar over the content area (right of the sidebar gutter, small right margin).
             var bar = Layout.Builder.HStack(leftZone, centreZone, rightZone);
-            RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh));
+            RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh), drawFill: (fill, rect) =>
+            {
+                // The status message's warning mark: a keyed baked-icon Fill (SeverityMarks), centred in its slot.
+                if (SeverityMarks.TryPlace(fill.Key, rect, out var mask, out var sq, out var ink))
+                {
+                    DrawCoverageMask(mask, sq.X, sq.Y, sq.Width, ink);
+                }
+            });
         }
 
         // Truncate with ellipsis so the string fits within maxWidth at the given font size.

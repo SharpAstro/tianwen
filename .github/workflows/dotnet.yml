@@ -506,7 +506,7 @@ jobs:
         retention-days: 14
 
   test-functional:
-    timeout-minutes: 20   # healthy 4m24s
+    timeout-minutes: 20   # healthy 13 to 14 min on main and other flights (a run that held every test apart took 19.8 min, #2000)
     needs: build
     # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr), nor in the
     # merge queue, which only builds (see merge_group above).
