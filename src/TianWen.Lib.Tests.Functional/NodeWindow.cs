@@ -59,7 +59,7 @@ internal sealed class NodeWindow : IAsyncDisposable
     /// </summary>
     public static NodeWindow Open(NodeTransport transport, ITestOutputHelper outputHelper, CancellationToken ct)
     {
-        var stream = transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        var stream = transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.Start(ct);
         return new NodeWindow(stream);
     }

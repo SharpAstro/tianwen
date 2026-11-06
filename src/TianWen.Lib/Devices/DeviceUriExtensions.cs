@@ -48,21 +48,32 @@ public static class DeviceUriExtensions
         /// LX200 or OnStep mount without a UUID): <see cref="DeviceKey"/> with the trailing <c>_&lt;port&gt;</c> taken out, so
         /// <c>GeminiFocuser_COM3</c> and <c>GeminiFocuser_COM4</c> are one model. Null for a device whose ID does not end in
         /// the port its query names, which its key alone identifies. Compare with <see cref="DeviceKeyComparer"/> (#1744).
+        /// <para>Such an id on a serial-numbered cable ends in the CABLE instead (#1090 step 2:
+        /// <c>SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA</c>, its <see cref="DeviceQueryKey.PortKey"/> made path-safe), and
+        /// that ending is taken out too, so the same model is recognised whichever cable it was found on.</para>
         /// </summary>
         public string? ModelKey
         {
             get
             {
-                if (HttpUtility.ParseQueryString(uri.Query)[DeviceQueryKey.Port.Key] is not { Length: > 0 } port)
+                var query = HttpUtility.ParseQueryString(uri.Query);
+                if (query[DeviceQueryKey.Port.Key] is not { Length: > 0 } port)
                 {
                     return null;
                 }
 
                 var key = Uri.UnescapeDataString(uri.DeviceKey);
                 var bare = ISerialConnection.RemoveProtoPrrefix(port);
-                // The forms a probe writes the port in: as named, with /dev/ for a tty, or made path-safe.
-                foreach (var form in (ReadOnlySpan<string>)[bare, ISerialConnection.CleanupPortName(port), bare.Replace('_', '-').Replace('/', '-').Replace(':', '-')])
+                var cable = query[DeviceQueryKey.PortKey.Key] is { Length: > 0 } portKey ? Discovery.SerialPortIdentity.IdSuffixOf(portKey) : null;
+                // The forms a probe writes the port in: as named, with /dev/ for a tty, or made path-safe; and the cable's key.
+                ReadOnlySpan<string?> forms = [bare, ISerialConnection.CleanupPortName(port), bare.Replace('_', '-').Replace('/', '-').Replace(':', '-'), cable];
+                foreach (var form in forms)
                 {
+                    if (form is null)
+                    {
+                        continue;
+                    }
+
                     var suffix = "_" + form;
                     if (key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && key.Length > suffix.Length && key[^(suffix.Length + 1)] != '/')
                     {

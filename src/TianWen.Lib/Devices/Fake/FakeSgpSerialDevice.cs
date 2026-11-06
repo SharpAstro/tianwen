@@ -223,7 +223,10 @@ internal class FakeSgpSerialDevice : ISerialConnection
                     break;
 
                 case ":MGAS#":
-                    _responseBuffer.AppendFormat(":HRAS01{0}{1}0{2}105#",
+                    // The first field is motion, 1 at rest and 2 moving, as the real mount reports it. The real RA servo
+                    // keeps answering 2 for about 1.6 s after a stop; this one stops at once.
+                    _responseBuffer.AppendFormat(":HRAS0{0}{1}{2}0{3}105#",
+                        _moveDirection is 0 or 1 ? 2 : 1,
                         _trackingRate,
                         _speed,
                         _isNorthernHemisphere ? 1 : 0);
@@ -303,7 +306,7 @@ internal class FakeSgpSerialDevice : ISerialConnection
                         }
                         _responseBuffer.Append(":HRGR0#");
                     }
-                    else if (dataStr == ":MGGR")
+                    else if (dataStr is ":MGGR" or ":MGGR#")
                     {
                         _responseBuffer.AppendFormat(":HRGR{0:D2}{1:D2}#", _guideRateRA, _guideRateDec);
                     }

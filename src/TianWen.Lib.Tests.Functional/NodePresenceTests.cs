@@ -46,7 +46,7 @@ public class NodePresenceTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var run = await _harness.StartSessionAsync(ct);
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
 
-        await using var stream = _harness.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _harness.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.Start(ct);
 
         // The window's loop: a beat every iteration, as the GUI and the TUI do, until it freezes.
@@ -100,7 +100,7 @@ public class NodePresenceTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var run = await _harness.StartSessionAsync(ct);
         var hub = _harness.App.Services.GetRequiredService<EventHub>();
 
-        await using var stream = _harness.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _harness.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.Start(ct);
         for (var i = 0; i < 250 && hub.CommandingClientCount == 0; i++)
         {

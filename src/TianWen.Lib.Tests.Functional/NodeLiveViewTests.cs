@@ -46,7 +46,7 @@ public class NodeLiveViewTests(ITestOutputHelper outputHelper) : IDisposable
             configure?.Invoke(services);
         });
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     private static Task<NodeResult<CameraSettingsDto>> CommandTheCameraAsync(TianWenNodeClient client, CancellationToken ct) =>
         client.SetCameraSettingsAsync(new CameraSettingsRequestDto { DeviceUri = Camera.DeviceUri.ToString(), Bin = 1 }, ct);

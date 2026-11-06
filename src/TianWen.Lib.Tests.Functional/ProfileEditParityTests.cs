@@ -84,7 +84,7 @@ public class ProfileEditParityTests(ITestOutputHelper output) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await new Profile(Rig, "Parity", Seeded).SaveAsync(_node.External, ct);
-        var client = new TianWenNodeClient(_node.Client);
+        var client = NodeTestClients.ClientOf(_node.Client);
         var read = (await client.GetProfileAsync(Rig, ct)).Value.ShouldNotBeNull();
 
         var edited = Edits[edit](read.Data.ShouldNotBeNull());

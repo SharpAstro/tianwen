@@ -47,7 +47,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
             catalog.AllObjectIndices.Returns(new HashSet<CatalogIndex>());
             _services = new ServiceCollection()
                 .AddSingleton<IExternal>(new FakeExternal(output))
-                .AddSingleton<ITimeProvider>(new SystemTimeProvider())
+                .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
                 .AddLogging()
                 .AddSingleton<ViewerState>()
                 .AddSingleton<PlanetaryCaptureController>()
@@ -198,13 +198,13 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         var second = new Profile(Guid.NewGuid(), "Newtonian", Siteless);
         await first.SaveAsync(node.External, ct);
         await second.SaveAsync(node.External, ct);
-        (await new TianWenNodeClient(node.Client).SetActiveProfileAsync(first.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).SetActiveProfileAsync(first.ProfileId, ct)).IsSuccess.ShouldBeTrue();
         await using var client = new Client(outputHelper);
 
         await client.ConnectAsync(socketPath, requestedProfile: "newtonian", ct);
 
         client.AppState.ActiveProfile.ShouldNotBeNull().ProfileId.ShouldBe(second.ProfileId);
-        (await new TianWenNodeClient(node.Client).GetActiveProfileAsync(ct)).Value.ShouldNotBeNull().ProfileId.ShouldBe(second.ProfileId);
+        (await NodeTestClients.ClientOf(node.Client).GetActiveProfileAsync(ct)).Value.ShouldNotBeNull().ProfileId.ShouldBe(second.ProfileId);
     }
 
     [Fact(Timeout = 30_000)]
@@ -217,7 +217,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         var second = new Profile(Guid.NewGuid(), "Newtonian", Siteless);
         await first.SaveAsync(node.External, ct);
         await second.SaveAsync(node.External, ct);
-        (await new TianWenNodeClient(node.Client).SetActiveProfileAsync(second.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).SetActiveProfileAsync(second.ProfileId, ct)).IsSuccess.ShouldBeTrue();
         await using var client = new Client(outputHelper);
 
         await client.ConnectAsync(socketPath, requestedProfile: null, ct);
@@ -245,7 +245,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         var ct = TestContext.Current.CancellationToken;
         var socketPath = NewSocketPath();
         await using var node = await NodeHarness.StartAsync(outputHelper, ct, socketPath: socketPath);
-        var nodeId = (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().NodeId;
+        var nodeId = (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().NodeId;
         // The node announcing itself on the LAN (its rig shared), beside another rig.
         var peers = Substitute.For<IPeerTable>();
         peers.PeersOf(RemoteRigConnection.NodeServiceName).Returns(
@@ -266,7 +266,7 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         var cards = HomeBoard.BuildCards(client.Contexts, client.Handler.Rigs, client.AppState, DateTimeOffset.UtcNow);
         cards.ShouldHaveSingleItem().IsLocal.ShouldBeTrue();
         var sweep = await RemoteRigActions.ConnectAllAsync(client.Handler.Rigs, client.Contexts, client.AppState,
-            new FakeExternal(outputHelper), new SystemTimeProvider(), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, ct);
+            new FakeExternal(outputHelper), SystemTimeProvider.Instance, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, ct);
         sweep.DidAnything.ShouldBeFalse();
         client.Handler.Rigs.IsConnected(ownBinding.BindingId).ShouldBeFalse();
     }

@@ -71,7 +71,7 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
         var read = h.AppState.ActiveProfile.ShouldNotBeNull();
         var elsewhere = await StoredAsync(h);
-        var other = await new TianWenNodeClient(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
+        var other = await NodeTestClients.ClientOf(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
             elsewhere.Profile.Data.ShouldNotBeNull() with { SiteElevation = 1234 }, elsewhere.Revision, null, ct);
         other.IsSuccess.ShouldBeTrue(other.Error);
 
@@ -159,7 +159,7 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
         h.Local.ProfileRefreshDue.ShouldBeFalse("read at the connect");
         var stored = await StoredAsync(h);
 
-        (await new TianWenNodeClient(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
+        (await NodeTestClients.ClientOf(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
             stored.Profile.Data.ShouldNotBeNull() with { SiteElevation = 1234 }, stored.Revision, null, ct)).IsSuccess.ShouldBeTrue();
 
         await h.UntilAsync(() => h.Local.ProfileRefreshDue, ct);

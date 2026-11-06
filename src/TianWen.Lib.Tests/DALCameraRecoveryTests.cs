@@ -334,6 +334,33 @@ internal sealed class FakeCmosState(string serial)
 
     public bool CanReset { get; init; }
 
+    /// <summary>Whether the body has an ST-4 port whose pulse the driver times (switched on, then off), as a ZWO's is.</summary>
+    public bool HasST4Port { get; init; }
+
+    private TaskCompletionSource<TimeSpan>? _pulse;
+    private long _pulseOnAt;
+
+    /// <summary>Arms the next pulse: the task completes with how long the line was on, read off the body's own clock.</summary>
+    public Task<TimeSpan> NextPulse()
+    {
+        var pulse = new TaskCompletionSource<TimeSpan>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Volatile.Write(ref _pulse, pulse);
+        return pulse.Task;
+    }
+
+    public CMOSErrorCode PulseOn(GuideDirection direction)
+    {
+        Volatile.Write(ref _pulseOnAt, System.Diagnostics.Stopwatch.GetTimestamp());
+        return CMOSErrorCode.Success;
+    }
+
+    public CMOSErrorCode PulseOff(GuideDirection direction)
+    {
+        var length = System.Diagnostics.Stopwatch.GetElapsedTime(Volatile.Read(ref _pulseOnAt));
+        Interlocked.Exchange(ref _pulse, null)?.TrySetResult(length);
+        return CMOSErrorCode.Success;
+    }
+
     public bool Present { get; set; } = true;
 
     public int EnumerationsUntilBackAfterReset { get; set; } = 1;
@@ -783,7 +810,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public bool IsTriggerCamera => false;
     public bool HasMechanicalShutter => false;
     public bool HasCooler => true;
-    public bool HasST4Port => false;
+    public bool HasST4Port => state.HasST4Port;
     public double ElectronPerADU => 1.0;
 
     public bool TryGetControlRange(CMOSControlType ctrlType, out int min, out int max)
@@ -816,8 +843,8 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
         return CMOSErrorCode.Success;
     }
 
-    public CMOSErrorCode PulseGuideOn(GuideDirection direction) => CMOSErrorCode.GeneralError;
-    public CMOSErrorCode PulseGuideOff(GuideDirection direction) => CMOSErrorCode.GeneralError;
+    public CMOSErrorCode PulseGuideOn(GuideDirection direction) => state.HasST4Port ? state.PulseOn(direction) : CMOSErrorCode.GeneralError;
+    public CMOSErrorCode PulseGuideOff(GuideDirection direction) => state.HasST4Port ? state.PulseOff(direction) : CMOSErrorCode.GeneralError;
 
     public CMOSErrorCode StartLightExposure()
     {

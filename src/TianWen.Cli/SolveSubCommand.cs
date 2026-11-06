@@ -37,7 +37,7 @@ internal sealed class SolveSubCommand(
     {
         var fitsArg = new Argument<string>("fits")
         {
-            Description = "FITS file to plate-solve.",
+            Description = "Image to plate-solve: FITS, or any format the image reader takes (PNG, JPEG, TIFF, ...).",
         };
 
         // Three equivalent ways to supply the pixel scale:
@@ -132,7 +132,7 @@ internal sealed class SolveSubCommand(
             var fitsPath = parseResult.Required(fitsArg);
             if (!File.Exists(fitsPath))
             {
-                consoleHost.WriteError($"FITS file not found: {fitsPath}");
+                consoleHost.WriteError($"Image file not found: {fitsPath}");
                 return 1;
             }
 
@@ -168,9 +168,18 @@ internal sealed class SolveSubCommand(
                 }
             }
 
-            if (!Image.TryReadFitsFile(fitsPath, out var image, out var existingWcs))
+            // Any image the codecs read, not FITS alone: a PoleMaster saves PNG, and the solver works on pixels. Only a
+            // FITS file can be solved by path (the external solvers) or have the solution written back.
+            var isFits = Image.IsFitsPath(fitsPath);
+            if (!isFits && parseResult.GetValue(updateFitsOpt))
             {
-                consoleHost.WriteError($"Failed to read FITS file: {fitsPath}");
+                consoleHost.WriteError($"--update-fits needs a FITS file, got {Path.GetFileName(fitsPath)}");
+                return 1;
+            }
+
+            if (!Image.TryReadImageFile(fitsPath, out var image, out var existingWcs))
+            {
+                consoleHost.WriteError($"Failed to read image file: {fitsPath}");
                 return 1;
             }
 
@@ -198,8 +207,9 @@ internal sealed class SolveSubCommand(
             PlateSolveResult result;
             try
             {
-                result = await plateSolverFactory.SolveFileAsync(
-                    fitsPath, imageDim, range, searchOrigin, searchOrigin is null ? null : radius, ct);
+                result = isFits
+                    ? await plateSolverFactory.SolveFileAsync(fitsPath, imageDim, range, searchOrigin, searchOrigin is null ? null : radius, ct)
+                    : await plateSolverFactory.SolveImageAsync(image, imageDim, range, searchOrigin, searchOrigin is null ? null : radius, ct);
             }
             catch (PlateSolverException ex)
             {

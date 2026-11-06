@@ -183,7 +183,7 @@ public class NodePlanetaryViewTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var masters = new NodeMasters();
-        var source = new LiveStackPreviewSource(masters, "node://planetary/master", new SystemTimeProvider(), FakeExternal.CreateLogger(output));
+        var source = new LiveStackPreviewSource(masters, "node://planetary/master", SystemTimeProvider.Instance, FakeExternal.CreateLogger(output));
         try
         {
             source.TryPublishMaster().ShouldBeFalse();
