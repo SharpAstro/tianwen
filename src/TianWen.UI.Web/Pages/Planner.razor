@@ -2643,8 +2643,9 @@
     /// </summary>
     bool _isE2ETestSession;
 
-    // Live sky-map view state as JSON (fov + centre), invoked from the index.html test shim. Returns
-    // "null" before the sky tab exists. Hand-built JSON (no JsonSerializerContext) keeps it AOT-trivial.
+    // Live sky-map view state as JSON (fov, centre and the clock's scrub offset), invoked from the
+    // index.html test shim. Returns "null" before the sky tab exists. Hand-built JSON (no
+    // JsonSerializerContext) keeps it AOT-trivial.
     [JSInvokable]
     public string GetSkyViewJson()
     {
@@ -2655,7 +2656,8 @@
         var ci = CultureInfo.InvariantCulture;
         return "{\"fovDeg\":" + s.FieldOfViewDeg.ToString(ci)
             + ",\"centerRA\":" + s.CenterRA.ToString(ci)
-            + ",\"centerDec\":" + s.CenterDec.ToString(ci) + "}";
+            + ",\"centerDec\":" + s.CenterDec.ToString(ci)
+            + ",\"timeOffsetMin\":" + s.TimeOffset.TotalMinutes.ToString(ci) + "}";
     }
 
     // The planner search box + autocomplete rows are canvas-drawn, so a browser E2E has no DOM to click

@@ -27,12 +27,13 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
         return (page, page.Locator("#planner"));
     }
 
-    private static async Task<(double Fov, double Ra, double Dec)> ViewAsync(IPage page)
+    private static async Task<(double Fov, double Ra, double Dec, double TimeOffsetMin)> ViewAsync(IPage page)
     {
         var json = await page.EvaluateAsync<string>("async () => await window.__tianwenTest.getSkyView()");
         using var doc = JsonDocument.Parse(json);
         var r = doc.RootElement;
-        return (r.GetProperty("fovDeg").GetDouble(), r.GetProperty("centerRA").GetDouble(), r.GetProperty("centerDec").GetDouble());
+        return (r.GetProperty("fovDeg").GetDouble(), r.GetProperty("centerRA").GetDouble(),
+            r.GetProperty("centerDec").GetDouble(), r.GetProperty("timeOffsetMin").GetDouble());
     }
 
     private static async Task<double> FovAsync(IPage page) => (await ViewAsync(page)).Fov;
@@ -69,14 +70,15 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
     }
 
     /// <summary>
-    /// A named key (not a symbol) reaches the sky map through the same mapping. In the planner the arrows
-    /// step the sky map's clock (Up/Down an hour), which in Horizon mode turns the sky under the fixed
-    /// view: the centre moves and the FOV does not.
+    /// A named key (not a symbol) reaches the sky map through the same mapping. In the sky map the arrows
+    /// step its clock (<c>SkyMapTab.StepTime</c>, Up an hour later, Down an hour earlier), so the sky moves
+    /// under the view. The view's centre is held in RA/Dec and does not change, nor does the FOV, so what
+    /// the key moved is read off the clock's scrub offset.
     /// </summary>
     [Theory]
-    [InlineData("ArrowUp")]
-    [InlineData("ArrowDown")]
-    public async Task AnArrowKeyMovesTheViewCentreAndLeavesTheZoom(string key)
+    [InlineData("ArrowUp", 60)]
+    [InlineData("ArrowDown", -60)]
+    public async Task AnArrowKeyStepsTheSkyClockAndLeavesTheView(string key, double stepMin)
     {
         var (page, canvas) = await SkyMapAsync();
         var before = await ViewAsync(page);
@@ -84,8 +86,9 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
         await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
         await Task.Delay(150);
         var after = await ViewAsync(page);
+        Assert.Equal(before.TimeOffsetMin + stepMin, after.TimeOffsetMin, 6);
         Assert.Equal(before.Fov, after.Fov, 6);
-        Assert.True(before.Ra != after.Ra || before.Dec != after.Dec,
-            $"{key} should move the view centre; before=({before.Ra},{before.Dec}), after=({after.Ra},{after.Dec})");
+        Assert.Equal(before.Ra, after.Ra, 6);
+        Assert.Equal(before.Dec, after.Dec, 6);
     }
 }
