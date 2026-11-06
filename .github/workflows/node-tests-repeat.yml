@@ -7,10 +7,12 @@ name: Node tests repeat
 #          interference between tests (thread-pool starvation, a shared clock, a node left running).
 # It runs once on the PR that adds or changes this file (the paths filter keeps it off every other PR) and on demand:
 #   gh workflow run node-tests-repeat.yml -f ref=<branch-or-sha> [-f iterations=30] [-f mode=alone|suite|both]
-# The tests named (9 cases, of which 7 run: the last two, the NodeGuidingTests, are out of the proof set until #2050, see UNPROVEN_FILTER): NodeFrameStreamTests.TheLiveFrameStreamsNewestFirst...,
+# The tests named: 9 cases, of which 7 run. The last two (the NodeGuidingTests) are out of the proof set until #2050, see UNPROVEN_FILTER.
+# Run (7 cases): NodeFrameStreamTests.TheLiveFrameStreamsNewestFirst...,
 # NodePlanetaryTests.ARefusedStartSaysWhyAndHoldsNothing, NodeRunsProcessTests.AnInteractiveRunStopsAGrace...,
-# MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot (a theory of 4 rows), and two NodeGuidingTests (out until #2050):
-# ...CalibratesOnDemandAndReportsTheResultThenTheLoopComesBack and ...GuidesFromTheLoopOnTheChosenStarAndProducesSamples.
+# MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot (a theory of 4 rows).
+# Out until #2050 (2 cases): NodeGuidingTests ...CalibratesOnDemandAndReportsTheResultThenTheLoopComesBack and
+# ...GuidesFromTheLoopOnTheChosenStarAndProducesSamples.
 
 on:
   workflow_dispatch:
@@ -34,6 +36,12 @@ on:
   pull_request:
     paths:
       - '.github/workflows/node-tests-repeat.yml'
+
+# Two pushes to the PR in a row would otherwise run two proofs at once on the same ref (up to 9 runners each), the older one
+# proving a commit that is no longer the head. The newer cancels the older; a dispatch for another ref or mode is its own group.
+concurrency:
+  group: node-tests-repeat-${{ inputs.ref || github.ref }}-${{ inputs.mode || 'both' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -99,6 +107,12 @@ jobs:
                  --report-trx --report-trx-filename "alone-${{ matrix.shard }}-$i.trx" --results-directory test-results-alone/; then
               echo "::endgroup::"
               echo "::error::shard ${{ matrix.shard }}, iteration $i of $PER_SHARD failed"
+              # The failed tests are read back out of this iteration's TRX, so the run summary names them without opening the log.
+              {
+                echo "### Shard ${{ matrix.shard }} failed on iteration $i of $PER_SHARD (alone)"
+                grep -ohP 'testName="[^"]*"[^>]*outcome="Failed"' test-results-alone/alone-${{ matrix.shard }}-$i.trx 2>/dev/null \
+                  | sed -E 's/testName="([^"]*)".*/- \1/' | sort -u
+              } >> "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
             echo "::endgroup::"
@@ -110,7 +124,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "### Shard ${{ matrix.shard }} failed: the run is cancelled" >> "$GITHUB_STEP_SUMMARY"
-          echo "The failing iteration and test are in the Loop step's log (the ::error:: line and the failed test's output)." >> "$GITHUB_STEP_SUMMARY"
+          echo "The iteration and the failed tests are listed above when the Loop step got that far; a build failure or a hang is in that step's log." >> "$GITHUB_STEP_SUMMARY"
           gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
       - name: Upload TRX files
         if: always()
@@ -162,6 +176,12 @@ jobs:
                  --report-trx --report-trx-filename "suite-${{ matrix.shard }}-$i.trx" --results-directory test-results-suite/; then
               echo "::endgroup::"
               echo "::error::shard ${{ matrix.shard }}, iteration $i of $PER_SHARD failed"
+              # The failed tests are read back out of this iteration's TRX, so the run summary names them without opening the log.
+              {
+                echo "### Shard ${{ matrix.shard }} failed on iteration $i of $PER_SHARD (suite)"
+                grep -ohP 'testName="[^"]*"[^>]*outcome="Failed"' test-results-suite/suite-${{ matrix.shard }}-$i.trx 2>/dev/null \
+                  | sed -E 's/testName="([^"]*)".*/- \1/' | sort -u
+              } >> "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
             echo "::endgroup::"
@@ -173,7 +193,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "### Shard ${{ matrix.shard }} failed: the run is cancelled" >> "$GITHUB_STEP_SUMMARY"
-          echo "The failing iteration and test are in the Loop step's log (the ::error:: line and the failed test's output)." >> "$GITHUB_STEP_SUMMARY"
+          echo "The iteration and the failed tests are listed above when the Loop step got that far; a build failure or a hang is in that step's log." >> "$GITHUB_STEP_SUMMARY"
           gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
       - name: Upload TRX files
         if: always()
