@@ -306,7 +306,6 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
     // On the capture loop, with each frame BORROWED: shown as a copy at display rate.
     private void Show(Image frame)
     {
-        Volatile.Write(ref _size, ((long)frame.Width << 32) | (uint)frame.Height);
         if (_live.TrySample(frame, _timeProvider.GetUtcNow(), out var sample))
         {
             // The sample is this view's own copy, so the correction may consume it: the node shows the corrected frame, and the
@@ -318,5 +317,9 @@ internal sealed class NodeLiveViewRun : INodeStreamingRun
             }
             _frames.Publish(FrameSources.LiveView, sample);
         }
+        // The size is what makes the state report frames (FramesReceived is 0 until it is set), so it is set only once the
+        // frame is published: set before the copy and the dark correction, a client that saw a frame counted and asked for it
+        // at once got a 404 (#2000's repeat run, NodeGuideLoopTests: counted at .139, GET /frames/guider/latest 404 at .140).
+        Volatile.Write(ref _size, ((long)frame.Width << 32) | (uint)frame.Height);
     }
 }
