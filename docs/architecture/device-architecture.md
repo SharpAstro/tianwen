@@ -372,7 +372,7 @@ adapter that ships one serial on every unit gives two of them one key, and they 
 
 #### Step 3 (planned): match on the evidence, and say what was followed
 
-Tracked by #2040; validated on hardware by #2041. **The identity ladder**, the most stable name a device offers first:
+Tracked by #2040; validated on hardware by #2041 (one card per mount and connection path, milestone `hardware-verification`). **The identity ladder**, the most stable name a device offers first:
 
 | Rung | What names the device | Who |
 |---|---|---|
@@ -380,7 +380,7 @@ Tracked by #2040; validated on hardware by #2041. **The identity ladder**, the m
 | 2 | an id we wrote into it | ZWO custom id (USB3 cameras); the `TW@` UUID in a spare LX200/OnStep site slot |
 | 3 | its USB bridge chip's serial (`portIdentity=device`) | the device when the chip is built in (EQ6-R Pro), the cable when it is in an adapter (FTDI HBX, AZ-GTi) |
 | 4 | its USB socket (`portIdentity=socket`) | CH340, older Prolific |
-| 5 | its COM name (`portIdentity=name`) | a motherboard or virtual port |
+| 5 | its COM name (`portIdentity=name`), or over the network its host address | a motherboard or virtual port; Skywatcher over WiFi (`Skywatcher_<model>_<fw>_<ip>`), and LX200/OnStep without a UUID; a Sky-Watcher dongle in AP mode is usually 192.168.4.1 whatever the mount |
 | 6 | model plus firmware: EVIDENCE in matching, never in the id | every port-keyed family |
 | 7 | model alone: the selected profile's device when it is the one candidate | every port-keyed family |
 
