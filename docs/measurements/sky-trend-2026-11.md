@@ -1,8 +1,8 @@
-# Sky-trend rule measured on every captured night (2026-11, first half)
+# Sky-trend rule measured on every captured night (2026-11)
 
 Issue #2037 measures #2030's sky-trend rule (`LightGrading.SkyOverTrend` and `SkyRising`) against the owner's own
-`BAD_` / `BAD_CLOUD_` file-name marks. This is the first half: the measurement and the two tables the first and third
-questions need. Questions 2, 4 and "does the brightened sky fall back" are headed placeholders at the end, for the next leg.
+`BAD_` / `BAD_CLOUD_` file-name marks. Questions 1 and 3 come first, then question 2 (the live judge), question 4 (the Moon),
+the fall-back table with the 2026-09-12 bank, and a recommendation for each of #2030's design questions at the end.
 
 ## Method
 
@@ -138,8 +138,10 @@ a run long enough, or a mark.
   fell from about 4800 to between 2000 and 3900 and the star flux fell by 7 to 18 % against the hour before. Moon at 23 to 28
   degrees, 60 % illuminated, Sun near -66. Sky up and stars down together looks like thin cloud or haze the owner did not mark
   (only 3 frames of this night are marked, all twilight), not the Moon, which brightens the sky without taking stars. 5 of the 6
-  rising stretches fell back within minutes; the last ran to the end of the series. This needs the owner's eye on the frames; it
-  is **not** counted as a true positive here.
+  rising stretches fell back within minutes; the last ran to the end of the series. It is **cloud**: the fall-back section below
+  shows it is the onset of the overcast that follows (the LMC series that night is then read as cloud by the night-sky term for
+  about 50 minutes), so these are true positives the owner never marked. The table below still counts them against the marks, strictly,
+  and then restates it with them as cloud.
 - **2026-05-14 Rim, 2 frames (30 s subs), 23:41.** Sky 4 % above its line for two frames (1.041 and 1.046), stars unchanged (4779
   against 4800), patchiness dipping. A blip that fell straight back: a false call at the 4 % bar at 30 s cadence.
 
@@ -152,9 +154,10 @@ a run long enough, or a mark.
 | every folder with a cloud mark (123 cloud marks) | 4 | 29 | 119 | 0.12 | 0.03 | against the marks only |
 | subs of 2 minutes or longer (11 folders, 595 frames) | 0 | 0 | n/a | n/a | n/a | no marks; no firing |
 
-Precision against the marks is 0.12, but 27 of the 29 are the 07-06 Lagoon stretch that may be real cloud; if it is, precision
-is 0.94 (31 of 33) and the strict number is a ceiling on the damage. Recall is low because the existing terms already
-catch most cloud and SkyRising only adds frames at the start of a rise.
+Precision against the marks is 0.12, but 27 of the 29 are the 07-06 Lagoon stretch, which is real cloud onset (fall-back
+section). Counted so, about 31 of 33 firings are correct (the 05-14 Rim blip and one other are the misses), and the strict
+number is a floor. Recall is low because the existing terms already catch most cloud and SkyRising only adds frames at the
+start of a rise.
 
 ### Do the 4 % and 6-sigma bars hold at 3 minutes and longer?
 
@@ -183,19 +186,175 @@ call from 2 to 4 minutes, but that is a statement about false calls, not about w
 describe the span path as measured. Two follow-ups for the owner: (a) look at the 07-06 Lagoon frames, since the answer moves the
 30 s precision from 0.00 to near 0.9; (b) mark a cloud bank on a 3 to 10 minute sub night when one occurs, which is the only thing that can
 test the span path. A two-frame minimum before a 30 s firing counts (as the 05-14 Rim blip suggests) is a candidate, not a
-finding: one blip is not a measurement.
+finding: one blip is not a measurement. Follow-up (a) is answered: the Lagoon frames are cloud, so 30 s precision against
+the truth is about 0.94, not 0.00; the owner need only mark them.
 
-## Question 2
+## Question 2: SkyRising in the live judge
 
-*Placeholder, for the next leg.*
+The live-judge path was re-run on the six nights that had live spells, with the probe recording whether the judge's own
+`SkyRising` fired on each frame (`live_over_trend`, `live_sky_rising`). A **spell** is a run of `MAYBE_CLOUD_` frames in one
+series. It is **caused by SkyRising** when every cloud frame in it was flagged by SkyRising and by no existing term (patchiness,
+night sky, run), else by the existing terms. A spell **passes the wait** when it lasts the 15 minute `CloudWaitTimeout`, which
+is the point where the session takes the condition-deterioration path. "Marked" counts frames carrying the owner's marks; an
+unmarked frame is not proved clear, only unmarked.
 
-## Question 4
+| night | spells | caused by SkyRising | caused by existing terms | spells touching a mark | passed the 15 min wait (marked / unmarked) |
+|---|---|---|---|---|---|
+| 2026-09-12 | 9 | 1 (4 frames, all marked) | 8 (all marked) | 9 | 0 |
+| 2026-09-10 | 5 | 0 | 5 (all marked) | 5 | 4 (4 / 0) |
+| 2026-07-06 | 11 | 7 (27 frames, none marked) | 4 (night-sky term, 73 frames, none marked) | 0 | 3 (0 / 3) |
+| 2026-05-14 | 8 | 1 (2 frames, unmarked) | 7 | 3 | 4 (1 / 3) |
+| 2026-07-17 | 4 | 0 | 4 (patchiness, 13 frames, unmarked) | 0 | 0 |
+| 2026-05-11 | 1 | 0 | 1 (night-sky term, 8 frames, unmarked) | 0 | 0 |
+| **total** | **38** | **9** | **29** | **17** | **11 (5 / 6)** |
 
-*Placeholder, for the next leg.*
+- **Spells SkyRising caused: 9 of 38, and none lasted past 7 minutes.** All nine are shorter than the 15 minute wait, so
+  SkyRising **caused no give-up on any of the six nights**. Every one of the 11 give-ups is an existing term's: night sky (07-06
+  LMC, three spells), patchiness (05-14 Eagle twice, Virgo 10:15), and cloud banks the owner marked (09-10 four times, 05-14
+  Virgo 11:36).
+- **On marked frames: 1 of the 9.** The opening four frames of the 09-12 LMC bank, every one marked. The existing terms' own spell
+  began at 18:06 UTC, so SkyRising named the bank 11 minutes earlier (4 frames).
+- **On unmarked frames: 8 of the 9.** Seven are the 07-06 Lagoon stretches (27 frames, 15:31 to 15:59 UTC), which the fall-back
+  section reads as cloud onset. One is the 05-14 Rim blip (2 frames), a false call.
+- **Of the 29 existing-term spells, 11 passed the wait, 5 on marked cloud and 6 on unmarked frames** (07-06 LMC three times,
+  05-14 Eagle twice, Virgo 10:15). Those six are not SkyRising's and not this question's, but they are the larger
+  false-timeout pool: six unmarked 15 minute give-ups against none from SkyRising.
+
+**Recommendation (question 2): keep SkyRising in the live judge, ungated.** On six nights it started 9 spells, none long enough
+to give up, one of them 11 minutes ahead of the owner's marked bank and seven on a stretch that is cloud. Its one false call was
+a two-frame blip. Nothing here shows it trips the 15 minute give-up. The caveat belongs to question 4: a rising Moon is the
+case that could make it hold a spell open, and the real archive has none.
+
+## Question 4: the Moon
+
+Real nights first. Moon altitude and illumination over each run (every series that night), the frames with the Moon up, the
+largest `SkyOverTrend` ratio over the frames with the Moon between -5 and 20 degrees (the rise window), the sky's fitted slope
+over the clear frames of a series (the bar is 4 %, which over a 51 minute reach is about 0.08 %/min), and what SkyRising called
+those frames.
+
+| night | Moon altitude over the run | illumination | frames Moon up | largest ratio, rise window | clear-sky slope, %/min | SkyRising on those frames |
+|---|---|---|---|---|---|---|
+| 2026-09-10 | -59 to -38 | 0.00 to 0.01 | 0 | none (never up) | -0.17 | 0 |
+| 2026-09-12 | -46 to -19 | 0.02 to 0.03 | 0 | none (never up) | -0.06 to -0.10 | 0 (4 on cloud, below) |
+| 2026-05-14 | -64 to 20 | 0.05 to 0.08 | 106 | 1.023 | -0.10 to -0.17 | 0 (2 on Rim, Moon down) |
+| 2026-07-17 | -60 to 13 | 0.12 to 0.15 | 104 | 1.023 | -0.17 to 0.00 | 0 |
+| 2026-05-11 | -45 to 12 | 0.29 to 0.33 | 85 | 1.023 | -0.09 to +0.06 | 0 |
+| 2025-03-07 | -6 to 8 | 0.59 to 0.60 | 29 | 1.027 | -0.32 | 0 |
+| 2026-10-17 | -17 to 37 | 0.38 to 0.40 | 156 | 1.008 | -0.11 | 0 |
+| 2026-08-31 | -9 to 39 | 0.87 to 0.90 | 388 | 1.043 | 0.00 to -0.09 | 0 (the six frames at 1.043 are twilight marks) |
+| 2026-07-06 | -47 to 38 | 0.60 to 0.64 | 310 | 1.017 | -0.17 to +0.10 | 27, on Lagoon with the Moon at 23 to 28 degrees |
+
+- **Seven real moonrises (03-07, 05-11, 05-14, 07-17, 08-31, 10-17, 07-06) and no SkyRising firing in the rise window.** The
+  largest ratio there is 1.043 (08-31, a twilight artefact SkyRising did not call), at the 4 % bar and under its sigma half.
+  A real Moon at 12 to 90 % illumination, in this archive, cost nothing.
+- **The one night where SkyRising fired with the Moon up is 07-06 Lagoon** (60 % lit, 23 to 28 degrees). The Moon cannot explain
+  it: star flux fell 4 to 18 % against the hour before at the same time, and the Moon takes no stars. A rising Moon of that
+  size should leave star flux unchanged.
+- **The trend absorbs a slow rise.** The sky's slope on the nights with a rising Moon is within about 0.1 %/min of zero, because
+  the hour before the Moon appears sets a trend the Moon only slowly leaves. That is why the real data is quiet, and why it is
+  not proof of safety.
+
+**Synthetic Moon (labelled synthetic, not a measurement of any real night).** The probe's `--synthetic-moon` adds a Krisciunas
+and Schaefer (1991) Moon to the clear night **2026-10-17** (250 frames, 60 s subs, no marks, 14 unmarked verdict calls from other
+terms) as four scenarios: a 25 % crescent and a 50 % quarter, each rising mid-run and before dawn. The star frames are
+untouched, so star flux stays flat.
+
+| scenario | Moon altitude | SkyRising frames | largest ratio | star flux against the hour before | live-judge MAYBE_CLOUD_ frames | live spells past the 15 min wait |
+|---|---|---|---|---|---|---|
+| crescent, rises mid-run | -5 to 33 | 40 (14:15 to 15:03 UTC) | 1.23 | 1.06 | 40 | 2 |
+| crescent, rises before dawn | -5 to 16 | 35 (15:36 to 16:23 UTC) | 1.22 | 1.00 | 35 | 2 |
+| quarter, rises mid-run | -5 to 33 | 40 | 1.77 | 1.06 | 59 | 3 |
+| quarter, rises before dawn | -5 to 16 | 35 | 1.74 | 1.00 | 47 | 2 |
+
+- **A synthetic Moon fools SkyRising in all four scenarios**, 35 to 40 frames each, and every stretch is KEPT-RISING-TO-END (none
+  falls back). The live judge then keeps spells open past 15 minutes two or three times, which on a real run is the
+  condition-deterioration path. The 25 % crescent alone does it, and its rise is about 0.4 %/min, five times the bar's own rate.
+- **The synthetic rise is much larger than any real one.** The real 10-17 night had a 38 % Moon rising from -17 to 37 degrees
+  and the sky stayed at 1.008 of its trend; the synthetic 25 % crescent at the same hours reaches 1.23. So the model is an upper
+  bound on what a Moon does to this camera and sky. It shows that the rule has no defence against a Moon bright enough to
+  matter, not that one has done so.
+- **Star flux is the discriminator, and its margin is thin.** The synthetic Moon leaves flux at 1.00 to 1.06; the real cloud
+  firings sit at 0.82 to 0.98 (09-12 LMC 0.975, Lagoon 0.82 to 0.95, the Rim blip 0.94). A gate of "flux below 0.98" would block
+  all four synthetic stretches and pass every real firing, but 09-12 LMC (0.975) and the 0.995 synthetic stretch are only 0.02
+  apart, and four marked frames are too few to set it.
+
+**Recommendation (question 4): add no Moon term now. Base the trend on the expected sky once #1974 lands**, with the Moon and
+the target's altitude in it, so a rise the geometry predicts is not a deviation. A standalone Moon term would be tuned on
+synthetic data and a margin of 0.02. Until #1974, nothing in the real archive needs it (seven moonrises, no firing). If a Moon
+false call is seen on a real night first, the star-flux gate above is the interim candidate.
 
 ## Does the brightened sky fall back?
 
-*Placeholder, for the next leg.* The data is in hand in `rise-stretches.csv` per folder (FELL-BACK against KEPT-RISING-TO-END):
-2026-05-14 one stretch (fell back), 2026-07-06 six (five fell back, one kept rising to the end of its series), 2026-09-12 one (fell
-back, the four marked opening frames of LMC). The next leg reads these against the Moon and the star-flux series before it concludes
-anything.
+Every SkyRising stretch (a run of `SkyRising` frames in one series, from the probe's `rise-stretches.csv`) is FELL-BACK when the
+sky returned to its trend before the series ended, KEPT-RISING-TO-END when it did not. "Flux" is the stretch's star flux
+against the hour before.
+
+| night | target | start (UTC) | minutes | frames | Sun altitude | outcome | peak over trend | flux against hour before | marked | what it was |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-12 | LMC | 17:55 | 3.7 | 4 | -29.6 to -28.9 | FELL-BACK | 1.068 | 0.975 | 4 | cloud |
+| 2026-07-06 | Lagoon | 15:31 | 2.7 | 5 | -69.0 to -68.6 | FELL-BACK | 1.111 | 0.927 | 0 | cloud onset |
+| 2026-07-06 | Lagoon | 15:38 | 0.5 | 2 | -68.0 to -67.9 | FELL-BACK | 1.087 | 0.895 | 0 | cloud onset |
+| 2026-07-06 | Lagoon | 15:39 | 0.0 | 1 | -67.8 | FELL-BACK | 1.066 | 0.953 | 0 | cloud onset |
+| 2026-07-06 | Lagoon | 15:40 | 0.0 | 1 | -67.6 | FELL-BACK | 1.057 | 0.922 | 0 | cloud onset |
+| 2026-07-06 | Lagoon | 15:48 | 4.3 | 8 | -66.4 to -65.7 | FELL-BACK | 1.328 | 0.823 | 0 | cloud onset |
+| 2026-07-06 | Lagoon | 15:53 | 6.1 | 10 | -65.5 to -64.4 | KEPT-RISING-TO-END | 1.248 | 0.860 | 0 | cloud onset |
+| 2026-05-14 | Rim | 13:41 | 0.5 | 2 | -69.4 | FELL-BACK | 1.045 | 0.943 | 0 | blip, a false call |
+
+- **All eight stretches are at Sun altitudes below -28, so twilight cannot be the cause of any.** Zodiacal light, which reaches
+  the sky only as the Sun nears -18 or so, is ruled out at the same altitudes.
+- **In every stretch the star flux fell (0.82 to 0.98).** A brighter sky with fewer stars is cloud: haze scatters light into the
+  sky and takes light from the stars. The Moon, twilight and zodiacal light would give the first without the second.
+- **Seven of eight fell back within minutes, which is how patchy cloud behaves.** The eighth ran to the end of its series, the
+  07-06 Lagoon run, and the next series (LMC) is then read as cloud by the night-sky term for 50 minutes (the 07-06 LMC
+  spells). That is the overcast the Lagoon stretches announced.
+- **The Rim stretch is the lone false call** (flux 0.94 on two frames, 4.5 % over): a blip. Two frames is also the shortest
+  stretch that fired, so a "two frames at 30 s" guard (question 3) would stop it.
+
+### The 2026-09-12 bank, 03:55 to 04:37 local (17:55 to 18:37 UTC)
+
+The LMC series, 200 frames. Local time is UTC+10. Each row is five frames; sky, star count and median star flux are ratios to
+the series' median before the bank (frames before 17:55 UTC), and patchiness is the grader's score.
+
+| UTC | first frame | marked of 5 | sky | stars | flux | patchiness | Sun altitude |
+|---|---|---|---|---|---|---|---|
+| 17:49 | 0160 | 0 | 0.921 | 1.02 | 0.996 | 19.3 | -30.8 |
+| 17:55 | 0165 | 5 | 0.959 | 1.00 | 0.963 | 19.4 | -29.6 |
+| 18:01 | 0170 | 5 | 0.939 | 1.06 | 0.962 | 22.5 | -28.5 |
+| 18:07 | 0175 | 5 | 0.955 | 1.09 | 0.937 | 27.5 | -27.3 |
+| 18:14 | 0180 | 5 | 0.921 | 1.05 | 1.020 | 19.8 | -26.1 |
+| 18:20 | 0185 | 5 | 0.958 | 1.01 | 0.948 | 22.6 | -25.0 |
+| 18:26 | 0190 | 5 | 0.967 | 0.98 | 0.937 | 23.9 | -23.7 |
+| 18:33 | 0195 | 5 | 0.984 | 0.93 | 0.926 | 25.0 | -22.5 |
+
+The sky had been falling for hours, to 0.92 of the pre-bank median by 17:49; across the bank it stops falling and ends 0.06
+higher, while star flux sinks 4 to 7 % and patchiness moves from a steady 19 to between 22 and 28 (an unevenness across the
+frame that twilight and zodiacal light, being smooth, do not produce). The Sun is at -29.6 at the first frame and -22.5 at the
+last, both inside astronomical night, and twilight's brightening starts after -18. The Moon is at -46 to -27 and cannot be
+involved.
+
+**What the bank was: cloud, with high confidence.** Five things agree: stars fell while the sky rose; patchiness rose with it;
+the Sun was 4 to 12 degrees short of where twilight reaches the sky; the Moon was down; and the owner marked every frame
+`BAD_CLOUD_`. What is not certain is the last frames: at 18:33 the Sun is at -22.5, and zodiacal light may add a little smooth
+rise there, perhaps a point of the closing ratios (1.01 to 1.03). It does not change the verdict, since flux and patchiness have
+not recovered by the end of the run at frame 0199.
+
+## Recommendations, one per #2030 design question
+
+1. **The cliff (the reach of the trend, question 1).** Keep the reach as stated: 51 minutes at 1 minute subs, about 40 at 3 to
+   5, 30 at 10, 15 at 15, none at 20. Table "Question 1: marked-cloud stretches": the two banks longer than the reach (53.5 and
+   78.7 minutes, 09-10) were carried by the other terms, and no cloud frame inside any stretch read clear later except 5 frames
+   in 09-12 LMC. Those 5 frames (1.03 to 1.04, sky just under the bar) are the one miss to look at next.
+2. **The live judge (question 2).** Keep SkyRising in it, ungated. Table "Question 2": 9 of 38 spells, none past 7 minutes, no
+   give-up caused, one 11 minutes ahead of a marked bank, seven on real cloud onset, one two-frame blip.
+3. **Long subs, 3 minutes and longer (question 3).** Keep 4 % and 6 sigma. The largest clear-sky ratio is 1.029 at 2 to 4
+   minutes, none at 1.04. The span path never fired and no mark exists at those cadences, so its recall is unmeasured; do not
+   call it measured. At 30 s, precision is about 0.94 once the 07-06 Lagoon frames are read as cloud (31 of 33), 0.12 against
+   the marks only.
+4. **The Moon (question 4).** Add no term. Seven real moonrises produced no firing (largest ratio 1.043, a twilight artefact),
+   while a synthetic Moon fools SkyRising in all four scenarios and holds the live judge open past the wait, with star flux
+   (1.00 to 1.06 against 0.82 to 0.98) the only discriminator and a margin of 0.02.
+5. **Base the trend on the expected sky once #1974 lands (the owner's request).** Yes. It is the one change that handles the
+   Moon and the target's altitude together, and the only one that does not need tuning on synthetic frames. All eight
+   SkyRising stretches here are cloud or a blip with flux down, so the expected-sky trend should keep them and shed what the
+   Moon and altitude explain. When it lands, re-run `tools/sky-trend-probe` over the same nights and the four synthetic
+   scenarios: SkyRising should stay at 9 live spells, none on the Moon.
