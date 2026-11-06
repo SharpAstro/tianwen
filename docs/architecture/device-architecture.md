@@ -216,7 +216,7 @@ video-mode stall that `INativeDeviceInfo.ResetDevice` recovers) are in the ToupT
 ## Device management rules (moved from CLAUDE.md, 2026-09-29)
 
 URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends),
-`ICombinedDeviceManager` (coordinates sources), `IDeviceUriRegistry` (URI → instance map).
+`IDeviceDiscovery` (aggregates the sources; what is present now), `IDeviceHub` (URI → instance, connections, leases).
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
 for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
 `docs/architecture/device-architecture.md`.
@@ -429,6 +429,38 @@ physically the same one, since everything a session does with it is the same. Th
 anything learned per unit (a trained guider model, backlash history), which a physical swap carries over to the wrong unit;
 accepted. So nothing tries to tell two such units apart: neither a Skywatcher's axis counters (they restart at `0x800000` on
 power-up, so they would only ever tell units apart within one power-on) nor anything else.
+
+#### Step 4 (planned): a machine-wide device registry, and a profile that refers to it
+
+Tracked by #2047, after #2040. **A physical device has several identities, one per path** (the SGP's own USB and its FTDI
+cable; the EQ6-R's USB and its WiFi in either mode; the AZ-GTi's cable and WiFi), while a profile slot holds ONE URI, a copy
+per profile, which reconcile rewrites in every profile on every move. So one layer of indirection is added (the owner,
+2026-11-06):
+
+| Layer | Today | With the registry |
+|---|---|---|
+| `IDeviceSource<T>` | hardware into `DeviceBase`, concrete URI | unchanged; the evidence (`portKey`, firmware, MAC) in the query |
+| `IDeviceDiscovery` | what is present NOW (`RegisteredDevices`) | unchanged; no memory |
+| `IDeviceRegistry` (new) | | machine-wide, persistent: an entry is one physical device (own id, model, firmware, the identities it is known by, its last concrete URI). After each discovery it runs step 3's ladder ONCE, updates entries, creates new ones, raises the follow notifications |
+| profiles | a URI per slot; `ReconcileProfileData` / `FollowMovedPort` rewrite every profile | a typed `DeviceRef` (registry id plus per-rig settings); discovery no longer writes a profile |
+| `IDeviceHub` | instances, connections and leases on the concrete URI's `DeviceKey` | unchanged, except that a lease holds the registry ENTRY: a second path to a leased device is refused, naming the holder (`IDeviceRegistry.EntryOf(uri)`) |
+| consumers | read a URI from the profile | `IDeviceRegistry.Resolve(DeviceRef)` where a profile becomes a setup, then today's code |
+
+- **The reference is a type, never a `registry://` URI**: everything downstream builds a driver from a `Uri`, and a URI that is
+  not an address would type-check everywhere and fail wherever a path forgot to resolve it. The compiler finds every consumer,
+  and the cut is one wave.
+- **The query's two halves part**: the profile keeps what was chosen per rig (site, gain, filter names, backlash overrides),
+  the entry what discovery owns (port, baud, `portIdentity`, `portKey`, firmware); `DeviceQueryKey.IsTransport` already draws
+  that line. `Resolve` merges them into the present path's concrete URI.
+- **Per-device files key on the registry id** (backlash history, the credential store), so they stop splitting by path.
+- **Every slot is a ref**: a device with no identity to resolve (the built-in guider, weather, manual filter and cover) is an
+  entry with a constant id.
+- **No snapshot and no merge across machines**: a profile is node-local, and a remote rig's node resolves its own devices
+  (a mirror only shows the rig's profile). A ref the local registry does not know is an unassigned slot naming what it was
+  ("AZ-GTi (EQ), not known here"), which is the fresh-start path; an export bundling entries can come if copying profiles
+  between machines ever becomes a workflow. No migration (profiles start fresh).
+- The registry is ONE machine-wide file under AppData written by one writer (as `NodeProfiles` writes profiles), atomic, read
+  by clients over a read endpoint; it joins the runtime-data tree.
 
 Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep, Gemini and QHY serial rows have no such option, and rely on the model match above.
 
