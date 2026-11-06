@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Playwright;
 using Xunit;
@@ -20,8 +21,8 @@ namespace TianWen.UI.Web.E2E;
 ///
 /// Server: set <c>TIANWEN_WEB_BASEURL</c> to reuse a dev server you already have running (fast local
 /// iteration: the interpreted WASM cold-boot is slow, so reusing a warm server matters here);
-/// otherwise the fixture starts <c>dotnet run --project TianWen.UI.Web</c> itself and tears it down
-/// at the end (the self-contained path CI would use).
+/// otherwise the fixture builds TianWen.UI.Web (Lightweight), starts it with <c>dotnet run --no-build</c>
+/// and tears it down at the end (the self-contained path CI would use).
 ///
 /// Browser: bundled Chromium by default; set <c>TIANWEN_E2E_CHANNEL</c> (e.g. <c>msedge</c>) to
 /// drive a system-installed browser instead: the reliable path on win-arm64, where the native Edge
@@ -43,7 +44,11 @@ public sealed class TianWenWebFixture : IAsyncLifetime
     // still take a fresh NewPageAsync() per test.
     private IPage? _warmPage;
     private IBrowserContext? _warmContext;
-    private const float ReadyTimeoutMs = 120_000;
+
+    // About 50 s on a quiet machine (NavigationTests' figures); a check job runs the browser at below
+    // normal priority beside other jobs, where the first boot alone outlasted 120 s, so this matches the
+    // 180 s the newer boot tests already allow.
+    private const float ReadyTimeoutMs = 180_000;
 
     public async ValueTask InitializeAsync()
     {
@@ -92,11 +97,38 @@ public sealed class TianWenWebFixture : IAsyncLifetime
         if (_warmPage is not null) return _warmPage;
 
         var page = await NewPageAsync();
+
+        // The app's own console (its catalog init and sweep timings among it), kept so a boot that
+        // misses its budget says where the time went, not only which locator it was waiting on.
+        var console = new ConcurrentQueue<string>();
+        var clock = Stopwatch.StartNew();
+        page.Console += (_, msg) =>
+        {
+            console.Enqueue($"{clock.Elapsed.TotalSeconds,6:F1}s {msg.Type}: {msg.Text}");
+            while (console.Count > 200) console.TryDequeue(out var _);
+        };
+
+        try
+        {
+            await page.GotoAsync(BaseUrl + "?e2e=1",
+                new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+            await Expect(page.Locator("[data-view=planner]")).ToBeVisibleAsync(new() { Timeout = ReadyTimeoutMs });
+            await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = ReadyTimeoutMs });
+        }
+        catch (PlaywrightException ex)
+        {
+            // A boot that failed is closed here, never left running beside the next attempt. Only a
+            // success is cached, so every warm test calls this again, and a leaked app keeps booting in
+            // the shared browser and starves the next boot past its budget: one slow boot failed every
+            // warm test after it, the cascade NavigationTests already closes its contexts against.
+            await page.Context.CloseAsync();
+            throw new TimeoutException(
+                $"The warm page did not boot within {ReadyTimeoutMs / 1000:F0} s per wait, {clock.Elapsed.TotalSeconds:F1} s in all.\n"
+                + $"--- browser console ---\n{string.Join('\n', console)}", ex);
+        }
+
+        TestContext.Current.TestOutputHelper?.WriteLine($"Warm page booted in {clock.Elapsed.TotalSeconds:F1} s.");
         _warmContext = page.Context;
-        await page.GotoAsync(BaseUrl + "?e2e=1",
-            new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
-        await Expect(page.Locator("[data-view=planner]")).ToBeVisibleAsync(new() { Timeout = ReadyTimeoutMs });
-        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = ReadyTimeoutMs });
         _warmPage = page;
         return _warmPage;
     }
@@ -127,45 +159,39 @@ public sealed class TianWenWebFixture : IAsyncLifetime
         // A distinct port from the conventional 5099 dev server, so an auto-started run never
         // collides with one a developer already has up.
         const string url = "http://127.0.0.1:5188";
+        var project = Path.Combine(repoRoot, "src", "TianWen.UI.Web");
+
+        // BUILD first and run with --no-build, so the startup wait below times the server and nothing
+        // else. A Lightweight build changes TianWen.Lib's inputs (it drops an embedded resource), so
+        // straight after an ordinary Release build of the solution, which is what the check runs first,
+        // `dotnet run -p:Lightweight=true` recompiled Lib and everything above it: about 9 minutes on a
+        // loaded machine, and the 5-minute wait expired while the server was still compiling. The build
+        // ends with the run's own token, never a clock: it takes as long as it takes.
+        var buildTail = new ConcurrentQueue<string>();
+        using (var build = StartDotnet($"build \"{project}\" -c Release -p:Lightweight=true", repoRoot, buildTail))
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var killOnCancel = ct.Register(() =>
+            {
+                if (!build.HasExited) build.Kill(entireProcessTree: true);
+            });
+            await build.WaitForExitAsync(ct);
+            if (build.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Building TianWen.UI.Web failed with exit code {build.ExitCode}.\n--- last build output ---\n{string.Join('\n', buildTail)}");
+            }
+        }
 
         // --no-launch-profile is load-bearing: TianWen.UI.Web's launchSettings.json pins
         // applicationUrl to :5099, and `dotnet run` applies that OVER our ASPNETCORE_URLS/--urls, so
         // without this the dev server comes up on :5099 while WaitForServerAsync polls :5188 -> a
         // guaranteed 5-minute timeout. Skipping the profile lets the explicit --urls (passed as an app
         // arg after --) win. ASPNETCORE_URLS is kept as a belt-and-suspenders fallback.
-        _server = new Process
-        {
-            StartInfo = new ProcessStartInfo("dotnet",
-                $"run --project \"{Path.Combine(repoRoot, "src", "TianWen.UI.Web")}\" -c Release -p:Lightweight=true --no-launch-profile -- --urls {url}")
-            {
-                WorkingDirectory = repoRoot,
-                UseShellExecute = false,
-                // Never a console window on the desktop of whoever runs the suite: a console child of a
-                // process with no console of its own gets a fresh visible one, and its output is
-                // redirected below anyway.
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            },
-        };
-        _server.StartInfo.Environment["ASPNETCORE_URLS"] = url;
-
-        // Drain stdout+stderr. RedirectStandard* fills a ~4 KB OS pipe buffer and then BLOCKS the child
-        // until someone reads it; a WASM `dotnet run` prints far more than that during its build, so an
-        // undrained pipe wedges the server before it ever listens -> the other way this used to time out.
-        // Keep a bounded tail so a genuine startup failure surfaces in the exception, not a bare timeout.
-        var tail = new System.Collections.Concurrent.ConcurrentQueue<string>();
-        void Capture(string? line)
-        {
-            if (line is null) return;
-            tail.Enqueue(line);
-            while (tail.Count > 80) tail.TryDequeue(out _);
-        }
-        _server.OutputDataReceived += (_, e) => Capture(e.Data);
-        _server.ErrorDataReceived += (_, e) => Capture(e.Data);
-        _server.Start();
-        _server.BeginOutputReadLine();
-        _server.BeginErrorReadLine();
+        var tail = new ConcurrentQueue<string>();
+        _server = StartDotnet(
+            $"run --project \"{project}\" -c Release -p:Lightweight=true --no-build --no-launch-profile -- --urls {url}",
+            repoRoot, tail, ("ASPNETCORE_URLS", url));
 
         try
         {
@@ -176,6 +202,49 @@ public sealed class TianWenWebFixture : IAsyncLifetime
             throw new TimeoutException($"{ex.Message}\n--- last dev server output ---\n{string.Join('\n', tail)}", ex);
         }
         return url;
+    }
+
+    /// <summary>
+    /// Starts <c>dotnet</c> with no window and both streams drained into <paramref name="tail"/>, its
+    /// last 80 lines. RedirectStandard* fills a ~4 KB OS pipe buffer and then BLOCKS the child until
+    /// someone reads it; a WASM build prints far more than that, so an undrained pipe wedges the child
+    /// before it finishes (the other way the server start used to time out). The tail is what a failure
+    /// reports, rather than a bare timeout.
+    /// </summary>
+    private static Process StartDotnet(string arguments, string workingDirectory, ConcurrentQueue<string> tail,
+        params (string Name, string Value)[] environment)
+    {
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo("dotnet", arguments)
+            {
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                // Never a console window on the desktop of whoever runs the suite: a console child of a
+                // process with no console of its own gets a fresh visible one, and its output is
+                // redirected anyway.
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+        foreach (var (name, value) in environment)
+        {
+            process.StartInfo.Environment[name] = value;
+        }
+
+        void Capture(string? line)
+        {
+            if (line is null) return;
+            tail.Enqueue(line);
+            while (tail.Count > 80) tail.TryDequeue(out _);
+        }
+        process.OutputDataReceived += (_, e) => Capture(e.Data);
+        process.ErrorDataReceived += (_, e) => Capture(e.Data);
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
     }
 
     private static async Task WaitForServerAsync(string url, TimeSpan timeout)
