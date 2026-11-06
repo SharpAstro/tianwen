@@ -68,8 +68,48 @@ internal static class ProcessStallWatch
                     + $"a pool work item waited {poolWait.TotalSeconds:0.0} s; "
                     + $"the GC paused {(paused - pausedBefore).TotalSeconds:0.0} s of it over {gen2 - gen2Before} gen2 collection(s); {NodeWait.PoolState()}; {Machine()}");
             }
+            // TIANWEN_STALL_STACKS names a folder: once per starved stretch, every managed thread's stack is written there by
+            // dotnet-stack, which is what names the code holding the pool's workers.
+            if (poolWait >= TimeSpan.FromSeconds(3) && !_stacksTaken && Environment.GetEnvironmentVariable("TIANWEN_STALL_STACKS") is { Length: > 0 } folder)
+            {
+                _stacksTaken = true;
+                TakeStacks(folder);
+            }
+            else if (poolWait < PoolLate)
+            {
+                _stacksTaken = false;
+            }
             pausedBefore = paused;
             gen2Before = gen2;
+        }
+    }
+
+    private static bool _stacksTaken;
+
+    private static void TakeStacks(string folder)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(folder);
+            var file = System.IO.Path.Combine(folder, $"stacks-{DateTime.Now:HHmmss}.txt");
+            var start = new ProcessStartInfo("dotnet-stack", $"report -p {Environment.ProcessId}")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            };
+            using var stack = Process.Start(start);
+            if (stack is null)
+            {
+                return;
+            }
+            var report = stack.StandardOutput.ReadToEnd();
+            stack.WaitForExit(30_000);
+            System.IO.File.WriteAllText(file, report);
+            System.Console.Out.WriteLine($"{DateTime.Now:HH:mm:ss.fff} info process stall: stacks written to {file}");
+        }
+        catch (Exception ex)
+        {
+            System.Console.Out.WriteLine($"{DateTime.Now:HH:mm:ss.fff} info process stall: no stacks ({ex.Message})");
         }
     }
 

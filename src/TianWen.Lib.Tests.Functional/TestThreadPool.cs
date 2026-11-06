@@ -23,6 +23,11 @@ internal static class TestThreadPool
     [ModuleInitializer]
     internal static void Size()
     {
+        // TIANWEN_TEST_POOL_FLOOR=0 leaves the pool as the runtime sizes it, to reproduce the starvation and find its blockers.
+        if (Environment.GetEnvironmentVariable("TIANWEN_TEST_POOL_FLOOR") == "0")
+        {
+            return;
+        }
         ThreadPool.GetMinThreads(out var workers, out var io);
         ThreadPool.SetMinThreads(Math.Max(workers, MinimumWorkers), Math.Max(io, MinimumWorkers));
     }
