@@ -966,9 +966,16 @@ jobs:
     env:
       VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
     steps:
+    # Only what the release ships: the four apps' publishes and the macOS images. An unfiltered download also takes
+    # the run's test output, LFS payload, catalogs and packages (openphd2-multiscope's release failed on a log this way).
     - uses: actions/download-artifact@v8
       with:
+        pattern: tianwen-*
         path: artifacts
+    - uses: actions/download-artifact@v8
+      with:
+        name: macos-dmg
+        path: artifacts/macos-dmg
     - name: Create release archives
       run: |
         cd artifacts
