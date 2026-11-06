@@ -81,7 +81,7 @@ internal sealed class External(
             }
 
             // Per port, as of this enumeration: a COM name can come back with another device behind it.
-            _serialPortIdentities[port] = Discovery.SerialPortIdentity.Of(info);
+            _serialPortIdentities[port] = Discovery.SerialPortIdentity.Of(info, described);
             if (Discovery.SerialProbeExclusion.ReasonNotToProbe(info) is { } reason)
             {
                 _serialPortsNotToProbe[port] = reason;
