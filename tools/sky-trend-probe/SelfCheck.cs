@@ -65,7 +65,7 @@ public static class SelfCheck
             Check("B flux unchanged", Near(br[0].FluxRatio, 1.0));
         }
 
-        // Series C: the sky rises from frame 60 and is still up when the series ends: KEPT-RISING-TO-END, flux dropping with the sky unchanged.
+        // Series C: the sky rises from frame 60 and is still up when the series ends: KEPT-RISING-TO-END, with the star flux held constant at 1000.
         List<FrameRow> c = [];
         for (var m = 0; m < 80; m++)
         {
