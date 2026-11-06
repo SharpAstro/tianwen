@@ -294,8 +294,8 @@ the device source writes, and these families write the port or the USB path into
 | Canon over WiFi | the PTP/IP responder GUID, else the IP address | yes with the GUID; **no** on the IP fallback |
 | Canon, Windows' stock driver (WPD; the same USB cable) | the body's own DeviceInfo serial (32 hex digits), read once per path with no PTP session; the WPD path (the USB device instance, which on a body with no USB serial, an EOS 6D, is the hub and the hub port) rides in the `wpd=` query as transport state that `ReconcileUri` refreshes; a body that reports no serial, or does not answer a 3 s read, keeps the path as its key | yes with a serial: replugged into another port it is the same key (#1097); **no** on the path fallback |
 | Alpaca | `uniqueId`; host, port and device number are query | yes |
-| Meade, OnStep **with a UUID** (the probe writes one into a spare site slot) | model plus UUID | yes, and the same across USB and WiFi |
-| Meade, OnStep **without a UUID** | model, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port |
+| Meade, OnStep **with a UUID** (the probe writes one into a spare site slot) | product (`:GVP#`), **firmware number (`:GVN#`)** and UUID | yes, and the same across USB and WiFi; **no** across a firmware update (#2040) |
+| Meade, OnStep **without a UUID** | product, firmware number, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port, a firmware update and a renamed site |
 | Skywatcher | `Skywatcher_<model>_<fw>_<port>` (`SkywatcherSerialProbe`) | **no** |
 | iOptron SkyGuider Pro | `SkyGuider-Pro_<fw>_<port>` (`IOptronSerialProbe`) | **no** |
 | Gemini Focuser Pro, FlatPanel Lite, Power&Data Hub Advanced 3 (CH340, no USB serial, no board id) | `GeminiFocuser_<port>`, `Gemini_<port>`, `GeminiPowerBox_<port>` | **no** |
@@ -372,10 +372,33 @@ adapter that ships one serial on every unit gives two of them one key, and they 
 
 #### Step 3 (planned): match on the evidence, and say what was followed
 
-Tracked by #2040. The firmware a handshake reports is not identity (an update changes it) but it is evidence, useful exactly
-where a device has no serial of its own (the SGP), so it leaves the id for the query (`SkyGuider-Pro_170518_COM14` becomes
+Tracked by #2040; validated on hardware by #2041. **The identity ladder**, the most stable name a device offers first:
+
+| Rung | What names the device | Who |
+|---|---|---|
+| 1 | its own serial from its API | ZWO, QHY, Player One, ToupTek, SVBONY; Canon's USB serial, body serial or PTP/IP GUID; Alpaca `uniqueId`; ASCOM ProgID |
+| 2 | an id we wrote into it | ZWO custom id (USB3 cameras); the `TW@` UUID in a spare LX200/OnStep site slot |
+| 3 | its USB bridge chip's serial (`portIdentity=device`) | the device when the chip is built in (EQ6-R Pro), the cable when it is in an adapter (FTDI HBX, AZ-GTi) |
+| 4 | its USB socket (`portIdentity=socket`) | CH340, older Prolific |
+| 5 | its COM name (`portIdentity=name`) | a motherboard or virtual port |
+| 6 | model plus firmware: EVIDENCE in matching, never in the id | every port-keyed family |
+| 7 | model alone: the selected profile's device when it is the one candidate | every port-keyed family |
+
+The firmware a handshake reports is not identity (an update changes it) but it is evidence, useful exactly where a device has
+no serial of its own (the SGP), so it leaves the id for the query (`SkyGuider-Pro_170518_COM14` becomes
 `SkyGuider-Pro_COM14?firmware=170518`), and a serial-less port's socket key (`socket:<location path>`) takes the place of its
-COM name. A stored device is then matched against what discovery found on all of it, strongest first:
+COM name. Where firmware is today (swept 2026-11-06):
+
+| Family | Firmware today | Step 3 |
+|---|---|---|
+| Skywatcher, SkyGuider Pro | in the id | to `?firmware=` |
+| Meade, OnStep | in the id as `:GVN#`, **even beside a UUID**, so an update loses a UUID-identified mount; the UUID-less id also carries the site names, so a renamed site loses it too | the UUID id becomes `<product>_<uuid>`; `:GVN#` to `?firmware=`; the site names leave the id |
+| Gemini focuser, flat panel, power box | probe metadata only | to `?firmware=`, so matching can read it |
+| QFOC | display name only | to `?firmware=` |
+| QHY CFW3, SDK cameras and focusers, Canon, Alpaca, ASCOM | not read, or not in the id | nothing |
+
+A stored device is then matched against what discovery found on all of it, strongest first (and `DeviceIdentityLadderTests`,
+one table-driven theory over stub discovery, has a row per line, so a change to the order fails a row):
 
 | What matches | Most likely | What happens |
 |---|---|---|
@@ -410,8 +433,8 @@ Canon through WPD is keyed by the body's serial, because that is readable (`Cano
   hands the second the first's driver, which reads its filter from its own device: on a rig with manual holders on
   two OTAs, the second reports the first's filter. The owner has accepted this for now (review of #1089).
 - **The port-qualified ids above** (Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep) cannot be improved by reading more
-  from the hardware, which offers no identity; what is left is a profile migration or a rule for matching a moved mount,
-  which is work of its own (#1090).
+  from the hardware, which offers no identity. A serial-numbered USB bridge names them (step 2), and the rest is matching
+  on the evidence (step 3, #2040), never a profile migration.
 
 ### Every call into a vendor SDK passes the gate
 
