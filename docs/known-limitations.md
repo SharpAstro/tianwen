@@ -1328,7 +1328,7 @@ with no stellar profile out of the candidate list, and a calibration started at 
 Both halves of the bar are measured on `GuideStarAcceptanceTests` and the fake guide camera only. How a real faint guide
 star on a real sensor (read noise, hot pixels, seeing) sits against it is not looked at: a faint star it misses would
 read as "no star" at a position the operator chose. Open until a real faint guide field is run through `FindStars` and
-`GuideStarReadout` (a bench check; the bar's comment on `StarSigmas` says the same).
+`GuideStarReadout` (a bench check, tracked as #2056; the bar's comment on `StarSigmas` says the same).
 
 ## GPU / rendering
 
