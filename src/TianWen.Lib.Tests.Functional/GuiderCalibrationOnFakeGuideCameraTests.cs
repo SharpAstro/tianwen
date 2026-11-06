@@ -1,3 +1,4 @@
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Shouldly;
@@ -32,7 +33,7 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         var sp = new ServiceCollection()
             .AddSingleton<IExternal>(external)
             .AddSingleton<ITimeProvider>(external.TimeProvider)
-            .AddLogging(b => b.SetMinimumLevel(LogLevel.Information))
+            .AddLogging(b => b.SetMinimumLevel(LogLevel.Information).AddProvider(new XUnitLoggerProvider(output, false)))
             .AddSingleton<IDeviceHub, DeviceHub>()
             .BuildServiceProvider();
         var hub = sp.GetRequiredService<IDeviceHub>();
@@ -128,6 +129,17 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
             await _task;
             _stop.Dispose();
         }
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ProbeTheStarNearTheTopEdge()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
+        await using var pumped = new Pump(clock);
+        var (guider, _, _) = await RigAsync(clock, ct);
+        var summary = await guider.CalibrateAsync(new GuideStartOptions((233.0, 31.2), Exposure), ct);
+        output.WriteLine(summary is null ? $"FAILED {guider.LastCalibrationFailure}" : "ok");
     }
 
     [Fact(Timeout = 600_000)]
