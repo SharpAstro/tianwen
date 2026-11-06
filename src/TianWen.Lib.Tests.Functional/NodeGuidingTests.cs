@@ -137,10 +137,7 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         await mount.SetSiteLatitudeAsync(48.2, ct);
         await mount.SetSiteLongitudeAsync(16.3, ct);
         await mount.SetTrackingAsync(true, ct);
-        // On the Pleiades: the guide camera's field there holds about nine catalogue stars over its 0.1 s limit (magnitude 7.4).
-        // At 6h +45 it held two, so the middle of the eight candidates PickAStarAsync ranks was now and then a noise blob, which no
-        // pulse moves, and the calibration failed for "too little star movement" (#2000, 1 in about 80 runs).
-        await mount.SyncRaDecAsync(3.79, 24.12, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
 
         // A 130 mm guide scope: the fake renders the star field the mount's pulses move only for a camera with a focal length.
         if (withGuideCamera)
