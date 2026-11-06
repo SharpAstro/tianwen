@@ -513,6 +513,42 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenChosenPositionWithNoStarWhenCalibrateThenRefusedUpFrontWithoutPulsing()
+    {
+        // #2050: a calibration started where the frame holds only noise and hot pixels used to take a noise maximum for the
+        // star, pulse, measure zero movement and fail "insufficient star displacement". It now refuses before the first pulse.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var rng = new Random(2050);
+        var pixels = new float[240, 320];
+        for (var y = 0; y < 240; y++)
+        {
+            for (var x = 0; x < 320; x++)
+            {
+                pixels[y, x] = (float)(500 + 6 * Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()));
+            }
+        }
+        pixels[120, 160] += 2000f; // a hot pixel exactly at the chosen position
+        pixels[60, 90] += 3000f;
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { PreferredStar = (160, 120) };
+        tracker.ProcessFrame(pixels);
+        tracker.IsAcquired.ShouldBeFalse("a hot pixel and noise are no star to acquire");
+
+        var rig = new DirectionalStarRig();
+        var outcome = await new GuiderCalibration().CalibrateAsync(rig, tracker,
+            token => ValueTask.FromResult(Image.FromChannel(pixels)), timeProvider, ct);
+
+        outcome.Result.ShouldBeNull();
+        var failure = outcome.Failure.ShouldNotBeNull();
+        failure.Cause.ShouldBe(GuiderCalibrationFailureCause.NoStarAtChosenPosition);
+        failure.Sweeps.ShouldBeEmpty("it never started pulsing");
+        rig.X.ShouldBe(0.0);
+        rig.Y.ShouldBe(0.0);
+        output.WriteLine(failure.Describe());
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenPulsesThatMoveNothingWhenCalibrateThenFailureNamesTooLittleDisplacementAndEveryStep()
     {
         // #2050: a calibration that fails must say why. Pulses that move nothing leave the star where it was, so the
