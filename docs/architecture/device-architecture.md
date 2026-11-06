@@ -388,8 +388,15 @@ COM name. A stored device is then matched against what discovery found on all of
 **No dialogue: a follow connects, and says so** (the owner, 2026-11-06). Every follow other than an exact match adds a
 notification to the node's feed (`HostedSession.AddNotification`, raised from `NodeProfiles.ReconcileAllAsync`, where the
 follow happens), naming the device and what changed ("AZ-GTi: firmware 3.39 to 3.40", "Gemini focuser now on COM4"), so a
-wrong follow is visible in the Notifications tab instead of silent. What stays undetectable: two same-model units with the same
-firmware and their cables swapped, which nothing in the hardware tells apart.
+wrong follow is visible in the Notifications tab instead of silent.
+
+**The last fallback is the device the selected profile names, and some churn is accepted** (the owner, 2026-11-06). One node
+drives one rig today, so a laptop carried between rigs compares what it finds with the PROFILE selected, not with every rig it
+has seen: a unit of the same model and firmware on the configured cable IS that profile's device, whether or not it is
+physically the same one, since everything a session does with it is the same. The one thing that knows the difference is
+anything learned per unit (a trained guider model, backlash history), which a physical swap carries over to the wrong unit;
+accepted. So nothing tries to tell two such units apart: neither a Skywatcher's axis counters (they restart at `0x800000` on
+power-up, so they would only ever tell units apart within one power-on) nor anything else.
 
 Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep, Gemini and QHY serial rows have no such option, and rely on the model match above.
 
