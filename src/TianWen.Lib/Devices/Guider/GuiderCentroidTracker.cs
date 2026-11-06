@@ -373,9 +373,11 @@ internal sealed class GuiderCentroidTracker
             for (var x = margin; x < width - margin; x++)
             {
                 var val = frame[y, x];
-                // Simple local max check: brighter than all 4-connected neighbours
-                if (val > frame[y - 1, x] && val > frame[y + 1, x] &&
-                    val > frame[y, x - 1] && val > frame[y, x + 1])
+                // Simple local max check: no 4-connected neighbour is brighter. Not strictly brighter: the top of a clipped
+                // (saturated) star is flat, and every pixel of that plateau is a maximum. The plateau's pixels are one
+                // candidate, since a peak within the search radius of a found one is skipped below.
+                if (val >= frame[y - 1, x] && val >= frame[y + 1, x] &&
+                    val >= frame[y, x - 1] && val >= frame[y, x + 1])
                 {
                     if (near is { } at && (x - at.X) * (x - at.X) + (y - at.Y) * (y - at.Y) > (double)GuideStarReadout.PickRadius * GuideStarReadout.PickRadius)
                     {
@@ -705,8 +707,8 @@ internal sealed class GuiderCentroidTracker
     /// The shape test behind <see cref="IsStar"/>, for a peak at (<paramref name="px"/>, <paramref name="py"/>) over a background
     /// of mean <paramref name="bg"/> and noise <paramref name="sigma"/>: the 3x3 mean stands <see cref="StarSigmas"/> over the
     /// noise of such a mean (a noise maximum does not), at least <see cref="MinLitNeighbours"/> of the eight neighbours are lit
-    /// and they carry <see cref="MinNeighbourShare"/> of the peak's excess (a hot pixel and a two-pixel blob do not). Needs the
-    /// peak's 3x3 inside the frame.
+    /// and they carry <see cref="MinNeighbourShare"/> of the peak's excess (a hot pixel and a two-pixel blob do not), and none
+    /// of the eight is brighter than the peak itself. Needs the peak's 3x3 inside the frame.
     /// </summary>
     internal static bool LooksLikeStar(float[,] frame, int px, int py, double bg, double sigma)
     {
@@ -728,6 +730,13 @@ internal sealed class GuiderCentroidTracker
                     continue;
                 }
                 var excess = frame[py + dy, px + dx] - bg;
+                if (excess > peak)
+                {
+                    // The scan's maximum is of the four edge neighbours only: a noise maximum diagonal to a hot pixel has the
+                    // hot pixel in its 3x3 and would borrow its light. The brightest pixel of a star is its own peak
+                    // (a clipped star's flat top ties, which is not brighter).
+                    return false;
+                }
                 neighbours += excess;
                 if (excess > LitNeighbourSigmas * noise)
                 {
