@@ -66,6 +66,8 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
         var (_, camera) = await RigAsync(clock, ct);
         var capture = Task.Run(async () => await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, Exposure, clock, TimeSpan.FromMilliseconds(10), ct), ct);
+        // No progress probe here, deliberately: this is ONE exposure of 100 ms through the static capture, which publishes
+        // no frame and has no counter of its own, so the minute of fake time bounds the run itself (600 times its length).
         await clock.PumpUntilCompletedAsync(capture, TimeSpan.FromMinutes(1), cancellationToken: ct);
         var frame = await capture;
         try
@@ -103,7 +105,10 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         // The cooperative pump (never a wall-clock loop of its own): it advances only once the calibration is parked at a
         // sleep, so the exposures and pulses see the same fake time the node's tests do.
         var calibration = Task.Run(async () => await guider.CalibrateAsync(new GuideStartOptions((x, y), Exposure), ct), ct);
-        await clock.PumpUntilCompletedAsync(calibration, TimeSpan.FromMinutes(30), cancellationToken: ct);
+        // The probe is the calibration's own progress: every frame it measures is published through LastGuideFrameNumber, so
+        // the budget bounds a STALL of the calibration, not the whole run, and a slow runner only takes longer.
+        await clock.PumpUntilCompletedAsync(calibration, TimeSpan.FromMinutes(30),
+            progress: () => guider.LastGuideFrameNumber, cancellationToken: ct);
         var summary = await calibration;
         summary.ShouldNotBeNull($"calibration on ({x:F1}, {y:F1}) failed: {guider.LastCalibrationFailure}");
     }
