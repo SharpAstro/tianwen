@@ -547,6 +547,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         if (!tracker.IsAcquired)
         {
             string reason;
+            var cause = GuiderCalibrationFailureCause.NoStarFound;
             double failedX = double.NaN, failedY = double.NaN;
             if (_chosenStar is { } chosen)
             {
@@ -555,6 +556,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 var nearest = stars.Count == 0 ? double.NaN : stars.Min(s => Math.Sqrt((s.X - chosen.X) * (s.X - chosen.X) + (s.Y - chosen.Y) * (s.Y - chosen.Y)));
                 Logger.LogWarning("Built-in guider: the chosen star at ({X:F1}, {Y:F1}) is not in the calibration frame: {Count} stars found, the nearest {Nearest:F1} px away.",
                     chosen.X, chosen.Y, stars.Count, nearest);
+                cause = GuiderCalibrationFailureCause.NoStarAtChosenPosition;
                 failedX = chosen.X;
                 failedY = chosen.Y;
                 reason = stars.Count == 0
@@ -574,9 +576,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             frame.Release();
             // Fail without raising a guiding error -- the caller retries (a cloud / poor seeing
             // is often transient) and raises the terminal error only once all attempts are exhausted.
-            // The chosen position stands in for the start star: there is none.
+            // The chosen position (when there is one) stands in for the start star: there is none.
             return GuiderCalibrationOutcome.Failed(new GuiderCalibrationFailure(
-                GuiderCalibrationFailureCause.NoStarAtChosenPosition, "the start", reason, failedX, failedY, double.NaN, double.NaN, []));
+                cause, "the start", reason, failedX, failedY, double.NaN, double.NaN, []));
         }
 
         var timeProvider = TimeProvider;

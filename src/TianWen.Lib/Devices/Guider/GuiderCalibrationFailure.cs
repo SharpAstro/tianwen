@@ -9,8 +9,11 @@ namespace TianWen.Lib.Devices.Guider;
 /// <summary>Which gate refused a guider calibration.</summary>
 internal enum GuiderCalibrationFailureCause
 {
-    /// <summary>No star could be acquired to start from (for a chosen star: none at the chosen position).</summary>
+    /// <summary>A star was chosen to calibrate on and none is at the chosen position.</summary>
     NoStarAtChosenPosition,
+
+    /// <summary>No star was chosen and none could be found to start from (cloud, poor seeing or a field with no star the quality gates accept).</summary>
+    NoStarFound,
 
     /// <summary>The star was lost while a sweep ran, or when it was looked for after one.</summary>
     StarLost,

@@ -549,6 +549,40 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenNoStarChosenAndNoStarInTheFrameWhenCalibrateThenFailureNamesNoStarFoundAndNeverPulses()
+    {
+        // #2050 review note: "no star at the chosen position" is only true when a star was chosen. A frame of noise with
+        // nothing chosen is a different refusal, NoStarFound, and it must not blame a position nobody picked.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var rng = new Random(2051);
+        var pixels = new float[240, 320];
+        for (var y = 0; y < 240; y++)
+        {
+            for (var x = 0; x < 320; x++)
+            {
+                pixels[y, x] = (float)(500 + 6 * Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()));
+            }
+        }
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        tracker.ProcessFrame(pixels);
+        tracker.IsAcquired.ShouldBeFalse();
+
+        var rig = new DirectionalStarRig();
+        var outcome = await new GuiderCalibration().CalibrateAsync(rig, tracker,
+            token => ValueTask.FromResult(Image.FromChannel(pixels)), timeProvider, ct);
+
+        outcome.Result.ShouldBeNull();
+        var failure = outcome.Failure.ShouldNotBeNull();
+        failure.Cause.ShouldBe(GuiderCalibrationFailureCause.NoStarFound);
+        failure.Sweeps.ShouldBeEmpty("it never started pulsing");
+        rig.X.ShouldBe(0.0);
+        rig.Y.ShouldBe(0.0);
+        output.WriteLine(failure.Describe());
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenPulsesThatMoveNothingWhenCalibrateThenFailureNamesTooLittleDisplacementAndEveryStep()
     {
         // #2050: a calibration that fails must say why. Pulses that move nothing leave the star where it was, so the

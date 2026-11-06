@@ -208,6 +208,37 @@ public class GuideStarAcceptanceTests(ITestOutputHelper output)
         falseCandidates.ShouldBe(0);
     }
 
+    /// <summary>
+    /// What the stricter bar costs the faint (#2050 review): a star is a peak whose 3x3 mean stands 6 sigma-of-a-3x3-mean over
+    /// the background, about a peak of 3.7 sigma for a star of FWHM 3.5, hardly above the tracker's own SNR floor
+    /// (<see cref="GuiderCentroidTracker.MinSNR"/>, 3). This prints the rate of finding a lone star of each peak SNR over many
+    /// noise draws, so a change to the bar shows what it moved, and pins that every star from 8 sigma up is found every time.
+    /// </summary>
+    [Fact]
+    public void TheFaintestStarTheBarTakesIsNearTheTrackersSnrFloor()
+    {
+        const int draws = 60;
+        const double noise = 6.0;
+        foreach (var peakSnr in new[] { 4.0, 5.0, 6.0, 8.0, 10.0 })
+        {
+            var found = 0;
+            for (var seed = 1; seed <= draws; seed++)
+            {
+                var frame = NoiseFrame(new Random(seed * 31), 128, 128, noise);
+                AddStar(frame, 64.3, 63.7, 3.5, peakSnr * noise);
+                if (new GuiderCentroidTracker().FindStars(frame).Any(c => Math.Abs(c.X - 64.3) < Tolerance && Math.Abs(c.Y - 63.7) < Tolerance))
+                {
+                    found++;
+                }
+            }
+            output.WriteLine($"a lone star of peak SNR {peakSnr}: found in {found} of {draws} draws");
+            if (peakSnr >= 8.0)
+            {
+                found.ShouldBe(draws, $"a star of peak SNR {peakSnr} must always be found");
+            }
+        }
+    }
+
     [Theory]
     [InlineData(1.8)]
     [InlineData(3.5)]
