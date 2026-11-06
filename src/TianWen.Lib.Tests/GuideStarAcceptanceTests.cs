@@ -212,7 +212,8 @@ public class GuideStarAcceptanceTests(ITestOutputHelper output)
     /// What the stricter bar costs the faint (#2050 review): a star is a peak whose 3x3 mean stands 6 sigma-of-a-3x3-mean over
     /// the background, about a peak of 3.7 sigma for a star of FWHM 3.5, hardly above the tracker's own SNR floor
     /// (<see cref="GuiderCentroidTracker.MinSNR"/>, 3). This prints the rate of finding a lone star of each peak SNR over many
-    /// noise draws, so a change to the bar shows what it moved, and pins that every star from 8 sigma up is found every time.
+    /// noise draws, so a change to the bar shows what it moved, and pins that every star from 5 sigma up is found every time
+    /// (measured: 54 of 60 draws at 4 sigma, 60 of 60 from 5 sigma up).
     /// </summary>
     [Fact]
     public void TheFaintestStarTheBarTakesIsNearTheTrackersSnrFloor()
@@ -232,7 +233,7 @@ public class GuideStarAcceptanceTests(ITestOutputHelper output)
                 }
             }
             output.WriteLine($"a lone star of peak SNR {peakSnr}: found in {found} of {draws} draws");
-            if (peakSnr >= 8.0)
+            if (peakSnr >= 5.0)
             {
                 found.ShouldBe(draws, $"a star of peak SNR {peakSnr} must always be found");
             }
