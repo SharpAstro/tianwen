@@ -60,7 +60,7 @@ public class NodePolarAlignmentTests(ITestOutputHelper outputHelper) : IDisposab
             configure?.Invoke(services);
         });
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     private static Task<PolarStateDto> UntilEndedAsync(TianWenNodeClient client, CancellationToken ct) =>
         UntilAsync<PolarStateDto>("the polar alignment to end", async token =>

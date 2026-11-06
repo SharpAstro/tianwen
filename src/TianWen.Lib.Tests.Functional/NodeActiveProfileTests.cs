@@ -44,7 +44,7 @@ public class NodeActiveProfileTests(ITestOutputHelper outputHelper)
 
         (await pinned.GetPinnedPortsAsync(ct)).ShouldBeEmpty("no active profile, nothing pinned");
 
-        (await new TianWenNodeClient(node.Client).SetActiveProfileAsync(NodeHarness.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).SetActiveProfileAsync(NodeHarness.ProfileId, ct)).IsSuccess.ShouldBeTrue();
         (await pinned.GetPinnedPortsAsync(ct)).Select(static p => p.Port).ShouldBe(["serial:COM5", "serial:COM7"], ignoreOrder: true);
 
         // Edited by another process (the GUI's Equipment tab): the next pass probes the profile as it is now.
@@ -60,7 +60,7 @@ public class NodeActiveProfileTests(ITestOutputHelper outputHelper)
         await using var node = await NodeHarness.StartAsync(outputHelper, ct,
             services => services.AddSingleton<INodeLogonStart>(new NoLogonEntry()), onItsSocket: true);
 
-        (await new TianWenNodeClient(node.Client).SetActiveProfileAsync(NodeHarness.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).SetActiveProfileAsync(NodeHarness.ProfileId, ct)).IsSuccess.ShouldBeTrue();
         using (var shared = await node.Client.PutAsJsonAsync("api/v1/node/share", new NodeShareRequest { Shared = true }, HostingJsonContext.Default.NodeShareRequest, ct))
         {
             shared.IsSuccessStatusCode.ShouldBeTrue();

@@ -41,7 +41,7 @@ public class SharedMemoryCarrierProbe(ITestOutputHelper output)
             onItsSocket: true);
         await node.ActivateRigAsync(Camera, mount: null, ct);
         await using var window = await NodeWindow.OpenAsync(node, output, ct);
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
         var started = await client.StartPlanetaryAsync(new PlanetaryRequestDto { ExposureMs = 1, RoiWidth = 16384, RoiHeight = 16384 }, ct);
         started.IsSuccess.ShouldBeTrue(started.Error);
         var frames = node.App.Services.GetRequiredService<NodeFrames>();

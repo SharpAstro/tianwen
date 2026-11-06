@@ -207,7 +207,14 @@ internal sealed class NodeJobs(IHostApplicationLifetime lifetime, ITimeProvider 
         try
         {
             step = await work(new JobStep(this, job), token);
-            state = JobState.Succeeded;
+            // Work that notices a cancel may return rather than throw (a loop checking IsCancellationRequested, as the cooling
+            // ramp does between its steps); it was still cancelled. Without this a cancelled job ended Succeeded or Cancelled
+            // by when the cancel landed (#2000's repeat run).
+            state = token.IsCancellationRequested ? JobState.Cancelled : JobState.Succeeded;
+            if (state is JobState.Cancelled)
+            {
+                logger.LogInformation("Job {Kind} {Id} cancelled", job.Kind, job.Id);
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
