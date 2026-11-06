@@ -448,6 +448,10 @@ jobs:
           --minimum-expected-tests 1 \
           --results-directory test-results-debug/
       working-directory: src
+    # A green run leaves nothing under the tests' temp folder (#2035): a test removes its own output when it ends, so this
+    # lists what is still there and fails naming it. After the last test step, on success only (default `if`).
+    - name: No test temp output left behind
+      uses: ./.github/actions/test-temp-leftovers
     # On a native test-process crash (SIGSEGV -> exit 139), symbolicate the runtime minidump HERE, on
     # the same runner, while the crashed process's shared libraries are still on disk -- lldb reads
     # the minidump's module list and loads those .so from their recorded paths, so the backtrace
@@ -480,10 +484,12 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: gpu-stretch-test-output-${{ matrix.leg }}
-        # Narrow to just the GpuStretchPipelineTests subdir -- /tmp/TianWen.Lib.Tests/
+        # Narrow to just the GpuStretchPipelineTests subdirs -- /tmp/TianWen.Lib.Tests/
         # aggregates outputs from every test in the suite (>2 GB on a full failure run);
-        # this slice is ~15 MB (cpu.tiff + gpu.tiff + diff.tiff per case).
-        path: /tmp/TianWen.Lib.Tests/*/GpuStretchPipelineTests/
+        # this slice is ~15 MB (cpu.tiff + gpu.tiff + diff.tiff per case). A test's output folder is
+        # <name>_<random> and is removed when the test ends (#2035), so this finds files only where a
+        # run set TIANWEN_KEEP_TEST_OUTPUT=1.
+        path: /tmp/TianWen.Lib.Tests/*/GpuStretchPipelineTests_*/
         if-no-files-found: ignore
         retention-days: 7
     # Upload --crashdump / --hangdump artifacts + runtime minidumps so
@@ -552,6 +558,9 @@ jobs:
     - name: Functional Tests
       run: dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build
       working-directory: src
+    # Nothing left under the tests' temp folder after a green run (#2035); the same step as test-unit's.
+    - name: No test temp output left behind
+      uses: ./.github/actions/test-temp-leftovers
 
   # publish-apps runs in parallel with the test jobs -- dotnet publish is long
   # on AOT targets (multiple minutes per RID), so gating on tests would block

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Shouldly;
@@ -40,6 +41,15 @@ public class TestTempFoldersTests
         return null;
     }
 
+    /// <summary>Every <c>.cs</c> source of every test project under <paramref name="root"/>, build output left out.</summary>
+    private static IEnumerable<string> TestSources(string root)
+    {
+        var sep = Path.DirectorySeparatorChar;
+        return Directory.EnumerateDirectories(root, "*.Tests*")
+            .SelectMany(project => FileEnumeration.EnumerateFiles(project, ".cs", recursive: true))
+            .Where(f => !f.Contains($"{sep}bin{sep}", StringComparison.Ordinal) && !f.Contains($"{sep}obj{sep}", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void NoTestMakesItsFolderAtTheTopOfTheTempDirectory()
     {
@@ -50,10 +60,7 @@ public class TestTempFoldersTests
 
         // Built from parts, so this file does not match its own search.
         var bare = "CreateTemp" + "Subdirectory(";
-        var sep = Path.DirectorySeparatorChar;
-        var offenders = Directory.EnumerateDirectories(root, "*.Tests*")
-            .SelectMany(project => FileEnumeration.EnumerateFiles(project, ".cs", recursive: true))
-            .Where(f => !f.Contains($"{sep}bin{sep}", StringComparison.Ordinal) && !f.Contains($"{sep}obj{sep}", StringComparison.Ordinal))
+        var offenders = TestSources(root)
             .Where(static f => !Path.GetFileName(f).Equals(Definition, StringComparison.Ordinal))
             .Where(f => File.ReadAllText(f).Contains(bare, StringComparison.Ordinal))
             .Select(f => Path.GetRelativePath(root, f))
@@ -61,6 +68,33 @@ public class TestTempFoldersTests
             .ToArray();
 
         offenders.ShouldBeEmpty("a test's temporary folder comes from TempFolders, whose root is swept of what a delete missed");
+    }
+
+    /// <summary>
+    /// The dated output folders and the <see cref="TempFolders"/> root are the ONLY places a test writes under the tests' own
+    /// temp folder, because only they are removed when the test ends (#2035; <see cref="TestOutput"/>). A test that
+    /// builds a path beside them by hand leaves what it wrote for the sweep a day later, and the CI step that lists what
+    /// a green run left behind fails on it.
+    /// </summary>
+    [Fact]
+    public void NoTestBuildsAFolderUnderTheTestsTempFolderByHand()
+    {
+        if (FindSourceRoot() is not { } root)
+        {
+            return;
+        }
+
+        // Built from parts, so this file does not match its own search.
+        var folderName = "\"TianWen.Lib" + ".Tests\"";
+        var offenders = TestSources(root)
+            .Where(static f => !Path.GetFileName(f).Equals(Definition, StringComparison.Ordinal)
+                && !Path.GetFileName(f).Equals("TestOutput.cs", StringComparison.Ordinal))
+            .Where(f => File.ReadAllText(f).Contains(folderName, StringComparison.Ordinal))
+            .Select(f => Path.GetRelativePath(root, f))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        offenders.ShouldBeEmpty("a test's output folder comes from SharedTestData.CreateTempTestOutputDir, which removes it when the test ends");
     }
 
     // #1626: a planetary capture's path is read for its telescope folder by folder outward, so a random folder name holding a digit beside a

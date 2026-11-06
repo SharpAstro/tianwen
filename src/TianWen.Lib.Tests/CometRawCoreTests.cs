@@ -30,8 +30,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task TheBodyLandsOnTheCentreCellAndAFixedStarTrailsOutOfTheMedian()
         {
-            var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", "comet-raw-core", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(dir);
+            var dir = SharedTestData.CreateTempTestOutputDir("comet-raw-core");
             try
             {
                 var rate = new Vector2(10f, 0f);              // px/h on the reference grid
