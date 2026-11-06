@@ -18,6 +18,31 @@ internal sealed class GuiderCentroidTracker
     private const int DefaultMaxStars = 8;
     private const int MinStarSeparation = 32; // pixels; avoid selecting stars too close together
 
+    // What makes a local maximum a STAR rather than a noise maximum or a hot pixel (#2050). A peak over 3 sigma of its
+    // background says nothing on a frame of a million pixels, which holds about 200k noise maxima, and a hot pixel is any
+    // height; a star has a profile, so its brightest pixel stands on neighbours that share its light.
+
+    /// <summary>Half-width of the ring the scan's prefilter reads the local level and noise from (Chebyshev distance, 40 pixels).</summary>
+    private const int PrefilterRingHalf = 5;
+
+    /// <summary>The prefilter's bar for the 3x3 mean over the noise of such a mean (a third of a pixel's). Loose: it only spares the scan the aperture work on noise.</summary>
+    private const double PrefilterSigmas = 4.0;
+
+    /// <summary>The bar for the 3x3 mean over the annulus's noise, in the noise of such a mean: out of reach of a noise maximum, within reach of a faint star.</summary>
+    private const double StarSigmas = 6.0;
+
+    /// <summary>A neighbour of the peak counts as lit when it is this many noise sigmas over the background.</summary>
+    private const double LitNeighbourSigmas = 0.5;
+
+    /// <summary>At least this many of the peak's eight neighbours are lit: a hot pixel has none to speak of, a blob of two pixels one.</summary>
+    private const int MinLitNeighbours = 4;
+
+    /// <summary>The eight neighbours together carry at least this share of the peak's excess: a single-pixel spike carries its light alone.</summary>
+    private const double MinNeighbourShare = 0.5;
+
+    /// <summary>A frame with no noise at all (a synthetic one) still has a scale to judge by: this share of the peak.</summary>
+    private const double NoiseFloorShare = 1e-3;
+
     /// <summary>
     /// Widest window <see cref="TryTrackAll"/> will re-search before giving a star up. Kept below
     /// 2x <see cref="MinStarSeparation"/> so a widened search cannot reach past a neighbour that
@@ -356,6 +381,13 @@ internal sealed class GuiderCentroidTracker
                     {
                         continue;
                     }
+                    // Only a maximum standing clear of its own surroundings is worth sorting and measuring: on noise
+                    // that is a few in ten thousand, so a starless frame costs a scan and not a sort of hundreds of
+                    // thousands of peaks.
+                    if (!PassesPrefilter(frame, x, y))
+                    {
+                        continue;
+                    }
                     peaks.Add((x, y, val));
                 }
             }
@@ -385,7 +417,9 @@ internal sealed class GuiderCentroidTracker
             }
 
             if (TryCentroid(frame, width, height, px, py, _searchRadius,
-                out var cx, out var cy, out var flux, out var snr) && snr >= MinSNR)
+                    out var cx, out var cy, out var flux, out var snr, out var bg, out var sigma)
+                && snr >= MinSNR
+                && LooksLikeStar(frame, px, py, bg, sigma))
             {
                 candidates.Add(new CandidateStar(cx, cy, flux, snr));
             }
@@ -539,8 +573,78 @@ internal sealed class GuiderCentroidTracker
         int cx, int cy, int radius,
         out double centroidX, out double centroidY,
         out double totalFlux, out double snr)
+        => TryCentroid(frame, width, height, cx, cy, radius, out centroidX, out centroidY, out totalFlux, out snr, out _, out _);
+
+    /// <summary>
+    /// <see cref="TryCentroid(float[,], int, int, int, int, int, out double, out double, out double, out double)"/> that also
+    /// hands back the annulus's mean (<paramref name="background"/>) and standard deviation (<paramref name="noise"/>).
+    /// </summary>
+    internal static bool TryCentroid(
+        float[,] frame, int width, int height,
+        int cx, int cy, int radius,
+        out double centroidX, out double centroidY,
+        out double totalFlux, out double snr,
+        out double background, out double noise)
     {
         centroidX = centroidY = totalFlux = snr = 0;
+
+        if (!TryAnnulus(frame, width, height, cx, cy, radius, out background, out noise))
+        {
+            return false;
+        }
+
+        var bg = background;
+        var bgSigma = noise;
+        var innerR2 = radius * radius;
+
+        // Flux-weighted centroid within aperture
+        var sumFlux = 0.0;
+        var sumFluxX = 0.0;
+        var sumFluxY = 0.0;
+        var peakVal = 0.0;
+
+        for (var dy = -radius; dy <= radius; dy++)
+        {
+            for (var dx = -radius; dx <= radius; dx++)
+            {
+                if (dx * dx + dy * dy <= innerR2)
+                {
+                    var val = (double)frame[cy + dy, cx + dx] - bg;
+                    if (val > 0)
+                    {
+                        sumFlux += val;
+                        sumFluxX += val * dx;
+                        sumFluxY += val * dy;
+                        if (val > peakVal)
+                        {
+                            peakVal = val;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (sumFlux <= 0 || peakVal <= 0)
+        {
+            return false;
+        }
+
+        centroidX = cx + sumFluxX / sumFlux;
+        centroidY = cy + sumFluxY / sumFlux;
+        totalFlux = sumFlux;
+        snr = bgSigma > 0 ? peakVal / bgSigma : peakVal;
+
+        return true;
+    }
+
+    /// <summary>
+    /// The background of the aperture at (cx, cy): the mean and standard deviation of the annulus from radius + 1 to
+    /// radius + 3. False when the aperture and its annulus do not fit in the frame.
+    /// </summary>
+    private static bool TryAnnulus(
+        float[,] frame, int width, int height, int cx, int cy, int radius, out double mean, out double sigma)
+    {
+        mean = sigma = 0;
 
         // Bounds check
         if (cx - radius - 1 < 0 || cx + radius + 1 >= width ||
@@ -582,48 +686,105 @@ internal sealed class GuiderCentroidTracker
             return false;
         }
 
-        var bg = bgSum / bgCount;
-        var bgVariance = bgSumSq / bgCount - bg * bg;
-        var bgSigma = Math.Sqrt(Math.Max(0, bgVariance));
+        mean = bgSum / bgCount;
+        var bgVariance = bgSumSq / bgCount - mean * mean;
+        sigma = Math.Sqrt(Math.Max(0, bgVariance));
+        return true;
+    }
 
-        // Flux-weighted centroid within aperture
-        var sumFlux = 0.0;
-        var sumFluxX = 0.0;
-        var sumFluxY = 0.0;
-        var peakVal = 0.0;
+    /// <summary>
+    /// Whether the pixel (<paramref name="px"/>, <paramref name="py"/>) is the brightest pixel of a STAR, judged against the
+    /// annulus of the aperture of <paramref name="radius"/> about it (see <see cref="LooksLikeStar"/>). False when the aperture
+    /// does not fit in the frame. The one acceptance the candidate scan and <see cref="GuideStarReadout"/> share.
+    /// </summary>
+    internal static bool IsStar(float[,] frame, int width, int height, int px, int py, int radius)
+        => TryAnnulus(frame, width, height, px, py, radius, out var bg, out var sigma)
+            && LooksLikeStar(frame, px, py, bg, sigma);
 
-        for (var dy = -radius; dy <= radius; dy++)
-        {
-            for (var dx = -radius; dx <= radius; dx++)
-            {
-                if (dx * dx + dy * dy <= innerR2)
-                {
-                    var val = (double)frame[cy + dy, cx + dx] - bg;
-                    if (val > 0)
-                    {
-                        sumFlux += val;
-                        sumFluxX += val * dx;
-                        sumFluxY += val * dy;
-                        if (val > peakVal)
-                        {
-                            peakVal = val;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (sumFlux <= 0 || peakVal <= 0)
+    /// <summary>
+    /// The shape test behind <see cref="IsStar"/>, for a peak at (<paramref name="px"/>, <paramref name="py"/>) over a background
+    /// of mean <paramref name="bg"/> and noise <paramref name="sigma"/>: the 3x3 mean stands <see cref="StarSigmas"/> over the
+    /// noise of such a mean (a noise maximum does not), at least <see cref="MinLitNeighbours"/> of the eight neighbours are lit
+    /// and they carry <see cref="MinNeighbourShare"/> of the peak's excess (a hot pixel and a two-pixel blob do not). Needs the
+    /// peak's 3x3 inside the frame.
+    /// </summary>
+    internal static bool LooksLikeStar(float[,] frame, int px, int py, double bg, double sigma)
+    {
+        var peak = frame[py, px] - bg;
+        if (peak <= 0)
         {
             return false;
         }
 
-        centroidX = cx + sumFluxX / sumFlux;
-        centroidY = cy + sumFluxY / sumFlux;
-        totalFlux = sumFlux;
-        snr = bgSigma > 0 ? peakVal / bgSigma : peakVal;
+        var noise = Math.Max(sigma, NoiseFloorShare * peak);
+        var lit = 0;
+        var neighbours = 0.0;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dy == 0)
+                {
+                    continue;
+                }
+                var excess = frame[py + dy, px + dx] - bg;
+                neighbours += excess;
+                if (excess > LitNeighbourSigmas * noise)
+                {
+                    lit++;
+                }
+            }
+        }
 
-        return true;
+        var meanOfNine = (peak + neighbours) / 9;
+        return meanOfNine * 3 >= StarSigmas * noise
+            && lit >= MinLitNeighbours
+            && neighbours >= MinNeighbourShare * peak;
+    }
+
+    /// <summary>
+    /// The scan's cheap first look at a local maximum: its 3x3 mean must stand <see cref="PrefilterSigmas"/> over the noise of
+    /// such a mean, the level and noise read off a ring of 40 pixels five pixels out. It decides nothing about a star (the ring
+    /// is no clean annulus, and a star's own wings can reach it); it spares the aperture work on the maxima of noise.
+    /// </summary>
+    private static bool PassesPrefilter(float[,] frame, int x, int y)
+    {
+        const int r = PrefilterRingHalf;
+        const int ringCount = 2 * (2 * r + 1) + 2 * (2 * r - 1);
+
+        var nine = 0.0;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                nine += frame[y + dy, x + dx];
+            }
+        }
+
+        var sum = 0.0;
+        var sumSq = 0.0;
+        for (var d = -r; d <= r; d++)
+        {
+            double top = frame[y - r, x + d], bottom = frame[y + r, x + d];
+            sum += top + bottom;
+            sumSq += top * top + bottom * bottom;
+        }
+        for (var d = -r + 1; d <= r - 1; d++)
+        {
+            double left = frame[y + d, x - r], right = frame[y + d, x + r];
+            sum += left + right;
+            sumSq += left * left + right * right;
+        }
+
+        var mean = sum / ringCount;
+        var peak = frame[y, x] - mean;
+        if (peak <= 0)
+        {
+            return false;
+        }
+
+        var noise = Math.Max(Math.Sqrt(Math.Max(0, sumSq / ringCount - mean * mean)), NoiseFloorShare * peak);
+        return (nine / 9 - mean) * 3 >= PrefilterSigmas * noise;
     }
 
     /// <summary>
