@@ -79,7 +79,14 @@ public class GuideDarkLibraryTests(ITestOutputHelper output) : IDisposable
         // A 1.5 s frame: scaled between the two masters' implied pedestal and dark current.
         var light = Flat(160, 120, Pedestal + 150f);
         light[30, 40] = 60000f;
-        light[80, 120] += 3000f;
+        // A star with a stellar profile (FWHM 3 px) rather than one lit pixel: the readout refuses a lone spike as a hot pixel (#2050).
+        for (var dy = -6; dy <= 6; dy++)
+        {
+            for (var dx = -6; dx <= 6; dx++)
+            {
+                light[80 + dy, 120 + dx] += 3000f * MathF.Exp(-(dx * dx + dy * dy) / (2 * 1.274f * 1.274f));
+            }
+        }
         var corrected = correction.Correct(Light(light), TimeSpan.FromSeconds(1.5));
 
         var data = corrected.GetChannel(0).Data;

@@ -224,6 +224,11 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     private double _secondaryAxisRate;
     private ITimer? _axisTimer;
 
+    // When a motion timer last moved the mount (its clock's timestamp): a tick moves it by the time since, never by one
+    // fixed period, so a tick that found the lock held or that ran late loses no motion (#2000, #2001).
+    private long _axisTick;
+    private long _slewTick;
+
     public bool CanMoveAxis(TelescopeAxis axis) => axis is TelescopeAxis.Primary or TelescopeAxis.Seconary;
 
     public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => CanMoveAxis(axis) ? [new AxisRate(0, DEFAULT_SLEW_RATE)] : [];
@@ -265,18 +270,21 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         else if (Volatile.Read(ref _axisTimer) is null)
         {
             var period = TimeSpan.FromMilliseconds(100);
+            Volatile.Write(ref _axisTick, TimeProvider.GetTimestamp());
             Interlocked.Exchange(ref _axisTimer, TimeProvider.CreateTimer(AxisTimerCallback, null, period, period))?.Dispose();
         }
     }
 
     private void AxisTimerCallback(object? state)
     {
-        // Try-acquire, as the slew timer does: skip a tick while the lock is held.
+        // Try-acquire, as the slew timer does: skip a tick while the lock is held. The next tick moves the mount by the time
+        // since the last that did, so a skipped one costs no motion.
         if (!_sem.Wait(0)) return;
         try
         {
-            _ra = ConditionRA(_ra + _primaryAxisRate * 0.1 * DEG2HOURS);
-            _dec = Math.Clamp(_dec + _secondaryAxisRate * 0.1, -90.0, 90.0);
+            var seconds = ElapsedSince(ref _axisTick);
+            _ra = ConditionRA(_ra + _primaryAxisRate * seconds * DEG2HOURS);
+            _dec = Math.Clamp(_dec + _secondaryAxisRate * seconds, -90.0, 90.0);
         }
         finally
         {
@@ -638,8 +646,18 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
         // Start slew timer (outside lock)
         var period = TimeSpan.FromMilliseconds(100);
+        Volatile.Write(ref _slewTick, TimeProvider.GetTimestamp());
         var slewTimer = TimeProvider.CreateTimer(SlewTimerCallback, null, period, period);
         Interlocked.Exchange(ref _slewTimer, slewTimer)?.Dispose();
+    }
+
+    /// <summary>Seconds on the driver's clock since <paramref name="tick"/>, which is set to now; never negative.</summary>
+    private double ElapsedSince(ref long tick)
+    {
+        var now = TimeProvider.GetTimestamp();
+        var seconds = Math.Max(0, TimeProvider.GetElapsedTime(Volatile.Read(ref tick), now).TotalSeconds);
+        Volatile.Write(ref tick, now);
+        return seconds;
     }
 
     private void SlewTimerCallback(object? state)
@@ -650,7 +668,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         if (!_sem.Wait(0)) return;
         try
         {
-            var slewRateDegreesPerTick = DEFAULT_SLEW_RATE * 0.1; // 100ms ticks
+            // The slew covers the time since the last tick that moved it: a 100 ms timer on a loaded machine skips ticks (lock
+            // held) and runs late, and counting ticks made a 50 degree slew of 33 s take over a minute on a CI runner (#2000).
+            var slewRateDegreesPerTick = DEFAULT_SLEW_RATE * ElapsedSince(ref _slewTick);
             var slewRateHoursPerTick = slewRateDegreesPerTick * DEG2HOURS;
 
             var raDiff = _targetRa - _ra;

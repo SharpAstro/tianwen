@@ -37,7 +37,7 @@ public class GuideDarkLibraryNodeTests(ITestOutputHelper outputHelper)
 
     private static readonly LiveViewRequestDto Loop = new LiveViewRequestDto { CameraRole = LiveViewCamera.Guider, ExposureMs = 10, Binning = 4 };
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     private static Task<DarkLibraryStateDto> UntilEndedAsync(TianWenNodeClient client, CancellationToken ct) =>
         UntilAsync<DarkLibraryStateDto>("the guide camera's darks to end", async token =>

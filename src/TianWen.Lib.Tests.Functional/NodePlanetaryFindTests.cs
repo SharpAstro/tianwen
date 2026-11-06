@@ -39,7 +39,7 @@ public class NodePlanetaryFindTests(ITestOutputHelper outputHelper)
         hub.TryGetConnectedDriver<IMountDriver>(Mount.DeviceUri, out var mount).ShouldBeTrue();
         await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(10.0, 19.5, ct);
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
         await using var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
 
         (await client.FindPlanetGoAsync(new PlanetaryFindGoRequestDto { SyncOnly = true }, ct)).StatusCode.ShouldBe(404, "no capture, no find");

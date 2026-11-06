@@ -92,6 +92,12 @@ public interface IGuider : IDeviceDriver
     GuiderCalibrationSummary? LastCalibration => null;
 
     /// <summary>
+    /// Why the last calibration attempt failed, in a short plain form (the cause, the star it started on); null before a
+    /// failure, after a success, and for a guider that does not say. A client appends it to the error it reports (#2050).
+    /// </summary>
+    string? LastCalibrationFailure => null;
+
+    /// <summary>
     /// Dither guiding with the given dither amount and settling parameters. Call <see cref="GetSettleProgressAsync(CancellationToken)"/> or <see cref="IsSettlingAsync(CancellationToken)"/>
     /// periodically to see when settling is complete.
     /// </summary>

@@ -95,12 +95,15 @@ public static class DeviceDiscoveryExtensions
         /// key that <see cref="ReconcileUri"/> never matches (#1744). Only when the stored device was not discovered, and
         /// exactly ONE discovered device of its model is in no other slot (<paramref name="taken"/>, which the one taken joins):
         /// none or several is left as stored, never guessed. The user's keys (backlash, filter names, site) are kept, as
-        /// <see cref="MergeDiscoveredIntoStored"/> keeps them. Two identical units on swapped sockets are #783's case.
+        /// <see cref="MergeDiscoveredIntoStored"/> keeps them. Two identical units on swapped sockets are #783's case, unless
+        /// their adapters report serial numbers: a stored <c>device</c> port key then finds the discovered device of the
+        /// SAME MODEL on that cable, however many of its model are about. A device with no model key (its id names the
+        /// hardware) and a different model on the cable are never followed.
         /// </summary>
         public Uri FollowMovedPort(Uri storedUri, ISet<string> taken)
         {
             var deviceType = DeviceTypeHelper.TryParseDeviceType(storedUri.Scheme);
-            if (deviceType is DeviceType.Unknown || storedUri.ModelKey is not { } model)
+            if (deviceType is DeviceType.Unknown)
             {
                 return storedUri;
             }
@@ -109,6 +112,34 @@ public static class DeviceDiscoveryExtensions
             if (discovered.Exists(c => DeviceBase.SameDevice(c.DeviceUri, storedUri)))
             {
                 return storedUri;
+            }
+
+            // A device whose id names the hardware itself (a UUID, a serial) has no model key: it is the device its id says,
+            // and the exact match above is the only way to find it. Whatever else sits on its cable now is another unit.
+            if (storedUri.ModelKey is not { } model)
+            {
+                return storedUri;
+            }
+
+            // The same CABLE first (#1090): an adapter that reports a USB serial number names itself in any socket, so the
+            // discovered device of this MODEL on the port with the stored port key is this one, however many of its model
+            // are about. The model is still required (#2040 step 3 widens it, with a notification): a different model on
+            // the cable means the cable moved to another device, which is a new device, not this slot's. Only a `device`
+            // key: a `socket` or `name` key is the very thing a move changes.
+            if (storedUri.QueryValue(DeviceQueryKey.PortIdentity) is "device"
+                && storedUri.QueryValue(DeviceQueryKey.PortKey) is { Length: > 0 } portKey)
+            {
+                var sameCable = discovered
+                    .Where(c => string.Equals(c.DeviceUri.Host, storedUri.Host, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(c.DeviceUri.QueryValue(DeviceQueryKey.PortKey), portKey, StringComparison.OrdinalIgnoreCase)
+                        && c.DeviceUri.ModelKey is { } m && DeviceUriExtensions.DeviceKeyComparer.Equals(m, model)
+                        && !taken.Contains(c.DeviceUri.DeviceKey))
+                    .ToList();
+                if (sameCable is [var cable])
+                {
+                    taken.Add(cable.DeviceUri.DeviceKey);
+                    return MergeDiscoveredIntoStored(storedUri, cable.DeviceUri, identityFromDiscovered: true);
+                }
             }
 
             var candidates = discovered
