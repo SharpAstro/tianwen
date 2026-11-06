@@ -357,6 +357,40 @@ So for every port-keyed family in the table above, "survives a re-plug" becomes 
 CDC-ACM), and stays no on a CH340, a Prolific or a plain port. **No migration** (the owner, 2026-11-05: profiles start fresh):
 a profile saved with a port id on such a cable finds the device once by the model rule and is then saved with the cable id.
 
+**A USB serial names its bridge chip, and where that chip sits decides what it names.** Serial.Lib reads the serial off the
+Windows instance path (`USB\VID_067B&PID_23D3\DRDEN10CD20`: no `&` in the last segment means the device reported a unique id,
+`CM_DEVCAP_UNIQUEID`), and nothing tells a chip inside the device from one in a cable:
+
+| Where the bridge is | What its serial names | Seen |
+|---|---|---|
+| inside the device | the device itself: stable across sockets, ports and cables, until its board is replaced | EQ6-R Pro's own USB socket, a PL2303GL, `usb:067b:23d3:DRDEN10CD20` (the owner's laptop, 2026-11-06) |
+| in an adapter cable | the cable: right only while that cable stays on that device | the FTDI HBX cable on the SGP; an AZ-GTi's USB cable, which carries its controller |
+
+So a cable moved from one mount to another carries its key with it, and the same mount reached by two paths (an EQ6-R's own
+socket, and EQDIR or the hand controller) is two keys. A serial number is also only as unique as the vendor made it: a clone
+adapter that ships one serial on every unit gives two of them one key, and they stay unresolved (several candidates).
+
+#### Step 3 (planned): match on the evidence, and say what was followed
+
+Tracked by #2040. The firmware a handshake reports is not identity (an update changes it) but it is evidence, useful exactly
+where a device has no serial of its own (the SGP), so it leaves the id for the query (`SkyGuider-Pro_170518_COM14` becomes
+`SkyGuider-Pro_COM14?firmware=170518`), and a serial-less port's socket key (`socket:<location path>`) takes the place of its
+COM name. A stored device is then matched against what discovery found on all of it, strongest first:
+
+| What matches | Most likely | What happens |
+|---|---|---|
+| id (serial, written UUID, bridge serial or socket), model and firmware | the same device | follow |
+| id and model, firmware changed, the one candidate | the firmware was updated | follow, the profile takes the new firmware |
+| bridge serial, a DIFFERENT model | the cable moved to another device | do not follow: a new device |
+| model only (and firmware, where known), the one unclaimed candidate | probably the same unit, re-plugged | follow |
+| several candidates at any rung | cannot tell | do not guess: the slot stays unresolved |
+
+**No dialogue: a follow connects, and says so** (the owner, 2026-11-06). Every follow other than an exact match adds a
+notification to the node's feed (`HostedSession.AddNotification`, raised from `NodeProfiles.ReconcileAllAsync`, where the
+follow happens), naming the device and what changed ("AZ-GTi: firmware 3.39 to 3.40", "Gemini focuser now on COM4"), so a
+wrong follow is visible in the Notifications tab instead of silent. What stays undetectable: two same-model units with the same
+firmware and their cables swapped, which nothing in the hardware tells apart.
+
 Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep, Gemini and QHY serial rows have no such option, and rely on the model match above.
 
 ### Known limitations of device keys
