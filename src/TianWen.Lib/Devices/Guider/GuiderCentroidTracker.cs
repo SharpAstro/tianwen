@@ -28,7 +28,7 @@ internal sealed class GuiderCentroidTracker
     /// <summary>The prefilter's bar for the 3x3 mean over the noise of such a mean (a third of a pixel's). Loose: it only spares the scan the aperture work on noise.</summary>
     private const double PrefilterSigmas = 4.0;
 
-    /// <summary>The bar for the 3x3 mean over the annulus's noise, in the noise of such a mean: out of reach of a noise maximum, within reach of a faint star.</summary>
+    /// <summary>The bar for the 3x3 mean over the annulus's noise, in the noise of such a mean: out of reach of a noise maximum, within reach of a faint star. Both halves are measured on synthetic and fake-camera fields only (GuideStarAcceptanceTests, the fake guide camera); how a real faint guide star on a real sensor (read noise, hot pixels, seeing) sits against it is NOT yet looked at, and a missed faint star would show as "no star" at a chosen position. Open until a real faint guide field is run through it (a bench check, #2050).</summary>
     private const double StarSigmas = 6.0;
 
     /// <summary>A neighbour of the peak counts as lit when it is this many noise sigmas over the background.</summary>
