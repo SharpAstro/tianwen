@@ -149,6 +149,12 @@ public interface IExternal
     string? ReasonNotToProbeSerialPort(string port) => null;
 
     /// <summary>
+    /// <paramref name="port"/>'s own identity (one <see cref="EnumerateAvailableSerialPorts"/> listed) as that enumeration
+    /// found it, or null where the host has no serial ports or the port was not listed (#1090).
+    /// </summary>
+    Discovery.SerialPortIdentity? SerialPortIdentityOf(string port) => null;
+
+    /// <summary>
     /// Whether a connection this process opened holds <paramref name="port"/>: a connected driver's port, which
     /// <see cref="EnumerateAvailableSerialPorts"/> leaves out so no discovery disturbs it. Unlike a port that is gone.
     /// </summary>
