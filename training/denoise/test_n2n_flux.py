@@ -72,6 +72,19 @@ class FluxTermTests(unittest.TestCase):
         self.assertGreater(float(pred.grad.abs().sum()), 0.0, "the term trains the output")
         self.assertEqual(float(pred.grad[1].abs().sum()), 0.0, "an exactly removed star asks for nothing")
 
+    def test_a_star_cut_by_the_crop_is_no_footprint(self):
+        cut = torch.from_numpy(np.stack([star(B - 2, B + 16, 1.0)] * 3)).float()
+        x = self.truth[:1] + cut
+        labels, count = S.flux_footprints(x, self.truth[:1], self.plane[:1], 5.0, 2, B)
+        self.assertEqual(count, 0, "a star centred in the border reaches the crop's edge: its wing alone is inside")
+
+    def test_one_wild_footprint_is_bounded_linearly(self):
+        labels, count = S.flux_footprints(self.x[1:], self.truth[1:], self.plane[1:], 5.0, 2, B)
+        pred = (self.truth[1:] + 10.0 * self.layers[1]).requires_grad_(True)   # r = 10
+        term, kept = S.flux_term(pred, self.x[1:], self.truth[1:], labels, count, B)
+        self.assertEqual(kept, 1)
+        self.assertAlmostEqual(float(term.detach()), 2 * 0.5 * (10.0 - 0.25), places=4)
+
     def test_a_tile_with_no_star_gives_no_footprint(self):
         labels, count = S.flux_footprints(self.truth, self.truth, self.plane, 5.0, 2, B)
         self.assertEqual(count, 0)
@@ -87,9 +100,9 @@ class FluxFingerprintTests(unittest.TestCase):
                     loss_mask=False, star_loss=None, half_pairs=False, pair_time="any", snapshot_at=0, steps=1000)
         meta = {"cells": 10, "train_cells": 8}
         off = S.resume_fingerprint(argparse.Namespace(**base), meta)
-        on = S.resume_fingerprint(argparse.Namespace(**base, flux_loss="auto", flux_sigma=5.0, flux_grow=2), meta)
+        on = S.resume_fingerprint(argparse.Namespace(**base, flux_loss="auto", flux_sigma=5.0, flux_grow=2, flux_from=2000), meta)
         self.assertNotIn("flux_loss", off)
-        self.assertEqual((on["flux_loss"], on["flux_sigma"], on["flux_grow"]), ("auto", 5.0, 2))
+        self.assertEqual((on["flux_loss"], on["flux_sigma"], on["flux_grow"], on["flux_from"]), ("auto", 5.0, 2, 2000))
 
 
 if __name__ == "__main__":
