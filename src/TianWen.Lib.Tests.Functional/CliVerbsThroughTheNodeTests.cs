@@ -378,6 +378,45 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task ACtrlCWhileTheFlatRunIsStartingStillStopsItOnTheNode()
+    {
+        // The window the test above hit by chance once a run in a few dozen (#2000): the node has begun the run, and the
+        // Ctrl+C lands before its answer to the start reaches the command. The node's own creation of the run presses it here,
+        // so the cancel is in flight with the start every time; the run must still be stopped on the node.
+        var ct = TestContext.Current.CancellationToken;
+        await using var cli = await Cli.StartAsync(output, ct);
+        (await cli.Host.SaveProfileAsync(new Profile(Guid.NewGuid(), "Flat rig",
+            EquipmentActions.SetSite(ProfileData.Empty, 48.2, 16.3, null)), ct)).ShouldNotBeNull();
+        using var ctrlC = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var observe = cli.Node.Factory.OnCreated;
+        cli.Node.Factory.OnCreated = controlled =>
+        {
+            observe?.Invoke(controlled);
+            ctrlC.Cancel();
+        };
+
+        var verb = cli.RunAsync(ctrlC.Token, "flats", "--active", "Flat rig");
+        while (cli.Node.Factory.Created.IsEmpty && !verb.IsCompleted)
+        {
+            await Task.Delay(20, ct);
+        }
+        cli.Node.Factory.Created.IsEmpty.ShouldBeFalse($"the flat run never reached the node: {cli.Errors}");
+        var run = cli.Node.Factory.Created.Last();
+
+        await run.Cancelled.Task.WaitAsync(ct);
+        run.Finalise.TrySetResult();
+        try
+        {
+            await verb;
+        }
+        catch (OperationCanceledException)
+        {
+            // As above: how a cancelled command ends is the command line's business.
+        }
+        cli.Written.ToString().ShouldContain("stopping the flat run on the node");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task ALaptopsRequestForControlIsAnsweredAndRevokedFromATerminal()
     {
         // A headless rig's owner, over SSH: the request a laptop made (P6b, #1021), answered by the node verbs.
