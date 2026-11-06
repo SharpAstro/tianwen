@@ -84,7 +84,7 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
         var before = await ViewAsync(page);
         await canvas.PressAsync(key);
         await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
-        await Task.Delay(150);
+        await Task.Delay(150, TestContext.Current.CancellationToken);
         var after = await ViewAsync(page);
         Assert.Equal(before.TimeOffsetMin + stepMin, after.TimeOffsetMin, 6);
         Assert.Equal(before.Fov, after.Fov, 6);
