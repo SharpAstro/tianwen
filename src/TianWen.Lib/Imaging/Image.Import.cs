@@ -25,7 +25,7 @@ public partial class Image
     /// <item><b>Canon CR2</b> (.cr2) and <b>Canon CR3</b> (.cr3) via FC.SDK.Raw's
     /// pure-managed decoder. Populates <see cref="ImageMeta.CameraToSrgbMatrix"/> via
     /// the spectral (SASP) or dcraw factory lookup; null when neither matches.</item>
-    /// <item><b>FITS</b> (.fits / .fit / .fts, and .fz for fpack tile compression) via
+    /// <item><b>FITS</b> (.fits / .fit / .fts, .fz for fpack tile compression, and a name ending .gz) via
     /// <see cref="TryReadFitsFile(string, out Image?)"/>.</item>
     /// <item><b>PNG / JPEG / JPEG XR / OpenEXR / JPEG XL</b> via the <c>SharpAstro.Codecs</c>
     /// facade (<see cref="TryReadViaCodecs"/>): the raster formats tianwen writes (PNG previews,
@@ -39,6 +39,18 @@ public partial class Image
         => TryReadImageFile(fileName, out image, out _);
 
     /// <summary>
+    /// Whether <see cref="TryReadImageFile(string, out Image?, out WCS?)"/> reads <paramref name="fileName"/> as FITS, by
+    /// its name. <c>.fz</c> is fpack tile compression, which FITS.Lib decodes as an ordinary image, and
+    /// <c>Path.GetExtension("x.fit.fz")</c> is <c>.fz</c>, so matching that alone covers <c>.fit.fz</c> and <c>.fits.fz</c>.
+    /// A name ending <c>.gz</c> is a gzipped FITS file here, as it is to <see cref="IsGzipped"/> and the reader
+    /// <see cref="OpenFits(string)"/>, so <c>x.fits.gz</c> is FITS too (it was, to <c>TryReadFitsFile</c>, before this
+    /// dispatch existed, and <c>tianwen solve</c> still reads one).
+    /// </summary>
+    public static bool IsFitsPath(string fileName)
+        => IsGzipped(fileName)
+        || Path.GetExtension(fileName).ToLowerInvariant() is ".fits" or ".fit" or ".fts" or ".fz";
+
+    /// <summary>
     /// As <see cref="TryReadImageFile(string, out Image?)"/>, additionally yielding the file's own WCS when it
     /// carries one. Only the FITS branch can: every other format here has nowhere to put one, so
     /// <paramref name="wcs"/> is null for them rather than absent.
@@ -48,14 +60,6 @@ public partial class Image
     /// the search -- and the previous shape pushed it to call TryReadFitsFile directly, which THROWS
     /// on a non-FITS file instead of returning false.
     /// </summary>
-    /// <summary>
-    /// Whether <see cref="TryReadImageFile(string, out Image?, out WCS?)"/> reads <paramref name="fileName"/> as FITS, by
-    /// its extension. <c>.fz</c> is fpack tile compression, which FITS.Lib decodes as an ordinary image, and
-    /// <c>Path.GetExtension("x.fit.fz")</c> is <c>.fz</c>, so matching that alone covers <c>.fit.fz</c> and <c>.fits.fz</c>.
-    /// </summary>
-    public static bool IsFitsPath(string fileName)
-        => Path.GetExtension(fileName).ToLowerInvariant() is ".fits" or ".fit" or ".fts" or ".fz";
-
     public static bool TryReadImageFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs)
     {
         wcs = null;
