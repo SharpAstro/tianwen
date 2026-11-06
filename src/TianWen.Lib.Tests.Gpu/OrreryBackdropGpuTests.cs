@@ -94,8 +94,7 @@ public sealed class OrreryBackdropGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHe
         lit.ShouldBeGreaterThan(50, "the Night frame drew no stars");
         blue.ShouldBe(0);
 
-        var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryBackdropGpuTests));
-        Directory.CreateDirectory(folder);
+        var folder = SharedTestData.CreateTempTestOutputDir(nameof(OrreryBackdropGpuTests));
         await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-backdrop-gpu.png"), PngWriter.Encode(plain, Width, Height), ct);
         await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-backdrop-gpu-night.png"), PngWriter.Encode(night, Width, Height), ct);
         output.WriteLine(folder);

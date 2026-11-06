@@ -439,8 +439,7 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
 
     private async Task WriteAsync(string name, byte[] gpuFrame, byte[] cpuFrame, System.Threading.CancellationToken ct)
     {
-        var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(PlanetBodyGpuTests));
-        Directory.CreateDirectory(folder);
+        var folder = SharedTestData.CreateTempTestOutputDir(nameof(PlanetBodyGpuTests));
         await File.WriteAllBytesAsync(Path.Combine(folder, $"{name}-gpu.png"), PngWriter.Encode(gpuFrame, Width, Height), ct);
         await File.WriteAllBytesAsync(Path.Combine(folder, $"{name}-cpu.png"), PngWriter.Encode(cpuFrame, Width, Height), ct);
         output.WriteLine(folder);

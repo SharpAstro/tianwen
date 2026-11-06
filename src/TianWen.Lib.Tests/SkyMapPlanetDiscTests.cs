@@ -448,8 +448,7 @@ public sealed class SkyMapPlanetDiscTests
         {
             Array.Copy(renderer.Surface.Pixels, (((y0 + y) * W) + x0) * 4, crop, y * cw * 4, cw * 4);
         }
-        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(ThePanelWithItsDiscIsWrittenAsAPicture));
-        Directory.CreateDirectory(dir);
+        var dir = SharedTestData.CreateTempTestOutputDir(nameof(ThePanelWithItsDiscIsWrittenAsAPicture));
         await File.WriteAllBytesAsync(Path.Combine(dir, $"panel-{body}.png".ToLowerInvariant()), PngWriter.Encode(crop, cw, ch), ct);
         tab.PanelSprites.Builds.ShouldBeGreaterThan(0);
     }
@@ -606,8 +605,7 @@ public sealed class SkyMapPlanetDiscTests
         }
         rig.Tab.PlanetSpritesDrawn.ShouldBeGreaterThanOrEqualTo(bodies.Length);
 
-        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(TheCpuSurfaceShowsTheSpritesPixels));
-        Directory.CreateDirectory(dir);
+        var dir = SharedTestData.CreateTempTestOutputDir(nameof(TheCpuSurfaceShowsTheSpritesPixels));
         await File.WriteAllBytesAsync(Path.Combine(dir, "planet-discs.png"), PngWriter.Encode(sheet, Size * 2, Size * 2), TestContext.Current.CancellationToken);
         foreach (var (body, inside, textured, count) in results)
         {
@@ -644,8 +642,7 @@ public sealed class SkyMapPlanetDiscTests
 
         rig.Tab.State.PlanetDiscsDrawn.ShouldContain(CatalogIndex.Sol);
         var image = rig.Renderer.Surface;
-        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(TheSunsDiscIsItsTexturedPhotosphere));
-        Directory.CreateDirectory(dir);
+        var dir = SharedTestData.CreateTempTestOutputDir(nameof(TheSunsDiscIsItsTexturedPhotosphere));
         await File.WriteAllBytesAsync(Path.Combine(dir, "sun-disc.png"), PngWriter.Encode(image.Pixels, Size, Size), TestContext.Current.CancellationToken);
 
         (int R, int G, int B) At(int x, int y)

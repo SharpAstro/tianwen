@@ -215,7 +215,7 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   a delete missed is swept after a day. A node harness owns its own (`NodeHarness.StartAsync(onItsSocket: true)`,
   `KeptNode`). A helper that names a folder after its test takes the test's `TempFolders` (`FitsFixture.CreateTempDir`,
   `TempStackingWorkspace`): a fixed parent of its own under `%TEMP%` is a folder nothing sweeps (#1323: about
-  9,000 folders and 1.1 GB in a week). `TestTempFoldersTests` fails on a bare `CreateTempSubdirectory` in any test project.
+  9,000 folders and 1.1 GB in a week). `TestTempFoldersTests` fails on a bare `CreateTempSubdirectory` in any test project. A dated output folder (`SharedTestData.CreateTempTestOutputDir`) lives as long as its test (`TestOutput`), and `TIANWEN_KEEP_TEST_OUTPUT=1` keeps it.
 - **A test that drives a real GPU goes in `TianWen.Lib.Tests.Gpu`, never the unit suite** (#1634): a fault inside a GPU
   driver cannot be caught in .NET and ends its whole process, and the unit host died twice on one in NVIDIA's Vulkan driver.
   The run shares ONE instance and device (`SharedGpuStack`); a fixture derives from `OffscreenGpuFixtureBase`, which resizes
