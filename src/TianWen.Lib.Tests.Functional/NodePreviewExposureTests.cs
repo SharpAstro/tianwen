@@ -28,7 +28,7 @@ public class NodePreviewExposureTests(ITestOutputHelper outputHelper)
 {
     private static readonly FakeDevice Camera = new FakeDevice(DeviceType.Camera, 1);
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     /// <summary>An active profile whose one OTA has the fake camera, connected.</summary>
     private static Task ActiveRigAsync(NodeHarness node, CancellationToken ct) => node.ActivateRigAsync(Camera, mount: null, ct);

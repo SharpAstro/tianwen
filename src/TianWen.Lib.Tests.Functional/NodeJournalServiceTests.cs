@@ -101,7 +101,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(dead, NodeJournalJsonContext.Default.NodeJournal), ct);
 
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: written.AddDays(1), ct);
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
 
         var report = (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldNotBeNull();
         report.AfterCrash.ShouldBeTrue("its keeper saw that very node crash");
@@ -164,7 +164,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
         var hub = node.App.Services.GetRequiredService<IDeviceHub>();
 
-        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         hub.TryGetPreCoolReading(new Uri(Camera), out var reading).ShouldBeTrue();
         reading.ShouldBe(new SensorAmbientReading(12.1, true, at));
@@ -183,7 +183,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
         var hub = node.App.Services.GetRequiredService<IDeviceHub>();
 
-        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
         await UntilAsync("the recovered warm-up to end with the cooler off", token =>
         {
             var off = hub.TryGetCoolerIntent(new Uri(Camera), out var intent) && intent == CoolerIntent.Off;
@@ -203,7 +203,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
         var hub = node.App.Services.GetRequiredService<IDeviceHub>();
 
-        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        var report = await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         report.CrashLoop.ShouldBeFalse();
         report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
@@ -250,7 +250,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
             services.AddSingleton(sp => new NodeSettingsStore(external, new NodeSettings(false, profile.ProfileId)));
         });
 
-        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        var report = await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
         node.App.Services.GetRequiredService<IDeviceHub>().TryGetConnectedDriver<IMountDriver>(new Uri(SouthernMount), out var mount).ShouldBeTrue();
@@ -267,7 +267,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
 
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
 
-        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        var report = await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
         node.App.Services.GetRequiredService<IDeviceHub>().IsConnected(new Uri(SouthernMount)).ShouldBeTrue("with no site to give it, and none guessed");
@@ -281,7 +281,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         var (path, _) = await BelievedJournalAsync(ct);
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
         var journal = node.App.Services.GetRequiredService<NodeJournalService>();
-        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
         journal.RampsRunning.ShouldBe(1, "a -10 C cool-down from ambient takes minutes");
 
         node.Factory.Initialised.SetResult();
@@ -439,7 +439,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         });
         var hub = node.App.Services.GetRequiredService<IDeviceHub>();
 
-        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        var report = await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         report.Devices.ShouldAllBe(static d => d.Reconnected == true && d.ReconnectError == null);
         hub.IsConnected(new Uri(Mount)).ShouldBeTrue("the mount, which restores mount-limit enforcement, whatever the journal");
@@ -519,14 +519,14 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
         var hub = node.App.Services.GetRequiredService<IDeviceHub>();
 
-        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        var report = await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         report.Devices.Single(static d => d.DeviceUri == "not a device uri").Reconnected.ShouldBe(false);
         report.Devices.Single(static d => d.DeviceUri == Camera).Reconnected.ShouldBe(true);
         await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Devices.Length == 1 && j.Touching is null, ct);
 
         // And it goes on journaling: the camera going is written, and holding nothing more, the file goes.
-        (await new TianWenNodeClient(node.Client).DismissRecoveryAsync(ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).DismissRecoveryAsync(ct)).IsSuccess.ShouldBeTrue();
         await hub.DisconnectAsync(new Uri(Camera), cancellationToken: ct);
         await UntilTheJournalIsGoneAsync(path, ct);
     }
@@ -539,7 +539,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
         var hub = node.App.Services.GetRequiredService<IDeviceHub>();
 
-        await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         hub.TryGetCoolerIntent(new Uri(Camera), out var intent).ShouldBeFalse($"never recorded as off, which it was not asked to be: {intent}");
         node.App.Services.GetRequiredService<NodeJournalService>().RampsRunning.ShouldBe(0);
@@ -552,7 +552,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         var (path, _) = await BelievedJournalAsync(ct, new NodeJournalDevice("Camera://NoSuchDevice/cam#Gone", "Gone", CoolerIntentKind.Cool, -10));
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: null, ct);
 
-        var report = await UntilRecoveredAsync(new TianWenNodeClient(node.Client), ct);
+        var report = await UntilRecoveredAsync(NodeTestClients.ClientOf(node.Client), ct);
 
         var device = report.Devices.ShouldHaveSingleItem();
         device.Reconnected.ShouldBe(false);
@@ -576,7 +576,7 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         // Started by a client, not by a keeper that saw a crash: a power cut came after the journal.
         await using var node = await StartAsync(path, afterCrashOf: null, lastBoot: written.AddHours(1), ct);
 
-        var report = (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldNotBeNull();
+        var report = (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldNotBeNull();
         report.Stale.ShouldBeTrue();
         report.AfterCrash.ShouldBeFalse();
         report.InterruptedRun.ShouldBeNull();
@@ -588,6 +588,6 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         var ct = TestContext.Current.CancellationToken;
         await using var node = await StartAsync(NewJournalPath(), afterCrashOf: null, lastBoot: null, ct);
 
-        (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldBeNull();
+        (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldBeNull();
     }
 }
