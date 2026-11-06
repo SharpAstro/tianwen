@@ -82,7 +82,7 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
     }
 
     /// <summary>The pick the Guider tab's click and the node's tests make, as a list: every candidate the frame offers, in its own ranking.</summary>
-    private async Task<(double X, double Y)[]> CandidatesAsync(CancellationToken ct)
+    private async Task<((double X, double Y)[] Stars, int Width, int Height)> CandidatesAsync(CancellationToken ct)
     {
         var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
         await using var pumped = new Pump(clock);
@@ -91,10 +91,10 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         try
         {
             var plane = frame.GetChannel(0).Data;
-            return [.. new GuiderCentroidTracker(maxStars: 8).FindStars(plane)
+            return ([.. new GuiderCentroidTracker(maxStars: 8).FindStars(plane)
                 .Select(c => GuideStarReadout.Measure(plane, 1f, (c.X, c.Y)))
                 .OfType<GuideStarMeasurement>()
-                .Select(m => (m.X, m.Y))];
+                .Select(m => (m.X, m.Y))], plane.GetLength(1), plane.GetLength(0));
         }
         finally
         {
@@ -131,37 +131,26 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The cause of the node tests' one failure in about 80 (#2050): the middle candidate is sometimes a star about 31 px
+    /// from the top edge, and the 12 pulse Dec sweep (plus the backlash clearing before it) walked it where its aperture no
+    /// longer fits the frame, so the tracker lost it ("the star was lost during the Dec (North) measurement sweep after 8 of
+    /// 12 pulses"), and the retry then looked for it at the place it was last seen. The sweep now stops while the star can
+    /// still be measured, and the rate is the displacement over the pulses it sent.
+    /// </summary>
     [Fact(Timeout = 120_000)]
-    public async Task ProbeTheStarNearTheTopEdge()
+    public async Task ACalibrationOnTheStarNearestAnEdgeStopsItsSweepBeforeTheStarLeavesTheFrame()
     {
         var ct = TestContext.Current.CancellationToken;
+        var (candidates, width, height) = await CandidatesAsync(ct);
+        candidates.ShouldNotBeEmpty();
+        var (x, y) = candidates.OrderBy(c => Math.Min(Math.Min(c.X, c.Y), Math.Min(width - c.X, height - c.Y))).First();
+        output.WriteLine($"calibrating on the candidate nearest an edge: ({x:F1}, {y:F1}) in a {width} x {height} frame");
+
         var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
         await using var pumped = new Pump(clock);
         var (guider, _, _) = await RigAsync(clock, ct);
-        var summary = await guider.CalibrateAsync(new GuideStartOptions((233.0, 31.2), Exposure), ct);
-        output.WriteLine(summary is null ? $"FAILED {guider.LastCalibrationFailure}" : "ok");
-    }
-
-    [Fact(Timeout = 600_000)]
-    public async Task CalibratingOnEveryCandidateOfTheFakeGuideCameraFrameSucceeds()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var candidates = await CandidatesAsync(ct);
-        candidates.ShouldNotBeEmpty();
-        var failures = new System.Collections.Generic.List<string>();
-        foreach (var star in candidates)
-        {
-            var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
-            await using var pumped = new Pump(clock);
-            var (guider, _, _) = await RigAsync(clock, ct);
-            var summary = await guider.CalibrateAsync(new GuideStartOptions(star, Exposure), ct);
-            var line = $"({star.X:F1}, {star.Y:F1}): " + (summary is null ? $"FAILED {guider.LastCalibrationFailure}" : "ok");
-            output.WriteLine(line);
-            if (summary is null)
-            {
-                failures.Add(line);
-            }
-        }
-        failures.ShouldBeEmpty($"{failures.Count} of {candidates.Length} candidates failed to calibrate");
+        var summary = await guider.CalibrateAsync(new GuideStartOptions((x, y), Exposure), ct);
+        summary.ShouldNotBeNull($"calibration on ({x:F1}, {y:F1}) failed: {guider.LastCalibrationFailure}");
     }
 }

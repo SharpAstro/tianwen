@@ -160,6 +160,17 @@ internal sealed class GuiderCentroidTracker
         return (x, y, x2 - x, y2 - y);
     }
 
+    /// <summary>
+    /// Whether a star at (<paramref name="x"/>, <paramref name="y"/>) can still be measured: its aperture and the annulus
+    /// that gives its background lie inside the frame. A star past this line is lost by the next frame, however bright.
+    /// </summary>
+    public bool CanMeasureAt(double x, double y, int width, int height)
+    {
+        // One pixel beyond the aperture's own bound (<c>radius + 1</c>), since the centroid is rounded to a pixel.
+        var edge = _searchRadius + 2;
+        return x >= edge && x < width - edge && y >= edge && y < height - edge;
+    }
+
     public GuiderCentroidTracker(int searchRadius = DefaultSearchRadius, int maxStars = DefaultMaxStars)
     {
         _searchRadius = Math.Max(MinSearchRadius, searchRadius);

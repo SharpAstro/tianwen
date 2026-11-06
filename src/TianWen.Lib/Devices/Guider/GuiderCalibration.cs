@@ -61,6 +61,12 @@ internal sealed class GuiderCalibration
     private const int DefaultCalibrationSteps = 12;
 
     /// <summary>
+    /// The fewest pulses a measurement sweep may be cut to when the star would otherwise leave the frame
+    /// (a star chosen near the edge); fewer than this and the rate is read off too short a throw.
+    /// </summary>
+    private const int MinMeasurementSteps = 4;
+
+    /// <summary>
     /// Maximum angle deviation (degrees) for a saved calibration to be considered valid.
     /// </summary>
     public double AngleToleranceDeg { get; set; } = 5.0;
@@ -210,7 +216,7 @@ internal sealed class GuiderCalibration
         sweeps.Add(SweepTrace("RA measurement", GuideDirection.West, raOrigin, raSteps));
 
         // Return to start by pulsing East
-        for (var i = 0; i < CalibrationSteps; i++)
+        for (var i = 0; i < raSteps.Length; i++)
         {
             await pulseTarget.PulseGuideAsync(GuideDirection.East, CalibrationPulseDuration, timeProvider, cancellationToken);
         }
@@ -266,14 +272,15 @@ internal sealed class GuiderCalibration
         sweeps.Add(SweepTrace("Dec measurement", GuideDirection.North, decOrigin, decSteps));
 
         // Return to start by pulsing South
-        for (var i = 0; i < CalibrationSteps; i++)
+        for (var i = 0; i < decSteps.Length; i++)
         {
             await pulseTarget.PulseGuideAsync(GuideDirection.South, CalibrationPulseDuration, timeProvider, cancellationToken);
         }
 
-        // Compute calibration from West displacement (RA axis) and North displacement (Dec axis)
-        var totalRaTimeSec = CalibrationSteps * CalibrationPulseDuration.TotalSeconds;
-        var totalDecTimeSec = totalRaTimeSec;
+        // Compute calibration from West displacement (RA axis) and North displacement (Dec axis); a sweep cut short
+        // at the frame's edge is divided by the time of the pulses it actually sent.
+        var totalRaTimeSec = raSteps.Length * CalibrationPulseDuration.TotalSeconds;
+        var totalDecTimeSec = decSteps.Length * CalibrationPulseDuration.TotalSeconds;
 
         var raDx = westResult.DeltaX;
         var raDy = westResult.DeltaY;
@@ -594,13 +601,15 @@ internal sealed class GuiderCalibration
     {
         var stepList = new List<CalibrationStep>(steps);
         GuiderCentroidResult lastResult = default;
+        var minSteps = Math.Min(steps, MinMeasurementSteps);
 
         for (var i = 0; i < steps; i++)
         {
             await pulseTarget.PulseGuideAsync(direction, pulseDuration, timeProvider, cancellationToken);
 
             var frame = await captureFrame(cancellationToken);
-            if (tracker.ProcessFrame(frame.GetChannelArray(0)) is not { } result)
+            var plane = frame.GetChannelArray(0);
+            if (tracker.ProcessFrame(plane) is not { } result)
             {
                 return null; // Lost star during calibration
             }
@@ -609,6 +618,17 @@ internal sealed class GuiderCalibration
             var step = new CalibrationStep(result.X, result.Y);
             stepList.Add(step);
             onStep?.Invoke(step);
+
+            // A star chosen near the frame's edge cannot make the whole throw: one more pulse would take it where its
+            // aperture no longer fits, and the tracker would lose it. Stop here, with enough pulses to measure the rate.
+            if (stepList.Count >= minSteps && stepList.Count < steps)
+            {
+                var previous = stepList[^2];
+                if (!tracker.CanMeasureAt(step.X + (step.X - previous.X), step.Y + (step.Y - previous.Y), plane.GetLength(1), plane.GetLength(0)))
+                {
+                    break;
+                }
+            }
         }
 
         return stepList.Count > 0 ? (lastResult, [.. stepList]) : null;
