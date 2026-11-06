@@ -369,8 +369,8 @@ Absent/unparseable → real system clock (previous behaviour). Pinned by `Startu
 
 ### Device Management
 
-URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends), `ICombinedDeviceManager`
-(coordinates sources), `IDeviceUriRegistry` (URI → instance map). Each subclass reads query keys (`?key=value`)
+URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends), `IDeviceDiscovery`
+(aggregates the sources), `IDeviceHub` (URI → instance, connections, leases). Each subclass reads query keys (`?key=value`)
 defined in `DeviceQueryKey` (see the class XML docs). Full driver hierarchy and the rules below in full:
 `docs/architecture/device-architecture.md` ("Device management rules (moved from CLAUDE.md, 2026-09-29)", "Serial
 probing rules in full (moved from CLAUDE.md, 2026-10-09)").
