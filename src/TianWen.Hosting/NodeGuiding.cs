@@ -427,6 +427,15 @@ internal sealed class NodeGuidingRun : INodeRun
         };
     }
 
+    /// <summary>
+    /// The error a failed calibration reports: the guider's own cause when it says one (#2050), so a failed run names
+    /// the star and the gate instead of listing every possibility.
+    /// </summary>
+    private static string CalibrationFailedMessage(string? cause)
+        => string.IsNullOrWhiteSpace(cause)
+            ? "Calibration found no usable guide star, or measured nothing the quality gates accept (cloud, poor seeing, or too little star movement)"
+            : $"Calibration failed: {cause}";
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         void OnCorrection(object? sender, GuideCorrectionEventArgs e)
@@ -449,7 +458,7 @@ internal sealed class NodeGuidingRun : INodeRun
             {
                 calibration = await _guider.CalibrateAsync(_start, cancellationToken);
                 _failure ??= calibration is null
-                    ? "Calibration found no usable guide star, or measured nothing the quality gates accept (cloud, poor seeing, or too little star movement)"
+                    ? CalibrationFailedMessage(_guider.LastCalibrationFailure)
                     : null;
             }
             else

@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -41,13 +41,6 @@ internal readonly record struct CalibrationProgress(
 
 internal sealed class GuiderCalibration
 {
-    /// <summary>
-    /// Optional logger. Every rejection path in <see cref="CalibrateAsync"/> logs WHY it
-    /// returned null (with the measured numbers): a silent null forces whoever reads the
-    /// session log to guess which of five quality gates fired.
-    /// </summary>
-    public ILogger? Logger { get; set; }
-
     /// <summary>
     /// Current calibration progress, updated during <see cref="CalibrateAsync"/>.
     /// </summary>
@@ -151,8 +144,8 @@ internal sealed class GuiderCalibration
     /// <param name="captureFrame">Function that captures a guide frame and returns the image data.</param>
     /// <param name="timeProvider">Time provider for delays.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Calibration result, or null if calibration failed.</returns>
-    public async ValueTask<GuiderCalibrationResult?> CalibrateAsync(
+    /// <returns>The calibration, or the failure that says which gate refused it, the start star and what every sweep measured.</returns>
+    public async ValueTask<GuiderCalibrationOutcome> CalibrateAsync(
         IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         Func<CancellationToken, ValueTask<Image>> captureFrame,
@@ -161,8 +154,17 @@ internal sealed class GuiderCalibration
     {
         if (!tracker.IsAcquired)
         {
-            return null;
+            return GuiderCalibrationOutcome.Failed(new GuiderCalibrationFailure(
+                GuiderCalibrationFailureCause.NoStarAtChosenPosition, "the start", "no guide star was acquired to calibrate on",
+                double.NaN, double.NaN, double.NaN, double.NaN, []));
         }
+
+        // The star the calibration starts on, kept for the failure: a refusal names it.
+        var startStar = tracker.Stars.Count > 0 ? tracker.Stars[0] : default;
+        var sweeps = ImmutableArray.CreateBuilder<CalibrationSweepTrace>();
+        GuiderCalibrationOutcome Fail(GuiderCalibrationFailureCause cause, string phase, string reason)
+            => GuiderCalibrationOutcome.Failed(new GuiderCalibrationFailure(
+                cause, phase, reason, startStar.LastX, startStar.LastY, startStar.SNR, startStar.Flux, sweeps.ToImmutable()));
 
         // Record starting lock position
         tracker.SetLockPosition();
@@ -173,15 +175,15 @@ internal sealed class GuiderCalibration
         {
             // Clear backlash by pulsing West before measuring
             raBacklashResult = await ClearBacklashAsync(pulseTarget, tracker, captureFrame, timeProvider, GuideDirection.West, cancellationToken);
+            sweeps.Add(new CalibrationSweepTrace("RA backlash clearing", GuideDirection.West, raBacklashResult.DisplacementsPx));
 
             // Re-acquire after backlash clearing and reset lock position
             tracker.Reset();
             var blFrame = await captureFrame(cancellationToken);
             if (tracker.ProcessFrame(blFrame.GetChannelArray(0)) is null)
             {
-                Logger?.LogWarning("Calibration rejected: star lost re-acquiring after RA (West) backlash clearing ({Steps} steps, movement detected: {Moved}).",
-                    raBacklashResult.StepsUsed, raBacklashResult.MovementDetected);
-                return null;
+                return Fail(GuiderCalibrationFailureCause.StarLost, "re-acquiring after RA (West) backlash clearing",
+                    $"the star was lost re-acquiring after RA (West) backlash clearing ({raBacklashResult.StepsUsed} pulses, movement detected: {raBacklashResult.MovementDetected})");
             }
             tracker.SetLockPosition();
         }
@@ -199,11 +201,13 @@ internal sealed class GuiderCalibration
 
         if (westMeasurement is null)
         {
-            Logger?.LogWarning("Calibration rejected: star lost during the RA (West) measurement sweep.");
-            return null;
+            sweeps.Add(SweepTrace("RA measurement", GuideDirection.West, raOrigin, ActiveRaSteps));
+            return Fail(GuiderCalibrationFailureCause.StarLost, "the RA (West) measurement sweep",
+                $"the star was lost during the RA (West) measurement sweep after {ActiveRaSteps.Length} of {CalibrationSteps} pulses");
         }
 
         var (westResult, raSteps) = westMeasurement.Value;
+        sweeps.Add(SweepTrace("RA measurement", GuideDirection.West, raOrigin, raSteps));
 
         // Return to start by pulsing East
         for (var i = 0; i < CalibrationSteps; i++)
@@ -216,8 +220,8 @@ internal sealed class GuiderCalibration
         var frame = await captureFrame(cancellationToken);
         if (tracker.ProcessFrame(frame.GetChannelArray(0)) is null)
         {
-            Logger?.LogWarning("Calibration rejected: star lost re-acquiring after the RA (East) return sweep.");
-            return null;
+            return Fail(GuiderCalibrationFailureCause.StarLost, "re-acquiring after the RA (East) return sweep",
+                "the star was lost re-acquiring after the RA (East) return sweep");
         }
         tracker.SetLockPosition();
 
@@ -227,15 +231,15 @@ internal sealed class GuiderCalibration
         {
             // Clear backlash by pulsing North before measuring
             decBacklashResult = await ClearBacklashAsync(pulseTarget, tracker, captureFrame, timeProvider, GuideDirection.North, cancellationToken);
+            sweeps.Add(new CalibrationSweepTrace("Dec backlash clearing", GuideDirection.North, decBacklashResult.DisplacementsPx));
 
             // Re-acquire after backlash clearing and reset lock position
             tracker.Reset();
             var blFrame2 = await captureFrame(cancellationToken);
             if (tracker.ProcessFrame(blFrame2.GetChannelArray(0)) is null)
             {
-                Logger?.LogWarning("Calibration rejected: star lost re-acquiring after Dec (North) backlash clearing ({Steps} steps, movement detected: {Moved}).",
-                    decBacklashResult.StepsUsed, decBacklashResult.MovementDetected);
-                return null;
+                return Fail(GuiderCalibrationFailureCause.StarLost, "re-acquiring after Dec (North) backlash clearing",
+                    $"the star was lost re-acquiring after Dec (North) backlash clearing ({decBacklashResult.StepsUsed} pulses, movement detected: {decBacklashResult.MovementDetected})");
             }
             tracker.SetLockPosition();
         }
@@ -253,11 +257,13 @@ internal sealed class GuiderCalibration
 
         if (northMeasurement is null)
         {
-            Logger?.LogWarning("Calibration rejected: star lost during the Dec (North) measurement sweep.");
-            return null;
+            sweeps.Add(SweepTrace("Dec measurement", GuideDirection.North, decOrigin, ActiveDecSteps));
+            return Fail(GuiderCalibrationFailureCause.StarLost, "the Dec (North) measurement sweep",
+                $"the star was lost during the Dec (North) measurement sweep after {ActiveDecSteps.Length} of {CalibrationSteps} pulses");
         }
 
         var (northResult, decSteps) = northMeasurement.Value;
+        sweeps.Add(SweepTrace("Dec measurement", GuideDirection.North, decOrigin, decSteps));
 
         // Return to start by pulsing South
         for (var i = 0; i < CalibrationSteps; i++)
@@ -280,9 +286,8 @@ internal sealed class GuiderCalibration
         if (raDisplacementPx < 1.0 || decDisplacementPx < 1.0)
         {
             // Not enough displacement for reliable calibration
-            Logger?.LogWarning("Calibration rejected: insufficient displacement (RA West {RaPx:F2}px, Dec North {DecPx:F2}px; need >= 1px each). Pulses are not moving the mount or the guide rate is too low.",
-                raDisplacementPx, decDisplacementPx);
-            return null;
+            return Fail(GuiderCalibrationFailureCause.TooLittleDisplacement, "the measurement sweeps",
+                string.Create(CultureInfo.InvariantCulture, $"the star moved too little (RA West {raDisplacementPx:F2} px, Dec North {decDisplacementPx:F2} px, at least 1 px each needed): the pulses are not moving the mount or the guide rate is too low"));
         }
 
         // Reject a DEGENERATE calibration: RA and Dec are mechanically perpendicular, so the
@@ -295,9 +300,8 @@ internal sealed class GuiderCalibration
         if (Math.Abs(axisSeparationDeg - 90.0) > FreshOrthogonalityToleranceDeg)
         {
             // RA/Dec axes not perpendicular -> degenerate calibration.
-            Logger?.LogWarning("Calibration rejected: RA/Dec sweep axes are {Separation:F1}deg apart (RA at {RaAngle:F1}deg, Dec at {DecAngle:F1}deg; need 90 +/- {Tolerance:F0}deg).",
-                axisSeparationDeg, raAxisAngleDeg, decAxisAngleDeg, FreshOrthogonalityToleranceDeg);
-            return null;
+            return Fail(GuiderCalibrationFailureCause.AxesNotOrthogonal, "the measurement sweeps",
+                string.Create(CultureInfo.InvariantCulture, $"the RA and Dec sweeps are {axisSeparationDeg:F1} degrees apart (RA at {raAxisAngleDeg:F1}, Dec at {decAxisAngleDeg:F1}; 90 +/- {FreshOrthogonalityToleranceDeg:F0} needed)"));
         }
 
         // Reject an UNSTABLE sweep: a clean calibration moves the star monotonically along each
@@ -308,9 +312,8 @@ internal sealed class GuiderCalibration
         var decLinearity = SweepLinearity(decOrigin, decSteps, decDisplacementPx);
         if (raLinearity < MinSweepLinearity || decLinearity < MinSweepLinearity)
         {
-            Logger?.LogWarning("Calibration rejected: unstable sweep (linearity RA {RaLin:F2}, Dec {DecLin:F2}; need >= {Min:F2}). The star wandered instead of moving monotonically.",
-                raLinearity, decLinearity, MinSweepLinearity);
-            return null;
+            return Fail(GuiderCalibrationFailureCause.UnstableSweep, "the measurement sweeps",
+                string.Create(CultureInfo.InvariantCulture, $"the star wandered instead of moving steadily (linearity RA {raLinearity:F2}, Dec {decLinearity:F2}; at least {MinSweepLinearity:F2} needed)"));
         }
 
         // Camera angle: angle of the RA axis on the sensor
@@ -334,7 +337,7 @@ internal sealed class GuiderCalibration
         var raRatePixPerSec = raDisplacementPx / totalRaTimeSec;
         var decRatePixPerSec = decDisplacementPx / totalDecTimeSec;
 
-        return new GuiderCalibrationResult(
+        return GuiderCalibrationOutcome.Success(new GuiderCalibrationResult(
             CameraAngleRad: cameraAngleRad,
             DecAngleRad: decAngleRad,
             RaRatePixPerSec: raRatePixPerSec,
@@ -348,7 +351,20 @@ internal sealed class GuiderCalibration
                 PixelScaleArcsec: 1.0, CameraAngleRad: cameraAngleRad,
                 RaRateArcsecPerSec: 0, DecRateArcsecPerSec: 0,
                 BacklashClearingStepsRa: raBacklashResult.StepsUsed,
-                BacklashClearingStepsDec: decBacklashResult.StepsUsed));
+                BacklashClearingStepsDec: decBacklashResult.StepsUsed)));
+    }
+
+    /// <summary>
+    /// The displacement from <paramref name="origin"/> after each recorded step of a sweep, for a failure's report.
+    /// </summary>
+    private static CalibrationSweepTrace SweepTrace(string phase, GuideDirection direction, CalibrationStep origin, ImmutableArray<CalibrationStep> steps)
+    {
+        var displacements = ImmutableArray.CreateBuilder<double>(steps.Length);
+        foreach (var step in steps)
+        {
+            displacements.Add(Math.Sqrt((step.X - origin.X) * (step.X - origin.X) + (step.Y - origin.Y) * (step.Y - origin.Y)));
+        }
+        return new CalibrationSweepTrace(phase, direction, displacements.ToImmutable());
     }
 
     /// <summary>
@@ -536,6 +552,7 @@ internal sealed class GuiderCalibration
         // Record pre-clearing star position: displacement accumulates from here
         tracker.SetLockPosition();
 
+        var displacements = ImmutableArray.CreateBuilder<double>(MaxBacklashClearingSteps);
         for (var i = 0; i < MaxBacklashClearingSteps; i++)
         {
             await pulseTarget.PulseGuideAsync(direction, CalibrationPulseDuration, timeProvider, cancellationToken);
@@ -546,17 +563,18 @@ internal sealed class GuiderCalibration
             if (result is null)
             {
                 // Star lost during backlash clearing
-                return new BacklashClearingResult(i + 1, MovementDetected: false);
+                return new BacklashClearingResult(i + 1, MovementDetected: false, displacements.ToImmutable());
             }
 
             var disp = Math.Sqrt(result.Value.DeltaX * result.Value.DeltaX + result.Value.DeltaY * result.Value.DeltaY);
+            displacements.Add(disp);
             if (disp >= BacklashMovementThresholdPx)
             {
-                return new BacklashClearingResult(i + 1, MovementDetected: true);
+                return new BacklashClearingResult(i + 1, MovementDetected: true, displacements.ToImmutable());
             }
         }
 
-        return new BacklashClearingResult(MaxBacklashClearingSteps, MovementDetected: false);
+        return new BacklashClearingResult(MaxBacklashClearingSteps, MovementDetected: false, displacements.ToImmutable());
     }
 
     /// <summary>
@@ -602,7 +620,8 @@ internal sealed class GuiderCalibration
 /// </summary>
 /// <param name="StepsUsed">Number of pulses sent.</param>
 /// <param name="MovementDetected">Whether star displacement exceeded the threshold.</param>
-internal readonly record struct BacklashClearingResult(int StepsUsed, bool MovementDetected)
+/// <param name="DisplacementsPx">Cumulative star displacement (pixels) after each pulse that still had a star; default when none were sent.</param>
+internal readonly record struct BacklashClearingResult(int StepsUsed, bool MovementDetected, ImmutableArray<double> DisplacementsPx = default)
 {
     /// <summary>
     /// Default result when backlash clearing is not enabled.
