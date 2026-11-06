@@ -557,8 +557,11 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                     chosen.X, chosen.Y, stars.Count, nearest);
                 failedX = chosen.X;
                 failedY = chosen.Y;
-                reason = string.Create(CultureInfo.InvariantCulture,
-                    $"no star at the chosen position ({chosen.X:F1}, {chosen.Y:F1}): {stars.Count} stars found, the nearest {nearest:F1} px away");
+                reason = stars.Count == 0
+                    ? string.Create(CultureInfo.InvariantCulture,
+                        $"no star at the chosen position ({chosen.X:F1}, {chosen.Y:F1}): no star was found anywhere in the frame")
+                    : string.Create(CultureInfo.InvariantCulture,
+                        $"no star at the chosen position ({chosen.X:F1}, {chosen.Y:F1}): {stars.Count} stars found, the nearest {nearest:F1} px away");
             }
             else
             {
