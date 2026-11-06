@@ -37,6 +37,7 @@ on:
 
 permissions:
   contents: read
+  actions: write   # a failing shard cancels the whole run (fail-fast only stops the shards of its own job)
 
 env:
   BUILD_CONF: Release
@@ -99,6 +100,11 @@ jobs:
             echo "::endgroup::"
           done
         working-directory: src
+      - name: A failure stops the whole run
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
       - name: Upload TRX files
         if: always()
         uses: actions/upload-artifact@v7
@@ -154,6 +160,11 @@ jobs:
             echo "::endgroup::"
           done
         working-directory: src
+      - name: A failure stops the whole run
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
       - name: Upload TRX files
         if: always()
         uses: actions/upload-artifact@v7
