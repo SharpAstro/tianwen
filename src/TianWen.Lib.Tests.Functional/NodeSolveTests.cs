@@ -35,7 +35,7 @@ public class NodeSolveTests(ITestOutputHelper outputHelper)
     private Task<NodeHarness> NodeSolvingAsync(WCS? answer, CancellationToken ct) =>
         NodeHarness.StartAsync(outputHelper, ct, services => services.AddSingleton<IPlateSolverFactory>(StandInSolver.Answering(answer)));
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     private static Task ActiveRigAsync(NodeHarness node, bool withMount, CancellationToken ct) => node.ActivateRigAsync(Camera, withMount ? Mount : null, ct);
 

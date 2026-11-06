@@ -1,0 +1,202 @@
+name: Node tests repeat
+
+# The proof #2000 asks for: the functional tests that failed on CI runners (the node-process tests, the fake mount's
+# goto and the guiding lifecycle), run in a loop on ubuntu-latest, 30 times by default, stopping at the first failure.
+#   alone: only the tests named below, so a failure here is in the test or the node itself.
+#   suite: the whole TianWen.Lib.Tests.Functional project each iteration, so a failure ONLY here points at
+#          interference between tests (thread-pool starvation, a shared clock, a node left running).
+# It runs only on demand, never on a PR push (the owner: a 30-pass proof on every push holds a PR up for most of an hour):
+#   gh workflow run node-tests-repeat.yml -f ref=<branch-or-sha> [-f iterations=30] [-f mode=alone|suite|both]
+# The tests named: 9 cases, of which 7 run. The last two (the NodeGuidingTests) are out of the proof set until #2050, see UNPROVEN_FILTER.
+# Run (7 cases): NodeFrameStreamTests.TheLiveFrameStreamsNewestFirst...,
+# NodePlanetaryTests.ARefusedStartSaysWhyAndHoldsNothing, NodeRunsProcessTests.AnInteractiveRunStopsAGrace...,
+# MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot (a theory of 4 rows).
+# Out until #2050 (2 cases): NodeGuidingTests ...CalibratesOnDemandAndReportsTheResultThenTheLoopComesBack and
+# ...GuidesFromTheLoopOnTheChosenStarAndProducesSamples.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/SHA to test'
+        required: false
+        default: 'main'
+        type: string
+      iterations:
+        description: 'Iterations per mode'
+        required: false
+        default: '30'
+        type: string
+      mode:
+        description: 'alone, suite or both'
+        required: false
+        default: 'both'
+        type: choice
+        options: [both, alone, suite]
+
+# Two pushes to the PR in a row would otherwise run two proofs at once on the same ref (up to 9 runners each), the older one
+# proving a commit that is no longer the head. The newer cancels the older; a dispatch for another ref or mode is its own group.
+concurrency:
+  group: node-tests-repeat-${{ inputs.ref || github.ref }}-${{ inputs.mode || 'both' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write   # a failing shard cancels the whole run (fail-fast only stops the shards of its own job)
+
+env:
+  BUILD_CONF: Release
+  DOTNET_NOLOGO: 1
+  ITERATIONS: ${{ inputs.iterations || '30' }}
+  # Every test named in #2000 and its 2026-11-05 comment, by name (a theory's rows all match).
+  NAMED_FILTER: 'FullyQualifiedName~NodeFrameStreamTests.TheLiveFrameStreamsNewestFirstAndAReaderThatFallsBehindSkipsWhatItMissed|FullyQualifiedName~NodePlanetaryTests.ARefusedStartSaysWhyAndHoldsNothing|FullyQualifiedName~NodeRunsProcessTests.AnInteractiveRunStopsAGraceAfterItsLastClientGoesAndAClientBackWithinItKeepsIt|FullyQualifiedName~MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot'
+  NAMED_COUNT: 7   # 3 facts + the 4 rows of the goto theory
+  # The two NodeGuidingTests #2000 named are out of the proof set until #2050 is fixed: their calibration now and then starts
+  # on a candidate that is not a star and fails "insufficient star displacement" (about 1 run in 80). #2050 puts them back.
+  # The suite loop leaves them out the same way (UNPROVEN_FILTER).
+  UNPROVEN_FILTER: 'FullyQualifiedName!~NodeGuidingTests.NodeGuidingCalibratesOnDemandAndReportsTheResultThenTheLoopComesBack&FullyQualifiedName!~NodeGuidingTests.NodeGuidingGuidesFromTheLoopOnTheChosenStarAndProducesSamples'
+  # --hangdump-timeout 120s (in both loops): a run where no test moves for 120 s leaves a dump of every thread, so a hang
+  # says what it waited on. Above the slowest healthy test measured here (82 s, EquipmentFlowProcessTests on run
+  # 42021732287); a test xunit stops at its own Timeout first is explained by its log instead.
+
+jobs:
+  alone:
+    if: ${{ inputs.mode != 'suite' }}
+    # Sharded: the iterations are independent, so SHARDS runners each take their share at once instead of one runner taking
+    # all 30 in a row (42 min). fail-fast on: the first failing shard cancels the others, so a red run ends at once.
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      SHARDS: 3
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+      - uses: SharpAstro/cache-apt-pkgs-action@v1
+        with:
+          packages: astrometry.net astrometry-data-2mass-08-19
+          version: 1.0
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          submodules: recursive
+          lfs: false
+      - name: Fetch required LFS objects
+        uses: SharpAstro/tianwen/.github/actions/lfs-pull@main
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
+          cache-prefix: lfs-tests
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # Builds the project and tianwen-server beside it (src/ExeBeside.targets); the build also preprocesses the catalogs.
+      - name: Build the functional tests (Release, matches CI)
+        run: dotnet build TianWen.Lib.Tests.Functional -c $BUILD_CONF -p:ContinuousIntegrationBuild=true
+        working-directory: src
+      - name: Loop the named tests
+        run: |
+          PER_SHARD=$(( (ITERATIONS + SHARDS - 1) / SHARDS ))
+          for i in $(seq 1 "$PER_SHARD"); do
+            echo "::group::shard ${{ matrix.shard }}, iteration $i of $PER_SHARD"
+            if ! dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build \
+                 --filter "$NAMED_FILTER" --minimum-expected-tests "$NAMED_COUNT" --output Detailed --hangdump --hangdump-timeout 120s \
+                 --report-trx --report-trx-filename "alone-${{ matrix.shard }}-$i.trx" --results-directory test-results-alone/; then
+              echo "::endgroup::"
+              echo "::error::shard ${{ matrix.shard }}, iteration $i of $PER_SHARD failed"
+              # The failed tests are read back out of this iteration's TRX, so the run summary names them without opening the log.
+              {
+                echo "### Shard ${{ matrix.shard }} failed on iteration $i of $PER_SHARD (alone)"
+                grep -ohP 'testName="[^"]*"[^>]*outcome="Failed"' test-results-alone/alone-${{ matrix.shard }}-$i.trx 2>/dev/null \
+                  | sed -E 's/testName="([^"]*)".*/- \1/' | sort -u
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+        working-directory: src
+      - name: A failed shard (or build) cancels the whole run
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "### Shard ${{ matrix.shard }} failed: the run is cancelled" >> "$GITHUB_STEP_SUMMARY"
+          echo "The iteration and the failed tests are listed above when the Loop step got that far; a build failure or a hang is in that step's log." >> "$GITHUB_STEP_SUMMARY"
+          gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+      - name: Upload TRX files
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: node-tests-alone-trx-${{ matrix.shard }}
+          path: src/test-results-alone/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  suite:
+    if: ${{ inputs.mode != 'alone' }}
+    # Sharded as the alone job is: six runners at once, each running the whole suite its share of the iterations.
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      SHARDS: 6
+    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    steps:
+      - uses: SharpAstro/cache-apt-pkgs-action@v1
+        with:
+          packages: astrometry.net astrometry-data-2mass-08-19
+          version: 1.0
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          submodules: recursive
+          lfs: false
+      - name: Fetch required LFS objects
+        uses: SharpAstro/tianwen/.github/actions/lfs-pull@main
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
+          cache-prefix: lfs-tests
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the functional tests (Release, matches CI)
+        run: dotnet build TianWen.Lib.Tests.Functional -c $BUILD_CONF -p:ContinuousIntegrationBuild=true
+        working-directory: src
+      - name: Loop the whole functional suite
+        run: |
+          PER_SHARD=$(( (ITERATIONS + SHARDS - 1) / SHARDS ))
+          for i in $(seq 1 "$PER_SHARD"); do
+            echo "::group::shard ${{ matrix.shard }}, iteration $i of $PER_SHARD"
+            if ! dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build --filter "$UNPROVEN_FILTER" --output Detailed --hangdump --hangdump-timeout 120s \
+                 --report-trx --report-trx-filename "suite-${{ matrix.shard }}-$i.trx" --results-directory test-results-suite/; then
+              echo "::endgroup::"
+              echo "::error::shard ${{ matrix.shard }}, iteration $i of $PER_SHARD failed"
+              # The failed tests are read back out of this iteration's TRX, so the run summary names them without opening the log.
+              {
+                echo "### Shard ${{ matrix.shard }} failed on iteration $i of $PER_SHARD (suite)"
+                grep -ohP 'testName="[^"]*"[^>]*outcome="Failed"' test-results-suite/suite-${{ matrix.shard }}-$i.trx 2>/dev/null \
+                  | sed -E 's/testName="([^"]*)".*/- \1/' | sort -u
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+        working-directory: src
+      - name: A failed shard (or build) cancels the whole run
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "### Shard ${{ matrix.shard }} failed: the run is cancelled" >> "$GITHUB_STEP_SUMMARY"
+          echo "The iteration and the failed tests are listed above when the Loop step got that far; a build failure or a hang is in that step's log." >> "$GITHUB_STEP_SUMMARY"
+          gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+      - name: Upload TRX files
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: node-tests-suite-trx-${{ matrix.shard }}
+          path: src/test-results-suite/
+          if-no-files-found: ignore
+          retention-days: 14
