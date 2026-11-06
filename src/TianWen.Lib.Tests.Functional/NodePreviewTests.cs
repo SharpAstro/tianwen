@@ -49,7 +49,7 @@ public class NodePreviewTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         var controlled = await RunningSessionShowingAsync(frameNumber: 3);
-        var client = new TianWenNodeClient(_harness.Client);
+        var client = NodeTestClients.ClientOf(_harness.Client);
 
         var first = await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: null, ct);
         first.HasImage.ShouldBeTrue(first.Error);
@@ -74,7 +74,7 @@ public class NodePreviewTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         var controlled = await RunningSessionShowingAsync(frameNumber: 3);
-        var client = new TianWenNodeClient(_harness.Client);
+        var client = NodeTestClients.ClientOf(_harness.Client);
 
         var first = (await client.GetPreviewAsync(otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: null, ct)).FrameNumber.ShouldNotBeNull();
 
@@ -94,7 +94,7 @@ public class NodePreviewTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var controlled = await RunningSessionShowingAsync(frameNumber: 1);
         controlled.Session.LastGuideFrame.Returns(TestFrames.BufferedMono(out _));
         controlled.Session.LastGuideFrameNumber.Returns(9);
-        var client = new TianWenNodeClient(_harness.Client);
+        var client = NodeTestClients.ClientOf(_harness.Client);
 
         var token = (await client.GetGuidePreviewAsync(quality: null, scale: null, ifNotFrameNumber: null, ct)).FrameNumber.ShouldNotBeNull();
 

@@ -6,8 +6,10 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Console.Lib;
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
@@ -34,13 +36,16 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
 {
     private sealed class Cli : IAsyncDisposable
     {
-        private Cli(NodeHarness node, ConsoleHost host, StringWriter written, StringWriter errors)
+        private readonly ILoggerFactory _logs;
+
+        private Cli(NodeHarness node, ConsoleHost host, StringWriter written, StringWriter errors, ILoggerFactory logs)
         {
+            _logs = logs;
             Node = node;
             Host = host;
             Written = written;
             Errors = errors;
-            Client = new TianWenNodeClient(node.Client);
+            Client = NodeTestClients.ClientOf(node.Client);
         }
 
         public NodeHarness Node { get; }
@@ -61,10 +66,13 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
             node.Factory.Initialised.TrySetResult();
             var written = new StringWriter();
             var errors = new StringWriter();
+            // The CLI's own log goes to the test's output beside the node's: how its launcher found the node (or why it did
+            // not) is what a hung verb leaves nowhere else (#2000: a flat run silent for 60 s with nothing logged on either side).
+            var logs = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Debug).AddProvider(new XUnitLoggerProvider(output, false)));
             var host = new ConsoleHost(node.External, Substitute.For<IHostApplicationLifetime>(), Substitute.For<IVirtualTerminal>(),
-                SystemTimeProvider.Instance, NullLogger<ConsoleHost>.Instance,
+                SystemTimeProvider.Instance, logs.CreateLogger<ConsoleHost>(),
                 new LocalNodeOptions { NamedSocket = socket, AnotherAccountProbe = null, LocalOnly = LocalOnlyMode.Off }, written, errors);
-            return new Cli(node, host, written, errors);
+            return new Cli(node, host, written, errors, logs);
         }
 
         /// <summary>The verbs as <c>tianwen</c> composes them, run on <paramref name="args"/>.</summary>
@@ -100,6 +108,7 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
         {
             Host.Dispose();
             await Node.DisposeAsync();
+            _logs.Dispose();
         }
     }
 
@@ -364,6 +373,45 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
         catch (OperationCanceledException)
         {
             // How a cancelled command ends is the command line's business; that the node's run was stopped is this test's.
+        }
+        cli.Written.ToString().ShouldContain("stopping the flat run on the node");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ACtrlCWhileTheFlatRunIsStartingStillStopsItOnTheNode()
+    {
+        // The window the test above hit by chance once a run in a few dozen (#2000): the node has begun the run, and the
+        // Ctrl+C lands before its answer to the start reaches the command. The node's own creation of the run presses it here,
+        // so the cancel is in flight with the start every time; the run must still be stopped on the node.
+        var ct = TestContext.Current.CancellationToken;
+        await using var cli = await Cli.StartAsync(output, ct);
+        (await cli.Host.SaveProfileAsync(new Profile(Guid.NewGuid(), "Flat rig",
+            EquipmentActions.SetSite(ProfileData.Empty, 48.2, 16.3, null)), ct)).ShouldNotBeNull();
+        using var ctrlC = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var observe = cli.Node.Factory.OnCreated;
+        cli.Node.Factory.OnCreated = controlled =>
+        {
+            observe?.Invoke(controlled);
+            ctrlC.Cancel();
+        };
+
+        var verb = cli.RunAsync(ctrlC.Token, "flats", "--active", "Flat rig");
+        while (cli.Node.Factory.Created.IsEmpty && !verb.IsCompleted)
+        {
+            await Task.Delay(20, ct);
+        }
+        cli.Node.Factory.Created.IsEmpty.ShouldBeFalse($"the flat run never reached the node: {cli.Errors}");
+        var run = cli.Node.Factory.Created.Last();
+
+        await run.Cancelled.Task.WaitAsync(ct);
+        run.Finalise.TrySetResult();
+        try
+        {
+            await verb;
+        }
+        catch (OperationCanceledException)
+        {
+            // As above: how a cancelled command ends is the command line's business.
         }
         cli.Written.ToString().ShouldContain("stopping the flat run on the node");
     }

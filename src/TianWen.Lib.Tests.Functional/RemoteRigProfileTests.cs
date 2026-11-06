@@ -29,7 +29,7 @@ public class RemoteRigProfileTests(ITestOutputHelper output)
         var named = At(Guid.NewGuid(), "Siding Spring", -31.27, 149.06);
         await running.SaveAsync(node.External, ct);
         await named.SaveAsync(node.External, ct);
-        (await new TianWenNodeClient(node.Client).SetActiveProfileAsync(running.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).SetActiveProfileAsync(running.ProfileId, ct)).IsSuccess.ShouldBeTrue();
 
         var binding = new RemoteRigBinding
         {

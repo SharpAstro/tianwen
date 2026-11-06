@@ -223,28 +223,57 @@ public static class GuideStarReadout
         return false;
     }
 
-    /// <summary>Walks the centroid from <paramref name="at"/> onto the star's centre; false when no star holds it.</summary>
+    /// <summary>
+    /// Walks the centroid from <paramref name="at"/> onto the star's centre; false when no star holds it. The walk alone is no
+    /// proof of a star (a flux-weighted centroid over noise converges somewhere too), so where it ends the brightest pixel of the
+    /// 3x3 about it must be a star's (<see cref="GuiderCentroidTracker.IsStar"/>, the candidate scan's own acceptance, #2050),
+    /// and the centroid is taken again about that pixel, as the scan takes it.
+    /// </summary>
     private static bool TryHold(GuiderCentroidTracker tracker, float[,] frame, int width, int height,
         (double X, double Y) at, out double cx, out double cy)
     {
         cx = at.X;
         cy = at.Y;
-        for (var step = 0; step < 4; step++)
+        var settled = false;
+        for (var step = 0; step < 4 && !settled; step++)
         {
             if (!GuiderCentroidTracker.TryCentroid(frame, width, height, (int)Math.Round(cx), (int)Math.Round(cy), Radius,
                     out var nx, out var ny, out _, out var snr) || snr < tracker.MinSNR)
             {
                 return false;
             }
-            var moved = Math.Abs(nx - cx) + Math.Abs(ny - cy);
+            settled = Math.Abs(nx - cx) + Math.Abs(ny - cy) < 0.25;
             cx = nx;
             cy = ny;
-            if (moved < 0.25)
+        }
+
+        var peakX = (int)Math.Round(cx);
+        var peakY = (int)Math.Round(cy);
+        if (peakX < 1 || peakY < 1 || peakX >= width - 1 || peakY >= height - 1)
+        {
+            return false;
+        }
+        var brightest = float.NegativeInfinity;
+        var bx = peakX;
+        var by = peakY;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
             {
-                return true;
+                if (frame[peakY + dy, peakX + dx] > brightest)
+                {
+                    brightest = frame[peakY + dy, peakX + dx];
+                    bx = peakX + dx;
+                    by = peakY + dy;
+                }
             }
         }
-        return true;
+
+        // The 3x3 of the brightest pixel itself must fit for the shape test.
+        return bx >= 1 && by >= 1 && bx < width - 1 && by < height - 1
+            && GuiderCentroidTracker.IsStar(frame, width, height, bx, by, Radius)
+            && GuiderCentroidTracker.TryCentroid(frame, width, height, bx, by, Radius, out cx, out cy, out _, out var finalSnr)
+            && finalSnr >= tracker.MinSNR;
     }
 
     private static GuideStarMeasurement? Describe(float[,] frame, int width, int height, double x, double y, float fullScale)

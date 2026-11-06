@@ -138,7 +138,7 @@ public class LiveSessionThroughTheNodeTests(ITestOutputHelper output)
         h.Post(new SkyMapSlewToObjectSignal("Near the pole", ra, 85, Index: null, ObjectType.Unknown));
         await h.UntilSettledAsync(ct);
 
-        var jobs = (await new TianWenNodeClient(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull();
+        var jobs = (await NodeTestClients.ClientOf(h.Node.Client).GetJobsAsync(ct)).Value.ShouldNotBeNull();
         jobs.ShouldContain(j => j.Kind == "slew" && DeviceBase.SameDevice(new Uri(j.DeviceUri!), h.MountUri));
         h.AppState.Notifications.ShouldNotContain(n => n.Message.Contains("needs control") || n.Message.Contains("is not connected"));
         h.SkyMap.ActiveSlewTarget.ShouldBeNull("the marker goes once the slew has ended, however it ended");

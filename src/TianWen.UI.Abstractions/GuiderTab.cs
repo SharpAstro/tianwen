@@ -625,7 +625,10 @@ namespace TianWen.UI.Abstractions
         // thing is already dark), so these sit on pixels whose brightness the theme does not control and
         // they stay fixed on purpose. RA/Dec additionally keep their hues by the same decision the guide
         // graph does: see docs/plans/colour-theme.md.
-        private static RGBAColor32 CrosshairColor => GuiTheme.Palette.Accent.WithAlpha(0xaa);
+        // Success, not Accent: the accent is the logo's orange now (#2025), which is the hue of the RA arm
+        // drawn beside it. Green is the one hue neither arm uses, and Night, which has no green, resolves
+        // Success to its accent, so there it is the orange it always was.
+        private static RGBAColor32 CrosshairColor => GuiTheme.Palette.Success.WithAlpha(0xaa);
         private static readonly RGBAColor32 CalRaColor = new RGBAColor32(0xff, 0x88, 0x22, 0xcc); // orange for RA
         private static readonly RGBAColor32 CalDecColor = new RGBAColor32(0x22, 0x88, 0xff, 0xcc); // blue for Dec
         private static readonly RGBAColor32 CalOriginColor = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);

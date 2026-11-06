@@ -1320,6 +1320,16 @@ What is settled:
   against the cooler's PWM, so its reading sits at 2 A or at idle for minutes as the two clocks drift and flickers at the
   crossings, while the cooler runs steadily. Only an average over minutes estimates the draw (power-boxes P5, #1733).
 
+### The guide-star bar was measured on synthetic and fake fields, never on a real faint guide field
+
+Raised by #2050 (guider calibration accepted a candidate that was not a star). `GuiderCentroidTracker.StarSigmas` (6
+noise sigmas of the 3x3 mean over the annulus's noise) and its prefilter keep a noise maximum, a hot pixel and a blob
+with no stellar profile out of the candidate list, and a calibration started at a position with no star refuses up front.
+Both halves of the bar are measured on `GuideStarAcceptanceTests` and the fake guide camera only. How a real faint guide
+star on a real sensor (read noise, hot pixels, seeing) sits against it is not looked at: a faint star it misses would
+read as "no star" at a position the operator chose. Open until a real faint guide field is run through `FindStars` and
+`GuideStarReadout` (a bench check, tracked as #2056; the bar's comment on `StarSigmas` says the same).
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors
