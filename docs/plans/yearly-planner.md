@@ -5,7 +5,7 @@ observability time?", then "the planner might need two modes, a yearly planner, 
 best be observed in September etc.", and "the atlas info box should just maybe mark the area under the height
 graph that is good for observing (same criteria as the planner) and maybe show a total (plus the score)".
 
-Milestone: `yearly-planner`. Companions: [night-calendar](night-calendar.md) (which night of a month),
+Milestone: `yearly-planner` (#2059 to #2062). Companions: [night-calendar](night-calendar.md) (which night of a month),
 [moon-avoidance](moon-avoidance.md) (the moon term in the score), [skymap-time-scrub](skymap-time-scrub.md)
 (the atlas's viewing time), [in-app-sky-atlas](in-app-sky-atlas.md).
 
@@ -34,6 +34,8 @@ Milestone: `yearly-planner`. Companions: [night-calendar](night-calendar.md) (wh
 
 ## A. Atlas night curve
 
+Tracked by #2059.
+
 The info box gains a small altitude curve for the viewing night, drawn where the comet sparkline goes (a
 host-drawn fill, as the sparkline is), from dusk to dawn:
 
@@ -58,6 +60,8 @@ thread, cached on (object, night, profile minimum, moon radius).
 
 ## B. Best months per object
 
+Tracked by #2060.
+
 The yearly question is the nightly score swept over the year. A pure routine in `TianWen.Lib.Sequencing`
 (working name `SeasonalVisibility`) takes a target and a site and returns, for each sampled night of the next
 twelve months, the usable dark time and the score from `ScoreTarget`:
@@ -74,6 +78,8 @@ twelve months, the usable dark time and the score from `ScoreTarget`:
 
 ## C. Planner year mode
 
+Tracked by #2061.
+
 The planner gets a second mode beside the night view: a year at a glance for the pinned targets and the
 current search results, one row per target and twelve month cells, each cell shaded by B's mean usable hours
 (the sky ramp, never colour alone: the hours are the cell's tooltip and the best month is marked).
@@ -85,6 +91,8 @@ current search results, one row per target and twelve month cells, each cell sha
 - It is a mode of the same tab, one `PlannerState` flag, so the target list, search and pins stay one model.
 
 ## D. Upcoming plans
+
+Tracked by #2062.
 
 A plan saved for a later night should be findable from tonight:
 
