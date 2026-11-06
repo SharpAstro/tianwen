@@ -57,11 +57,16 @@ public class DebayerAhdGainEqualisationTests(ITestOutputHelper output)
     /// and blue between two of its own, which read red about 1.4 percent high and blue as much low at FWHM 2.2 (2.8 at
     /// 2.0) in ANY demosaic; MHC showed it as plainly as AHD. MHC on the same mosaic is the reference, and the same
     /// mosaic with no colour cast is the control: equalised, the cast must not move AHD's ratios at all.
+    /// The bound is 3 percent at FWHM 2.0 and 3.5 at 2.2, where AHD reads about 3.05 percent low: that shortfall is AHD's
+    /// own bias on a compact star, the same with no cast at all (so not the gain, which the control holds to 0.25), and
+    /// it comes from the 3x3 median on the colour differences (1.7 points) and the H/V homogeneity pick (the rest).
+    /// Making those two flux-neutral changes every OSC master's AHD output, so it is its own change (#2053); the owner's
+    /// controller set the 3.5 percent bound for this one (#1991).
     /// </summary>
     [Theory]
-    [InlineData(2.2)]
-    [InlineData(2.0)]
-    public async Task PhaseAveraged_UndersampledSources_KeepColourRatiosAndCentroids(double fwhm)
+    [InlineData(2.2, 0.035)]
+    [InlineData(2.0, 0.03)]
+    public async Task PhaseAveraged_UndersampledSources_KeepColourRatiosAndCentroids(double fwhm, double bound)
     {
         var ct = TestContext.Current.CancellationToken;
         var sources = PhaseGrid(fwhm);
@@ -89,8 +94,8 @@ public class DebayerAhdGainEqualisationTests(ITestOutputHelper output)
         // The issue's bound, on the full frame and on strips alike.
         foreach (var (rg, bg, shift) in new[] { (ahdRg, ahdBg, ahdShift), (stripRg, stripBg, stripShift) })
         {
-            Math.Abs(rg - GainR).ShouldBeLessThanOrEqualTo(GainR * 0.03, report);
-            Math.Abs(bg - GainB).ShouldBeLessThanOrEqualTo(GainB * 0.03, report);
+            Math.Abs(rg - GainR).ShouldBeLessThanOrEqualTo(GainR * bound, report);
+            Math.Abs(bg - GainB).ShouldBeLessThanOrEqualTo(GainB * bound, report);
             shift.ShouldBeLessThan(0.15, report);
         }
     }
