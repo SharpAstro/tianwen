@@ -26,7 +26,7 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan Exposure = TimeSpan.FromMilliseconds(100);
 
-    private async Task<(BuiltInGuiderDriver Guider, ICameraDriver Camera, Func<CancellationToken, Task<(double X, double Y)>> PickAStar)> RigAsync(
+    private async Task<(BuiltInGuiderDriver Guider, ICameraDriver Camera)> RigAsync(
         FakeTimeProviderWrapper clock, CancellationToken ct)
     {
         var external = new FakeExternal(output, clock);
@@ -57,37 +57,17 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         var guider = new BuiltInGuiderDriver(new BuiltInGuiderDevice(new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Mount#Built-in Guider")), sp);
         guider.LinkDevices(mount, camera);
 
-        async Task<(double X, double Y)> PickAStar(CancellationToken token)
-        {
-            var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, Exposure, clock, sp.GetRequiredService<IExternal>().ImageReadyPollInterval, token);
-            try
-            {
-                var plane = frame.GetChannel(0).Data;
-                var measured = new GuiderCentroidTracker(maxStars: 8).FindStars(plane)
-                    .Select(c => GuideStarReadout.Measure(plane, 1f, (c.X, c.Y)))
-                    .OfType<GuideStarMeasurement>()
-                    .ToList();
-                measured.ShouldNotBeEmpty("the guide frame holds a star to choose");
-                output.WriteLine($"{measured.Count} candidates: " + string.Join(", ", measured.Select(m => $"({m.X:F1}, {m.Y:F1})")));
-                var star = measured[measured.Count / 2];
-                return (star.X, star.Y);
-            }
-            finally
-            {
-                frame.Release();
-            }
-        }
-
-        return (guider, camera, PickAStar);
+        return (guider, camera);
     }
 
     /// <summary>The pick the Guider tab's click and the node's tests make, as a list: every candidate the frame offers, in its own ranking.</summary>
     private async Task<((double X, double Y)[] Stars, int Width, int Height)> CandidatesAsync(CancellationToken ct)
     {
         var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
-        await using var pumped = new Pump(clock);
-        var (_, camera, _) = await RigAsync(clock, ct);
-        var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, Exposure, clock, TimeSpan.FromMilliseconds(10), ct);
+        var (_, camera) = await RigAsync(clock, ct);
+        var capture = Task.Run(async () => await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, Exposure, clock, TimeSpan.FromMilliseconds(10), ct), ct);
+        await clock.PumpUntilCompletedAsync(capture, TimeSpan.FromMinutes(1), cancellationToken: ct);
+        var frame = await capture;
         try
         {
             var plane = frame.GetChannel(0).Data;
@@ -99,35 +79,6 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         finally
         {
             frame.Release();
-        }
-    }
-
-    private sealed class Pump : IAsyncDisposable
-    {
-        private readonly CancellationTokenSource _stop = new CancellationTokenSource();
-        private readonly Task _task;
-
-        public Pump(FakeTimeProviderWrapper clock)
-            => _task = Task.Run(async () =>
-            {
-                try
-                {
-                    while (!_stop.IsCancellationRequested)
-                    {
-                        clock.Advance(TimeSpan.FromMilliseconds(100));
-                        await Task.Delay(1, _stop.Token);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            }, CancellationToken.None);
-
-        public async ValueTask DisposeAsync()
-        {
-            await _stop.CancelAsync();
-            await _task;
-            _stop.Dispose();
         }
     }
 
@@ -148,9 +99,12 @@ public class GuiderCalibrationOnFakeGuideCameraTests(ITestOutputHelper output)
         output.WriteLine($"calibrating on the candidate nearest an edge: ({x:F1}, {y:F1}) in a {width} x {height} frame");
 
         var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero)) { ExternalTimePump = true };
-        await using var pumped = new Pump(clock);
-        var (guider, _, _) = await RigAsync(clock, ct);
-        var summary = await guider.CalibrateAsync(new GuideStartOptions((x, y), Exposure), ct);
+        var (guider, _) = await RigAsync(clock, ct);
+        // The cooperative pump (never a wall-clock loop of its own): it advances only once the calibration is parked at a
+        // sleep, so the exposures and pulses see the same fake time the node's tests do.
+        var calibration = Task.Run(async () => await guider.CalibrateAsync(new GuideStartOptions((x, y), Exposure), ct), ct);
+        await clock.PumpUntilCompletedAsync(calibration, TimeSpan.FromMinutes(30), cancellationToken: ct);
+        var summary = await calibration;
         summary.ShouldNotBeNull($"calibration on ({x:F1}, {y:F1}) failed: {guider.LastCalibrationFailure}");
     }
 }

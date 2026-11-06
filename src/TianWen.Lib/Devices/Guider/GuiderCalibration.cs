@@ -160,9 +160,15 @@ internal sealed class GuiderCalibration
     {
         if (!tracker.IsAcquired)
         {
-            return GuiderCalibrationOutcome.Failed(new GuiderCalibrationFailure(
-                GuiderCalibrationFailureCause.NoStarAtChosenPosition, "the start", "no guide star was acquired to calibrate on",
-                double.NaN, double.NaN, double.NaN, double.NaN, []));
+            // A chosen star that is not there is a different refusal from a frame with no star at all.
+            return tracker.PreferredStar is { } chosen
+                ? GuiderCalibrationOutcome.Failed(new GuiderCalibrationFailure(
+                    GuiderCalibrationFailureCause.NoStarAtChosenPosition, "the start",
+                    string.Create(System.Globalization.CultureInfo.InvariantCulture, $"no star at the chosen position ({chosen.X:F1}, {chosen.Y:F1})"),
+                    chosen.X, chosen.Y, double.NaN, double.NaN, []))
+                : GuiderCalibrationOutcome.Failed(new GuiderCalibrationFailure(
+                    GuiderCalibrationFailureCause.NoStarFound, "the start", "no guide star was acquired to calibrate on",
+                    double.NaN, double.NaN, double.NaN, double.NaN, []));
         }
 
         // The star the calibration starts on, kept for the failure: a refusal names it.
@@ -556,6 +562,10 @@ internal sealed class GuiderCalibration
         GuideDirection direction,
         CancellationToken cancellationToken)
     {
+        // Unlike a measurement sweep this needs no stop at the frame's edge (#2050 review): the clearing ends at the first pulse
+        // that moves the star BacklashMovementThresholdPx, so it walks the star one pulse past that and no further, and a star
+        // that has not moved yet is where it started. The measurement sweep that follows is the one that can run out of frame.
+
         // Record pre-clearing star position: displacement accumulates from here
         tracker.SetLockPosition();
 
