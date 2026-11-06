@@ -32,7 +32,9 @@ public sealed record FrameRow(
     double ObjAltDeg,
     double Latitude,
     double Longitude,
-    string SiteSource);
+    string SiteSource,
+    float LiveOverTrend = float.NaN,
+    bool LiveSkyRising = false);
 
 public sealed record Stretch(string Series, DateTimeOffset Start, DateTimeOffset End, double Minutes, int Frames, int Caught,
     int CaughtPatchy, int CaughtRun, int CaughtNight, int CaughtRise, int ReadClearAgain);

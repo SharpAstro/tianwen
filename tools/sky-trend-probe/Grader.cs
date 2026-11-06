@@ -168,13 +168,22 @@ public static class Grader
 
         // Live: one judge per rig (an OTA's), the frames fed in time order.
         ConcurrentDictionary<string, LiveCloudJudge> judges = [];
-        Dictionary<string, (bool Judged, bool Cloud)> live = [];
+        Dictionary<string, (bool Judged, bool Cloud, float OverTrend, bool Rising)> live = [];
         var n = 0;
         foreach (var g in folderFrames.Where(g => g.Meta.ExposureStartTime != default).OrderBy(g => g.Meta.ExposureStartTime))
         {
             var judge = judges.GetOrAdd(g.Rig, _ => new LiveCloudJudge(references));
             var verdict = judge.Add($"f{n++}", g.Live);
-            live[g.Path] = (verdict is not null, LiveCloudJudge.IsCloud(verdict));
+            var liveOverTrend = float.NaN;
+            var liveRising = false;
+#if SKY_TREND
+            if (verdict is { } lv)
+            {
+                liveOverTrend = lv.SkyOverTrend;
+                liveRising = lv.SkyRising;
+            }
+#endif
+            live[g.Path] = (verdict is not null, LiveCloudJudge.IsCloud(verdict), liveOverTrend, liveRising);
         }
 
         List<FrameRow> rows = [];
@@ -191,13 +200,13 @@ public static class Grader
             overTrend = v.SkyOverTrend;
             rising = v.SkyRising;
 #endif
-            var (judged, liveCloud) = live.GetValueOrDefault(g.Path);
+            var (judged, liveCloud, liveOverTrend2, liveRising2) = live.GetValueOrDefault(g.Path, (false, false, float.NaN, false));
             var a = g.Astro;
             rows.Add(new FrameRow(g.Series, System.IO.Path.GetFileName(g.Path), mark, markedCloud, g.Meta.ExposureStartTime,
                 g.Meta.ExposureDuration.TotalSeconds, g.Group, g.Rig, grade.SkyLevel, grade.Patchiness, grade.Metrics.StarCount, g.Flux,
                 v.Causes.ToString(), cloud, v.InCloudRun, v.NightSky, v.Shown, overTrend, rising,
                 cloud && !v.InCloudRun && !night && !rising, night, judged, liveCloud,
-                a.SunAltDeg, a.MoonAltDeg, a.MoonIllum, a.MoonSepDeg, a.ObjAltDeg, a.Lat, a.Lon, a.SiteSource));
+                a.SunAltDeg, a.MoonAltDeg, a.MoonIllum, a.MoonSepDeg, a.ObjAltDeg, a.Lat, a.Lon, a.SiteSource, liveOverTrend2, liveRising2));
         }
         return rows;
     }
