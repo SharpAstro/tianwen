@@ -13,13 +13,13 @@ public static class Report
         Csv(Path.Combine(outDir, prefix + "frames.csv"),
             ["series", "file", "mark", "marked_cloud", "date_obs", "exposure_s", "group", "rig", "sky", "patchiness", "stars", "flux50_median",
              "causes", "verdict_cloud", "in_cloud_run", "night_sky", "shown", "sky_over_trend", "sky_rising", "term_patchy_or_other", "term_night",
-             "live_judged", "live_cloud", "sun_alt_deg", "moon_alt_deg", "moon_illum", "moon_sep_deg", "obj_alt_deg", "lat", "lon", "site_source"],
+             "live_judged", "live_cloud", "sun_alt_deg", "moon_alt_deg", "moon_illum", "moon_sep_deg", "obj_alt_deg", "lat", "lon", "site_source", "live_over_trend", "live_sky_rising"],
             series.SelectMany(s => s).Select(r => new object?[]
             {
                 r.Series, r.File, r.Mark, r.MarkedCloud, r.Taken.ToString("o", CultureInfo.InvariantCulture), r.ExposureS, r.Group, r.Rig, r.Sky,
                 r.Patchiness, r.Stars, r.Flux, r.Causes, r.VerdictCloud, r.InCloudRun, r.NightSky, r.Shown, r.SkyOverTrend, r.SkyRising,
                 r.TermPatchy, r.TermNight, r.LiveJudged, r.LiveCloud, r.SunAltDeg, r.MoonAltDeg, r.MoonIllum, r.MoonSepDeg, r.ObjAltDeg,
-                r.Latitude, r.Longitude, r.SiteSource,
+                r.Latitude, r.Longitude, r.SiteSource, r.LiveOverTrend, r.LiveSkyRising,
             }));
 
         var stretches = series.SelectMany(s => SkyTrendAnalysis.Stretches(s).Select(t => (s, t))).ToList();
