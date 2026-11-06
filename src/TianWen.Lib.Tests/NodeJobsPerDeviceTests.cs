@@ -234,4 +234,32 @@ public class NodeJobsPerDeviceTests
         discovery.Release.SetResult();
         connect.Release.SetResult();
     }
+
+    [Fact(Timeout = 10_000)]
+    public async Task AJobWhoseWorkReturnsOnceCancelledEndsCancelled()
+    {
+        // The cooling ramp notices a cancel between its steps and RETURNS rather than throwing, as a loop that checks
+        // IsCancellationRequested does; only a cancel that landed in its sleep threw. So a cancelled cool-down ended
+        // Succeeded or Cancelled by timing (#2000's repeat run, CameraOperationTests.ACoolDownAtANamedRateStartsTheRamp).
+        var ct = TestContext.Current.CancellationToken;
+        var jobs = Jobs();
+        var began = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        jobs.TryStartOrJoin("cool", Camera, async (_, token) =>
+        {
+            began.TrySetResult();
+            var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (token.Register(() => cancelled.TrySetResult()))
+            {
+                await cancelled.Task;
+            }
+            return "quit on the cancel";
+        }, out var job).ShouldBeTrue();
+        await began.Task.WaitAsync(ct);
+
+        jobs.TryCancel(job.Id, out _).ShouldBeTrue();
+        await UntilEndedAsync(jobs, job.Id, ct);
+
+        jobs.TryGet(job.Id, out var ended).ShouldBeTrue();
+        ended.State.ShouldBe(JobState.Cancelled);
+    }
 }
