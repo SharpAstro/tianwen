@@ -380,7 +380,16 @@ Tracked by #2040; validated on hardware by #2041 (one card per mount and connect
 | 2 | an id we wrote into it | ZWO custom id (USB3 cameras); the `TW@` UUID in a spare LX200/OnStep site slot |
 | 3 | its USB bridge chip's serial (`portIdentity=device`) | the device when the chip is built in (EQ6-R Pro), the cable when it is in an adapter (FTDI HBX, AZ-GTi) |
 | 4 | its USB socket (`portIdentity=socket`) | CH340, older Prolific |
-| 5 | its COM name (`portIdentity=name`), or over the network its host address | a motherboard or virtual port; Skywatcher over WiFi (`Skywatcher_<model>_<fw>_<ip>`), and LX200/OnStep without a UUID; a Sky-Watcher dongle in AP mode is usually 192.168.4.1 whatever the mount |
+| 5 | its COM name (`portIdentity=name`), or over the network its host address | a motherboard or virtual port; Skywatcher over WiFi (`Skywatcher_<model>_<fw>_<ip>`), and LX200/OnStep without a UUID |
+
+**Over WiFi the host address is the weakest rung, and the mode decides how weak.** In access-point mode the unit hosts its
+own network at a fixed address (a Sky-Watcher dongle is usually 192.168.4.1, whatever the mount), so the address names
+nothing; in station mode it joins the home network and takes whatever DHCP hands it, unique but free to change. One mount is
+therefore a different id per mode, and in station mode can change id by itself. What is the same in both is the radio's MAC
+address, which the host reads from its own ARP table for the address it reached (no help from the mount): the network twin
+of the USB bridge serial (rung 3), naming the mount where its WiFi is built in (AZ-GTi, an OnStep controller) and the dongle
+where it is not (the EQ6-R's HBX dongle). Step 3 keys a network device on its MAC, the address in the query as `port` is
+(#2040).
 | 6 | model plus firmware: EVIDENCE in matching, never in the id | every port-keyed family |
 | 7 | model alone: the selected profile's device when it is the one candidate | every port-keyed family |
 
