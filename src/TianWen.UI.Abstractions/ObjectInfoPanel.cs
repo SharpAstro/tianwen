@@ -99,6 +99,10 @@ namespace TianWen.UI.Abstractions
         /// has no site or no night, the rule rise/set already follows, so the FITS viewer passes nothing and is unchanged.
         /// The host draws into <see cref="NightCurveFillKey"/>.
         /// </param>
+        /// <param name="NightCurvePending">
+        /// True while the host's curve is still being computed off the render thread: the section's height is reserved, its slot
+        /// empty, so the panel does not grow under the pointer when the curve lands.
+        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
@@ -109,7 +113,12 @@ namespace TianWen.UI.Abstractions
             string? Disk = null,
             bool Disc = false,
             string? DiscCredit = null,
-            AtlasNightCurve? NightCurve = null);
+            AtlasNightCurve? NightCurve = null,
+            bool NightCurvePending = false);
+
+        /// <summary>Whether the panel has a night curve section: a curve to draw, or one on its way.</summary>
+        public static bool HasNightCurveSection(in PanelDisplayOptions options)
+            => options.NightCurve is not null || options.NightCurvePending;
 
         /// <summary>The key of the night curve slot's <see cref="Layout.Content.Fill"/>, which the host draws the curve into.</summary>
         public const string NightCurveFillKey = "ObjectInfoNightCurve";
@@ -309,7 +318,7 @@ namespace TianWen.UI.Abstractions
             {
                 height += DesignSparklineHeight + 4f;
             }
-            if (options.NightCurve is not null)
+            if (HasNightCurveSection(in options))
             {
                 height += DesignNightCurveSectionHeight;
             }
@@ -462,7 +471,7 @@ namespace TianWen.UI.Abstractions
 
             var minutes = (int)Math.Round(curve.UsableTime.TotalMinutes);
             var usable = $"{minutes / 60}:{minutes % 60:00}";
-            return $"Usable {usable}   {FormatHHMM(start, timeZone)} to {FormatHHMM(end, timeZone)}   {curve.Rating:F1}★";
+            return $"Usable {usable}   {FormatHHMM(start, timeZone)} to {FormatHHMM(end, timeZone)}   {Math.Min(curve.Rating, 5f):F1}★";
         }
 
         /// <summary>
@@ -472,7 +481,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public static Layout.Node? BuildNightCurveSection(in PanelDisplayOptions options, in PanelPalette palette)
         {
-            if (options.NightCurve is not { } curve)
+            if (!HasNightCurveSection(in options))
             {
                 return null;
             }
@@ -480,7 +489,7 @@ namespace TianWen.UI.Abstractions
             return Layout.Builder.VStack(
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin),
                 Layout.Builder.Fill(key: NightCurveFillKey).WStar().HStar().PadX(8f).RowH(DesignNightCurveHeight),
-                Layout.Builder.Text(NightLine(curve, options.TimeZone) ?? "", DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
+                Layout.Builder.Text(options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? "" : "", DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
                     .WStar().HStar().PadX(8f).RowH(DesignRowHeight),
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin));
         }

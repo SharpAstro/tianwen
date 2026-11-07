@@ -406,6 +406,10 @@ namespace TianWen.UI.Abstractions
                 : default;
             var hasCurve = magCurve.Length > 0;
 
+            // The night's altitude curve (#2059): scored once per object and night off this thread, so a pan or a scrub never
+            // rescores it; nothing when there is no site or night, and its height reserved while it is computed.
+            var (nightCurve, nightCurvePending) = NightCurveFor(plannerState, in info);
+
             // What the panel SAYS, which buttons it offers and how big that makes it are all
             // ObjectInfoPanel's, shared with the FITS viewer; where it SITS is still this method's.
             // The atlas passes its own hand-picked chrome colours rather than the theme's, so sharing
@@ -421,7 +425,9 @@ namespace TianWen.UI.Abstractions
                 // A solar-system body's disc (A4): the map's narrowest field shows few of them as more than a dot.
                 Disc: info.Aspect is not null,
                 // And where its texture came from, under it (#1567), once the texture has landed.
-                DiscCredit: info.Aspect is { } discBody && PlanetTextures.TryGet(discBody.Planet, out _, out var discCredit) ? discCredit : null);
+                DiscCredit: info.Aspect is { } discBody && PlanetTextures.TryGet(discBody.Planet, out _, out var discCredit) ? discCredit : null,
+                NightCurve: nightCurve,
+                NightCurvePending: nightCurvePending);
             LastPanelDiscCredit = options.DiscCredit;
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
@@ -539,6 +545,7 @@ namespace TianWen.UI.Abstractions
             RenderLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette),
                 new RectF32(textX, py, textW, textBlockH), scale: Scale);
             var row = textBlockH;
+            (LastNightCurve, LastNightCurveRect) = (null, null);
 
             // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The
             // "now" sample (window centre) is dotted, so the current trend reads at a glance.
@@ -549,12 +556,29 @@ namespace TianWen.UI.Abstractions
                     fontSize);
             }
 
-            // The disc and the picture sit under the rows and the sparkline and above the buttons, not at the top, where
-            // the close affordance would land on them: one stack the engine lays out, both fills drawn here.
+            // The night curve sits under the rows and the sparkline: its slot is a fill the engine places, the curve drawn into it.
+            var belowRows = py + row + 8f * dpiScale
+                + (hasCurve ? (ObjectInfoPanel.DesignSparklineHeight + 4f) * dpiScale : 0f);
+            var nightSectionH = ObjectInfoPanel.HasNightCurveSection(in options) ? ObjectInfoPanel.DesignNightCurveSectionHeight * dpiScale : 0f;
+            if (ObjectInfoPanel.BuildNightCurveSection(in options, in palette) is { } nightSection)
+            {
+                var nightCurveShown = options.NightCurve;
+                RenderLayout(nightSection, new RectF32(px, belowRows, pw, nightSectionH), scale: Scale,
+                    drawFill: (fill, rect) =>
+                    {
+                        if (fill.Key == ObjectInfoPanel.NightCurveFillKey && nightCurveShown is { } shown)
+                        {
+                            (LastNightCurve, LastNightCurveRect) = (shown, rect);
+                            DrawNightCurve(shown, rect, _lastViewingTime);
+                        }
+                    });
+            }
+
+            // The disc and the picture sit under the rows, the sparkline and the night curve and above the buttons, not at the
+            // top, where the close affordance would land on them: one stack the engine lays out, both fills drawn here.
             if (ObjectInfoPanel.BuildMediaSections(in options, in palette, onOpenPicture: ExpandPicture) is { } media)
             {
-                var sectionY = py + row + 8f * dpiScale
-                    + (hasCurve ? (ObjectInfoPanel.DesignSparklineHeight + 4f) * dpiScale : 0f);
+                var sectionY = belowRows + nightSectionH;
                 var picture = options.Picture;
                 RenderLayout(media,
                     new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignMediaHeight(in options) * dpiScale),

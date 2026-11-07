@@ -401,6 +401,24 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// A curve still being scored reserves its section, so the panel is as tall before it lands as after (nothing moves under the
+        /// pointer), with its slot empty and no line; a score that failed reserves nothing.
+        /// </summary>
+        [Fact]
+        public void APendingNightCurveReservesItsSection()
+        {
+            var actions = new ObjectInfoPanel.PanelActions();
+            var plain = new ObjectInfoPanel.PanelDisplayOptions(ShowAltAz: true, ShowRiseSet: true);
+            var pending = plain with { NightCurvePending = true };
+            var landed = plain with { NightCurve = Curve() };
+
+            ObjectInfoPanel.HasNightCurveSection(in pending).ShouldBeTrue();
+            ObjectInfoPanel.HasNightCurveSection(in plain).ShouldBeFalse();
+            ObjectInfoPanel.DesignHeight(in pending, in actions).ShouldBe(ObjectInfoPanel.DesignHeight(in landed, in actions));
+            ObjectInfoPanel.BuildNightCurveSection(in pending, in Palette).ShouldNotBeNull();
+        }
+
+        /// <summary>
         /// Every control that can act lights under the pointer and a link says it is one with the hand
         /// pointer. A disabled Goto does not light, since a press on it does nothing. Raised 2026-09-18: no
         /// panel button in the app lit under the pointer.
