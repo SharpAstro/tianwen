@@ -674,7 +674,10 @@ public sealed class InjectionPopulation
         return new PoolStar(colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray(), _fallbackClips, [], float.PositiveInfinity);
     }
 
-    // A measured saturated star's profiles with its own halo under them, in place of any other; as they were for a star with none.
+    // A measured saturated star's profiles with its own halo under them, in place of any other, and ROUND: its halo is the
+    // residual against the round profile it was measured with (an azimuthal median), and an elongated profile under it lowers the
+    // ring's light by a tenth or more past 8 px (#bright-halos probe: HIP 80609's rendered stars kept 0.71 of their 12 px light).
+    // As they were for a star with none.
     private static ImmutableArray<StarProfile> WithOwnHalo(ImmutableArray<StarProfile> profiles, PoolStar star)
     {
         if (star.OwnHalo.IsDefault || star.OwnHalo.Length != profiles.Length)
@@ -684,7 +687,7 @@ public sealed class InjectionPopulation
         var builder = ImmutableArray.CreateBuilder<StarProfile>(profiles.Length);
         for (var c = 0; c < profiles.Length; c++)
         {
-            builder.Add(profiles[c] with { Outer = star.OwnHalo[c] });
+            builder.Add(profiles[c] with { Outer = star.OwnHalo[c], AxisRatio = 1.0, PositionAngleRad = 0.0 });
         }
         return builder.MoveToImmutable();
     }
@@ -724,6 +727,7 @@ public sealed class InjectionPopulation
         }
         var sky = new List<float>();
         var light = new double[rings];
+        var drawnRing = new double[rings];
         var ratios = new List<float>(MatchToPx - MatchFromPx + 1);
         for (var c = 0; c < channels; c++)
         {
@@ -758,10 +762,32 @@ public sealed class InjectionPopulation
             {
                 light[k] = bins[k].Count > 0 ? (MedianOf(bins[k]) - skyLevel) * scale : 0.0;
             }
+            // The drawn profile read as the star was: the ring median of what the renderer draws per pixel (its quadrature),
+            // not the centre value at the ring's radius, which sits under a convex profile's pixel mean 3 to 5 px out and left
+            // every rendered star a tenth short of its own light past 8 px against its 5 px light.
+            foreach (var bin in bins)
+            {
+                bin.Clear();
+            }
+            for (var y = iy - MeasuredHaloReachPx; y <= iy + MeasuredHaloReachPx; y++)
+            {
+                for (var x = ix - MeasuredHaloReachPx; x <= ix + MeasuredHaloReachPx; x++)
+                {
+                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                    if (r < rings - 0.5)
+                    {
+                        bins[(int)Math.Round(r)].Add((float)drawn[c].PixelMean(x, y, cx, cy));
+                    }
+                }
+            }
+            for (var k = 0; k < rings; k++)
+            {
+                drawnRing[k] = bins[k].Count > 0 ? MedianOf(bins[k]) : drawn[c].UngainedAt(k);
+            }
             ratios.Clear();
             for (var k = MatchFromPx; k <= MatchToPx; k++)
             {
-                var d = drawn[c].UngainedAt(k);
+                var d = drawnRing[k];
                 if (d > 0 && double.IsFinite(light[k]))
                 {
                     ratios.Add((float)(light[k] / d));
@@ -779,7 +805,7 @@ public sealed class InjectionPopulation
             var table = new float[rings];
             for (var k = 2; k < rings; k++)
             {
-                table[k] = (float)((light[k] - (amplitude * drawn[c].UngainedAt(k))) / amplitude * (k == 2 ? 0.5 : 1.0));
+                table[k] = (float)((light[k] - (amplitude * drawnRing[k])) / amplitude * (k == 2 ? 0.5 : 1.0));
             }
             amplitudes.Add(amplitude);
             halos.Add(new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured saturated star"));

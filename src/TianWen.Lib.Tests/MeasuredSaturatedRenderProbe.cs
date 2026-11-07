@@ -46,8 +46,15 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, measuredSaturated: true);
 
             const int size = 161, half = size / 2;
-            var empty = Enumerable.Range(0, channels).Select(_ => new float[size * size]).ToArray();
+            // A plate at the master's sky (unit scale): a star's clip level includes its sky, so on an empty plate a clipped
+            // plateau would stand a sky above the real one.
+            var empty = Enumerable.Range(0, channels).Select(c =>
+            {
+                var plane = plate.GetChannelSpan(c).ToArray().Where(float.IsFinite).Order().ToArray();
+                return Enumerable.Repeat((float)(plane[plane.Length / 2] / divisor), size * size).ToArray();
+            }).ToArray();
             var rendered = new List<double[]>();
+            var unmeasured = new List<double[]>();
             var rng = new Random(3);
             for (var draw = 0; draw < 400 && rendered.Count < 300; draw++)
             {
@@ -57,13 +64,13 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                 {
                     var alone = s with { X = half + (s.X - Math.Round(s.X)), Y = half + (s.Y - Math.Round(s.Y)) };
                     var render = StarInjection.Render(empty, size, size, null, [alone], [.. Enumerable.Repeat(1e-9, channels)], new Random(draw));
-                    rendered.Add(Rings(render.Planes[Math.Min(1, channels - 1)], size, alone.X, alone.Y));
+                    (alone.Profiles[0].Outer.Source == "measured saturated star" ? rendered : unmeasured).Add(Rings(render.Planes[Math.Min(1, channels - 1)], size, alone.X, alone.Y));
                 }
             }
             // The master's own saturated stars, read the same way (ring medians against a 32-36 px median sky), green.
             var real = new List<double[]>();
             var g = master.GetChannelSpan(Math.Min(1, channels - 1)).ToArray();
-            foreach (var s in catalogue.Where(static s => s.Saturated && s.Outcome == StarFitOutcome.Subtracted))
+            foreach (var s in catalogue.Where(s => InjectionPopulation.InSaturatedPool(s, channels)))
             {
                 var (ix, iy) = ((int)Math.Round(s.X), (int)Math.Round(s.Y));
                 if (ix < 40 || iy < 40 || ix >= master.Width - 40 || iy >= master.Height - 40)
@@ -84,6 +91,7 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                 $"{name} n={v.Count,4}  8/5 {Med(v.Select(r => r[1] / r[0])):F3}  12/5 {Med(v.Select(r => r[2] / r[0])):F4}  20/5 {Med(v.Select(r => r[3] / r[0])):F4}";
             output.WriteLine($"{sessionId}");
             output.WriteLine("  " + Line("rendered", rendered));
+            output.WriteLine("  " + Line("unmeasrd", unmeasured));
             output.WriteLine("  " + Line("master  ", real));
         }
     }
