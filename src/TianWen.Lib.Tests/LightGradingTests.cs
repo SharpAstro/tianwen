@@ -343,6 +343,35 @@ public class LightGradingTests
     }
 
     /// <summary>
+    /// #2005: the stacker grades a CALIBRATED light, whose patchiness a flat roughly halves (2026-09-10: 2.64 against 5.40 raw at the
+    /// clearest), while a clear-night reference is recorded from raw frames. Compared on the calibrated scale a cloudy run's
+    /// clearest looked like the reference's and the run judged itself; with the raw light's patchiness carried for the reference
+    /// (<see cref="LightGrade.ReferencePatchiness"/>) it is judged against the reference, and within the run nothing changes.
+    /// </summary>
+    [Fact]
+    public void AReferenceIsComparedOnTheRawScaleWhileTheRunKeepsItsCalibratedOne()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var referenceNight = new DateOnly(2026, 6, 1);
+        var references = ClearReference("LMC", referenceNight, 1000f, 2f);
+        // Raw patchiness 2.6-3.5 (1.3x the reference's 2.0 and more), calibrated half that.
+        var calibratedOnly = Enumerable.Range(0, 10)
+            .Select(i => ($"lmc{i}", Run("LMC", 2200f + i * 20, 1.3f + i * 0.05f, night))).ToArray();
+        var withRaw = calibratedOnly.Select(e => (e.Item1, e.Item2 with { ReferencePatchiness = e.Item2.Patchiness * 2f })).ToArray();
+        var before = Grades(calibratedOnly);
+        var after = Grades(withRaw);
+
+        foreach (var (name, _) in calibratedOnly)
+        {
+            LightGrading.Verdict(before, before[name], references).ReferenceNight.ShouldBe(default, "calibrated, its clearest reads as the reference's");
+            var verdict = LightGrading.Verdict(after, after[name], references);
+            verdict.ReferenceNight.ShouldBe(referenceNight, "on the raw scale its clearest is 1.3x the reference's");
+            (verdict.Causes & GradeCause.Cloud).ShouldBe(GradeCause.Cloud);
+            LightGrading.RelativePatchiness(after, after[name]).ShouldBe(LightGrading.RelativePatchiness(before, before[name]), "the run's own scale is untouched");
+        }
+    }
+
+    /// <summary>
     /// A reference read from a hand-edited <c>clear-sky.json</c> may carry no objects at all (a default array): it still grades,
     /// the sky ratio alone deciding.
     /// </summary>
