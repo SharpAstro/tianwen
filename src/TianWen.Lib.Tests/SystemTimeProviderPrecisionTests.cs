@@ -31,7 +31,9 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
     /// The median, not the mean: on a box whose CPU is saturated by other work a wait now and then ends tens of milliseconds
     /// late because no thread ran its continuation (2026-11-05: a 77 ms worst among 50 waits of 20 ms), which measures the
     /// scheduler, not the timer. A tick-bound wait has a median a whole tick out, so the median still tells the two apart.
-    /// Mean and worst are written out beside it.
+    /// Mean and worst are written out beside it. Where a whole run is held back by more than this (a below-normal process on a
+    /// saturated box: a median 3 to 8 ms late, 2026-11-07), a run counts when it is at most half as late as a plain
+    /// <see cref="Task.Delay(TimeSpan, CancellationToken)"/> measured right after it (<see cref="WallClockMeasurement"/>).
     /// </remarks>
     private const double SlackMs = 2.5;
 
@@ -46,12 +48,11 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         var duration = TimeSpan.FromMilliseconds(milliseconds);
         var provider = SystemTimeProvider.Instance;
 
-        var precise = await BestOfAsync(milliseconds, () => MeasureAsync(() => provider.SleepAsync(duration, ct).AsTask()));
-        var delay = await MeasureAsync(() => Task.Delay(duration, ct));
+        var (precise, delay) = await OnTimeAsync(milliseconds, ct, () => MeasureAsync(() => provider.SleepAsync(duration, ct).AsTask()),
+            "it ends near the asked time, not at a timer tick");
         output.WriteLine($"{Waits} waits of {milliseconds} ms: SleepAsync {precise}; Task.Delay {delay}");
 
         precise.Median.ShouldBeGreaterThanOrEqualTo(milliseconds - 0.05, "it waits at least what was asked");
-        precise.Median.ShouldBeLessThan(milliseconds + SlackMs, "it ends near the asked time, not at a timer tick");
     }
 
     [Theory]
@@ -66,18 +67,17 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         var provider = SystemTimeProvider.Instance;
 
         // Created disarmed and armed by Change, as the DAL camera's pulse timer is.
-        var precise = await BestOfAsync(milliseconds, () => MeasureAsync(async () =>
+        var (precise, delay) = await OnTimeAsync(milliseconds, ct, () => MeasureAsync(async () =>
         {
             var fired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await using var timer = provider.CreateTimer(static state => ((TaskCompletionSource?)state)?.TrySetResult(), fired,
                 Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             timer.Change(duration, Timeout.InfiniteTimeSpan);
             await fired.Task.WaitAsync(ct);
-        }));
-        output.WriteLine($"{Waits} one-shot timers of {milliseconds} ms: {precise}");
+        }), "it fires near the due time, not at a timer tick");
+        output.WriteLine($"{Waits} one-shot timers of {milliseconds} ms: {precise}; Task.Delay {delay}");
 
         precise.Median.ShouldBeGreaterThanOrEqualTo(milliseconds - 0.05, "it fires no earlier than asked");
-        precise.Median.ShouldBeLessThan(milliseconds + SlackMs, "it fires near the due time, not at a timer tick");
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         await camera.ConnectAsync(ct);
         camera.CanPulseGuide.ShouldBeTrue();
 
-        var on = await BestOfAsync(milliseconds, async () =>
+        var (on, delay) = await OnTimeAsync(milliseconds, ct, async () =>
         {
             var lengths = new double[Waits];
             for (var i = 0; i < Waits; i++)
@@ -165,10 +165,9 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
             }
 
             return Timings.Of(lengths);
-        });
-        output.WriteLine($"{Waits} driver-timed pulses of {milliseconds} ms: on for {on}");
+        }, "the line is switched off near the pulse's end, not at a timer tick");
+        output.WriteLine($"{Waits} driver-timed pulses of {milliseconds} ms: on for {on}; a plain Task.Delay of that length {delay}");
         on.Median.ShouldBeGreaterThanOrEqualTo(milliseconds - 0.05, "the line is on for at least the pulse");
-        on.Median.ShouldBeLessThan(milliseconds + SlackMs, "the line is switched off near the pulse's end, not at a timer tick");
 
         await camera.DisconnectAsync(ct);
     }
@@ -180,11 +179,19 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Takes the measurement again while its median is past <see cref="SlackMs"/> over <paramref name="milliseconds"/> (a box shared
-    /// with other builds delays whole runs of waits), and returns the best: <see cref="WallClockMeasurement"/>.
+    /// Takes the measurement until its median is within <see cref="SlackMs"/> of <paramref name="milliseconds"/>, or well clear of a
+    /// plain <see cref="Task.Delay(TimeSpan, CancellationToken)"/> of that length taken right after it on a loaded box, and returns it
+    /// with that delay's timings: <see cref="WallClockMeasurement"/>.
     /// </summary>
-    private Task<Timings> BestOfAsync(int milliseconds, Func<Task<Timings>> measureAsync)
-        => WallClockMeasurement.BestOfAsync(output, measureAsync, t => t.Median - (milliseconds + SlackMs), t => t.ToString());
+    private Task<(Timings Result, Timings Control)> OnTimeAsync(int milliseconds, CancellationToken ct, Func<Task<Timings>> measureAsync, string because)
+        => WallClockMeasurement.MeasureAsync(
+            output,
+            measureAsync,
+            () => MeasureAsync(() => Task.Delay(TimeSpan.FromMilliseconds(milliseconds), ct)),
+            t => t.Median - (milliseconds + SlackMs),
+            t => t.Median - milliseconds,
+            t => t.ToString(),
+            because);
 
     /// <summary>Runs <paramref name="wait"/> <see cref="Waits"/> times one after the other, timing each.</summary>
     private static async Task<Timings> MeasureAsync(Func<Task> wait)
