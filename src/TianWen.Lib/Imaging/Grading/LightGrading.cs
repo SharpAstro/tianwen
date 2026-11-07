@@ -60,7 +60,16 @@ public readonly record struct LightGradeKey(
 /// </summary>
 public readonly record struct LightGrade(LightGradeKey Key, FrameMetrics Metrics, float Score, float Patchiness = float.NaN,
     TwilightPeriod? Twilight = null, float SkyLevel = float.NaN, DateOnly Night = default, DateTimeOffset Taken = default, string Rig = "",
-    double SiteLatitude = double.NaN, double SiteLongitude = double.NaN);
+    double SiteLatitude = double.NaN, double SiteLongitude = double.NaN, float ReferencePatchiness = float.NaN)
+{
+    /// <summary>
+    /// The patchiness on the scale a clear-night reference is recorded on, the RAW frame's (#2005): <see cref="ReferencePatchiness"/>
+    /// where a caller grading a calibrated frame read it off the raw light, else <see cref="Patchiness"/>, which the viewer reads raw.
+    /// A flat divides out the vignetting a raw frame's surface fit cannot absorb, so the two scales differ by about 2x (2026-09-10,
+    /// QHY294C: 5.40 raw against 2.64 calibrated at the clearest tenth), far past <see cref="LightGrading.CloudFrom"/>.
+    /// </summary>
+    public float OnReferenceScale => float.IsFinite(ReferencePatchiness) ? ReferencePatchiness : Patchiness;
+}
 
 /// <summary>What a rig's clearest tenth of patchiness read on one clear night, for one object.</summary>
 public readonly record struct LightGradeObjectClearest(string ObjectKey, float Clearest);
@@ -332,7 +341,7 @@ public static class LightGrading
         ImmutableDictionary<string, LightGrade> grades, in LightGrade grade, ImmutableArray<LightGradeReference> references,
         float patchiness, float local, float nightSky)
     {
-        var readable = (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f) || float.IsFinite(grade.Patchiness);
+        var readable = (float.IsFinite(grade.SkyLevel) && grade.SkyLevel > 0f) || float.IsFinite(grade.OnReferenceScale);
         if (!readable)
         {
             return (patchiness, local, nightSky, default, false);
@@ -369,13 +378,16 @@ public static class LightGrading
                 referenceClearest = o.Clearest;
             }
         }
-        var patchinessKnown = referenceClearest > 0f && float.IsFinite(grade.Patchiness);
+        // The reference was recorded from raw frames, so the run's clearest and the frame are read on that scale too (#2005); within
+        // the run every frame is compared on the calibrated scale it was graded on.
+        var onReferenceScale = grade.OnReferenceScale;
+        var patchinessKnown = referenceClearest > 0f && float.IsFinite(onReferenceScale);
         if (patchinessKnown
-            && !(baselines.ClearestPatchiness.TryGetValue(new RigGroup(grade.Key, grade.Rig), out var clearest) && clearest / referenceClearest >= CloudFrom))
+            && !(baselines.ClearestOnReferenceScale.TryGetValue(new RigGroup(grade.Key, grade.Rig), out var clearest) && clearest / referenceClearest >= CloudFrom))
         {
             return (patchiness, local, nightSky, default, false);
         }
-        return (patchinessKnown ? grade.Patchiness / referenceClearest : patchiness, float.NaN, grade.SkyLevel / chosen.NightDarkestSky, chosen.Night, false);
+        return (patchinessKnown ? onReferenceScale / referenceClearest : patchiness, float.NaN, grade.SkyLevel / chosen.NightDarkestSky, chosen.Night, false);
     }
 
     /// <summary>The fewest clear frames of one night and rig that make a reference of it (#1976).</summary>
@@ -455,13 +467,14 @@ public static class LightGrading
             Dictionary<string, List<float>> byObject = [];
             foreach (var grade in clear)
             {
-                if (float.IsFinite(grade.Patchiness) && grade.Patchiness > 0f)
+                var onReferenceScale = grade.OnReferenceScale;
+                if (float.IsFinite(onReferenceScale) && onReferenceScale > 0f)
                 {
                     if (!byObject.TryGetValue(grade.Key.ObjectKey, out var list))
                     {
                         byObject[grade.Key.ObjectKey] = list = [];
                     }
-                    list.Add(grade.Patchiness);
+                    list.Add(onReferenceScale);
                 }
             }
             var objects = ImmutableArray.CreateBuilder<LightGradeObjectClearest>();
@@ -728,6 +741,7 @@ public static class LightGrading
     {
         public Dictionary<LightGradeKey, float> BestScore { get; } = [];
         public Dictionary<RigGroup, float> ClearestPatchiness { get; } = [];
+        public Dictionary<RigGroup, float> ClearestOnReferenceScale { get; } = [];
         public Dictionary<NightGroup, float> NightDarkest { get; } = [];
         public Dictionary<TimedGroup, float> LocalFloor { get; } = [];
         public Dictionary<TimedGroup, float> LocalNoise { get; } = [];
@@ -741,6 +755,7 @@ public static class LightGrading
         public Baselines Build()
         {
             Dictionary<RigGroup, List<float>> patchiness = [];
+            Dictionary<RigGroup, List<float>> onReferenceScale = [];
             Dictionary<NightGroup, List<float>> sky = [];
             Dictionary<RigGroup, List<(DateTimeOffset Taken, float Patchiness)>> timed = [];
             Dictionary<RigGroup, List<(DateTimeOffset Taken, float Patchiness)>> timedStars = [];
@@ -753,6 +768,10 @@ public static class LightGrading
                 if (grade.Twilight is not null)
                 {
                     continue;
+                }
+                if (float.IsFinite(grade.OnReferenceScale))
+                {
+                    Add(onReferenceScale, new RigGroup(grade.Key, grade.Rig), grade.OnReferenceScale);
                 }
                 if (float.IsFinite(grade.Patchiness))
                 {
@@ -775,6 +794,10 @@ public static class LightGrading
             foreach (var (key, values) in patchiness)
             {
                 ClearestPatchiness[key] = Tenth(values);
+            }
+            foreach (var (key, values) in onReferenceScale)
+            {
+                ClearestOnReferenceScale[key] = Tenth(values);
             }
             foreach (var (key, values) in sky)
             {
