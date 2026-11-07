@@ -4,6 +4,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 
 | Plan | Status |
 |------|--------|
+| [yearly-planner](yearly-planner.md) | **NOT STARTED** (added 2026-11-07): the atlas info box's night altitude curve with the planner's usable part shaded, its hours and rating (A); best months per object (B); a planner year mode (C); later nights' plans listed (D). |
 | [camera-cooling](camera-cooling.md) | **PARTIAL** (added 2026-10-26; #1840, #1839 and #1842 shipped): cool and warm a camera at a maximum rate in °C a minute (#1839), one warm-up path (#1840), the profile's settings on every path (#1841), and a warm-up target from a real ambient reading (#388, #1842, #1843). |
 | [mcp](mcp.md) | **PARTIAL** (added to this table 2026-09-25): `tianwen-mcp` ships only the Fits, Catalog and Log tools; Phases B' to H are not built (#549, #687; #787 is closed). |
 | [android-host](android-host.md) | **NOT STARTED** (added 2026-09-25): an Android host, P0 an atlas-only shell, then P1-P4 and a PWA track (#829). |
