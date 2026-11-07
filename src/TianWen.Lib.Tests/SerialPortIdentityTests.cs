@@ -72,14 +72,15 @@ public class SerialPortIdentityTests
         Identity(first, first).NamesTheDeviceInItsId.ShouldBeTrue();
     }
 
+    /// <summary>A socket key names the device too since #2040 (the same whatever COM number Windows hands it); a bare name never does.</summary>
     [Fact]
-    public void ASocketOrNameKeyNeverNamesTheDeviceInItsId()
+    public void ASocketKeyNamesTheDeviceInItsIdAndANameKeyNever()
     {
         var socket = new SerialPortInfo("COM13") { LocationPath = "PCIROOT(0)#USB(3)" };
         var plain = new SerialPortInfo("COM1");
 
         IReadOnlyList<SerialPortInfo> listed = [socket, plain];
-        SerialPortIdentity.Of(socket, listed).NamesTheDeviceInItsId.ShouldBeFalse();
+        SerialPortIdentity.Of(socket, listed).NamesTheDeviceInItsId.ShouldBeTrue();
         SerialPortIdentity.Of(plain, listed).NamesTheDeviceInItsId.ShouldBeFalse();
     }
 }

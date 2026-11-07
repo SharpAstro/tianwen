@@ -42,6 +42,7 @@ internal sealed class QfocSerialProbe(ITimeProvider timeProvider) : ISerialProbe
         var portParam = $"{DeviceQueryKey.Port.Key}={Uri.EscapeDataString(port)}";
         var uri = new Uri($"{DeviceType.Focuser}://{typeof(QHYDevice).Name}/{deviceId}?{portParam}#{displayName}");
 
-        return new SerialProbeMatch(port, uri);
+        // The firmware is evidence, never identity (#2040).
+        return new SerialProbeMatch(port, uri.WithQueryValues((DeviceQueryKey.Firmware.Key, firmwareVersion)));
     }
 }

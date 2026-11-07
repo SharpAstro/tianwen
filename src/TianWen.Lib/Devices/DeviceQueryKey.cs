@@ -99,6 +99,14 @@ public enum DeviceQueryKey
     /// state, written by discovery.
     /// </summary>
     PortKey,
+
+    /// <summary>
+    /// The firmware the device reported when discovery last saw it (#2040): a Skywatcher's motor board, a SkyGuider Pro's
+    /// date code, an LX200/OnStep mount's <c>:GVN#</c>, a Gemini or QFOC board's version. EVIDENCE, never identity: an update
+    /// changes it, so it is kept out of every device id and matched on by <c>FollowMovedPort</c>. Transport state, written by
+    /// discovery.
+    /// </summary>
+    Firmware,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -121,6 +129,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.WpdDeviceId => true,
             DeviceQueryKey.PortIdentity => true,
             DeviceQueryKey.PortKey => true,
+            DeviceQueryKey.Firmware => true,
             _ => false
         };
 
@@ -168,6 +177,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.ReadoutMode => "readoutMode",
             DeviceQueryKey.PortIdentity => "portIdentity",
             DeviceQueryKey.PortKey => "portKey",
+            DeviceQueryKey.Firmware => "firmware",
             _ => key.ToString().ToLowerInvariant()
         };
     }
