@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -32,6 +33,15 @@ public partial class Image
     /// that do are RGGB -- so the copy it now costs is paid by nobody today.</para>
     /// </remarks>
     public Task<Image> DebayerAsync(DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit = false, CancellationToken cancellationToken = default)
+        => DebayerAsync(debayerAlgorithm, normalizeToUnit, logger: null, cancellationToken);
+
+    /// <inheritdoc cref="DebayerAsync(DebayerAlgorithm, bool, CancellationToken)"/>
+    /// <param name="debayerAlgorithm">The algorithm.</param>
+    /// <param name="normalizeToUnit">Whether to normalise the samples to <c>[0, 1]</c>.</param>
+    /// <param name="logger">AHD says at Debug when a colour's CFA gain is left at unity (#1991, see
+    /// <see cref="GetCfaGains"/>), so a frame that skipped the equalisation can be told from one that had it. Null says nothing.</param>
+    /// <param name="cancellationToken">Cancels the interpolation.</param>
+    public Task<Image> DebayerAsync(DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit, ILogger? logger, CancellationToken cancellationToken = default)
     {
         // NO-OP for monochrome or full colour images
         if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
@@ -48,7 +58,7 @@ public partial class Image
         {
             DebayerAlgorithm.BilinearMono => DebayerBilinearMonoAsync(scale, cancellationToken),
             DebayerAlgorithm.VNG => DebayerVNGAsync(scale, cancellationToken),
-            DebayerAlgorithm.AHD => DebayerAHDAsync(scale, cancellationToken),
+            DebayerAlgorithm.AHD => DebayerAHDAsync(scale, cancellationToken, logger: logger),
             DebayerAlgorithm.MHC => DebayerMHCAsync(scale, cancellationToken),
             DebayerAlgorithm.None => throw new ArgumentException("Must specify an algorithm", nameof(debayerAlgorithm)),
             _ => throw new NotSupportedException($"Debayer algorithm {debayerAlgorithm} is not supported"),
@@ -84,6 +94,16 @@ public partial class Image
     /// pixels; warp consumers typically add 1 more for bilinear sampling) so
     /// the pixels they care about have valid neighbours inside the rect.</param>
     public Task<Image> DebayerRegionIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, PixelRect sourceRect, CancellationToken cancellationToken = default)
+        => DebayerRegionIntoAsync(destination, debayerAlgorithm, sourceRect, logger: null, cancellationToken);
+
+    /// <inheritdoc cref="DebayerRegionIntoAsync(Channel[], DebayerAlgorithm, PixelRect, CancellationToken)"/>
+    /// <param name="destination">Pre-allocated full-canvas channels.</param>
+    /// <param name="debayerAlgorithm">Only AHD is sub-region aware.</param>
+    /// <param name="sourceRect">Pixel rect in source-frame coordinates, halo included.</param>
+    /// <param name="logger">As for <see cref="DebayerAsync(DebayerAlgorithm, bool, ILogger, CancellationToken)"/>. The gains
+    /// are cached per frame, so a frame's strips say it once, from the first one.</param>
+    /// <param name="cancellationToken">Cancels the interpolation.</param>
+    public Task<Image> DebayerRegionIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, PixelRect sourceRect, ILogger? logger, CancellationToken cancellationToken = default)
     {
         var destArrays = new float[destination.Length][,];
         for (var c = 0; c < destination.Length; c++) destArrays[c] = destination[c].Data;
@@ -100,7 +120,7 @@ public partial class Image
 
         return debayerAlgorithm switch
         {
-            DebayerAlgorithm.AHD => DebayerAHDAsync(scale: 1.0f, cancellationToken, destArrays, sourceRect),
+            DebayerAlgorithm.AHD => DebayerAHDAsync(scale: 1.0f, cancellationToken, destArrays, sourceRect, logger),
             _ => throw new NotSupportedException(
                 $"DebayerRegionIntoAsync currently only supports AHD on Bayer sources; {debayerAlgorithm} would need a sub-region overload of its inner loop."),
         };
@@ -863,10 +883,12 @@ public partial class Image
     /// The red and blue gains relative to green (#1991), from each colour's OWN photosites (never a
     /// statistic across the mixed mosaic): the median of a row-strided sample of that colour. One pair per
     /// frame, whole-frame, so every strip of <see cref="DebayerRegionIntoAsync"/> uses the same one.
-    /// Unity for a non-positive, non-finite or out-of-[0.25, 4] level. Cached on the first debayer, so an in-place
+    /// Unity for a non-positive, non-finite or out-of-[0.25, 4] level, and that fallback is said at Debug
+    /// (once per frame, the result being cached) naming the colour and the levels: a frame that skips the equalisation
+    /// reads like any other afterwards. Cached on the first debayer, so an in-place
     /// mutator (<c>Calibrator.Apply</c>) must run BEFORE a frame is debayered; no caller debayers first.
     /// </summary>
-    private (float R, float B) GetCfaGains(int[,] bayerPattern)
+    private (float R, float B) GetCfaGains(int[,] bayerPattern, ILogger? logger)
     {
         if (_cfaGains is { } cached) return (cached[0], cached[1]);
 
@@ -903,19 +925,27 @@ public partial class Image
         var mB = Median(buffers[2], counts[2]);
         // Bounded like dcraw's pre_mul: a near-zero sky or a line-selective filter must not multiply that colour's
         // noise by hundreds into the green interpolation, so a ratio outside [0.25, 4] falls back to unity.
-        static float Bounded(float m, float g)
+        float Bounded(string colour, float m, float g)
         {
             var r = m / g;
-            return m > 0f && g > 0f && float.IsFinite(r) && r is >= 0.25f and <= 4f ? r : 1f;
+            if (m > 0f && g > 0f && float.IsFinite(r) && r is >= 0.25f and <= 4f)
+            {
+                return r;
+            }
+
+            logger?.LogDebug(
+                "  [debayer] {Colour} CFA gain left at unity: median {Median:G4} against green {Green:G4} (ratio {Ratio:G4}) is not a positive ratio in [0.25, 4], so that colour is not equalised before AHD in this frame",
+                colour, m, g, r);
+            return 1f;
         }
 
-        var gR = Bounded(mR, mG);
-        var gB = Bounded(mB, mG);
+        var gR = Bounded("red", mR, mG);
+        var gB = Bounded("blue", mB, mG);
         _cfaGains = [gR, gB];
         return (gR, gB);
     }
 
-    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, PixelRect? sourceRect = null)
+    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, PixelRect? sourceRect = null, ILogger? logger = null)
     {
         var width = Width;
         var height = Height;
@@ -993,7 +1023,7 @@ public partial class Image
 
         // Equalise the CFA gains (#1991): a scratch mosaic with R and B divided by their gain to
         // green, over every photosite phase 1 and the edge fill can read. Undone on write in phase 4.
-        var (gainR, gainB) = GetCfaGains(bayerPattern);
+        var (gainR, gainB) = GetCfaGains(bayerPattern, logger);
         using var eqMosaic = Array2DPool<float>.RentScoped(height, width);
         var srcChannel = eqMosaic.Array;
         {

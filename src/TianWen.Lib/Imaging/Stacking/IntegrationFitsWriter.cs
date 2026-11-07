@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -139,7 +140,9 @@ public static class IntegrationFitsWriter
     /// <see cref="BitMatrix"/> per channel, written beside the master as
     /// <see cref="BadPixelMapSuffix"/>. Null writes none, which is what a run with no matched dark
     /// produces. Note it is on the SENSOR's geometry, not the master's canvas.</param>
-    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null, AlignmentProvenance? alignment = null, BitMatrix[]? badPixelMask = null)
+    /// <param name="logger">Optional. Says at Debug when the stale saturation sidecar of an earlier run could not be
+    /// removed, naming the file: left there, a later reader of the folder would take it for this run's.</param>
+    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null, AlignmentProvenance? alignment = null, BitMatrix[]? badPixelMask = null, ILogger? logger = null)
     {
         var extras = new Dictionary<string, (object Value, string Comment)>
         {
@@ -228,7 +231,9 @@ public static class IntegrationFitsWriter
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // Left for the next run that writes this master to remove.
+                    // Left for the next run that writes this master to remove; said, because a file that stays is read
+                    // by SPCC as THIS run's saturation map.
+                    logger?.LogDebug(ex, "  [saturation] could not remove the stale sidecar {Path} of an earlier run; it stays beside the master and describes a different stack", stale);
                 }
             }
         }

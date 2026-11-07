@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Geometry;
@@ -46,7 +47,7 @@ public class DebayerAhdGainEqualisationTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
 
-        AssertSources(await DebayerInStripsAsync(BuildMosaic(), ct));
+        AssertSources(await DebayerInStripsAsync(BuildMosaic(), logger: null, ct));
     }
 
     /// <summary>
@@ -61,7 +62,10 @@ public class DebayerAhdGainEqualisationTests(ITestOutputHelper output)
     /// own bias on a compact star, the same with no cast at all (so not the gain, which the control holds to 0.25), and
     /// it comes from the 3x3 median on the colour differences (1.7 points) and the H/V homogeneity pick (the rest).
     /// Making those two flux-neutral changes every OSC master's AHD output, so it is its own change (#2053); the owner's
-    /// controller set the 3.5 percent bound for this one (#1991).
+    /// controller set the 3.5 percent bound for this one (#1991: option A of the two the flight put to it, 3.5 at 2.2 and
+    /// 3 at 2.0, in place of relaxing both or leaving the Done-when's 3 percent red). <b>When #2053 lands, take the FWHM 2.2
+    /// row back to 0.03 and re-pin the AHD hash in <c>DebayerRegressionTests</c></b> (its to-do list says the same, so the
+    /// relaxation cannot outlive the fix).
     /// </summary>
     [Theory]
     [InlineData(2.2, 0.035)]
@@ -75,7 +79,7 @@ public class DebayerAhdGainEqualisationTests(ITestOutputHelper output)
 
         var (ahdRg, ahdBg, ahdShift) = PhaseMean(
             await cast.DebayerAsync(DebayerAlgorithm.AHD, normalizeToUnit: false, cancellationToken: ct), sources, GainR, GainB);
-        var (stripRg, stripBg, stripShift) = PhaseMean(await DebayerInStripsAsync(cast, ct), sources, GainR, GainB);
+        var (stripRg, stripBg, stripShift) = PhaseMean(await DebayerInStripsAsync(cast, logger: null, ct), sources, GainR, GainB);
         var (unityRg, unityBg, _) = PhaseMean(
             await unity.DebayerAsync(DebayerAlgorithm.AHD, normalizeToUnit: false, cancellationToken: ct), sources, 1f, 1f);
         var (mhcRg, mhcBg, _) = PhaseMean(
@@ -100,7 +104,41 @@ public class DebayerAhdGainEqualisationTests(ITestOutputHelper output)
         }
     }
 
-    private static async Task<Image> DebayerInStripsAsync(Image image, System.Threading.CancellationToken ct)
+    /// <summary>
+    /// A gain outside [0.25, 4] against green (a near-zero sky, a line-selective filter) is left at unity rather than
+    /// multiplying that colour's noise into the green interpolation, and a frame that skipped the equalisation says so at
+    /// Debug, naming the colour: it reads like any other frame afterwards. Only the colour that fell back is named, a
+    /// frame that equalised both says nothing, and a frame's strips say it once (the gains are one pair per frame).
+    /// </summary>
+    [Theory]
+    [InlineData(10f, 1.3f, "red")]
+    [InlineData(3f, 0.1f, "blue")]
+    [InlineData(3f, 1.3f, null)]
+    public async Task AGainThatFallsBackToUnityIsSaidAtDebugAndOnlyThatOne(float gainR, float gainB, string? fallsBack)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fullFrameLog = new RecordingLogger();
+        await BuildMosaic(Sources, Size, gainR, gainB).DebayerAsync(DebayerAlgorithm.AHD, normalizeToUnit: false, fullFrameLog, ct);
+        // A second frame for the strips: the gains are cached on the one they were measured on.
+        var stripsLog = new RecordingLogger();
+        await DebayerInStripsAsync(BuildMosaic(Sources, Size, gainR, gainB), stripsLog, ct);
+
+        foreach (var log in new[] { fullFrameLog, stripsLog })
+        {
+            if (fallsBack is null)
+            {
+                log.Entries.ShouldBeEmpty();
+            }
+            else
+            {
+                var said = log.Entries.ShouldHaveSingleItem();
+                said.Level.ShouldBe(LogLevel.Debug);
+                said.Message.ShouldContain($"{fallsBack} CFA gain left at unity");
+            }
+        }
+    }
+
+    private static async Task<Image> DebayerInStripsAsync(Image image, ILogger? logger, System.Threading.CancellationToken ct)
     {
         // Only a call's own rect is valid afterwards: it also writes intermediate values into its halo rows outside the rect
         // (which is why TilePipelinedStrategy samples only inside it). So each strip's rows are copied out before the next
@@ -110,7 +148,7 @@ public class DebayerAhdGainEqualisationTests(ITestOutputHelper output)
         // Overlapping strips: each owns 32 rows and re-debayers 8 rows of its neighbour.
         foreach (var (y, h) in new[] { (0, 40), (32, 40), (64, 32) })
         {
-            var strip = await image.DebayerRegionIntoAsync(scratch, DebayerAlgorithm.AHD, new PixelRect(0, y, Size, h), ct);
+            var strip = await image.DebayerRegionIntoAsync(scratch, DebayerAlgorithm.AHD, new PixelRect(0, y, Size, h), logger, ct);
             for (var c = 0; c < 3; c++)
             {
                 for (var row = y; row < y + h; row++)
