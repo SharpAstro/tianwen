@@ -496,13 +496,13 @@ namespace TianWen.UI.Abstractions
 
             return Layout.Builder.VStack(
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin),
-                Layout.Builder.Fill(key: NightCurveFillKey).WStar().HStar().RowH(DesignNightCurveHeight),
+                Layout.Builder.Fill(key: NightCurveFillKey).WStar().RowH(DesignNightCurveHeight),
                 Layout.Builder.Text(
                     options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? ""
                     : options.NightCurveUnavailable ? NightCurveUnavailableLine
                     : "",
                     DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
-                    .WStar().HStar().RowH(DesignRowHeight),
+                    .WStar().RowH(DesignRowHeight),
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin));
         }
 
