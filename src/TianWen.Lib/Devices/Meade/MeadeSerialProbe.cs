@@ -31,7 +31,7 @@ internal sealed class MeadeSerialProbe : ISerialProbe
 
     public async ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken)
     {
-        var (productName, productNumber, siteNames, uuid) = await MeadeDeviceSource.TryGetMountInfo(conn, cancellationToken);
+        var (productName, productNumber, _, uuid) = await MeadeDeviceSource.TryGetMountInfo(conn, cancellationToken);
 
         if (productName is null || productNumber is null || !MeadeDeviceSource.SupportedProductsRegex.IsMatch(productName))
         {
@@ -39,25 +39,10 @@ internal sealed class MeadeSerialProbe : ISerialProbe
         }
 
         var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(port);
-        string deviceId;
-        if (uuid is not null)
-        {
-            deviceId = string.Join('_',
-                MeadeDeviceSource.SafeName(productName),
-                MeadeDeviceSource.SafeName(productNumber),
-                uuid);
-        }
-        else
-        {
-            deviceId = string.Join('_',
-                MeadeDeviceSource.SafeName(productName),
-                MeadeDeviceSource.SafeName(productNumber),
-                MeadeDeviceSource.SafeName(string.Join(',', siteNames)),
-                MeadeDeviceSource.SafeName(portWithoutPrefix));
-        }
+        var deviceId = Lx200DeviceId.Of(productName, uuid, portWithoutPrefix);
 
         var displayName = $"{productName} ({productNumber}) on {portWithoutPrefix}";
         var device = new MeadeDevice(DeviceType.Mount, deviceId, displayName, port);
-        return new SerialProbeMatch(port, device.DeviceUri);
+        return new SerialProbeMatch(port, device.DeviceUri.WithQueryValues((DeviceQueryKey.Firmware.Key, productNumber)));
     }
 }

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Devices.Discovery;
+using TianWen.Lib.Devices.Meade;
 
 namespace TianWen.Lib.Devices.OnStep;
 
@@ -41,7 +42,7 @@ internal sealed class OnStepSerialProbe : ISerialProbe
 
     public async ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken)
     {
-        var (productName, productNumber, siteNames, uuid) = await OnStepDeviceSource.TryGetMountInfo(conn, cancellationToken);
+        var (productName, productNumber, _, uuid) = await OnStepDeviceSource.TryGetMountInfo(conn, cancellationToken);
 
         if (productName is null || productNumber is null || !OnStepDeviceSource.SupportedProductsRegex.IsMatch(productName))
         {
@@ -49,28 +50,12 @@ internal sealed class OnStepSerialProbe : ISerialProbe
         }
 
         var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(port);
-        string deviceId;
-        if (uuid is not null)
-        {
-            deviceId = string.Join('_',
-                OnStepDeviceSource.SafeName(productName),
-                OnStepDeviceSource.SafeName(productNumber),
-                uuid);
-        }
-        else
-        {
-            // No UUID (mount doesn't expose 4 site slots, or slot write failed); fall back
-            // to a port-qualified id so multiple same-model mounts stay distinguishable.
-            // Note: this id is NOT transport-stable; a USB port reshuffle will change it.
-            deviceId = string.Join('_',
-                OnStepDeviceSource.SafeName(productName),
-                OnStepDeviceSource.SafeName(productNumber),
-                OnStepDeviceSource.SafeName(string.Join(',', siteNames)),
-                OnStepDeviceSource.SafeName(portWithoutPrefix));
-        }
+        // No UUID (the mount exposes no spare site slot, or the write failed): a port-qualified id, which discovery swaps
+        // for the USB bridge's serial or socket where it has one (#1090).
+        var deviceId = Lx200DeviceId.Of(productName, uuid, portWithoutPrefix);
 
         var displayName = $"{productName} ({productNumber}) on {portWithoutPrefix}";
         var device = new OnStepDevice(DeviceType.Mount, deviceId, displayName, port);
-        return new SerialProbeMatch(port, device.DeviceUri);
+        return new SerialProbeMatch(port, device.DeviceUri.WithQueryValues((DeviceQueryKey.Firmware.Key, productNumber)));
     }
 }

@@ -298,15 +298,15 @@ mount source; the CLI, server and GUI `Program.cs` all call it.
   SGP, six digits of firmware date). No other registered probe runs at 28800 (the rest use 9600 or
   115200), so it has its baud group, and that port handle, to itself.
 - **The published URI** is
-  `Mount://IOptronDevice/SkyGuider-Pro_<date>_<port>?port=<probed port>#iOptron SkyGuider Pro (<date>) on <port>`,
+  `Mount://IOptronDevice/SkyGuider-Pro_<port>?port=<probed port>&firmware=<date>#iOptron SkyGuider Pro (<date>) on <port>`,
   where `<port>` has lost its `serial:` prefix and `SafeName` turns `_`, `/` and `:` into `-`. The firmware
-  keeps no serial number (see Device Identity below), so the device id is the firmware date plus the port,
-  and a firmware update or a different port makes a different device. The probe's comment expects
-  `ReconcileUri` to carry a stored URI across a port change, but `ReconcileUri` pairs URIs by path
-  (`DeviceBase.SameDevice`), and here the path holds the port.
+  keeps no serial number (see Device Identity below), so the id ends in the port, which discovery swaps for the
+  USB bridge's serial (the FTDI HBX cable: `SkyGuider-Pro_usb-0403-6001-A10MOSEFA`) or the USB socket (the
+  SGP's own Prolific) where the port has one (#1090, #2040). The firmware date is evidence in the query, never
+  in the id, so an update does not make a new device (`device-architecture.md`, "Step 3").
 - **Pinned ports.** `MatchesDeviceHosts` is `IOptronDevice`, so a port a profile pins to an SGP is
   re-verified by this probe alone before the general pass (`SerialProbeService`). Verification compares
-  scheme, host and path, so the date and the port must both still match; otherwise the port falls through
+  scheme, host and path, so the port's own key must still match; otherwise the port falls through
   to the general pass.
 - **`IOptronDeviceSource`** (`ConsumesSerialProbe = true`, `CheckSupportAsync` always true, mounts only)
   turns `ISerialProbeService.ResultsFor("iOptron")` into `IOptronDevice`s, and

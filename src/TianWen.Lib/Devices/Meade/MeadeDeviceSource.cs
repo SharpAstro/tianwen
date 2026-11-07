@@ -40,8 +40,6 @@ internal partial class MeadeDeviceSource(ISerialProbeService probeService) : IDe
         return ValueTask.CompletedTask;
     }
 
-    internal static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
-
     /// <summary>
     /// LX200 mount-info handshake shared by <see cref="MeadeSerialProbe"/>. Issues
     /// <c>:GVP#</c>, <c>:GVN#</c>, and the four site-name queries <c>:GM..GP#</c>;
