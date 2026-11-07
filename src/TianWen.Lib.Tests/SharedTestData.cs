@@ -99,17 +99,16 @@ public static class SharedTestData
         );
     }
 
+    /// <summary>A dated output folder that lives until the calling test ends (<see cref="TestOutput"/>, #2035).</summary>
     internal static string CreateTempTestOutputDir([CallerMemberName] string? subdir = null)
+        => TestOutput.Create(subdir ?? nameof(SharedTestData));
+
+    // The extracted-data cache is read by many tests, so it is the RUN's, never one test's.
+    private static string CreateSharedTestOutputDir()
     {
-        var dir = Directory.CreateDirectory(Path.Combine(
-            Path.GetTempPath(),
-            SubfolderWithDate(subdir ?? nameof(SharedTestData))
-        ));
-
-        return dir.FullName;
+        TestOutput.SweepOnce();
+        return TestOutput.Create(TestOutput.DefaultRoot, DateTimeOffset.Now.Date, TestOutput.RunOwner, nameof(SharedTestData));
     }
-
-    private static string CreateSharedTestOutputDir() => CreateTempTestOutputDir(nameof(SharedTestData));
 
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
 
@@ -155,26 +154,6 @@ public static class SharedTestData
         }
 
         return fullPath;
-    }
-
-    private static string SubfolderWithDate(string subDir)
-    {
-        var name = SharedTestDataAssembly.GetName();
-
-        var date = $"{DateTimeOffset.Now.Date:yyyyMMdd}";
-
-        if (!string.IsNullOrEmpty(name.Name))
-        {
-            return Path.Combine(name.Name, date, subDir);
-        }
-        else if (name.FullName.IndexOf(',') is var comma and > 0)
-        {
-            return Path.Combine(name.FullName[..comma], date, subDir);
-        }
-        else
-        {
-            return Path.Combine(date, subDir);
-        }
     }
 
     private static Stream? OpenGZippedFitsFileStream(string name) => OpenEmbeddedFileStream(name + ".fits.gz");

@@ -845,9 +845,11 @@ public sealed class StackingPipeline(
             ct.ThrowIfCancellationRequested();
             var raw = await lf.LoadFullAsync(ct);
             measuredPixels += (long)raw.Width * raw.Height;
-            // The grade's sky LEVEL is the raw light's, the scale the viewer's references and NightSkyCloudFrom are on (#2003); read
-            // here because calibration consumes the frame.
-            var rawSky = cloudGrades is not null ? LightGrading.RawSkyLevel(raw) : float.NaN;
+            // The grade's sky LEVEL is the raw light's, the scale the viewer's references and NightSkyCloudFrom are on (#2003), and so
+            // is the patchiness a clear-night reference is compared with (#2005); read here because calibration consumes the frame.
+            var (rawSky, rawPatchiness) = cloudGrades is not null
+                ? (LightGrading.RawSkyLevel(raw), raw.SkyPatchiness(raw.ReferenceStarChannel))
+                : (float.NaN, float.NaN);
             var calibrated = calibrator.Apply(raw);
             // BEFORE DetectAsync, whose internal debayer can rescale the calibrated frame in
             // place: the accumulator must see the same values the integration producers' own
@@ -867,8 +869,15 @@ public sealed class StackingPipeline(
             var metrics = FrameRegistration.MetricsFrom(stars);
             if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
             {
-                // Patchiness stays the calibrated frame's (a ratio of medians, which an uncorrected flat would imprint).
-                cloudGrades[lf.Path] = float.IsFinite(grade.SkyLevel) ? grade with { SkyLevel = rawSky } : grade;
+                // Patchiness within the run stays the calibrated frame's: the flat divides out vignetting a raw frame's surface fit
+                // cannot absorb, which halves the frame-to-frame noise the local tests read (2026-09-10: 51-62 % of the raw
+                // patchiness). A clear-night reference was recorded from raw frames, 2x that scale (5.40 against 2.64 at the
+                // clearest), so the raw light's is carried for that one comparison (#2005, LightGrade.OnReferenceScale).
+                cloudGrades[lf.Path] = grade with
+                {
+                    SkyLevel = float.IsFinite(grade.SkyLevel) ? rawSky : grade.SkyLevel,
+                    ReferencePatchiness = rawPatchiness,
+                };
             }
             // The star list is RETAINED (the dataset registrar's model): registration is centroid
             // work, so keeping it makes the register pass below pixel-free instead of reloading,
