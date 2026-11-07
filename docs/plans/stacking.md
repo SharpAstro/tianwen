@@ -443,7 +443,15 @@ cloudy-throughout run needed about 3x). Re-read through the stacker with the raw
 (09-10: 169 of 181 agree, 09-12: 321 of 325, the same frames left out), but neither night can tell the scales apart: the six
 09-10 frames between 1.48x and 1.8x raw are all left out by the star-quality filter or by patchiness either way. The level is the
 whole frame's median (a mosaic's green photosites), since the stars are found only after calibration, against the viewer's
-star-masked one. No real night has engaged the reference path through the stacker yet (07-06 is still unread). Patchiness is floored per rig within a group. It says
+star-masked one. No real night has engaged the reference path through the stacker yet (07-06 is still unread). Patchiness is floored per rig within a group.
+**Patchiness is calibrated within a run and raw against a reference (#2005).** A flat divides out the vignetting a raw frame's
+surface fit cannot absorb, so the same lights read about half as patchy calibrated: 2026-09-10's clearest tenth 2.64 calibrated
+against 5.40 raw, the flat removing 51 to 62 % of the raw patchiness, far past `CloudFrom` (1.3). Within a run the calibrated scale
+is the better one (its frame-to-frame noise is lower, and every frame is compared with its own group calibrated alike), but a
+clear-night reference is recorded from raw frames by the viewer, so on the calibrated scale a cloudy run's clearest read like the
+reference's and the run judged itself. The stacker therefore reads the raw light's patchiness too (`LightGrade.ReferencePatchiness`,
+before `Calibrator.Apply`) and the reference path alone reads it (`LightGrade.OnReferenceScale`); the 07-06 re-read through a
+recorded reference is still owed. It says
 why each frame was dropped. The node's per-frame cloud signal then reads the same verdict beside `NightSkyGauge`.
 
 **First read through the stacker (2026-11-04, `--reject-cloud`, step 2 of #1981).** The night was 2026-09-10 (QHY294C, Helix, 220
