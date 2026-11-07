@@ -45,6 +45,13 @@ public class SessionCloudTests(ITestOutputHelper output)
         };
 
         var ctx = await SessionTestHelper.CreateSessionAsync(output, config, observations, latitude: latitude, cancellationToken: ct);
+        // The helper's latitude goes on the mount's URI, which the LX200 and SkyWatcher drivers read and the default fake mount does
+        // not: it starts at Vienna (48.2) and takes another site only through SetSiteLatitudeAsync, which a run's initialisation makes
+        // and this harness skips. So without this the run is at 48.2 whatever was asked for, in dusk twilight, where the expected sky
+        // reads nothing. Set before the slew, so the mount's own transform and the cameras' stamped site agree.
+        IMountDriver siteMount = ctx.Mount;
+        await siteMount.SetSiteLatitudeAsync(latitude, ct);
+        (await siteMount.GetSiteLatitudeAsync(ct)).ShouldBe(latitude);
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
         ctx.Camera.FocusPosition = TrueBestFocusPosition;
         await ctx.Focuser.BeginMoveAsync(TrueBestFocusPosition, ct);
@@ -250,6 +257,7 @@ public class SessionCloudTests(ITestOutputHelper output)
         await using (var control = await CreateAsync(Config(), TimeSpan.FromMinutes(10), ct, DarkSiteLatitude))
         {
             await StampSiteAsync(control, ct);
+            control.Camera.Latitude.ShouldBe(DarkSiteLatitude, "the frames are made at the dark site, not at the helper's Vienna");
             foreach (var stale in FramesOf(control))
             {
                 File.Delete(stale);
