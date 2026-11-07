@@ -52,7 +52,7 @@ public class BrightHaloTests : IDisposable
     {
         var moffat = new OuterHalo(4e-3, 6.0, 1.2);
         var both = moffat with { Table = Ramp };
-        both.AtRadius(3).ShouldBe(moffat.AtRadius(3) + 0.01, 1e-12);
+        both.AtRadius(3).ShouldBe(moffat.AtRadius(3) + 0.01f, 1e-9, "the table holds floats");
     }
 
     [Fact]
