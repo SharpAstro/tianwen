@@ -104,11 +104,7 @@ public static class SharedTestData
         => TestOutput.Create(subdir ?? nameof(SharedTestData));
 
     // The extracted-data cache is read by many tests, so it is the RUN's, never one test's.
-    private static string CreateSharedTestOutputDir()
-    {
-        TestOutput.SweepOnce();
-        return TestOutput.Create(TestOutput.DefaultRoot, DateTimeOffset.Now.Date, TestOutput.RunOwner, nameof(SharedTestData));
-    }
+    private static string CreateSharedTestOutputDir() => TestOutput.CreateForRun(nameof(SharedTestData));
 
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
 
