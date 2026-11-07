@@ -288,6 +288,9 @@ public static class Tycho2ColorCalibration
     /// <param name="tsysR">System throughput for the red channel (QE × filter × CFA).</param>
     /// <param name="tsysG">System throughput for the green channel.</param>
     /// <param name="tsysB">System throughput for the blue channel.</param>
+    /// <param name="saturationMap">Optional per-pixel count of subs saturated at that pixel, on the image's
+    /// geometry (the master's <c>.saturation.fits</c> sidecar). A star whose aperture holds a nonzero pixel is dropped,
+    /// beside the peak gate. A map of another size is ignored.</param>
     /// <returns>White balance (R, G, B) multipliers, or null if insufficient matches.</returns>
     public static SpccWhiteBalanceResult? ComputeSpectrophotometricWhiteBalance(
         Image image,
@@ -301,7 +304,8 @@ public static class Tycho2ColorCalibration
         int minStars = 5,
         WhiteReference? whiteReference = null,
         float saturationFraction = DefaultSaturationFraction,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        Image? saturationMap = null)
     {
         if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
 
@@ -345,7 +349,7 @@ public static class Tycho2ColorCalibration
         }
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius, saturationFraction,
-            bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB, white), logger);
+            bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB, white), logger, saturationMap);
         if (photometry.Count < minStars)
         {
             logger?.LogDebug("SPCC: {Photometry} usable apertures of {Matches} matches < {MinStars} required; funnel {Funnel}",
@@ -868,9 +872,18 @@ public static class Tycho2ColorCalibration
     /// </summary>
     private static List<StarMatch> ExtractPhotometry(
         Image image, List<(ImagedStar Star, CelestialObject Tycho)> matches, int apertureRadius,
-        float saturationFraction, ExpectedColorFunc expectedColor, ILogger? logger = null)
+        float saturationFraction, ExpectedColorFunc expectedColor, ILogger? logger = null,
+        Image? saturationMap = null)
     {
         var (channelCount, width, height) = image.Shape;
+        // A map of another geometry cannot be laid over this image, and guessing would drop the wrong stars.
+        if (saturationMap is not null && (saturationMap.Width != width || saturationMap.Height != height))
+        {
+            logger?.LogWarning("SPCC: saturation map is {MW}x{MH} but the image is {W}x{H}; ignoring it",
+                saturationMap.Width, saturationMap.Height, width, height);
+            saturationMap = null;
+        }
+        var saturatedByMap = 0;
         var isBayer = channelCount == 1 && image.ImageMeta.SensorType is SensorType.RGGB;
         var result = new List<StarMatch>(matches.Count);
 
@@ -927,6 +940,7 @@ public static class Tycho2ColorCalibration
 
             var obsR = 0.0; var obsG = 0.0; var obsB = 0.0;
             var apertureClipped = false;
+            var apertureSaturatedByMap = false;
             var apR = 0; var apG = 0; var apB = 0;
             var bgR = 0.0; var bgG = 0.0; var bgB = 0.0;
             var bgRc = 0; var bgGc = 0; var bgBc = 0;
@@ -942,6 +956,12 @@ public static class Tycho2ColorCalibration
                     var isAp = dist <= apertureRadius;
                     var isBg = !isAp && dist >= annulusInner && dist <= annulusOuter;
                     if (!isAp && !isBg) continue;
+
+                    if (isAp && saturationMap is not null && SaturatedInSubs(saturationMap, x, y))
+                    {
+                        apertureClipped = true;
+                        apertureSaturatedByMap = true;
+                    }
 
                     if (isBayer)
                     {
@@ -980,6 +1000,7 @@ public static class Tycho2ColorCalibration
             if (apertureClipped)
             {
                 clipped++;
+                if (apertureSaturatedByMap) saturatedByMap++;
                 continue;
             }
 
@@ -1006,11 +1027,21 @@ public static class Tycho2ColorCalibration
 
         if (clipped > 0)
         {
-            logger?.LogDebug("SPCC: dropped {Clipped} of {Matches} matched stars for a clipped aperture pixel (>= {Frac:P0} of the observed per-channel peaks; clip levels {R:F3} / {G:F3} / {B:F3})",
-                clipped, matches.Count, saturationFraction, clipLevel[0], clipLevel[1], clipLevel[2]);
+            logger?.LogDebug("SPCC: dropped {Clipped} of {Matches} matched stars for a clipped aperture pixel (>= {Frac:P0} of the observed per-channel peaks; clip levels {R:F3} / {G:F3} / {B:F3}); {BySubs} of them touch a pixel saturated in the subs",
+                clipped, matches.Count, saturationFraction, clipLevel[0], clipLevel[1], clipLevel[2], saturatedByMap);
         }
 
         return result;
+    }
+
+    /// <summary>True when any channel of the saturation map holds a nonzero count at the pixel.</summary>
+    private static bool SaturatedInSubs(Image map, int x, int y)
+    {
+        for (var c = 0; c < map.ChannelCount; c++)
+        {
+            if (map[c, y, x] > 0f) return true;
+        }
+        return false;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
