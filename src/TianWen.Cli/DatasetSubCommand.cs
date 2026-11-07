@@ -1890,6 +1890,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "master's clipped stars count as sites and otherwise come back unsaturated), beside --saturated-fraction's " +
                           "extra star. Off by default.",
         };
+        var saturatedMeasuredOpt = new Option<bool>("--saturated-measured")
+        {
+            Description = "--mode stars: draw every saturated star as its master shows it: at the amplitude matching its own light 3 to 5 px " +
+                          "out (a clipped star's catalogued amplitude is a wing fit the clip inflates) with its own radial residual to 30 px " +
+                          "as its halo. Off by default.",
+        };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
         {
             Description = "--mode stars: the weakest wing, as a factor of the master's own, that half the draws of a cell give one " +
@@ -1959,7 +1965,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, brightHalosOpt, saturatedOwnShareOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, brightHalosOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2334,6 +2340,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ChromaticWidthRatio: chromaticWidth,
                 BrightHalosPath: parseResult.GetValue(brightHalosOpt),
                 SaturatedAtOwnShare: parseResult.GetValue(saturatedOwnShareOpt),
+                SaturatedMeasured: parseResult.GetValue(saturatedMeasuredOpt),
                 NoiseScale: noiseScale,
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,

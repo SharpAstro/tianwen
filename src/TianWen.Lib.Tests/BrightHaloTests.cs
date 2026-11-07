@@ -69,6 +69,39 @@ public class BrightHaloTests : IDisposable
     }
 
     [Fact]
+    public void ASaturatedStarIsMeasuredAtTheAmplitudeItsOwnLightMatchesWithTheRestAsItsHalo()
+    {
+        const int size = 101;
+        const double cx = 50.3, cy = 49.8, amplitude = 5.0, sky = 0.01, clip = 1.0;
+        var profile = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 3.0);
+        static double Halo(double r) => r >= 2 ? 2e-3 * Math.Exp(-r / 8.0) : 0.0;
+        var plane = new float[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                // Only the match ring (3 to 5 px) and the halo past it need to be exact; the core is clipped as a real one is.
+                plane[(y * size) + x] = (float)Math.Min(clip + sky, sky + (amplitude * (profile.UngainedAt(r) + Halo(r))));
+            }
+        }
+        var measured = InjectionPopulation.MeasureSaturated([plane], size, size, cx, cy, 1.0, [profile], [clip]);
+        measured.ShouldNotBeNull();
+        var (amplitudes, halo) = measured.Value;
+        // The match ring holds the halo too, so the amplitude comes out a little high, by the halo's share there, never by more.
+        amplitudes[0].ShouldBe(amplitude, amplitude * 0.15);
+        foreach (var r in new[] { 8, 12, 20 })
+        {
+            var expected = ((amplitude * (profile.UngainedAt(r) + Halo(r))) - (amplitudes[0] * profile.UngainedAt(r))) / amplitudes[0];
+            halo[0].AtRadius(r).ShouldBe(expected, Math.Abs(expected) * 0.2 + 2e-5, $"the halo at {r} px is the light the drawn profile misses");
+        }
+        halo[0].AtRadius(1).ShouldBe(0.0, "the core is the drawn profile's");
+        halo[0].Source.ShouldBe("measured saturated star");
+        // A stamp off the frame is not measured.
+        InjectionPopulation.MeasureSaturated([plane], size, size, 10, 50, 1.0, [profile], [clip]).ShouldBeNull();
+    }
+
+    [Fact]
     public void AFlipIsTheSameMaster() => BrightHalo.KeyOf("a/b|cam|obj|filt|flip=a").ShouldBe("a/b|cam|obj|filt");
 
     [Fact]

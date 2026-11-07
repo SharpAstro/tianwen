@@ -190,6 +190,7 @@ public readonly record struct StarProfile(
             var r = Math.Sqrt(EllipticalR2(dx, dy));
             sum = Math.Max(0.0, sum + WingFactor(r) * RadialCorrection.Interpolate(Halo.AsSpan(), r * HaloAlpha / Alpha));
         }
-        return Outer.IsNone ? sum : sum + Outer.PixelMean(dx, dy);
+        // A measured halo may be negative where the drawn profile is brighter than the star; the light never is.
+        return Outer.IsNone ? sum : Math.Max(0.0, sum + Outer.PixelMean(dx, dy));
     }
 }
