@@ -62,10 +62,10 @@ public static class DeviceDiscoveryExtensions
         /// (<see cref="ProfileDataExtensions.MigrateSiteFromMountUri"/>), then every device URI reconciled with what was
         /// discovered (<see cref="ReconcileProfileData"/>). Changed when either did anything.
         /// </summary>
-        public (ProfileData Reconciled, bool Changed) ReconcileStoredProfile(ProfileData data)
+        public (ProfileData Reconciled, bool Changed) ReconcileStoredProfile(ProfileData data, ProfileFollow follow)
         {
             var (migrated, moved) = data.MigrateSiteFromMountUri();
-            var (reconciled, drifted) = discovery.ReconcileProfileData(migrated);
+            var (reconciled, drifted) = discovery.ReconcileProfileData(migrated, follow);
             return (reconciled, moved || drifted);
         }
 
@@ -76,34 +76,44 @@ public static class DeviceDiscoveryExtensions
         /// <remarks>
         /// Two passes. The first matches each slot by identity (<see cref="ReconcileUri"/>). The second gives a slot that
         /// matched nothing its device on another port (<see cref="FollowMovedPort"/>), once every identity match is known, so
-        /// a device another slot already has is never taken twice.
+        /// a device another slot already has is never taken twice. <paramref name="follow"/> says which rungs below the id this
+        /// profile takes (<see cref="ProfileFollow"/>): the selected profile the evidence, every other one only what the selected
+        /// one followed. It is required on every overload, so a new caller states which rule it wants.
         /// </remarks>
-        public (ProfileData Reconciled, bool Changed) ReconcileProfileData(ProfileData data)
+        public (ProfileData Reconciled, bool Changed) ReconcileProfileData(ProfileData data, ProfileFollow follow)
         {
             var (byIdentity, identityChanged) = data.MapDeviceUris(discovery.ReconcileUri);
 
             var taken = new HashSet<string>(byIdentity.DeviceUris().Select(u => u.DeviceKey), DeviceUriExtensions.DeviceKeyComparer);
-            var (followed, followChanged) = byIdentity.MapDeviceUris(uri => discovery.FollowMovedPort(uri, taken));
+            var (followed, followChanged) = byIdentity.MapDeviceUris(uri => discovery.FollowMovedPort(uri, taken, follow));
 
             return (followed, identityChanged || followChanged);
         }
 
         /// <summary>
-        /// The device a slot's <paramref name="storedUri"/> names, on the port it has moved to, for a family whose ID ends in
-        /// its port (<see cref="DeviceUriExtensions.ModelKey"/>): Windows numbers a CH340's COM port by the USB SOCKET, so the
-        /// same Gemini focuser is <c>GeminiFocuser_COM3</c> in one socket and <c>GeminiFocuser_COM4</c> in the next, a different
-        /// key that <see cref="ReconcileUri"/> never matches (#1744). Only when the stored device was not discovered, and
-        /// exactly ONE discovered device of its model is in no other slot (<paramref name="taken"/>, which the one taken joins):
-        /// none or several is left as stored, never guessed. The user's keys (backlash, filter names, site) are kept, as
-        /// <see cref="MergeDiscoveredIntoStored"/> keeps them. Two identical units on swapped sockets are #783's case, unless
-        /// their adapters report serial numbers: a stored <c>device</c> port key then finds the discovered device of the
-        /// SAME MODEL on that cable, however many of its model are about. A device with no model key (its id names the
-        /// hardware) and a different model on the cable are never followed.
+        /// The device a slot's <paramref name="storedUri"/> names, found again by the EVIDENCE when its id was not
+        /// (#2040, the lower rungs of the identity ladder in docs/architecture/device-architecture.md), for a family whose id
+        /// ends in its port (<see cref="DeviceUriExtensions.ModelKey"/>). Only when the stored device was not discovered:
+        /// <list type="number">
+        ///   <item>The discovered devices of its MODEL that no other slot has (<paramref name="taken"/>, which the one taken
+        ///   joins). A port-keyed id carries its model, so a USB bridge that moved to another device (an AZ-GTi's cable on an
+        ///   EQ6-R) reports another model and is never one of them.</item>
+        ///   <item>Exactly one: it is this device, re-plugged (a Gemini focuser in another socket, a mount whose firmware was
+        ///   updated). The last fallback, churn accepted: one of the same model in the place the profile names IS its device
+        ///   (the owner, 2026-11-06).</item>
+        ///   <item>Several: the one whose <see cref="DeviceQueryKey.Firmware"/> is the stored one's, if exactly one is.</item>
+        ///   <item>Otherwise none: left as stored, never guessed.</item>
+        /// </list>
+        /// The user's keys (backlash, filter names, site) are kept, as <see cref="MergeDiscoveredIntoStored"/> keeps them. A
+        /// follow is said, never asked (<see cref="DeviceFollowNotes"/>). Those rungs are the SELECTED profile's alone
+        /// (<see cref="ProfileFollow.ForSelected"/>), which records each follow; any other profile follows only an id the selected
+        /// one followed, to that same unit (<see cref="ProfileFollow.ForAnother"/>), so another rig's profile is never rewritten
+        /// by hardware that may not be its own, and one unit moved is moved for every profile that holds it.
         /// </summary>
-        public Uri FollowMovedPort(Uri storedUri, ISet<string> taken)
+        public Uri FollowMovedPort(Uri storedUri, ISet<string> taken, ProfileFollow follow)
         {
             var deviceType = DeviceTypeHelper.TryParseDeviceType(storedUri.Scheme);
-            if (deviceType is DeviceType.Unknown)
+            if (deviceType is DeviceType.Unknown || storedUri.ModelKey is not { } model)
             {
                 return storedUri;
             }
@@ -114,43 +124,32 @@ public static class DeviceDiscoveryExtensions
                 return storedUri;
             }
 
-            // A device whose id names the hardware itself (a UUID, a serial) has no model key: it is the device its id says,
-            // and the exact match above is the only way to find it. Whatever else sits on its cable now is another unit.
-            if (storedUri.ModelKey is not { } model)
+            if (!follow.IsSelected)
             {
-                return storedUri;
-            }
-
-            // The same CABLE first (#1090): an adapter that reports a USB serial number names itself in any socket, so the
-            // discovered device of this MODEL on the port with the stored port key is this one, however many of its model
-            // are about. The model is still required (#2040 step 3 widens it, with a notification): a different model on
-            // the cable means the cable moved to another device, which is a new device, not this slot's. Only a `device`
-            // key: a `socket` or `name` key is the very thing a move changes.
-            if (storedUri.QueryValue(DeviceQueryKey.PortIdentity) is "device"
-                && storedUri.QueryValue(DeviceQueryKey.PortKey) is { Length: > 0 } portKey)
-            {
-                var sameCable = discovered
-                    .Where(c => string.Equals(c.DeviceUri.Host, storedUri.Host, StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(c.DeviceUri.QueryValue(DeviceQueryKey.PortKey), portKey, StringComparison.OrdinalIgnoreCase)
-                        && c.DeviceUri.ModelKey is { } m && DeviceUriExtensions.DeviceKeyComparer.Equals(m, model)
-                        && !taken.Contains(c.DeviceUri.DeviceKey))
-                    .ToList();
-                if (sameCable is [var cable])
+                // Another profile: the unit the selected one followed this id to, or nothing.
+                if (follow.FollowedTo(storedUri.DeviceKey) is not { } unit || taken.Contains(unit.DeviceKey))
                 {
-                    taken.Add(cable.DeviceUri.DeviceKey);
-                    return MergeDiscoveredIntoStored(storedUri, cable.DeviceUri, identityFromDiscovered: true);
+                    return storedUri;
                 }
+
+                taken.Add(unit.DeviceKey);
+                return MergeDiscoveredIntoStored(storedUri, unit, identityFromDiscovered: true);
             }
 
             var candidates = discovered
                 .Where(c => c.DeviceUri.ModelKey is { } m && DeviceUriExtensions.DeviceKeyComparer.Equals(m, model) && !taken.Contains(c.DeviceUri.DeviceKey))
                 .ToList();
+            if (candidates.Count > 1 && storedUri.QueryValue(DeviceQueryKey.Firmware) is { Length: > 0 } firmware)
+            {
+                candidates = candidates.FindAll(c => string.Equals(c.DeviceUri.QueryValue(DeviceQueryKey.Firmware), firmware, StringComparison.OrdinalIgnoreCase));
+            }
             if (candidates is not [var moved])
             {
                 return storedUri;
             }
 
             taken.Add(moved.DeviceUri.DeviceKey);
+            follow.Record(storedUri.DeviceKey, moved.DeviceUri);
             return MergeDiscoveredIntoStored(storedUri, moved.DeviceUri, identityFromDiscovered: true);
         }
     }
@@ -270,12 +269,16 @@ public static class DeviceDiscoveryExtensions
         }
 
         var merged = new NameValueCollection();
+        var storedFirmware = storedQuery[DeviceQueryKey.Firmware.Key];
+        var discoveredFirmware = discoveredQuery[DeviceQueryKey.Firmware.Key];
 
         // 1. Copy stored keys, but skip stored transport when discovered has fresher transport.
         foreach (string? key in storedQuery.AllKeys)
         {
             if (key is null) continue;
-            if (discoveredHasTransport && DeviceQueryKeyExtensions.IsTransportKey(key))
+            // A probe whose firmware read failed reports none: the stored firmware stays, it is the tie-break's evidence.
+            var keepFirmware = string.Equals(key, DeviceQueryKey.Firmware.Key, StringComparison.Ordinal) && string.IsNullOrEmpty(discoveredFirmware);
+            if (discoveredHasTransport && !keepFirmware && DeviceQueryKeyExtensions.IsTransportKey(key))
             {
                 continue;
             }
@@ -293,7 +296,14 @@ public static class DeviceDiscoveryExtensions
             }
         }
 
+        // A display name that carries the firmware is the discovered one's when the firmware changed, or it keeps the old one.
+        var firmwareChanged = storedFirmware is { Length: > 0 } && discoveredFirmware is { Length: > 0 }
+            && !string.Equals(storedFirmware, discoveredFirmware, StringComparison.OrdinalIgnoreCase);
         var builder = new UriBuilder(identityFromDiscovered ? discoveredUri : storedUri) { Query = merged.ToQueryString() };
+        if (firmwareChanged && !identityFromDiscovered)
+        {
+            builder.Fragment = discoveredUri.Fragment.TrimStart('#');
+        }
         return builder.Uri;
     }
 }

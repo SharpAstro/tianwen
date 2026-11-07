@@ -47,7 +47,7 @@ internal readonly record struct ProfileWrite(ProfileWriteOutcome Outcome, Stored
 /// narrows the window to the instant between the node's read and its write; that window closes at P6, when no other
 /// process writes a profile.</para>
 /// </remarks>
-internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discovery, EventHub events, ILogger<NodeProfiles> logger)
+internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discovery, EventHub events, IHostedSession hosted, ITimeProvider timeProvider, ILogger<NodeProfiles> logger)
 {
     private readonly SemaphoreSlim _writing = new SemaphoreSlim(1, 1);
 
@@ -100,10 +100,17 @@ internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discover
     public async Task<int> ReconcileAllAsync(CancellationToken cancellationToken)
     {
         var written = 0;
-        foreach (var registered in discovery.RegisteredDevices(DeviceType.Profile).OfType<Profile>().ToList())
+        var stored = discovery.RegisteredDevices(DeviceType.Profile).OfType<Profile>().ToList();
+        // The selected profile takes the evidence rungs and goes FIRST, so every other profile can follow the units it
+        // followed (ProfileFollow, #2040). With none made active (nothing has called SetActiveProfileAsync yet), a node holding
+        // ONE profile has that one selected (the owner, 2026-11-07): there is no other rig its hardware could be.
+        var selectedId = hosted.ActiveProfileId ?? (stored is [var only] ? only.ProfileId : null);
+        var selected = selectedId is not null ? ProfileFollow.ForSelected() : ProfileFollow.WithoutSelected();
+        foreach (var registered in stored.OrderByDescending(p => p.ProfileId == selectedId))
         {
+            var follow = registered.ProfileId == selectedId ? selected : selected.ForAnother();
             var write = await UpdateAsync(registered.ProfileId, readAt: null, current =>
-                current.Data is { } data && discovery.ReconcileStoredProfile(data) is (var reconciled, true) ? current.WithData(reconciled) : current,
+                current.Data is { } data && discovery.ReconcileStoredProfile(data, follow) is (var reconciled, true) ? current.WithData(reconciled) : current,
                 cancellationToken);
             if (write is { Outcome: ProfileWriteOutcome.Written, Previous.Profile.Data: { } before, Stored.Profile.Data: { } after })
             {
@@ -111,6 +118,13 @@ internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discover
                 foreach (var (field, from, to) in before.DiffTo(after))
                 {
                     logger.LogInformation("Reconcile {Profile} {Field}: {Before} -> {After}", registered.DisplayName, field, from, to);
+                }
+
+                // A follow connects with no dialogue, and says so (#2040): one notification per device followed by the evidence
+                // or whose firmware changed, so a wrong follow is seen in the Notifications tab.
+                foreach (var note in DeviceFollowNotes.For(before, after))
+                {
+                    Notify($"{registered.DisplayName}: {note}");
                 }
 
                 // A focuser followed to another port (#1744) keeps its backlash history, which is filed under its device ID.
@@ -121,6 +135,15 @@ internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discover
             }
         }
         return written;
+    }
+
+    /// <summary>Adds an Info line to the node's notification feed and tells every client at once (polling stays authoritative).</summary>
+    private void Notify(string message)
+    {
+        logger.LogInformation("Reconcile: {Note}", message);
+        var dto = new NotificationDto { Severity = "Info", Message = message, TimestampUtc = timeProvider.GetUtcNow() };
+        hosted.AddNotification(dto);
+        events.Broadcast(BroadcastEvents.Notification(dto));
     }
 
     /// <summary>Creates an empty profile named <paramref name="name"/>.</summary>

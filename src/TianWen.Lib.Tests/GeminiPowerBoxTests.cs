@@ -94,6 +94,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         match.DeviceUri.Host.ShouldBe(nameof(GeminiPowerBoxDevice).ToLowerInvariant());
         match.DeviceUri.QueryValue(DeviceQueryKey.Port).ShouldBe("serial:COM5");
         match.Metadata.ShouldNotBeNull()["firmware"].ShouldBe("309");
+        match.DeviceUri.QueryValue(DeviceQueryKey.Firmware).ShouldBe("309", "evidence in the query too (#2040)");
     }
 
     [Fact]
