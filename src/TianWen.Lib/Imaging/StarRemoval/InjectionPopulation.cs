@@ -318,20 +318,43 @@ public sealed class InjectionPopulation
                     ? new StarProfile(StarProfileFamily.Field, fp.Channels[c].Fwhm, fp.Channels[c].Beta, 1.0, 0.0, fp.Channels[c].Table, fp.Channels[c].TableAlpha)
                     : StarProfile.Round(StarProfileFamily.Moffat, psf[c].Fwhm, psf[c].Beta))
                 .ToArray();
-            // The same rows, in the same order, as the pool above took (its filter is on the clips alone).
-            var measuredPool = new List<PoolStar>(saturated.Length);
-            var at = 0;
-            foreach (var k in Enumerable.Range(0, catalogue.Length).Where(k => InSaturatedPool(catalogue[k], channels) && !IsLobe(k)))
+            // EVERY subtracted saturated star with an amplitude per channel, not only those the builder fitted with the field's
+            // Moffat: a measured star's amplitude and halo are read off its own pixels, so its fit does not matter, and the stars
+            // the builder could only fit with its own profile are often the brightest (63 % of M42's saturated stars, 21 % of HIP
+            // 80609's), which a Moffat-only pool never drew. One whose measurement fails is drawn as before if the Moffat pool
+            // would hold it, and left out otherwise.
+            var measuredPool = new List<PoolStar>();
+            foreach (var k in Enumerable.Range(0, catalogue.Length))
             {
-                var entry = SaturatedEntry(catalogue[k], planes, platePlanes, width, height, scale);
-                if (!(entry.Clips.Any(double.IsFinite) && entry.Clips.All(static v => v > 0)))
+                var s = catalogue[k];
+                if (s.Outcome != StarFitOutcome.Subtracted || !s.Saturated || IsLobe(k) || s.ChannelAmplitudes.Length != channels
+                    || !s.ChannelAmplitudes.All(float.IsFinite))
                 {
                     continue;
                 }
-                var pooled = saturated[at++];
-                measuredPool.Add(MeasureSaturated(planes, width, height, catalogue[k].X, catalogue[k].Y, scale, drawnProfiles, entry.Clips) is { } m
-                    ? pooled with { Amplitudes = m.Amplitudes, OwnHalo = m.Halo }
-                    : pooled);
+                var entry = SaturatedEntry(s, planes, platePlanes, width, height, scale);
+                // The catalogue says the star is saturated, so its clip level is its core's brightest pixel in every channel that
+                // rose above the plate there. SaturatedEntry's own test (the wing-fit amplitude well above the core) is a test of
+                // the Moffat fit, and it reads a star the builder fitted with its own profile, whose amplitude is about its clip,
+                // as unclipped in every channel.
+                var clips = Enumerable.Range(0, channels).Select(c =>
+                {
+                    var core = CoreMax(planes[c], width, height, s.X, s.Y, 3.0) * scale;
+                    var floor = platePlanes[c][(Math.Clamp((int)Math.Round(s.Y), 0, height - 1) * width) + Math.Clamp((int)Math.Round(s.X), 0, width - 1)] * scale;
+                    return double.IsFinite(core) && double.IsFinite(floor) && core > floor ? core : double.PositiveInfinity;
+                }).ToImmutableArray();
+                if (!(clips.Any(double.IsFinite) && clips.All(static v => v > 0)))
+                {
+                    continue;
+                }
+                if (MeasureSaturated(planes, width, height, s.X, s.Y, scale, drawnProfiles, clips) is { } m)
+                {
+                    measuredPool.Add(new PoolStar(m.Amplitudes, clips, LobesOf(k), float.PositiveInfinity, m.Halo));
+                }
+                else if (InSaturatedPool(s, channels) && entry.Clips.Any(double.IsFinite) && entry.Clips.All(static v => v > 0))
+                {
+                    measuredPool.Add(new PoolStar(entry.Amplitudes, entry.Clips, LobesOf(k), float.PositiveInfinity));
+                }
             }
             saturated = [.. measuredPool];
         }

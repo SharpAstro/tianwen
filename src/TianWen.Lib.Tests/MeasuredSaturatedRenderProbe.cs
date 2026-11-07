@@ -70,7 +70,7 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
             // The master's own saturated stars, read the same way (ring medians against a 32-36 px median sky), green.
             var real = new List<double[]>();
             var g = master.GetChannelSpan(Math.Min(1, channels - 1)).ToArray();
-            foreach (var s in catalogue.Where(s => InjectionPopulation.InSaturatedPool(s, channels)))
+            foreach (var s in catalogue.Where(static s => s.Saturated && s.Outcome == StarFitOutcome.Subtracted))
             {
                 var (ix, iy) = ((int)Math.Round(s.X), (int)Math.Round(s.Y));
                 if (ix < 40 || iy < 40 || ix >= master.Width - 40 || iy >= master.Height - 40)
