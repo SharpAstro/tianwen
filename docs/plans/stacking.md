@@ -424,7 +424,8 @@ node during a run (`NightSkyGauge`) each judged a frame their own way, so a fram
 unless it was rejected by hand (`CaptureRejection`, the `BAD_<CAUSE>_` name).
 
 The stacker's cloud filter grades each light after calibration and BEFORE normalization (F). Background matching erases the
-night-sky term (a frame's sky against its night's darkest), while patchiness, a ratio of medians, survives either way. The
+night-sky term (a frame's sky against its night's darkest), and patchiness (the MAD of tile medians about a fitted surface, in
+counts) is read before normalization too, since a per-frame multiplicative background match would rescale it. The
 thresholds (`CloudFrom` 1.3, `LocalCloudFrom` 1.2, `NightSkyCloudFrom` 1.8) were measured on uncalibrated raw lights. A flat
 lowers every frame's patchiness about alike, so the ratios should hold, but the filter was an option until the owner's labelled
 E:/Captures nights read the same through the stacker as through the viewer. Two of the five (2026-09-10, 09-12) were read; the
@@ -432,7 +433,9 @@ other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nig
 references from the viewer's store (`LightGradeReferenceStore`, `Viewer/clear-sky.json`) and passes them to `CloudRejection`, so
 a run cloudy from first light to last (07-06) can be judged against them; with none on file it judges on the group's own baselines.
 **The grade's sky LEVEL is the raw light's** (`LightGrading.RawSkyLevel`, read before `Calibrator.Apply` consumes the frame,
-#2003), the scale the viewer's references and `NightSkyCloudFrom` were measured on; patchiness stays the calibrated frame's. Read on
+#2003), the scale the viewer's references and `NightSkyCloudFrom` were measured on. Patchiness stays the calibrated frame's (the MAD of its
+tile medians about a fitted surface, in counts, so a dark offset leaves it alone and a flat rescales it); on the reference path it is
+compared with the viewer's patchiness of RAW frames, and that scale has not been measured through the stacker either (#2005). Read on
 the calibrated frame, the level was off by what calibration subtracts (2026-09-10 with its matching dark: raw 3300 against 1996 at
 the darkest, 1.65x), so a ratio against the darkest read high (the BAD_ frame at 01:24: 1.64x raw, 2.05x calibrated; 1.8 calibrated
 is about 1.48x raw on that rig, and nearer 1.0x the closer a rig's sky sits to its dark) and one against a reference read low (a
@@ -465,7 +468,33 @@ and the SV545's 2026-09-10 IDAS flats and dark-flats.
   viewer's grade misses too: a limit of the grade, #1974, not of the filter.
 
 Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `--reject-cloud` is now ON by default.
+
+**Third read: the sky trend and the bracket (2026-11-06, #2030).** The same copies, data and calibration, through the stacker with
+`LightGrading.SkyOverTrend` (cloud from 4 % and 6x its trend's scatter) and `CloudBracketSpan` (15 min):
+
+| night | marked left out (any filter) | unmarked left out | cloud filter: marked / unmarked |
+|---|---|---|---|
+| 09-10 before / after | 42 / 43 of 44 | 11 / 16 | 12 / 13, 2 / 7 |
+| 09-12 before / after | 19 / 37 of 42 | 20 / 25 | 12 / 30, 2 / 7 |
+
+- **09-12:** the 18 newly left out are the end-of-night run (03:55 to 04:37). The 5 unmarked are the evening's 0006-0011
+  (patchiness 1.36-1.41, between marked cloud), as in the viewer.
+- **09-10:** the newly left out are 0206 (marked), 0204 (between the owner's by-eye cloud calls 0203 and 0205), and 0154-0156 and
+  0158 (23:56 to 00:00; 0157 was already left out as cloud). The viewer keeps 0154-0158: 3-6 % over the sky's trend, where 0157 and 0158 also lost about 10 % of their
+  stars. The stacker reads the raw sky as the whole frame's median (`RawSkyLevel`), whose trend scatters less than the viewer's
+  star-masked level, so the same 4 % passes its 6-sigma gate there. Whether 0154-0158 are thin cloud is the
+  owner's call; until then the default stays on, at five more unmarked frames left out per night of 220 to 350.
+
 `--reject-cloud false` turns it off.
+
+**The sky trend's reach follows the exposure.** The fit needs ten earlier clear frames, or four spanning 20 minutes
+(`SkyTrendMinFramesOverSpan`, `SkyTrendMinSpan`), within the 60 minute `LocalWindow`. At 1 minute subs (both nights above) the
+count decides, so those nights read exactly as before; a +6 % step held reads cloud for 51 minutes there. A count alone read 11
+frames at 3 minute subs, 3 at 5 and none from 6 up; the span path is what lets longer subs read, and it ends where the window
+holds fewer than four frames: the held step reads for about 40 minutes at 3 to 5 minute subs, 30 at 10, 15 at 15 and not at all
+at 20 (pilot's probe on #2030), so a narrowband run at 10 to 20 minute subs gets little or no sky-trend cloud. The 4 % and 6-sigma bars were
+tuned on 1 minute data only. A rise the line tracks (a Moon rising, at about 0.5 % a minute or less) reads clear, while one near
+1 % a minute reads cloud for the reach: the Moon is the known limit of this rule, not yet measured.
 
 Cloud is judged only where its baselines have at least 10 lights (`CloudRejection.MinGradedForCloud`, the viewer's own bar for a
 clear night), because a handful of frames gives the verdict no baseline: a 4-frame group's clearest tenth is its one clearest
