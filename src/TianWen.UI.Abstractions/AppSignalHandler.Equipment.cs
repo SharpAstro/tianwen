@@ -123,6 +123,7 @@ namespace TianWen.UI.Abstractions
                 {
                     plannerState.SiteLatitude = sLat;
                     plannerState.SiteLongitude = sLon;
+                    plannerState.SiteElevation = sElev ?? 0d;
                 }
                 plannerState.NeedsRecompute = true;
                 appState.NeedsRedraw = true;

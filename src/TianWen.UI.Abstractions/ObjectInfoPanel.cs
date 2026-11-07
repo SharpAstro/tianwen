@@ -94,6 +94,19 @@ namespace TianWen.UI.Abstractions
         /// The disc's texture credit (<see cref="PlanetTextures.TryGet"/>, <c>PlanetTextureAtlas.Credit</c>), drawn under the disc; null
         /// until the texture has landed, when the row stays empty.
         /// </param>
+        /// <param name="NightCurve">
+        /// The night's altitude curve with the planner's usable part shaded (#2059), and the line under it. Null when the host
+        /// has no site or no night, the rule rise/set already follows, so the FITS viewer passes nothing and is unchanged.
+        /// The host draws into <see cref="NightCurveFillKey"/>.
+        /// </param>
+        /// <param name="NightCurvePending">
+        /// True while the host's curve is still being computed off the render thread: the section's height is reserved, its slot
+        /// empty, so the panel does not grow under the pointer when the curve lands.
+        /// </param>
+        /// <param name="NightCurveUnavailable">
+        /// True when the host would show a curve but could not score one for this object (an unplaceable body): the section keeps
+        /// its height and says so, so the panel does not shrink and jump when the answer lands.
+        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
@@ -103,7 +116,32 @@ namespace TianWen.UI.Abstractions
             ObjectArticleImage? Picture = null,
             string? Disk = null,
             bool Disc = false,
-            string? DiscCredit = null);
+            string? DiscCredit = null,
+            AtlasNightCurve? NightCurve = null,
+            bool NightCurvePending = false,
+            bool NightCurveUnavailable = false);
+
+        /// <summary>What the night curve's line reads when no curve could be scored for the object.</summary>
+        public const string NightCurveUnavailableLine = "No night curve for this object";
+
+        /// <summary>Whether the panel has a night curve section: a curve to draw, one on its way, or a note that there is none.</summary>
+        public static bool HasNightCurveSection(in PanelDisplayOptions options)
+            => options.NightCurve is not null || options.NightCurvePending || options.NightCurveUnavailable;
+
+        /// <summary>The key of the night curve slot's <see cref="Layout.Content.Fill"/>, which the host draws the curve into.</summary>
+        public const string NightCurveFillKey = "ObjectInfoNightCurve";
+
+        /// <summary>The night curve's design height.</summary>
+        public const float DesignNightCurveHeight = 44f;
+
+        /// <summary>The night curve section's margin above and below, and either side of its slot.</summary>
+        public const float DesignNightCurveMargin = 4f;
+
+        /// <summary>
+        /// The night curve section's whole design height: the curve and the line under it (<see cref="NightLine"/>), with their margins.
+        /// The line is part of the SECTION, not a text row, so <see cref="RowCount"/> is unchanged by it.
+        /// </summary>
+        public const float DesignNightCurveSectionHeight = DesignNightCurveMargin + DesignNightCurveHeight + DesignRowHeight + DesignNightCurveMargin;
 
         /// <summary>What the article link reads.</summary>
         public const string ArticleLinkLabel = "Wikipedia";
@@ -288,6 +326,10 @@ namespace TianWen.UI.Abstractions
             {
                 height += DesignSparklineHeight + 4f;
             }
+            if (HasNightCurveSection(in options))
+            {
+                height += DesignNightCurveSectionHeight;
+            }
             height += DesignMediaHeight(in options);
             if (actions.HasLinks)
             {
@@ -417,6 +459,52 @@ namespace TianWen.UI.Abstractions
             => info.NeverRises ? "Never rises (below horizon)"
                 : info.Circumpolar ? $"Circumpolar   Transit {FormatHHMM(info.TransitTime, timeZone)}"
                 : $"Rise {FormatHHMM(info.RiseTime, timeZone)}   Transit {FormatHHMM(info.TransitTime, timeZone)}   Set {FormatHHMM(info.SetTime, timeZone)}";
+
+        /// <summary>
+        /// The line under the night curve: the usable time (h:mm), the window in <paramref name="timeZone"/> and the rating as the
+        /// planner shows it (stars against tonight's best), e.g. <c>Usable 4:15   21:30 to 01:45   3.5★</c>. A bare score is never
+        /// shown, since it has no unit. Null for a body that gets no shade (the Moon); an object that never gets above the
+        /// profile's minimum in the dark says so, with the minimum.
+        /// </summary>
+        public static string? NightLine(AtlasNightCurve curve, TimeSpan timeZone)
+        {
+            if (!curve.Shaded)
+            {
+                return null;
+            }
+            if (curve.WindowStart is not { } start || curve.WindowEnd is not { } end)
+            {
+                return $"Not above {curve.MinAltitude}° in the dark";
+            }
+
+            var minutes = (int)Math.Round(curve.UsableTime.TotalMinutes);
+            var usable = $"{minutes / 60}:{minutes % 60:00}";
+            return $"Usable {usable}   {FormatHHMM(start, timeZone)} to {FormatHHMM(end, timeZone)}   {Math.Min(curve.Rating, 5f):F1}★";
+        }
+
+        /// <summary>
+        /// The night curve section: the slot the host draws the curve into (<see cref="NightCurveFillKey"/>) and <see cref="NightLine"/>
+        /// under it, or null when the host offered no curve. The line is omitted for a body with no shade; its row stays so the
+        /// panel does not move. The host lays it into the text rows' rect, which carries the panel's inset.
+        /// </summary>
+        public static Layout.Node? BuildNightCurveSection(in PanelDisplayOptions options, in PanelPalette palette)
+        {
+            if (!HasNightCurveSection(in options))
+            {
+                return null;
+            }
+
+            return Layout.Builder.VStack(
+                Layout.Builder.Spacer().RowH(DesignNightCurveMargin),
+                Layout.Builder.Fill(key: NightCurveFillKey).WStar().RowH(DesignNightCurveHeight),
+                Layout.Builder.Text(
+                    options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? ""
+                    : options.NightCurveUnavailable ? NightCurveUnavailableLine
+                    : "",
+                    DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
+                    .WStar().RowH(DesignRowHeight),
+                Layout.Builder.Spacer().RowH(DesignNightCurveMargin));
+        }
 
         /// <summary>
         /// The text rows, as one tree. What each row SAYS is one of the builders above, so the strings
