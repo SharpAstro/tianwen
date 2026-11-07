@@ -54,12 +54,19 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                 return Enumerable.Repeat((float)(plane[plane.Length / 2] / divisor), size * size).ToArray();
             }).ToArray();
             var rendered = new List<double[]>();
+            var planAmp = new List<double>();
+            var planClip = new List<double>();
             var unmeasured = new List<double[]>();
             var rng = new Random(3);
-            for (var draw = 0; draw < 400 && rendered.Count < 300; draw++)
+            for (var draw = 0; draw < 3000 && rendered.Count < 1500; draw++)
             {
                 var plan = population.Plan(rng.Next(master.Width - 300), rng.Next(master.Height - 300), 256, 0, InjectionPlacement.Random,
                     StarProfileFamily.Field, 1.0, new Random(draw), saturatedAtOwnShare: true);
+                foreach (var s in plan.Stars.Where(static s => s.Saturated && !s.Lobe))
+                {
+                    planAmp.Add(s.Amplitudes[Math.Min(1, channels - 1)]);
+                    planClip.Add(s.ClipLevels[Math.Min(1, channels - 1)]);
+                }
                 foreach (var s in plan.Stars.Where(static s => s.Saturated && !s.Lobe))
                 {
                     var alone = s with { X = half + (s.X - Math.Round(s.X)), Y = half + (s.Y - Math.Round(s.Y)) };
@@ -69,11 +76,40 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
             }
             // The master's own saturated stars, read the same way (ring medians against a 32-36 px median sky), green.
             var real = new List<double[]>();
+            var pairs = new List<double[]>();
+            var pairedRendered = new List<double[]>();
+            var pairAmp = new List<double>();
+            var pairClip = new List<double>();
+            var drawnProfiles = Enumerable.Range(0, channels)
+                .Select(c => new StarProfile(StarProfileFamily.Field, field!.Channels[c].Fwhm, field.Channels[c].Beta, 1.0, 0.0, field.Channels[c].Table, field.Channels[c].TableAlpha))
+                .ToArray();
             var g = master.GetChannelSpan(Math.Min(1, channels - 1)).ToArray();
-            foreach (var s in catalogue.Where(static s => s.Saturated && s.Outcome == StarFitOutcome.Subtracted))
+            // The stars the measured pool can hold: subtracted, saturated, an amplitude per channel, and a whole finite stamp.
+            var planesAll = Enumerable.Range(0, channels).Select(c => master.GetChannelSpan(c).ToArray()).ToArray();
+            foreach (var s in catalogue.Where(s => s.Saturated && s.Outcome == StarFitOutcome.Subtracted && s.ChannelAmplitudes.Length == channels
+                && s.ChannelAmplitudes.All(float.IsFinite)))
             {
                 var (ix, iy) = ((int)Math.Round(s.X), (int)Math.Round(s.Y));
                 if (ix < 40 || iy < 40 || ix >= master.Width - 40 || iy >= master.Height - 40)
+                {
+                    continue;
+                }
+                var finite = true;
+                for (var c = 0; c < channels && finite; c++)
+                {
+                    for (var y = iy - 36; y <= iy + 36 && finite; y++)
+                    {
+                        for (var x = ix - 36; x <= ix + 36; x++)
+                        {
+                            if (!float.IsFinite(planesAll[c][(y * master.Width) + x]))
+                            {
+                                finite = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!finite)
                 {
                     continue;
                 }
@@ -85,14 +121,49 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                         stamp[(y * 81) + x] = g[((iy - 40 + y) * master.Width) + ix - 40 + x];
                     }
                 }
-                real.Add(Rings(stamp, 81, 40 + (s.X - ix), 40 + (s.Y - iy)));
+                // On the unit scale the injector draws on, so the absolute light compares too.
+                var source = Rings(stamp, 81, 40 + (s.X - ix), 40 + (s.Y - iy)).Select(v => v / divisor).ToArray();
+                real.Add(source);
+                // The same star measured and rendered alone: its rendered light over its own, ring by ring (pairs, no population).
+                var clips = Enumerable.Range(0, channels).Select(c =>
+                {
+                    double best = double.NegativeInfinity;
+                    for (var y = iy - 3; y <= iy + 3; y++)
+                    {
+                        for (var x = ix - 3; x <= ix + 3; x++)
+                        {
+                            if (((x - s.X) * (x - s.X)) + ((y - s.Y) * (y - s.Y)) <= 9)
+                            {
+                                best = Math.Max(best, planesAll[c][(y * master.Width) + x]);
+                            }
+                        }
+                    }
+                    return best / divisor;
+                }).ToImmutableArray();
+                if (InjectionPopulation.MeasureSaturated(planesAll, master.Width, master.Height, s.X, s.Y, 1.0 / divisor, drawnProfiles, clips) is { } m)
+                {
+                    var star = new InjectedStar(half + (s.X - ix), half + (s.Y - iy), m.Amplitudes,
+                        [.. drawnProfiles.Select((p, c) => p with { Outer = m.Halo[c] })], true, clips);
+                    var render = StarInjection.Render(empty, size, size, null, [star], [.. Enumerable.Repeat(1e-9, channels)], new Random(1));
+                    var r = Rings(render.Planes[Math.Min(1, channels - 1)], size, star.X, star.Y);
+                    pairs.Add([.. r.Zip(source, (a, b) => a / b)]);
+                    pairedRendered.Add(r);
+                    pairAmp.Add(m.Amplitudes[Math.Min(1, channels - 1)]);
+                    pairClip.Add(clips[Math.Min(1, channels - 1)]);
+                }
             }
+            output.WriteLine($"  pairs n={pairs.Count}  rendered/own at 5, 8, 12 px: {Med(pairs.Select(p => p[0])):F3} {Med(pairs.Select(p => p[1])):F3} {Med(pairs.Select(p => p[2])):F3}");
+            // The population as well as the shape: the median absolute light at 5, 8 and 12 px over every star, x1000 on the
+            // unit scale, beside the ratios.
             string Line(string name, List<double[]> v) => v.Count == 0 ? $"{name}: none" :
-                $"{name} n={v.Count,4}  8/5 {Med(v.Select(r => r[1] / r[0])):F3}  12/5 {Med(v.Select(r => r[2] / r[0])):F4}  20/5 {Med(v.Select(r => r[3] / r[0])):F4}";
-            output.WriteLine($"{sessionId}");
+                $"{name} n={v.Count,4}  8/5 {Med(v.Select(r => r[1] / r[0])):F3}  12/5 {Med(v.Select(r => r[2] / r[0])):F4}  20/5 {Med(v.Select(r => r[3] / r[0])):F4}" +
+                $"  abs5 {1000 * Med(v.Select(r => r[0])):F3}  abs8 {1000 * Med(v.Select(r => r[1])):F3}  abs12 {1000 * Med(v.Select(r => r[2])):F4}";
+            output.WriteLine($"{sessionId}  saturated pool {population.SaturatedPool}");
             output.WriteLine("  " + Line("rendered", rendered));
             output.WriteLine("  " + Line("unmeasrd", unmeasured));
             output.WriteLine("  " + Line("master  ", real));
+            output.WriteLine("  " + Line("paired  ", pairedRendered));
+            output.WriteLine($"  amplitude median plan {Med(planAmp):G4} paired {Med(pairAmp):G4}   clip median plan {Med(planClip):G4} paired {Med(pairClip):G4}");
         }
     }
 

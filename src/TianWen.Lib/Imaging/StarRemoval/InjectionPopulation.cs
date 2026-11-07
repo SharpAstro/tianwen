@@ -821,9 +821,13 @@ public sealed class InjectionPopulation
             {
                 return null;
             }
+            // Held to the star's own peak ABOVE ITS SKY, never the absolute clip: the clip carries the sky, which on a bright
+            // sky dwarfs a star's 5 px light (Lobster: 0.04 against 0.0014), and an amplitude floored there is a drawn profile
+            // many times the star, cancelled by a halo table as negative, so the renderer's sub-pixel jitter on the big term
+            // came out as a third more 5 px light than the star had.
             if (double.IsFinite(clips[c]))
             {
-                amplitude = Math.Max(amplitude, MinPeakOverClip * clips[c]);
+                amplitude = Math.Max(amplitude, MinPeakOverClip * Math.Max(0.0, clips[c] - (skyLevel * scale)));
             }
             var table = new float[rings];
             for (var k = 2; k < rings; k++)
