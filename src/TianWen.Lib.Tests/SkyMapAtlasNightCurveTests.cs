@@ -524,7 +524,7 @@ public sealed class SkyMapAtlasNightCurveNightTests
             var accent = GuiTheme.Palette.Accent;
             var (blue, onAccent) = (0, 0);
             // The slot and the line of text under it.
-            var bottom = (int)(rect.Y + rect.Height + 1.35f * 12f * 1.5f);
+            var bottom = (int)(rect.Y + rect.Height + ObjectInfoPanel.DesignRowHeight * rig.Tab.DpiScale);
             for (var y = (int)rect.Y; y < bottom; y++)
             {
                 for (var x = (int)rect.X; x < (int)(rect.X + rect.Width); x++)
