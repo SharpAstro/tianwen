@@ -149,7 +149,8 @@ public sealed class AtlasNightCurveTests
         var curve = AtlasNightCurve.Create(FarFromTheMoon(moonRa), transform, dark, twilight, MinHeight, bestCombinedScore: 1000);
 
         curve.Samples[0].Time.ShouldBe(dark);
-        curve.Samples[^1].Time.ShouldBe(twilight);
+        // The planner grid is computed in floating point, so the last sample can sit a sub-tick off the twilight instant.
+        curve.Samples[^1].Time.ShouldBe(twilight, TimeSpan.FromSeconds(1));
         curve.Step.ShouldBeInRange(TimeSpan.FromMinutes(14), TimeSpan.FromMinutes(16));
         curve.AstroDark.ShouldBe(dark);
         curve.AstroTwilight.ShouldBe(twilight);
