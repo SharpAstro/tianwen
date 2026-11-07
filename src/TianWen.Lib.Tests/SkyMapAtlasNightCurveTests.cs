@@ -429,6 +429,41 @@ public sealed class SkyMapAtlasNightCurveTests
         TopOfPanel(rig).ShouldBe(duringTop);
     }
 
+    /// <summary>
+    /// A score that fails (a comet the planner has no orbit for) through the REAL tab: the panel keeps its section's height, so its
+    /// top edge is where it was while the score was computed, draws no curve and no slot, and the failure is cached, one score and
+    /// not one per frame (review note on #2059).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AnUnplaceableBodyKeepsTheSectionAndIsScoredOnce()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Parse("12P").TryToCatalogIndex(out var comet).ShouldBeTrue();
+        rig.Planner.Comets.ShouldBeNull("the rig has a comet repository, so the body is placeable");
+        rig.Tab.State.Search.InfoPanel = SkyMapInfoPanelData.FromPosition("12P/Pons-Brooks", 1.0, 20.0, Lat, Lon, Evening, default)
+            with { Index = comet, ObjType = ObjectType.Comet };
+
+        rig.Render();
+        var pending = rig.Tab.State.NightCurveTask.ShouldNotBeNull("no score was dispatched");
+        var duringTop = TopOfPanel(rig);
+        await pending.WaitAsync(TestContext.Current.CancellationToken);
+
+        for (var frame = 0; frame < 3; frame++)
+        {
+            rig.Render();
+        }
+        rig.Tab.LastNightCurve.ShouldBeNull("a curve was drawn for a body that could not be placed");
+        rig.Tab.LastNightCurveRect.ShouldBeNull("the empty slot was laid out beside the note");
+        rig.Tab.State.NightCurveComputes.ShouldBe(1, "the failed score was not cached");
+        TopOfPanel(rig).ShouldBe(duringTop, "the panel changed height when the answer landed as no curve");
+    }
+
+    private static CometDesignation Parse(string designation)
+    {
+        CometDesignation.TryParse(designation, out var parsed).ShouldBeTrue();
+        return parsed;
+    }
+
     // The panel's top edge: the first row (from the top of the surface) at which a pixel of the panel's border colour sits in the
     // panel's column. Read off the surface, so it is what a person sees move.
     private static int TopOfPanel(Rig rig)

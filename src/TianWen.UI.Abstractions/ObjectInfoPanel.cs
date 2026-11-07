@@ -494,13 +494,22 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
+            // No curve to draw: the note takes the slot's place and the line's row together, centred in the section's reserved
+            // height, instead of sitting under an empty slot. The height is the same, so nothing moves when the answer lands.
+            if (options.NightCurve is null && options.NightCurveUnavailable)
+            {
+                return Layout.Builder.VStack(
+                    Layout.Builder.Spacer().RowH(DesignNightCurveMargin),
+                    Layout.Builder.Text(NightCurveUnavailableLine, DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
+                        .WStar().RowH(DesignNightCurveHeight + DesignRowHeight),
+                    Layout.Builder.Spacer().RowH(DesignNightCurveMargin));
+            }
+
             return Layout.Builder.VStack(
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin),
                 Layout.Builder.Fill(key: NightCurveFillKey).WStar().RowH(DesignNightCurveHeight),
                 Layout.Builder.Text(
-                    options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? ""
-                    : options.NightCurveUnavailable ? NightCurveUnavailableLine
-                    : "",
+                    options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? "" : "",
                     DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
                     .WStar().RowH(DesignRowHeight),
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin));
