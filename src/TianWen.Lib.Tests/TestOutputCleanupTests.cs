@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using Shouldly;
 using Xunit;
@@ -69,6 +70,70 @@ public sealed class TestOutputCleanupTests : IDisposable
 
         Directory.Exists(mine).ShouldBeFalse();
         Directory.Exists(strangers).ShouldBeTrue("a folder this registry never made is not its to delete");
+    }
+
+    // SessionTestHelper names a session's folder "<test method>/<random>", so the folder made is <date>/<method>/<random>_<random>:
+    // the registry owned the leaf and the date folder, and nothing owned <method>, which stayed behind empty (and kept the date
+    // folder from ever being empty): 70 folders after a green unit run on Linux, 110 after a functional one.
+    [Theory]
+    [InlineData("Method/abcd1234")]
+    [InlineData("Method\\abcd1234")]
+    [InlineData("Group/Method/abcd1234")]
+    public void ASubNameWithSeparatorsLeavesNoParentBehindOnceTheRunEnds(string sub)
+    {
+        var root = Root();
+        var folders = new TestOutputFolders();
+        var dir = Make(folders, root, "test-a", sub);
+        var dateFolder = Path.Combine(root, Day.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
+
+        folders.Release("test-a", keep: false);
+        folders.ReleaseAll(keep: false);
+
+        Directory.Exists(dir).ShouldBeFalse();
+        Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories)
+            .ShouldBeEmpty("nothing the registry made may outlive the run, a parent of a nested sub name included");
+        Directory.Exists(dateFolder).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ACasesParentIsAnotherCasesLiveFolderUntilTheRunEnds()
+    {
+        // The cases of one theory run in parallel under one method name, so they share <date>/<method>: the first one out
+        // must not take it from under the second, which may be between making it and making its own folder below it.
+        var root = Root();
+        var folders = new TestOutputFolders();
+        var first = Make(folders, root, "case-1", "Method/aaaa1111");
+        var second = Make(folders, root, "case-2", "Method/bbbb2222");
+        var parent = Path.GetDirectoryName(first) ?? throw new InvalidOperationException("no parent");
+        Path.GetDirectoryName(second).ShouldBe(parent, "both cases sit under their method's folder");
+
+        folders.Release("case-1", keep: false);
+        Directory.Exists(parent).ShouldBeTrue("another case's folder is still in it");
+        Directory.Exists(second).ShouldBeTrue();
+
+        folders.Release("case-2", keep: false);
+        Directory.Exists(parent).ShouldBeTrue("a test's end leaves the (now empty) parent to the run's end, as for the date folder");
+
+        folders.ReleaseAll(keep: false);
+        Directory.Exists(parent).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void TheRunsEndLeavesAParentThatIsNotEmpty()
+    {
+        var root = Root();
+        var folders = new TestOutputFolders();
+        var mine = Make(folders, root, "test-a", "Method/abcd1234");
+        var parent = Path.GetDirectoryName(mine) ?? throw new InvalidOperationException("no parent");
+        var dateFolder = Path.GetDirectoryName(parent) ?? throw new InvalidOperationException("no date folder");
+        var strangers = Directory.CreateDirectory(Path.Combine(parent, "another-process")).FullName;
+
+        folders.ReleaseAll(keep: false);
+
+        Directory.Exists(mine).ShouldBeFalse();
+        Directory.Exists(strangers).ShouldBeTrue("a folder this registry never made is not its to delete");
+        Directory.Exists(parent).ShouldBeTrue("and neither is the parent that holds it");
+        Directory.Exists(dateFolder).ShouldBeTrue("nor the date folder above that");
     }
 
     [Fact]
@@ -143,6 +208,26 @@ public sealed class TestOutputCleanupTests : IDisposable
         Directory.Exists(dir).ShouldBeTrue("left for the next run's sweep");
         Directory.Exists(Path.GetDirectoryName(dir)).ShouldBeTrue("its date folder is not empty");
         attempts.ShouldBe(3, "once at the test's end, then once per run end; no wait, no loop");
+    }
+
+    [Fact]
+    public void AFolderTheRunItselfHoldsIsDeletedOnceAtTheRunsEnd()
+    {
+        // A run's own folder (a class or assembly fixture's) fails its delete in the same pass that remembers it, so retrying
+        // it straight away is the same delete again with no wait between: one attempt, then it is the next run's sweep's.
+        var root = Root();
+        var attempts = 0;
+        var folders = new TestOutputFolders(_ =>
+        {
+            attempts++;
+            throw new IOException("held by a process the fixture started");
+        });
+        var dir = Make(folders, root, TestOutput.RunOwner, "Shared");
+
+        folders.ReleaseAll(keep: false);
+
+        attempts.ShouldBe(1);
+        Directory.Exists(dir).ShouldBeTrue("left for the next run's sweep");
     }
 
     [Fact]
