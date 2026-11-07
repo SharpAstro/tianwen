@@ -1291,6 +1291,32 @@ it is expected rather than a defect, and so the fix is specified when it is want
 on the filter's line-selectivity the way the renderer already gates the stretch, and give the mono
 result the same `FilterIdentity` so session grouping is unchanged.
 
+### A stored expected sky is never found during a run for a rig whose camera names no filter (found 2026-11-07, #1974)
+
+`ExpectedSkyStore.Find` matches a frame's key exactly, and the filter in that key is `Filter.IdentityKey`. Every camera
+driver (DAL, ASCOM, Alpaca, and the fake) reports `Filter.Unknown` with no text when no wheel names a filter, and that
+filter's identity key is EMPTY on purpose (`Filter.FromName`: an unrecognised filter with no text is "no filter", so a
+narrowband flat cannot match lights with no filter card). The FITS writer then puts `FILTER = Unknown` for it
+(`FilterNameForFits` falls back to the display name), and the reader keeps that text as the raw name, so the same frame
+read back from its file has the identity key `Unknown`. `ExpectedSkyFitter` keys from files, so a model fitted for such a
+rig is stored under `Unknown`; the session's judge keys the LIVE frame, looks for an empty filter, and never finds it. The
+veil and transparency terms then read nothing in a run, while the viewer, which reads files, finds them.
+
+**Measured**, by `SessionCloudTests` with the fake camera's default filter: a stored model an e-fold darker than the run's
+sky, a dark site, and 0 of 18 lights saved as `MAYBE_CLOUD_`, the stored key printing `Unknown` for its filter. With a
+named filter (a one-shot-colour camera behind a light-pollution filter, which keys the same live and from a file) the
+run reads the model.
+
+**What it reaches**: any rig without a filter wheel, one-shot-colour cameras among them. By the same reading of the code,
+not tested, the clear-night references (#1976) have it too: `LightGradeKey` carries the same filter component, so a
+reference recorded from files for such a rig does not equal the live group's key.
+
+**Not fixed in the leg that found it**, because the choice moves what keys mean beyond the expected sky: either read the
+placeholder `Unknown` as no filter wherever a grade or expected-sky key is made (the fitter, `LightGradeKey.Of`, the two
+lookups), which re-keys references already recorded as `Unknown`; or stop the writer and reader turning "no text" into the
+text `Unknown`, which touches every consumer of `IdentityKey` (flat and light matching among them). Either way the test
+that proves it is `SessionCloudTests` on a camera that names no filter, which it does not yet have.
+
 ## Devices
 
 ### An SV605CC behind a VIA VL817 hub

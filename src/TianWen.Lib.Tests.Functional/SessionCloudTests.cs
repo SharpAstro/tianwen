@@ -29,6 +29,14 @@ public class SessionCloudTests(ITestOutputHelper output)
     /// </summary>
     private const double DarkSiteLatitude = 30.0;
 
+    /// <summary>
+    /// The filter the stored-sky test's camera sits behind: a one-shot-colour camera with a light-pollution filter, named, so it keys the
+    /// same live as read back from a file. A camera that names none (every driver's default, <c>Filter.Unknown</c> with no text) keys as
+    /// empty live but as "Unknown" from its file, so a model fitted from files is never found during a run: see "A stored expected sky is
+    /// never found during a run for a rig whose camera names no filter" in <c>docs/known-limitations.md</c>.
+    /// </summary>
+    private static readonly Filter RigFilter = Filter.FromName("Optolong L-Pro");
+
     private async Task<SessionTestContext> CreateAsync(SessionConfiguration config, TimeSpan duration, System.Threading.CancellationToken ct,
         double latitude = 48.2)
     {
@@ -258,6 +266,7 @@ public class SessionCloudTests(ITestOutputHelper output)
         {
             await StampSiteAsync(control, ct);
             control.Camera.Latitude.ShouldBe(DarkSiteLatitude, "the frames are made at the dark site, not at the helper's Vienna");
+            control.Camera.Filter = RigFilter;
             foreach (var stale in FramesOf(control))
             {
                 File.Delete(stale);
@@ -291,6 +300,7 @@ public class SessionCloudTests(ITestOutputHelper output)
 
         await using var veiled = await CreateAsync(Config(cloudWait: TimeSpan.FromHours(2)), TimeSpan.FromMinutes(10), ct, DarkSiteLatitude);
         await StampSiteAsync(veiled, ct);
+        veiled.Camera.Filter = RigFilter;
         var model = new ExpectedSkyModel
         {
             Terms = ["1"],
