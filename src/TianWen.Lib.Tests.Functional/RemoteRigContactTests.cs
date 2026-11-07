@@ -36,7 +36,7 @@ public class RemoteRigContactTests(ITestOutputHelper output)
             var app = new GuiAppState();
             var rigs = new RemoteRigRegistry();
             rigs.Upsert(binding);
-            var clock = new SystemTimeProvider();
+            var clock = SystemTimeProvider.Instance;
             await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, clock, NullLogger.Instance, ct)
                 .ShouldNotBeNull();
             rigs.Attach(rig);

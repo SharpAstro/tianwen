@@ -93,6 +93,8 @@ namespace TianWen.Lib.Tests
             { "HeaderText", "PanelBg",   "a panel header" },
             { "Accent",     "PanelBg",   "an accented value" },
             { "Accent",     "HeaderBg",  "a pinned planning date" },
+            // Selection was a blue wash and Accent text on it measured 4.48:1 / 4.40:1 once the accent went orange (#2025).
+            { "Accent",     "Selection", "an accented value on a selected row" },
             { "Info",       "PanelBg",   "an info message" },
             { "Warn",       "PanelBg",   "a warning" },
             { "Warn",       "HeaderBg",  "the status message in the top bar" },
@@ -433,6 +435,128 @@ namespace TianWen.Lib.Tests
             body.ShouldBeLessThan(5.3);          // the red-on-black ceiling, not a target
             dim.ShouldBeLessThan(body);          // still reads as secondary
             dim.ShouldBeGreaterThanOrEqualTo(3.0);
+        }
+
+        private static double Hue(RGBAColor32 c)
+        {
+            double r = c.Red / 255.0, g = c.Green / 255.0, b = c.Blue / 255.0;
+            var max = Math.Max(r, Math.Max(g, b));
+            var d = max - Math.Min(r, Math.Min(g, b));
+            if (d == 0)
+            {
+                return 0;
+            }
+
+            var h = max == r ? ((g - b) / d) % 6 : max == g ? ((b - r) / d) + 2 : ((r - g) / d) + 4;
+            return ((h * 60) + 360) % 360;
+        }
+
+        private static double HueGap(RGBAColor32 a, RGBAColor32 b)
+        {
+            var d = Math.Abs(Hue(a) - Hue(b));
+            return Math.Min(d, 360 - d);
+        }
+
+        // The logo's sharp is #e04a00 (NightPalette.BodyText, --mark on the site). The accent that runs through the UI
+        // is that orange in every palette, not the blue it was in Light and Dark (#2025). Ten degrees is the family:
+        // Light's #b83c00 is the same hue, Dark's #ff5e00 sits 2 degrees off, and the old blue was 190 away.
+        [Theory]
+        [MemberData(nameof(DaylightStates))]
+        public void TheAccentIsTheLogosOrangeFamily(string state)
+        {
+            var logo = new RGBAColor32(0xe0, 0x4a, 0x00, 0xff);
+            var p = ByName(state);
+
+            HueGap(p.Accent, logo).ShouldBeLessThanOrEqualTo(10.0, $"{state}: Accent {Hue(p.Accent):F1} degrees, the logo {Hue(logo):F1}");
+            HueGap(p.Accent, GuiTheme.NightPalette.Accent).ShouldBeLessThanOrEqualTo(10.0);
+        }
+
+        // An orange accent next to an orange warning reads a highlighted control as a warning, which is why Warn was
+        // re-hued towards yellow (#2025). The bounds come from the values and are set just under them, so a drift back
+        // fails: the old Warn (Light #8a5000, Dark #e8a33c, both near 36 degrees) was only 16 and 11 degrees from the
+        // new Accent, under the 25 here. Accent and Error (the red end) are the closest pair, 15 degrees in Light and
+        // 18 in Dark, which is why Error also differs in lightness and saturation and why severity carries a form cue
+        // as well as hue; the bound is the least that still separates them.
+        [Theory]
+        [MemberData(nameof(DaylightStates))]
+        public void AccentWarnAndErrorStayApartByHue(string state)
+        {
+            var p = ByName(state);
+
+            HueGap(p.Accent, p.Warn).ShouldBeGreaterThanOrEqualTo(25.0, $"{state}: Accent {Hue(p.Accent):F1}, Warn {Hue(p.Warn):F1}");
+            HueGap(p.Accent, p.Error).ShouldBeGreaterThanOrEqualTo(15.0, $"{state}: Accent {Hue(p.Accent):F1}, Error {Hue(p.Error):F1}");
+            HueGap(p.Warn, p.Error).ShouldBeGreaterThanOrEqualTo(35.0, $"{state}: Warn {Hue(p.Warn):F1}, Error {Hue(p.Error):F1}");
+        }
+
+        // Info is its own blue, not the accent: SkyBand draws the twilight ramp from its hue, and the home board's dot
+        // needs Info, Success and DimText three ways apart.
+        [Theory]
+        [MemberData(nameof(DaylightStates))]
+        public void InfoIsNotTheAccentAndStaysBlue(string state)
+        {
+            var p = ByName(state);
+
+            p.Info.ShouldNotBe(p.Accent);
+            Hue(p.Info).ShouldBeInRange(190.0, 230.0, $"{state}: Info is {Hue(p.Info):F1} degrees");
+            HueGap(p.Info, p.Accent).ShouldBeGreaterThan(120.0);
+        }
+
+        // The text an EquipmentTab draws on the accent's mixes: BodyText on Mix(PanelBg, Accent, 0.45) (the edit and
+        // cycle buttons), on Mix(.., 0.55) (PrimaryButtonBg, the segmented control, Create Profile) and on
+        // Mix(.., Warn, 0.5) (the Force pill). At rest each must clear AA. A pointer over one mixes it 16% towards
+        // the ink, which lightens a dark fill and so costs a dark theme contrast; Dark's Primary hover is 4.09:1,
+        // under AA, and the floors below are what each measures, because the accent cannot be both 4.5:1 on HeaderBg
+        // and dark enough to hold 4.5:1 hovered (no orange clears both). It was 2.90:1 as the blue, so it is a gain,
+        // recorded as a floor rather than hidden.
+        [Theory]
+        [MemberData(nameof(DaylightStates))]
+        public void BodyTextIsLegibleOnTheAccentAndWarnMixesAtRestAndHovered(string state)
+        {
+            var p = ByName(state);
+
+            (string Name, RGBAColor32 Fill, double HoverFloor)[] fills =
+            [
+                ("Edit (Accent .45)", GuiTheme.Mix(p.PanelBg, p.Accent, 0.45f), 4.5),
+                ("Primary (Accent .55)", GuiTheme.Mix(p.PanelBg, p.Accent, 0.55f), 4.0),
+                ("Force (Warn .5)", GuiTheme.Mix(p.PanelBg, p.Warn, 0.5f), 3.2),
+            ];
+
+            foreach (var (name, fill, hoverFloor) in fills)
+            {
+                var rest = Contrast(p.BodyText, fill);
+                var hover = Contrast(p.BodyText, GuiTheme.Hover(fill, p.BodyText));
+
+                rest.ShouldBeGreaterThanOrEqualTo(4.5, $"{state}: BodyText on {name} is {rest:F2}:1");
+                hover.ShouldBeGreaterThanOrEqualTo(hoverFloor, $"{state}: BodyText on {name} hovered is {hover:F2}:1");
+            }
+        }
+
+        // Night is out of scope for the accent change (#2025) and is a dark-adaptation palette with constraints of its
+        // own, so every role is pinned to its exact value: a recolour of Light or Dark that touched it would be caught
+        // here, not by a screenshot. The roles it does not state (HeaderText, Focus, Success) fall back to Accent.
+        [Fact]
+        public void NightPaletteIsPinnedToItsExactValues()
+        {
+            var p = GuiTheme.NightPalette;
+
+            static RGBAColor32 Rgb(byte r, byte g, byte b) => new(r, g, b, 0xff);
+
+            p.ContentBg.ShouldBe(Rgb(0x00, 0x00, 0x00));
+            p.PanelBg.ShouldBe(Rgb(0x0c, 0x04, 0x00));
+            p.HeaderBg.ShouldBe(Rgb(0x18, 0x08, 0x00));
+            p.Separator.ShouldBe(Rgb(0x2e, 0x12, 0x00));
+            p.SeparatorStrong.ShouldBe(Rgb(0x4d, 0x1e, 0x00));
+            p.BodyText.ShouldBe(Rgb(0xe0, 0x4a, 0x00));
+            p.DimText.ShouldBe(Rgb(0xb8, 0x3c, 0x00));
+            p.Accent.ShouldBe(Rgb(0xff, 0x6a, 0x00));
+            p.AccentAlt.ShouldBe(Rgb(0xa8, 0x3c, 0x00));
+            p.Selection.ShouldBe(Rgb(0x3a, 0x10, 0x00));
+            p.Info.ShouldBe(Rgb(0xe0, 0x4a, 0x00));
+            p.Warn.ShouldBe(Rgb(0xcc, 0x5c, 0x00));
+            p.Error.ShouldBe(Rgb(0xff, 0x15, 0x00));
+            p.HeaderText.ShouldBe(p.Accent);
+            p.Focus.ShouldBe(p.Accent);
+            p.Success.ShouldBe(p.Accent);
         }
 
         [Fact]

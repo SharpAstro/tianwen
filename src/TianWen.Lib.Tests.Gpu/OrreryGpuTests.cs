@@ -179,8 +179,7 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
             var withoutComets = Median();
             var off = Render(rig);
 
-            var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryGpuTests));
-            Directory.CreateDirectory(folder);
+            var folder = SharedTestData.CreateTempTestOutputDir(nameof(OrreryGpuTests));
             await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-gpu-comets.png"), PngWriter.Encode(on, Width, Height), TestContext.Current.CancellationToken);
             output.WriteLine(folder);
 
@@ -235,8 +234,7 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
             var on = Render(rig);
             rig.Tab.LastOrreryBackdrop.ShouldNotBeNull("the backdrop was not drawn");
 
-            var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryGpuTests));
-            Directory.CreateDirectory(folder);
+            var folder = SharedTestData.CreateTempTestOutputDir(nameof(OrreryGpuTests));
             await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-gpu-orbits-backdrop.png"), PngWriter.Encode(on, Width, Height), TestContext.Current.CancellationToken);
             await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-gpu-orbits-plain.png"), PngWriter.Encode(off, Width, Height), TestContext.Current.CancellationToken);
             output.WriteLine(folder);
@@ -335,8 +333,7 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
                 frame = Render(rig);
             }
             rig.Tab.OrrerySprites.Builds.ShouldBe(0);
-            var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryGpuTests));
-            Directory.CreateDirectory(folder);
+            var folder = SharedTestData.CreateTempTestOutputDir(nameof(OrreryGpuTests));
             await File.WriteAllBytesAsync(Path.Combine(folder, $"orrery-gpu-{days}d-{reachAu:F0}au.png"), PngWriter.Encode(frame, Width, Height), TestContext.Current.CancellationToken);
             output.WriteLine(folder);
             OrreryTests.LitAwayFromTheSun(rig.Tab.OrreryDrawn, frame, Width, Height, output).ShouldBeEmpty();

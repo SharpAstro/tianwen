@@ -37,7 +37,7 @@ public class IncrementalStateNodeTests(ITestOutputHelper output)
         };
         node.Factory.Initialised.TrySetResult();
         var session = (await node.StartSessionAsync(ct)).Session;
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
 
         var first = (await client.GetSessionStateAsync(ct)).Value.ShouldNotBeNull();
         var id = first.SessionId.ShouldNotBeNull("a node sending in part names the session");

@@ -56,7 +56,7 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
         var fakeExternal = new FakeExternal(outputHelper, _folders.Create("twrc_"));
         builder.Services.AddSingleton<IExternal>(fakeExternal);
         // A real clock, as NodeHarness uses: on the fake one the node's background loops spin.
-        builder.Services.AddSingleton<ITimeProvider>(new SystemTimeProvider());
+        builder.Services.AddSingleton<ITimeProvider>(SystemTimeProvider.Instance);
         builder.Services.AddAstrometry();
         builder.Services.AddFake();
         builder.Services.AddDevices();

@@ -102,6 +102,8 @@ public class FakeExternal : IExternal
 
     public virtual string? ReasonNotToProbeSerialPort(string port) => null;
 
+    public virtual Devices.Discovery.SerialPortIdentity? SerialPortIdentityOf(string port) => null;
+
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(ResourceLock.AlwaysUnlocked);
 
     /// <summary>

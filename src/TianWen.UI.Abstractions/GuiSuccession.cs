@@ -7,6 +7,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
 
@@ -138,7 +139,7 @@ public static class GuiSuccession
     /// predecessor that had exited 18 s earlier was reported still running (#1245). <see cref="Process.HasExited"/> on a
     /// process nobody is watching asks the system straight away (<c>kill(pid, 0)</c> on Unix, the handle on Windows).
     /// </remarks>
-    public static async Task<bool> WaitForPredecessorAsync(int processId, TimeSpan budget, CancellationToken cancellationToken)
+    public static async Task<bool> WaitForPredecessorAsync(int processId, TimeSpan budget, ITimeProvider timeProvider, CancellationToken cancellationToken)
     {
         Process predecessor;
         try
@@ -153,8 +154,9 @@ public static class GuiSuccession
 
         using (predecessor)
         {
-            return await WaitForExitAsync(() => HasExited(predecessor), budget, TimeProvider.System,
-                static (delay, ct) => Task.Delay(delay, ct), cancellationToken).ConfigureAwait(false);
+            // The window's own clock, the budget and the sleeps alike (#2021).
+            return await WaitForExitAsync(() => HasExited(predecessor), budget, timeProvider.System,
+                (delay, ct) => timeProvider.SleepAsync(delay, ct).AsTask(), cancellationToken).ConfigureAwait(false);
         }
     }
 

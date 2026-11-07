@@ -14,6 +14,9 @@ internal class ProfileSubCommand(
     Option<string?> selectedProfileOption,
     ProfileSelector profileSelector)
 {
+    /// <summary>How often the inline input loop looks for a key, waited on the host's clock (#2021).</summary>
+    private static readonly TimeSpan InputPollInterval = TimeSpan.FromMilliseconds(16);
+
     private readonly Argument<string> profileNameOrIdArg = new("profileNameOrId") { Description = "Name or ID of the profile" };
     private readonly Argument<string> profileNameArg = new("profileName") { Description = "Name of the new profile" };
     private readonly Argument<string> deviceIdArg = new("deviceId") { Description = "Device ID" };
@@ -232,7 +235,7 @@ internal class ProfileSubCommand(
         {
             if (!terminal.HasInput())
             {
-                await Task.Delay(16, ct);
+                await consoleHost.TimeProvider.SleepAsync(InputPollInterval, ct);
                 continue;
             }
 

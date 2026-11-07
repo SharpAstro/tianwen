@@ -15,6 +15,7 @@
     <None Remove="Data/winjupos-*.txt" />
     <None Remove="Data/Focus/*.gz" />
     <None Remove="Data/Focus/NINA/*.json" />
+    <None Remove="Data/PoleMaster/*.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,6 +27,10 @@
     <EmbeddedResource Include="Data/winjupos-*.txt" />
     <EmbeddedResource Include="Data/Focus/*.gz" />
     <EmbeddedResource Include="Data/Focus/NINA/*.json" />
+    <!-- The owner's QHY PoleMaster (25 mm, 30.7"/px, 11x8 deg) near the south celestial pole, 2021, as the PoleMaster
+         software saved them (8-bit; stored single-channel, the RGB was grey): a field far from the hint in RA, and one
+         with a tree across a quarter of it. -->
+    <EmbeddedResource Include="Data/PoleMaster/*.png" />
     <!-- SkyWatcher protocol oracle: wire transcripts recorded from GSServer's own
          GS.SkyWatcher client driving a scripted serial port (tools/GssOracle). -->
     <EmbeddedResource Include="Data/gss-oracle-transcripts.json" />

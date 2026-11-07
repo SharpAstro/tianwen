@@ -44,5 +44,5 @@ public static class ExternalServiceCollectionExtensions
     public static IServiceCollection AddTimeProvider(this IServiceCollection services) => services
         .AddSingleton<ITimeProvider>(static sp => StartupTimeOverride.TryGet(out _, out var offset)
             ? new SystemTimeProvider(new OffsetTimeProvider(TimeProvider.System, offset))
-            : new SystemTimeProvider());
+            : SystemTimeProvider.Instance);
 }

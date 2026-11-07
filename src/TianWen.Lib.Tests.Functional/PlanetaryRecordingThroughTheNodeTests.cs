@@ -138,7 +138,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         var (rigNode, rig, _) = await h.ConnectRigAsync(output, ct);
         await GuiNodeHarness.GrantAsync(rigNode, rig, ct);
         var planetary = await CapturingAsync(h);
-        var rigClient = new TianWenNodeClient(rigNode.Client);
+        var rigClient = NodeTestClients.ClientOf(rigNode.Client);
         (await rigClient.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Running.ShouldBeTrue("premise: the capture is the rig's");
 
         h.Contexts.Activate(h.Contexts.Local).ShouldBeTrue();

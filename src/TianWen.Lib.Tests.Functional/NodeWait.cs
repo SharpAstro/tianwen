@@ -59,6 +59,18 @@ internal static class NodeWait
             return (journal is null && seen == NoJournal, seen);
         }, ct);
 
+    /// <summary>
+    /// A read of the node that waits for an answer: a one-shot read comes back with a null Value when the node has not yet
+    /// answered, which on a loaded runner says nothing about the node's state. Returns the value once there is one.
+    /// </summary>
+    public static Task<T> UntilAnsweredAsync<T>(string what, Func<CancellationToken, Task<NodeResult<T>>> read, CancellationToken ct)
+        where T : class =>
+        UntilAsync<T>(what, async token =>
+        {
+            var result = await read(token);
+            return (result.Value, result.Value is null ? $"no answer: {result.Error}" : "answered");
+        }, ct);
+
     /// <summary>Waits until the node's job <paramref name="id"/> has ended, and returns it as it ended.</summary>
     public static Task<JobDto> UntilTheJobEndsAsync(TianWenNodeClient client, string id, CancellationToken ct) =>
         UntilAsync<JobDto>($"job {id} to end", async token =>
@@ -82,10 +94,11 @@ internal static class NodeWait
     /// unscheduled for longer than either: CI run 41953529496 lost 13 s at a dismissal with nothing in the node's log between
     /// its start and the failure, though nothing in that route can wait. That is no refusal, so the call is asked again,
     /// bounded by the test's own timeout like every other wait here, and what each answer was goes to the output. Any other
-    /// status, a refusal included, is returned for the test to assert with its code and error. Only for a call that is safe to
-    /// repeat.
+    /// status, a refusal included, is returned for the test to assert with its code and error, where
+    /// <see cref="UntilAnsweredAsync{T}(string, Func{CancellationToken, Task{NodeResult{T}}}, CancellationToken)"/> asks again
+    /// until there is a value. Only for a call that is safe to repeat.
     /// </summary>
-    public static async Task<NodeResult<T>> UntilAnsweredAsync<T>(string call, Func<CancellationToken, Task<NodeResult<T>>> ask, CancellationToken ct)
+    public static async Task<NodeResult<T>> AskUntilAnsweredAsync<T>(string call, Func<CancellationToken, Task<NodeResult<T>>> ask, CancellationToken ct)
     {
         NodeResult<T> answer = default;
         await UntilAsync($"the node to answer {call}", async token =>
@@ -102,7 +115,7 @@ internal static class NodeWait
     /// <summary>
     /// The status <see cref="TianWenNodeClient"/> gives a call that got no answer (a timeout, an unreachable host):
     /// <c>(int)HttpStatusCode.ServiceUnavailable</c>. A route that answers 503 itself (the enhance endpoint with no pipeline)
-    /// cannot be told from it, so <see cref="UntilAnsweredAsync"/> is for routes that never do, such as <c>/api/v1/node</c>.
+    /// cannot be told from it, so <see cref="AskUntilAnsweredAsync"/> is for routes that never do, such as <c>/api/v1/node</c>.
     /// </summary>
     private const int NoAnswer = 503;
 
@@ -133,40 +146,72 @@ internal static class NodeWait
         var clock = Stopwatch.StartNew();
         var nextHeartbeat = Heartbeat;
         string? lastSeen = null;
-        try
+        while (true)
         {
-            while (true)
+            (T? value, string seen) found;
+            try
             {
-                var (value, seen) = await look(ct);
-                if (value is not null)
-                {
-                    return value;
-                }
+                found = await look(ct);
+            }
+            catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+            {
+                throw TimedOut(waitingFor, clock.Elapsed, lastSeen, ex);
+            }
 
-                if (seen != lastSeen)
-                {
-                    logger?.LogInformation("Waiting for {What}: {Seen}", waitingFor, seen);
-                    lastSeen = seen;
-                }
-                else if (clock.Elapsed >= nextHeartbeat)
-                {
-                    logger?.LogInformation("Still waiting for {What} after {Seconds:0} s: {Seen}; thread pool {Threads} threads, {Queued} queued",
-                        waitingFor, clock.Elapsed.TotalSeconds, seen, ThreadPool.ThreadCount, ThreadPool.PendingWorkItemCount);
-                    nextHeartbeat += Heartbeat;
-                }
+            var (value, seen) = found;
+            if (value is not null)
+            {
+                return value;
+            }
 
-                // The test's own token: xunit cancels it at the test's timeout, which is what bounds the wait.
+            if (seen != lastSeen)
+            {
+                logger?.LogInformation("Waiting for {What}: {Seen}", waitingFor, seen);
+                lastSeen = seen;
+            }
+            else if (clock.Elapsed >= nextHeartbeat)
+            {
+                logger?.LogInformation("Still waiting for {What} after {Seconds:0} s: {Seen}; {Pool}",
+                    waitingFor, clock.Elapsed.TotalSeconds, seen, PoolState());
+                nextHeartbeat += Heartbeat;
+            }
+
+            // The test's own token: xunit cancels it at the test's timeout, which is what bounds the wait.
+            try
+            {
                 await Task.Delay(Poll, ct);
             }
+            catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+            {
+                throw TimedOut(waitingFor, clock.Elapsed, lastSeen, ex);
+            }
         }
-        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+    }
+
+    /// <summary>
+    /// The thread pool's state, for a message about a node test that ran out of time (#2000): a pool starved by work holding
+    /// its workers shows as every thread busy and a queue that does not drain, and a node that was merely slow shows neither.
+    /// The ONE place that words it; the waits and the clients' request log both read it.
+    /// </summary>
+    public static string PoolState()
+    {
+        ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
+        ThreadPool.GetAvailableThreads(out var freeWorkers, out _);
+        ThreadPool.GetMaxThreads(out var maxWorkers, out _);
+        var memory = GC.GetGCMemoryInfo();
+        return $"thread pool: {ThreadPool.ThreadCount} threads ({maxWorkers - freeWorkers} busy workers, minimum {minWorkers} workers and {minIo} I/O), {ThreadPool.PendingWorkItemCount} queued; "
+            + $"GC: {GC.GetTotalPauseDuration().TotalSeconds:0.0} s paused in all, {GC.CollectionCount(2)} gen2, heap {GC.GetTotalMemory(false) / (1024 * 1024)} MB, "
+            + $"memory load {memory.MemoryLoadBytes / (1024 * 1024)} of {memory.TotalAvailableMemoryBytes / (1024 * 1024)} MB";
+    }
+
+    private static OperationCanceledException TimedOut(string waitingFor, TimeSpan waited, string? lastSeen, OperationCanceledException inner)
+    {
+        var message = $"The test timed out after waiting {waited.TotalSeconds:0.0} s for {waitingFor}; last saw: {lastSeen ?? "nothing"}; {PoolState()}";
+        if (TestContext.Current.TestOutputHelper is { } output)
         {
-            // xunit reports only "timed out after N ms" for a test that waited out its time, so the wait says what it was for
-            // and what it last saw, in the output and in the exception (#2023).
-            var ended = $"The test's time ran out after {clock.Elapsed.TotalSeconds:0} s waiting for {waitingFor}; last seen: {lastSeen ?? "nothing"}";
-            logger?.LogInformation("{Ended}; thread pool {Threads} threads, {Queued} queued", ended, ThreadPool.ThreadCount, ThreadPool.PendingWorkItemCount);
-            throw new OperationCanceledException(ended, ex, ct);
+            output.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {message}");
         }
+        return new OperationCanceledException(message, inner, inner.CancellationToken);
     }
 
     private const string NoJournal = "no journal";

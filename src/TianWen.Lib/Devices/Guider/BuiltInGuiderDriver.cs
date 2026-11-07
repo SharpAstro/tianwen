@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +29,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private CancellationTokenSource? _guideCts;
     private Task? _guideLoopTask;
     private GuiderCalibrationResult? _lastCalibration;
+    private volatile GuiderCalibrationFailure? _lastCalibrationFailure;
     private PointingState? _calibrationPierSide;
     private volatile Image? _lastFrame;
     private volatile GuiderCentroidTracker? _calibrationTracker;
@@ -532,7 +534,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// <summary>
     /// Runs the calibration sequence: acquire guide star, pulse in RA/Dec to measure plate scale and angle.
     /// </summary>
-    private async ValueTask<GuiderCalibrationResult?> CalibrateInternalAsync(IPulseGuideTarget pulseTarget, ICameraDriver camera, CancellationToken ct)
+    private async ValueTask<GuiderCalibrationOutcome> CalibrateInternalAsync(IPulseGuideTarget pulseTarget, ICameraDriver camera, CancellationToken ct)
     {
         var exposureTime = await ExposureTimeAsync(ct);
 
@@ -544,6 +546,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         if (!tracker.IsAcquired)
         {
+            string reason;
+            var cause = GuiderCalibrationFailureCause.NoStarFound;
+            double failedX = double.NaN, failedY = double.NaN;
             if (_chosenStar is { } chosen)
             {
                 // A chosen star is the only one acquisition takes, so a miss says where the stars were instead.
@@ -551,16 +556,29 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 var nearest = stars.Count == 0 ? double.NaN : stars.Min(s => Math.Sqrt((s.X - chosen.X) * (s.X - chosen.X) + (s.Y - chosen.Y) * (s.Y - chosen.Y)));
                 Logger.LogWarning("Built-in guider: the chosen star at ({X:F1}, {Y:F1}) is not in the calibration frame: {Count} stars found, the nearest {Nearest:F1} px away.",
                     chosen.X, chosen.Y, stars.Count, nearest);
+                cause = GuiderCalibrationFailureCause.NoStarAtChosenPosition;
+                failedX = chosen.X;
+                failedY = chosen.Y;
+                reason = stars.Count == 0
+                    ? string.Create(CultureInfo.InvariantCulture,
+                        $"no star at the chosen position ({chosen.X:F1}, {chosen.Y:F1}): no star was found anywhere in the frame")
+                    : string.Create(CultureInfo.InvariantCulture,
+                        $"no star at the chosen position ({chosen.X:F1}, {chosen.Y:F1}): {stars.Count} stars found, the nearest {nearest:F1} px away");
+            }
+            else
+            {
+                reason = "no guide star was found in the calibration frame (cloud or poor seeing?)";
             }
 
             // Unpublish BEFORE releasing: the published pointer must never point at a spent frame,
             // even for the two statements this window used to last.
             LastCapturedFrame = null;
             frame.Release();
-            // Return null without raising a guiding error -- the caller retries (a cloud / poor seeing
+            // Fail without raising a guiding error -- the caller retries (a cloud / poor seeing
             // is often transient) and raises the terminal error only once all attempts are exhausted.
-            Logger.LogWarning("Built-in guider: calibration could not acquire a guide star (cloud / poor seeing?).");
-            return null;
+            // The chosen position (when there is one) stands in for the start star: there is none.
+            return GuiderCalibrationOutcome.Failed(new GuiderCalibrationFailure(
+                cause, "the start", reason, failedX, failedY, double.NaN, double.NaN, []));
         }
 
         var timeProvider = TimeProvider;
@@ -576,10 +594,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         {
             BacklashClearingEnabled = true,
             AssumeDecOrthogonal = _assumeDecOrthogonal,
-            Logger = Logger,
         };
 
-        var result = await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, TimeProvider, ct);
+        var outcome = await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, TimeProvider, ct);
 
         // The star walked during the sweep, so a chosen one is followed to where it ended: the guide lock that comes next
         // looks for it there, never at the click, which the sweep may have left further than a pick reaches.
@@ -587,7 +604,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         {
             _chosenStar = (last.X, last.Y);
         }
-        return result;
+        return outcome;
     }
 
     /// <summary>
@@ -618,7 +635,8 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         {
             if (await CalibrateWithRetryAsync(_pulseTarget, _camera, cancellationToken).ConfigureAwait(false) is not { } calibrated)
             {
-                Logger.LogWarning("Built-in guider: calibration on demand found no usable guide star or measured nothing the quality gates accept.");
+                Logger.LogWarning("Built-in guider: calibration on demand failed: {Failure}",
+                    _lastCalibrationFailure?.Summary ?? "no usable guide star, or nothing the quality gates accept");
                 return null;
             }
 
@@ -635,6 +653,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         }
     }
 
+    /// <summary>
+    /// The last calibration attempt's failure in a short plain form, for the error a person reads; null before a failure,
+    /// and after a success.
+    /// </summary>
+    public string? LastCalibrationFailure => _lastCalibrationFailure?.Summary;
+
+    private string CalibrationFailedMessage(string lead)
+        => _lastCalibrationFailure is { } failure
+            ? $"{lead} after {_maxCalibrationAttempts} attempts: {failure.Summary}"
+            : $"{lead}: no usable guide star after retries (cloud or poor seeing?) or too little star movement";
+
     /// <inheritdoc/>
     public GuiderCalibrationSummary? LastCalibration
         => _lastCalibration is { } calibration ? GuiderCalibrationSummary.From(calibration, GuiderPixelScale) : null;
@@ -647,16 +676,25 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     private async ValueTask<GuiderCalibrationResult?> CalibrateWithRetryAsync(IPulseGuideTarget pulseTarget, ICameraDriver camera, CancellationToken ct)
     {
+        _lastCalibrationFailure = null;
         for (var attempt = 1; attempt <= _maxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
         {
-            var result = await CalibrateInternalAsync(pulseTarget, camera, ct);
-            if (result is not null)
+            var outcome = await CalibrateInternalAsync(pulseTarget, camera, ct);
+            if (outcome.Result is { } result)
             {
                 if (attempt > 1)
                 {
                     Logger.LogInformation("Built-in guider: calibration succeeded on attempt {Attempt}/{Max}.", attempt, _maxCalibrationAttempts);
                 }
+                _lastCalibrationFailure = null;
                 return result;
+            }
+
+            if (outcome.Failure is { } failure)
+            {
+                // The last attempt's failure is what the error names; each one is logged whole, so a flaky run says why.
+                _lastCalibrationFailure = failure;
+                Logger.LogWarning("Built-in guider: calibration attempt {Attempt}/{Max} failed: {Failure}", attempt, _maxCalibrationAttempts, failure.Describe());
             }
 
             if (attempt < _maxCalibrationAttempts)
@@ -764,7 +802,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 calResult = await CalibrateWithRetryAsync(pulseTarget, camera, ct);
                 if (calResult is null)
                 {
-                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Calibration failed, no usable guide star after retries (cloud / poor seeing?) or insufficient star displacement"));
+                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, CalibrationFailedMessage("Calibration failed")));
                     ForceState(GuiderState.Idle);
                     return;
                 }
@@ -924,7 +962,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 if (fresh is null)
                 {
                     GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
-                        "Recalibration failed; no usable guide star after retries"));
+                        CalibrationFailedMessage("Recalibration failed")));
                     return;
                 }
                 calResult = fresh;
@@ -954,7 +992,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     internal async ValueTask<Image> CaptureCorrectedFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
     {
-        var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct);
+        var frame = await CaptureGuideFrameAsync(camera, exposure, timeProvider, imageReadyPollInterval, ct, Logger);
         return _darks?.For(camera.Name) is { } correction ? correction.Correct(frame, exposure, frame.ImageMeta.Gain) : frame;
     }
 
@@ -963,17 +1001,50 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref; 
     /// caller must call <see cref="Image.Release"/> when done to allow buffer reuse.
     /// </summary>
-    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
+    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct, ILogger? logger = null)
     {
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
-        // Adaptive wait: sleep through the exposure's dead time in one chunk, then
-        // tighten the poll cadence as the predicted end approaches (coarse, then 1 ms
-        // in the final window) so pickup latency stays minimal without burning poll
-        // round-trips. No overall timeout: the guide loop's own token bounds this.
-        await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: null, ct);
+        try
+        {
+            // Adaptive wait: sleep through the exposure's dead time in one chunk, then
+            // tighten the poll cadence as the predicted end approaches (coarse, then 1 ms
+            // in the final window) so pickup latency stays minimal without burning poll
+            // round-trips. No overall timeout: the guide loop's own token bounds this.
+            await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: null, ct);
 
-        return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame, no image data");
+            return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame, no image data");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The loop was stopped with its exposure in flight, and cancelling the wait does not end the exposure: the camera
+            // would go on Exposing after the loop is gone, and the next consumer's first StartExposureAsync would meet a busy
+            // camera (#1945: a guiding stop handed the camera back to the live view mid-exposure and its capture loop died on
+            // it). Whoever stops the loop is owed an idle camera, so the exposure ends before the cancellation propagates.
+            await EndExposureInFlightAsync(camera, exposure, timeProvider, imageReadyPollInterval, logger);
+            throw;
+        }
+    }
+
+    private static async ValueTask EndExposureInFlightAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, ILogger? logger)
+    {
+        try
+        {
+            if (camera.CanAbortExposure)
+            {
+                await camera.AbortExposureAsync(CancellationToken.None);
+            }
+            else
+            {
+                // No abort: the exposure runs out, a guide exposure being short.
+                await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: exposure + TimeSpan.FromSeconds(5), CancellationToken.None);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The camera is the stop's to find busy, not this frame's to fail on: the loop is ending either way.
+            logger?.LogWarning(ex, "Built-in guider: ending the exposure in flight on {Camera} failed", camera.Name);
+        }
     }
 
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
