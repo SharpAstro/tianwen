@@ -133,28 +133,39 @@ internal static class NodeWait
         var clock = Stopwatch.StartNew();
         var nextHeartbeat = Heartbeat;
         string? lastSeen = null;
-        while (true)
+        try
         {
-            var (value, seen) = await look(ct);
-            if (value is not null)
+            while (true)
             {
-                return value;
-            }
+                var (value, seen) = await look(ct);
+                if (value is not null)
+                {
+                    return value;
+                }
 
-            if (seen != lastSeen)
-            {
-                logger?.LogInformation("Waiting for {What}: {Seen}", waitingFor, seen);
-                lastSeen = seen;
-            }
-            else if (clock.Elapsed >= nextHeartbeat)
-            {
-                logger?.LogInformation("Still waiting for {What} after {Seconds:0} s: {Seen}; thread pool {Threads} threads, {Queued} queued",
-                    waitingFor, clock.Elapsed.TotalSeconds, seen, ThreadPool.ThreadCount, ThreadPool.PendingWorkItemCount);
-                nextHeartbeat += Heartbeat;
-            }
+                if (seen != lastSeen)
+                {
+                    logger?.LogInformation("Waiting for {What}: {Seen}", waitingFor, seen);
+                    lastSeen = seen;
+                }
+                else if (clock.Elapsed >= nextHeartbeat)
+                {
+                    logger?.LogInformation("Still waiting for {What} after {Seconds:0} s: {Seen}; thread pool {Threads} threads, {Queued} queued",
+                        waitingFor, clock.Elapsed.TotalSeconds, seen, ThreadPool.ThreadCount, ThreadPool.PendingWorkItemCount);
+                    nextHeartbeat += Heartbeat;
+                }
 
-            // The test's own token: xunit cancels it at the test's timeout, which is what bounds the wait.
-            await Task.Delay(Poll, ct);
+                // The test's own token: xunit cancels it at the test's timeout, which is what bounds the wait.
+                await Task.Delay(Poll, ct);
+            }
+        }
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+        {
+            // xunit reports only "timed out after N ms" for a test that waited out its time, so the wait says what it was for
+            // and what it last saw, in the output and in the exception (#2023).
+            var ended = $"The test's time ran out after {clock.Elapsed.TotalSeconds:0} s waiting for {waitingFor}; last seen: {lastSeen ?? "nothing"}";
+            logger?.LogInformation("{Ended}; thread pool {Threads} threads, {Queued} queued", ended, ThreadPool.ThreadCount, ThreadPool.PendingWorkItemCount);
+            throw new OperationCanceledException(ended, ex, ct);
         }
     }
 

@@ -28,7 +28,7 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
     private static async Task<QuitDialog> AskedAsync(GuiNodeHarness h, AppQuit quit)
     {
         quit.Request();
-        await h.UntilAsync(() => h.Contexts.Local.LiveSession.QuitDialog is not null || h.AppState.ShuttingDown, TestContext.Current.CancellationToken);
+        await h.UntilAsync("the quit to ask its question, or the app to start shutting down", () => h.Contexts.Local.LiveSession.QuitDialog is not null || h.AppState.ShuttingDown, TestContext.Current.CancellationToken);
         h.AppState.ShuttingDown.ShouldBeFalse("premise: the quit asked rather than going ahead");
         h.AppState.ActiveTab.ShouldBe(GuiTab.LiveSession, "the question is drawn on the Live Session tab");
         return h.Contexts.Local.LiveSession.QuitDialog.ShouldNotBeNull();
@@ -59,7 +59,7 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
 
         quit.Request();
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync("the quit to complete without asking", () => quit.IsComplete, ct);
         h.Contexts.Local.LiveSession.QuitDialog.ShouldBeNull("there was nothing to ask about");
         background.IsCancellationRequested.ShouldBeTrue("a quit cancels the host's background work");
     }
@@ -77,9 +77,9 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
 
         quit.Answer(asked.Default);
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync("the quit to complete", () => quit.IsComplete, ct);
         // The node finishes what it was asked, whatever became of the window.
-        await h.UntilAsync(() => !AnyConnected(h), ct);
+        await h.UntilAsync("the node to have disconnected every device", () => !AnyConnected(h), ct);
     }
 
     /// <summary>
@@ -101,8 +101,8 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
 
         quit.Answer(asked.Default);
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
-        await h.UntilAsync(() => !AnyConnected(h), ct);
+        await h.UntilAsync("the quit to complete once the preview is stopped", () => quit.IsComplete, ct);
+        await h.UntilAsync("the node to have disconnected every device", () => !AnyConnected(h), ct);
         (await h.Local.Client.GetJobAsync(job.Id, ct)).Value.ShouldNotBeNull().State.ShouldBe(JobState.Cancelled);
     }
 
@@ -131,8 +131,8 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
 
         quit.Answer(asked.Default);
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
-        await h.UntilAsync(() => !AnyConnected(h), ct);
+        await h.UntilAsync("the quit to complete", () => quit.IsComplete, ct);
+        await h.UntilAsync("the node to have warmed up and disconnected every device", () => !AnyConnected(h), ct);
     }
 
     [Fact(Timeout = 60_000)]
@@ -144,7 +144,7 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
 
         quit.Answer((await AskedAsync(h, quit)).Other);
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync("the quit to complete with the devices left connected", () => quit.IsComplete, ct);
         h.Hub.ConnectedDevices.Count.ShouldBe(3, "left connected on the node");
     }
 
@@ -191,7 +191,7 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
 
         quit.Answer(asked.Default);
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync("the quit to complete with the run left running", () => quit.IsComplete, ct);
         (await h.Local.Client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Running.ShouldBeTrue("the run goes on without the window");
         (await h.Local.Client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
     }
@@ -209,13 +209,13 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
         quit.Answer(QuitAction.StopTheRig);
 
         await session.Cancelled.Task.WaitAsync(ct);
-        await h.UntilAsync(() => quit.Progress == RigShutdown.Ending(NodeRunKind.Session), ct);
+        await h.UntilAsync("the quit's progress to say the session is ending", () => quit.Progress == RigShutdown.Ending(NodeRunKind.Session), ct);
         h.Hub.ConnectedDevices.Count.ShouldBe(3, "the session's Finalise parks and warms first; nothing is pulled from under it");
         quit.IsComplete.ShouldBeFalse();
 
         session.Finalise.TrySetResult();
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync("the quit to complete once the session has finalised", () => quit.IsComplete, ct);
         AnyConnected(h).ShouldBeFalse("once the run ended, every device was warmed up and disconnected");
         (await h.Local.Client.GetNodeAsync(ct)).Value.ShouldNotBeNull().Run.ShouldBeNull();
     }
@@ -229,7 +229,7 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
         var quit = h.Quit();
         quit.Answer((await AskedAsync(h, quit)).Other);
         await session.Cancelled.Task.WaitAsync(ct);
-        await h.UntilAsync(() => quit.Progress is not null, ct);
+        await h.UntilAsync("the quit to have a progress to report", () => quit.Progress is not null, ct);
 
         quit.Request();
 
@@ -237,7 +237,7 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
             && n.Message == "Quitting… Finalising the session: park, warm-up, covers, please wait");
         h.Contexts.Local.LiveSession.QuitDialog.ShouldBeNull("it does not ask again");
         session.Finalise.TrySetResult();
-        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync("the stop-the-rig quit to complete once the session has finalised", () => quit.IsComplete, ct);
     }
 
     [Fact(Timeout = 60_000)]
@@ -248,12 +248,12 @@ public class QuitThroughTheNodeTests(ITestOutputHelper output)
         await StartedCaptureAsync(h);
         // Another window on the same node: the laptop watching over RDP, say.
         await using var other = await NodeWindow.OpenAsync(h.Node, output, ct);
-        await h.UntilAsync(() => h.Local.Mirror.IsEventStreamConnected, ct);
+        await h.UntilAsync("this window's event stream to connect to the node", () => h.Local.Mirror.IsEventStreamConnected, ct);
         var quit = h.Quit();
 
         quit.Request();
 
-        await h.UntilAsync(() => quit.IsComplete, ct);
+        await h.UntilAsync("the quit to complete without asking", () => quit.IsComplete, ct);
         h.Contexts.Local.LiveSession.QuitDialog.ShouldBeNull("only the last client asks");
         (await h.Local.Client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Running.ShouldBeTrue();
         h.Hub.ConnectedDevices.Count.ShouldBe(3, "closing a second window never warms a rig the first is watching");

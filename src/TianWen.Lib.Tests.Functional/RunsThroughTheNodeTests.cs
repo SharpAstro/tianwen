@@ -37,11 +37,11 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
 
         h.Post(new StartSessionSignal());
         // Until the node made the session, or the view said why it did not start one.
-        await h.UntilAsync(() => !h.Node.Factory.Created.IsEmpty
+        await h.UntilAsync("the node to make the session, or the view to say why it did not", () => !h.Node.Factory.Created.IsEmpty
             || h.AppState.Notifications.Any(static n => n.Severity is NotificationSeverity.Warning or NotificationSeverity.Error), ct);
         h.AppState.Notifications.ShouldNotContain(static n => n.Severity == NotificationSeverity.Error,
             string.Join("; ", h.AppState.Notifications.Select(static n => n.Message)));
-        await h.UntilAsync(() => !h.Node.Factory.Created.IsEmpty, ct);
+        await h.UntilAsync("the node's factory to have made the session", () => !h.Node.Factory.Created.IsEmpty, ct);
         var session = h.Node.Factory.Created.Last();
         await session.Started.Task.WaitAsync(ct);
         return session;
@@ -60,7 +60,7 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
         session.Configuration.SiteLatitude.ShouldBe(48.2, 1e-9, "the site the plan was made at");
 
         // The view learns of the run from its node, as a rig's view does.
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the view to learn of the session's run from its node", () =>
         {
             h.Contexts.PollAll();
             return h.Contexts.Local.LiveSession.IsRunning;
@@ -94,7 +94,7 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
         await StartedSessionAsync(h, setpointC: -10);
         var started = SessionNotes.ForRunStart(flatRun: false).Message;
 
-        await h.UntilAsync(() => NotificationFeed.Of(h.Contexts.Local, h.AppState).Entries.Any(n => n.Message == started), ct);
+        await h.UntilAsync("the feed to show the node's note of the run's start", () => NotificationFeed.Of(h.Contexts.Local, h.AppState).Entries.Any(n => n.Message == started), ct);
         var feed = NotificationFeed.Of(h.Contexts.Local, h.AppState).Entries;
         feed.ShouldContain(n => n.Message.StartsWith("Found "), "this computer's own notes are there too");
         feed.Select(static n => n.When).ShouldBeInOrder(SortDirection.Descending, "newest first");
@@ -110,13 +110,13 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
         h.Session.CameraSettings[0].SetpointTempC = -12;
 
         h.Post(new StartFlatsSignal(FlatIlluminationChoice.Calibrator, FlatsPerFilter: 7));
-        await h.UntilAsync(() => !h.Node.Factory.Created.IsEmpty, ct);
+        await h.UntilAsync("the node's factory to have made the flat run", () => !h.Node.Factory.Created.IsEmpty, ct);
         var run = h.Node.Factory.Created.Last();
         await run.Started.Task.WaitAsync(ct);
 
         run.Configuration.SetpointCCDTemperature.TempC.ShouldBe((sbyte)-12, "the flats cool to the lights' setpoint");
         run.Configuration.FlatsPerFilter.ShouldBe(7);
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the view to learn of the flat run from its node", () =>
         {
             h.Contexts.PollAll();
             return h.Contexts.Local.LiveSession.IsFlatRunGoingOn;
@@ -126,7 +126,7 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
         h.Contexts.Local.LiveSession.FlatCancelRequested.ShouldBeTrue("the panel reads Cancelling until the run has ended");
         await run.Cancelled.Task.WaitAsync(ct);
         run.Finalise.TrySetResult();
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the view to learn that the flat run has ended", () =>
         {
             h.Contexts.PollAll();
             return !h.Contexts.Local.LiveSession.IsFlatRunGoingOn && !h.Contexts.Local.LiveSession.FlatCancelRequested;
@@ -140,15 +140,15 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
 
         h.Post(new StartPolarAlignmentSignal(OtaIndex: 0));
-        await h.UntilAsync(() => h.Claimed(h.MountUri) && h.Claimed(h.CameraUri), ct);
+        await h.UntilAsync("the node to claim the mount and the camera for the polar run", () => h.Claimed(h.MountUri) && h.Claimed(h.CameraUri), ct);
         h.Claimed(h.FocuserUri).ShouldBeFalse("it only reads the focuser, for the frames' cards");
 
         // Another action on the mount it rotates: the node refuses it, in the polar run's name.
         h.Post(new JogMountSignal(GuideDirection.North, Arcsec: 10));
-        await h.UntilAsync(() => h.AppState.Notifications.Any(n => n.Message.Contains("polar alignment")), ct);
+        await h.UntilAsync("the node's refusal of the jog, in the polar run's name", () => h.AppState.Notifications.Any(n => n.Message.Contains("polar alignment")), ct);
 
         h.Post(new CancelPolarAlignmentSignal());
-        await h.UntilAsync(() => h.Contexts.Local.LiveSession.PolarRunEnded.IsCompleted, ct);
+        await h.UntilAsync("the cancelled polar run to end", () => h.Contexts.Local.LiveSession.PolarRunEnded.IsCompleted, ct);
         h.Claimed(h.MountUri).ShouldBeFalse("the run gave the mount back once it had restored it");
         h.Claimed(h.CameraUri).ShouldBeFalse();
         h.Contexts.Local.LiveSession.PolarAlignmentCts.ShouldBeNull();
@@ -163,7 +163,7 @@ public class RunsThroughTheNodeTests(ITestOutputHelper output)
         using var _ = sessionClaim;
 
         h.Post(new StartPolarAlignmentSignal(OtaIndex: 0));
-        await h.UntilAsync(() => h.Contexts.Local.LiveSession.PolarRunEnded.IsCompleted, ct);
+        await h.UntilAsync("the refused polar start to end", () => h.Contexts.Local.LiveSession.PolarRunEnded.IsCompleted, ct);
 
         h.ShouldHaveRefused("the imaging session");
         h.Contexts.Local.LiveSession.PolarAlignmentCts.ShouldBeNull("polar never ran");
