@@ -133,9 +133,9 @@ public class ExpectedSkyFitterTests(ITestOutputHelper output) : IDisposable
     [Fact(Timeout = 120_000)]
     public async Task TwoGainsAreTwoKeysAndTooFewFramesAreNoModel()
     {
-        var a = WriteRig("sky-both/a", gain: 100, perNight: 20, withRejectedAndTwilight: false);
-        var b = WriteRig("sky-both/b", gain: 200, perNight: 20, withRejectedAndTwilight: false);
-        var small = WriteRig("sky-both/c", gain: 300, perNight: 5, withRejectedAndTwilight: false);
+        var a = WriteRig("sky-both-a", gain: 100, perNight: 20, withRejectedAndTwilight: false);
+        var b = WriteRig("sky-both-b", gain: 200, perNight: 20, withRejectedAndTwilight: false);
+        var small = WriteRig("sky-both-c", gain: 300, perNight: 5, withRejectedAndTwilight: false);
 
         var result = await ExpectedSkyFitter.FitAsync([a, b, small], logger: null, cancellationToken: TestContext.Current.CancellationToken);
 
