@@ -131,6 +131,14 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     private static readonly TimeSpan MinExposure = TimeSpan.FromMilliseconds(1);
 
     private readonly RollingWindowOptions _stackOptions = stackOptions ?? new RollingWindowOptions();
+    // The single-exposure loop's poll period (RapidExposureFramesAsync, for a camera that cannot stream), also the idle wait's and
+    // the full-frame ready poll's. Every sleep of it is a real 5 ms on Windows, not a 15.6 ms timer tick: SystemTimeProvider
+    // gives a SleepAsync up to 2.5 s a high-resolution wait (HighResolutionWait, #2020), so a frame is taken a poll or less after
+    // it is ready (ShortWaitTurnaroundTests measures it, #2018). Before #2020 this sleep cost a whole tick per frame, which is
+    // what "the capture loop's 5 ms sleep costs one more tick" in docs/plans/live-planetary-capture.md ("Frame rate at the Saturn
+    // ROI on the ToupTek") measured. The value stays: a finer poll would only add GetImageReadyAsync calls, and the loop's pace
+    // on a body such as the ToupTek is its SDK's trigger. What a real body does now is the bench part of #2018, not yet measured
+    // ("Re-measure on a real body (the bench part of #2018)" in the same plan).
     private readonly TimeSpan _readyPollInterval = TimeSpan.FromMilliseconds(5);
 
     private const int NoGain = -1;

@@ -16,6 +16,13 @@ internal static class CameraDriverExtensions
     // stretch so pickup latency at exposure end stays near-minimal. GetImageReadyAsync
     // is a network round-trip on ASCOM/Alpaca cameras, so the long dead time is
     // exactly where naive fixed-interval polling wastes effort.
+    //
+    // The 10 ms and 1 ms cadences are real on Windows: a SleepAsync up to 2.5 s on SystemTimeProvider is a high-resolution
+    // wait (HighResolutionWait, #2020), not a wait that ends on the next 15.6 ms timer tick, which the 1 ms poll used to be
+    // (about 15.6 ms). So a frame is picked up about a poll after it is ready (ShortWaitTurnaroundTests measures it, #2018).
+    // The lead margin that callers pass (IExternal.ImageReadyPollInterval, 50 ms) is where the long sleep ENDS, not a poll
+    // period, so no poll waits 50 ms. The one long sleep is a plain Task.Delay once it passes 2.5 s, but it ends the lead
+    // margin before the frame, so a tick of lateness there costs nothing.
     private static readonly TimeSpan _coarsePollInterval = TimeSpan.FromMilliseconds(10);
     private static readonly TimeSpan _finePollInterval = TimeSpan.FromMilliseconds(1);
     private static readonly TimeSpan _finePollWindow = TimeSpan.FromMilliseconds(10);

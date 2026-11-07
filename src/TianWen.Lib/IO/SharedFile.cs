@@ -49,6 +49,16 @@ public static partial class SharedFile
     private const int ErrorSharingViolation = 32;
     private const int ErrorLockViolation = 33;
     private const int MaxAttempts = 40;
+
+    // The retry and relook delays below are a DECISION (#2018), not an oversight, and stay as they are:
+    // - Not per frame. A retry happens only while another process holds a file without delete sharing, a relook only after a
+    //   replace has hidden a name for a moment; a read or write with the file in order sleeps for neither, so no frame loop,
+    //   exposure or guide pulse ever waits on one.
+    // - Not a tick. They sleep through SystemTimeProvider, whose SleepAsync up to 2.5 s is a high-resolution wait on Windows
+    //   (HighResolutionWait, #2020), so the 5 ms of the first retry and the first relook IS 5 ms, and the relooks spread over
+    //   about 130 ms (5 + 25 + 100) as the remarks above say; every delay here is far under the 2.5 s the precise wait covers.
+    // - Not worth a finer step. The gap they wait out is the NTFS replace's, 0.1 to 0.3 ms at rest and longer under load, so
+    //   a look after 5 ms already catches it, and a shorter first wait would only spend more looks inside the same gap.
     private static readonly TimeSpan FirstRetryDelay = TimeSpan.FromMilliseconds(5);
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan LockWaitBudget = TimeSpan.FromSeconds(30);
