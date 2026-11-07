@@ -637,6 +637,78 @@ public class LightGradingTests
         readout.BestName.ShouldBe("best.fits");
     }
 
+    // One frame a minute with an even patchiness (the 1.5 % jitter 2026-09-10 measured, seeded) and the given sky level.
+    private static LightGrade Timed(DateTimeOffset start, int minute, float sky, float patchiness, Random random)
+        => Patchy(10f, patchiness * (1f + 0.015f * (random.NextSingle() + random.NextSingle() - 1f))) with
+        {
+            Taken = start.AddMinutes(minute),
+            SkyLevel = sky * (1f + 0.002f * (random.NextSingle() + random.NextSingle() - 1f)),
+        };
+
+    /// <summary>
+    /// A sky that turns against its own trend is cloud, even with an even patchiness and every star kept: on 2026-09-12 the second
+    /// target's sky fell from 1.39 to 1.12 times the night's darkest for three hours, then climbed 4 to 8 % above that line from
+    /// 03:55, the owner's end-of-night marks. A sky that climbs or falls smoothly all night (a target setting, rising) is not.
+    /// </summary>
+    [Fact]
+    public void ASkyThatTurnsAgainstItsOwnTrendIsCloud()
+    {
+        var start = new DateTimeOffset(2026, 9, 12, 14, 0, 0, TimeSpan.Zero);
+        var random = new Random(11);
+        // Falling 1400 -> 1120 over 200 minutes; from minute 170 the sky stands 6 % above where that line would be.
+        var turning = Enumerable.Range(0, 200)
+            .Select(m => ($"t{m}", Timed(start, m, (1400f - 1.4f * m) * (m >= 170 ? 1.06f : 1f), 1f, random))).ToArray();
+        var grades = Grades(turning);
+        bool Cloud(string name) => (LightGrading.Verdict(grades, grades[name]).Causes & GradeCause.Cloud) != 0;
+
+        Enumerable.Range(0, 170).Count(m => Cloud($"t{m}")).ShouldBe(0, "on its own trend");
+        Enumerable.Range(170, 30).Count(m => Cloud($"t{m}")).ShouldBe(30, "6 % over the line it followed");
+        var risen = LightGrading.Verdict(grades, grades["t185"]);
+        risen.SkyRising.ShouldBeTrue();
+        risen.SkyOverTrend.ShouldBeGreaterThan(1f + LightGrading.SkyRiseFrom);
+        LightGrading.CloudInWords(risen).ShouldContain("brighter than its trend");
+
+        // The same night climbing smoothly the whole way (a target setting into the glow) reads clear throughout.
+        var climbing = Enumerable.Range(0, 200).Select(m => ($"c{m}", Timed(start, m, 1120f + 1.4f * m, 1f, random))).ToArray();
+        var smooth = Grades(climbing);
+        smooth.Values.Count(g => (LightGrading.Verdict(smooth, g).Causes & GradeCause.Cloud) != 0).ShouldBe(0);
+
+        // And curving ever faster, which no line fits exactly: 1000 + 0.012 m^2 over 300 minutes (2.08x by the end).
+        var curving = Enumerable.Range(0, 300).Select(m => ($"q{m}", Timed(start, m, 1000f + 0.012f * m * m, 1f, random))).ToArray();
+        var convex = Grades(curving);
+        convex.Values.Count(g => (LightGrading.Verdict(convex, g).Causes & GradeCause.Cloud) != 0).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// Every frame between two cloud frames no more than <see cref="LightGrading.CloudBracketSpan"/> apart is cloud (the owner's
+    /// backtracking): on 2026-09-12 the owner marked 04:06 to 04:37 whole while its patchiness flickered between 1.0 and 1.76. Two
+    /// cloud frames further apart leave the frames between them as measured.
+    /// </summary>
+    [Fact]
+    public void FramesBetweenTwoCloudFramesWithinTheBracketSpanAreCloud()
+    {
+        var start = new DateTimeOffset(2026, 9, 12, 14, 0, 0, TimeSpan.Zero);
+        var random = new Random(13);
+        var frames = Enumerable.Range(0, 240).Select(m => ($"f{m}", Timed(start, m, 1000f, 1f, random))).ToArray();
+        foreach (var m in new[] { 100, 112, 150, 170 })
+        {
+            frames[m] = ($"f{m}", Timed(start, m, 1000f, 2.2f, random));
+        }
+        var grades = Grades(frames);
+        bool Cloud(int m) => (LightGrading.Verdict(grades, grades[$"f{m}"]).Causes & GradeCause.Cloud) != 0;
+
+        Enumerable.Range(100, 13).All(Cloud).ShouldBeTrue("12 minutes apart: everything between is cloud");
+        var filled = LightGrading.Verdict(grades, grades["f105"]);
+        filled.InCloudRun.ShouldBeTrue();
+        LightGrading.CloudInWords(filled).ShouldContain("between cloud frames", customMessage: "worded by the cloud around it, not its clear patchiness");
+        LightGrading.CloudInWords(filled).ShouldNotContain("patchy");
+        Cloud(150).ShouldBeTrue();
+        Cloud(170).ShouldBeTrue();
+        Enumerable.Range(151, 19).Count(Cloud).ShouldBe(0, "20 minutes apart: the frames between keep their own verdict");
+        Cloud(99).ShouldBeFalse();
+        Cloud(113).ShouldBeFalse();
+    }
+
     /// <summary>
     /// Past the 1.20 local bar by no more than its neighbours' jitter, a frame needs a second sign: on 2026-09-10 nine clear frames
     /// sat 1.20 to 1.24 against their floor with their stars at 0.995 of their neighbours'. The same frame losing a third of its stars
