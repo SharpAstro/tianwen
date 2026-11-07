@@ -62,7 +62,7 @@ internal static class TestOutput
     /// <summary>Deletes every folder <paramref name="owner"/> made, unless a human asked to keep them.</summary>
     internal static void Release(string owner) => Shared.Release(owner, KeepRequested);
 
-    /// <summary>Deletes the run's own folders, retries any a test's end could not delete, and removes the empty date folders.</summary>
+    /// <summary>Retries any folder a test's end could not delete, deletes the run's own, and removes the parents (date folders included) that are empty by then.</summary>
     internal static void ReleaseAll() => Shared.ReleaseAll(KeepRequested);
 
     /// <summary>
@@ -111,6 +111,14 @@ internal static class TestOutput
 /// the CI step that fails on what a green run left behind is why the empty date folder is removed at all.
 /// </para>
 /// <para>
+/// <b>So is every directory a sub name with a separator in it makes on the way</b> (<c>SessionTestHelper</c> asks for
+/// <c>&lt;test method&gt;/&lt;random&gt;</c>, so <c>&lt;date&gt;/&lt;method&gt;</c> sits between the date folder and the folder
+/// owned): no test owns it, and the cases of one theory run in parallel under one method name, so the first out cannot take it
+/// from under the others. Registering only the leaf and the date folder left every such parent behind, empty, and with it the
+/// date folder (70 folders after a green unit run on Linux, 110 after a functional one). Each is removed at the run's end, deepest
+/// first, and only when it is empty by then.
+/// </para>
+/// <para>
 /// An instance, not a static, so a test of the registry owns its own and never reaches another test's live folders.
 /// </para>
 /// </remarks>
@@ -124,17 +132,35 @@ internal sealed class TestOutputFolders(Action<string>? deleteFolder = null)
     // Folders whose delete at an owner's end failed; the set is a dictionary because ConcurrentDictionary is the lock-free one.
     private readonly ConcurrentDictionary<string, byte> _undeleted = new();
 
-    private readonly ConcurrentDictionary<string, byte> _dateFolders = new();
+    // Every directory above a folder made, down to and including its date folder: what a sub name with a separator in it
+    // (SessionTestHelper's "<test method>/<random>") makes on the way, and which no test owns.
+    private readonly ConcurrentDictionary<string, byte> _parents = new();
 
     internal string Create(string root, DateTime today, string owner, string sub)
     {
         var folder = _folders.GetOrAdd((owner, sub), _ =>
         {
             var dateFolder = Path.Combine(root, today.ToString("yyyyMMdd", CultureInfo.InvariantCulture));
-            _dateFolders[dateFolder] = 0;
-            return Path.Combine(dateFolder, sub + "_" + TempFolders.RandomName());
+            var made = Path.Combine(dateFolder, sub + "_" + TempFolders.RandomName());
+            RememberParents(dateFolder, made);
+            return made;
         });
         return Directory.CreateDirectory(folder).FullName;
+    }
+
+    private void RememberParents(string dateFolder, string folder)
+    {
+        // Full paths, so the separators a sub name was written with (either, on Windows) cannot make one directory two keys.
+        var dateFull = Path.GetFullPath(dateFolder);
+        _parents[dateFull] = 0;
+
+        // Stop at the date folder: a sub name that climbed out of it with ".." is nothing of ours above that point.
+        for (var parent = Path.GetDirectoryName(Path.GetFullPath(folder));
+            parent is { } && parent.Length > dateFull.Length && parent.StartsWith(dateFull, StringComparison.OrdinalIgnoreCase);
+            parent = Path.GetDirectoryName(parent))
+        {
+            _parents[parent] = 0;
+        }
     }
 
     /// <summary>Deletes every folder <paramref name="owner"/> made, unless <paramref name="keep"/>.</summary>
@@ -155,12 +181,25 @@ internal sealed class TestOutputFolders(Action<string>? deleteFolder = null)
         }
     }
 
-    /// <summary>The run's end: every folder still held, every earlier failed delete once more, then each empty date folder.</summary>
+    /// <summary>
+    /// The run's end: every earlier failed delete once more, every folder still held once, then each parent that is empty by now,
+    /// the deepest first so a date folder goes after the test folder's own parent in it.
+    /// </summary>
     internal void ReleaseAll(bool keep)
     {
         if (keep)
         {
             return;
+        }
+
+        // The retry comes FIRST, before this pass remembers anything: a folder the run itself held and fails to delete just
+        // below is remembered for the next run's sweep, not tried again straight away with no wait between the two attempts.
+        foreach (var folder in _undeleted.Keys)
+        {
+            if (TryDelete(folder, _deleteFolder))
+            {
+                _undeleted.TryRemove(folder, out _);
+            }
         }
 
         foreach (var key in _folders.Keys)
@@ -171,17 +210,10 @@ internal sealed class TestOutputFolders(Action<string>? deleteFolder = null)
             }
         }
 
-        foreach (var folder in _undeleted.Keys)
+        // A child's path is always longer than its parent's, so longest first is deepest first.
+        foreach (var parent in _parents.Keys.OrderByDescending(p => p.Length))
         {
-            if (TryDelete(folder, _deleteFolder))
-            {
-                _undeleted.TryRemove(folder, out _);
-            }
-        }
-
-        foreach (var dateFolder in _dateFolders.Keys)
-        {
-            RemoveIfEmpty(dateFolder);
+            RemoveIfEmpty(parent);
         }
     }
 
@@ -219,13 +251,13 @@ internal sealed class TestOutputFolders(Action<string>? deleteFolder = null)
         }
     }
 
-    private static void RemoveIfEmpty(string dateFolder)
+    private static void RemoveIfEmpty(string parent)
     {
         try
         {
-            if (Directory.Exists(dateFolder) && !Directory.EnumerateFileSystemEntries(dateFolder).Any())
+            if (Directory.Exists(parent) && !Directory.EnumerateFileSystemEntries(parent).Any())
             {
-                Directory.Delete(dateFolder, recursive: false);
+                Directory.Delete(parent, recursive: false);
             }
         }
         catch (IOException)
