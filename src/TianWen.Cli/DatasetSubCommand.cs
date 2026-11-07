@@ -1877,6 +1877,19 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "LINEAR clipped-star profiles over 4 to 40 px and scaled with the star's amplitude. A rig the file lacks " +
                           "draws none, said once. Recorded per star in injections.jsonl (OuterHalo). Off by default.",
         };
+        var brightHalosOpt = new Option<string>("--bright-halos")
+        {
+            Description = "--mode stars: a bright-halos.json, each session's MEASURED bright-star halo (the light its real stars of " +
+                          "1000 sigma and up, and its saturated ones, carry over the field profile per pixel of radius, read on the " +
+                          "master less its plate), drawn under the injected stars of those classes. A session the file lacks draws none, " +
+                          "said once. Not with --outer-halo. Off by default.",
+        };
+        var saturatedOwnShareOpt = new Option<bool>("--saturated-own-share")
+        {
+            Description = "--mode stars: draw each site saturated at the master's own share of saturated catalogue sites (a real " +
+                          "master's clipped stars count as sites and otherwise come back unsaturated), beside --saturated-fraction's " +
+                          "extra star. Off by default.",
+        };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
         {
             Description = "--mode stars: the weakest wing, as a factor of the master's own, that half the draws of a cell give one " +
@@ -1946,7 +1959,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, brightHalosOpt, saturatedOwnShareOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2100,6 +2113,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 && (mode != DatasetDegradationExporter.DegradationMode.Stars || !File.Exists(outerHaloFile)))
             {
                 consoleHost.WriteError("--outer-halo draws the injected stars' halo; it needs --mode stars and an existing halo-profiles.json");
+                return 1;
+            }
+            if (parseResult.GetValue(brightHalosOpt) is { } brightHalosFile
+                && (mode != DatasetDegradationExporter.DegradationMode.Stars || !File.Exists(brightHalosFile) || parseResult.GetValue(outerHaloOpt) is not null))
+            {
+                consoleHost.WriteError("--bright-halos draws each session's measured halo; it needs --mode stars, an existing bright-halos.json and no --outer-halo");
+                return 1;
+            }
+            if (parseResult.GetValue(saturatedOwnShareOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--saturated-own-share draws injected stars; it needs --mode stars");
                 return 1;
             }
             var channelWingCut = parseResult.GetValue(channelWingCutOpt);
@@ -2308,6 +2332,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ClampWingRelations: clampWingRelations,
                 OuterHaloPath: parseResult.GetValue(outerHaloOpt),
                 ChromaticWidthRatio: chromaticWidth,
+                BrightHalosPath: parseResult.GetValue(brightHalosOpt),
+                SaturatedAtOwnShare: parseResult.GetValue(saturatedOwnShareOpt),
                 NoiseScale: noiseScale,
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,

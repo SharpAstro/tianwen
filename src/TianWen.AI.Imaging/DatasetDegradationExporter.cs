@@ -445,6 +445,13 @@ namespace TianWen.AI.Imaging
         /// their places, brightness and colour. Off, every export is what it was. Not with
         /// <paramref name="ChannelWingCut"/>, which departs from the envelope on purpose, nor with
         /// <paramref name="ChromaticWidthRatio"/>, whose widths the clamp's per-channel light never sees.</param>
+        /// <param name="BrightHalosPath">Stars mode: a bright-halos file (<see cref="TianWen.Lib.Imaging.StarRemoval.BrightHalo"/>), each
+        /// session's measured bright-star halo, drawn under its unsaturated stars of 1000 sigma and up and its saturated stars in place
+        /// of an outer halo. A session the file lacks draws none, said once. Recorded per star as its <c>OuterHalo</c> rows, whose rig
+        /// names the session and class. Draws no random number.</param>
+        /// <param name="SaturatedAtOwnShare">Stars mode: each site is drawn saturated at the master's own share of saturated sites
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.SaturatedShare"/>), beside <paramref name="SaturatedFraction"/>'s
+        /// extra star; one more random number per site, so the draw differs from one without it.</param>
         /// <param name="OuterHaloPath">Stars mode (#1870): a <c>halo-profiles.json</c> (training/star-removal/domain/halo_profile.py); every
         /// injected star is drawn with a second, wide, faint Moffat under its profile
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>), fitted in C# per rig (the master's camera) to that file's LINEAR
@@ -552,6 +559,8 @@ namespace TianWen.AI.Imaging
             bool ClampWingRelations = false,
             string? OuterHaloPath = null,
             double? ChromaticWidthRatio = null,
+            string? BrightHalosPath = null,
+            bool SaturatedAtOwnShare = false,
             double? NoiseScale = null,
             double? StarBeta = null,
             TianWen.Lib.Imaging.StarRemoval.StarBetaDraw? StarBetaDraw = null,

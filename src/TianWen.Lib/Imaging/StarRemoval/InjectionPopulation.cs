@@ -103,6 +103,8 @@ public sealed class InjectionPopulation
     private LuminosityFunction? _luminosity;
     private PoolStar[] _faintColours = [];
     private ImmutableArray<OuterHalo> _outerHalo;
+    private BrightHalo? _brightHalo;
+    private double _saturatedShare;
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
@@ -151,6 +153,9 @@ public sealed class InjectionPopulation
 
     /// <summary>Saturated stars a saturated injection is drawn from (0 means the fallback clip).</summary>
     public int SaturatedPool => _saturated.Length;
+
+    /// <summary>The share of the counted sites the catalogue found saturated: how often a real star here is a clipped one.</summary>
+    public double SaturatedShare => _saturatedShare;
 
     /// <summary>The unsaturated pool's colours: each star's per-channel amplitudes on the master's unit scale.</summary>
     public IEnumerable<ImmutableArray<double>> Colours => _amplitudes.Select(static s => s.Amplitudes);
@@ -207,12 +212,14 @@ public sealed class InjectionPopulation
     /// function and draws extra stars under the catalogue's limit down to that significance; a catalogue too thin to fit is
     /// refused. <paramref name="wingEnvelope"/> (#1241, <see cref="WingRelationClamp"/>) holds every drawn star's channel wing
     /// relation to the one the real masters span, where the envelope has masters of this channel count; it draws on the
-    /// field profile.
+    /// field profile. <paramref name="brightHalo"/> draws the master's measured bright-star halo (<see cref="BrightHalo"/>) under
+    /// every star of its classes, in place of <paramref name="outerHalo"/>, and records the share of the counted sites that are
+    /// saturated (<see cref="SaturatedShare"/>), which <see cref="Plan"/> draws saturated stars at on request.
     /// </summary>
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
         StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null,
-        ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default)
+        ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default, BrightHalo? brightHalo = null)
     {
         if (!outerHalo.IsDefault && outerHalo.Length != master.ChannelCount)
         {
@@ -269,6 +276,8 @@ public sealed class InjectionPopulation
             .Where(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && !IsLobe(k))
             .Select(k => ((double)catalogue[k].X, (double)catalogue[k].Y))
             .ToArray();
+        var saturatedSites = Enumerable.Range(0, catalogue.Length)
+            .Count(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && catalogue[k].Saturated && !IsLobe(k));
         var amplitudes = Enumerable.Range(0, catalogue.Length)
             .Where(k => catalogue[k] is var s && Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0 && !IsLobe(k) && !Diverged(s, clip))
             .Select(k => new PoolStar([.. catalogue[k].ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)], [], LobesOf(k), catalogue[k].Significance))
@@ -362,7 +371,8 @@ public sealed class InjectionPopulation
         }
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo };
+            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo,
+            _brightHalo = brightHalo, _saturatedShare = countedSites.Length > 0 ? saturatedSites / (double)countedSites.Length : 0.0 };
     }
 
     /// <summary>
@@ -413,12 +423,15 @@ public sealed class InjectionPopulation
     /// envelope on purpose, nor with a chromatic width, whose widths the clamp's per-channel light never sees.
     /// A <paramref name="chromaticWidth"/> sets every star's other channels' widths from its reference
     /// channel's, drawing nothing, so the plan's stars are the ones it makes without it; a <paramref name="starBeta"/> holds every
-    /// star's Moffat exponent, the same way.
+    /// star's Moffat exponent, the same way. With <paramref name="saturatedAtOwnShare"/> each site is drawn from the saturated pool
+    /// at the master's own <see cref="SaturatedShare"/> (one more number from <paramref name="rng"/> per site, so a plan with it
+    /// is not the plan without it), beside <paramref name="saturatedFraction"/>'s extra star. A star's lobes take no bright halo:
+    /// the measured halo was read with its lobes in it.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
         ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null, Random? faintRng = null,
-        ChromaticWidth? chromaticWidth = null, StarBeta? starBeta = null)
+        ChromaticWidth? chromaticWidth = null, StarBeta? starBeta = null, bool saturatedAtOwnShare = false)
     {
         ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
         string? relationFrom = null;
@@ -485,7 +498,7 @@ public sealed class InjectionPopulation
         }
         // A star's profiles where it lands, at its brightness's measured wing gains (R2s2) and the draw's channel factors.
         var (wingClamped, wingUnreached) = (0, 0);
-        ImmutableArray<StarProfile> Shaped(double x, double y, float significance)
+        ImmutableArray<StarProfile> Shaped(double x, double y, float significance, bool halo = true)
         {
             var profiles = Varied(ProfilesAt(x, y, family, _shape is { } shape ? StarShape.LogGains(shape, significance) : default), factors);
             if (chromaticWidth is not null)
@@ -496,14 +509,13 @@ public sealed class InjectionPopulation
             {
                 profiles = starBeta.Apply(profiles);
             }
-            if (_wingClamp is null)
+            if (_wingClamp is not null)
             {
-                return profiles;
+                profiles = _wingClamp.Apply(profiles, out var moved, out var unreached);
+                wingClamped += moved ? 1 : 0;
+                wingUnreached += unreached ? 1 : 0;
             }
-            profiles = _wingClamp.Apply(profiles, out var moved, out var unreached);
-            wingClamped += moved ? 1 : 0;
-            wingUnreached += unreached ? 1 : 0;
-            return profiles;
+            return halo ? WithBrightHalo(profiles, significance) : profiles;
         }
 
         var x0 = Math.Max(0, cellX - margin);
@@ -529,6 +541,7 @@ public sealed class InjectionPopulation
             : (int)Math.Round(inCell * ((double)(x1 - x0) * (y1 - y0)) / ((double)size * size));
         var stars = ImmutableArray.CreateBuilder<InjectedStar>(requested + 1);
         var placed = 0;
+        var fallbackOwn = false;
         for (var i = 0; i < requested; i++)
         {
             var at = placement == InjectionPlacement.AtSite ? Jitter(regionSites[i], rng) : RandomPosition(x0, y0, x1, y1, rng);
@@ -536,13 +549,24 @@ public sealed class InjectionPopulation
             {
                 continue;
             }
+            // At its own share, a site is drawn as the master's saturated stars are (the catalogue's clipped stars count as sites,
+            // and without this every one of them came back unsaturated).
+            if (saturatedAtOwnShare && rng.NextDouble() < _saturatedShare)
+            {
+                var clipped = DrawSaturated(rng, out var ownFallback);
+                fallbackOwn |= ownFallback;
+                stars.Add(new InjectedStar(p.X, p.Y, clipped.Amplitudes, Shaped(p.X, p.Y, float.PositiveInfinity), Saturated: true, clipped.Clips));
+                AddLobes(stars, p, clipped.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity, halo: false));
+                placed++;
+                continue;
+            }
             var drawn = _amplitudes[rng.Next(_amplitudes.Length)];
             stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, Shaped(p.X, p.Y, drawn.Significance), Saturated: false, ImmutableArray<double>.Empty));
-            AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, drawn.Significance));
+            AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, drawn.Significance, halo: false));
             placed++;
         }
 
-        var fallback = false;
+        var fallback = fallbackOwn;
         if (saturatedFraction > 0 && rng.NextDouble() < saturatedFraction)
         {
             var at = placement == InjectionPlacement.AtSite
@@ -553,7 +577,7 @@ public sealed class InjectionPopulation
                 var drawn = DrawSaturated(rng, out fallback);
                 // A saturated star is the brightest band's, however its source star was found.
                 stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, Shaped(p.X, p.Y, float.PositiveInfinity), Saturated: true, drawn.Clips));
-                AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity));
+                AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity, halo: false));
             }
         }
 
@@ -618,6 +642,22 @@ public sealed class InjectionPopulation
         var target = _fallbackClips.Max() * over;
         // Taken past the clip level, so in the brightest band, where Plan draws every saturated star's shape.
         return new PoolStar(colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray(), _fallbackClips, [], float.PositiveInfinity);
+    }
+
+    // A star's profiles with the master's measured bright-star halo under them where its class has one, in place of any outer halo;
+    // as they were for a fainter star or with no measured halo.
+    private ImmutableArray<StarProfile> WithBrightHalo(ImmutableArray<StarProfile> profiles, float significance)
+    {
+        if (_brightHalo?.For(significance, _channels) is not { IsDefault: false } halos)
+        {
+            return profiles;
+        }
+        var builder = ImmutableArray.CreateBuilder<StarProfile>(profiles.Length);
+        for (var c = 0; c < profiles.Length; c++)
+        {
+            builder.Add(profiles[c] with { Outer = halos[c] });
+        }
+        return builder.MoveToImmutable();
     }
 
     // A star's profiles at the draw's channel factors (R2s2), or as measured where there are none.

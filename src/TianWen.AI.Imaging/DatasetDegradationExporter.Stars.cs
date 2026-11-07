@@ -158,15 +158,41 @@ public static partial class DatasetDegradationExporter
     {
         internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null,
             Dictionary<string, StarShapeRow>? shapes = null, ChannelWingCut? wingCut = null, ChannelWingEnvelope? wingEnvelope = null,
-            OuterHaloFit? outerHalos = null)
+            OuterHaloFit? outerHalos = null, Dictionary<string, BrightHalo>? brightHalos = null)
         {
             OuterHalos = outerHalos;
+            BrightHalos = brightHalos;
             PlatesDir = platesDir;
             Psf = psf;
             Variation = variation;
             Shapes = shapes;
             WingCut = wingCut;
             WingEnvelope = wingEnvelope;
+        }
+
+        /// <summary>Each session's measured bright-star halo (<see cref="Options.BrightHalosPath"/>), or null for none.</summary>
+        public Dictionary<string, BrightHalo>? BrightHalos { get; }
+
+        private readonly ConcurrentDictionary<string, byte> _brightHaloWarned = new(StringComparer.Ordinal);
+
+        /// <summary>The measured bright-star halo of <paramref name="sessionId"/>, or null without the option or for a session the
+        /// file lacks, which is said once.</summary>
+        public BrightHalo? BrightHaloFor(string sessionId, ILogger? logger)
+        {
+            if (BrightHalos is not { } halos)
+            {
+                return null;
+            }
+            var key = BrightHalo.KeyOf(sessionId);
+            if (halos.TryGetValue(key, out var halo))
+            {
+                return halo;
+            }
+            if (_brightHaloWarned.TryAdd(key, 0))
+            {
+                logger?.LogWarning("[degrade] bright halos: the file has no table for {Session}, so its bright stars are drawn with none", key);
+            }
+            return null;
         }
 
         /// <summary>The per-rig outer halos fitted to <see cref="Options.OuterHaloPath"/>, or null for none.</summary>
@@ -386,7 +412,17 @@ public static partial class DatasetDegradationExporter
                     logger?.LogInformation("[degrade] outer halo, {Fit}", outerHalos.InWords(rig));
                 }
             }
-            return new StarsContext(platesDir, psf, variation, shapes, wingCut, wingEnvelope, outerHalos);
+            Dictionary<string, BrightHalo>? brightHalos = null;
+            if (options.BrightHalosPath is { } brightPath)
+            {
+                if (outerHalos is not null)
+                {
+                    throw new InvalidOperationException("--bright-halos draws each session's measured halo; --outer-halo is the fitted one, give one");
+                }
+                brightHalos = await BrightHalo.ReadAsync(brightPath, cancellationToken);
+                logger?.LogInformation("[degrade] bright halos: {Count} sessions' measured tables from {Path}", brightHalos.Count, brightPath);
+            }
+            return new StarsContext(platesDir, psf, variation, shapes, wingCut, wingEnvelope, outerHalos, brightHalos);
         }
 
         public string PlatePath(string sessionId) => Path.Combine(PlatesDir, DatasetTileExporter.Sanitize(sessionId) + "_plate.fits");
@@ -587,7 +623,12 @@ public static partial class DatasetDegradationExporter
                         $"from {b.MinSignificance:F0}: {string.Join(" / ", b.Channels.Select(static c => c.WingGain.ToString("F2", CultureInfo.InvariantCulture)))}"))));
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
-                options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger));
+                options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger),
+                brightHalo: stars.BrightHaloFor(sessionId, logger));
+            if (options.SaturatedAtOwnShare)
+            {
+                logger?.LogInformation("[degrade] {Session}: saturated at its own share, {Share:P1} of its sites", sessionId, population.SaturatedShare);
+            }
             if (stars.WingEnvelope is not null && !population.ClampsWingRelations)
             {
                 logger?.LogWarning("[degrade] {Session}: the star-shapes file has no readable {Channels}-channel master, so its stars' wing relation is not clamped",
@@ -875,7 +916,8 @@ public static partial class DatasetDegradationExporter
             variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut,
             population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372),
             options.ChromaticWidthRatio is { } ratio ? new ChromaticWidth(ratio) : null,
-            options.StarBeta is { } beta ? new StarBeta(beta) : options.StarBetaDraw?.DrawCell(new Random(seed ^ 0x51ed270b)));
+            options.StarBeta is { } beta ? new StarBeta(beta) : options.StarBetaDraw?.DrawCell(new Random(seed ^ 0x51ed270b)),
+            options.SaturatedAtOwnShare);
 
         // The plate's cell, the cell carried at more noise (NoisedPlateCell), or on R2d's synthetic background the cell's own
         // noisy planes (SyntheticCell).
@@ -1031,7 +1073,7 @@ public static partial class DatasetDegradationExporter
                 s.Lobe,
                 s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null,
                 s.Faint,
-                s.Profiles.Any(static p => !p.Outer.IsNone) ? [.. s.Profiles.Select(p => new OuterHaloRow(cell.Camera, p.Outer.Fraction, p.Outer.AlphaPx, p.Outer.Beta))] : null))],
+                s.Profiles.Any(static p => !p.Outer.IsNone) ? [.. s.Profiles.Select(p => new OuterHaloRow(p.Outer.Source ?? cell.Camera, p.Outer.Fraction, p.Outer.AlphaPx, p.Outer.Beta))] : null))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))],
             RelationFrom: plan.RelationFrom,
