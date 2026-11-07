@@ -40,7 +40,7 @@ public sealed class SkyMapAtlasNightCurveTests
     private const double M31Dec = 41.27;
 
     // The tab publishes the view matrix each frame as the GPU pipelines do, as the disc tests' tab does.
-    private sealed class CurveTab(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
+    internal sealed class CurveTab(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
     {
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
