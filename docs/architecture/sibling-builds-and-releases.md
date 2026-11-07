@@ -179,6 +179,7 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `Lzip.Lib` | `../Lzip.Lib` | `src/Lzip.Lib/Lzip.Lib.csproj` | ✅ |
 | `Serial.Lib` | `../Serial.Lib` | `src/Serial.Lib/Serial.Lib.csproj` | ✅ |
 | `LAN.Lib` | `../LAN.Lib` | `src/LAN.Lib/LAN.Lib.csproj` | ✅ |
+| `Node.Lib`, `Node.Lib.Hosting` | `../Node.Lib` | `src/Node.Lib/Node.Lib.csproj`, `src/Node.Lib.Hosting/Node.Lib.Hosting.csproj` | ✅ |
 | `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ✅ |
 | `SharpAstro.AppShell` | `../AppShell` | `src/SharpAstro.AppShell/SharpAstro.AppShell.csproj` | ✅ |
 | `TianWen.DAL` | `../TianWen.DAL` | `TianWen.DAL.csproj` (repo root) | ✅ |
@@ -191,16 +192,16 @@ column: `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulk
 `Console.Lib`, `FITS.Lib` (`../FITS.Lib`, csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` and
 `FC.SDK.Raw` (`../FC.SDK`), `ZWOptical.SDK` (`../ZWOptical.SDK`, csproj at the repo root),
 `QHYCCD.SDK` (csproj at the repo root), `SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`,
-`Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`, `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` (csproj at
-the repo root).
+`Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `Node.Lib` (and `Node.Lib.Hosting`), `WebGl.Renderer`, `SharpAstro.AppShell`
+(`../AppShell`), `TianWen.DAL` (csproj at the repo root).
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
 The build switches to ProjectReference when **every** sibling working copy exists; `DIR.Lib`,
 `Console.Lib`, `SdlVulkan.Renderer`, `WebGl.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
 `SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
 `SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`, `SharpAstro.Codecs`), `QHYCCD.SDK`, `TianWen.DAL`,
-`ZWOptical.SDK`, `FITS.Lib`, `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib` and `SharpAstro.AppShell`; otherwise it falls
-through to PackageReference. **A sibling's FOLDER must carry its repo's current name**: the check is a
+`ZWOptical.SDK`, `FITS.Lib`, `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `Node.Lib` (both projects) and
+`SharpAstro.AppShell`; otherwise it falls through to PackageReference. **A sibling's FOLDER must carry its repo's current name**: the check is a
 path, so a clone still under a renamed repo's old name (`zwo-sdk-nuget` for `ZWOptical.SDK`, found
 2026-09-19) is a missing sibling, and one missing sibling silently puts EVERY library back on the
 published package. `dotnet msbuild src/TianWen.Lib/TianWen.Lib.csproj -getProperty:UseLocalSiblings`
