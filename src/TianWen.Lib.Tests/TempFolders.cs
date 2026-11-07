@@ -31,8 +31,8 @@ namespace TianWen.Lib.Tests;
 /// the sweep, never retried with a wait.
 /// </para>
 /// <para>
-/// Not for the dated test-output folders (<c>SharedTestData.CreateTempTestOutputDir</c>), which are kept on purpose for
-/// a human to look at and trimmed by the <c>test-output-prune</c> skill.
+/// Not for the dated test-output folders (<c>SharedTestData.CreateTempTestOutputDir</c>): those live as long as their test
+/// (<see cref="TestOutput"/>) and <c>TIANWEN_KEEP_TEST_OUTPUT=1</c> keeps them for a human to look at.
 /// </para>
 /// </remarks>
 public sealed class TempFolders : IDisposable

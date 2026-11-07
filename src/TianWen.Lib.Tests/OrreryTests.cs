@@ -1812,8 +1812,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Planner.Comets = new StubCometRepository(OrreryCometTests.DemoComets());
         Select(rig, CatalogIndex.Jupiter);
         rig.Tab.OpenOrrery();
-        var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryTests));
-        Directory.CreateDirectory(folder);
+        var folder = SharedTestData.CreateTempTestOutputDir(nameof(OrreryTests));
         foreach (var scale in new[] { OrreryScale.Auto, OrreryScale.True })
         {
             rig.Tab.State.Orrery.Scale = scale;

@@ -18,6 +18,9 @@ import numpy as np
 from PIL import Image
 
 DATE_PATTERN = re.compile(r"^\d{8}$")  # yyyyMMdd
+# TianWen.Lib.Tests names a test's output folder <test-name>_<twelve random lowercase letters> (#2035), so two
+# runs never share a folder name; the suffix is dropped to match the same test across runs.
+RANDOM_SUFFIX = re.compile(r"_[a-z]{12}$")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -48,16 +51,18 @@ def latest_two_dates(root: Path) -> tuple[Path | None, Path | None]:
 
 
 def collect_pngs(date_dir: Path) -> dict[tuple[str, str], Path]:
-    """Walk `date_dir`/<test-name>/*.png and return a dict keyed by
-    (test-name, png-filename) -> absolute path."""
+    """Walk `date_dir`/<test-name>[_<random>]/*.png and return a dict keyed by
+    (test-name, png-filename) -> absolute path. Several folders of one test in a
+    date dir (runs kept on the same day) resolve to the newest."""
     out: dict[tuple[str, str], Path] = {}
     if date_dir is None or not date_dir.is_dir():
         return out
-    for test_dir in date_dir.iterdir():
-        if not test_dir.is_dir():
-            continue
+    test_dirs = sorted((p for p in date_dir.iterdir() if p.is_dir()),
+                       key=lambda p: p.stat().st_mtime)
+    for test_dir in test_dirs:
+        test_name = RANDOM_SUFFIX.sub("", test_dir.name)
         for png in test_dir.glob("*.png"):
-            out[(test_dir.name, png.name)] = png
+            out[(test_name, png.name)] = png
     return out
 
 

@@ -48,9 +48,9 @@ public static class DeviceUriExtensions
         /// LX200 or OnStep mount without a UUID): <see cref="DeviceKey"/> with the trailing <c>_&lt;port&gt;</c> taken out, so
         /// <c>GeminiFocuser_COM3</c> and <c>GeminiFocuser_COM4</c> are one model. Null for a device whose ID does not end in
         /// the port its query names, which its key alone identifies. Compare with <see cref="DeviceKeyComparer"/> (#1744).
-        /// <para>Such an id on a serial-numbered cable ends in the CABLE instead (#1090 step 2:
-        /// <c>SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA</c>, its <see cref="DeviceQueryKey.PortKey"/> made path-safe), and
-        /// that ending is taken out too, so the same model is recognised whichever cable it was found on.</para>
+        /// <para>Such an id ends in the port's own key instead where the port has one (<c>SkyGuider-Pro_usb-0403-6001-A10MOSEFA</c>
+        /// on a USB bridge with a serial, #1090 step 2; <c>GeminiFocuser_socket-1a2b3c4d</c> on one without, #2040), and that
+        /// ending is taken out too, so the same model is recognised whichever port it was found on.</para>
         /// </summary>
         public string? ModelKey
         {
@@ -64,9 +64,10 @@ public static class DeviceUriExtensions
 
                 var key = Uri.UnescapeDataString(uri.DeviceKey);
                 var bare = ISerialConnection.RemoveProtoPrrefix(port);
-                var cable = query[DeviceQueryKey.PortKey.Key] is { Length: > 0 } portKey ? Discovery.SerialPortIdentity.IdSuffixOf(portKey) : null;
-                // The forms a probe writes the port in: as named, with /dev/ for a tty, or made path-safe; and the cable's key.
-                ReadOnlySpan<string?> forms = [bare, ISerialConnection.CleanupPortName(port), bare.Replace('_', '-').Replace('/', '-').Replace(':', '-'), cable];
+                var portOwnKey = Discovery.SerialPortIdentity.IdSuffixOf(query[DeviceQueryKey.PortIdentity.Key], query[DeviceQueryKey.PortKey.Key]);
+                // The forms a probe writes the port in: as named, with /dev/ for a tty, or made path-safe; and the port's own key
+                // (the USB bridge's serial, or its socket).
+                ReadOnlySpan<string?> forms = [bare, ISerialConnection.CleanupPortName(port), bare.Replace('_', '-').Replace('/', '-').Replace(':', '-'), portOwnKey];
                 foreach (var form in forms)
                 {
                     if (form is null)

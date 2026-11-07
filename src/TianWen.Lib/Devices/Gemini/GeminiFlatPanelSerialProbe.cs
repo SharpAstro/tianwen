@@ -55,6 +55,7 @@ internal sealed class GeminiFlatPanelSerialProbe : ISerialProbe
             ? new Dictionary<string, string> { ["firmware"] = fwv.ToString() }
             : null;
 
-        return new SerialProbeMatch(port, uri, metadata);
+        // The firmware is evidence in the query too (#2040), so a moved panel is matched on it.
+        return new SerialProbeMatch(port, uri.WithQueryValues((DeviceQueryKey.Firmware.Key, firmware?.ToString(System.Globalization.CultureInfo.InvariantCulture))), metadata);
     }
 }
