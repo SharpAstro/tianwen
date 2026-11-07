@@ -88,6 +88,32 @@ public sealed record AtlasNightCurve(
     }
 
     /// <summary>
+    /// The altitude and the shade's weight at a fractional <paramref name="position"/> along the samples (0 is the first sample,
+    /// <c>Samples.Length - 1</c> the last): the altitude is interpolated between the two samples around it, and the weight between
+    /// them only when BOTH count. A sample at or below the minimum has weight 0 (it does not count), so averaging with it would
+    /// fade the shade out before the line crossed the level, or start it up to half a step late; where only one neighbour counts
+    /// the column takes its weight whole. This is what the painter shades a column by, here so a test can pin the edge.
+    /// </summary>
+    /// <param name="position">A fractional sample index, clamped to the samples.</param>
+    internal (double Altitude, float Weight) ShadeAt(double position)
+    {
+        var last = Samples.Length - 1;
+        if (last < 1)
+        {
+            return Samples.Length == 1 ? (Samples[0].Altitude, Samples[0].Weight) : default;
+        }
+
+        position = Math.Clamp(position, 0d, last);
+        var i = Math.Min((int)position, last - 1);
+        var frac = position - i;
+        var (a, b) = (Samples[i], Samples[i + 1]);
+        var weight = a.Weight > 0f && b.Weight > 0f
+            ? a.Weight + (b.Weight - a.Weight) * (float)frac
+            : MathF.Max(a.Weight, b.Weight);
+        return (a.Altitude + (b.Altitude - a.Altitude) * frac, weight);
+    }
+
+    /// <summary>
     /// The curve from a score and its weights (<see cref="ObservationScheduler.WeightedScore"/>): the pure half of
     /// <see cref="Create"/>.
     /// </summary>

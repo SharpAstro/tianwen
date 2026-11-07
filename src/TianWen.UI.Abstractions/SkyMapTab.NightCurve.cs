@@ -185,14 +185,7 @@ public partial class SkyMapTab<TSurface>
             var last = samples.Length - 1;
             for (var cx = 0f; cx < w; cx += columnW)
             {
-                var position = (cx + columnW / 2f) / w * last;
-                var i = Math.Min((int)position, last - 1);
-                var frac = position - i;
-                var (a, b) = (samples[i], samples[i + 1]);
-                var altitude = a.Altitude + (b.Altitude - a.Altitude) * frac;
-                var weight = a.Weight > 0f && b.Weight > 0f
-                    ? a.Weight + (b.Weight - a.Weight) * (float)frac
-                    : MathF.Max(a.Weight, b.Weight);
+                var (altitude, weight) = curve.ShadeAt((cx + columnW / 2f) / w * last);
                 if (altitude <= curve.MinAltitude || weight <= 0f)
                 {
                     continue;
