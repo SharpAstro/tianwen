@@ -81,7 +81,7 @@ public sealed class SkyMapAtlasNightCurveTests
         DateTimeOffset? dark = null, DateTimeOffset? twilight = null, DateTimeOffset? viewing = null)
     {
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
-        var renderer = new RgbaImageRenderer(width, height);
+        var renderer = new RgbaImageRenderer((uint)width, (uint)height);
         var tab = new CurveTab(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = dpiScale };
         var planner = new PlannerState
         {
