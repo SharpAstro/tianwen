@@ -86,6 +86,12 @@ public class PlannerState : PersistableState<SavePlannerSessionSignal>
     /// <summary>Site longitude in degrees. NaN when not yet resolved from profile.</summary>
     public double SiteLongitude { get; set; } = double.NaN;
 
+    /// <summary>
+    /// Site elevation in metres, 0 when the host does not state one. The altitude grid of the planner's night depends on it
+    /// (a few metres move an altitude by far less than a pixel), so the atlas's night curve carries it into its own score.
+    /// </summary>
+    public double SiteElevation { get; set; }
+
     /// <summary>Minimum altitude above horizon in degrees.</summary>
     public byte MinHeightAboveHorizon { get; set; } = 20;
 

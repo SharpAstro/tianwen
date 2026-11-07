@@ -118,6 +118,13 @@ public sealed record IntegrationResult(
     /// kept. Null for a strategy that does not measure it yet (E16c step 2, docs/plans/denoiser-training.md).
     /// </summary>
     public Image? StandardError { get; init; }
+
+    /// <summary>
+    /// Per pixel, how many lights had a photosite at the ADC ceiling reaching it (<see cref="SaturationCounter"/>), on the
+    /// master's geometry; null where no light was clipped or the stack was not counted. Written beside the master as the
+    /// saturation sidecar, which SPCC's clip gate reads (#1991).
+    /// </summary>
+    public Image? Saturation { get; init; }
 }
 
 /// <summary>

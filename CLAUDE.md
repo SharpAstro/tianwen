@@ -147,7 +147,7 @@ TianWen depends on in-house libraries published to nuget.org under the **SharpAs
 at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect column:
 `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`, `Console.Lib`, `FITS.Lib`
 (csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (+ `FC.SDK.Raw`), `ZWOptical.SDK`, `QHYCCD.SDK`,
-`SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`,
+`SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `Node.Lib` (+ `.Hosting`), `WebGl.Renderer`,
 `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` and the `Codecs`-repo codec family.
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all. The build

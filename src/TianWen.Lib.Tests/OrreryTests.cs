@@ -994,7 +994,12 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// Zoomed in on the Sun, a body BEHIND it never paints over it: the camera swept round the Sun close in, every frame, any dark
     /// pixel inside the Sun's inner disc lies on a body drawn NEARER the camera than the Sun (a transit), never on one behind it.
     /// </summary>
-    [Fact(Timeout = 120_000)]
+    /// <remarks>
+    /// 840 renders. 10.8 s on a green ubuntu-latest leg of dotnet.yml (2026-11-06), so it is not <c>Heavy</c> (30 s there), but 58 s
+    /// alone on the 16-core Windows desktop, and more when the machine is shared. The bound is a guard against a wedge, never a
+    /// speed check, so it is 300 s: the 120 s of its neighbours left a loaded desktop a little over 2x of headroom.
+    /// </remarks>
+    [Fact(Timeout = 300_000)]
     public async Task ABodyBehindTheSunNeverPaintsOverIt()
     {
         using var rig = await RigAsync(TestContext.Current.CancellationToken);

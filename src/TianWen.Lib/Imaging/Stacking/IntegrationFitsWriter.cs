@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -77,6 +78,14 @@ public static class IntegrationFitsWriter
     /// <summary>Per-pixel "do not trust this photosite": what a bad pixel map holds.</summary>
     public const string BadPixelMapKind = "BADPIXEL";
 
+    /// <summary>Suffix of the saturation sidecar: per master pixel, how many contributing frames had that
+    /// photosite at the ADC ceiling, on the MASTER's geometry. SPCC's clip gate reads it, since a star saturated in
+    /// the subs can sit well below the master's peak once the stack has smeared it.</summary>
+    public const string SaturationMapSuffix = ".saturation.fits";
+
+    /// <summary>Per-pixel count of frames whose photosite was saturated.</summary>
+    public const string SaturationMapKind = "SATURATION";
+
     /// <summary>Suffix of the standard-error sidecar (<see cref="IntegrationResult.StandardError"/>), on the master's
     /// stem like the others.</summary>
     public const string StandardErrorMapSuffix = ".stderr.fits";
@@ -131,7 +140,9 @@ public static class IntegrationFitsWriter
     /// <see cref="BitMatrix"/> per channel, written beside the master as
     /// <see cref="BadPixelMapSuffix"/>. Null writes none, which is what a run with no matched dark
     /// produces. Note it is on the SENSOR's geometry, not the master's canvas.</param>
-    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null, AlignmentProvenance? alignment = null, BitMatrix[]? badPixelMask = null)
+    /// <param name="logger">Optional. Says at Debug when the stale saturation sidecar of an earlier run could not be
+    /// removed, naming the file: left there, a later reader of the folder would take it for this run's.</param>
+    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null, AlignmentProvenance? alignment = null, BitMatrix[]? badPixelMask = null, ILogger? logger = null)
     {
         var extras = new Dictionary<string, (object Value, string Comment)>
         {
@@ -201,6 +212,30 @@ public static class IntegrationFitsWriter
         if (result.StandardError is { } standardError)
         {
             WriteStandardErrorMap(masterPath, standardError, result.FrameCount, strategy);
+        }
+        if (result.Saturation is { } saturation)
+        {
+            WriteSaturationMap(masterPath, saturation, result.FrameCount, strategy);
+        }
+        else
+        {
+            // Nothing was clipped this run: a sidecar of an earlier run would describe a different stack. Best effort,
+            // after the master is written: a file a viewer holds open stays, and the run itself never reads it back
+            // (the post-processor takes the in-memory count), so it can only mislead a later reader of the folder.
+            var logical = SaturationPathFor(masterPath);
+            foreach (var stale in (ReadOnlySpan<string>)[CompressedPathFor(logical), logical])
+            {
+                try
+                {
+                    File.Delete(stale);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Left for the next run that writes this master to remove; said, because a file that stays is read
+                    // by SPCC as THIS run's saturation map.
+                    logger?.LogDebug(ex, "  [saturation] could not remove the stale sidecar {Path} of an earlier run; it stays beside the master and describes a different stack", stale);
+                }
+            }
         }
         WriteBadPixelMap(masterPath, badPixelMask, result.Master.ImageMeta, result.FrameCount);
     }
@@ -652,7 +687,44 @@ public static class IntegrationFitsWriter
         return name.EndsWith(RejectionMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(CoverageMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(BadPixelMapSuffix, StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(SaturationMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(StandardErrorMapSuffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The saturation sibling of a master: the stem plus <see cref="SaturationMapSuffix"/>.</summary>
+    public static string SaturationPathFor(string masterPath) => SiblingPath(masterPath, SaturationMapSuffix);
+
+    /// <summary>
+    /// Writes the per-pixel saturated-frame count beside a master, at the master's path plus
+    /// <see cref="SaturationMapSuffix"/>. The values are whole counts, so <see cref="MapStorage"/> keeps unit steps
+    /// and they read back exactly. It must be on the master's own geometry.
+    /// </summary>
+    public static void WriteSaturationMap(string masterPath, Image saturation, int frameCount, IntegrationStrategyKind? strategy = null)
+    {
+        var extras = new Dictionary<string, (object Value, string Comment)>
+        {
+            ["STACK_N"] = (frameCount, "Frames the saturation was counted over"),
+            ["SWCREATE"] = (SoftwareCreator, "Software that created this saturation map"),
+            ["IMAGETYP"] = ("SATURATION", "Per-pixel count of frames saturated at the ADC ceiling"),
+            [MapKindCard] = (SaturationMapKind, "Frames whose photosite was saturated; nonzero means a clipped star"),
+        };
+        if (strategy is { } s)
+        {
+            extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
+        WriteMapSidecar(SaturationPathFor(masterPath), saturation, extras);
+    }
+
+    /// <summary>
+    /// Loads the saturation map beside <paramref name="masterPath"/>. False where there is none (every master written
+    /// before it existed) or it cannot be read.
+    /// </summary>
+    public static bool TryReadSaturationMap(string masterPath, [NotNullWhen(true)] out Image? saturation)
+    {
+        saturation = null;
+        return !string.IsNullOrEmpty(masterPath)
+            && ExistingSidecarPath(SaturationPathFor(masterPath)) is { } path
+            && Image.TryReadFitsFile(path, out saturation);
     }
 
     /// <summary>The standard-error sibling of a master: the stem plus <see cref="StandardErrorMapSuffix"/>.</summary>
