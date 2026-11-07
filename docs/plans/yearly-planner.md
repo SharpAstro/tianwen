@@ -1,6 +1,6 @@
 # Best time to observe: the atlas's night curve and a yearly planner (plan)
 
-**Status: NOT STARTED. Written 2026-11-07**, raised by the user: "in the atlas, do we already show the best
+**Status: A DONE (#2059), B to D NOT STARTED. Written 2026-11-07**, raised by the user: "in the atlas, do we already show the best
 observability time?", then "the planner might need two modes, a yearly planner, that would tell you, M31 can
 best be observed in September etc.", and "the atlas info box should just maybe mark the area under the height
 graph that is good for observing (same criteria as the planner) and maybe show a total (plus the score)".
@@ -34,7 +34,24 @@ Milestone: `yearly-planner` (#2059 to #2062). Companions: [night-calendar](night
 
 ## A. Atlas night curve
 
-Tracked by #2059.
+Tracked by #2059. **SHIPPED (2026-11-07).** What landed, by type name:
+
+- `ObservationScheduler.ScoreTargetWithWeights` is the ONE scoring loop: `ScoreTarget` is its `ScoredTarget` half, and the
+  weights (0 at or below the profile minimum, else the moon factor the score applied) come out of the same pass.
+- `AtlasNightCurve` (with `NightSample`, `UI.Abstractions`) is the pure model: the 15-minute samples of the planner's night,
+  the usable time, the window and the planner's rating (`PlannerActions.ScoreToRating` against `TonightsBest[0]`), plus the
+  one `NightLine` text `ObjectInfoPanel` shows. `ObjectInfoPanel` reserves the slot through its own height methods.
+- `SkyMapState.GetNightCurveCached` (keyed on `NightCurveKey`: the object, `AstroDark`, `AstroTwilight`, the profile minimum
+  and the moon radius, never the viewing instant) is a Task hand-off like the selected path's, so the score is computed off the
+  render thread; `NightCurveComputes` counts recomputes for the tests. A pan and the time scrub never recompute, a date change
+  does. The first frame reserves the slot's height while the score is pending, so nothing moves.
+- `SkyMapTab.NightCurve.cs` draws it: a host-drawn fill in the sparkline's slot, the altitude line, the minimum-altitude
+  level, the counting samples shaded with alpha from the weight (paler where the moon penalises), the now mark when the
+  viewing instant is inside the night, and the line of text under it; colours come from `GuiTheme`, so Night spends no blue.
+  A planet or comet is positioned at the night's midpoint; the Moon gets the curve with no shade.
+- Nothing is drawn when the planner has no site or no night.
+- Pinned by `AtlasNightCurveTests`, `ObjectInfoPanelTests` and `SkyMapAtlasNightCurveTests` (CPU-rendered at DPI 1 and 1.5,
+  Night included).
 
 The info box gains a small altitude curve for the viewing night, drawn where the comet sparkline goes (a
 host-drawn fill, as the sparkline is), from dusk to dawn:
