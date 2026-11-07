@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
 using TianWen.Lib.Devices.Meade;
 using TianWen.Lib.Devices.OnStep;
@@ -92,6 +93,8 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
         var onStep = service.ResultsFor("OnStep").ShouldHaveSingleItem(
             "OnStep's :GVP# ran after Meade on the same clean stream, got 'On-Step#' → match");
         onStep.DeviceUri.Host.ShouldBe("onstepdevice");
+        onStep.DeviceUri.QueryValue(DeviceQueryKey.Firmware).ShouldBe("5.8", ":GVN# is evidence in the query, never in the id (#2040)");
+        onStep.DeviceUri.AbsolutePath.ShouldNotContain("5.8");
     }
 
     // ---- Stub wiring -------------------------------------------------------

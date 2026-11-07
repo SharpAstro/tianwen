@@ -218,9 +218,9 @@ and drains the receive buffer before and after each probe. The probe calls
 
 `MeadeSerialProbe.ProbeAsync` then requires the `:GVP#` reply to match `^(?:LX|Autostar|Audiostar)`
 (`MeadeDeviceSource.SupportedProductsRegex`) and publishes
-`Mount://MeadeDevice/<id>?port=<port>#<name> (<number>) on <port>`. The id is `<name>_<number>_<uuid>`, or with
-no TianWen id `<name>_<number>_<sites joined by ,>_<port>`, each part through `SafeName` (`_`, `/` and `:`
-become `-`). The written id is what keeps the device the same across a USB re-enumeration, so **discovery
+`Mount://MeadeDevice/<id>?port=<port>#<name> (<number>) on <port>`. The id is `Lx200DeviceId`'s (#2040): `<name>_<uuid>`, or with
+no TianWen id `<name>_<port>`, each part through `SafeName` (`_`, `/` and `:` become `-`); the product number rides in
+`?firmware=` and the site names are not in the id. The written id is what keeps the device the same across a USB re-enumeration, so **discovery
 writes to the mount**. `MeadeDeviceSource.DiscoverAsync` only turns the service's `Meade` matches into
 `MeadeDevice`s (`ConsumesSerialProbe`), and `MatchesDeviceHosts` lets the probe verify a pinned `MeadeDevice`
 port. The pass structure is the probe service's: `docs/plans/serial-probe.md`.
