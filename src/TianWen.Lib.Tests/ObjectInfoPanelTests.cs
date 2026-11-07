@@ -433,13 +433,11 @@ namespace TianWen.Lib.Tests
             ObjectInfoPanel.HasNightCurveSection(in unavailable).ShouldBeTrue();
             ObjectInfoPanel.DesignHeight(in unavailable, in actions).ShouldBe(ObjectInfoPanel.DesignHeight(in pending, in actions));
 
-            var section = ObjectInfoPanel.BuildNightCurveSection(in unavailable, in Palette).ShouldBeOfType<Layout.Node.Stack>();
-            // Any(...) rather than ShouldContain(...): Shouldly's ShouldContain takes an expression tree, which cannot hold an 'is' pattern.
-            section.Children.Any(c => c is Layout.Node.Leaf { Content: Layout.Content.Text { Value: ObjectInfoPanel.NightCurveUnavailableLine } }).ShouldBeTrue();
-
-            // The note takes the empty slot's place: no slot above it (a blank gap over a line of text was the note on #2059), and
-            // the same section height, so nothing moves when the answer lands.
-            section.Children.Any(c => c is Layout.Node.Leaf { Content: Layout.Content.Fill }).ShouldBeFalse("an empty slot sits above the note");
+            // The note takes the empty slot's place: one leaf holding it and no slot above it (a blank gap over a line of text was the
+            // note on #2059); its height is the section's own, declared once, so nothing moves when the answer lands.
+            var section = ObjectInfoPanel.BuildNightCurveSection(in unavailable, in Palette)
+                .ShouldBeOfType<Layout.Node.Leaf>();
+            section.Content.ShouldBeOfType<Layout.Content.Text>().Value.ShouldBe(ObjectInfoPanel.NightCurveUnavailableLine);
             ObjectInfoPanel.BuildNightCurveSection(in pending, in Palette).ShouldBeOfType<Layout.Node.Stack>()
                 .Children.Any(c => c is Layout.Node.Leaf { Content: Layout.Content.Fill }).ShouldBeTrue("the pending section lost its slot");
         }
