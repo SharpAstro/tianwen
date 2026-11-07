@@ -434,7 +434,8 @@ namespace TianWen.Lib.Tests
             ObjectInfoPanel.DesignHeight(in unavailable, in actions).ShouldBe(ObjectInfoPanel.DesignHeight(in pending, in actions));
 
             var section = ObjectInfoPanel.BuildNightCurveSection(in unavailable, in Palette).ShouldBeOfType<Layout.Node.Stack>();
-            section.Children.ShouldContain(c => c is Layout.Node.Leaf { Content: Layout.Content.Text { Value: ObjectInfoPanel.NightCurveUnavailableLine } });
+            // Any(...) rather than ShouldContain(...): Shouldly's ShouldContain takes an expression tree, which cannot hold an 'is' pattern.
+            section.Children.Any(c => c is Layout.Node.Leaf { Content: Layout.Content.Text { Value: ObjectInfoPanel.NightCurveUnavailableLine } }).ShouldBeTrue();
         }
 
         /// <summary>
