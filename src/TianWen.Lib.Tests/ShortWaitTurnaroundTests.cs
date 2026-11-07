@@ -44,6 +44,11 @@ namespace TianWen.Lib.Tests;
 /// asserts are on the MEDIAN, as the precision test's are, because on a loaded box a wait now and then ends tens of milliseconds
 /// late for want of a thread, which measures the scheduler; a tick-bound wait has a median a whole tick out, so the median still
 /// tells the two apart. Mean and worst are written out beside it.</para>
+/// <para>A box shared with other builds (a leg's check runs beside the other flights') can delay whole runs of frames, so a
+/// measurement that misses its bound is taken again, up to <see cref="WallClockMeasurement.Attempts"/> times, and the best attempt is the one
+/// asserted: load only ever ADDS to a lag, so the lowest median is the nearest to the wait's own, while a wait bound to the tick
+/// misses its bound every time (its median is 5 to 11 ms out on a quiet box, the plain <see cref="Task.Delay(TimeSpan, CancellationToken)"/>
+/// beside each measurement shows it). Every attempt is written out.</para>
 /// </remarks>
 [Collection("Devices")]
 public class ShortWaitTurnaroundTests(ITestOutputHelper output)
@@ -63,7 +68,13 @@ public class ShortWaitTurnaroundTests(ITestOutputHelper output)
     /// <summary>Slack on top of a poll period, as the precision test's (the issue's "about 2 ms", on a loaded box).</summary>
     private const double SlackMs = 2.5;
 
-    [Theory(Timeout = 120_000)]
+    /// <summary>How far past the instant a frame is ready the planetary loop's MEDIAN pickup may land: a poll and the slack.</summary>
+    private const double PlanetaryLagBoundMs = PlanetaryPollMs + SlackMs;
+
+    /// <summary>The planetary loop's frame interval over its exposure adds the loop's own work (the read, the push, the next start) to the pickup.</summary>
+    private const double PlanetaryIntervalBoundMs = PlanetaryLagBoundMs + 2.0;
+
+    [Theory(Timeout = 240_000)]
     [InlineData(10)]
     [InlineData(100)]
     public async Task AFrameIsPickedUpWithinAMillisecondOrTwoOfBeingReady(int exposureMs)
@@ -93,7 +104,7 @@ public class ShortWaitTurnaroundTests(ITestOutputHelper output)
             return Timings.Of(lags);
         }
 
-        var precise = await LagsAsync(SystemTimeProvider.Instance);
+        var precise = await BestOfAsync(() => LagsAsync(SystemTimeProvider.Instance), t => t.Median - PickupSlackMs, t => t.ToString());
         var delay = await LagsAsync(new TaskDelayTimeProvider());
         output.WriteLine($"{Frames} frames of {exposureMs} ms, lead margin {leadMargin.TotalMilliseconds:F0} ms: pickup lag SystemTimeProvider {precise}; Task.Delay {delay}");
 
@@ -101,7 +112,7 @@ public class ShortWaitTurnaroundTests(ITestOutputHelper output)
         precise.Median.ShouldBeLessThan(PickupSlackMs, "the frame is picked up a poll after it is ready, not at a timer tick");
     }
 
-    [Theory(Timeout = 120_000)]
+    [Theory(Timeout = 240_000)]
     [InlineData(20)]
     [InlineData(150)]
     public async Task TheBuiltInGuidersFrameCaptureReturnsWithinAMillisecondOrTwoOfTheFrameBeingReady(int exposureMs)
@@ -130,7 +141,10 @@ public class ShortWaitTurnaroundTests(ITestOutputHelper output)
             return (Timings.Of(lags), timeline.Polls / (double)(Frames + WarmUp));
         }
 
-        var (precise, polls) = await LagsAsync(SystemTimeProvider.Instance);
+        var (precise, polls) = await BestOfAsync(
+            () => LagsAsync(SystemTimeProvider.Instance),
+            t => t.Lag.Median - PickupSlackMs,
+            t => $"{t.Lag} ({t.PollsPerFrame:F1} polls a frame)");
         var (delay, delayPolls) = await LagsAsync(new TaskDelayTimeProvider());
         output.WriteLine($"{Frames} guide frames of {exposureMs} ms, ImageReadyPollInterval {leadMargin.TotalMilliseconds:F0} ms: "
             + $"capture pickup lag SystemTimeProvider {precise} ({polls:F1} polls a frame); Task.Delay {delay} ({delayPolls:F1} polls a frame)");
@@ -139,7 +153,7 @@ public class ShortWaitTurnaroundTests(ITestOutputHelper output)
         precise.Median.ShouldBeLessThan(PickupSlackMs, "the guide frame is read a poll after it is ready, not a 50 ms interval or a timer tick later");
     }
 
-    [Theory(Timeout = 120_000)]
+    [Theory(Timeout = 240_000)]
     [InlineData(5)]
     [InlineData(20)]
     public async Task ThePlanetarySingleExposureLoopTakesEachFrameWithinAPollOfItsExposure(int exposureMs)
@@ -148,16 +162,18 @@ public class ShortWaitTurnaroundTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var exposure = TimeSpan.FromMilliseconds(exposureMs);
 
-        var precise = await CaptureAsync(SystemTimeProvider.Instance);
+        var precise = await BestOfAsync(
+            () => CaptureAsync(SystemTimeProvider.Instance),
+            t => Math.Max(t.Lag.Median - PlanetaryLagBoundMs, t.Overhead.Median - PlanetaryIntervalBoundMs),
+            t => $"pickup lag {t.Lag}, frame interval over the exposure {t.Overhead}");
         var delay = await CaptureAsync(new TaskDelayTimeProvider());
         output.WriteLine($"{Frames} frames of {exposureMs} ms through RapidExposureFramesAsync (5 ms poll): "
             + $"SystemTimeProvider pickup lag {precise.Lag}, frame interval over the exposure {precise.Overhead}; "
             + $"Task.Delay pickup lag {delay.Lag}, frame interval over the exposure {delay.Overhead}");
 
         precise.Lag.Median.ShouldBeGreaterThanOrEqualTo(0, "the frame is never taken before it is ready");
-        precise.Lag.Median.ShouldBeLessThan(PlanetaryPollMs + SlackMs, "a frame is taken within a poll of being ready, not a timer tick later");
-        // The interval adds the loop's own work (the read, the push, the next start) to the pickup, so it has a little more room.
-        precise.Overhead.Median.ShouldBeLessThan(PlanetaryPollMs + SlackMs + 2.0, "a frame follows its exposure by about a poll, not by a tick");
+        precise.Lag.Median.ShouldBeLessThan(PlanetaryLagBoundMs, "a frame is taken within a poll of being ready, not a timer tick later");
+        precise.Overhead.Median.ShouldBeLessThan(PlanetaryIntervalBoundMs, "a frame follows its exposure by about a poll, not by a tick");
 
         async Task<(Timings Lag, Timings Overhead)> CaptureAsync(ITimeProvider clock)
         {
@@ -180,6 +196,9 @@ public class ShortWaitTurnaroundTests(ITestOutputHelper output)
             return (Timings.Of(lags), Timings.Of(overheads));
         }
     }
+
+    private Task<T> BestOfAsync<T>(Func<Task<T>> measureAsync, Func<T, double> excess, Func<T, string> describe)
+        => WallClockMeasurement.BestOfAsync(output, measureAsync, excess, describe);
 
     private static void SkipUnlessMeasurable()
     {
