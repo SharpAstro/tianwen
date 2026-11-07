@@ -36,7 +36,8 @@ Milestone: `yearly-planner` (#2059 to #2062). Companions: [night-calendar](night
 
 Tracked by #2059. **SHIPPED (2026-11-07).** What landed, by type name:
 
-- `ObservationScheduler.ScoreTargetWithWeights` is the ONE scoring loop: `ScoreTarget` is its `ScoredTarget` half, and the
+- `ObservationScheduler.ScoreTargetWithWeights` and `ScoreTarget` share ONE scoring loop (the internal `ScoreTarget` both
+  call; each sets up its own sample grid), and the
   weights (0 at or below the profile minimum, else the moon factor the score applied) come out of the same pass.
 - `AtlasNightCurve` (with `NightSample`, `UI.Abstractions`) is the pure model: the 15-minute samples of the planner's night,
   the usable time, the window and the planner's rating (`PlannerActions.ScoreToRating` against `TonightsBest[0]`), plus the

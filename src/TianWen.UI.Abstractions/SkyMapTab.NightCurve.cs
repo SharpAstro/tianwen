@@ -25,6 +25,9 @@ public partial class SkyMapTab<TSurface>
     /// <summary>Where the last frame drew the curve's slot, or null with none: what the tests read.</summary>
     internal RectF32? LastNightCurveRect { get; private set; }
 
+    /// <summary>Where the last frame laid the panel's text rows: the inset the night curve section shares. What the tests read.</summary>
+    internal RectF32? LastPanelTextRect { get; private set; }
+
     // Everything the score needs besides its key, by value, so the score reads nothing the render thread also writes. The
     // dictionary and the repository are immutable snapshots / thread-safe reads, as the planner's own background rescoring uses them.
     private readonly record struct NightCurveJob(
