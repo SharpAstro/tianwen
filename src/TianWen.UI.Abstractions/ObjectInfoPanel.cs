@@ -477,7 +477,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// The night curve section: the slot the host draws the curve into (<see cref="NightCurveFillKey"/>) and <see cref="NightLine"/>
         /// under it, or null when the host offered no curve. The line is omitted for a body with no shade; its row stays so the
-        /// panel does not move.
+        /// panel does not move. The host lays it into the text rows' rect, which carries the panel's inset.
         /// </summary>
         public static Layout.Node? BuildNightCurveSection(in PanelDisplayOptions options, in PanelPalette palette)
         {
@@ -488,9 +488,9 @@ namespace TianWen.UI.Abstractions
 
             return Layout.Builder.VStack(
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin),
-                Layout.Builder.Fill(key: NightCurveFillKey).WStar().HStar().PadX(8f).RowH(DesignNightCurveHeight),
+                Layout.Builder.Fill(key: NightCurveFillKey).WStar().HStar().RowH(DesignNightCurveHeight),
                 Layout.Builder.Text(options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? "" : "", DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
-                    .WStar().HStar().PadX(8f).RowH(DesignRowHeight),
+                    .WStar().HStar().RowH(DesignRowHeight),
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin));
         }
 

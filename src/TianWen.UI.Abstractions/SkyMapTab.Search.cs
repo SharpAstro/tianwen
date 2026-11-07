@@ -542,8 +542,9 @@ namespace TianWen.UI.Abstractions
             var textW = pw - 40f;
 
             var textBlockH = ObjectInfoPanel.DesignTextBlockHeight(in options) * dpiScale;
-            RenderLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette),
-                new RectF32(textX, py, textW, textBlockH), scale: Scale);
+            var textRect = new RectF32(textX, py, textW, textBlockH);
+            LastPanelTextRect = textRect;
+            RenderLayout(ObjectInfoPanel.BuildTextRows(in info, in options, in palette), textRect, scale: Scale);
             var row = textBlockH;
             (LastNightCurve, LastNightCurveRect) = (null, null);
 
@@ -563,7 +564,8 @@ namespace TianWen.UI.Abstractions
             if (ObjectInfoPanel.BuildNightCurveSection(in options, in palette) is { } nightSection)
             {
                 var nightCurveShown = options.NightCurve;
-                RenderLayout(nightSection, new RectF32(px, belowRows, pw, nightSectionH), scale: Scale,
+                // In the text rows' inset (textX, textW), so the curve and its line align with the rows and clear the frame.
+                RenderLayout(nightSection, new RectF32(textX, belowRows, textW, nightSectionH), scale: Scale,
                     drawFill: (fill, rect) =>
                     {
                         if (fill.Key == ObjectInfoPanel.NightCurveFillKey && nightCurveShown is { } shown)

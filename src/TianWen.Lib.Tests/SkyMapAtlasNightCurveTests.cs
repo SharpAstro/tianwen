@@ -448,6 +448,28 @@ public sealed class SkyMapAtlasNightCurveTests
     }
 
     /// <summary>
+    /// The curve and its line sit in the text rows' inset, never flush against the panel's frame: the slot's left and right edges
+    /// are inside the rows' own, at 1x and 1.5x, narrow and wide.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f, 480)]
+    [InlineData(1.5f, 480)]
+    [InlineData(1f, 1100)]
+    [InlineData(1.5f, 1100)]
+    public async Task TheCurveSharesTheTextRowsInset(float dpiScale, int width)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var rig = await RigAsync(ct, dpiScale, width, 700);
+        rig.Select("Messier 31", 0.7123, 41.27);
+        await rig.RenderSettledAsync();
+
+        var rows = rig.Tab.LastPanelTextRect.ShouldNotBeNull("the panel laid no text rows");
+        var slot = rig.Tab.LastNightCurveRect.ShouldNotBeNull("the panel drew no night curve slot");
+        slot.X.ShouldBeGreaterThanOrEqualTo(rows.X, "the curve starts left of the text rows");
+        (slot.X + slot.Width).ShouldBeLessThanOrEqualTo(rows.X + rows.Width, "the curve runs right of the text rows");
+    }
+
+    /// <summary>
     /// The panel with its curve as a person sees it, written as PNGs: a narrow and a wide content rect, a long object name, at 1x and
     /// 1.5x, the panel's bottom-left region cropped out. Asserts only that the curve was drawn; the pictures are for eyes.
     /// </summary>
