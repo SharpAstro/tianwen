@@ -44,19 +44,16 @@ internal sealed partial class IOptronSerialProbe : ISerialProbe
         var firmwareVersion = fwMatch.Groups[1].Value;
 
         var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(port);
-        // SGP has no mount-resident UUID mechanism: deviceId is port-qualified, so a USB
-        // port reshuffle changes the id. ReconcileUri does NOT carry a stored URI across
-        // that: it matches by SameDevice, which compares the path the port is in, so the
-        // profile's mount goes unmatched until it is re-assigned (device-architecture.md,
-        // "Device keys by family").
+        // SGP has no serial number and nowhere to write a UUID, so its id ends in the port, which discovery swaps for the
+        // USB bridge's serial or socket where it has one (#1090, SerialProbeService.WithPortIdentity). The firmware is
+        // evidence, never identity (#2040): it rides in the query, so an update does not make the mount a new device.
         var deviceId = string.Join('_',
             "SkyGuider-Pro",
-            SafeName(firmwareVersion),
             SafeName(portWithoutPrefix));
         var displayName = $"iOptron SkyGuider Pro ({firmwareVersion}) on {portWithoutPrefix}";
 
         var device = new IOptronDevice(DeviceType.Mount, deviceId, displayName, port);
-        return new SerialProbeMatch(port, device.DeviceUri);
+        return new SerialProbeMatch(port, device.DeviceUri.WithQueryValues((DeviceQueryKey.Firmware.Key, firmwareVersion)));
     }
 
     private static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
