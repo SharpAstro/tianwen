@@ -59,7 +59,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         var external = new ProbeTestExternal { Ports = ["serial:COM14", "serial:COM13", "serial:COM9"] };
         external.Identities["serial:COM14"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:A10MOSEFA");
         external.Identities["serial:COM13"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Socket, "socket:PCIROOT(0)#USB(3)");
-        var probe = StubProbe.Sync("iOptron", baud: 28800, match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_{port[7..]}?port={port}")));
+        var probe = StubProbe.Sync("iOptron", baud: 28800, match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{port[7..]}?port={port}")));
         var service = BuildService(external, output, probe);
 
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
@@ -72,12 +72,12 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Step 2 of #1090: on a serial-numbered cable an id that ends in its port ends in the CABLE, so the device is the same in
-    /// any socket and on any COM number; the port stays in the query. A socket port, which a move changes, keeps its port id,
-    /// and an id that names the hardware itself (an OnStep UUID) is never touched.
+    /// An id that ends in its port ends in something steadier where the port has it: the USB bridge's serial (#1090 step 2), the
+    /// same in any socket and on any COM number, or the socket (#2040), the same whatever COM number Windows hands it. The port
+    /// stays in the query, and an id that names the hardware itself (an OnStep UUID) is never touched.
     /// </summary>
     [Fact]
-    public async Task OnASerialNumberedCableAPortKeyedIdEndsInTheCable()
+    public async Task APortKeyedIdEndsInTheUsbBridgesSerialOrItsSocket()
     {
         // Each device on its own port: a port one probe matched is offered to no probe after it.
         var external = new ProbeTestExternal { Ports = ["serial:COM14", "serial:COM13", "serial:COM15"] };
@@ -86,7 +86,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         external.Identities["serial:COM15"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:B20NOTSGP");
         var sgp = StubProbe.Sync("iOptron", baud: 28800,
             match: (port, _) => port is "serial:COM15" ? null
-                : new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_{port[7..]}?port={port}#iOptron SkyGuider Pro (170518) on {port[7..]}")));
+                : new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{port[7..]}?port={port}&firmware=170518#iOptron SkyGuider Pro (170518) on {port[7..]}")));
         var onStep = StubProbe.Sync("OnStep", baud: 9600,
             match: (port, _) => port is "serial:COM15" ? new SerialProbeMatch(port, new Uri($"Mount://OnStepDevice/OnStep_1_abc-uuid?port={port}")) : null);
         var service = BuildService(external, output, sgp, onStep);
@@ -95,12 +95,16 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
 
         var sgps = service.ResultsFor("iOptron").ToDictionary(m => m.Port);
         var onCable = sgps["serial:COM14"].DeviceUri;
-        onCable.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_usb-0403-6001-A10MOSEFA").DeviceKey);
+        onCable.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_usb-0403-6001-A10MOSEFA").DeviceKey);
         onCable.QueryValue(DeviceQueryKey.Port).ShouldBe("serial:COM14", "the port is transport, in the query");
         onCable.Fragment.ShouldBe("#iOptron%20SkyGuider%20Pro%20(170518)%20on%20COM14");
-        onCable.ModelKey.ShouldBe("mount://ioptrondevice/SkyGuider-Pro_170518", "the model is recognised on the cable's id too");
+        onCable.ModelKey.ShouldBe("mount://ioptrondevice/SkyGuider-Pro", "the model is recognised on the cable's id too");
+        onCable.QueryValue(DeviceQueryKey.Firmware).ShouldBe("170518", "the firmware is evidence in the query, never in the id");
 
-        sgps["serial:COM13"].DeviceUri.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM13").DeviceKey, "a socket port keeps its port id");
+        var onSocket = sgps["serial:COM13"].DeviceUri;
+        onSocket.DeviceKey.ShouldBe(new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{SerialPortIdentity.IdSuffixOf("socket", "socket:PCIROOT(0)#USB(3)")}").DeviceKey, "a socket port is keyed on its socket");
+        onSocket.AbsolutePath.ShouldNotContain("COM13");
+        onSocket.ModelKey.ShouldBe("mount://ioptrondevice/SkyGuider-Pro", "and its model is recognised too");
 
         service.ResultsFor("OnStep").ShouldHaveSingleItem().DeviceUri.DeviceKey
             .ShouldBe(new Uri("Mount://OnStepDevice/OnStep_1_abc-uuid").DeviceKey, "a UUID names the hardware, whatever the cable");
@@ -125,7 +129,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         }
 
         var sgp = StubProbe.Sync("iOptron", baud: 28800,
-            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_170518_{port[7..]}?port={port}#iOptron SkyGuider Pro (170518) on {port[7..]}")));
+            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{port[7..]}?port={port}#iOptron SkyGuider Pro (170518) on {port[7..]}")));
         var service = BuildService(external, output, sgp);
 
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
@@ -134,8 +138,8 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         found.Count.ShouldBe(2);
         var com5 = found["serial:COM5"].DeviceUri;
         var com6 = found["serial:COM6"].DeviceUri;
-        com5.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM5").DeviceKey, "a shared serial keeps the port id");
-        com6.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_170518_COM6").DeviceKey);
+        com5.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_COM5").DeviceKey, "a shared serial keeps the port id");
+        com6.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_COM6").DeviceKey);
         com5.DeviceKey.ShouldNotBe(com6.DeviceKey, "two units are two devices to the hub");
         com5.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A50285BI", "what the port reports is still noted");
         com6.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A50285BI");
