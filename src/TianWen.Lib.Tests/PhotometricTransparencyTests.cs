@@ -48,13 +48,13 @@ public class PhotometricTransparencyTests(ITestOutputHelper output) : IDisposabl
     };
 
     /// <summary>A catalogue of stars placed on a seeded field, each at the sky position the WCS gives its pixel.</summary>
-    private sealed class Field
+    internal sealed class Field
     {
         public required ICelestialObjectDB Db { get; init; }
         public required (double X, double Y, double V)[] Stars { get; init; }
     }
 
-    private static Field BuildField(int count, int seed)
+    internal static Field BuildField(int count, int seed)
     {
         var wcs = FieldWcs();
         var random = new Random(seed);
@@ -257,7 +257,7 @@ public class PhotometricTransparencyTests(ITestOutputHelper output) : IDisposabl
 
     // ---- the fitter, over FITS lights with a header WCS and stars rendered at a known zero point ----
 
-    private static ImageMeta MetaFor(DateTimeOffset when, double ha)
+    internal static ImageMeta MetaFor(DateTimeOffset when, double ha)
     {
         var lst = SiteContext.ComputeLST(when, 145.2f);
         var ra = ((lst - ha) % 24.0 + 24.0) % 24.0;
@@ -284,7 +284,7 @@ public class PhotometricTransparencyTests(ITestOutputHelper output) : IDisposabl
         };
     }
 
-    private static void WriteStarLight(string path, ImageMeta meta, Field field, double transmitted, bool withWcs, Random random)
+    internal static void WriteStarLight(string path, ImageMeta meta, Field field, double transmitted, bool withWcs, Random random)
     {
         var airmass = SkyCovariates.From(meta).Airmass;
         var zeroPoint = TrueZeroPoint0 - TrueExtinction * airmass + 2.5 * Math.Log10(transmitted);
