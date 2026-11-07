@@ -41,8 +41,10 @@ public partial class SkyMapTab<TSurface>
     /// <summary>
     /// The curve for the selection, or nothing: a host with no site or no night (the FITS viewer's atlas, a planner not yet
     /// computed), the mount's own entry and the zenith (whose position is not the object's but changes every frame) get none.
+    /// <c>Unavailable</c> is the other kind of nothing: the host WOULD show a curve but the score failed (an unplaceable body), so
+    /// the section stays, with a note, rather than the panel shrinking and jumping when the answer lands.
     /// </summary>
-    private (AtlasNightCurve? Curve, bool Pending) NightCurveFor(PlannerState plannerState, in SkyMapInfoPanelData info)
+    private (AtlasNightCurve? Curve, bool Pending, bool Unavailable) NightCurveFor(PlannerState plannerState, in SkyMapInfoPanelData info)
     {
         if (_timeProvider is not { } clock
             || double.IsNaN(plannerState.SiteLatitude) || double.IsNaN(plannerState.SiteLongitude)
@@ -71,7 +73,8 @@ public partial class SkyMapTab<TSurface>
 
         // The key says what the curve is of; the rest is what the score is run with once, and is not part of its identity.
         var job = new NightCurveJob(key, info.Name, info.ObjType, plannerState.ScoredTargets, plannerState.Comets, clock);
-        return State.GetNightCurveCached(in key, job, static job => ComputeNightCurve(in job));
+        var (curve, pending) = State.GetNightCurveCached(in key, job, static job => ComputeNightCurve(in job));
+        return (curve, pending, curve is null && !pending);
     }
 
     // Runs on a thread-pool thread: pure over its argument, and the planner's own scoring and the ephemerides it calls are pure.
@@ -117,7 +120,10 @@ public partial class SkyMapTab<TSurface>
             new Target(ra, dec, job.Name, key.Index), transform, key.AstroDark, key.AstroTwilight, key.MinAltitude,
             key.BestScore, type, bonus, key.MoonRadiusDeg);
 
-        // No planner list yet: the object is the best there is, as a list of one would say.
+        // No planner list yet (BestScore 0): the object is the best there is, as a list of one would say, so five stars. The
+        // planner's own fallback for an empty list is ScoreToRating(score, 1.0) (PlannerActions.FormatTonightsBestLines), which is
+        // five stars for any score of 1 or more and so says the same for every object worth drawing; this states it outright
+        // rather than lean on that, and ScoreToRating(score, 0) would answer 0.5 for everything.
         return key.BestScore > 0 ? curve : curve with { Rating = 5.0f };
     }
 
@@ -168,7 +174,11 @@ public partial class SkyMapTab<TSurface>
         var minY = Y(curve.MinAltitude);
 
         // The shade, one thin column at a time between the minimum level and the line: the altitude is interpolated between
-        // samples so the edge where the line crosses the level is a slope, and the weight is the nearest sample's.
+        // samples so the edge where the line crosses the level is a slope, and the weight is interpolated between the COUNTING
+        // neighbours only. A sample at or below the minimum has weight 0 (it does not count), so taking the nearest sample's
+        // weight dropped the shade for up to half a step (about 7 minutes) before the line crossed the level; a column whose
+        // interpolated altitude is above the level takes the weight of whichever neighbour counts. The renderer has no polygon
+        // fill, so a column stays the primitive; the columns are one device pixel wide, so the stepped top edge is a pixel's.
         if (curve.Shaded)
         {
             var columnW = MathF.Max(1f, MathF.Round(dpiScale));
@@ -178,8 +188,11 @@ public partial class SkyMapTab<TSurface>
                 var position = (cx + columnW / 2f) / w * last;
                 var i = Math.Min((int)position, last - 1);
                 var frac = position - i;
-                var altitude = samples[i].Altitude + (samples[i + 1].Altitude - samples[i].Altitude) * frac;
-                var weight = (frac < 0.5 ? samples[i] : samples[i + 1]).Weight;
+                var (a, b) = (samples[i], samples[i + 1]);
+                var altitude = a.Altitude + (b.Altitude - a.Altitude) * frac;
+                var weight = a.Weight > 0f && b.Weight > 0f
+                    ? a.Weight + (b.Weight - a.Weight) * (float)frac
+                    : MathF.Max(a.Weight, b.Weight);
                 if (altitude <= curve.MinAltitude || weight <= 0f)
                 {
                     continue;

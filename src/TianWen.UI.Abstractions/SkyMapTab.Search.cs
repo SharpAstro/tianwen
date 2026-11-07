@@ -408,7 +408,7 @@ namespace TianWen.UI.Abstractions
 
             // The night's altitude curve (#2059): scored once per object and night off this thread, so a pan or a scrub never
             // rescores it; nothing when there is no site or night, and its height reserved while it is computed.
-            var (nightCurve, nightCurvePending) = NightCurveFor(plannerState, in info);
+            var (nightCurve, nightCurvePending, nightCurveUnavailable) = NightCurveFor(plannerState, in info);
 
             // What the panel SAYS, which buttons it offers and how big that makes it are all
             // ObjectInfoPanel's, shared with the FITS viewer; where it SITS is still this method's.
@@ -427,7 +427,8 @@ namespace TianWen.UI.Abstractions
                 // And where its texture came from, under it (#1567), once the texture has landed.
                 DiscCredit: info.Aspect is { } discBody && PlanetTextures.TryGet(discBody.Planet, out _, out var discCredit) ? discCredit : null,
                 NightCurve: nightCurve,
-                NightCurvePending: nightCurvePending);
+                NightCurvePending: nightCurvePending,
+                NightCurveUnavailable: nightCurveUnavailable);
             LastPanelDiscCredit = options.DiscCredit;
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
@@ -564,7 +565,9 @@ namespace TianWen.UI.Abstractions
             if (ObjectInfoPanel.BuildNightCurveSection(in options, in palette) is { } nightSection)
             {
                 var nightCurveShown = options.NightCurve;
-                // In the text rows' inset (textX, textW), so the curve and its line align with the rows and clear the frame.
+                // In the text rows' inset (textX, textW), so the curve and its line align with the rows and clear the frame. The
+                // inset is 10 px on the left and 30 on the right on purpose: the right margin is the rows' own (textW = pw - 40),
+                // which clears the close affordance, and one inset for every row is what keeps the curve flush with the text.
                 RenderLayout(nightSection, new RectF32(textX, belowRows, textW, nightSectionH), scale: Scale,
                     drawFill: (fill, rect) =>
                     {

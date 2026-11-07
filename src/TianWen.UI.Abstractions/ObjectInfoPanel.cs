@@ -103,6 +103,10 @@ namespace TianWen.UI.Abstractions
         /// True while the host's curve is still being computed off the render thread: the section's height is reserved, its slot
         /// empty, so the panel does not grow under the pointer when the curve lands.
         /// </param>
+        /// <param name="NightCurveUnavailable">
+        /// True when the host would show a curve but could not score one for this object (an unplaceable body): the section keeps
+        /// its height and says so, so the panel does not shrink and jump when the answer lands.
+        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
@@ -114,11 +118,15 @@ namespace TianWen.UI.Abstractions
             bool Disc = false,
             string? DiscCredit = null,
             AtlasNightCurve? NightCurve = null,
-            bool NightCurvePending = false);
+            bool NightCurvePending = false,
+            bool NightCurveUnavailable = false);
 
-        /// <summary>Whether the panel has a night curve section: a curve to draw, or one on its way.</summary>
+        /// <summary>What the night curve's line reads when no curve could be scored for the object.</summary>
+        public const string NightCurveUnavailableLine = "No night curve for this object";
+
+        /// <summary>Whether the panel has a night curve section: a curve to draw, one on its way, or a note that there is none.</summary>
         public static bool HasNightCurveSection(in PanelDisplayOptions options)
-            => options.NightCurve is not null || options.NightCurvePending;
+            => options.NightCurve is not null || options.NightCurvePending || options.NightCurveUnavailable;
 
         /// <summary>The key of the night curve slot's <see cref="Layout.Content.Fill"/>, which the host draws the curve into.</summary>
         public const string NightCurveFillKey = "ObjectInfoNightCurve";
@@ -489,7 +497,11 @@ namespace TianWen.UI.Abstractions
             return Layout.Builder.VStack(
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin),
                 Layout.Builder.Fill(key: NightCurveFillKey).WStar().HStar().RowH(DesignNightCurveHeight),
-                Layout.Builder.Text(options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? "" : "", DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
+                Layout.Builder.Text(
+                    options.NightCurve is { } curve ? NightLine(curve, options.TimeZone) ?? ""
+                    : options.NightCurveUnavailable ? NightCurveUnavailableLine
+                    : "",
+                    DesignFontSize * 0.9f, palette.Text, TextAlign.Near, TextAlign.Center)
                     .WStar().HStar().RowH(DesignRowHeight),
                 Layout.Builder.Spacer().RowH(DesignNightCurveMargin));
         }
