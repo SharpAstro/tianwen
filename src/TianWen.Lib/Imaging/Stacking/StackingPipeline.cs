@@ -1919,7 +1919,8 @@ public sealed class StackingPipeline(
                 // N frames), so this changes nothing about what is integrated -- but the mask is
                 // now also PROVENANCE, written beside the master, and gating provenance on which
                 // strategy happened to run is how a fact about the sensor goes missing.
-                BadPixelMask: badPixelMask);
+                BadPixelMask: badPixelMask,
+                Logger: logger);
 
             // index i in Integrator's frame list is matched[i] here, so a normalized dump can be
             // named after its light rather than numbered.

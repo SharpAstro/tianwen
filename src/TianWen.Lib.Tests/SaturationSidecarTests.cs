@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -9,6 +11,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
@@ -194,6 +197,95 @@ public sealed class SaturationSidecarTests : IDisposable
         (cropped.Width, cropped.Height).ShouldBe((10, 10));
         cropped[0, 2, 2].ShouldBe(3f, "the crop keeps the map over the same pixels as the cropped master");
         cropped[0, 3, 3].ShouldBe(1f);
+    }
+
+    /// <summary>
+    /// A stale sidecar of an earlier run is removed when this run clipped nothing, best effort: one that cannot be removed
+    /// (here a directory where the file would be, which <c>File.Delete</c> refuses on every OS) leaves the write whole and is
+    /// said at Debug, naming the path, since SPCC would otherwise read it as this run's saturation map.
+    /// </summary>
+    [Fact]
+    public void AStaleSidecarThatCannotBeRemovedIsSaidAndTheWriteStillSucceeds()
+    {
+        var dir = _folders.Create("saturation-stale-").FullName;
+        var masterPath = Path.Combine(dir, "master_M83.fits");
+        var blocked = IntegrationFitsWriter.SaturationPathFor(masterPath);
+        Directory.CreateDirectory(blocked);
+        var log = new RecordingLogger();
+
+        IntegrationFitsWriter.Write(masterPath, NothingClipped(), logger: log);
+
+        File.Exists(masterPath).ShouldBeTrue("the master is written whatever happens to the stale file");
+        Directory.Exists(blocked).ShouldBeTrue("what could not be removed stays");
+        var said = log.Entries.ShouldHaveSingleItem();
+        said.Level.ShouldBe(LogLevel.Debug);
+        said.Exception.ShouldNotBeNull("the exception travels with the line");
+        said.Message.ShouldContain(blocked);
+
+        // The ordinary case says nothing: a stale file that CAN be removed is just gone.
+        var other = Path.Combine(_folders.Create("saturation-stale-").FullName, "master_M83.fits");
+        IntegrationFitsWriter.WriteSaturationMap(other, new Image([new float[8, 8]], BitDepth.Float32, 1f, 0f, 0f, Meta()), frameCount: 3);
+        IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.SaturationPathFor(other)).ShouldNotBeNull();
+        var quiet = new RecordingLogger();
+
+        IntegrationFitsWriter.Write(other, NothingClipped(), logger: quiet);
+
+        IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.SaturationPathFor(other)).ShouldBeNull("a run that clipped nothing leaves no sidecar of an earlier one");
+        quiet.Entries.ShouldBeEmpty();
+
+        static IntegrationResult NothingClipped() => new(
+            new Image([new float[8, 8], new float[8, 8], new float[8, 8]], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color }),
+            RejectionMap: null, FrameCount: 3, TotalRejections: 0, MeanRejectionRate: 0);
+    }
+
+    /// <summary>
+    /// The post-processor is the hand-off between the stacker and SPCC: it gives the renderer THIS run's count (cropped as
+    /// the master is), for a colour master only, and never reads one back from disk, where a sidecar of an earlier run
+    /// could linger. The link from there to a star being dropped is
+    /// <see cref="TheMastersSolveDropsTheStarsTheSidecarMarks"/>; the plate solve between them needs a real catalogue (the
+    /// fake one cannot solve), so the post-processor is pinned here by what it announces, without one.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, false, false, true)]
+    [InlineData(true, false, false, false)]
+    public async Task ThePostProcessorHandsSparkOnlyThisRunsCountForAColourMaster(bool colour, bool cropped, bool staleOnDisk, bool runHasCount)
+    {
+        var dir = _folders.Create("saturation-handoff-").FullName;
+        var masterPath = Path.Combine(dir, "master_M83.fits");
+        const int w = 64, h = 64;
+        var meta = new ImageMeta { Instrument = "synth", SensorType = colour ? SensorType.Color : SensorType.Monochrome };
+        float[][,] planes = colour ? [new float[h, w], new float[h, w], new float[h, w]] : [new float[h, w]];
+        var master = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, meta);
+        var count = new float[h, w];
+        count[10, 10] = 2f;
+        var map = new Image([count], BitDepth.Float32, 2f, 0f, 0f, Meta());
+        if (staleOnDisk)
+        {
+            IntegrationFitsWriter.WriteSaturationMap(masterPath, map, frameCount: 3);
+        }
+        var log = new RecordingLogger();
+        var processor = new MasterPostProcessor(log, catalogDb: null);
+
+        await processor.WriteMasterAsync(
+            new IntegrationResult(master, RejectionMap: null, FrameCount: 3, TotalRejections: 0, MeanRejectionRate: 0)
+            {
+                Saturation = runHasCount ? map : null,
+            },
+            masterPath, searchHint: null, imageDim: null, refMeta: meta,
+            autocropRect: cropped ? new PixelRect(4, 4, 40, 40) : new PixelRect(0, 0, w, h),
+            strategy: IntegrationStrategyKind.InRamAllFrames,
+            enhance: false, enhanceBlend: 1f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
+            outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
+
+        var announced = log.Messages.Any(m => m.Contains("[SPCC] saturation map found"));
+        announced.ShouldBe(colour && runHasCount, "this run's count reaches SPCC for a colour master, and nothing else does (a stale sidecar on disk is never read back)");
+        if (staleOnDisk && !runHasCount)
+        {
+            IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.SaturationPathFor(masterPath)).ShouldBeNull("the stale sidecar is removed by the write of a run that clipped nothing");
+        }
     }
 
     [Fact]

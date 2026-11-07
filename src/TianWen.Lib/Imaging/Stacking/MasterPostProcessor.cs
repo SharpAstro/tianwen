@@ -233,7 +233,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
         // 2) Write the master FITS with WCS baked into the headers, and beside it the defect mask
         //    this integration applied, which nothing kept before.
-        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy, alignment: alignment, badPixelMask: badPixelMask);
+        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy, alignment: alignment, badPixelMask: badPixelMask, logger: logger);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
         // The preview PNG, the Ultra HDR JPEG, and the --split-plates TIFFs are display-side
@@ -286,7 +286,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             try
             {
                 var cropFitsPath = WithSuffix(masterPath, "_autocrop");
-                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy, alignment: alignment?.ForCrop(autocropRect.X, autocropRect.Y));
+                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy, alignment: alignment?.ForCrop(autocropRect.X, autocropRect.Y), logger: logger);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", cropFitsPath, autocropRect.Width, autocropRect.Height);
             }
             catch (Exception ex)
@@ -640,7 +640,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // integration's noise, which the enhance changed, so beside these pixels it would state the wrong thing.
             var sharpenedPath = WithSuffix(masterPath, "_sharpened");
             IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster, StandardError = null }, solvedWcs, strategy, alignment: alignment,
-                modifiedBy: SharpenPipeline.SoftwareModifier);
+                modifiedBy: SharpenPipeline.SoftwareModifier, logger: logger);
             logger.LogInformation("  wrote {Path} (enhance blend={Blend:F2}, {Ms} ms)", sharpenedPath, blend, sw.ElapsedMilliseconds);
 
             Image? enhancedCropped = null;
@@ -649,7 +649,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                 enhancedCropped = CropImage(enhancedMaster, autocropRect);
                 var sharpenedCropPath = WithSuffix(masterPath, "_sharpened_autocrop");
                 IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped, StandardError = null }, croppedWcs, strategy, alignment: alignment,
-                    modifiedBy: SharpenPipeline.SoftwareModifier);
+                    modifiedBy: SharpenPipeline.SoftwareModifier, logger: logger);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
             }
 

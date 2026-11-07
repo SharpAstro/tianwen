@@ -58,6 +58,7 @@ public class DebayerRegressionTests
             // them afterwards, so a colour-cast mosaic gives different bits. The new value was confirmed
             // correct by AHD_OnIMX533Fixture_ChannelLevelsAgreeWithMhc (same per-channel levels as MHC)
             // and by DebayerAhdGainEqualisationTests (colour ratio and centroid of undersampled sources).
+            // Re-pinned again by #2053 (AHD's phase 3 and 4 made flux-neutral on a compact star), with the same level check.
             expectedSha256: "6da14e318644d74b1c789312fef95a567c1ee561d4b59a85595251bdb00f872f");
 
     [Fact]
