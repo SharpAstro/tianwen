@@ -402,7 +402,7 @@ namespace TianWen.Lib.Tests
 
         /// <summary>
         /// A curve still being scored reserves its section, so the panel is as tall before it lands as after (nothing moves under the
-        /// pointer), with its slot empty and no line; a score that failed reserves nothing.
+        /// pointer), with its slot empty and no line. A host that never offers a curve (the FITS viewer) reserves nothing.
         /// </summary>
         [Fact]
         public void APendingNightCurveReservesItsSection()
@@ -416,6 +416,25 @@ namespace TianWen.Lib.Tests
             ObjectInfoPanel.HasNightCurveSection(in plain).ShouldBeFalse();
             ObjectInfoPanel.DesignHeight(in pending, in actions).ShouldBe(ObjectInfoPanel.DesignHeight(in landed, in actions));
             ObjectInfoPanel.BuildNightCurveSection(in pending, in Palette).ShouldNotBeNull();
+        }
+
+        /// <summary>
+        /// A score that failed (an unplaceable body) keeps the section's height and says so in its line, so the panel does not shrink
+        /// and jump when the answer lands as "no curve" (review note on #2059).
+        /// </summary>
+        [Fact]
+        public void AnUnavailableNightCurveKeepsItsSectionAndSaysSo()
+        {
+            var actions = new ObjectInfoPanel.PanelActions();
+            var plain = new ObjectInfoPanel.PanelDisplayOptions(ShowAltAz: true, ShowRiseSet: true);
+            var unavailable = plain with { NightCurveUnavailable = true };
+            var pending = plain with { NightCurvePending = true };
+
+            ObjectInfoPanel.HasNightCurveSection(in unavailable).ShouldBeTrue();
+            ObjectInfoPanel.DesignHeight(in unavailable, in actions).ShouldBe(ObjectInfoPanel.DesignHeight(in pending, in actions));
+
+            var section = ObjectInfoPanel.BuildNightCurveSection(in unavailable, in Palette).ShouldBeOfType<Layout.Node.Stack>();
+            section.Children.ShouldContain(c => c is Layout.Node.Leaf { Content: Layout.Content.Text { Value: ObjectInfoPanel.NightCurveUnavailableLine } });
         }
 
         /// <summary>
