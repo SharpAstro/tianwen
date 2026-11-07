@@ -53,9 +53,9 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
     private static void Parse(string s, out CometDesignation d)
         => CometDesignation.TryParse(s, out d).ShouldBeTrue();
 
-    // A fresh, isolated cache root per test -- the shared CreateTempTestOutputDir helper is stable per
-    // caller within a day and is never cleaned, so a prior run's comets.json would otherwise bleed in
-    // and read as "fresh" against the fixed default fake epoch.
+    // A fresh cache root per call, from TempFolders. CreateTempTestOutputDir is no help here: it answers the SAME
+    // folder to every ask under one name within a test, so a second external built by one test would read the
+    // first one's comets.json and see it as "fresh" against the fixed default fake epoch.
     private FakeExternal CreateExternal(FakeTimeProviderWrapper timeProvider)
     {
         var root = _folders.Create("comet-repo-test-");
