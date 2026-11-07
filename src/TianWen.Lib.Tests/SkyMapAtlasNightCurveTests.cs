@@ -432,12 +432,14 @@ public sealed class SkyMapAtlasNightCurveTests
     /// <summary>
     /// A score that fails (a comet the planner has no orbit for) through the REAL tab: the panel keeps its section's height, so its
     /// top edge is where it was while the score was computed, draws no curve and no slot, and the failure is cached, one score and
-    /// not one per frame (review note on #2059).
+    /// not one per frame (review note on #2059). At 1x and 1.5x, since the reserved height scales with the DPI.
     /// </summary>
-    [Fact(Timeout = 120_000)]
-    public async Task AnUnplaceableBodyKeepsTheSectionAndIsScoredOnce()
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AnUnplaceableBodyKeepsTheSectionAndIsScoredOnce(float dpiScale)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
         Parse("12P").TryToCatalogIndex(out var comet).ShouldBeTrue();
         rig.Planner.Comets.ShouldBeNull("the rig has a comet repository, so the body is placeable");
         rig.Tab.State.Search.InfoPanel = SkyMapInfoPanelData.FromPosition("12P/Pons-Brooks", 1.0, 20.0, Lat, Lon, Evening, default)
