@@ -673,6 +673,10 @@ The processing side of such a night is the restoration plan's: each file stacked
 *Since ToupTek.SDK 1.2 this body streams, and a live capture takes video, not the trigger loop measured here: "Video at the Saturn
 window on the ToupTek (measured 2026-10-15)" below. A single exposure still takes the trigger.*
 
+*The tick this section blames on TianWen's own 5 ms sleep is gone since #2020 (PR #2028): "Since #2020 the loop's own waits are
+precise" below has the fake-camera numbers, and the same body's new figure is still owed, under "Re-measure on a real body (the
+bench part of #2018)".*
+
 The same G3M678M, on this desktop, at the night's region: 640x480 at (1716, 546), bin 1, gain 2252. The black level differs between
 the layers: the scratch console leaves it at the camera's own, while TianWen's driver sets it to a tenth of its range at connect
 (`DALCameraDriver`'s connect defaults) and the probe keeps that. It is an offset added to every sample, not a readout setting, so it
@@ -753,6 +757,9 @@ sets a speed, so the camera runs at its default, 2:
   and readout are 10: each frame is exposed, read and handed over before the next trigger, where video overlaps them.
 - **The capture loop's 5 ms sleep costs one more tick** (78 and 93 ms), since a 5 ms sleep also rounds up to the 15.6 ms timer, and
   `PlanetaryCapture` reads within 0.7 fps of the bare driver sleeping 5 ms. Its 1 ms exposure floor makes the minimum read as 1 ms.
+  *True on 2026-10-14, before #2020: that sleep is a real 5 ms now, so the extra tick is no longer TianWen's. #2020 does not reach
+  the SDK's own trigger wait (the 62.4 and 78 ms above, native code); what the body reads now is owed, under "Re-measure on a real
+  body (the bench part of #2018)" below.*
 
 **What 5 ms costs in signal.** On 12:21 Red (15 ms, gain 2252, black level 17; 100 frames of its SER averaged) the sky reads 16.6 ADU,
 the planet's lit pixels a median of 94 and its brightest 186 (one frame's brightest is 207 of 255). At 5 ms and the same gain the
@@ -770,6 +777,112 @@ frame info); settle 1 s; count the frames delivered over 3 s by a `Stopwatch`; r
 each run, and reset (`DEVICE_RESET`, then find the camera again) a run that delivers nothing in 2 s. The trigger comparison is the same
 with `TRIGGER = 1`, no speed set, and `Trigger(1)` then a wait for the callback in a loop, once as the process starts and once after
 `timeBeginPeriod(1)`.
+
+#### Since #2020 the loop's own waits are precise (fake camera, measured 2026-11-08)
+
+**Issue:** #2018 (this part is its measuring half; the real-body half is the next heading).
+
+**What changed since the tables above.** The 15.625 ms tick is Windows' default timer, and it cost TianWen's own async waits as well as
+the SDK's: a `SleepAsync` or `Task.Delay` of 1 or 5 ms resumed a whole tick later, which is the "capture loop's 5 ms sleep costs one
+more tick" of the trigger-loop bullet. #2020 (PR #2028, merged 2026-11-05) fixed it in the time provider, so the call sites and the
+fake clock are untouched: on Windows `SystemTimeProvider.SleepAsync` waits on a high-resolution waitable timer (`HighResolutionWait`)
+for any wait up to 2.5 s, a one-shot `CreateTimer` likewise (`HighResolutionTimer`), and nothing calls `timeBeginPeriod`. A wait past
+2.5 s, and every other system, stays a `Task.Delay`. So the 5 ms poll of this loop and the image-ready polls are real waits now. Where
+each wait #2018 names stands:
+
+| Wait | Where | Since #2020 |
+|---|---|---|
+| Image-ready poll | `CameraDriverExtensions.WaitForImageReadyAsync`: one long sleep to 50 ms before the predicted end, 10 ms polls inside that, 1 ms polls in the last 10 ms | The 10 ms and 1 ms polls ride `HighResolutionWait`, so a frame is picked up about a poll after it is ready. The long sleep is a plain `Task.Delay` only past 2.5 s, and it ends the lead margin before the frame, so a tick of lateness there costs nothing |
+| Planetary single-exposure poll | `PlanetaryCapture._readyPollInterval` (5 ms), `RapidExposureFramesAsync`, for a camera that cannot stream | Rides `HighResolutionWait`; the extra tick per frame is gone from TianWen's side. The value stays |
+| The guider's 50 ms | `IExternal.ImageReadyPollInterval`, which `BuiltInGuiderDriver` hands to that same image-ready wait as its LEAD MARGIN | It is where the long sleep ends, not a poll period, so no guide poll ever waited 50 ms: the "3.2 ticks, really 62.5 ms" in #2018's text never happened. The guider's polls are the image-ready polls above |
+| `SharedFile` retries and relooks (5, 25 and 100 ms) | `SharedFile.RetryAsync`, `TryOpenReadAsync`, `ListAsync` | **A decision, left as it is.** Not per frame (a retry happens only while another process holds a file, a relook only after a replace hid a name), precise anyway under the 2.5 s limit, and the NTFS gap they wait out is shorter than the first 5 ms. The comment on its constants says so |
+
+**The measurement.** `ShortWaitTurnaroundTests` drives a substitute camera whose frame is ready at an instant the camera records, on
+the real `SystemTimeProvider`, through the code that holds each wait, and times how long after that instant the code had the frame.
+Beside every run it takes the same loop on a clock whose sleep is a plain `Task.Delay`, which is what each wait was before #2020.
+It is Windows only and off CI (a shared runner measures the runner). `NoRawDelayInLibTests` (an `Invariant`) pins the other half: no
+`Task.Delay(`, `Thread.Sleep(` or `PeriodicTimer` with a literal sub-second period anywhere in `TianWen.Lib` outside
+`HighResolutionWait.cs`, so a new short wait cannot bypass the time provider.
+
+Run on **this desktop (DESKTOP-U74IF48, Windows 11 Pro x64, 16 cores)**, Release, 50 frames after 3 of warm-up, on a box shared with
+other flights' builds and tests (the job queued behind 13 others), so the load shows in the worst columns and in the guide rows.
+Pickup lag in ms after the frame is ready, median / mean / worst:
+
+| Timed | Through | `SystemTimeProvider` (since #2020) | `Task.Delay` beside it (before #2020) |
+|---|---|---|---|
+| Image-ready wait, 10 ms exposure | `WaitForImageReadyAsync`, lead margin 50 ms | **2.16** / 4.01 / 43.51 | 6.07 / 6.68 / 14.11 |
+| Image-ready wait, 100 ms exposure | the same | **2.94** / 6.04 / 33.29 | 10.61 / 12.68 / 43.14 |
+| Guide frame, 20 ms exposure | `CaptureGuideFrameAsync`, 50 ms | 12.19 / 17.82 / 162.91 (3.1 polls a frame) | 34.76 / 35.45 / 124.15 (2.0 polls) |
+| Guide frame, 150 ms exposure | the same | **1.90** / 6.30 / 88.35 (6.8 polls) | 9.61 / 12.22 / 47.52 (3.9 polls) |
+| Planetary loop, 5 ms exposure, pickup lag | `RapidExposureFramesAsync`, 5 ms poll | **3.24** / 4.77 / 16.92 | 10.89 / 11.85 / 26.23 |
+| the same, frame interval over the exposure | the same | **3.31** / 4.81 / 16.95 | 10.92 / 11.87 / 26.26 |
+| Planetary loop, 20 ms exposure, pickup lag | the same | **5.72** / 8.51 / 36.55 | 10.40 / 12.81 / 47.06 |
+| the same, frame interval over the exposure | the same | **5.81** / 8.60 / 36.64 | 10.47 / 12.90 / 47.17 |
+
+- **Every wait that rides `HighResolutionWait` has a median under its tick-bound twin's**, by 1.8 to 5.1 times (1.8 is the 20 ms
+  planetary row, 5.1 the 150 ms guide row). The 150 ms guide row's first attempt, 8.58 against its twin's 9.43, was a loaded moment,
+  and it is the second attempt, 1.90 against 9.61, that is quoted. A wait that rides the tick is a tick out whatever it asks for, so
+  the medians do tell the two apart; the test accepts an attempt within its bound or at most half as late as the twin measured right
+  after it, which is how it stays honest on a shared box, and writes every attempt out.
+- **The load is in the guide rows, so read them as upper bounds.** Their polls a frame (3.1 at 20 ms, 6.8 at 150 ms) are far under
+  what an unloaded box makes (about a dozen over a 20 ms frame, with the 10 ms then 1 ms cadence), which says the box held the polls
+  back, and the 20 ms row's 12.19 ms median is that delay and not the wait's cost; it passed on its first attempt only by being under
+  half as late as its twin. Re-run the guide rows on a quiet box before quoting a figure for the guider.
+- **What it buys the planetary single-exposure loop, on a camera that answers at once**: at a 5 ms exposure a frame took 5 + 10.92 =
+  15.9 ms through the old sleep and 5 + 3.31 = 8.3 ms through the new one. That is the loop's own cost with the camera taken out; a
+  real body adds its readout, its transfer and whatever its SDK waits on, which is the next heading.
+- **What #2020 does not reach**: a `Task.Delay` past 2.5 s, and any wait inside a vendor SDK (the ToupTek's trigger wait above is native
+  code).
+
+#### Re-measure on a real body (the bench part of #2018)
+
+**Tracked by #2018 (label `bench`).** The fake camera answers the instant its exposure ends, so it measures TianWen's waits and nothing
+a body adds. What a real body does is owed, in three parts, all through TianWen's drivers in Release and in the AOT-published apps
+(`dotnet publish`), the way a night uses them:
+
+1. **The ToupTek trigger loop.** Run `ToupTekFrameRateProbe` (`TIANWEN_TOUPTEK_RATE_PROBE=1`, never `TIANWEN_TOUPTEK_PROBE`, which
+   resets the camera) at the table's region (640x480 at 1716, 546; gain 2252), 8 and 16 bits, at 5 and 15 ms, and read it against the
+   first table above: "Driver, 5 ms sleep" (12.8 and 10.6 fps), `PlanetaryCapture` (12.9 and 10.6) and the trigger-to-ready medians
+   (62.2 and 77.6 ms). Expected, not measured: the capture's rate moves toward the "Driver, no sleep" column (16.0 and 12.8 fps),
+   since its sleep is a real 5 ms now. The question the fake cannot answer is whether the SDK's own trigger-to-ready, 4 and 5 ticks,
+   moves with TianWen's high-resolution timers armed. Nothing in TianWen calls `timeBeginPeriod`, so no change is the prediction; whether
+   arming a high-resolution waitable timer shifts the system's timer interval for a native wait has not been measured here, and a
+   change would be a finding about how that SDK waits.
+2. **A guide camera's frames.** The built-in guider through a real guide camera (a ZWO or ToupTek used for single exposures, as the
+   guider does) at 100 and 500 ms: the time from the camera's ready to the frame read, as `ShortWaitTurnaroundTests` takes it, and the
+   guide loop's frame period over its exposure. A real body's `GetImageReadyAsync` is a status read over USB or a network round trip,
+   so the 1 ms polls are a call rate worth reading too (polls a frame, as the table counts them).
+3. **The QHY PoleMaster single exposure**, which took about 2 s from start to image through the driver (bench, 2026-11-05) against
+   frames 130 to 190 ms apart through the raw SDK. **Open: none of TianWen's waits can be that 2 s, and the code leaves four
+   candidates.** The path, read on 2026-11-08 through `DALCameraDriver` and the QHYCCD.SDK 2.4 source it wraps (no driver code
+   changed):
+   - `StartExposureAsync` is `StartExposureCore` (after a reset, if two exposures in a row were lost), all synchronous inside one stay
+     in the SDK and none of it a wait: a read of the window
+     and the start position; when the window, binning or depth differ from the last exposure's, a stop (`CancelQHYCCDExposingAndReadout`)
+     and a new `SetROIFormat` and `SetStartPosition`; the exposure control read and, when it changed, written; then the SDK's own
+     start, which calls `SetQHYCCDStreamMode(0)` on every exposure, reads the exposure parameter and calls `ExpQHYCCDSingleFrame`.
+   - `GetImageReadyAsync` waits for nothing: it asks `GetExposureStatus` and reads the image state. For a "read directly" body
+     (`ExpQHYCCDSingleFrame` answers `0x2001`, which the SDK takes as started) the status is a CLOCK comparison, QHY's October 2024
+     rule: ready at once for an exposure under 3 s, and after 2 s for a longer one (`IsReadDirectlyFrameReady`, from the exposure
+     parameter read at the start). On such a body a 10 ms exposure reports ready on the first poll, before it has ended, so
+     `WaitForImageReadyAsync` returns without one sleep, and the real wait is the blocking `GetQHYCCDSingleFrame` that
+     `DownloadImage` makes inside `GetImageAsync`: synchronous, inside the SDK gate, on the thread that awaits.
+   - **The candidates:** (a) the start's reconfiguration, where a window or depth change stops the exposure and sets the ROI again
+     (the same body spent about 1.15 s stopping and re-initialising its live stream, bench 2026-11-05); (b) the blocking
+     `GetQHYCCDSingleFrame`, whose link time is its own: the body's full frame is about 250 ms in live mode (a 3.9 fps ceiling), and
+     single-frame mode, which is not live mode, has never been timed; (c) `SetQHYCCDStreamMode(0)` on every start; (d) a hypothesis
+     nothing has checked: if the exposure parameter read at the start answered the SDK's error sentinel (`0xFFFFFFFF`, 4.3e9 microseconds),
+     `IsReadDirectlyFrameReady` would take the over-3-s branch, the status would read Working until exactly 2 s, and
+     `WaitForImageReadyAsync` would poll at 1 ms for 2.0 s, which is the figure seen.
+   - **To time on the bench:** through the driver, 10 ms exposures, 20 of them with the window and depth unchanged and 20 with one
+     changed between exposures, each of `StartExposureAsync`, `WaitForImageReadyAsync` and `GetImageAsync` on its own `Stopwatch`;
+     beside them the raw SDK's single frame at the same exposure (`QhyDarkSequenceProbe`, `TIANWEN_QHY_PROBE=1`,
+     `TIANWEN_QHY_EXPOSURE_MS=10`), which separates "below TianWen" from "above it" and already knows the `0x2001` answer; and, for
+     (d), the exposure parameter at the start and the status the driver sees at each poll over 3 s. If `GetImageAsync` holds the 2 s
+     and the raw single frame also does, the cause is the body's; if the raw frame takes a few hundred ms, it is the driver's start
+     or its download.
+   - **A design note for whoever fixes it:** on a read-directly body an exposure's wait is inside a blocking SDK call, so
+     `WaitForImageReadyAsync`'s `timeout` and its cancellation cannot bound it. Whether that matters waits on the bench figure.
 
 ### Video at the Saturn window on the ToupTek (measured 2026-10-15)
 
