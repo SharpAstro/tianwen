@@ -832,7 +832,8 @@ page only moves the string in and out:
 - **The keys**: `orrery=1`; `t`, the instant, the pointing link's own key and read the same way, into the planning date;
   `play=1` and `speed` (a `PlaySpeeds` short name, `1d`, `10y`); `focus` and `centre=1`; `panel` when it is not the
   focus's (`none` for closed); `az`, `el` and `dist`, all three or none; `scale=true`; `comets` (`6`, `9`, `12` or `all`);
-  `backdrop=0`. A body is the orrery's own label (`Mars`), a comet its designation (`10P`), which the comet search reads
+  `backdrop=0`; `comet`, the comet the view was opened on, when the focus has moved off it (it keeps its accented orbit and
+  its place in the scene whatever the brightest set holds). A body is the orrery's own label (`Mars`), a comet its designation (`10P`), which the comet search reads
   back. A setting at a new view's value is left out, so a `new OrreryState()` is `orrery=1` alone; a value that does not parse
   reads as absent, never as an error (`OrreryLinkTests`). The page itself never writes that bare form once a frame has
   drawn: the first frame frames the focus and so moves the distance, and the camera is written whole once any part of it
@@ -851,10 +852,16 @@ page only moves the string in and out:
   stays open), and a link's instant raises `NeedsRecompute` like any other date change. A link naming a comet before the
   comet set has loaded is applied as far as it resolves and tried again when the set lands, applying only its bodies
   (`bodiesOnly`), so what was done to the camera meanwhile stays (`ALinkReopensTheOrreryItWasWrittenFrom`,
-  `ALinkNamingACometResolvesOnceTheSetHoldsIt`); a link applied after the set has settled is its own last try. A link with
-  no camera frames its focus, as opening the orrery from a panel does.
+  `ALinkNamingACometResolvesOnceTheSetHoldsItWithoutUndoingWhatWasDoneMeanwhile`); a link applied after the set has settled is its own last try. A link with
+  no camera frames its focus, as opening the orrery from a panel does. Its first application alone shows the atlas: a retry
+  never moves the view, and an address without the orrery abandons a link still waiting for its comet. When the comet set
+  lands the page draws a frame, since nothing else would until the next input.
+- **The object beside it**: a `?object=` that has not resolved yet (the catalog or the comet set still loading) stays in
+  every address the page writes until it resolves or another object is picked, so the orrery's first write cannot drop it
+  and leave `ApplyPendingObjectSelection` nothing to restore.
 
-Not yet looked at in a real browser.
+Not yet looked at in a real browser, and the cost of the orrery's first open there (its backdrop cone is the view's full
+diagonal, about 80 degrees, so a wide view's worth of Tycho-2 members) is not measured.
 
 #### A5: what is open
 

@@ -54,12 +54,19 @@ public static class OrreryLink
     /// <summary>The star backdrop off: <c>backdrop=0</c>.</summary>
     public const string BackdropKey = "backdrop";
 
+    /// <summary>
+    /// The comet the view was opened on (<see cref="OrreryState.Comet"/>), when the focus has moved off it: the comet keeps its
+    /// accented orbit and its place in the scene whatever the brightest set holds, so a link without it would not reopen the same
+    /// scene (the review of #2073).
+    /// </summary>
+    public const string CometKey = "comet";
+
     /// <summary>The value <see cref="PanelKey"/> takes for a closed panel.</summary>
     public const string NoPanel = "none";
 
     /// <summary>Every key the orrery's part of a link uses, the shared <see cref="TimeKey"/> included.</summary>
     public static readonly ImmutableArray<string> Keys =
-        [OpenKey, TimeKey, PlayKey, SpeedKey, FocusKey, CentreKey, PanelKey, AzimuthKey, ElevationKey, DistanceKey, ScaleKey, CometsKey, BackdropKey];
+        [OpenKey, TimeKey, PlayKey, SpeedKey, FocusKey, CentreKey, PanelKey, CometKey, AzimuthKey, ElevationKey, DistanceKey, ScaleKey, CometsKey, BackdropKey];
 
     /// <summary>The bodies the orrery names, the Sun first; a comet is named by its designation instead.</summary>
     private static readonly ImmutableArray<CatalogIndex> NamedBodies =
@@ -127,6 +134,10 @@ public static class OrreryLink
         {
             Append(query, PanelKey, orrery.Selected is { } selected ? BodyToken(selected) : NoPanel);
         }
+        if (orrery.Comet is { } comet && comet != orrery.Focus)
+        {
+            Append(query, CometKey, BodyToken(comet));
+        }
         var fresh = new OrreryState();
         // The camera: written whole once any part of it moved, so the reader never mixes a link's angle with a framing of its own.
         if (orrery.AzimuthDeg != fresh.AzimuthDeg || orrery.ElevationDeg != fresh.ElevationDeg || orrery.Distance != fresh.Distance)
@@ -172,7 +183,7 @@ public static class OrreryLink
     /// </summary>
     public static OrreryLinkData? Parse(string query)
     {
-        string? open = null, time = null, play = null, speed = null, focus = null, centre = null, panel = null;
+        string? open = null, time = null, play = null, speed = null, focus = null, centre = null, panel = null, opened = null;
         string? az = null, el = null, dist = null, scale = null, comets = null, backdrop = null;
         foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -191,6 +202,7 @@ public static class OrreryLink
                 case FocusKey: focus = value; break;
                 case CentreKey: centre = value; break;
                 case PanelKey: panel = value; break;
+                case CometKey: opened = value; break;
                 case AzimuthKey: az = value; break;
                 case ElevationKey: el = value; break;
                 case DistanceKey: dist = value; break;
@@ -236,7 +248,10 @@ public static class OrreryLink
             camera,
             string.Equals(scale, "true", StringComparison.OrdinalIgnoreCase) ? OrreryScale.True : null,
             filter,
-            backdrop is "0" or "false" ? false : null);
+            backdrop is "0" or "false" ? false : null)
+        {
+            Comet = string.IsNullOrWhiteSpace(opened) ? null : opened.Trim(),
+        };
 
         static bool IsOn(string? value) => value is "1" or "true";
 
@@ -268,4 +283,8 @@ public sealed record OrreryLinkData(
     (double AzimuthDeg, double ElevationDeg, double Distance)? Camera,
     OrreryScale? Scale,
     OrreryCometFilter? CometFilter,
-    bool? ShowBackdrop);
+    bool? ShowBackdrop)
+{
+    /// <summary>The comet the view was opened on, by its <see cref="OrreryLink.BodyToken"/>, when it is not the focus.</summary>
+    public string? Comet { get; init; }
+}

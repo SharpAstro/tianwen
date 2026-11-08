@@ -142,8 +142,22 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
+            // The comet the view was opened on: the link's own when the focus moved off it, else the focus when that is a comet.
+            CatalogIndex? opened = focus is { } f && f.ToCatalog() == Catalog.Comet ? f : null;
+            if (link.Comet is { } cometToken)
+            {
+                if (OrreryLink.TryResolveBody(cometToken, comets, out var body) && body.ToCatalog() == Catalog.Comet)
+                {
+                    opened = body;
+                }
+                else
+                {
+                    resolved = false;
+                }
+            }
+
             orrery.Focus = focus;
-            orrery.Comet = focus is { } f && f.ToCatalog() == Catalog.Comet ? f : null;
+            orrery.Comet = opened;
             orrery.Selected = selected;
             orrery.CentredOnFocus = link.CentredOnFocus && focus is not null;
             if (bodiesOnly)

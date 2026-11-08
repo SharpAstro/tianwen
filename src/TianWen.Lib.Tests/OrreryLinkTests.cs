@@ -60,6 +60,17 @@ public class OrreryLinkTests
     }
 
     [Fact]
+    public void TheOpenedCometIsWrittenOnlyOnceTheFocusHasLeftIt()
+    {
+        var comet = StubCometRepository.Comet("10P", "Tempel").CatalogIndex.ShouldNotBeNull();
+        OrreryLink.QueryFor(new OrreryState { Focus = comet, Selected = comet, Comet = comet }, null).ShouldBe("orrery=1&focus=10P");
+        var query = OrreryLink.QueryFor(new OrreryState { Focus = CatalogIndex.Mars, Selected = CatalogIndex.Mars, Comet = comet }, null);
+        query.ShouldBe("orrery=1&focus=Mars&comet=10P");
+        OrreryLink.Parse(query).ShouldNotBeNull().Comet.ShouldBe("10P");
+        OrreryLink.Parse("?orrery=1").ShouldNotBeNull().Comet.ShouldBeNull();
+    }
+
+    [Fact]
     public void AClosedPanelIsNoneAndTheFocussPanelIsLeftOut()
     {
         OrreryLink.QueryFor(new OrreryState { Focus = CatalogIndex.Mars, Selected = CatalogIndex.Mars }, null).ShouldBe("orrery=1&focus=Mars");

@@ -1051,6 +1051,18 @@ public sealed class OrreryTests(ITestOutputHelper output)
         // A whole application with the set held resolves the comet too.
         rig.Tab.ApplyOrreryLink(link, repo).ShouldBeTrue();
         (orrery.Focus, orrery.Scale).ShouldBe((comet, OrreryScale.True));
+
+        // Opened on the comet, then focused on Mars: the comet stays the view's (its accented orbit), and the link carries it.
+        orrery.Focus = orrery.Selected = CatalogIndex.Mars;
+        var written = OrreryLink.QueryFor(orrery, instantUtc: null);
+        output.WriteLine(written);
+        var moved = OrreryLink.Parse(written).ShouldNotBeNull();
+        moved.Comet.ShouldBe(OrreryLink.BodyToken(comet));
+        rig.Tab.CloseOrrery();
+        orrery.Comet = null;
+        rig.Tab.ApplyOrreryLink(moved, comets: null).ShouldBeFalse("the opened comet resolved with no comet set");
+        rig.Tab.ApplyOrreryLink(moved, repo, bodiesOnly: true).ShouldBeTrue();
+        (orrery.Focus, orrery.Comet).ShouldBe((CatalogIndex.Mars, comet));
     }
 
     /// <summary>

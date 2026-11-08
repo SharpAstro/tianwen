@@ -1345,6 +1345,9 @@
             // Nor an orrery link's comet; this is its last chance, so a name that matches no comet leaves the rest applied.
             _cometLoadSettled = true;
             ApplyPendingOrrery(lastTry: true);
+            // This host draws only on an event: what the retries just resolved is drawn now, and the frame writes the orrery's link,
+            // which a pending link held back, rather than waiting for the next input (the review of #2073).
+            RenderFrame();
         }
         catch (Exception ex)
         {
@@ -2388,6 +2391,9 @@
         }
     }
 
+    // Whether _urlObject came from the address bar and has not resolved to a selection yet: while it has not, the URL keeps it.
+    bool _urlObjectUnresolved;
+
     // The selection currently written into the URL, so LocationChanged can tell "the user picked
     // something and we are syncing the address bar" from "the address bar changed and we must apply
     // it". Without it the two drive each other in a loop.
@@ -2413,7 +2419,14 @@
     // per click; the address bar still holds a shareable link to whatever is selected right now.
     void SyncObjectToUrl()
     {
-        var token = _skyTab?.State.Search.InfoPanel is { } panel ? UrlTokenFor(panel) : null;
+        // A linked object that has not resolved yet (the catalog or the comet set still loading) has no panel, but it is still the
+        // link's: an orrery write before it resolves must carry it, or the address loses it and ApplyPendingObjectSelection, which
+        // reads _urlObject, never restores it (the review of #2073).
+        var token = _skyTab?.State.Search.InfoPanel is { } panel ? UrlTokenFor(panel) : _urlObjectUnresolved ? _urlObject : null;
+        if (_skyTab?.State.Search.InfoPanel is not null)
+        {
+            _urlObjectUnresolved = false; // a selection now stands for itself, so a later deselect clears the link's object
+        }
         var orrery = OrreryUrlPart();
         if (string.Equals(token, _urlObject, StringComparison.Ordinal) && string.Equals(orrery, _urlOrrery, StringComparison.Ordinal))
         {
@@ -2456,7 +2469,7 @@
 
     // What the orrery's link is made of, compared per frame so a change costs one deferred URL write and an unchanged frame costs a
     // tuple compare (no string built). Not while a drag or pinch is under way (one write when it ends), at most twice a second.
-    (bool, CatalogIndex?, CatalogIndex?, bool, bool, double, double, double, double, OrreryScale, OrreryCometFilter, bool, DateTimeOffset?, TimeSpan) _orreryUrlKey;
+    (bool, CatalogIndex?, CatalogIndex?, CatalogIndex?, bool, bool, double, double, double, double, OrreryScale, OrreryCometFilter, bool, DateTimeOffset?, TimeSpan) _orreryUrlKey;
     long _orreryUrlWrittenAt;
     static readonly TimeSpan OrreryUrlWriteInterval = TimeSpan.FromMilliseconds(500);
 
@@ -2496,7 +2509,7 @@
         {
             return;
         }
-        var key = (orrery.IsOpen, orrery.Focus, orrery.Selected, orrery.CentredOnFocus, orrery.Playing, orrery.DaysPerSecond,
+        var key = (orrery.IsOpen, orrery.Focus, orrery.Selected, orrery.Comet, orrery.CentredOnFocus, orrery.Playing, orrery.DaysPerSecond,
             orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, orrery.Scale, orrery.CometFilter, orrery.ShowBackdrop,
             _state.PlanningDate, orrery.Playing ? TimeSpan.Zero : sky.TimeOffset);
         if (key == _orreryUrlKey || (!orrery.IsOpen && _urlOrrery is null))
@@ -2546,6 +2559,9 @@
         if (OrreryLink.Parse(query) is not { } link)
         {
             _urlOrrery = null;
+            // A link still waiting for its comet is abandoned by an address without it (a chip, back/forward), so its retry cannot
+            // pull the view back to the atlas behind the address bar's back (the review of #2073).
+            _pendingOrrery = null;
             return;
         }
         if (link.Instant is { } instant && instant != _state.PlanningDate)
@@ -2566,8 +2582,11 @@
         {
             return;
         }
-        _view = View.SkyMap; // an orrery link is an atlas link
         var bodiesOnly = _orreryLinkApplied;
+        if (!bodiesOnly)
+        {
+            _view = View.SkyMap; // an orrery link is an atlas link: on its first, whole application only, never a retry's
+        }
         if (!bodiesOnly && link.Instant is not null)
         {
             sky.TimeOffset = TimeSpan.Zero;
@@ -2607,6 +2626,7 @@
         }
 
         _urlObject = token;
+        _urlObjectUnresolved = token is { Length: > 0 };
         if (_skyTab is not { State: { } skyState })
         {
             return; // resolved again by ApplyPendingObjectSelection once the tab exists
@@ -2621,9 +2641,12 @@
 
         var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
         var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
-        SkyMapSearchActions.TrySelectByToken(
-            skyState.Search, skyState, Db, token, _focus,
-            _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets);
+        if (SkyMapSearchActions.TrySelectByToken(
+                skyState.Search, skyState, Db, token, _focus,
+                _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets))
+        {
+            _urlObjectUnresolved = false;
+        }
         skyState.NeedsRedraw = true;
     }
 
@@ -2643,6 +2666,11 @@
             || _skyTab is not { State: { } skyState }
             || skyState.Search.InfoPanel is not null)
         {
+            // Something is selected (the link's object, or one picked since): the link's object is no longer waiting.
+            if (_skyTab?.State.Search.InfoPanel is not null)
+            {
+                _urlObjectUnresolved = false;
+            }
             return;
         }
 
@@ -2652,6 +2680,7 @@
                 skyState.Search, skyState, Db, token, _focus,
                 _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets))
         {
+            _urlObjectUnresolved = false;
             skyState.NeedsRedraw = true;
         }
     }
