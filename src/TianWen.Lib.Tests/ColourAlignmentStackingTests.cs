@@ -38,7 +38,8 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
     private static readonly (float Level, float Gain)[] Colours = [(1100f, 1.00f), (1500f, 0.85f), (900f, 0.55f)];
 
     /// <summary>The dispersion at frame <paramref name="f"/>, as a multiple of the unit: it grows across the session, as a target sinks.</summary>
-    private static double Dispersion(int f) => 0.35 + (0.04 * f);
+    private static double DispersionScale = 1d;
+    private static double Dispersion(int f) => DispersionScale * (0.35 + (0.04 * f));
 
     /// <summary>Stars scattered with a minimum spacing (a regular grid defeats the quad match), each its own brightness.</summary>
     private static List<(double X, double Y, double Amplitude)> StarField()
@@ -214,5 +215,23 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
             sumR += r.Red.Dx; sumB += r.Blue.Dx; sumTR += RedUnit.Dx * d; sumTB += BlueUnit.Dx * d;
         }
         output.WriteLine($"mean red {sumR / FrameCount:+0.000} truth {sumTR / FrameCount:+0.000}; blue {sumB / FrameCount:+0.000;-0.000} truth {sumTB / FrameCount:+0.000;-0.000}");
+    }
+
+    [Fact]
+    public async Task TempNoDispersionFloor()
+    {
+        DispersionScale = 0d;
+        try
+        {
+            foreach (var (kind, drz) in new (IntegrationStrategyKind, bool)[] { (IntegrationStrategyKind.BayerDrizzle, false), (IntegrationStrategyKind.InRamAllFrames, true) })
+            {
+                output.WriteLine(kind.ToString());
+                await StackAndReadAsync(kind, drz, alignColours: true);
+            }
+        }
+        finally
+        {
+            DispersionScale = 1d;
+        }
     }
 }
