@@ -40,7 +40,8 @@ public class CometRepositoryTests(ITestOutputHelper output) : IAsyncDisposable
     {
         foreach (var repository in _repositories)
         {
-            await repository.ApparitionWorkSettledAsync();
+            // Bounded by the run's own cancellation (no wall clock in a test), so a fetch left gated fails the run instead of hanging it.
+            await repository.ApparitionWorkSettledAsync().WaitAsync(TestContext.Current.CancellationToken);
         }
         _folders.Dispose();
     }
@@ -594,6 +595,48 @@ public class CometRepositoryTests(ITestOutputHelper output) : IAsyncDisposable
     }
 
     /// <summary>
+    /// What the tests' teardown relies on (#2078): <c>ApparitionWorkSettledAsync</c> stays pending while a fetch is in the air
+    /// and completes only after that fetch's cache write has landed, so deleting the folder after it cannot be followed by a
+    /// write that recreates <c>SmallBodies/apparitions.json</c>.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ApparitionWorkSettledWaitsForTheFetchAndItsCacheWrite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero)));
+        var comet = StaleComet();
+        var index = comet.CatalogIndex.ShouldNotBeNull();
+        var release = new TaskCompletionSource();
+        var horizons = new RefiningHorizons(release.Task);
+        var repository = NewRepository(external, new FakeSbdbCometSource([comet]), horizons);
+        try
+        {
+            await repository.EnsureLoadedAsync(ct);
+
+            repository.RequestCurrentApparition(index);
+            (await WaitForAsync(() => Volatile.Read(ref horizons.FetchCount) == 1)).ShouldBeTrue("premise: the fetch started");
+
+            var settled = repository.ApparitionWorkSettledAsync();
+            settled.IsCompleted.ShouldBeFalse("a fetch is still gated on Horizons");
+            File.Exists(ApparitionsPath(external)).ShouldBeFalse("premise: nothing was written while the fetch is gated");
+
+            release.SetResult();
+            await settled.WaitAsync(ct);
+
+            // No polling: the write is on disk the moment the work reports settled.
+            File.Exists(ApparitionsPath(external)).ShouldBeTrue("settled completed before the fetch's cache write landed");
+        }
+        finally
+        {
+            // A premise that fails must not leave the fetch gated: the teardown waits for every fetch.
+            release.TrySetResult();
+        }
+    }
+
+    private static string ApparitionsPath(FakeExternal external)
+        => Path.Combine(external.AppDataFolder.FullName, "SmallBodies", "apparitions.json");
+
+    /// <summary>
     /// Every host keeps the apparition cache (the GUI, the CLI, the server, the viewer, MCP), and each wrote its
     /// whole in-memory set over the file, so a host that had read the file before another one upgraded a comet
     /// dropped that upgrade with its next write (P0c item 3 of docs/plans/hardware-in-the-server.md, #788).
@@ -612,21 +655,29 @@ public class CometRepositoryTests(ITestOutputHelper output) : IAsyncDisposable
 
         var release = new TaskCompletionSource();
         var serverHorizons = new RefiningHorizons(release.Task);
-        var server = NewRepository(external, sbdb, serverHorizons);
-        var gui = NewRepository(external, sbdb, new RefiningHorizons());
-        await server.EnsureLoadedAsync(ct);
-        await gui.EnsureLoadedAsync(ct);
+        try
+        {
+            var server = NewRepository(external, sbdb, serverHorizons);
+            var gui = NewRepository(external, sbdb, new RefiningHorizons());
+            await server.EnsureLoadedAsync(ct);
+            await gui.EnsureLoadedAsync(ct);
 
-        // The server reads the (empty) cache and holds its fetch; the GUI then upgrades another comet and writes.
-        server.RequestCurrentApparition(enckeIndex);
-        (await WaitForAsync(() => Volatile.Read(ref serverHorizons.FetchCount) == 1)).ShouldBeTrue("premise: the server read the cache first");
-        gui.RequestCurrentApparition(tempelIndex);
-        (await OnDiskAsync(tempelIndex)).ShouldBeTrue("premise: the GUI wrote its upgrade");
+            // The server reads the (empty) cache and holds its fetch; the GUI then upgrades another comet and writes.
+            server.RequestCurrentApparition(enckeIndex);
+            (await WaitForAsync(() => Volatile.Read(ref serverHorizons.FetchCount) == 1)).ShouldBeTrue("premise: the server read the cache first");
+            gui.RequestCurrentApparition(tempelIndex);
+            (await OnDiskAsync(tempelIndex)).ShouldBeTrue("premise: the GUI wrote its upgrade");
 
-        release.SetResult();
+            release.SetResult();
 
-        (await OnDiskAsync(enckeIndex)).ShouldBeTrue("the server wrote its upgrade");
-        (await OnDiskAsync(tempelIndex)).ShouldBeTrue("the server's write dropped the upgrade the GUI had written");
+            (await OnDiskAsync(enckeIndex)).ShouldBeTrue("the server wrote its upgrade");
+            (await OnDiskAsync(tempelIndex)).ShouldBeTrue("the server's write dropped the upgrade the GUI had written");
+        }
+        finally
+        {
+            // A premise above that fails must not leave the server's fetch gated: the dispose waits for every fetch.
+            release.TrySetResult();
+        }
 
         async Task<bool> OnDiskAsync(CatalogIndex index)
         {
