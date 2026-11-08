@@ -30,18 +30,66 @@ namespace TianWen.Lib.Imaging.Stacking
     /// <c>null</c> when the frame did not match. Deliberately the star solution rather than whatever
     /// the producing run composed on top: a comet run subtracts the body's drift AFTER the star
     /// solution, so storing the composed transform would bake one run's target into every later layer.</param>
+    /// <param name="ColourOffsets">Where red and blue sat from green on THIS frame's stars (#1993), as <see cref="ChannelShifts"/>
+    /// flattened to x,y pairs for red, green, blue: six floats for the mosaic's reading, twelve when the demosaiced reading the
+    /// debayered strategies correct follows it. <c>null</c> when the frame was not measured (too few stars, a mono frame, the option
+    /// off) and for a manifest written before colour alignment existed: a run reading <c>null</c> measures that frame on its own
+    /// plate, as it always did. Recorded because a starless plate has no stars to measure on, so a layer built from this manifest
+    /// takes the offsets of the frame it was derived from, the way it takes the star transform.</param>
     public sealed record ManifestFrame(
         string Path,
         string DataDigest,
         FrameFate Fate,
         DateTimeOffset ExposureStartUtc,
-        float[]? StarTransform)
+        float[]? StarTransform,
+        float[]? ColourOffsets = null)
     {
         public Matrix3x2? AsMatrix() => StarTransform is { Length: 6 } t
             ? new Matrix3x2(t[0], t[1], t[2], t[3], t[4], t[5])
             : null;
 
         public static float[] From(Matrix3x2 m) => [m.M11, m.M12, m.M21, m.M22, m.M31, m.M32];
+
+        /// <summary>
+        /// The wire form of one frame's colour offsets, or <c>null</c> when nothing was measured (an all-zero <see cref="ChannelShifts"/>
+        /// is what an unmeasured frame carries, so it is not recorded as a reading).
+        /// </summary>
+        public static float[]? OffsetsFrom(ChannelShifts mosaic, ChannelShifts? demosaiced)
+        {
+            if (mosaic.IsZero)
+            {
+                return null;
+            }
+            var offsets = Flatten(mosaic);
+            if (demosaiced is not { } d)
+            {
+                return offsets;
+            }
+            float[] both = [.. offsets, .. Flatten(d)];
+            return both;
+        }
+
+        /// <summary>
+        /// The recorded offsets as the shifts the stacker carries: the mosaic's, and the demosaiced reading when recorded
+        /// (<c>null</c> when it was not). <c>false</c> when this frame carries no offsets.
+        /// </summary>
+        public bool TryGetColourShifts(out ChannelShifts mosaic, out ChannelShifts? demosaiced)
+        {
+            if (ColourOffsets is { Length: 6 or 12 } o)
+            {
+                mosaic = Unflatten(o, 0);
+                demosaiced = o.Length == 12 ? Unflatten(o, 6) : null;
+                return true;
+            }
+            mosaic = default;
+            demosaiced = null;
+            return false;
+        }
+
+        private static float[] Flatten(ChannelShifts s) => [s.Red.X, s.Red.Y, s.Green.X, s.Green.Y, s.Blue.X, s.Blue.Y];
+
+        private static ChannelShifts Unflatten(float[] o, int at)
+            => new(new Vector2(o[at], o[at + 1]), new Vector2(o[at + 2], o[at + 3]), new Vector2(o[at + 4], o[at + 5]));
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -126,16 +127,22 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
     /// <summary>Stacks the lights and reads the master's colours on its own stars (green's detection, every colour read on them).</summary>
     private async Task<ChannelOffsetsResult> StackAndReadAsync(IntegrationStrategyKind? forced, bool disableDrizzle, bool alignColours)
     {
-        var ct = TestContext.Current.CancellationToken;
         using var workspace = new TempStackingWorkspace();
         WriteLights(workspace.LightsDir);
+        return await ReadMasterAsync(workspace, await StackAsync(workspace, forced, disableDrizzle, alignColours, manifestPath: null));
+    }
 
+    private async Task<GroupResult> StackAsync(
+        TempStackingWorkspace workspace, IntegrationStrategyKind? forced, bool disableDrizzle, bool alignColours, string? manifestPath)
+    {
+        var ct = TestContext.Current.CancellationToken;
         var options = new StackingOptions(
             DataRoot: workspace.RootDir,
             OutputDir: workspace.OutputDir,
             ForcedStrategy: forced,
             DisableBayerDrizzle: disableDrizzle,
             DrizzleOptions: new DrizzleOptions(MinFrameCount: 6),
+            ManifestPath: manifestPath,
             RejectCloud: false,
             AlignColours: alignColours);
         var pipeline = new StackingPipeline(options, new XunitLogger(output), catalogDb: null);
@@ -151,7 +158,12 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
         result.SkipReason.ShouldBeEmpty();
         result.FramesMatched.ShouldBeGreaterThanOrEqualTo(FrameCount - 2);
         result.MasterFitsPath.ShouldNotBeNull();
+        return result;
+    }
 
+    private async Task<ChannelOffsetsResult> ReadMasterAsync(TempStackingWorkspace workspace, GroupResult result)
+    {
+        var ct = TestContext.Current.CancellationToken;
         // The autocrop: the covered part of the canvas, with no NaN margin for the detection to trip over.
         var autocrop = Path.Combine(
             Path.GetDirectoryName(result.MasterFitsPath) ?? workspace.OutputDir,
@@ -203,5 +215,51 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
         // on blue): the bound for blue is therefore 1.5 x Tolerance, still clear of the aligned reading's 0.03 and of its noise.
         Math.Abs(read.Red.Dx).ShouldBeGreaterThan(Tolerance * 3);
         Math.Abs(read.Blue.Dx).ShouldBeGreaterThan(Tolerance * 1.5);
+    }
+
+    /// <summary>
+    /// A manifest run takes each frame's colour offsets from the manifest and never measures them on its own plates (#1993): a starless
+    /// layer has no stars to read. Pinned through a manifest whose offsets were swapped for ones that correct nothing: the master of
+    /// the run that reads it comes out as uncorrected as with alignment off, where a run that measured would land on green again.
+    /// </summary>
+    [Fact]
+    public async Task AManifestRunUsesTheRecordedOffsetsAndDoesNotMeasure()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var workspace = new TempStackingWorkspace();
+        WriteLights(workspace.LightsDir);
+
+        // The producing run records its offsets: twelve floats a frame (the mosaic's reading, then the demosaiced one the warp removes).
+        var first = await StackAsync(workspace, IntegrationStrategyKind.InRamAllFrames, disableDrizzle: true, alignColours: true, manifestPath: null);
+        var recorded = await StackManifest.TryReadAsync(StackManifest.PathFor(first.MasterFitsPath), ct);
+        recorded.ShouldNotBeNull();
+        var matched = Array.FindAll(recorded.Frames, f => f.Fate is FrameFate.Matched);
+        matched.Length.ShouldBeGreaterThanOrEqualTo(FrameCount - 2);
+        foreach (var frame in matched)
+        {
+            frame.ColourOffsets.ShouldNotBeNull();
+            frame.ColourOffsets.Length.ShouldBe(12);
+        }
+
+        // Reusing the manifest as written reproduces the alignment ...
+        var control = await ReadMasterAsync(workspace, await StackAsync(
+            workspace, IntegrationStrategyKind.InRamAllFrames, disableDrizzle: true, alignColours: true, StackManifest.PathFor(first.MasterFitsPath)));
+        control.Red.Dx.ShouldBe(0d, Tolerance);
+        control.Blue.Dx.ShouldBe(0d, Tolerance);
+
+        // ... and offsets of 0.001 px on every colour, with the frames' own stars untouched and still there to be measured, leave the
+        // colours where the frames put them: the run read the manifest and did not look.
+        var tampered = recorded with
+        {
+            Frames = [.. recorded.Frames.Select(f => f.ColourOffsets is null
+                ? f
+                : f with { ColourOffsets = [0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f, 0.001f] })],
+        };
+        var tamperedPath = Path.Combine(workspace.OutputDir, "tampered.manifest.json");
+        await tampered.WriteAsync(tamperedPath, ct);
+        var reused = await ReadMasterAsync(workspace, await StackAsync(
+            workspace, IntegrationStrategyKind.InRamAllFrames, disableDrizzle: true, alignColours: true, tamperedPath));
+        Math.Abs(reused.Red.Dx).ShouldBeGreaterThan(Tolerance * 3);
+        Math.Abs(reused.Blue.Dx).ShouldBeGreaterThan(Tolerance * 1.5);
     }
 }
