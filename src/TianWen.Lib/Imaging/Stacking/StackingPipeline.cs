@@ -844,6 +844,15 @@ public sealed class StackingPipeline(
         // light's own path: the register pass, the quality and cloud filters and the starless swap all rebuild the matched
         // list, and a path survives all of them where an index would not. Null when the option is off.
         var colourShifts = options.AlignColours ? new Dictionary<string, ChannelShifts>(StringComparer.OrdinalIgnoreCase) : null;
+        // The same offsets as the stack's DEMOSAIC leaves them (colour demosaics pull red and blue toward green, so a debayered plane
+        // holds only part of what the mosaic read: AHD about 80 % of red's, 50 % of blue's), which the strategies that warp debayered
+        // planes remove: correcting those by the mosaic's full shift overshoots by the difference (0.05 px on blue in the
+        // ColourAlignmentStackingTests lights). Read once here, on the demosaic the stack itself will use, and only when a
+        // strategy that debayers can run (a forced drizzle never does).
+        var demosaicedShifts = colourShifts is not null
+            && options.ForcedStrategy is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle)
+            ? new Dictionary<string, ChannelShifts>(StringComparer.OrdinalIgnoreCase)
+            : null;
         var colourReadings = new List<ChannelOffsetsResult>();
         var colourUnmeasured = 0;
         foreach (var lf in lightList)
@@ -884,6 +893,14 @@ public sealed class StackingPipeline(
                 if (reading.IsMeasured)
                 {
                     colourReadings.Add(reading);
+                    if (demosaicedShifts is not null)
+                    {
+                        // A frame that is already three planes has nothing to demosaic: the mosaic reading IS the debayered one.
+                        var demosaiced = calibrated.IsCfaMosaic
+                            ? await calibrated.DebayerAsync(options.StackDebayerAlg, cancellationToken: ct)
+                            : calibrated;
+                        demosaicedShifts[lf.Path] = ChannelShifts.From(demosaiced.ChannelOffsets(stars));
+                    }
                 }
                 else
                 {
@@ -1142,6 +1159,10 @@ public sealed class StackingPipeline(
         // is placed by its transform alone, which is what every frame was before colour alignment.
         ChannelShifts ColourShiftsOf(string lightPath)
             => colourShifts is not null && colourShifts.TryGetValue(lightPath, out var shifts) ? shifts : ChannelShifts.None;
+
+        // The same frame's offsets as the stack's demosaic leaves them, for the strategies that warp debayered planes.
+        ChannelShifts DemosaicedColourShiftsOf(string lightPath)
+            => demosaicedShifts is not null && demosaicedShifts.TryGetValue(lightPath, out var shifts) ? shifts : ChannelShifts.None;
 
         // 3b. Per-light: register the RETAINED star lists against the reference through the shared
         // RegisterLoop (min-stars floor -> quad-form -> tolerance ladder -> rigid refine, plus the
@@ -1679,7 +1700,8 @@ public sealed class StackingPipeline(
             var footprintMargin = 0;
             for (var fi = 0; fi < matched.Count; fi++)
             {
-                footprintMargin = Math.Max(footprintMargin, ColourShiftsOf(matched[fi].Light.Path).HaloPx);
+                footprintMargin = Math.Max(footprintMargin,
+                    Math.Max(ColourShiftsOf(matched[fi].Light.Path).HaloPx, DemosaicedColourShiftsOf(matched[fi].Light.Path).HaloPx));
             }
             var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
                 layerTransforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight, footprintMargin);
@@ -1773,7 +1795,7 @@ public sealed class StackingPipeline(
                     // three lines the dataset registrar runs, so the two paths cannot drift here.
                     var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
                         calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, options.WarpInterpolation,
-                        ColourShiftsOf(matched[fi].Light.Path), token);
+                        DemosaicedColourShiftsOf(matched[fi].Light.Path), token);
                     yield return warped;
                 }
             }
@@ -1919,7 +1941,8 @@ public sealed class StackingPipeline(
                 TransformToCanvas: layerTransforms[fi] * canvasShift,
                 // Keyed by the ORIGINAL light even for a starless plate: the plate is that frame, calibrated and with its stars
                 // taken out, and its colours still sit where the lens put them.
-                ColourShifts: ColourShiftsOf(matched[fi].Light.Path)));
+                ColourShifts: ColourShiftsOf(matched[fi].Light.Path),
+                DemosaicedColourShifts: DemosaicedColourShiftsOf(matched[fi].Light.Path)));
             }
 
             // Forward strategy progress into the StackingProgress channel.

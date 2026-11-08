@@ -282,7 +282,8 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 }
 
                 var transform = sources[f].TransformToCanvas;
-                var shifts = sources[f].ColourShifts;
+                // The offsets the demosaic LEFT, not the mosaic's: this strategy warps debayered planes.
+                var shifts = sources[f].DemosaicedColourShifts;
                 // A colour plane is sampled its shift (source pixels, #1993) from where the transform alone would read it,
                 // so the rows and columns the strip needs grow by the longest shift.
                 var sourceRect = CanvasGeometry.ProjectCanvasRectToSourceRect(stripRect, transform, rawW, rawH, projectionHalo + shifts.HaloPx);

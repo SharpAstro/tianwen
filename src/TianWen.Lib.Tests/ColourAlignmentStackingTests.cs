@@ -38,8 +38,7 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
     private static readonly (float Level, float Gain)[] Colours = [(1100f, 1.00f), (1500f, 0.85f), (900f, 0.55f)];
 
     /// <summary>The dispersion at frame <paramref name="f"/>, as a multiple of the unit: it grows across the session, as a target sinks.</summary>
-    private static double DispersionScale = 1d;
-    private static double Dispersion(int f) => DispersionScale * (0.35 + (0.04 * f));
+    private static double Dispersion(int f) => 0.35 + (0.04 * f);
 
     /// <summary>Stars scattered with a minimum spacing (a regular grid defeats the quad match), each its own brightness.</summary>
     private static List<(double X, double Y, double Amplitude)> StarField()
@@ -199,49 +198,10 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
         output.WriteLine(path);
         var read = await StackAndReadAsync(kind, disableDrizzle, alignColours: false);
 
-        // The frames' own shifts average to about 0.20 px (red, x) and -0.11 px (blue, x): far outside the bound.
+        // The frames' own shifts average to about 0.20 px (red, x) and -0.11 px (blue, x). A colour demosaic pulls red and blue
+        // toward green, so a debayered master keeps only part of that (AHD: about 80 % of red's, 50 % of blue's, measured 0.055 px
+        // on blue): the bound for blue is therefore 1.5 x Tolerance, still clear of the aligned reading's 0.03 and of its noise.
         Math.Abs(read.Red.Dx).ShouldBeGreaterThan(Tolerance * 3);
-        Math.Abs(read.Blue.Dx).ShouldBeGreaterThan(Tolerance * 2);
-    }
-
-    [Fact]
-    public async Task TempDiagnosePerFrameReading()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        using var workspace = new TempStackingWorkspace();
-        WriteLights(workspace.LightsDir);
-        double sumR = 0, sumB = 0, sumTR = 0, sumTB = 0;
-        for (var f = 0; f < FrameCount; f++)
-        {
-            Image.TryReadFitsFile(Path.Combine(workspace.LightsDir, $"light_{f:D2}.fits"), out var img).ShouldBeTrue();
-            var (stars, _) = await FrameRegistration.DetectAsync(img!, DebayerAlgorithm.VNG, 5f, 2000, cancellationToken: ct);
-            var r = img!.ChannelOffsets(stars);
-            var d = Dispersion(f);
-            output.WriteLine($"f{f:D2} stars {stars.Count} used {r.StarsUsed} red {r.Red.Dx:+0.000;-0.000} (truth {RedUnit.Dx * d:+0.000}) blue {r.Blue.Dx:+0.000;-0.000} (truth {BlueUnit.Dx * d:+0.000;-0.000}) redY {r.Red.Dy:+0.000;-0.000} ({RedUnit.Dy * d:+0.000}) blueY {r.Blue.Dy:+0.000;-0.000} ({BlueUnit.Dy * d:+0.000;-0.000})");
-            sumR += r.Red.Dx; sumB += r.Blue.Dx; sumTR += RedUnit.Dx * d; sumTB += BlueUnit.Dx * d;
-        }
-        output.WriteLine($"mean red {sumR / FrameCount:+0.000} truth {sumTR / FrameCount:+0.000}; blue {sumB / FrameCount:+0.000;-0.000} truth {sumTB / FrameCount:+0.000;-0.000}");
-    }
-
-    [Fact]
-    public async Task TempNoDispersionFloor()
-    {
-        try
-        {
-            foreach (var scale in new[] { 0d, 1d, 2d, -1d })
-            {
-                DispersionScale = scale;
-                output.WriteLine($"scale {scale}: aligned drizzle");
-                await StackAndReadAsync(IntegrationStrategyKind.BayerDrizzle, false, alignColours: true);
-            }
-
-            DispersionScale = 1d;
-            output.WriteLine("scale 1: aligned InRamAllFrames");
-            await StackAndReadAsync(IntegrationStrategyKind.InRamAllFrames, true, alignColours: true);
-        }
-        finally
-        {
-            DispersionScale = 1d;
-        }
+        Math.Abs(read.Blue.Dx).ShouldBeGreaterThan(Tolerance * 1.5);
     }
 }

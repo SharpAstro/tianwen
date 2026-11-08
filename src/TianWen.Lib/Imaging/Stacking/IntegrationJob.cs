@@ -20,9 +20,15 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// maps to (canvas x, y). Composed by the orchestrator as
 /// <c>transformToReference * canvasShift</c>.</param>
 /// <param name="ColourShifts">How far this frame's red and blue sat from green, in source pixels, as the stacker's measure
-/// pass read them from the frame's stars (#1993); applied per colour wherever the strategy places the frame, so red and blue
-/// land on green. <c>default</c> (no shift) is every caller that never measured.</param>
-public sealed record RawLightSource(string Path, Matrix3x2 TransformToCanvas, ChannelShifts ColourShifts = default);
+/// pass read them from the frame's stars on the calibrated MOSAIC (#1993); a strategy that places the raw photosites itself
+/// (drizzle) applies them per colour, so red and blue land on green. <c>default</c> (no shift) is every caller that never
+/// measured.</param>
+/// <param name="DemosaicedColourShifts">The same frame's offsets as they stand AFTER the stack's demosaic, read once by the measure
+/// pass on the demosaiced frame (#1993): every colour demosaic pulls red and blue toward green, so the shift left in a debayered
+/// plane is smaller than the mosaic's, and a strategy that warps debayered planes (<see cref="TilePipelinedStrategy"/>) must
+/// remove what is left, not what the sky had. <c>default</c> when the frame was not read.</param>
+public sealed record RawLightSource(
+    string Path, Matrix3x2 TransformToCanvas, ChannelShifts ColourShifts = default, ChannelShifts DemosaicedColourShifts = default);
 
 /// <summary>
 /// Everything an <see cref="IIntegrationStrategy.RunAsync"/> implementation
