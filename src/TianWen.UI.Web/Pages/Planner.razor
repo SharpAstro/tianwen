@@ -288,6 +288,8 @@
         ApplyObjectFromLocation();
         // After the view, which it can override: a pointing link is an atlas link whatever ?view says.
         ApplyPointingFromLocation();
+        // An orrery link (#2072), after the pointing, whose "t" it shares; applied once the sky tab exists.
+        ApplyOrreryFromLocation();
         Nav.LocationChanged += OnLocationChanged;
 
         // Last-used site loads first (localStorage) so a reload shows it immediately instead of
@@ -376,6 +378,8 @@
         // The pointing needs only the tab -- no catalog, no comets -- so unlike the object selection
         // this is its one and only retry point.
         ApplyPendingPointing();
+        // An orrery link names planets by name, which need nothing loaded; a comet waits for the comet set.
+        ApplyPendingOrrery(lastTry: false);
 
         // E2E-only: when the app is opened with ?e2e=1, hand a .NET ref to the index.html shim so
         // browser tests can read LIVE sky-map view state (FOV/centre) via window.__tianwenTest -
@@ -1338,6 +1342,8 @@
 
             // A "?object=<comet>" deep link could not resolve until the repository was populated.
             ApplyPendingObjectSelection();
+            // Nor an orrery link's comet; this is its last chance, so a name that matches no comet leaves the rest applied.
+            ApplyPendingOrrery(lastTry: true);
         }
         catch (Exception ex)
         {
@@ -1640,16 +1646,19 @@
     async Task FetchVisibleMembersOnceAsync()
     {
         if (_tyc2Manifest is not { } manifest || _tyc2Partial is not { } partial
-            || _tyc2Selector is not { } selector || _skyTab is not { State: { } sky })
+            || _tyc2Selector is not { } selector || _skyTab is not { } skyTab)
         {
             return;
         }
 
         _tyc2ScratchRegions.Clear();
         _tyc2ScratchMembers.Clear();
-        // Radius = the FULL field of view, matching what both star pipelines already cull with
-        // (StarChunkIndex.IsVisible), so the client fetches the sky it is about to try to draw.
-        selector.SelectVisible(sky.CenterRA, sky.CenterDec, sky.FieldOfViewDeg, _tyc2ScratchRegions);
+        // Radius = the cone both star pipelines already cull with (StarChunkIndex.IsVisible), so the
+        // client fetches the sky it is about to try to draw: the map's full field of view, or the
+        // orrery backdrop's own cone while the orrery draws one (#2071: fetched for the map's view
+        // alone, the orrery showed only what the map had happened to load).
+        var (ra, dec, radius) = skyTab.StarFieldCone;
+        selector.SelectVisible(ra, dec, radius, _tyc2ScratchRegions);
         manifest.MembersForRegions(_tyc2ScratchRegions, _tyc2ScratchMembers);
 
         var wanted = _tyc2ScratchMembers.Where(m => m > 0 && !partial.IsPresent(m)).ToArray();
@@ -1941,16 +1950,19 @@
     // moves even when the centre is perfectly still, and the quantization quantizes nothing.
     void MaybeFetchVisibleMembers()
     {
-        if (!_tyc2MembersActive || _skyTab is not { State: { } sky })
+        if (!_tyc2MembersActive || _skyTab is not { } skyTab)
         {
             return;
         }
 
-        var fovBucket = (long)Math.Round(Math.Log(Math.Max(0.1, sky.FieldOfViewDeg)) * 8.0);
+        // The cone the stars are drawn for: the orrery's backdrop while it is open, so turning its
+        // camera fetches too (#2071), else the map's view.
+        var (ra, dec, radius) = skyTab.StarFieldCone;
+        var fovBucket = (long)Math.Round(Math.Log(Math.Max(0.1, radius)) * 8.0);
         var cellDeg = Math.Max(0.05, Math.Exp(fovBucket / 8.0) / 8.0);
         var key = (
-            (long)Math.Round(sky.CenterRA * 15.0 / cellDeg),
-            (long)Math.Round(sky.CenterDec / cellDeg),
+            (long)Math.Round(ra * 15.0 / cellDeg),
+            (long)Math.Round(dec / cellDeg),
             fovBucket);
 
         if (key == _tyc2ViewKey)
@@ -2200,6 +2212,8 @@
                 // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
                 // returns immediately unless the quantized view key actually moved.
                 MaybeFetchVisibleMembers();
+                // The orrery's settings into the address bar as they change (#2072); a tuple compare when nothing did.
+                MaybeSyncOrreryToUrl();
                 // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
                 // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
                 // _metrics / _fontPath out of band). The emoji face is a SUBSET (see LoadFontAsync), so it
@@ -2384,17 +2398,111 @@
     void SyncObjectToUrl()
     {
         var token = _skyTab?.State.Search.InfoPanel is { } panel ? UrlTokenFor(panel) : null;
-        if (string.Equals(token, _urlObject, StringComparison.Ordinal))
+        var orrery = OrreryUrlPart();
+        if (string.Equals(token, _urlObject, StringComparison.Ordinal) && string.Equals(orrery, _urlOrrery, StringComparison.Ordinal))
         {
             return;
         }
 
         _urlObject = token;
+        _urlOrrery = orrery;
         var viewToken = _view == View.SkyMap ? "sky" : "planner";
         var url = token is { Length: > 0 }
             ? $"{Nav.BaseUri}?view={viewToken}&object={EscapeObjectToken(token)}"
             : $"{Nav.BaseUri}?view={viewToken}";
+        if (orrery is not null)
+        {
+            url += "&" + orrery;
+        }
+        _urlWritten = url;
         Nav.NavigateTo(url, forceLoad: false, replace: true);
+    }
+
+    // The orrery in the address bar (#2072): its part of the query while it is open on the atlas, written through OrreryLink (the
+    // vocabulary's one definition). The instant goes in only off live time and not playing: live time would rewrite the link every
+    // second, a played clock every frame; Play stopping changes the state and so writes the instant it stopped at.
+    string? _urlOrrery;
+
+    // The last URL this page wrote, so LocationChanged can tell its own replace from a link, a refresh or back/forward.
+    string? _urlWritten;
+
+    string? OrreryUrlPart()
+    {
+        if (_view != View.SkyMap || _skyTab is not { State: { Orrery: { IsOpen: true } orrery } sky })
+        {
+            return null;
+        }
+        DateTimeOffset? instant = !orrery.Playing && (_state.PlanningDate is not null || sky.TimeOffset != TimeSpan.Zero)
+            ? (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + sky.TimeOffset
+            : null;
+        return OrreryLink.QueryFor(orrery, instant);
+    }
+
+    // What the orrery's link is made of, compared per frame so a change costs one deferred URL write and an unchanged frame costs a
+    // tuple compare (no string built). Not while a drag or pinch is under way (one write when it ends), at most twice a second.
+    (bool, CatalogIndex?, CatalogIndex?, bool, bool, double, double, double, double, OrreryScale, OrreryCometFilter, bool, DateTimeOffset?, TimeSpan) _orreryUrlKey;
+    long _orreryUrlWrittenAt;
+
+    void MaybeSyncOrreryToUrl()
+    {
+        if (_skyTab is not { State: { Orrery: var orrery } sky } || orrery.Dragging || orrery.Pinching)
+        {
+            return;
+        }
+        var key = (orrery.IsOpen, orrery.Focus, orrery.Selected, orrery.CentredOnFocus, orrery.Playing, orrery.DaysPerSecond,
+            orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, orrery.Scale, orrery.CometFilter, orrery.ShowBackdrop,
+            _state.PlanningDate, orrery.Playing ? TimeSpan.Zero : sky.TimeOffset);
+        if (key == _orreryUrlKey || (!orrery.IsOpen && _urlOrrery is null))
+        {
+            _orreryUrlKey = key;
+            return;
+        }
+        var now = Time.GetTimestamp();
+        if (_orreryUrlWrittenAt != 0 && Time.GetElapsedTime(_orreryUrlWrittenAt, now) < TimeSpan.FromMilliseconds(500))
+        {
+            return;
+        }
+        _orreryUrlKey = key;
+        _orreryUrlWrittenAt = now;
+        // Deferred, as every URL write from inside the frame is: NavigateTo raises LocationChanged synchronously.
+        _tracker.Run(() => InvokeAsync(SyncObjectToUrl), "Sync the orrery to the URL");
+    }
+
+    // A link that opens the orrery, parked until the sky tab exists and retried until the bodies it names resolve (a comet only once
+    // the comet set has loaded), as ApplyPendingObjectSelection is.
+    OrreryLinkData? _pendingOrrery;
+
+    // Reads "orrery=1&..." from the address bar: at init, and on a LocationChanged this page did not cause itself.
+    void ApplyOrreryFromLocation()
+    {
+        if (string.Equals(Nav.Uri, _urlWritten, StringComparison.Ordinal)
+            || OrreryLink.Parse(Nav.ToAbsoluteUri(Nav.Uri).Query) is not { } link)
+        {
+            return;
+        }
+        if (link.Instant is { } instant)
+        {
+            _state.PlanningDate = instant;
+        }
+        _pendingOrrery = link;
+        ApplyPendingOrrery(lastTry: false);
+    }
+
+    void ApplyPendingOrrery(bool lastTry)
+    {
+        if (_pendingOrrery is not { } link || _skyTab is not { State: { } sky })
+        {
+            return;
+        }
+        _view = View.SkyMap; // an orrery link is an atlas link
+        if (link.Instant is not null)
+        {
+            sky.TimeOffset = TimeSpan.Zero;
+        }
+        if (_skyTab.ApplyOrreryLink(link, _state.Comets) || lastTry)
+        {
+            _pendingOrrery = null;
+        }
     }
 
     // What to write into "?object=". A COMET takes its display name ("10P/Tempel"), not its canonical
@@ -2605,6 +2713,7 @@
     {
         ApplyViewFromLocation();
         ApplyObjectFromLocation();
+        ApplyOrreryFromLocation();
         StateHasChanged(); // chip active states + PageTitle (LocationChanged is not a Blazor event)
     }
 

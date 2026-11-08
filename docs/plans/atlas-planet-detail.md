@@ -670,6 +670,14 @@ The CPU surface (the tests, the PNGs) draws `SkyMapRenderer`'s star field throug
 ways from unit vectors made once per catalogue (7 ms a frame at 900 x 600 where walking the catalogue's lookups cost 249);
 the Milky Way is a texture only the GPU hosts draw. `OrreryState.ShowBackdrop` switches it off.
 
+**The web fetches the stars the backdrop draws** (#2071). The browser holds Tycho-2 as members fetched for the sky in view, and
+`Planner.razor` used to choose them from the MAP's view alone (`CenterRA`, `CenterDec`, `FieldOfViewDeg`), keyed on the map's
+moves: with the orrery open its backdrop drew only the stars the map had happened to load, and turning the orrery's camera
+fetched nothing. Both the choice and its view key now read `SkyMapTab.StarFieldCone`: the last backdrop's axis and cull
+radius while the orrery is open, the map's view otherwise, the same cone the pipelines cull with
+(`TheStarFieldConeIsTheBackdropsWhileTheOrreryIsOpenAndTheMapsOtherwise`). The desktop holds the whole catalogue and never
+showed it. Not yet looked at in a real browser.
+
 **Measured** (`OrreryTests.TheOrreryDrawsOnTheCpuSurface`, Debug, tiered JIT, this Surface Pro 11, Snapdragon X Elite
 X1E80100): an orrery frame at 900 x 600 on the CPU surface while the camera turns half a degree a frame, before the
 backdrop median 1.0 ms Compressed and 1.9 ms True (the raster of the larger orbits is the cost); with the backdrop's stars
@@ -814,6 +822,29 @@ started), and "its really hard to make out where north and south is".
   elevation at four views, toward the viewer only above the plane; the equinox's side at two azimuths; the ring a line edge on and
   round from overhead; inside the view at 1x and 1.5x), `OrreryNightTests.NightSpendsNoBlueInAPlanetsPanel`. Each was seen failing
   with its behaviour taken out.
+
+#### A5: a link to the orrery
+
+Built 2026-11-08 (#2072). The web atlas keeps an open orrery in its address bar, so a refresh, back/forward or a shared link
+reopens the same scene. The vocabulary is defined once, `OrreryLink` (beside `SkyAtlasLink`, the pointing link's), and the
+page only moves the string in and out:
+
+- **The keys**: `orrery=1`; `t`, the instant, the pointing link's own key and read the same way, into the planning date;
+  `play=1` and `speed` (a `PlaySpeeds` short name, `1d`, `10y`); `focus` and `centre=1`; `panel` when it is not the
+  focus's (`none` for closed); `az`, `el` and `dist`, all three or none; `scale=true`; `comets` (`6`, `9`, `12` or `all`);
+  `backdrop=0`. A body is the orrery's own label (`Mars`), a comet its designation (`10P`), which the comet search reads
+  back. A setting at a new view's value is left out, so a fresh orrery is `orrery=1` alone; a value that does not parse
+  reads as absent, never as an error (`OrreryLinkTests`).
+- **When it is written**: on a change, compared per frame as a tuple (no string built for an unchanged frame), never
+  during a drag or pinch, at most twice a second, always as a replace, so the history is not filled. The instant is
+  written only off live time and not playing: live time would rewrite the link every second, a played clock every frame.
+  Play stopping is a change, so the link then holds the instant it stopped at.
+- **When it is read**: at start, and on any address change the page did not make itself (`_urlWritten`), through
+  `SkyMapTab.ApplyOrreryLink`. A link naming a comet before the comet set has loaded is applied as far as it resolves and
+  tried again when the set lands (`ALinkReopensTheOrreryItWasWrittenFrom`); a link with no camera frames its focus, as
+  opening the orrery from a panel does.
+
+Not yet looked at in a real browser.
 
 #### A5: what is open
 
