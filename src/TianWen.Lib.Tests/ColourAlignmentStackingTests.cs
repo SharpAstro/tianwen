@@ -196,4 +196,23 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
         Math.Abs(read.Red.Dx).ShouldBeGreaterThan(Tolerance * 3);
         Math.Abs(read.Blue.Dx).ShouldBeGreaterThan(Tolerance * 2);
     }
+
+    [Fact]
+    public async Task TempDiagnosePerFrameReading()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var workspace = new TempStackingWorkspace();
+        WriteLights(workspace.LightsDir);
+        double sumR = 0, sumB = 0, sumTR = 0, sumTB = 0;
+        for (var f = 0; f < FrameCount; f++)
+        {
+            Image.TryReadFitsFile(Path.Combine(workspace.LightsDir, $"light_{f:D2}.fits"), out var img).ShouldBeTrue();
+            var (stars, _) = await FrameRegistration.DetectAsync(img!, DebayerAlgorithm.VNG, 5f, 2000, cancellationToken: ct);
+            var r = img!.ChannelOffsets(stars);
+            var d = Dispersion(f);
+            output.WriteLine($"f{f:D2} stars {stars.Count} used {r.StarsUsed} red {r.Red.Dx:+0.000;-0.000} (truth {RedUnit.Dx * d:+0.000}) blue {r.Blue.Dx:+0.000;-0.000} (truth {BlueUnit.Dx * d:+0.000;-0.000}) redY {r.Red.Dy:+0.000;-0.000} ({RedUnit.Dy * d:+0.000}) blueY {r.Blue.Dy:+0.000;-0.000} ({BlueUnit.Dy * d:+0.000;-0.000})");
+            sumR += r.Red.Dx; sumB += r.Blue.Dx; sumTR += RedUnit.Dx * d; sumTB += BlueUnit.Dx * d;
+        }
+        output.WriteLine($"mean red {sumR / FrameCount:+0.000} truth {sumTR / FrameCount:+0.000}; blue {sumB / FrameCount:+0.000;-0.000} truth {sumTB / FrameCount:+0.000;-0.000}");
+    }
 }
