@@ -901,10 +901,11 @@ public sealed class StackingPipeline(
         // planes remove: correcting those by the mosaic's full shift overshoots by the difference (0.05 px on blue in the
         // ColourAlignmentStackingTests lights). Read once here, on the demosaic the stack itself will use, and only when a
         // strategy that debayers can run (a forced drizzle never does).
-        // A drizzle never debayers, so it is not read when one is forced OR the auto-pick will take it (drizzlePlausible: an RGGB group
-        // with enough frames and drizzle not disabled). That expectation can miss (a comet layer's mask drops drizzle from the pool);
-        // the strategy choice below says so when it does.
-        var demosaicedShifts = colourShifts is not null && !drizzlePlausible
+        // A drizzle never debayers, so the read is skipped only when drizzle is CERTAIN (one is forced). Anything else reads it: an
+        // auto-pick that is not drizzle (cost, memory, a comet layer's mask) and a forced debayering strategy both warp debayered
+        // planes, and "the selector will probably pick drizzle" (drizzlePlausible) is not a reason to leave them uncorrected.
+        var demosaicedShifts = colourShifts is not null
+            && options.ForcedStrategy is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle)
             ? new Dictionary<string, ChannelShifts>(StringComparer.OrdinalIgnoreCase)
             : null;
         var colourReadings = new List<ChannelOffsetsResult>();
@@ -959,7 +960,8 @@ public sealed class StackingPipeline(
             // The stack's demosaic of this frame, taken only when a strategy that debayers can run (demosaicedShifts is null otherwise) and
             // never twice: the detection's own debayer is the stack's when both name the same algorithm (a default run: VNG and AHD
             // differ, so AHD is taken once, here). A frame that is already three planes has nothing to demosaic: the mosaic reading
-            // IS the debayered one.
+            // IS the debayered one. This reads the demosaic of the unmasked calibrated frame while the mosaic reading is on the masked one:
+            // that is what the stack itself demosaics, so the correction removes what the stack's own planes hold.
             async Task<ChannelShifts> DemosaicedReadingAsync()
             {
                 var demosaiced = !calibrated.IsCfaMosaic
@@ -2005,8 +2007,8 @@ public sealed class StackingPipeline(
                 && selection.Chosen.Kind is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle))
             {
                 logger.LogWarning(
-                    "  colour alignment: the measure pass expected a drizzle and read no demosaiced offsets, but {Kind} debayers; "
-                        + "its planes are not colour-aligned (force --strategy or pass --no-bayer-drizzle to align them)",
+                    "  colour alignment: a drizzle was forced, so no demosaiced offsets were read, but this layer picked {Kind}, which debayers; "
+                        + "its planes are not colour-aligned (drop --strategy to let the stack read them)",
                     selection.Chosen.Kind);
             }
             logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);

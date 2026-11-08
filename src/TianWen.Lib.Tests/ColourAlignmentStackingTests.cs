@@ -185,8 +185,10 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
     public static TheoryData<IntegrationStrategyKind?, bool, string> Paths => new()
     {
         // The debayered paths: the in-RAM integrator behind the warp producer, and the strip-warping TilePipelined.
-        { IntegrationStrategyKind.InRamAllFrames, true, "debayered, warped by the producer" },
-        { IntegrationStrategyKind.TilePipelined, true, "debayered, warped per strip" },
+        // Drizzle is NOT disabled here: 20 lights against MinFrameCount 6 make an auto-pick drizzle plausible, and a forced
+        // debayering strategy must still read the demosaiced offsets (a gate on "drizzle is plausible" left these uncorrected).
+        { IntegrationStrategyKind.InRamAllFrames, false, "debayered, warped by the producer" },
+        { IntegrationStrategyKind.TilePipelined, false, "debayered, warped per strip" },
         // The Bayer drizzle paths: the streaming one, and the strip-pipelined one.
         { IntegrationStrategyKind.BayerDrizzle, false, "drizzle" },
         { IntegrationStrategyKind.TilePipelinedDrizzle, false, "drizzle, per strip" },
