@@ -85,6 +85,14 @@ public sealed class ViewerState
     // An ImmutableArray is one reference wide, so a plain read or write of it is atomic; Volatile wants a reference type.
     private ImmutableArray<LightGradeReference> _gradeReferences;
 
+    /// <summary>
+    /// The stored expected-sky models (#1974) a light's veil is read against before the folder's own night: loaded off the render
+    /// thread once per folder opened and swapped in whole. Default (not loaded) reads as none, so the night fits itself.
+    /// </summary>
+    public ImmutableArray<ExpectedSkyEntry> ExpectedSky { get => _expectedSky; set => _expectedSky = value; }
+
+    private ImmutableArray<ExpectedSkyEntry> _expectedSky;
+
     /// <summary>Records (or replaces) the grade of the frame at <paramref name="path"/>.</summary>
     public void RecordFrameGrade(string path, LightGrade grade)
         => ImmutableInterlocked.AddOrUpdate(ref _frameGrades, Path.GetFullPath(path), grade, (_, _) => grade);

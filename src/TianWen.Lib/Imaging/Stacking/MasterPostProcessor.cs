@@ -233,7 +233,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
         // 2) Write the master FITS with WCS baked into the headers, and beside it the defect mask
         //    this integration applied, which nothing kept before.
-        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy, alignment: alignment, badPixelMask: badPixelMask);
+        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy, alignment: alignment, badPixelMask: badPixelMask, logger: logger);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
         // The preview PNG, the Ultra HDR JPEG, and the --split-plates TIFFs are display-side
@@ -243,6 +243,15 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
         var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
         var renderer = (renderPreviewPng || emitUltraHdr || splitPlates) ? new MasterPreviewRenderer(catalogDb, logger) : null;
+        // The saturation count of THIS run (the stacker's, in memory, cropped as the master is): SPCC's clip gate reads it.
+        // Never reloaded from disk, where a sidecar of an earlier run could linger. Absent, the peak gate stands alone.
+        var saturationMap = master.ChannelCount >= 3
+            ? (croppedResult is not null ? croppedResult.Saturation : result.Saturation)
+            : null;
+        if (saturationMap is not null)
+        {
+            logger.LogInformation("  [SPCC] saturation map found beside the master; stars touching a saturated pixel are dropped");
+        }
         WCS? croppedWcs = solvedWcs is { } cw && croppedResult is not null
             ? cw with { CRPix1 = cw.CRPix1 - autocropRect.X, CRPix2 = cw.CRPix2 - autocropRect.Y }
             : null;
@@ -261,7 +270,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             enhanced = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
                 croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
-                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, alignment, ct);
+                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, alignment, saturationMap, ct);
             render = enhanced.Value.Render;
         }
         else if (enhance && sharpenPipeline is null)
@@ -277,7 +286,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             try
             {
                 var cropFitsPath = WithSuffix(masterPath, "_autocrop");
-                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy, alignment: alignment?.ForCrop(autocropRect.X, autocropRect.Y));
+                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy, alignment: alignment?.ForCrop(autocropRect.X, autocropRect.Y), logger: logger);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", cropFitsPath, autocropRect.Width, autocropRect.Height);
             }
             catch (Exception ex)
@@ -293,7 +302,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             render = await RenderPreviewAsync(
                 renderer, master, croppedResult?.Master, refMeta, solvedWcs, croppedWcs,
-                masterPath, autocropRect, previewBoost, outputs, ultraHdrPeakNits, inheritedWhiteBalance, ct);
+                masterPath, autocropRect, previewBoost, outputs, ultraHdrPeakNits, inheritedWhiteBalance, saturationMap, ct);
         }
 
         // 4) Stamp the colour calibration onto every linear master this run produced.
@@ -527,6 +536,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         float ultraHdrPeakNits,
         ColourCalibration? inheritedWhiteBalance,
         AlignmentProvenance? alignment,
+        Image? saturationMap,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -570,7 +580,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             else
             {
                 solve = await (renderer ?? new MasterPreviewRenderer(catalogDb, logger)).SolveWhiteBalanceAsync(
-                    croppedResult?.Master ?? master.Master, croppedResult is not null ? croppedWcs : solvedWcs, refMeta, ct);
+                    croppedResult?.Master ?? master.Master, croppedResult is not null ? croppedWcs : solvedWcs, refMeta, ct, saturationMap);
                 toApply = solve.ToApply;
             }
             if (toApply is { } applying)
@@ -630,7 +640,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // integration's noise, which the enhance changed, so beside these pixels it would state the wrong thing.
             var sharpenedPath = WithSuffix(masterPath, "_sharpened");
             IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster, StandardError = null }, solvedWcs, strategy, alignment: alignment,
-                modifiedBy: SharpenPipeline.SoftwareModifier);
+                modifiedBy: SharpenPipeline.SoftwareModifier, logger: logger);
             logger.LogInformation("  wrote {Path} (enhance blend={Blend:F2}, {Ms} ms)", sharpenedPath, blend, sw.ElapsedMilliseconds);
 
             Image? enhancedCropped = null;
@@ -639,7 +649,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                 enhancedCropped = CropImage(enhancedMaster, autocropRect);
                 var sharpenedCropPath = WithSuffix(masterPath, "_sharpened_autocrop");
                 IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped, StandardError = null }, croppedWcs, strategy, alignment: alignment,
-                    modifiedBy: SharpenPipeline.SoftwareModifier);
+                    modifiedBy: SharpenPipeline.SoftwareModifier, logger: logger);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
             }
 
@@ -731,6 +741,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         WCS? fullWcs, WCS? cropWcs, string masterPath, PixelRect autocropRect,
         MaskedBoostOptions? previewBoost, MasterRenderOutputs outputs, float ultraHdrPeakNits,
         ColourCalibration? inheritedWhiteBalance,
+        Image? saturationMap,
         CancellationToken ct)
     {
         var previewImg = cropMaster ?? fullMaster;
@@ -747,7 +758,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var render = await renderer.RenderAsync(
             previewImg, sensorMeta, previewWcs, statsSource: previewImg, pngPath, statsWcs: previewWcs,
             peakNits: ultraHdrPeakNits, whiteBalanceOverride: inheritedWhiteBalance is { } inh ? (inh.R, inh.G, inh.B) : null,
-            maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
+            maskedBoost: previewBoost, ultraHdrPath: uhdrPath, saturationMap: saturationMap, ct: ct);
         return render;
     }
 
@@ -771,7 +782,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         }
     }
 
-    private static IntegrationResult CropIntegrationResult(IntegrationResult full, PixelRect rect)
+    internal static IntegrationResult CropIntegrationResult(IntegrationResult full, PixelRect rect)
     {
         // Both sidecars are per-pixel maps OF the master, so both follow it through the crop. The
         // rejection map is null for a strategy that rejects nothing (drizzle), and the coverage plane
@@ -783,8 +794,10 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var croppedRejection = full.RejectionMap is { } rejection ? CropImage(rejection, rect) : null;
         var croppedCoverage = full.Coverage is { } coverage ? CropImage(coverage, rect) : null;
         var croppedStandardError = full.StandardError is { } standardError ? CropImage(standardError, rect) : null;
+        var croppedSaturation = full.Saturation is { } saturation ? CropImage(saturation, rect) : null;
         return full with
         {
+            Saturation = croppedSaturation,
             Master = croppedMaster,
             RejectionMap = croppedRejection,
             Coverage = croppedCoverage,

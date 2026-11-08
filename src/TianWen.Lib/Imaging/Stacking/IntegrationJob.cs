@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using TianWen.Lib.Geometry;
@@ -120,7 +121,10 @@ public sealed record IntegrationJob(
     // The resampling kernel every strategy that warps places its frames with (the WarpedFrames
     // producer applies it upstream; TilePipelined warps per strip and reads it here). Clamped
     // Lanczos-3 since 7.1; bilinear is every master built before R1, see WarpInterpolation.
-    WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped);
+    WarpInterpolation WarpInterpolation = WarpInterpolation.Lanczos3Clamped,
+    // Optional diagnostics log for the strategies that debayer a frame themselves (TilePipelined): handed to
+    // the debayer, which says at Debug when a frame's CFA gain was left at unity (#1991). Null says nothing.
+    ILogger? Logger = null);
 
 /// <summary>
 /// Coarse-grained pipeline phase reported by integration strategies. Phases

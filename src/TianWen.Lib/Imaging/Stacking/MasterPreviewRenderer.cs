@@ -149,6 +149,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         int ultraHdrQuality = 90,
         ScreenedStars? starScreen = null,
         float backgroundSky = 1f,
+        Image? saturationMap = null,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -177,7 +178,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         var effectiveWcs = statsWcs ?? wcs;
 
         var (uniforms, spccDiagnostics, wbGains) = await ComputeStretchUniformsAsync(
-            master, stats, effectiveWcs, sensorMeta, whiteBalanceOverride, ct);
+            master, stats, effectiveWcs, sensorMeta, whiteBalanceOverride, ct, saturationMap);
 
         // ------------------------------------------------------------
         // Render PNG from the computed uniforms.
@@ -428,7 +429,8 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             WCS? effectiveWcs,
             ImageMeta sensorMeta,
             (float R, float G, float B)? wbOverride,
-            CancellationToken ct)
+            CancellationToken ct,
+            Image? saturationMap = null)
     {
         SpccDiagnostics? spccDiagnostics = null;
 
@@ -504,7 +506,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         }
         else if (stats.ChannelCount >= 3)
         {
-            var solve = await SolveWhiteBalanceCoreAsync(stats, effectiveWcs, throughputs, colourIsNotPhotometric, ct);
+            var solve = await SolveWhiteBalanceCoreAsync(stats, effectiveWcs, throughputs, colourIsNotPhotometric, ct, saturationMap);
             wbGains = solve.Calibration?.Gains;
             spccDiagnostics = solve.Spcc;
         }
@@ -619,8 +621,10 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// <param name="wcs">Its plate solution, or null (SPCC is then skipped and the sky-background estimate answers).</param>
     /// <param name="sensorMeta">The capture's metadata, which names the sensor and the filter (see <see cref="RenderAsync"/>).</param>
     /// <param name="ct">Cancels the solve.</param>
+    /// <param name="saturationMap">The master's saturation sidecar (<see cref="IntegrationFitsWriter.TryReadSaturationMap"/>),
+    /// cropped as <paramref name="image"/> is; SPCC drops a star whose aperture touches a pixel it marks. Null keeps the peak gate alone.</param>
     /// <returns>No calibration for a frame of fewer than three channels.</returns>
-    public async Task<WhiteBalanceSolve> SolveWhiteBalanceAsync(Image image, WCS? wcs, ImageMeta sensorMeta, CancellationToken ct = default)
+    public async Task<WhiteBalanceSolve> SolveWhiteBalanceAsync(Image image, WCS? wcs, ImageMeta sensorMeta, CancellationToken ct = default, Image? saturationMap = null)
     {
         if (image.ChannelCount < 3)
         {
@@ -628,7 +632,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         }
         var stats = WithZeroPedestal(image.WithInteriorHolesFilled());
         var (throughputs, lineSelective) = await ChannelThroughputsAsync(stats.ChannelCount, sensorMeta, ct);
-        return await SolveWhiteBalanceCoreAsync(stats, wcs, throughputs, lineSelective, ct);
+        return await SolveWhiteBalanceCoreAsync(stats, wcs, throughputs, lineSelective, ct, saturationMap);
     }
 
     /// <summary>
@@ -681,7 +685,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// <summary>The solve behind <see cref="SolveWhiteBalanceAsync"/> and a render, on stats already hole-filled and
     /// rewrapped to a zero pedestal. All photometry, catalogue and sky sampling runs on <paramref name="stats"/>.</summary>
     private async Task<WhiteBalanceSolve> SolveWhiteBalanceCoreAsync(
-        Image stats, WCS? wcs, (FilterCurve R, FilterCurve G, FilterCurve B)? throughputs, bool lineSelective, CancellationToken ct)
+        Image stats, WCS? wcs, (FilterCurve R, FilterCurve G, FilterCurve B)? throughputs, bool lineSelective, CancellationToken ct, Image? saturationMap = null)
     {
         ColourCalibration? calibration = null;
         SpccDiagnostics? spccDiagnostics = null;
@@ -731,7 +735,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                 if (throughputs is { } t)
                 {
                     var spcc = Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
-                        stats, statsStars, w, db, t.R, t.G, t.B, logger: logger);
+                        stats, statsStars, w, db, t.R, t.G, t.B, logger: logger, saturationMap: saturationMap);
                     if (spcc is { } gains)
                     {
                         calibration = new ColourCalibration(gains.R, gains.G, gains.B, ColourCalibrationSource.Spcc);
