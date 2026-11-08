@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -40,12 +41,7 @@ internal static class ColourAlignmentReport
             Longest(measured, static r => r.Red), Longest(measured, static r => r.Blue));
     }
 
-    private static double Median(double[] values)
-    {
-        Array.Sort(values);
-        var mid = values.Length / 2;
-        return values.Length % 2 == 1 ? values[mid] : 0.5 * (values[mid - 1] + values[mid]);
-    }
+    private static double Median(double[] values) => StatisticsHelper.MedianFast(values);
 
     private static double Longest(IReadOnlyList<ChannelOffsetsResult> measured, Func<ChannelOffsetsResult, ChannelOffset> pick)
     {
