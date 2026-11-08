@@ -901,12 +901,16 @@ public sealed class StackingPipeline(
         // planes remove: correcting those by the mosaic's full shift overshoots by the difference (0.05 px on blue in the
         // ColourAlignmentStackingTests lights). Read once here, on the demosaic the stack itself will use, and only when a
         // strategy that debayers can run (a forced drizzle never does).
-        var demosaicedShifts = colourShifts is not null
-            && options.ForcedStrategy is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle)
+        // A drizzle never debayers, so it is not read when one is forced OR the auto-pick will take it (drizzlePlausible: an RGGB group
+        // with enough frames and drizzle not disabled). That expectation can miss (a comet layer's mask drops drizzle from the pool);
+        // the strategy choice below says so when it does.
+        var demosaicedShifts = colourShifts is not null && !drizzlePlausible
             ? new Dictionary<string, ChannelShifts>(StringComparer.OrdinalIgnoreCase)
             : null;
         var colourReadings = new List<ChannelOffsetsResult>();
         var colourUnmeasured = 0;
+        var demosaicedMissing = 0;
+        var demosaicedMeasuredOnRerun = 0;
         // Each light's data digest, taken once when a manifest is in play (the offsets lookup below and the transform lookup after
         // the measure pass both join on it).
         var lightDigests = manifest is not null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : null;
@@ -935,7 +939,7 @@ public sealed class StackingPipeline(
             // interpolated RED plane, and measured on a real session its top-K detections could not
             // produce even 20 mutual matches between consecutive subs where the mono route
             // reproduced at 92%.
-            var (stars, _) = await FrameRegistration.DetectAsync(
+            var (stars, detectDebayered, masked) = await FrameRegistration.DetectMaskedAsync(
                 calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, knownBad: knownBad, cancellationToken: ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
             // The colours are read on the CALIBRATED MOSAIC, before any demosaic pulls red and blue toward green
@@ -952,29 +956,57 @@ public sealed class StackingPipeline(
                 lightDigests[lf.Path] = digest;
                 recorded = ManifestEntryOf(lf, digest);
             }
+            // The stack's demosaic of this frame, taken only when a strategy that debayers can run (demosaicedShifts is null otherwise) and
+            // never twice: the detection's own debayer is the stack's when both name the same algorithm (a default run: VNG and AHD
+            // differ, so AHD is taken once, here). A frame that is already three planes has nothing to demosaic: the mosaic reading
+            // IS the debayered one.
+            async Task<ChannelShifts> DemosaicedReadingAsync()
+            {
+                var demosaiced = !calibrated.IsCfaMosaic
+                    ? calibrated
+                    : options.StackDebayerAlg == options.CentroidDebayerAlg
+                        ? detectDebayered
+                        : await calibrated.DebayerAsync(options.StackDebayerAlg, cancellationToken: ct);
+                return ChannelShifts.From(demosaiced.ChannelOffsets(stars));
+            }
             if (colourShifts is not null && recorded is not null && recorded.TryGetColourShifts(out var recordedMosaic, out var recordedDemosaiced))
             {
                 colourShifts[lf.Path] = recordedMosaic;
                 if (demosaicedShifts is not null)
                 {
-                    demosaicedShifts[lf.Path] = recordedDemosaiced ?? ChannelShifts.None;
+                    // A manifest written by a drizzle run holds the mosaic's reading only. This run debayers, so the half it lacks is
+                    // read on this plate when the plate still has stars to read it on; a derived plate with none stays uncorrected
+                    // (counted, and said below), never corrected by the mosaic's full shift, which overshoots.
+                    var demosaicedReading = recordedDemosaiced ?? (stars.Count > 0 && (calibrated.IsCfaMosaic || calibrated.ChannelCount == 3)
+                        ? await DemosaicedReadingAsync()
+                        : ChannelShifts.None);
+                    demosaicedShifts[lf.Path] = demosaicedReading;
+                    if (recordedDemosaiced is null)
+                    {
+                        if (demosaicedReading.IsZero)
+                        {
+                            demosaicedMissing++;
+                        }
+                        else
+                        {
+                            demosaicedMeasuredOnRerun++;
+                        }
+                    }
                 }
                 colourFromManifest++;
             }
             else if (colourShifts is not null && (calibrated.IsCfaMosaic || calibrated.ChannelCount == 3))
             {
-                var reading = calibrated.ChannelOffsets(stars);
+                // On the frame the stars were found on, known defects read as their neighbours: a defect beside a star would
+                // otherwise pull its colour's centroid.
+                var reading = masked.ChannelOffsets(stars);
                 colourShifts[lf.Path] = ChannelShifts.From(reading);
                 if (reading.IsMeasured)
                 {
                     colourReadings.Add(reading);
                     if (demosaicedShifts is not null)
                     {
-                        // A frame that is already three planes has nothing to demosaic: the mosaic reading IS the debayered one.
-                        var demosaiced = calibrated.IsCfaMosaic
-                            ? await calibrated.DebayerAsync(options.StackDebayerAlg, cancellationToken: ct)
-                            : calibrated;
-                        demosaicedShifts[lf.Path] = ChannelShifts.From(demosaiced.ChannelOffsets(stars));
+                        demosaicedShifts[lf.Path] = await DemosaicedReadingAsync();
                     }
                 }
                 else
@@ -1006,6 +1038,19 @@ public sealed class StackingPipeline(
             logger.LogInformation(
                 "  colour alignment: {FromManifest} frames took their offsets from the manifest, {Measured} measured on this run's plates",
                 colourFromManifest, colourReadings.Count);
+        }
+        if (demosaicedMeasuredOnRerun > 0)
+        {
+            logger.LogInformation(
+                "  colour alignment: the manifest holds the mosaic reading only for {Count} frames; their demosaiced offsets were measured on this run's plates",
+                demosaicedMeasuredOnRerun);
+        }
+        if (demosaicedMissing > 0)
+        {
+            logger.LogWarning(
+                "  colour alignment: the manifest holds the mosaic reading only for {Count} frames, and this run's plates have no stars to read the demosaiced "
+                    + "offsets on; those frames' debayered planes are not colour-aligned (the mosaic's full shift would overshoot)",
+                demosaicedMissing);
         }
         if (colourReadings.Count + colourUnmeasured > 0)
         {
@@ -1956,6 +2001,14 @@ public sealed class StackingPipeline(
             }
             var selection = IntegrationStrategySelector.Pick(probe, preferred: preferredStrategy, pool: pool);
             logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
+            if (colourShifts is { Count: > 0 } && demosaicedShifts is null
+                && selection.Chosen.Kind is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle))
+            {
+                logger.LogWarning(
+                    "  colour alignment: the measure pass expected a drizzle and read no demosaiced offsets, but {Kind} debayers; "
+                        + "its planes are not colour-aligned (force --strategy or pass --no-bayer-drizzle to align them)",
+                    selection.Chosen.Kind);
+            }
             logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);
             var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
 

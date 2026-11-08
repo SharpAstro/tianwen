@@ -120,11 +120,31 @@ public static class FrameRegistration
         BitMatrix[]? knownBad = null,
         CancellationToken cancellationToken = default)
     {
+        var (stars, debayered, _) = await DetectMaskedAsync(
+            calibrated, debayerAlgorithm, snrMin, minStars, spikeGuard, knownBad, cancellationToken);
+        return (stars, debayered);
+    }
+
+    /// <summary>
+    /// <see cref="DetectAsync"/> that also hands back the frame the stars were found on: <paramref name="calibrated"/> itself when
+    /// there is no mask or nothing in it, else the copy with the known defects read as their neighbours. A reading taken at the
+    /// stars' positions (<see cref="Image.ChannelOffsets"/>) is taken on that frame, so a defect beside a star cannot bias it any
+    /// more than it could bias the detection (#1993). The copy is the one detection already made, never a second.
+    /// </summary>
+    public static async Task<(StarList Stars, Image Debayered, Image Masked)> DetectMaskedAsync(
+        Image calibrated,
+        DebayerAlgorithm debayerAlgorithm,
+        float snrMin,
+        int minStars,
+        SpikeGuard spikeGuard = SpikeGuard.PeakShare,
+        BitMatrix[]? knownBad = null,
+        CancellationToken cancellationToken = default)
+    {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         var detectOn = knownBad is null ? calibrated : BadPixelDetection.WithMaskedFromNeighbours(calibrated, knownBad);
         var stars = await detectOn.FindStarsAsync(
             channel: 0, snrMin: snrMin, minStars: minStars, spikeGuard: spikeGuard, cancellationToken: cancellationToken);
-        return (stars, debayered);
+        return (stars, debayered, detectOn);
     }
 
     /// <summary>

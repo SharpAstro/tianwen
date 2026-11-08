@@ -190,6 +190,9 @@ public partial class Image
         using var secondDy = ArrayPoolHelper.Rent<float>(Math.Max(wanted, 1));
         var used = 0;
         var others = OthersThan(reference);
+        // Hoisted out of the star loop (CA2014: a stackalloc in a loop grows the stack every pass).
+        Span<double> dx = stackalloc double[2];
+        Span<double> dy = stackalloc double[2];
 
         // The brightest first, over EVERY candidate until MaxStars have read: a crowded or saturated one is skipped, not counted.
         foreach (var star in candidates)
@@ -214,8 +217,6 @@ public partial class Image
             }
 
             var ok = true;
-            Span<double> dx = stackalloc double[2];
-            Span<double> dy = stackalloc double[2];
             for (var i = 0; i < 2 && ok; i++)
             {
                 var channel = (int)others[i];

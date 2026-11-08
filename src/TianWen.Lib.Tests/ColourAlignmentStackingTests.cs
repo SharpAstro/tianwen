@@ -165,10 +165,12 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         // The autocrop: the covered part of the canvas, with no NaN margin for the detection to trip over.
+        result.MasterFitsPath.ShouldNotBeNull();
+        var masterPath = result.MasterFitsPath;
         var autocrop = Path.Combine(
-            Path.GetDirectoryName(result.MasterFitsPath) ?? workspace.OutputDir,
-            Path.GetFileNameWithoutExtension(result.MasterFitsPath) + "_autocrop.fits");
-        Image.TryReadFitsFile(File.Exists(autocrop) ? autocrop : result.MasterFitsPath, out var master).ShouldBeTrue();
+            Path.GetDirectoryName(masterPath) ?? workspace.OutputDir,
+            Path.GetFileNameWithoutExtension(masterPath) + "_autocrop.fits");
+        Image.TryReadFitsFile(File.Exists(autocrop) ? autocrop : masterPath, out var master).ShouldBeTrue();
         master.ShouldNotBeNull();
         master.ChannelCount.ShouldBe(3);
 
@@ -231,7 +233,9 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
 
         // The producing run records its offsets: twelve floats a frame (the mosaic's reading, then the demosaiced one the warp removes).
         var first = await StackAsync(workspace, IntegrationStrategyKind.InRamAllFrames, disableDrizzle: true, alignColours: true, manifestPath: null);
-        var recorded = await StackManifest.TryReadAsync(StackManifest.PathFor(first.MasterFitsPath), ct);
+        first.MasterFitsPath.ShouldNotBeNull();
+        var firstMasterPath = first.MasterFitsPath;
+        var recorded = await StackManifest.TryReadAsync(StackManifest.PathFor(firstMasterPath), ct);
         recorded.ShouldNotBeNull();
         var matched = Array.FindAll(recorded.Frames, f => f.Fate is FrameFate.Matched);
         matched.Length.ShouldBeGreaterThanOrEqualTo(FrameCount - 2);
@@ -243,9 +247,22 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
 
         // Reusing the manifest as written reproduces the alignment ...
         var control = await ReadMasterAsync(workspace, await StackAsync(
-            workspace, IntegrationStrategyKind.InRamAllFrames, disableDrizzle: true, alignColours: true, StackManifest.PathFor(first.MasterFitsPath)));
+            workspace, IntegrationStrategyKind.InRamAllFrames, disableDrizzle: true, alignColours: true, StackManifest.PathFor(firstMasterPath)));
         control.Red.Dx.ShouldBe(0d, Tolerance);
         control.Blue.Dx.ShouldBe(0d, Tolerance);
+
+        // A manifest holding the mosaic's six floats only (a drizzle run writes no demosaiced half) reused on a debayered run: the
+        // demosaiced half is read on this run's plates, which still have their stars, and the alignment holds.
+        var mosaicOnly = recorded with
+        {
+            Frames = [.. recorded.Frames.Select(f => f.ColourOffsets is { Length: 12 } o ? f with { ColourOffsets = o[..6] } : f)],
+        };
+        var mosaicOnlyPath = Path.Combine(workspace.OutputDir, "mosaic-only.manifest.json");
+        await mosaicOnly.WriteAsync(mosaicOnlyPath, ct);
+        var completed = await ReadMasterAsync(workspace, await StackAsync(
+            workspace, IntegrationStrategyKind.InRamAllFrames, disableDrizzle: true, alignColours: true, mosaicOnlyPath));
+        completed.Red.Dx.ShouldBe(0d, Tolerance);
+        completed.Blue.Dx.ShouldBe(0d, Tolerance);
 
         // ... and offsets of 0.001 px on every colour, with the frames' own stars untouched and still there to be measured, leave the
         // colours where the frames put them: the run read the manifest and did not look.
