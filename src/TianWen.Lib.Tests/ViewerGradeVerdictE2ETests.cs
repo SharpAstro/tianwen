@@ -143,6 +143,50 @@ public class ViewerGradeVerdictE2ETests
     }
 
     /// <summary>
+    /// #2069: a night's self-fit lands on the pool while the pointer rests, and the idle loop must ask for the frame that shows its veil.
+    /// A flag set inside the frame that noticed the landing is cleared by that frame, so the loop's own redraw gate has to ask
+    /// (<see cref="ViewerController.SelfFitWantsFrame"/>), with no input in between.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ASelfFitThatLandsWhileIdleAsksTheLoopForAFrame()
+    {
+        const string obj = "e2e-wake";
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(1f);
+        var path = e2e.WriteColourFits("light_0285.fits", level: 3f);
+        await e2e.OpenAsync(path, ct);
+
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266, objectName: obj);
+        var dir = Path.GetDirectoryName(path)!;
+        for (var i = 0; i < 300; i++)
+        {
+            e2e.State.RecordFrameGrade(i == 285 ? path : Path.Combine(dir, $"light_{i:0000}.fits"), night[i]);
+        }
+        e2e.State.ExpectedSky = [];
+        var release = new TaskCompletionSource();
+        LightGrading.HoldSelfFitsFor(obj, release.Task);
+        _ = LightGrading.Verdict(e2e.State.FrameGrades, night[285]);
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(1, "the verdict asked for the night's fit, which is held");
+
+        // Paint until the loop has nothing left to draw: the fit is pending, so the idle loop would sleep here.
+        var idle = false;
+        for (var i = 0; i < 50 && !idle; i++)
+        {
+            e2e.Frame();
+            idle = !e2e.Host.WantsFrame();
+        }
+        idle.ShouldBeTrue("the viewer settles while the fit is pending");
+
+        release.SetResult();
+        await LightGrading.SelfFitsLandedFor(obj).WaitAsync(ct);
+
+        e2e.Host.WantsFrame().ShouldBeTrue("a fit that landed while idle asks for the frame that shows it");
+        e2e.Frame();
+        LightGrading.Verdict(e2e.State.FrameGrades, night[285], e2e.State.GradeReferences, e2e.State.ExpectedSky)
+            .Causes.HasFlag(GradeCause.Cloud).ShouldBeTrue("the frame it asked for reads the veil");
+    }
+
+    /// <summary>
     /// #1974 section 2, through the viewer's own path and not a hand-built grade: a real light with a header WCS is opened, the viewer's
     /// star detection grades it through <c>LightGrading.Grade</c> with the document's WCS and the catalogue (the frame adopted on [0, 1]
     /// and its zero point put back into counts by the document's full scale), and the verdict reads that zero point against a model the
