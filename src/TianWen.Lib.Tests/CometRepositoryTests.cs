@@ -21,12 +21,29 @@ namespace TianWen.Lib.Tests;
 /// reuse (no refetch), TTL-expiry refetch, and offline stale fallback -- all driven by a fake SBDB
 /// source and the <see cref="FakeExternal"/> temp-dir + fake clock (no network, no wall-clock).
 /// </summary>
-public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
+public class CometRepositoryTests(ITestOutputHelper output) : IAsyncDisposable
 {
     /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
     private readonly TempFolders _folders = new();
 
-    public void Dispose() => _folders.Dispose();
+    // Every repository the test built: an apparition fetch it started runs on after the test's last line, and its cache write
+    // landing after the folders were deleted wrote SmallBodies/apparitions.json back (#2078), which CI's leftover check fails.
+    private readonly System.Collections.Concurrent.ConcurrentBag<CometRepository> _repositories = [];
+
+    private CometRepository Track(CometRepository repository)
+    {
+        _repositories.Add(repository);
+        return repository;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var repository in _repositories)
+        {
+            await repository.ApparitionWorkSettledAsync();
+        }
+        _folders.Dispose();
+    }
 
     private sealed class FakeSbdbCometSource(IReadOnlyList<CometElements> elements, bool @throw = false) : ISbdbCometSource
     {
@@ -66,7 +83,7 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
         => CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 7, 10, 0, 0, 0, TimeSpan.Zero)));
 
     private CometRepository NewRepository(FakeExternal external, ISbdbCometSource source, IHorizonsCometSource? horizons = null, ApparitionCacheFile? seed = null)
-        => new(source, horizons ?? new NeverFetchesHorizons(), new FakeApparitionSeed(seed), external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+        => Track(new(source, horizons ?? new NeverFetchesHorizons(), new FakeApparitionSeed(seed), external, external.TimeProvider, NullLogger<CometRepository>.Instance));
 
     /// <summary>The publish-time overlay a browser host is given. Null = the desktop shape (no seed).</summary>
     private sealed class FakeApparitionSeed(ApparitionCacheFile? seed) : IApparitionSeedSource
@@ -274,10 +291,10 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
     private static CometElements RefreshedComet()
         => StaleComet() with { PerihelionJdTt = 2461254.615, EpochJdTt = 2461258.5 };
 
-    private static async Task<CometRepository> LoadedWithStaleCometAsync(FakeExternal external, IHorizonsCometSource horizons, ApparitionCacheFile? seed, CancellationToken ct,
+    private async Task<CometRepository> LoadedWithStaleCometAsync(FakeExternal external, IHorizonsCometSource horizons, ApparitionCacheFile? seed, CancellationToken ct,
         ILogger<CometRepository>? logger = null)
     {
-        var repo = new CometRepository(new FakeSbdbCometSource([StaleComet()]), horizons, new FakeApparitionSeed(seed), external, external.TimeProvider, logger ?? NullLogger<CometRepository>.Instance);
+        var repo = Track(new CometRepository(new FakeSbdbCometSource([StaleComet()]), horizons, new FakeApparitionSeed(seed), external, external.TimeProvider, logger ?? NullLogger<CometRepository>.Instance));
         await repo.EnsureLoadedAsync(ct);
         return repo;
     }
@@ -343,7 +360,7 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
         var horizons = new FakeHorizons(RefreshedComet());
         // Epoch inside the current apparition: nothing to gain, so no round-trip.
         var fresh = StaleComet() with { EpochJdTt = 2461200.0, PerihelionJdTt = 2461254.615 };
-        var repo = new CometRepository(new FakeSbdbCometSource([fresh]), horizons, new FakeApparitionSeed(null), external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+        var repo = Track(new CometRepository(new FakeSbdbCometSource([fresh]), horizons, new FakeApparitionSeed(null), external, external.TimeProvider, NullLogger<CometRepository>.Instance));
         await repo.EnsureLoadedAsync(ct);
 
         repo.RequestCurrentApparition(fresh.CatalogIndex.ShouldNotBeNull());
