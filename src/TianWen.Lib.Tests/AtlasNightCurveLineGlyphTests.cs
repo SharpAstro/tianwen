@@ -15,10 +15,14 @@ namespace TianWen.Lib.Tests;
 /// draw NOTHING with no error. The star of the rating was first answered by a recorded capture only; these ask the face itself.
 /// </summary>
 /// <remarks>
-/// The runes come from the lines <see cref="ObjectInfoPanel.NightLine"/> really produces, not from a literal here, so a mark added
-/// to that line is asked of the face too. The face is the copy the tests carry under <c>TestFonts</c> (the file the apps bundle).
+/// What this proves is the BUNDLED face (the file the apps ship), asked directly and through the same fallback chain the window
+/// builds (<c>BundledFonts</c>: text face, emoji face, per-OS script faces). It does not draw the info box: the window's own face
+/// is whatever <c>BundledFonts.Resolve()</c> finds on the host, and the test host has no <c>Fonts</c> folder by design, so a
+/// check of the window would measure the machine. The marks are therefore pinned to the one face every host bundles.
+/// <para>The runes come from the lines <see cref="ObjectInfoPanel.NightLine"/> really produces, not from a literal here, so a mark added
+/// to that line is asked of the face too. The face is the copy the tests carry under <c>TestFonts</c> (the file the apps bundle).</para>
 /// </remarks>
-public class AtlasNightLineGlyphTests
+public class AtlasNightCurveLineGlyphTests
 {
     private static readonly string FacePath = Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
 
@@ -57,6 +61,18 @@ public class AtlasNightLineGlyphTests
         var face = new FontFallbackResolver(FacePath, []);
         var missing = runes.Where(r => face.TryResolveFont(r) is null).Select(r => $"U+{r.Value:X4}").ToList();
         missing.ShouldBeEmpty("marks DejaVu Sans lacks, which would draw nothing");
+    }
+
+    /// <summary>
+    /// The window resolves a rune through a fallback chain built over the bundled face, so the bundled face must answer first on
+    /// its own: no system or emoji face may be what happens to draw the mark on one machine.
+    /// </summary>
+    [Fact]
+    public void TheChainTheWindowBuildsAnswersEveryMarkFromTheBundledFaceAlone()
+    {
+        var chain = FontFallbackResolver.FromRoles(FacePath, emojiFontPath: null, scriptFontPaths: []);
+        var missing = NonAsciiRunesOfTheLine().Where(r => chain.TryResolveFont(r) is null).Select(r => $"U+{r.Value:X4}").ToList();
+        missing.ShouldBeEmpty("marks the bundled face lacks, which only a face of this machine would draw");
     }
 
     /// <summary>
