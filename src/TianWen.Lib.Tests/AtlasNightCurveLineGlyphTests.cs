@@ -61,18 +61,12 @@ public class AtlasNightCurveLineGlyphTests
         var face = new FontFallbackResolver(FacePath, []);
         var missing = runes.Where(r => face.TryResolveFont(r) is null).Select(r => $"U+{r.Value:X4}").ToList();
         missing.ShouldBeEmpty("marks DejaVu Sans lacks, which would draw nothing");
-    }
 
-    /// <summary>
-    /// The window resolves a rune through a fallback chain built over the bundled face, so the bundled face must answer first on
-    /// its own: no system or emoji face may be what happens to draw the mark on one machine.
-    /// </summary>
-    [Fact]
-    public void TheChainTheWindowBuildsAnswersEveryMarkFromTheBundledFaceAlone()
-    {
+        // The window resolves a rune through a chain built over the bundled face (BundledFonts), so the same marks are asked of
+        // that chain with no emoji or script face: no face of this machine may be what happens to draw one.
         var chain = FontFallbackResolver.FromRoles(FacePath, emojiFontPath: null, scriptFontPaths: []);
-        var missing = NonAsciiRunesOfTheLine().Where(r => chain.TryResolveFont(r) is null).Select(r => $"U+{r.Value:X4}").ToList();
-        missing.ShouldBeEmpty("marks the bundled face lacks, which only a face of this machine would draw");
+        var chainMissing = runes.Where(r => chain.TryResolveFont(r) is null).Select(r => $"U+{r.Value:X4}").ToList();
+        chainMissing.ShouldBeEmpty("marks the bundled face lacks, which only a face of this machine would draw");
     }
 
     /// <summary>
