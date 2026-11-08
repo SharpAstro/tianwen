@@ -68,6 +68,12 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// Whether the last orrery frame drew its focused body's disc as its textured view (traced on a GPU host, its sprite elsewhere)
+        /// rather than a flat dot: what a browser test waits on before it reads the body's pixels on its orbit.
+        /// </summary>
+        internal bool OrreryFocusDiscDrawn { get; private set; }
+
         /// <summary>How many orrery frames have been drawn, and how long the last one took (CPU, milliseconds).</summary>
         internal int OrreryFrames { get; private set; }
 
@@ -548,6 +554,7 @@ namespace TianWen.UI.Abstractions
         private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, in OrreryScaling scale,
             RectF32 rect, ICometRepository? comets, float dpiScale)
         {
+            OrreryFocusDiscDrawn = false;
             _orreryHits.Clear();
             _orreryViews.Clear();
             _orreryLabels.Clear();
@@ -688,7 +695,12 @@ namespace TianWen.UI.Abstractions
                     SolarSystemOrbits.EclipticToEquatorial(toSun);
                     var view = PlanetView.FromEquatorial(body.Index, viewingTime, right, toward, toSun);
                     _orreryViews.Add(view);
-                    if (dot || !TryDrawOrreryDisc(view, viewingTime, sx, sy, radius))
+                    var disc = !dot && TryDrawOrreryDisc(view, viewingTime, sx, sy, radius);
+                    if (body.Index == focus)
+                    {
+                        OrreryFocusDiscDrawn = disc;
+                    }
+                    if (!disc)
                     {
                         Renderer.FillEllipse(new RectInt(
                             new PointInt((int)MathF.Round(sx + radius), (int)MathF.Round(sy + radius)),
