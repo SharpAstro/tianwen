@@ -13,6 +13,7 @@ using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.Lib.Imaging.Grading;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -196,7 +197,7 @@ public class PhotometricTransparencyTests(ITestOutputHelper output) : IDisposabl
     private static LightGrade[] RunWithZeroPoint(int seed, double transmitted, bool hasWcs)
     {
         var random = new Random(seed);
-        return [.. LightGradingTests.SyntheticSkyNight(120, seed: seed).Select(g => g with
+        return [.. LightGradingTests.SyntheticSkyNight(120, seed: seed, objectName: $"zp-{seed}-{transmitted}-{hasWcs}").Select(g => g with
         {
             ZeroPoint = hasWcs
                 ? (float)(TrueZeroPoint0 - TrueExtinction * g.Covariates.Airmass + 2.5 * Math.Log10(transmitted) + 0.02 * (random.NextDouble() - 0.5) * 2)
@@ -351,6 +352,72 @@ public class PhotometricTransparencyTests(ITestOutputHelper output) : IDisposabl
         var clearZp = model.ZeroPoint0 - model.Extinction * x;
         model.Transparency(At(x), clearZp).ShouldBe(1.0, 0.01);
         model.Transparency(At(x), clearZp + 2.5 * Math.Log10(0.6)).ShouldBe(0.6, 0.01);
+    }
+
+    /// <summary>
+    /// The viewer's path (#2069 item 2): it grades the document's planes scaled to [0, 1] and adds back 2.5 log10(FullScaleAdu), while the
+    /// fitter measures the raw file in counts. The two zero points must agree, and the grade must carry the fields the fitter keyed its
+    /// entry by, or the stored model is never found and the transparency reads NaN for every frame the viewer opens.
+    /// </summary>
+    [Fact(Timeout = 240_000)]
+    public async Task TheViewersGradeReadsTheZeroPointTheFitterDoesAndFindsItsStoredEntry()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var field = BuildField(54, seed: 2);
+        var fitFolder = _folders.Create("viewer-fit").FullName;
+        var random = new Random(77);
+        const int perNight = 24;
+        foreach (var day in new[] { 10, 11 })
+        {
+            for (var i = 0; i < perNight; i++)
+            {
+                var when = new DateTimeOffset(2026, 6, day, 11, 0, 0, TimeSpan.Zero).AddMinutes(i * 9);
+                WriteStarLight(Path.Combine(fitFolder, $"Light_{day}_{i:000}.fits"), MetaFor(when, -5.0 + 10.0 * i / (perNight - 1)), field, 1.0, withWcs: true, random);
+            }
+        }
+        var fitted = await ExpectedSkyFitter.FitAsync([fitFolder], logger: null, cancellationToken: ct, catalogue: field.Db);
+        fitted.Entries.Length.ShouldBe(1);
+
+        // One clear and one 37 % dimmer light of the same rig, in a folder of their own (the model is not fitted from them).
+        var gradeFolder = _folders.Create("viewer-grade").FullName;
+        var graded = new Dictionary<string, double> { ["clear"] = 1.0, ["dim"] = 0.63 };
+        foreach (var (name, transmitted) in graded)
+        {
+            var when = new DateTimeOffset(2026, 6, 10, 11, 0, 0, TimeSpan.Zero).AddMinutes(10 * 9);
+            WriteStarLight(Path.Combine(gradeFolder, $"{name}.fits"), MetaFor(when, -5.0 + 10.0 * 10 / (perNight - 1)), field, transmitted, withWcs: true, random);
+        }
+
+        foreach (var (name, transmitted) in graded)
+        {
+            var path = Path.Combine(gradeFolder, $"{name}.fits");
+
+            // The raw file, in counts, as the fitter reads it.
+            Image.TryReadFitsFile(path, out var raw, out var rawWcs).ShouldBeTrue();
+            rawWcs.ShouldNotBeNull();
+            var rawStars = await raw.FindStarsAsync(raw.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: ct);
+            PhotometricZeroPoint.TryMeasure(raw, rawStars, rawWcs.Value, field.Db, out var rawZeroPoint).ShouldBeTrue(name);
+            raw.Release();
+
+            // The viewer's way: a document opened from the path (planes scaled to [0, 1]), its header WCS, the grade inside the detection.
+            var document = await AstroImageDocument.OpenAsync(path, DebayerAlgorithm.None, ct) ?? throw new InvalidOperationException("opens");
+            document.FullScaleAdu.ShouldNotBeNull(name);
+            var wcs = document.Findings.Wcs ?? throw new InvalidOperationException("the header WCS");
+            LightGrade? grade = null;
+            await document.DetectStarsAsync(ct, whileResident: (image, stars) => grade = LightGrading.Grade(image, stars, document.FullScaleAdu, wcs, field.Db));
+            var g = grade ?? throw new InvalidOperationException("graded");
+
+            output.WriteLine($"{name}: grade zp {g.ZeroPoint:0.000} raw zp {rawZeroPoint.ZeroPoint:0.000} (scale {document.FullScaleAdu})");
+            g.ZeroPoint.ShouldBe(rawZeroPoint.ZeroPoint, 0.02f, $"{name}: the scaled plane's zero point put back into counts");
+
+            var key = new ExpectedSkyKey(g.SiteLatitude, g.SiteLongitude, g.Rig, g.Key.SensorType, g.Key.FilterKey, g.Key.ExposureMs, g.Key.Bin);
+            var entry = ExpectedSkyStore.Find(fitted.Entries, key);
+            entry.ShouldNotBeNull($"{name}: the viewer's grade keys the entry the fitter stored");
+            entry.ShouldBeSameAs(fitted.Entries[0]);
+
+            var transparency = entry.Model.Transparency(g.Covariates, g.ZeroPoint);
+            output.WriteLine($"{name}: transparency {transparency:0.000}");
+            transparency.ShouldBe(transmitted, 0.05, name);
+        }
     }
 
     [Fact]
