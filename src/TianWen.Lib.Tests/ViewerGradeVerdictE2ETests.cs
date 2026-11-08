@@ -122,7 +122,7 @@ public class ViewerGradeVerdictE2ETests
         await e2e.OpenAsync(path, ct);
 
         // The folder's night, 300 synthetic frames, the open one (285) in the middle of the veil.
-        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266, objectName: "e2e-veil");
         for (var i = 0; i < 300; i++)
         {
             if (i == 285)
@@ -133,6 +133,8 @@ public class ViewerGradeVerdictE2ETests
         }
         e2e.State.RecordFrameGrade(path, night[285]);
         e2e.State.ExpectedSky = [];
+        // The night's own sky is fitted off the thread that draws (#2069): start it and let it land, as the viewer's poll repaints on.
+        await LightGradingTests.AwaitSelfFitAsync(e2e.State.FrameGrades, "e2e-veil", ct);
         e2e.Frame();
 
         var verdict = LightGrading.Verdict(e2e.State.FrameGrades, night[285], e2e.State.GradeReferences, e2e.State.ExpectedSky);

@@ -149,7 +149,7 @@ public readonly record struct LightGradeVerdict(float Relative, float Patchiness
 /// stay with the UI (<c>LightGradeColours</c>). A caller outside the viewer grades a frame BEFORE background normalization,
 /// which erases the night-sky term.
 /// </summary>
-public static class LightGrading
+public static partial class LightGrading
 {
     /// <summary>
     /// The grade of a frame from its detected stars, or null when it has none to grade by: a frame with no stars is
@@ -430,8 +430,10 @@ public static class LightGrading
         }
         if (model is null && selfFit && grade.Night != default)
         {
-            model = BaselinesOf(grades).SelfFit.TryGetValue(new ObjectNight(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night),
-                grade.Key.ObjectKey), out var lazy) ? lazy.Value : null;
+            // Never fitted here (#2069): the memo starts the fit on the pool, once per object-night while its samples are unchanged, and a
+            // fit still pending reads no term (NaN, exactly as with too few frames) until it lands.
+            var objectNight = new ObjectNight(new NightGroup(grade.Key with { ObjectKey = string.Empty }, grade.Rig, grade.Night), grade.Key.ObjectKey);
+            model = BaselinesOf(grades).SelfFit.TryGetValue(objectNight, out var input) ? SelfFitMemo.Read(objectNight, input) : null;
         }
         if (model is null)
         {
@@ -889,11 +891,12 @@ public static class LightGrading
         private readonly Dictionary<TimedGroup, float> _sky = [];
 
         /// <summary>
-        /// The expected sky of each night, rig and OBJECT, fitted from the non-twilight frames that read a sky surface, on first use
-        /// (a verdict of a frame with a stored model never pays for it). Per object because a target's own nebula or galaxy moves its
+        /// The samples of each night, rig and OBJECT that a self-fitted expected sky is made from (the non-twilight frames that read a
+        /// sky surface), in time order, with a fingerprint. No fit happens here: a verdict asks <see cref="SelfFitMemo"/>, which fits on
+        /// the pool, once while the fingerprint holds (#2069). Per object because a target's own nebula or galaxy moves its
         /// sky level for the whole night, which would otherwise read as veil against the night's other targets.
         /// </summary>
-        public Dictionary<ObjectNight, Lazy<ExpectedSkyModel?>> SelfFit { get; } = [];
+        public Dictionary<ObjectNight, SelfFitInput> SelfFit { get; } = [];
 
         public Baselines Build()
         {
@@ -947,7 +950,7 @@ public static class LightGrading
                     // In time order, never the table's own (a string-hashed dictionary enumerates differently per process), so the fit is repeatable.
                     list.Sort(static (a, b) => a.Taken.CompareTo(b.Taken));
                     var ordered = list.ConvertAll(static t => t.Sample);
-                    SelfFit[key] = new Lazy<ExpectedSkyModel?>(() => ExpectedSkyModel.Fit(ordered));
+                    SelfFit[key] = SelfFitInput.Of(ordered);
                 }
             }
             foreach (var (key, values) in patchiness)

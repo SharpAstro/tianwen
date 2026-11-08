@@ -14,6 +14,9 @@ namespace TianWen.UI.Benchmarks;
 /// for the baselines and, with no stored model for the rig, for the night's self-fit (<see cref="ExpectedSkyModel.Fit"/>), which is lazy
 /// per night and object. The four cases are the fit alone, that first verdict with the self-fit, the same with a stored model (the baselines
 /// alone) and a verdict on a snapshot already built (what every other painted row costs).
+/// Since #2069 the self-fit runs on the pool and is reused across snapshots while the night's samples are unchanged, so the first verdict
+/// no longer pays it: the fit-alone case is the fit's own cost on the pool, and the first-verdict cases read the baselines plus a pending
+/// term (the memo's fit for this night is started once, by the first verdict, and lands in the background).
 /// </summary>
 [MemoryDiagnoser]
 [ShortRunJob]

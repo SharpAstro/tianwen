@@ -196,7 +196,7 @@ public class PhotometricTransparencyTests(ITestOutputHelper output) : IDisposabl
     private static LightGrade[] RunWithZeroPoint(int seed, double transmitted, bool hasWcs)
     {
         var random = new Random(seed);
-        return [.. LightGradingTests.SyntheticSkyNight(120, seed: seed).Select(g => g with
+        return [.. LightGradingTests.SyntheticSkyNight(120, seed: seed, objectName: $"zp-{seed}-{transmitted}-{hasWcs}").Select(g => g with
         {
             ZeroPoint = hasWcs
                 ? (float)(TrueZeroPoint0 - TrueExtinction * g.Covariates.Airmass + 2.5 * Math.Log10(transmitted) + 0.02 * (random.NextDouble() - 0.5) * 2)

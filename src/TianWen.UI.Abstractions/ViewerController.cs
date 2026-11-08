@@ -1822,6 +1822,22 @@ public sealed class ViewerController(
         }
     }
 
+    private int _selfFitGeneration = LightGrading.SelfFitGeneration;
+
+    /// <summary>
+    /// A night's self-fitted expected sky is fitted off this thread and reads no term until it lands (#2069), so the poll repaints
+    /// the file list and the info strip, whose verdicts now carry the veil, when the count of landed fits moves.
+    /// </summary>
+    private void FollowSelfFits()
+    {
+        var generation = LightGrading.SelfFitGeneration;
+        if (generation != _selfFitGeneration)
+        {
+            _selfFitGeneration = generation;
+            state.NeedsRedraw = true;
+        }
+    }
+
     private void FollowGradeReferences()
     {
         if (external is not { } store)
@@ -1882,6 +1898,7 @@ public sealed class ViewerController(
     private void FollowFrameRenames()
     {
         FollowGradeReferences();
+        FollowSelfFits();
         ViewerActions.TryCompleteMark(state);
         while (state.TryTakeFrameRename(out var oldPath, out var newPath))
         {
