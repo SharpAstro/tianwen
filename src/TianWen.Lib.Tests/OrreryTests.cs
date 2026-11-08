@@ -917,6 +917,155 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The star field's cone is the sky the orrery's backdrop looks at while it is open, so a host holding only part of the star
+    /// catalogue (the web's Tycho-2 members) fetches what the backdrop draws, and follows the camera as it turns; closed, it is the map's
+    /// view again (#2071: the web fetched for the map's view alone, and the orrery showed only what the map had loaded).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheStarFieldConeIsTheBackdropsWhileTheOrreryIsOpenAndTheMapsOtherwise()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        var state = rig.Tab.State;
+        // The map looks well away from the star the orrery is turned to.
+        (state.CenterRA, state.CenterDec) = (18.0, 40.0);
+        rig.Tab.StarFieldCone.ShouldBe((18.0, 40.0, state.FieldOfViewDeg));
+
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        var (_, raHours, decDeg) = BrightStars[0];
+        Span<double> dir = [Math.Cos(decDeg * Math.PI / 180) * Math.Cos(raHours * Math.PI / 12), Math.Cos(decDeg * Math.PI / 180) * Math.Sin(raHours * Math.PI / 12), Math.Sin(decDeg * Math.PI / 180)];
+        SolarSystemOrbits.EquatorialToEcliptic(dir);
+        state.Orrery.AzimuthDeg = (Math.Atan2(-dir[1], -dir[0]) * 180 / Math.PI) + 3;
+        state.Orrery.ElevationDeg = Math.Clamp(-Math.Asin(dir[2]) * 180 / Math.PI, -80, 80);
+        rig.Render();
+        rig.Render();
+
+        var backdrop = rig.Tab.LastOrreryBackdrop.ShouldNotBeNull("the orrery drew no backdrop");
+        var (ra, dec, radius) = rig.Tab.StarFieldCone;
+        output.WriteLine($"cone at RA {ra:F3} h, Dec {dec:F3}, radius {radius:F1}; the backdrop's axis {backdrop.Axis}");
+        radius.ShouldBe(backdrop.RadiusDeg);
+        var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
+        (x * backdrop.Axis.X + y * backdrop.Axis.Y + z * backdrop.Axis.Z).ShouldBeGreaterThan(0.99999f, "the cone is not centred on the backdrop's axis");
+        AngleDeg(ra, dec, raHours, decDeg).ShouldBeLessThan(10, "the cone is not where the camera faces");
+        AngleDeg(ra, dec, 18.0, 40.0).ShouldBeGreaterThan(radius, "the cone still covers the map's view, which it should not need to");
+
+        state.Orrery.AzimuthDeg += 60;
+        rig.Render();
+        var (turnedRa, turnedDec, _) = rig.Tab.StarFieldCone;
+        AngleDeg(turnedRa, turnedDec, ra, dec).ShouldBeGreaterThan(30, "a camera turned 60 degrees left the cone where it was");
+
+        rig.Tab.CloseOrrery();
+        rig.Tab.StarFieldCone.ShouldBe((18.0, 40.0, state.FieldOfViewDeg));
+
+        static double AngleDeg(double ra1, double dec1, double ra2, double dec2)
+        {
+            var (ax, ay, az) = SkyMapState.RaDecToUnitVec(ra1, dec1);
+            var (bx, by, bz) = SkyMapState.RaDecToUnitVec(ra2, dec2);
+            return Math.Acos(Math.Clamp((ax * bx) + (ay * by) + (az * bz), -1f, 1f)) * 180 / Math.PI;
+        }
+    }
+
+    /// <summary>
+    /// A link reopens the orrery it was written from (#2072): an orrery set up and written by <see cref="OrreryLink.QueryFor"/>, then
+    /// closed and reset, is the same orrery once the link is applied, and draws; a link naming no camera frames its focus as a new view does.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ALinkReopensTheOrreryItWasWrittenFrom()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Saturn);
+        rig.Tab.OpenOrrery();
+        // The first frame frames the focus, setting the distance: the camera is moved after it, as a person would.
+        rig.Render();
+        var orrery = rig.Tab.State.Orrery;
+        (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance) = (40.5, 12.5, 3.25);
+        orrery.Scale = OrreryScale.True;
+        orrery.CometFilter = OrreryCometFilter.Steps[0];
+        orrery.DaysPerSecond = OrreryState.PlaySpeeds[2].DaysPerSecond;
+        orrery.Selected = CatalogIndex.Earth;
+        orrery.CentredOnFocus = true;
+        rig.Render();
+        var query = OrreryLink.QueryFor(orrery, instantUtc: null);
+        output.WriteLine(query);
+
+        rig.Tab.CloseOrrery();
+        (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, orrery.Scale) = (0, 0, 6, OrreryScale.Auto);
+        orrery.CometFilter = OrreryCometFilter.Default;
+        orrery.DaysPerSecond = OrreryState.DefaultPlaySpeed.DaysPerSecond;
+        orrery.Focus = orrery.Selected = null;
+        orrery.CentredOnFocus = false;
+
+        rig.Tab.ApplyOrreryLink(OrreryLink.Parse("?view=sky&" + query).ShouldNotBeNull(), comets: null).ShouldBeTrue();
+        rig.Render();
+
+        orrery.IsOpen.ShouldBeTrue();
+        (orrery.Focus, orrery.Selected, orrery.CentredOnFocus).ShouldBe((CatalogIndex.Saturn, CatalogIndex.Earth, true));
+        (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance).ShouldBe((40.5, 12.5, 3.25));
+        (orrery.Scale, orrery.CometFilter, orrery.DaysPerSecond).ShouldBe((OrreryScale.True, OrreryCometFilter.Steps[0], OrreryState.PlaySpeeds[2].DaysPerSecond));
+        rig.Tab.OrreryDrawn.ShouldContain(d => d.Index == CatalogIndex.Saturn, "the reopened orrery drew no Saturn");
+
+        // No camera in the link: a new view's angle, the distance framed on the focus by the next frame.
+        rig.Tab.CloseOrrery();
+        rig.Tab.ApplyOrreryLink(OrreryLink.Parse("?orrery=1&focus=Mars").ShouldNotBeNull(), comets: null).ShouldBeTrue();
+        rig.Render();
+        var fresh = new OrreryState();
+        (orrery.AzimuthDeg, orrery.ElevationDeg).ShouldBe((fresh.AzimuthDeg, fresh.ElevationDeg));
+        (orrery.Focus, orrery.Selected).ShouldBe((CatalogIndex.Mars, CatalogIndex.Mars));
+        orrery.Distance.ShouldNotBe(3.25);
+
+        // A comet the comet set does not hold: everything else applies, and the host is told to try again.
+        rig.Tab.CloseOrrery();
+        rig.Tab.ApplyOrreryLink(OrreryLink.Parse("?orrery=1&focus=999P&scale=true").ShouldNotBeNull(), comets: null).ShouldBeFalse();
+        (orrery.IsOpen, orrery.Focus, orrery.Scale).ShouldBe((true, null, OrreryScale.True));
+    }
+
+    /// <summary>
+    /// A link naming a comet before the comet set has loaded (#2072): the first application takes everything else and reports the
+    /// comet unresolved; once the repository holds it the retry, applying only the bodies, resolves it and leaves what the person
+    /// did to the camera, scale and speed in the meantime alone.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ALinkNamingACometResolvesOnceTheSetHoldsItWithoutUndoingWhatWasDoneMeanwhile()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        var comet = StubCometRepository.Comet("C/2026 A1", "PANSTARRS").CatalogIndex.ShouldNotBeNull();
+        var repo = new StubCometRepository(StubCometRepository.Comet("10P", "Tempel"), StubCometRepository.Comet("C/2026 A1", "PANSTARRS"));
+        var orrery = rig.Tab.State.Orrery;
+        var link = OrreryLink.Parse("?orrery=1&scale=true&speed=1y&az=40&el=10&dist=3&centre=1&focus="
+            + Uri.EscapeDataString(OrreryLink.BodyToken(comet))).ShouldNotBeNull();
+
+        // Before the set: no repository, nothing to resolve the comet with; the rest of the link is in.
+        rig.Tab.ApplyOrreryLink(link, comets: null).ShouldBeFalse();
+        (orrery.IsOpen, orrery.Focus, orrery.Scale).ShouldBe((true, null, OrreryScale.True));
+
+        // The person moves the camera and changes the scale and speed while the set loads.
+        (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance) = (200, 30, 4.5);
+        orrery.Scale = OrreryScale.Auto;
+        orrery.DaysPerSecond = OrreryState.DefaultPlaySpeed.DaysPerSecond;
+
+        rig.Tab.ApplyOrreryLink(link, repo, bodiesOnly: true).ShouldBeTrue();
+        (orrery.Focus, orrery.Comet, orrery.Selected, orrery.CentredOnFocus).ShouldBe((comet, comet, comet, true));
+        (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance).ShouldBe((200, 30, 4.5));
+        (orrery.Scale, orrery.DaysPerSecond).ShouldBe((OrreryScale.Auto, OrreryState.DefaultPlaySpeed.DaysPerSecond));
+
+        // A whole application with the set held resolves the comet too.
+        rig.Tab.ApplyOrreryLink(link, repo).ShouldBeTrue();
+        (orrery.Focus, orrery.Scale).ShouldBe((comet, OrreryScale.True));
+
+        // Opened on the comet, then focused on Mars: the comet stays the view's (its accented orbit), and the link carries it.
+        orrery.Focus = orrery.Selected = CatalogIndex.Mars;
+        var written = OrreryLink.QueryFor(orrery, instantUtc: null);
+        output.WriteLine(written);
+        var moved = OrreryLink.Parse(written).ShouldNotBeNull();
+        moved.Comet.ShouldBe(OrreryLink.BodyToken(comet));
+        rig.Tab.CloseOrrery();
+        orrery.Comet = null;
+        rig.Tab.ApplyOrreryLink(moved, comets: null).ShouldBeFalse("the opened comet resolved with no comet set");
+        rig.Tab.ApplyOrreryLink(moved, repo, bodiesOnly: true).ShouldBeTrue();
+        (orrery.Focus, orrery.Comet).ShouldBe((CatalogIndex.Mars, comet));
+    }
+
+    /// <summary>
     /// With the backdrop the orbits and labels stay readable: the backdrop draws stars (it changes some pixels of the frame), and under
     /// every label the backdrop adds at most <see cref="MaxBackdropUnderLabel"/> to any channel, compared with the same frame drawn
     /// without it.
@@ -994,7 +1143,12 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// Zoomed in on the Sun, a body BEHIND it never paints over it: the camera swept round the Sun close in, every frame, any dark
     /// pixel inside the Sun's inner disc lies on a body drawn NEARER the camera than the Sun (a transit), never on one behind it.
     /// </summary>
-    [Fact(Timeout = 120_000)]
+    /// <remarks>
+    /// 840 renders. 10.8 s on a green ubuntu-latest leg of dotnet.yml (2026-11-06), so it is not <c>Heavy</c> (30 s there), but 58 s
+    /// alone on the 16-core Windows desktop, and more when the machine is shared. The bound is a guard against a wedge, never a
+    /// speed check, so it is 300 s: the 120 s of its neighbours left a loaded desktop a little over 2x of headroom.
+    /// </remarks>
+    [Fact(Timeout = 300_000)]
     public async Task ABodyBehindTheSunNeverPaintsOverIt()
     {
         using var rig = await RigAsync(TestContext.Current.CancellationToken);

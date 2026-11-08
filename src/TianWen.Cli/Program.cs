@@ -250,7 +250,8 @@ var rootCommand = new RootCommand
             consoleHost,
             // GetService: only gradient-report solves anything, and a host with no catalog must still build a dataset.
             services.GetService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
-            services.GetService<ILogger<DatasetSubCommand>>()).Build(),
+            services.GetService<ILogger<DatasetSubCommand>>(),
+            services.GetService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };

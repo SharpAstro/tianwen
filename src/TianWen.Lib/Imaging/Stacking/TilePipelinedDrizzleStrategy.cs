@@ -356,8 +356,12 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                     }
 
                     var transform = sources[f].TransformToCanvas;
+                    var shifts = sources[f].ColourShifts;
+                    // A colour's drops sit its shift from where the transform puts them, so the source rectangle that can
+                    // reach the strip grows by the longest shift (#1993).
                     var sourceRect = CanvasGeometry.ProjectCanvasRectToSourceRect(
-                        stripMoments is not null && pass == 0 ? momentsRect : stripRect, transform, rawW, rawH, projectionHalo);
+                        stripMoments is not null && pass == 0 ? momentsRect : stripRect, transform, rawW, rawH,
+                        projectionHalo + shifts.HaloPx);
                     if (sourceRect.Width <= 0 || sourceRect.Height <= 0)
                     {
                         // Frame's source pixels can't reach this strip -- skip
@@ -372,7 +376,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                             stripFlux, stripWeight,
                             xStart: 0, xEnd: canvasW,
                             yStart: stripY0, yEnd: stripY0 + stripH,
-                            sourceRect, badPixelMask, hasBadPixelMask);
+                            sourceRect, badPixelMask, hasBadPixelMask, shifts);
                     }
                     else if (pass == 0)
                     {
@@ -380,7 +384,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                             calibrated, transform, pattern, halfP, stripMoments,
                             xStart: 0, xEnd: canvasW,
                             yStart: momentsRect.Y, yEnd: momentsRect.Y + momentsRect.Height,
-                            sourceRect, badPixelMask, hasBadPixelMask);
+                            sourceRect, badPixelMask, hasBadPixelMask, shifts);
                     }
                     else if (clip is { } c)
                     {
@@ -389,7 +393,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                             stripFlux, stripWeight,
                             xStart: 0, xEnd: canvasW,
                             yStart: stripY0, yEnd: stripY0 + stripH,
-                            sourceRect, badPixelMask, hasBadPixelMask, stripScatter, drift, f);
+                            sourceRect, badPixelMask, hasBadPixelMask, stripScatter, drift, f, shifts);
                         rejectedDeposits += rejected;
                         totalDeposits += total;
                     }

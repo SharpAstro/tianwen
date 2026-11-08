@@ -11,7 +11,8 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <paramref name="RawCfa"/>'s <c>ImageMeta</c>. The transform is the
 /// composed source-to-canvas affine (per-frame registration result × the
 /// group's canvas shift), so the strategy applies it directly without
-/// inversion.
+/// inversion. <paramref name="ColourShifts"/> says how far each photosite colour sat from green (source pixels,
+/// #1993), and <see cref="DrizzleStrategy"/> deposits each colour's drops that far the other way.
 /// </summary>
 /// <remarks>
 /// Distinct from the standard <see cref="IntegrationJob.WarpedFrames"/>
@@ -23,4 +24,5 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// </remarks>
 public sealed record RawBayerFrame(
     Image RawCfa,
-    Matrix3x2 TransformToCanvas);
+    Matrix3x2 TransformToCanvas,
+    ChannelShifts ColourShifts = default);

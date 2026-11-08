@@ -140,6 +140,7 @@ namespace TianWen.UI.Abstractions
         {
             plannerState.SiteLatitude = transform.SiteLatitude;
             plannerState.SiteLongitude = transform.SiteLongitude;
+            plannerState.SiteElevation = double.IsNaN(transform.SiteElevation) ? 0d : transform.SiteElevation;
             plannerState.SiteTimeZone = transform.SiteTimeZone;
         }
 

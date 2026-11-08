@@ -95,6 +95,7 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             ITimeProvider timeProvider)
         {
+            OnFrameStarting();
             // The orrery is a MODE of the map (docs/plans/atlas-planet-detail.md, A5): it takes the rect in the sky's place, and the
             // sky's chrome (the palette, F3's search, the large picture) waits behind it.
             if (State.Orrery.IsOpen)
@@ -109,6 +110,14 @@ namespace TianWen.UI.Abstractions
             RenderOrreryBinding(contentRect);
             // Last, over the palette too: it covers the map and takes every press until it is closed.
             RenderLargePicture(plannerState, contentRect);
+        }
+
+        /// <summary>
+        /// The start of one frame of <see cref="Render"/>, for a host whose per-frame resources are counted per frame: the web's planet
+        /// bodies, which give each draw of a body within a frame its own block (<see cref="PlanetBodyInstances{TBuffer}"/>).
+        /// </summary>
+        protected virtual void OnFrameStarting()
+        {
         }
 
         /// <summary>

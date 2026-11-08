@@ -27,6 +27,8 @@ internal static class CloudRejection
     /// <summary>
     /// The verdict of every frame in <paramref name="grades"/> that carries a rejecting cause, keyed as the grades are. Read against
     /// <paramref name="references"/> where a rig's clear nights are known (the viewer's store), else on the group's own baselines.
+    /// The expected-sky terms (veil, transparency, #1974) are not read here: the stacker holds no stored model, and the night's
+    /// self-fit is left to the viewer so a stack never drops a frame on a term the session did not see.
     /// Patchiness is judged only in a group of <see cref="MinGradedForCloud"/> graded lights, the night-sky term only for a rig's night
     /// with that many. Twilight reads the Sun's altitude and needs no baseline, but only a night that reaches astronomical dark is judged
     /// for it, meaning at least <see cref="MinGradedForCloud"/> of its graded lights are outside twilight: where the Sun never gets
@@ -62,7 +64,7 @@ internal static class CloudRejection
         var rejected = ImmutableDictionary.CreateBuilder<string, LightGradeVerdict>(grades.KeyComparer);
         foreach (var (path, grade) in grades)
         {
-            var verdict = LightGrading.Verdict(grades, grade, references);
+            var verdict = LightGrading.Verdict(grades, grade, references, selfFit: false);
             var causes = verdict.Causes & Rejects;
             if ((causes & GradeCause.Cloud) != GradeCause.None)
             {

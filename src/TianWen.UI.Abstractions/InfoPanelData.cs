@@ -395,7 +395,7 @@ public static class InfoPanelData
                 [document.Findings.Stars is null ? "Measuring the stars..." : "Not graded: no stars found"], null, null);
         }
 
-        var verdict = LightGrading.Verdict(grades, grade, state.GradeReferences);
+        var verdict = LightGrading.Verdict(grades, grade, state.GradeReferences, state.ExpectedSky);
         var relative = verdict.Relative;
         // The best named is the frame the share is OF (LightGrading.BestScore): the best clear frame, which a cloud frame with a
         // higher raw score is not (2026-09-10's top score was a BAD_ cloud frame).

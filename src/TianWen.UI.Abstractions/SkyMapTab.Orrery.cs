@@ -48,6 +48,32 @@ namespace TianWen.UI.Abstractions
         /// <summary>The backdrop view the last orrery frame drew its stars through, or null when it drew none: what the tests read.</summary>
         internal SkyOrreryBackdrop? LastOrreryBackdrop { get; private set; }
 
+        /// <summary>
+        /// The part of the sky the star field is drawn for now, as a cone: the orrery backdrop's own axis and cull radius while the orrery
+        /// is open and drew one, else the map's view centre and field (the radius the star cull takes, <see cref="SkyMapState.ViewRadiusDeg"/>).
+        /// What a host that holds only part of the star catalogue fetches for: the web's Tycho-2 members were fetched for the map's view
+        /// alone, so the orrery's backdrop showed only what the map had happened to load (#2071).
+        /// </summary>
+        internal (double RaHours, double DecDeg, double RadiusDeg) StarFieldCone
+        {
+            get
+            {
+                if (State.Orrery.IsOpen && LastOrreryBackdrop is { } backdrop)
+                {
+                    var (x, y, z) = backdrop.Axis;
+                    var (ra, dec) = PolarAxisSolver.UnitVecToRaDec(new Vec3(x, y, z));
+                    return (ra, dec, backdrop.RadiusDeg);
+                }
+                return (State.CenterRA, State.CenterDec, State.FieldOfViewDeg);
+            }
+        }
+
+        /// <summary>
+        /// Whether the last orrery frame drew its focused body's disc as its textured view (traced on a GPU host, its sprite elsewhere)
+        /// rather than a flat dot: what a browser test waits on before it reads the body's pixels on its orbit.
+        /// </summary>
+        internal bool OrreryFocusDiscDrawn { get; private set; }
+
         /// <summary>How many orrery frames have been drawn, and how long the last one took (CPU, milliseconds).</summary>
         internal int OrreryFrames { get; private set; }
 
@@ -78,6 +104,103 @@ namespace TianWen.UI.Abstractions
             _orreryFramePending = true;
             State.PictureExpanded = false;
             State.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Opens the orrery as a link describes it (#2072, <see cref="OrreryLink"/>): its focus and panel, centring, camera, scale,
+        /// comet filter, backdrop, speed and play; what the link leaves out is a new view's (the camera framing the focus, as
+        /// <see cref="OpenOrrery"/> does). The instant is the host's to apply, into the planning date, as the pointing link's is.
+        /// Returns false when a body the link names could not be resolved yet (a comet before the comet set has loaded), so the host
+        /// applies it again once it has; whatever did resolve is applied either way. That second application passes
+        /// <paramref name="bodiesOnly"/>: only the bodies (focus, panel, centring, and the framing they decide) are applied, so what the
+        /// person did to the camera, speed, scale or play in the seconds the comet set took is not snapped back to the link.
+        /// </summary>
+        internal bool ApplyOrreryLink(OrreryLinkData link, ICometRepository? comets, bool bodiesOnly = false)
+        {
+            var orrery = State.Orrery;
+            var resolved = true;
+            CatalogIndex? focus = null;
+            if (link.Focus is { } focusToken)
+            {
+                if (OrreryLink.TryResolveBody(focusToken, comets, out var body))
+                {
+                    focus = body;
+                }
+                else
+                {
+                    resolved = false;
+                }
+            }
+            CatalogIndex? selected = focus;
+            if (link.Panel is { } panelToken)
+            {
+                if (string.Equals(panelToken, OrreryLink.NoPanel, StringComparison.OrdinalIgnoreCase))
+                {
+                    selected = null;
+                }
+                else if (OrreryLink.TryResolveBody(panelToken, comets, out var body))
+                {
+                    selected = body;
+                }
+                else
+                {
+                    resolved = false;
+                }
+            }
+
+            // The comet the view was opened on: the link's own when the focus moved off it, else the focus when that is a comet.
+            CatalogIndex? opened = focus is { } f && f.ToCatalog() == Catalog.Comet ? f : null;
+            if (link.Comet is { } cometToken)
+            {
+                if (OrreryLink.TryResolveBody(cometToken, comets, out var body) && body.ToCatalog() == Catalog.Comet)
+                {
+                    opened = body;
+                }
+                else
+                {
+                    resolved = false;
+                }
+            }
+
+            orrery.Focus = focus;
+            orrery.Comet = opened;
+            orrery.Selected = selected;
+            orrery.CentredOnFocus = link.CentredOnFocus && focus is not null;
+            if (bodiesOnly)
+            {
+                // The distance a link's camera does not give is framed on the focus, which has just changed.
+                if (link.Camera is null)
+                {
+                    _orreryFramePending = true;
+                }
+                State.NeedsRedraw = true;
+                return resolved;
+            }
+            orrery.Scale = link.Scale ?? OrreryScale.Auto;
+            orrery.CometFilter = link.CometFilter ?? OrreryCometFilter.Default;
+            orrery.ShowBackdrop = link.ShowBackdrop ?? true;
+            orrery.DaysPerSecond = link.DaysPerSecond ?? OrreryState.DefaultPlaySpeed.DaysPerSecond;
+            orrery.Playing = link.Playing;
+            orrery.PlayTimestamp = 0;
+            orrery.Dragging = false;
+            orrery.Pinching = false;
+            if (link.Camera is { } camera)
+            {
+                (orrery.AzimuthDeg, orrery.ElevationDeg) = (camera.AzimuthDeg, camera.ElevationDeg);
+                orrery.Distance = Math.Clamp(camera.Distance, MinOrreryDistance, MaxOrreryDistance);
+                _orreryFramePending = false;
+            }
+            else
+            {
+                // A new view's angle, and its distance framed on the focus at the first frame.
+                var fresh = new OrreryState();
+                (orrery.AzimuthDeg, orrery.ElevationDeg) = (fresh.AzimuthDeg, fresh.ElevationDeg);
+                _orreryFramePending = true;
+            }
+            orrery.IsOpen = true;
+            State.PictureExpanded = false;
+            State.NeedsRedraw = true;
+            return resolved;
         }
 
         /// <summary>Back to the sky (Escape, the strip's Sky): the selection and the view are as they were.</summary>
@@ -431,6 +554,7 @@ namespace TianWen.UI.Abstractions
         private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, in OrreryScaling scale,
             RectF32 rect, ICometRepository? comets, float dpiScale)
         {
+            OrreryFocusDiscDrawn = false;
             _orreryHits.Clear();
             _orreryViews.Clear();
             _orreryLabels.Clear();
@@ -571,7 +695,12 @@ namespace TianWen.UI.Abstractions
                     SolarSystemOrbits.EclipticToEquatorial(toSun);
                     var view = PlanetView.FromEquatorial(body.Index, viewingTime, right, toward, toSun);
                     _orreryViews.Add(view);
-                    if (dot || !TryDrawOrreryDisc(view, viewingTime, sx, sy, radius))
+                    var disc = !dot && TryDrawOrreryDisc(view, viewingTime, sx, sy, radius);
+                    if (body.Index == focus)
+                    {
+                        OrreryFocusDiscDrawn = disc;
+                    }
+                    if (!disc)
                     {
                         Renderer.FillEllipse(new RectInt(
                             new PointInt((int)MathF.Round(sx + radius), (int)MathF.Round(sy + radius)),

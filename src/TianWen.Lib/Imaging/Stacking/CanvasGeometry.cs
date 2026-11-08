@@ -72,12 +72,16 @@ internal static class CanvasGeometry
     /// to mirror the production warp path.</param>
     /// <param name="canvasShift">Reference-to-canvas translation
     /// (from <see cref="ComputeUnionCanvas"/>).</param>
+    /// <param name="footprintMargin">Whole pixels every footprint (not the stats rect) is widened by: a colour plane placed on
+    /// green by its own shift (<see cref="ChannelShifts"/>, #1993) lands up to that far outside the quad the transform alone
+    /// draws, and a footprint-staged strategy writes nothing outside its footprint.</param>
     public static (List<PixelRect> Footprints, PixelRect StatsRect)
         ComputeFootprintsAndStatsRect(
             IReadOnlyList<Matrix3x2> transforms,
             Matrix3x2 canvasShift,
             int srcW, int srcH,
-            int canvasW, int canvasH)
+            int canvasW, int canvasH,
+            int footprintMargin = 0)
     {
         var intersectionPoly = new List<Vector2>
         {
@@ -105,10 +109,10 @@ internal static class CanvasGeometry
                 if (quad[i].Y < fyMin) fyMin = quad[i].Y;
                 if (quad[i].Y > fyMax) fyMax = quad[i].Y;
             }
-            var ffX = Math.Max(0, (int)MathF.Floor(fxMin));
-            var ffY = Math.Max(0, (int)MathF.Floor(fyMin));
-            var ffR = Math.Min(canvasW, (int)MathF.Ceiling(fxMax));
-            var ffB = Math.Min(canvasH, (int)MathF.Ceiling(fyMax));
+            var ffX = Math.Max(0, (int)MathF.Floor(fxMin) - footprintMargin);
+            var ffY = Math.Max(0, (int)MathF.Floor(fyMin) - footprintMargin);
+            var ffR = Math.Min(canvasW, (int)MathF.Ceiling(fxMax) + footprintMargin);
+            var ffB = Math.Min(canvasH, (int)MathF.Ceiling(fyMax) + footprintMargin);
             footprints.Add(new PixelRect(ffX, ffY, Math.Max(0, ffR - ffX), Math.Max(0, ffB - ffY)));
 
             EnsureCwInCanvas(quad);

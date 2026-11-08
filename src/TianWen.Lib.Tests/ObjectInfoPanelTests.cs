@@ -333,6 +333,115 @@ namespace TianWen.Lib.Tests
             linkTop.ShouldBeGreaterThanOrEqualTo(ObjectInfoPanel.DesignTextBlockHeight(in options));
         }
 
+        // --- the night curve's slot and its line (#2059) ---
+
+        private static AtlasNightCurve Curve(float rating = 3.5f, TimeSpan? usable = null, bool shaded = true, bool window = true)
+            => new AtlasNightCurve(
+                Samples: [],
+                Step: TimeSpan.FromMinutes(15),
+                AstroDark: new DateTimeOffset(2025, 12, 4, 18, 30, 0, TimeSpan.Zero),
+                AstroTwilight: new DateTimeOffset(2025, 12, 5, 4, 30, 0, TimeSpan.Zero),
+                MinAltitude: 20,
+                Shaded: shaded,
+                UsableTime: usable ?? TimeSpan.FromMinutes(255),
+                WindowStart: window ? new DateTimeOffset(2025, 12, 4, 20, 30, 0, TimeSpan.Zero) : null,
+                WindowEnd: window ? new DateTimeOffset(2025, 12, 5, 0, 45, 0, TimeSpan.Zero) : null,
+                Rating: rating);
+
+        /// <summary>The usable time as h:mm, the window in the panel's own zone and the rating as the planner shows it.</summary>
+        [Fact]
+        public void TheNightLineStatesUsableTimeWindowAndRating()
+            => ObjectInfoPanel.NightLine(Curve(), TimeSpan.FromHours(1))
+                .ShouldBe("Usable 4:15   21:30 to 01:45   3.5★");
+
+        /// <summary>A time under an hour keeps its leading zero minutes, and the zone moves the window, not the time.</summary>
+        [Fact]
+        public void TheNightLineHoldsItsFormatForShortAndZonedTimes()
+        {
+            ObjectInfoPanel.NightLine(Curve(rating: 0.5f, usable: TimeSpan.FromMinutes(45)), TimeSpan.Zero)
+                .ShouldBe("Usable 0:45   20:30 to 00:45   0.5★");
+            ObjectInfoPanel.NightLine(Curve(), TimeSpan.FromHours(-5))
+                .ShouldBe("Usable 4:15   15:30 to 19:45   3.5★");
+        }
+
+        /// <summary>An object that never gets above the minimum says so, with the minimum, rather than printing 0:00 and a window of dashes.</summary>
+        [Fact]
+        public void TheNightLineSaysWhenNothingCounts()
+            => ObjectInfoPanel.NightLine(Curve(usable: TimeSpan.Zero, window: false), TimeSpan.Zero)
+                .ShouldBe("Not above 20° in the dark");
+
+        /// <summary>A body with no shade (the Moon) has no line, and a score is never what the line shows.</summary>
+        [Fact]
+        public void ABodyWithNoShadeHasNoNightLine()
+            => ObjectInfoPanel.NightLine(Curve(shaded: false), TimeSpan.Zero).ShouldBeNull();
+
+        /// <summary>
+        /// The curve's section takes exactly its own height, the line inside it rather than in the rows, and
+        /// leaves the comet sparkline's slot and a host that passes nothing (the FITS viewer) as they were.
+        /// </summary>
+        [Fact]
+        public void TheNightCurveSectionHasItsOwnHeightAndLeavesTheRowsAlone()
+        {
+            var actions = new ObjectInfoPanel.PanelActions();
+            var plain = new ObjectInfoPanel.PanelDisplayOptions(ShowAltAz: true, ShowRiseSet: true);
+            var withCurve = plain with { NightCurve = Curve() };
+
+            ObjectInfoPanel.RowCount(in withCurve).ShouldBe(ObjectInfoPanel.RowCount(in plain));
+            ObjectInfoPanel.DesignHeight(in withCurve, in actions)
+                .ShouldBe(ObjectInfoPanel.DesignHeight(in plain, in actions) + ObjectInfoPanel.DesignNightCurveSectionHeight);
+
+            // Beside the sparkline, each takes its own.
+            var both = withCurve with { Sparkline = true };
+            ObjectInfoPanel.DesignHeight(in both, in actions)
+                .ShouldBe(ObjectInfoPanel.DesignHeight(in withCurve, in actions) + ObjectInfoPanel.DesignSparklineHeight + 4f);
+
+            new ObjectInfoPanel.PanelDisplayOptions().NightCurve.ShouldBeNull();
+            ObjectInfoPanel.BuildNightCurveSection(in plain, in Palette).ShouldBeNull();
+            ObjectInfoPanel.BuildNightCurveSection(in withCurve, in Palette).ShouldNotBeNull();
+        }
+
+        /// <summary>
+        /// A curve still being scored reserves its section, so the panel is as tall before it lands as after (nothing moves under the
+        /// pointer), with its slot empty and no line. A host that never offers a curve (the FITS viewer) reserves nothing.
+        /// </summary>
+        [Fact]
+        public void APendingNightCurveReservesItsSection()
+        {
+            var actions = new ObjectInfoPanel.PanelActions();
+            var plain = new ObjectInfoPanel.PanelDisplayOptions(ShowAltAz: true, ShowRiseSet: true);
+            var pending = plain with { NightCurvePending = true };
+            var landed = plain with { NightCurve = Curve() };
+
+            ObjectInfoPanel.HasNightCurveSection(in pending).ShouldBeTrue();
+            ObjectInfoPanel.HasNightCurveSection(in plain).ShouldBeFalse();
+            ObjectInfoPanel.DesignHeight(in pending, in actions).ShouldBe(ObjectInfoPanel.DesignHeight(in landed, in actions));
+            ObjectInfoPanel.BuildNightCurveSection(in pending, in Palette).ShouldNotBeNull();
+        }
+
+        /// <summary>
+        /// A score that failed (an unplaceable body) keeps the section's height and says so in its line, so the panel does not shrink
+        /// and jump when the answer lands as "no curve" (review note on #2059).
+        /// </summary>
+        [Fact]
+        public void AnUnavailableNightCurveKeepsItsSectionAndSaysSo()
+        {
+            var actions = new ObjectInfoPanel.PanelActions();
+            var plain = new ObjectInfoPanel.PanelDisplayOptions(ShowAltAz: true, ShowRiseSet: true);
+            var unavailable = plain with { NightCurveUnavailable = true };
+            var pending = plain with { NightCurvePending = true };
+
+            ObjectInfoPanel.HasNightCurveSection(in unavailable).ShouldBeTrue();
+            ObjectInfoPanel.DesignHeight(in unavailable, in actions).ShouldBe(ObjectInfoPanel.DesignHeight(in pending, in actions));
+
+            // The note takes the empty slot's place: one leaf holding it and no slot above it (a blank gap over a line of text was the
+            // note on #2059); its height is the section's own, declared once, so nothing moves when the answer lands.
+            var section = ObjectInfoPanel.BuildNightCurveSection(in unavailable, in Palette)
+                .ShouldBeOfType<Layout.Node.Leaf>();
+            section.Content.ShouldBeOfType<Layout.Content.Text>().Value.ShouldBe(ObjectInfoPanel.NightCurveUnavailableLine);
+            ObjectInfoPanel.BuildNightCurveSection(in pending, in Palette).ShouldBeOfType<Layout.Node.Stack>()
+                .Children.Any(c => c is Layout.Node.Leaf { Content: Layout.Content.Fill }).ShouldBeTrue("the pending section lost its slot");
+        }
+
         /// <summary>
         /// Every control that can act lights under the pointer and a link says it is one with the hand
         /// pointer. A disabled Goto does not light, since a press on it does nothing. Raised 2026-09-18: no
