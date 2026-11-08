@@ -180,6 +180,11 @@ public static class FrameRegistration
     /// result (the stacker yields it to a streaming integrator, the registrar writes a scratch
     /// FITS) -- and a divergence HERE would be silent behavioural drift between the master a user
     /// sees and the master a model trains on, the exact class of drift this file exists to end.
+    ///
+    /// <para><b>Each colour is placed on green here too</b> (<paramref name="colourShifts"/>, #1993): the debayered planes are
+    /// warped one by one, each by the frame's transform composed with that colour's own source-space shift. A caller states it
+    /// either way, <see cref="ChannelShifts.None"/> being the plain warp, so a path that does not align colours says so at its
+    /// call site rather than by omission.</para>
     /// </summary>
     public static async Task<(Image Warped, Matrix3x2 CanvasTransform)> WarpToCanvasAsync(
         Image calibrated,
@@ -188,12 +193,13 @@ public static class FrameRegistration
         DebayerAlgorithm debayerAlgorithm,
         int canvasWidth,
         int canvasHeight,
-        WarpInterpolation interpolation = WarpInterpolation.Lanczos3Clamped,
+        WarpInterpolation interpolation,
+        ChannelShifts colourShifts,
         CancellationToken cancellationToken = default)
     {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         var shifted = transformToReference * canvasShift;
-        var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasWidth, canvasHeight, interpolation, cancellationToken);
+        var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasWidth, canvasHeight, interpolation, colourShifts, cancellationToken);
         return (warped, shifted);
     }
 }

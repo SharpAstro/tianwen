@@ -19,7 +19,10 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <param name="TransformToCanvas">Affine that takes a (source x, y) and
 /// maps to (canvas x, y). Composed by the orchestrator as
 /// <c>transformToReference * canvasShift</c>.</param>
-public sealed record RawLightSource(string Path, Matrix3x2 TransformToCanvas);
+/// <param name="ColourShifts">How far this frame's red and blue sat from green, in source pixels, as the stacker's measure
+/// pass read them from the frame's stars (#1993); applied per colour wherever the strategy places the frame, so red and blue
+/// land on green. <c>default</c> (no shift) is every caller that never measured.</param>
+public sealed record RawLightSource(string Path, Matrix3x2 TransformToCanvas, ChannelShifts ColourShifts = default);
 
 /// <summary>
 /// Everything an <see cref="IIntegrationStrategy.RunAsync"/> implementation

@@ -840,6 +840,12 @@ public sealed class StackingPipeline(
         // The viewer's grade of each light, taken here because this is the one place a light is calibrated and its stars found
         // BEFORE normalization (CloudRejection; null when the option is off, so nothing extra is read).
         var cloudGrades = options.RejectCloud ? ImmutableDictionary.CreateBuilder<string, LightGrade>(StringComparer.OrdinalIgnoreCase) : null;
+        // Each colour frame's red and blue offsets from green, read off the stars this pass already found (#1993), keyed by the
+        // light's own path: the register pass, the quality and cloud filters and the starless swap all rebuild the matched
+        // list, and a path survives all of them where an index would not. Null when the option is off.
+        var colourShifts = options.AlignColours ? new Dictionary<string, ChannelShifts>(StringComparer.OrdinalIgnoreCase) : null;
+        var colourReadings = new List<ChannelOffsetsResult>();
+        var colourUnmeasured = 0;
         foreach (var lf in lightList)
         {
             ct.ThrowIfCancellationRequested();
@@ -867,6 +873,23 @@ public sealed class StackingPipeline(
             var (stars, _) = await FrameRegistration.DetectAsync(
                 calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, knownBad: knownBad, cancellationToken: ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
+            // The colours are read on the CALIBRATED MOSAIC, before any demosaic pulls red and blue toward green
+            // (Image.ChannelOffsets: a 0.28 px red shift reads 0.22 px on an AHD frame), with the stars detection just found:
+            // no second detection pass. A mono frame has no colours to read; a colour frame with too few stars reads
+            // nothing and aligns with zero offsets, which the summary below counts.
+            if (colourShifts is not null && (calibrated.IsCfaMosaic || calibrated.ChannelCount == 3))
+            {
+                var reading = calibrated.ChannelOffsets(stars);
+                colourShifts[lf.Path] = ChannelShifts.From(reading);
+                if (reading.IsMeasured)
+                {
+                    colourReadings.Add(reading);
+                }
+                else
+                {
+                    colourUnmeasured++;
+                }
+            }
             if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
             {
                 // Patchiness within the run stays the calibrated frame's: the flat divides out vignetting a raw frame's surface fit
@@ -886,6 +909,10 @@ public sealed class StackingPipeline(
             frameCandidates.Add((lf, metrics, FrameRegistration.ReferenceScore(metrics), stars));
         }
         timings.Record(StageNames.Measure, measureStart, lightList.Count, measuredPixels);
+        if (colourReadings.Count + colourUnmeasured > 0)
+        {
+            ColourAlignmentReport.Log(logger, colourReadings, colourUnmeasured);
+        }
 
         // A manifest DRIVES this run rather than informing it: frame list, reference and every star
         // transform come from the earlier run, and the register pass below is skipped entirely. That
@@ -1110,6 +1137,11 @@ public sealed class StackingPipeline(
 
         if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true);
         Directory.CreateDirectory(stagingDir);
+
+        // One frame's colour shifts, or none: a frame the measure pass did not read (too few stars, a mono frame, the option off)
+        // is placed by its transform alone, which is what every frame was before colour alignment.
+        ChannelShifts ColourShiftsOf(string lightPath)
+            => colourShifts is not null && colourShifts.TryGetValue(lightPath, out var shifts) ? shifts : ChannelShifts.None;
 
         // 3b. Per-light: register the RETAINED star lists against the reference through the shared
         // RegisterLoop (min-stars floor -> quad-form -> tolerance ladder -> rigid refine, plus the
@@ -1642,8 +1674,15 @@ public sealed class StackingPipeline(
             logger.LogInformation("  [canvas] union bbox = {W}x{H} (origin {X},{Y} in ref space)",
                 outWidth, outHeight, outOriginX, outOriginY);
 
+            // A colour plane shifted onto green lands up to its shift outside the quad the transform alone draws, and a
+            // footprint-staged strategy writes nothing beyond a footprint: widen every one by the longest shift of the group.
+            var footprintMargin = 0;
+            for (var fi = 0; fi < matched.Count; fi++)
+            {
+                footprintMargin = Math.Max(footprintMargin, ColourShiftsOf(matched[fi].Light.Path).HaloPx);
+            }
             var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
-                layerTransforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight);
+                layerTransforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight, footprintMargin);
 
             // One preparation for BOTH producers: load, calibrate for this layer, and take the body
             // out of the raw CFA frame (subtract it, or blank it) before anything debayers or warps.
@@ -1733,7 +1772,8 @@ public sealed class StackingPipeline(
                     // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
                     // three lines the dataset registrar runs, so the two paths cannot drift here.
                     var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
-                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, options.WarpInterpolation, token);
+                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, options.WarpInterpolation,
+                        ColourShiftsOf(matched[fi].Light.Path), token);
                     yield return warped;
                 }
             }
@@ -1749,7 +1789,7 @@ public sealed class StackingPipeline(
                 for (var fi = 0; fi < matched.Count; fi++)
                 {
                     var (calibrated, transformOrig) = await PrepareFrameAsync(fi, token);
-                    yield return new RawBayerFrame(calibrated, transformOrig * canvasShift);
+                    yield return new RawBayerFrame(calibrated, transformOrig * canvasShift, ColourShiftsOf(matched[fi].Light.Path));
                 }
             }
 
@@ -1876,7 +1916,10 @@ public sealed class StackingPipeline(
             {
                 rawSources.Add(new RawLightSource(
                     Path: (useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light).Path,
-                TransformToCanvas: layerTransforms[fi] * canvasShift));
+                TransformToCanvas: layerTransforms[fi] * canvasShift,
+                // Keyed by the ORIGINAL light even for a starless plate: the plate is that frame, calibrated and with its stars
+                // taken out, and its colours still sit where the lens put them.
+                ColourShifts: ColourShiftsOf(matched[fi].Light.Path)));
             }
 
             // Forward strategy progress into the StackingProgress channel.
