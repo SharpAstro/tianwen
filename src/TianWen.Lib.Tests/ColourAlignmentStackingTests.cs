@@ -220,13 +220,15 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
     [Fact]
     public async Task TempNoDispersionFloor()
     {
-        DispersionScale = 0d;
         try
         {
-            foreach (var (kind, drz) in new (IntegrationStrategyKind, bool)[] { (IntegrationStrategyKind.BayerDrizzle, false), (IntegrationStrategyKind.InRamAllFrames, true) })
+            foreach (var scale in new[] { 0.5d, 2d, -1d })
             {
-                output.WriteLine(kind.ToString());
-                await StackAndReadAsync(kind, drz, alignColours: true);
+                DispersionScale = scale;
+                output.WriteLine($"scale {scale}: aligned drizzle");
+                await StackAndReadAsync(IntegrationStrategyKind.BayerDrizzle, false, alignColours: true);
+                output.WriteLine($"scale {scale}: unaligned drizzle");
+                await StackAndReadAsync(IntegrationStrategyKind.BayerDrizzle, false, alignColours: false);
             }
         }
         finally
