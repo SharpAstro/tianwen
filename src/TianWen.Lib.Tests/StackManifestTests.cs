@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
@@ -29,7 +31,10 @@ namespace TianWen.Lib.Tests
                     new DateTimeOffset(2026, 8, 16, 13, 49, 24, TimeSpan.Zero), ManifestFrame.From(Matrix3x2.Identity)),
                 new ManifestFrame("C:/temp/comet-stack/LIGHT/a.fits", "DDEEFF", FrameFate.Matched,
                     new DateTimeOffset(2026, 8, 16, 10, 53, 18, TimeSpan.Zero),
-                    ManifestFrame.From(new Matrix3x2(1f, -0.0002f, -0.0002f, 1f, -6.6532f, 25.654f))),
+                    ManifestFrame.From(new Matrix3x2(1f, -0.0002f, -0.0002f, 1f, -6.6532f, 25.654f)),
+                    ManifestFrame.OffsetsFrom(
+                        new ChannelShifts(new Vector2(0.2813f, 0.1502f), Vector2.Zero, new Vector2(-0.1491f, -0.0817f)),
+                        new ChannelShifts(new Vector2(0.2241f, 0.1203f), Vector2.Zero, new Vector2(-0.0752f, -0.0409f)))),
                 new ManifestFrame("C:/temp/comet-stack/LIGHT/b.fits", "112233", FrameFate.SkippedTooFewStars,
                     new DateTimeOffset(2026, 8, 16, 11, 0, 0, TimeSpan.Zero), null),
                 new ManifestFrame("C:/temp/comet-stack/LIGHT/c.fits", "445566", FrameFate.SkippedQualityReject,
@@ -64,6 +69,76 @@ namespace TianWen.Lib.Tests
                 m.Value.M31.ShouldBe(-6.6532f);
                 m.Value.M32.ShouldBe(25.654f);
                 m.Value.M12.ShouldBe(-0.0002f);
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>
+        /// A frame's colour offsets (#1993) survive a round trip to float precision, mosaic and demosaiced reading both: the offsets a
+        /// layer built from the manifest places its colours by, so a rounded one offsets red and blue a second time.
+        /// </summary>
+        [Fact]
+        public async Task AFramesColourOffsetsRoundTrip()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"tw-manifest-{Guid.NewGuid():N}.json");
+            try
+            {
+                await Sample().WriteAsync(path, TestContext.Current.CancellationToken);
+                var read = await StackManifest.TryReadAsync(path, TestContext.Current.CancellationToken);
+
+                var a = read!.Frames[1];
+                a.ColourOffsets.ShouldNotBeNull();
+                a.ColourOffsets.Length.ShouldBe(12);
+                a.TryGetColourShifts(out var mosaic, out var demosaiced).ShouldBeTrue();
+                mosaic.Red.ShouldBe(new Vector2(0.2813f, 0.1502f));
+                mosaic.Green.ShouldBe(Vector2.Zero);
+                mosaic.Blue.ShouldBe(new Vector2(-0.1491f, -0.0817f));
+                demosaiced.ShouldNotBeNull();
+                demosaiced.Value.Red.ShouldBe(new Vector2(0.2241f, 0.1203f));
+                demosaiced.Value.Blue.ShouldBe(new Vector2(-0.0752f, -0.0409f));
+
+                // A frame the run did not measure carries none, and a reading of the mosaic alone has no demosaiced half.
+                read.Frames[0].ColourOffsets.ShouldBeNull();
+                read.Frames[2].TryGetColourShifts(out _, out _).ShouldBeFalse();
+                var mosaicOnly = new ManifestFrame("x", "d", FrameFate.Matched, DateTimeOffset.UnixEpoch, null,
+                    ManifestFrame.OffsetsFrom(new ChannelShifts(new Vector2(0.1f, 0.2f), Vector2.Zero, new Vector2(-0.1f, 0f)), demosaiced: null));
+                mosaicOnly.ColourOffsets!.Length.ShouldBe(6);
+                mosaicOnly.TryGetColourShifts(out var only, out var noHalf).ShouldBeTrue();
+                only.Red.ShouldBe(new Vector2(0.1f, 0.2f));
+                noHalf.ShouldBeNull();
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>
+        /// A manifest written before colour alignment existed has no offsets key at all (a null is never written), and reads as
+        /// carrying none on every frame, so a run measures those frames on its own plates as it always did.
+        /// </summary>
+        [Fact]
+        public async Task AManifestWithoutOffsetsReadsAsHavingNone()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"tw-manifest-{Guid.NewGuid():N}.json");
+            try
+            {
+                var old = Sample();
+                var withoutOffsets = old with { Frames = [.. old.Frames.Select(f => f with { ColourOffsets = null })] };
+                await withoutOffsets.WriteAsync(path, TestContext.Current.CancellationToken);
+                (await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken)).ShouldNotContain("ColourOffsets");
+
+                var read = await StackManifest.TryReadAsync(path, TestContext.Current.CancellationToken);
+                read.ShouldNotBeNull();
+                read.Frames.Length.ShouldBe(4);
+                foreach (var frame in read.Frames)
+                {
+                    frame.ColourOffsets.ShouldBeNull();
+                    frame.TryGetColourShifts(out _, out _).ShouldBeFalse();
+                }
             }
             finally
             {

@@ -161,7 +161,7 @@ internal sealed partial class ImageSubCommand(
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, flatten, render, stats, sources), and a mono colour composition's steps, one verb each as in PixInsight (align, linear-fit, match-psf, deblur, remove-stars, continuum, add-line, denoise, luminance, lrgb, add-stars), with combine to run them in order.")
+        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, flatten, render, stats, sources, channel-offsets), and a mono colour composition's steps, one verb each as in PixInsight (align, linear-fit, match-psf, deblur, remove-stars, continuum, add-line, denoise, luminance, lrgb, add-stars), with combine to run them in order.")
         {
             Subcommands =
             {
@@ -171,6 +171,7 @@ internal sealed partial class ImageSubCommand(
                 BuildRenderCommand(),
                 BuildStatsCommand(),
                 BuildSourcesCommand(),
+                BuildChannelOffsetsCommand(),
                 // A mono colour composition's steps, one verb each (ImageSubCommand.Steps.cs), and the recipe that runs them.
                 BuildAlignCommand(),
                 BuildLinearFitCommand(),

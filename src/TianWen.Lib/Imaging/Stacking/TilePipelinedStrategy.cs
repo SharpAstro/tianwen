@@ -282,7 +282,11 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 }
 
                 var transform = sources[f].TransformToCanvas;
-                var sourceRect = CanvasGeometry.ProjectCanvasRectToSourceRect(stripRect, transform, rawW, rawH, projectionHalo);
+                // The offsets the demosaic LEFT, not the mosaic's: this strategy warps debayered planes.
+                var shifts = sources[f].DemosaicedColourShifts;
+                // A colour plane is sampled its shift (source pixels, #1993) from where the transform alone would read it,
+                // so the rows and columns the strip needs grow by the longest shift.
+                var sourceRect = CanvasGeometry.ProjectCanvasRectToSourceRect(stripRect, transform, rawW, rawH, projectionHalo + shifts.HaloPx);
 
                 // Sub-region debayer of the strip's source footprint (plus
                 // halo) into the pre-allocated full-canvas dest. Only the
@@ -291,7 +295,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 // bounds-check converts out-of-rect samples to NaN, which
                 // the rejector ignores).
                 var debayered = await calibrated.DebayerRegionIntoAsync(debayerDestChannels, debayerAlg, sourceRect, job.Logger, ct);
-                var strip = await debayered.WarpRegionAsync(transform, stripRect, canvasW, canvasH, job.WarpInterpolation, ct);
+                var strip = await debayered.WarpRegionAsync(transform, stripRect, canvasW, canvasH, job.WarpInterpolation, shifts, ct);
                 if (perFrameStats is not null)
                 {
                     strip = Normalizer.Apply(strip, perFrameStats[f], opts.NormalizationTarget);
