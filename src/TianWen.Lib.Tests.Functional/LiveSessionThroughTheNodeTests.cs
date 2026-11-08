@@ -33,12 +33,12 @@ public class LiveSessionThroughTheNodeTests(ITestOutputHelper output)
         view.PreviewCapturing[0].ShouldBeTrue("the panel shows the exposure in flight");
 
         // The host's per-frame poll: the view on show asks its mirror for the frames its tab draws.
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the preview's frame to reach the view", () =>
         {
             h.Contexts.PollAll();
             return view.LastCapturedImages is [{ }, ..];
         }, ct);
-        await h.UntilAsync(() => !view.PreviewCapturing[0], ct);
+        await h.UntilAsync("the preview exposure to end", () => !view.PreviewCapturing[0], ct);
         h.AppState.Notifications.ShouldContain(n => n.Message.Contains("Preview captured"));
 
         // The node runs no session, so each state poll is its 404: the frame the node shows stays on the view through them.
