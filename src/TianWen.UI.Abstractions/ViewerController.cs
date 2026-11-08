@@ -1822,6 +1822,30 @@ public sealed class ViewerController(
         }
     }
 
+    private int _selfFitGeneration = LightGrading.SelfFitGeneration;
+
+    /// <summary>
+    /// Whether a self-fitted expected sky landed since the last frame took it (#2069). No side effect, so the loop's redraw gate asks
+    /// it every iteration: a fit lands on the pool while the pointer rests and nothing else wakes the idle loop, and a flag set inside
+    /// the frame that notices it would be cleared by that same frame. <see cref="FollowSelfFits"/> takes it in the frame it asked for.
+    /// </summary>
+    public bool SelfFitWantsFrame => LightGrading.SelfFitGeneration != _selfFitGeneration;
+
+    /// <summary>
+    /// A night's self-fitted expected sky is fitted off this thread (#2069); a first fit reads no term until it lands and a refit reads the previous one, so the poll repaints
+    /// the file list and the info strip, whose verdicts now carry the veil, when the count of landed fits moves. The loop is woken
+    /// for it by <see cref="SelfFitWantsFrame"/>.
+    /// </summary>
+    private void FollowSelfFits()
+    {
+        var generation = LightGrading.SelfFitGeneration;
+        if (generation != _selfFitGeneration)
+        {
+            _selfFitGeneration = generation;
+            state.NeedsRedraw = true;
+        }
+    }
+
     private void FollowGradeReferences()
     {
         if (external is not { } store)
@@ -1882,6 +1906,7 @@ public sealed class ViewerController(
     private void FollowFrameRenames()
     {
         FollowGradeReferences();
+        FollowSelfFits();
         ViewerActions.TryCompleteMark(state);
         while (state.TryTakeFrameRename(out var oldPath, out var newPath))
         {

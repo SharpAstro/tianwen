@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Grading;
@@ -207,14 +208,15 @@ public class CloudRejectionTests
     /// any), worded against the night's own frames, while the stacker leaves that very frame in. The words of the patchy frame cannot
     /// carry the veil in either case (the veil's wording needs the frame NOT patchy), so what pins that frame is its NaN sigmas.
     /// </remarks>
-    [Fact]
-    public void TheStackerDoesNotReadAVeilAgainstTheNightsOwnSky()
+    [Fact(Timeout = 60_000)]
+    public async Task TheStackerDoesNotReadAVeilAgainstTheNightsOwnSky()
     {
-        var frames = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266)
+        var frames = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266, objectName: "stacker-veil")
             .Select(static g => g with { Patchiness = 1f }).ToArray();
         frames[290] = frames[290] with { Patchiness = 2.5f };
         var grades = LightGradingTests.Table(frames);
 
+        await LightGradingTests.AwaitSelfFitAsync(grades, "stacker-veil", TestContext.Current.CancellationToken);
         LightGrading.Verdict(grades, grades["f290"]).LevelSigma.ShouldBeGreaterThan(0f, "the viewer's self-fit sees the veil");
         var viewer = LightGrading.Verdict(grades, grades["f299"]);
         (viewer.Causes & GradeCause.Cloud).ShouldNotBe(GradeCause.None, "the viewer calls the last veiled frame cloud by the veil alone");

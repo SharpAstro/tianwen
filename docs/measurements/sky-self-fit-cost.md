@@ -82,8 +82,23 @@ A 60 Hz frame is 16.7 ms.
   hundreds of milliseconds against a 16.7 ms frame.
 - **A synthetic night, not a real one.** It has Gaussian scatter and one veil. Whether a real night's scatter and cloud change the
   robust fit's cost is not measured; the frame count is the only thing varied here.
-- **Not a decision.** The repo's own pattern for work like this is a `Task` the consumer polls (CLAUDE.md, "Concurrency"), and the
+- **Not a decision (when this was measured; #2069 later took the background fit, see "What changed").** The repo's own pattern for work like this is a `Task` the consumer polls (CLAUDE.md, "Concurrency"), and the
   grade already has a value for "no model yet": no term, which reads NaN and never a guess. Fitting each object's night on a
   background task and reading NaN until it lands would take the stall off the render thread, at the price that the veil term
   appears a moment after the folder opens. Whether to do that, or to refit only after the night has grown by some share, is the
   owner's call and is not part of this review leg.
+
+## What changed (#2069)
+
+The "Not a decision" item above was taken up. The fit no longer runs on the thread that draws:
+
+- **The fit runs on the pool.** `LightGrading` keeps a memo of self-fits keyed on the object-night. A verdict that asks for a self-fit
+  (`selfFit: true`) starts the fit there and reads NaN, no term, until it has landed; the stacker and `LiveCloudJudge` pass
+  `selfFit: false` and never start one. The viewer's frame loop compares `LightGrading.SelfFitGeneration` and repaints the file list
+  and the info strip when a fit lands, so the veil term appears a moment after the folder opens.
+- **A fit is reused across snapshots.** Each snapshot's baselines carry the object-night's time-ordered samples and a fingerprint
+  (count plus a content hash). A snapshot with the same fingerprint reuses the fit; a changed one starts a new fit only when none is
+  in flight for that object-night, and until it lands the previous model is read, so a folder load, whose snapshots change at every
+  grade, cannot stack fits. The memo keeps at most 256 object-nights.
+- **The numbers above are the fit's own cost**, now paid on a pool thread. They are no longer render-thread stalls: cases (1) and (2)
+  of the table are the time a fit takes to land, and the first verdict on a new snapshot costs the baselines alone (case 3).
