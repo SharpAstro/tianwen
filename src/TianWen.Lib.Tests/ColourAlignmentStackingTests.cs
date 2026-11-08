@@ -69,7 +69,13 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
         var pattern = SensorType.RGGB.GetBayerPatternMatrix(0, 0);
         for (var f = 0; f < FrameCount; f++)
         {
-            var (ditherX, ditherY) = f == 0 ? (0d, 0d) : ((dither.NextDouble() * 6d) - 3d, (dither.NextDouble() * 6d) - 3d);
+            // A whole-pixel wander (as a guider's dither) plus a fixed lattice of sub-pixel phases, 5 x 4 over the 2 px Bayer cell: the
+            // drizzle then samples every colour evenly whatever the draw, so what the master reads is the correction and not the luck
+            // of twenty random phases (which read 0.03 px off with nothing to correct).
+            var wanderX = f == 0 ? 0d : Math.Round((dither.NextDouble() * 6d) - 3d);
+            var wanderY = f == 0 ? 0d : Math.Round((dither.NextDouble() * 6d) - 3d);
+            var ditherX = wanderX + ((f % 5) * 0.4d);
+            var ditherY = wanderY + ((f / 5) * 0.5d);
             var dispersion = Dispersion(f);
             var rnd = new Random(100 + f);
             var data = new float[Size, Size];
@@ -222,14 +228,16 @@ public class ColourAlignmentStackingTests(ITestOutputHelper output)
     {
         try
         {
-            foreach (var scale in new[] { 0.5d, 2d, -1d })
+            foreach (var scale in new[] { 0d, 1d, 2d, -1d })
             {
                 DispersionScale = scale;
                 output.WriteLine($"scale {scale}: aligned drizzle");
                 await StackAndReadAsync(IntegrationStrategyKind.BayerDrizzle, false, alignColours: true);
-                output.WriteLine($"scale {scale}: unaligned drizzle");
-                await StackAndReadAsync(IntegrationStrategyKind.BayerDrizzle, false, alignColours: false);
             }
+
+            DispersionScale = 1d;
+            output.WriteLine("scale 1: aligned InRamAllFrames");
+            await StackAndReadAsync(IntegrationStrategyKind.InRamAllFrames, true, alignColours: true);
         }
         finally
         {
