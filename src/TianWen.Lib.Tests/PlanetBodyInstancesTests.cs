@@ -40,6 +40,39 @@ public sealed class PlanetBodyInstancesTests
         }
     }
 
+    /// <summary>
+    /// The selected body is drawn twice a frame, its orrery disc and its info panel's (#1656): each replayed draw must read its own
+    /// block. With one buffer a body, the panel's write replaced the orrery's and the selected planet vanished from its orbit (seen in
+    /// the browser, 2026-11-08). A second frame rewrites the same buffers and makes none.
+    /// </summary>
+    [Fact]
+    public void ABodyDrawnTwiceInAFrameReadsEachDrawsOwnBlock()
+    {
+        var renderer = new DeferredRenderer();
+        var instances = new PlanetBodyInstances<int>(renderer.Create, renderer.Update);
+        var view = PlanetView.InBodyFrame(CatalogIndex.Saturn, Vector3.UnitY, Vector3.UnitX, new Vector3(1, 0, 0));
+        var made = 0;
+
+        for (var frame = 0; frame < 2; frame++)
+        {
+            instances.BeginFrame();
+            // The orrery's disc on its orbit, then the panel's, larger, in the panel's corner.
+            renderer.Draw(instances.Write(view, 1700 + frame, 900, 12, 2000, 1400, (0.5f, 0.5f, 0.5f), null, 1));
+            renderer.Draw(instances.Write(view, 270, 1300 + frame, 60, 2000, 1400, (0.5f, 0.5f, 0.5f), null, 1));
+
+            var replayed = renderer.Present();
+            replayed.Length.ShouldBe(2);
+            (replayed[0][0], replayed[0][2]).ShouldBe((1700f + frame, 12f), $"the orrery's Saturn (frame {frame}) read the panel's block");
+            (replayed[1][1], replayed[1][2]).ShouldBe((1300f + frame, 60f), $"the panel's Saturn (frame {frame}) read the orrery's block");
+            if (frame == 0)
+            {
+                made = instances.Buffers.Count();
+            }
+        }
+        made.ShouldBe(2);
+        instances.Buffers.Count().ShouldBe(made, "a second frame made buffers instead of rewriting its own");
+    }
+
     [Fact]
     public void EveryReplayedDrawReadsItsOwnBodysBlock()
     {
