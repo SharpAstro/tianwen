@@ -355,11 +355,14 @@ internal partial record Session
         var clearNights = Configuration.DetectCloudWhileImaging
             ? await LightGradeReferenceStore.LoadAsync(External, cancellationToken)
             : [];
+        var storedSky = Configuration.DetectCloudWhileImaging
+            ? await ExpectedSkyStore.LoadAsync(External, cancellationToken)
+            : [];
         var cloudJudges = new LiveCloudJudge[scopes];
         var lastClearMetrics = new FrameMetrics[scopes];
         for (var i = 0; i < scopes; i++)
         {
-            cloudJudges[i] = new LiveCloudJudge(clearNights);
+            cloudJudges[i] = new LiveCloudJudge(clearNights, storedSky);
         }
         _cloudySince = new DateTimeOffset?[scopes];
 

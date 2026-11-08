@@ -189,7 +189,7 @@ public static class Tycho2ColorCalibration
     /// random photometry noise and could *worsen* matching by gating out
     /// genuine pairs. 20 is conservative: median of 20 floats with a clean
     /// inlier majority gives a ~0.1 mag standard error on the zero-point.</summary>
-    private const int MinForZeroPoint = 20;
+    private const int MinForZeroPoint = PhotometricZeroPoint.MinStars;
 
     /// <summary>Multiplier applied to the caller-supplied <c>matchRadiusArcsec</c>
     /// to choose the probe pass's generous tolerance. The probe needs to be
@@ -532,10 +532,11 @@ public static class Tycho2ColorCalibration
         // the floor we keep pass 1 unchanged so we never regress matching
         // when the field is too sparse for the photometric gate to help.
         if (coarseMatches.Count < MinForZeroPoint
-            || !TryComputeZeroPoint(coarseMatches, out var zp))
+            || !PhotometricZeroPoint.TryFromMatches(coarseMatches, out var zpResult, MinForZeroPoint))
         {
             return (coarseMatches, coarseFunnel);
         }
+        var zp = zpResult.ZeroPoint;
 
         // Pass 2: re-match with the photometric gate. Throws away pass-1
         // results (some pass-1 accepted matches may flip to RejMagDiff and
@@ -741,38 +742,6 @@ public static class Tycho2ColorCalibration
             BL: new SpccQuadrant(qDetected[2], qTolMissed[2], qRejMagDiff[2], qAccepted[2]),
             BR: new SpccQuadrant(qDetected[3], qTolMissed[3], qRejMagDiff[3], qAccepted[3]));
         return (matches, funnel);
-    }
-
-    /// <summary>
-    /// Robust median zero-point estimator. For each (detection, catalog) pair
-    /// with positive flux and finite V_mag, accumulates the per-star sample
-    /// <c>V_mag + 2.5 * log10(Flux)</c>. The median over those samples is the
-    /// zero-point that maps detection flux to apparent V magnitude:
-    /// <c>m_pred = zp - 2.5 * log10(Flux)</c>. Median (not mean) is used so
-    /// the inevitable ~10-15% of pass-1 mis-matches do not bias the estimate.
-    /// Returns <c>false</c> if fewer than <see cref="MinForZeroPoint"/> usable
-    /// samples survived, signalling the caller to keep the gate disabled.
-    /// </summary>
-    private static bool TryComputeZeroPoint(
-        List<(ImagedStar Star, CelestialObject Tycho)> matches, out float zeroPoint)
-    {
-        Span<float> samples = matches.Count <= 256
-            ? stackalloc float[matches.Count]
-            : new float[matches.Count];
-        var k = 0;
-        for (var i = 0; i < matches.Count; i++)
-        {
-            var (s, t) = matches[i];
-            if (s.Flux <= 0 || Half.IsNaN(t.V_Mag)) continue;
-            samples[k++] = (float)t.V_Mag + 2.5f * MathF.Log10(s.Flux);
-        }
-        if (k < MinForZeroPoint) { zeroPoint = float.NaN; return false; }
-
-        // MedianFast permutes in place (QuickSelect, partial sort) so we must
-        // not rely on the buffer ordering after this call -- we just consume
-        // the return value.
-        zeroPoint = StatisticsHelper.MedianFast(samples[..k]);
-        return true;
     }
 
     /// <summary>

@@ -39,6 +39,58 @@ public class LiveCloudJudgeTests
     }
 
     /// <summary>
+    /// The judge holds no night to fit: without a stored model it reads no veil term (the viewer's self-fit is the viewer's),
+    /// so a thin veil over a night's last frames is not called cloud here.
+    /// </summary>
+    [Fact]
+    public void AThinVeilIsNotReadWithoutAStoredModel()
+    {
+        var judge = new LiveCloudJudge();
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        for (var i = 0; i < night.Length; i++)
+        {
+            LiveCloudJudge.IsCloud(judge.Add($"f{i}", night[i])).ShouldBeFalse($"frame {i}");
+        }
+    }
+
+    /// <summary>
+    /// Given the site's stored expected sky for the rig (as the session loads it from <c>ExpectedSkyStore</c>), the judge reads the
+    /// same veil as the viewer does: the veiled frames are cloud, the clear ones are not.
+    /// </summary>
+    [Fact]
+    public void AThinVeilIsCloudAgainstTheStoredModel()
+    {
+        var clearSamples = new System.Collections.Generic.List<SkySample>();
+        foreach (var g in LightGradingTests.SyntheticSkyNight(300, seed: 3))
+        {
+            clearSamples.Add(new SkySample(g.Covariates, g.Surface.Level, g.Surface.GradientStrength));
+        }
+        foreach (var g in LightGradingTests.SyntheticSkyNight(300, seed: 5))
+        {
+            clearSamples.Add(new SkySample(g.Covariates, g.Surface.Level, g.Surface.GradientStrength));
+        }
+        var model = ExpectedSkyModel.Fit(clearSamples) ?? throw new InvalidOperationException("the clear nights fit");
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        var sample = night[0];
+        var key = new ExpectedSkyKey(LightGradingTests.SiteLat, LightGradingTests.SiteLon, sample.Rig, sample.Key.SensorType,
+            sample.Key.FilterKey, sample.Key.ExposureMs, sample.Key.Bin);
+        var judge = new LiveCloudJudge(expectedSky: [new ExpectedSkyEntry(key, model, 2)]);
+
+        var clearCloud = 0;
+        var veiledCloud = 0;
+        for (var i = 0; i < night.Length; i++)
+        {
+            if (LiveCloudJudge.IsCloud(judge.Add($"f{i}", night[i])))
+            {
+                if (i < 266) { clearCloud++; } else { veiledCloud++; }
+            }
+        }
+
+        veiledCloud.ShouldBeGreaterThanOrEqualTo(27, "the veiled frames are caught");
+        clearCloud.ShouldBeLessThanOrEqualTo(3, "the clear ones are not");
+    }
+
+    /// <summary>
     /// The session judges each light against the frames BEFORE it, and the sky's trend is read from those alone, so a sky that
     /// turns against its own line is cloud live as in the viewer (2026-09-12's end-of-night rise), from its first risen frame.
     /// A sustained rise reads cloud for a while (<see cref="LightGrading.SkyOverTrend"/>): at 1 minute subs a +6 % step held reads
