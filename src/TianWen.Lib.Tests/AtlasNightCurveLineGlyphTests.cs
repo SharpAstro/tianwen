@@ -18,7 +18,8 @@ namespace TianWen.Lib.Tests;
 /// What this proves is the BUNDLED face (the file the apps ship), asked directly and through the same fallback chain the window
 /// builds (<c>BundledFonts</c>: text face, emoji face, per-OS script faces). It does not draw the info box: the window's own face
 /// is whatever <c>BundledFonts.Resolve()</c> finds on the host, and the test host has no <c>Fonts</c> folder by design, so a
-/// check of the window would measure the machine. The marks are therefore pinned to the one face every host bundles.
+/// check of the window would measure the machine. The marks are therefore pinned to the one face every host bundles; the window's
+/// own face stays proved only by the recorded capture of the info box (<c>pilot.exe attachments TIA2059</c>).
 /// <para>The runes come from the lines <see cref="ObjectInfoPanel.NightLine"/> really produces, not from a literal here, so a mark added
 /// to that line is asked of the face too. The face is the copy the tests carry under <c>TestFonts</c> (the file the apps bundle).</para>
 /// </remarks>
