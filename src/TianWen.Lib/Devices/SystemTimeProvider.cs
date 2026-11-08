@@ -10,6 +10,9 @@ namespace TianWen.Lib.Devices;
 /// <c>AddExternal</c> wrap the system clock in an <see cref="OffsetTimeProvider"/> when the
 /// <c>TIANWEN_NOW</c> startup override is active (see <see cref="StartupTimeOverride"/>) without any
 /// consumer change -- everything that resolves <see cref="ITimeProvider"/> from DI shifts together.
+/// <para>On Windows a short wait and a short one-shot timer end within about a millisecond of their time rather than at the next
+/// 15.6 ms system timer tick (<see cref="HighResolutionWait"/>, <see cref="HighResolutionTimer"/>, #2020): a guide pulse timed on
+/// our side lasts as long as its wait, so the tick was guiding error. Nothing here calls <c>timeBeginPeriod</c>.</para>
 /// </summary>
 internal sealed class SystemTimeProvider(TimeProvider? inner = null) : ITimeProvider
 {
@@ -24,10 +27,12 @@ internal sealed class SystemTimeProvider(TimeProvider? inner = null) : ITimeProv
     public long TimestampFrequency => _inner.TimestampFrequency;
 
     public ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        => _inner.CreateTimer(callback, state, dueTime, period);
+        => OperatingSystem.IsWindows()
+            ? new HighResolutionTimer(_inner, callback, state, dueTime, period)
+            : _inner.CreateTimer(callback, state, dueTime, period);
 
     public ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
-        => new ValueTask(Task.Delay(duration, cancellationToken));
+        => new ValueTask(HighResolutionWait.DelayAsync(duration, cancellationToken));
 
     public TimeProvider System => _inner;
 }

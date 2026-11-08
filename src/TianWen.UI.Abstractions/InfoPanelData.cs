@@ -395,11 +395,13 @@ public static class InfoPanelData
                 [document.Findings.Stars is null ? "Measuring the stars..." : "Not graded: no stars found"], null, null);
         }
 
-        var verdict = LightGrading.Verdict(grades, grade, state.GradeReferences);
+        var verdict = LightGrading.Verdict(grades, grade, state.GradeReferences, state.ExpectedSky);
         var relative = verdict.Relative;
+        // The best named is the frame the share is OF (LightGrading.BestScore): the best clear frame, which a cloud frame with a
+        // higher raw score is not (2026-09-10's top score was a BAD_ cloud frame).
         var graded = 0;
         string? bestPath = null;
-        var bestScore = 0f;
+        var yardstick = LightGrading.BestScore(grades, grade.Key);
         foreach (var (path, other) in grades)
         {
             if (other.Key != grade.Key)
@@ -407,9 +409,8 @@ public static class InfoPanelData
                 continue;
             }
             graded++;
-            if (other.Score > bestScore)
+            if (bestPath is null && other.Score == yardstick)
             {
-                bestScore = other.Score;
                 bestPath = path;
             }
         }
@@ -421,7 +422,7 @@ public static class InfoPanelData
             : $"Quality: {relative * 100f:0}% of the best of {graded} ({group})");
         var metrics = grade.Metrics;
         lines.Add(string.Create(CultureInfo.InvariantCulture,
-            $"Stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, FWHM {metrics.MedianFwhm:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
+            $"Scored stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, FWHM {metrics.MedianFwhm:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
         // What the stars cannot say (#1951): the sky's patchiness against the group's clearest tenth, and a twilight, each a
         // line only when it holds the colour down, so a clear dark frame's section is as short as it was.
         if ((verdict.Causes & GradeCause.Cloud) != 0)

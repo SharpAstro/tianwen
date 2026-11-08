@@ -783,6 +783,81 @@ namespace TianWen.UI.Abstractions
             return _cometCurve;
         }
 
+        /// <summary>
+        /// What a night curve is of (#2059): the object, the planner's night and the settings the planner's score reads. It is
+        /// the cache's whole identity, so the VIEWING INSTANT is not in it: a scrub or a pan moves only the now mark, and a
+        /// date change (a new night) or a new minimum altitude asks for a new score. A moving body (a planet, a comet) is
+        /// keyed by its index alone, its position being taken at the night's midpoint, so <paramref name="RA"/> and
+        /// <paramref name="Dec"/> are 0 for it, never the live position that changes with every frame of a scrub.
+        /// </summary>
+        /// <param name="Index">The catalogue index, or null for a bare position.</param>
+        /// <param name="RA">J2000 RA in hours of a fixed object or position; 0 for a moving body.</param>
+        /// <param name="Dec">J2000 Dec in degrees of a fixed object or position; 0 for a moving body.</param>
+        /// <param name="AstroDark">The planner's night start.</param>
+        /// <param name="AstroTwilight">The planner's night end.</param>
+        /// <param name="MinAltitude">The profile's minimum altitude.</param>
+        /// <param name="MoonRadiusDeg">The Moon-avoidance radius the score applies.</param>
+        /// <param name="BestScore">Tonight's best combined score, which the rating is against.</param>
+        /// <param name="Latitude">The site's latitude.</param>
+        /// <param name="Longitude">The site's longitude.</param>
+        /// <param name="Elevation">The site's elevation.</param>
+        internal readonly record struct NightCurveKey(
+            CatalogIndex? Index, double RA, double Dec, DateTimeOffset AstroDark, DateTimeOffset AstroTwilight,
+            byte MinAltitude, double MoonRadiusDeg, double BestScore, double Latitude, double Longitude, double Elevation);
+
+        // A finished night curve and the key it answers; a null curve is a score that failed, remembered so a key that can
+        // never answer is not asked again every frame.
+        private sealed record NightCurveResult(NightCurveKey Key, AtlasNightCurve? Curve);
+
+        // Render-thread-only fields; the payload travels through the Task's result (the selected path's pattern above), so
+        // no lock and no shared mutable field cross threads.
+        private NightCurveResult? _adoptedNightCurve;
+        private Task<NightCurveResult>? _nightCurveTask;
+        private NightCurveKey _nightCurveTaskKey;
+
+        /// <summary>How many night-curve scores have been dispatched: the tests' count of recomputes (one per key, never per frame).</summary>
+        internal int NightCurveComputes { get; private set; }
+
+        /// <summary>The night curve score in flight, or null when idle: the tests await it instead of waiting on a clock.</summary>
+        internal Task? NightCurveTask => _nightCurveTask;
+
+        /// <summary>
+        /// The night curve for <paramref name="key"/>, scored OFF the render thread by <paramref name="compute"/> (one planner
+        /// score, ~15 minute grid) and cached on the key: a miss dispatches the score and answers <c>Pending</c> until it lands
+        /// (completion pokes a redraw); a hit answers the curve (or null for a score that failed) without touching it again.
+        /// </summary>
+        /// <param name="key">What the curve is of; see <see cref="NightCurveKey"/>.</param>
+        /// <param name="argument">What the score needs besides the key, by value: it is read on a thread-pool thread.</param>
+        /// <param name="compute">
+        /// The score. A static lambda, so a hit (every frame the panel is up) allocates nothing: only a dispatch captures anything.
+        /// </param>
+        internal (AtlasNightCurve? Curve, bool Pending) GetNightCurveCached<TArgument>(
+            in NightCurveKey key, TArgument argument, Func<TArgument, AtlasNightCurve?> compute)
+        {
+            // Adopt a finished score; a faulted or cancelled one is adopted as "no curve" for its key.
+            if (_nightCurveTask is { IsCompleted: true } done)
+            {
+                _nightCurveTask = null;
+                _adoptedNightCurve = done.IsCompletedSuccessfully ? done.Result : new NightCurveResult(_nightCurveTaskKey, null);
+            }
+
+            if (_adoptedNightCurve is { } cur && cur.Key == key)
+            {
+                return (cur.Curve, false);
+            }
+
+            if (_nightCurveTask is null || _nightCurveTaskKey != key)
+            {
+                NightCurveComputes++;
+                _nightCurveTaskKey = key;
+                var k = key;
+                _nightCurveTask = Task.Run(() => new NightCurveResult(k, compute(argument)));
+                _nightCurveTask.ContinueWith(_ => NeedsRedraw = true, TaskScheduler.Default);
+            }
+
+            return (null, true);
+        }
+
         /// <summary>Number of samples along a selected solar-system object's sky path.</summary>
         public const int SkyPathSampleCount = 49;
 

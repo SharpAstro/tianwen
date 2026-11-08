@@ -545,6 +545,21 @@ light group register (star-quad match) -> integrate (strategy auto-picked: Bayer
 separate from**, the Planetary stacker below. **Full flowcharts, the render model, the two opt-in
 display stages and the parity notes: `docs/architecture/stacking-render-pipeline.md`.**
 
+**AHD equalises the CFA gains before interpolating (#1991).** Each AHD channel is interpolated from
+photosites at different positions, so on a mosaic with a colour cast (a 3:1 red to green gain) an
+undersampled star or a 2 px point source got its red and blue peaks displaced and its colour ratio
+inflated: on M83's stars the AHD master read R/G 2.82 to 3.06 against 2.05 to 2.15 on the Bayer-drizzle
+master (the issue's stars table). `DebayerAHDAsync` now divides R and B by their gain to
+green (the median of each colour's own photosites, one pair per frame, whole-frame so every
+`DebayerRegionIntoAsync` strip agrees) into a scratch mosaic, runs the four phases unchanged, and
+multiplies R and B back on write, so a flat field's level is unchanged. A gain outside [0.25, 4] against
+green (a near-zero sky, a line-selective filter) stays at unity, and the debayer says so at Debug naming the
+colour, once per frame (`TilePipelinedStrategy` hands it `IntegrationJob.Logger`), so a frame that skipped
+the equalisation can be told from one that had it. Pinned by `DebayerAhdGainEqualisationTests`, whose bound on
+a compact star's colour ratio is 3.5 percent at FWHM 2.2 and 3 at 2.0: AHD's own phase 3 and 4 take about 3
+percent off a star only two photosites wide, with no cast at all, and #2053 owns that fix and the tightening
+of the bound back to 3 percent.
+
 **Output contract is by data type -- do not regress it:** **Linear (canonical)** is FITS, full-frame
 `master_<slug>.fits` AND cropped `_autocrop.fits` (`--output-format exr` mirrors both; full-frame linear
 pixels live only here). **Display / stretched** (the PNG quick-look, `--split-plates` TIFFs) is ALWAYS
@@ -608,6 +623,29 @@ LOGICAL path and resolve it with `ExistingSidecarPath` (older stores hold the un
 ask `IsMapSidecarPath` before treating a `.fits` in a master folder as a master. The bad pixel map is
 APP's format (`BITPIX = 8`, 127 linear / 255 hot / 0 cold) so their maps and ours are interchangeable,
 and it is on the SENSOR's geometry, never the master's canvas.
+
+**The saturation sidecar counts, per master pixel, the subs that had a photosite at the ADC ceiling there**
+(#1991, `master_<slug>.saturation.fits.gz`, `MAPKIND = SATURATION`, `SaturationCounter`). Registration and
+rejection smear a star clipped in every sub to a peak well under the master's own, so SPCC's peak gate cannot
+see it; this count can, and SPCC's clip gate is its only reader. **It is judged on the RAW decode**, never a
+calibrated frame: the ceiling is what the raw frame states (`ImageMeta.SensorFullScaleAdu`, a `SATURATE` card,
+else 0.999 of the container's full scale, since N.I.N.A. and SharpCap left-align a 14-bit ADC into 16 bits and
+clip at 65532, never 65535), never the observed `MaxValue`. **It is one pass beside the strategies, not
+inside each**: each raw light is read once and its clipped photosites go through the same source-to-canvas
+transform the strategy warps with (`RawLightSource.TransformToCanvas`), each marking its pixel and the eight
+around it (the demosaic's and a drop's footprint), once per frame, so a count never exceeds the frame count and
+the cost is linear in frames. That covers the AHD tile path and both drizzle paths alike. **A set with nothing at
+the ceiling writes NO sidecar** (and removes one an earlier run left, best effort: a file a viewer holds open
+stays, said at Debug naming it, since SPCC's own count never reads it but a later reader of the folder would), and
+absence means "the peak gate alone"; the post-processor uses the run's in-memory count, cropped with
+the master (`CropIntegrationResult`), never a reload from disk, so `TryReadSaturationMap` is the read path for
+anything outside the run. Pinned by `SaturationStackingTests`, whose wide dither puts the canvas origin about
+13 px from the reference frame's, so the marks are checked against where the master itself has the clipped star
+(measured: with the canvas shift taken out of the count's transform, the AHD-path and Bayer-drizzle-path tests go
+red and the rest stay green), and by `SaturationSidecarTests`
+for the post-processor's hand-off and the renderer's drop. **Not run on real data:** the M83 re-measure (stack the
+session again, compare the SPCC fit with and without the sidecar), and one test through a plate solve, `WriteMasterAsync`
+to a star dropped: the fake catalogue cannot solve, so that link is two pins either side of the solve.
 
 **Drizzle rejects per DEPOSITED SAMPLE, at the stack's own thresholds, and coverage is not a
 substitute** (#93). Coverage says whether any frame reached a cell; a satellite trail has full

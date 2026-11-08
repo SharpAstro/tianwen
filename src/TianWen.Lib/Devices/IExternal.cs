@@ -8,7 +8,6 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.IO;
@@ -34,12 +33,6 @@ public interface IExternal
     /// Folder where profiles are stored
     /// </summary>
     DirectoryInfo ProfileFolder { get; }
-
-    /// <summary>
-    /// Lazily initialized celestial object database. The DB is initialized on first access
-    /// and cached for subsequent calls. Thread-safe.
-    /// </summary>
-    ValueTask<ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically writes to a file by writing to a temporary file first, then renaming.
@@ -154,6 +147,12 @@ public interface IExternal
     /// null when it should: a port whose far end can never be an instrument (<see cref="Discovery.SerialProbeExclusion"/>).
     /// </summary>
     string? ReasonNotToProbeSerialPort(string port) => null;
+
+    /// <summary>
+    /// <paramref name="port"/>'s own identity (one <see cref="EnumerateAvailableSerialPorts"/> listed) as that enumeration
+    /// found it, or null where the host has no serial ports or the port was not listed (#1090).
+    /// </summary>
+    Discovery.SerialPortIdentity? SerialPortIdentityOf(string port) => null;
 
     /// <summary>
     /// Whether a connection this process opened holds <paramref name="port"/>: a connected driver's port, which

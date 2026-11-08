@@ -45,7 +45,7 @@ public class NodeDeviceSettingTests(ITestOutputHelper output) : IAsyncLifetime
         }
     }
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     private ICredentialStore Store => _node.App.Services.GetRequiredService<ICredentialStore>();
 
@@ -92,7 +92,7 @@ public class NodeDeviceSettingTests(ITestOutputHelper output) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         await using var lan = await NodeHarness.StartAsync(output, ct);
 
-        var refused = await new TianWenNodeClient(lan.Client).SetDeviceSettingAsync(Weather.DeviceUri, "apiKey", "sk-lan", profileId: null, ct);
+        var refused = await NodeTestClients.ClientOf(lan.Client).SetDeviceSettingAsync(Weather.DeviceUri, "apiKey", "sk-lan", profileId: null, ct);
 
         refused.StatusCode.ShouldBe(403);
         lan.App.Services.GetRequiredService<ICredentialStore>().Get(Weather.CredentialKey).ShouldBeNull();
@@ -125,7 +125,7 @@ public class NodeDeviceSettingTests(ITestOutputHelper output) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         await using var lan = await NodeHarness.StartAsync(output, ct);
 
-        var refused = await new TianWenNodeClient(lan.Client).SetBlindSolveKeyAsync("nova-lan", ct);
+        var refused = await NodeTestClients.ClientOf(lan.Client).SetBlindSolveKeyAsync("nova-lan", ct);
 
         refused.StatusCode.ShouldBe(403);
         lan.App.Services.GetRequiredService<ICredentialStore>().Get(Lib.Astrometry.PlateSolve.BlindSolveService.CredentialKey).ShouldBeNull();

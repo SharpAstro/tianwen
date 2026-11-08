@@ -197,7 +197,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         var firstCalibrated = DecodeCalibrate(sources[0], calibrator, job.Intermediates);
         var calibratedBytes = (long)firstCalibrated.Width * firstCalibrated.Height * firstCalibrated.ChannelCount * sizeof(float);
         var cache = new FrameCache(n, FrameCache.DecideCacheCap(n, calibratedBytes));
-        var metaSeed = await firstCalibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
+        var metaSeed = await firstCalibrated.DebayerAsync(debayerAlg, normalizeToUnit: false, job.Logger, ct);
         var channelCount = metaSeed.ChannelCount;
         if (perFrameStats is not null)
         {
@@ -216,7 +216,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             // iterations (or sooner under pressure).
             if (perFrameStats is not null)
             {
-                var debayeredOnce = await calibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
+                var debayeredOnce = await calibrated.DebayerAsync(debayerAlg, normalizeToUnit: false, job.Logger, ct);
                 perFrameStats[f] = Normalizer.ComputeStats(debayeredOnce);
             }
 
@@ -290,7 +290,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 // samples only inside that region by construction (its
                 // bounds-check converts out-of-rect samples to NaN, which
                 // the rejector ignores).
-                var debayered = await calibrated.DebayerRegionIntoAsync(debayerDestChannels, debayerAlg, sourceRect, ct);
+                var debayered = await calibrated.DebayerRegionIntoAsync(debayerDestChannels, debayerAlg, sourceRect, job.Logger, ct);
                 var strip = await debayered.WarpRegionAsync(transform, stripRect, canvasW, canvasH, job.WarpInterpolation, ct);
                 if (perFrameStats is not null)
                 {

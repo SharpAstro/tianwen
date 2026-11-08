@@ -39,6 +39,127 @@ public class LiveCloudJudgeTests
     }
 
     /// <summary>
+    /// The judge holds no night to fit: without a stored model it reads no veil term (the viewer's self-fit is the viewer's),
+    /// so a thin veil over a night's last frames is not called cloud here.
+    /// </summary>
+    [Fact]
+    public void AThinVeilIsNotReadWithoutAStoredModel()
+    {
+        var judge = new LiveCloudJudge();
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        for (var i = 0; i < night.Length; i++)
+        {
+            LiveCloudJudge.IsCloud(judge.Add($"f{i}", night[i])).ShouldBeFalse($"frame {i}");
+        }
+    }
+
+    /// <summary>
+    /// Given the site's stored expected sky for the rig (as the session loads it from <c>ExpectedSkyStore</c>), the judge reads the
+    /// same veil as the viewer does: the veiled frames are cloud, the clear ones are not.
+    /// </summary>
+    [Fact]
+    public void AThinVeilIsCloudAgainstTheStoredModel()
+    {
+        var clearSamples = new System.Collections.Generic.List<SkySample>();
+        foreach (var g in LightGradingTests.SyntheticSkyNight(300, seed: 3))
+        {
+            clearSamples.Add(new SkySample(g.Covariates, g.Surface.Level, g.Surface.GradientStrength));
+        }
+        foreach (var g in LightGradingTests.SyntheticSkyNight(300, seed: 5))
+        {
+            clearSamples.Add(new SkySample(g.Covariates, g.Surface.Level, g.Surface.GradientStrength));
+        }
+        var model = ExpectedSkyModel.Fit(clearSamples) ?? throw new InvalidOperationException("the clear nights fit");
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266);
+        var sample = night[0];
+        var key = new ExpectedSkyKey(LightGradingTests.SiteLat, LightGradingTests.SiteLon, sample.Rig, sample.Key.SensorType,
+            sample.Key.FilterKey, sample.Key.ExposureMs, sample.Key.Bin);
+        var judge = new LiveCloudJudge(expectedSky: [new ExpectedSkyEntry(key, model, 2)]);
+
+        var clearCloud = 0;
+        var veiledCloud = 0;
+        for (var i = 0; i < night.Length; i++)
+        {
+            if (LiveCloudJudge.IsCloud(judge.Add($"f{i}", night[i])))
+            {
+                if (i < 266) { clearCloud++; } else { veiledCloud++; }
+            }
+        }
+
+        veiledCloud.ShouldBeGreaterThanOrEqualTo(27, "the veiled frames are caught");
+        clearCloud.ShouldBeLessThanOrEqualTo(3, "the clear ones are not");
+    }
+
+    /// <summary>
+    /// The session judges each light against the frames BEFORE it, and the sky's trend is read from those alone, so a sky that
+    /// turns against its own line is cloud live as in the viewer (2026-09-12's end-of-night rise), from its first risen frame.
+    /// A sustained rise reads cloud for a while (<see cref="LightGrading.SkyOverTrend"/>): at 1 minute subs a +6 % step held reads
+    /// cloud for its first 51 minutes (the 60 minute window less the ten frames the fit needs), then the frame is not read. The
+    /// reach depends on the cadence, so it is pinned at 1 minute here and at 5 minutes below. The bracket fill needs the cloud
+    /// frame AFTER a frame, so a live verdict never carries it.
+    /// </summary>
+    [Fact]
+    public void ASkyTurningAgainstItsTrendReadsCloudLiveFromItsFirstRisenFrame()
+    {
+        var judge = new LiveCloudJudge();
+        var start = new DateTimeOffset(2026, 9, 12, 17, 0, 0, TimeSpan.Zero);
+        var random = new Random(5);
+        var risen = 0;
+        for (var m = 0; m < 200; m++)
+        {
+            var jitter = 1f + 0.002f * (random.NextSingle() + random.NextSingle() - 1f);
+            var sky = (1400f - 1.4f * m) * (m >= 80 ? 1.06f : 1f) * jitter;
+            var verdict = judge.Add($"f{m}", Graded(1f) with { Taken = start.AddMinutes(m), SkyLevel = sky });
+            if (m < 80)
+            {
+                LiveCloudJudge.IsCloud(verdict).ShouldBeFalse($"minute {m} is on its trend");
+            }
+            else if (m < 80 + 51)
+            {
+                LiveCloudJudge.IsCloud(verdict).ShouldBeTrue($"minute {m} is within the rise's reach");
+                verdict.ShouldNotBeNull().SkyRising.ShouldBeTrue();
+                risen++;
+            }
+            else
+            {
+                LiveCloudJudge.IsCloud(verdict).ShouldBeFalse($"minute {m}: too few clear frames left in the window to read");
+            }
+        }
+        risen.ShouldBe(51, "the first 51 minutes of the rise");
+    }
+
+    /// <summary>
+    /// The same rise at 5 minute subs: ten frames would span 45 minutes of a 60 minute window, so the fit also accepts
+    /// <see cref="LightGrading.SkyTrendMinFramesOverSpan"/> frames spanning <see cref="LightGrading.SkyTrendMinSpan"/>, and the
+    /// rule still reads at long subs (a count alone read 3 frames at 5 minutes and none from 6).
+    /// </summary>
+    [Fact]
+    public void ASkyTurningAgainstItsTrendIsStillReadAtFiveMinuteSubs()
+    {
+        var judge = new LiveCloudJudge();
+        var start = new DateTimeOffset(2026, 9, 12, 17, 0, 0, TimeSpan.Zero);
+        var random = new Random(5);
+        var risen = 0;
+        for (var i = 0; i < 80; i++)
+        {
+            var jitter = 1f + 0.002f * (random.NextSingle() + random.NextSingle() - 1f);
+            var sky = (1400f - 7f * i) * (i >= 40 ? 1.06f : 1f) * jitter;
+            var verdict = judge.Add($"f{i}", Graded(1f) with { Taken = start.AddMinutes(5 * i), SkyLevel = sky });
+            if (i < 40)
+            {
+                LiveCloudJudge.IsCloud(verdict).ShouldBeFalse($"frame {i} is on its trend");
+            }
+            else if (LiveCloudJudge.IsCloud(verdict))
+            {
+                risen++;
+            }
+        }
+        // The window holds 12 earlier frames; each risen frame leaves the later lines, so a read lasts while four or more clear
+        // frames spanning 20 minutes or more remain: 8 frames (40 minutes), against the 3 a count of ten allowed.
+        risen.ShouldBe(8, "the span path's reach at 5 minute subs");
+    }
+
+    /// <summary>
     /// A target cloudy from its first light is its own darkest sky and reads clear against itself; given a clear night of the
     /// same rig (#1976, the viewer's <c>clear-sky.json</c>) the judge calls it cloud from that first light on.
     /// </summary>

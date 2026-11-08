@@ -15,6 +15,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.IO;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Grading;
@@ -62,7 +63,8 @@ public sealed class StackingPipeline(
     IProgress<StackingProgress>? progress = null,
     Enhancement.SharpenPipeline? sharpenPipeline = null,
     IProgress<Enhancement.EnhanceProgress>? enhanceProgress = null,
-    Enhancement.IStarRemover? starRemover = null)
+    Enhancement.IStarRemover? starRemover = null,
+    IExternal? external = null)
 {
     /// <summary>
     /// Picks a pixel rejector for the integration step based on frame
@@ -843,6 +845,11 @@ public sealed class StackingPipeline(
             ct.ThrowIfCancellationRequested();
             var raw = await lf.LoadFullAsync(ct);
             measuredPixels += (long)raw.Width * raw.Height;
+            // The grade's sky LEVEL is the raw light's, the scale the viewer's references and NightSkyCloudFrom are on (#2003), and so
+            // is the patchiness a clear-night reference is compared with (#2005); read here because calibration consumes the frame.
+            var (rawSky, rawPatchiness) = cloudGrades is not null
+                ? (LightGrading.RawSkyLevel(raw), raw.SkyPatchiness(raw.ReferenceStarChannel))
+                : (float.NaN, float.NaN);
             var calibrated = calibrator.Apply(raw);
             // BEFORE DetectAsync, whose internal debayer can rescale the calibrated frame in
             // place: the accumulator must see the same values the integration producers' own
@@ -862,7 +869,15 @@ public sealed class StackingPipeline(
             var metrics = FrameRegistration.MetricsFrom(stars);
             if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
             {
-                cloudGrades[lf.Path] = grade;
+                // Patchiness within the run stays the calibrated frame's: the flat divides out vignetting a raw frame's surface fit
+                // cannot absorb, which halves the frame-to-frame noise the local tests read (2026-09-10: 51-62 % of the raw
+                // patchiness). A clear-night reference was recorded from raw frames, 2x that scale (5.40 against 2.64 at the
+                // clearest), so the raw light's is carried for that one comparison (#2005, LightGrade.OnReferenceScale).
+                cloudGrades[lf.Path] = grade with
+                {
+                    SkyLevel = float.IsFinite(grade.SkyLevel) ? rawSky : grade.SkyLevel,
+                    ReferencePatchiness = rawPatchiness,
+                };
             }
             // The star list is RETAINED (the dataset registrar's model): registration is centroid
             // work, so keeping it makes the register pass below pixel-free instead of reloading,
@@ -1321,9 +1336,15 @@ public sealed class StackingPipeline(
 
         // Cloud and twilight, by the viewer's verdict over every graded light of the group (the baselines read the whole group,
         // as the viewer's do over a folder), then applied to the frames still matched.
+        var leftOutForCloud = 0;
         if (cloudGrades is { Count: > 0 })
         {
-            var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable());
+            // The rig's clear nights the viewer keeps (#1976), so a run cloudy from first light to last is judged against them and not
+            // against itself, as the viewer judges it. No IExternal (a host with no data folder) judges on the group's own baselines.
+            ImmutableArray<LightGradeReference> references = external is null
+                ? []
+                : await LightGradeReferenceStore.LoadAsync(external, ct);
+            var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable(), references);
             var kept = new List<(FrameInfo Light, FrameInfo? Starless, Matrix3x2 Transform, Matrix3x2 StarTransform, FrameMetrics Metrics)>(matched.Count);
             foreach (var m in matched)
             {
@@ -1343,7 +1364,17 @@ public sealed class StackingPipeline(
                 }
             }
             logger.LogInformation("  [cloud] {Rejected} of {Total} matched frames left out for cloud or twilight", matched.Count - kept.Count, matched.Count);
+            leftOutForCloud = matched.Count - kept.Count;
             matched = kept;
+        }
+
+        if (matched.Count < 2 && CloudRejection.EmptiedGroupReason(matched.Count + leftOutForCloud, leftOutForCloud) is { } cloudReason)
+        {
+            // The frames registered; the cloud filter took them, so the registration census below would point at the wrong step.
+            logger.LogWarning("  [skip] {Reason}", cloudReason);
+            try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
+            return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: cloudReason, Stages: timings.Snapshot());
         }
 
         if (matched.Count < 2)
@@ -1888,7 +1919,8 @@ public sealed class StackingPipeline(
                 // N frames), so this changes nothing about what is integrated -- but the mask is
                 // now also PROVENANCE, written beside the master, and gating provenance on which
                 // strategy happened to run is how a fact about the sensor goes missing.
-                BadPixelMask: badPixelMask);
+                BadPixelMask: badPixelMask,
+                Logger: logger);
 
             // index i in Integrator's frame list is matched[i] here, so a normalized dump can be
             // named after its light rather than numbered.
@@ -1912,6 +1944,21 @@ public sealed class StackingPipeline(
             // producer yields warped frames), so its cost is inseparable from integration here, whereas
             // the registrar warps eagerly to scratch FITS and legitimately times it apart.
             timings.Record(StageNames.Integrate, integrateStart, matched.Count, (long)matched.Count * outWidth * outHeight);
+            // Which spots were at the ADC ceiling in the subs (#1991), judged on the RAW photosites of the original
+            // lights (a starless plate is unit-referred and has no ceiling) and carried through the same transforms
+            // the strategy used. Colour sensors only: the count exists for SPCC's clip gate.
+            if (key.CalibrationKey.SensorType == SensorType.RGGB)
+            {
+                var saturationSources = new List<RawLightSource>(matched.Count);
+                for (var fi = 0; fi < matched.Count; fi++)
+                {
+                    saturationSources.Add(new RawLightSource(matched[fi].Light.Path, layerTransforms[fi] * canvasShift));
+                }
+                if (SaturationCounter.Count(saturationSources, outWidth, outHeight, logger, ct) is { } saturationCount)
+                {
+                    intResult = intResult with { Saturation = saturationCount };
+                }
+            }
             logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
                 (long)Stopwatch.GetElapsedTime(integrateStart).TotalMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
             if (intResult.DrizzleTotalDeposits > 0)

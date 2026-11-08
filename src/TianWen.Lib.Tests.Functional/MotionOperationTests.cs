@@ -33,7 +33,7 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
     private IDeviceHub Hub => _node.App.Services.GetRequiredService<IDeviceHub>();
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     // The fake mount's own site, so the profile's transform and the mount's sidereal time agree.
     private static readonly FakeDevice Mount = new FakeDevice(DeviceType.Mount, 1);
@@ -146,9 +146,11 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         var fake = (await Hub.ConnectAsync(Mount, ct)).ShouldBeOfType<FakeMountDriver>();
         fake.CanFindHome = true;
         await ActiveRigAsync(ct);
+        // Where the mount points in RA, so the slew is the Dec alone and short whatever the hour (see the next test).
+        var ra = await fake.GetRightAscensionAsync(ct);
         var reads = fake.SiteLatitudeReads;
 
-        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = 0, DecJ2000 = 40 }, ct)).Value.ShouldNotBeNull();
+        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = ra, DecJ2000 = 70 }, ct)).Value.ShouldNotBeNull();
         await UntilEndedAsync(job.Id, ct);
 
         fake.SiteLatitudeReads.ShouldBe(reads, "a Dec away from a pole needs no site");
@@ -156,10 +158,15 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
     // The pole of the site's own hemisphere has no right ascension: on a mount that can find home a goto there IS going
     // home. Any other Dec, and the other hemisphere's pole, is an ordinary slew.
-    [Theory(Timeout = 60_000)]
+    // The fake mount slews in real time at 1.5 degrees a second, from its pole: a goto to Dec 40 was 50 degrees, 33 s on an
+    // idle machine, and a runner that skips slew ticks takes far longer (#2000, #2001: cancelled at 60 s on CI, the pole rows
+    // always passing, since they never slew). There was no hang, only a real-time slew too long for the budget: the ordinary
+    // row now goes to Dec 70 at the mount's own RA (20 degrees, about 13 s), still far from the 0.5 degree pole tolerance, and the ceiling stays
+    // generous; the test still ends the moment the job does.
+    [Theory(Timeout = 180_000)]
     [InlineData(90.0, 1, "is at home")]
     [InlineData(89.7, 1, "is at home")]
-    [InlineData(40.0, 0, null)]
+    [InlineData(70.0, 0, null)]
     [InlineData(-90.0, 0, null)]
     public async Task AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot(double dec, int expectedHomeCalls, string? expectedStep)
     {
@@ -168,7 +175,10 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         fake.CanFindHome = true;
         await ActiveRigAsync(ct); // site latitude 48.2: north
 
-        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = 0, DecJ2000 = dec }, ct)).Value.ShouldNotBeNull();
+        // The fake slews at a fixed rate on the REAL clock, from where it parked (RA = LST - 6 h): aimed at RA 0, how far it had
+        // to go was the time of day, up to two minutes against the 60 s bound (#2025's CI). Aimed where it already points in RA,
+        // and a Dec 20 degrees off the pole, the slew is the Dec alone, about 13 s, whatever the hour.
+        var job = (await Client.GotoAsync(new MountGotoRequestDto { DeviceUri = Mount.DeviceUri.ToString(), RaJ2000 = await fake.GetRightAscensionAsync(ct), DecJ2000 = dec }, ct)).Value.ShouldNotBeNull();
         var ended = await UntilEndedAsync(job.Id, ct);
 
         fake.FindHomeCalls.ShouldBe(expectedHomeCalls);
@@ -301,12 +311,13 @@ public class MotionOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
         var job = (await Client.MoveAxisAsync(Mount.DeviceUri, TelescopeAxis.Primary, 1.0, ct)).Value.ShouldNotBeNull();
         job.Kind.ShouldBe("move-axis");
-        await UntilAsync("the axis to move", async token => (await mount.IsSlewingAsync(token) && await mount.GetRightAscensionAsync(token) != ra, "not moving"), ct);
-
+        // The lease is only NodeWire.MoveAxisLease long, so a poll for "moving" on a loaded runner can start after it lapsed (#2000):
+        // wait for the end instead, and read the motion off where the axis got to.
         var stopped = await UntilEndedAsync(job.Id, ct);
         stopped.State.ShouldBe(JobState.Succeeded);
         stopped.Step.ShouldNotBeNull().ShouldContain("nothing renewed");
         (await mount.IsSlewingAsync(ct)).ShouldBeFalse("the lease lapsed and the node stopped the axis");
+        (await mount.GetRightAscensionAsync(ct)).ShouldNotBe(ra, "the axis moved while it was leased");
     }
 
     [Fact(Timeout = 60_000)]

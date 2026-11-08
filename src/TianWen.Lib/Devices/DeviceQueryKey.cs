@@ -84,6 +84,29 @@ public enum DeviceQueryKey
     /// the sensor's geometry is read, so every frame of a connection is taken in it. Absent keeps the mode the body has.
     /// </summary>
     ReadoutMode,
+
+    /// <summary>
+    /// How stable a serial device's port is, as discovery found it (#1090): <c>device</c> (the adapter reports a USB serial
+    /// number, so it is the same device in any socket), <c>socket</c> (no serial; the USB socket names it, so a move to another
+    /// socket loses it) or <c>name</c> (only the OS port name). Serial.Lib's <c>SerialIdentityKind</c>. Transport state: every
+    /// discovery writes it afresh, so a profile never keeps an old value.
+    /// </summary>
+    PortIdentity,
+
+    /// <summary>
+    /// The serial port's own identity key, as Serial.Lib's <c>SerialPortInfo.IdentityKey</c> gives it
+    /// (<c>usb:0403:6001:A10MOSEFA</c>, <c>socket:...</c> or <c>name:COM14</c>), beside <see cref="PortIdentity"/>. Transport
+    /// state, written by discovery.
+    /// </summary>
+    PortKey,
+
+    /// <summary>
+    /// The firmware the device reported when discovery last saw it (#2040): a Skywatcher's motor board, a SkyGuider Pro's
+    /// date code, an LX200/OnStep mount's <c>:GVN#</c>, a Gemini or QFOC board's version. EVIDENCE, never identity: an update
+    /// changes it, so it is kept out of every device id and matched on by <c>FollowMovedPort</c>. Transport state, written by
+    /// discovery.
+    /// </summary>
+    Firmware,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -104,6 +127,9 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.Host => true,
             DeviceQueryKey.DeviceNumber => true,
             DeviceQueryKey.WpdDeviceId => true,
+            DeviceQueryKey.PortIdentity => true,
+            DeviceQueryKey.PortKey => true,
+            DeviceQueryKey.Firmware => true,
             _ => false
         };
 
@@ -149,6 +175,9 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.MirrorLockup => "mirrorLockup",
             DeviceQueryKey.DaylightWhiteBalance => "daylightWhiteBalance",
             DeviceQueryKey.ReadoutMode => "readoutMode",
+            DeviceQueryKey.PortIdentity => "portIdentity",
+            DeviceQueryKey.PortKey => "portKey",
+            DeviceQueryKey.Firmware => "firmware",
             _ => key.ToString().ToLowerInvariant()
         };
     }

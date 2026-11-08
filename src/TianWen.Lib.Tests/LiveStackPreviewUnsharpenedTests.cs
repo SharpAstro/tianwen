@@ -59,7 +59,7 @@ public class LiveStackPreviewUnsharpenedTests
     {
         var ct = TestContext.Current.CancellationToken;
         var masters = new Masters(frames: 2);
-        await using var source = new LiveStackPreviewSource(masters, "unsharpened-test", new SystemTimeProvider());
+        await using var source = new LiveStackPreviewSource(masters, "unsharpened-test", SystemTimeProvider.Instance);
 
         // Not wanted: a master is built and no second one beside it.
         source.RequestFollow(0);

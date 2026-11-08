@@ -29,7 +29,7 @@ public class DeviceStateTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 
     private IDeviceHub Hub => _node.App.Services.GetRequiredService<IDeviceHub>();
 
-    private TianWenNodeClient Client => new TianWenNodeClient(_node.Client);
+    private TianWenNodeClient Client => NodeTestClients.ClientOf(_node.Client);
 
     /// <summary>Waits until the node has read the device at <paramref name="uri"/> and <paramref name="holds"/> of it.</summary>
     private Task<DeviceStateDto> UntilReadAsync(Uri uri, Func<DeviceStateDto, bool> holds, CancellationToken ct) =>
@@ -110,7 +110,7 @@ public class DeviceStateTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Focuser, 1);
         var pushed = new System.Collections.Concurrent.ConcurrentQueue<DeviceStateDto>();
-        await using var stream = _node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = _node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (DeviceStateDto.TryFromEvent(e, out var state) && new Uri(state.DeviceUri).DeviceKey == device.DeviceUri.DeviceKey)

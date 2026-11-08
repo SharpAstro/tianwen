@@ -25,7 +25,7 @@ public class GuideDarksControllerTests
     [Fact]
     public void TheCountStepsAlongItsPresetsAndStopsAtTheEnds()
     {
-        var darks = new GuideDarksController(new SystemTimeProvider(), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        var darks = new GuideDarksController(SystemTimeProvider.Instance, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
 
         darks.Count.ShouldBe(10);
         darks.StepCount(+1);

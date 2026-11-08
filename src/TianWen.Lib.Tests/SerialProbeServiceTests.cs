@@ -1,5 +1,6 @@
 using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.Logging;
+using SharpAstro.Serial;
 using Shouldly;
 using System;
 using System.Collections.Concurrent;
@@ -9,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
 using Xunit;
 
@@ -44,6 +46,103 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
 
         service.ResultsFor("Skywatcher").ShouldHaveSingleItem().DeviceUri.ShouldBe(new Uri("Mount://Skywatcher/cool"));
         external.OpenCalls.Count.ShouldBe(1, "one probe, one port → one open");
+    }
+
+    /// <summary>
+    /// Every match is published with its port's own identity noted (#1090), whatever the probe wrote: the FTDI HBX cable of the
+    /// bench (2026-11-05) is <c>device</c>, the SkyGuider Pro's own Prolific socket is <c>socket</c>, and a port the enumeration
+    /// did not describe is published as the probe made it.
+    /// </summary>
+    [Fact]
+    public async Task EveryMatchCarriesItsPortsOwnIdentity()
+    {
+        var external = new ProbeTestExternal { Ports = ["serial:COM14", "serial:COM13", "serial:COM9"] };
+        external.Identities["serial:COM14"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:A10MOSEFA");
+        external.Identities["serial:COM13"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Socket, "socket:PCIROOT(0)#USB(3)");
+        var probe = StubProbe.Sync("iOptron", baud: 28800, match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{port[7..]}?port={port}")));
+        var service = BuildService(external, output, probe);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var byPort = service.ResultsFor("iOptron").ToDictionary(m => m.Port);
+        byPort["serial:COM14"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBe("device");
+        byPort["serial:COM14"].DeviceUri.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A10MOSEFA");
+        byPort["serial:COM13"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBe("socket");
+        byPort["serial:COM9"].DeviceUri.QueryValue(DeviceQueryKey.PortIdentity).ShouldBeNull("nothing was known of COM9");
+    }
+
+    /// <summary>
+    /// An id that ends in its port ends in something steadier where the port has it: the USB bridge's serial (#1090 step 2), the
+    /// same in any socket and on any COM number, or the socket (#2040), the same whatever COM number Windows hands it. The port
+    /// stays in the query, and an id that names the hardware itself (an OnStep UUID) is never touched.
+    /// </summary>
+    [Fact]
+    public async Task APortKeyedIdEndsInTheUsbBridgesSerialOrItsSocket()
+    {
+        // Each device on its own port: a port one probe matched is offered to no probe after it.
+        var external = new ProbeTestExternal { Ports = ["serial:COM14", "serial:COM13", "serial:COM15"] };
+        external.Identities["serial:COM14"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:A10MOSEFA");
+        external.Identities["serial:COM13"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Socket, "socket:PCIROOT(0)#USB(3)");
+        external.Identities["serial:COM15"] = new SerialPortIdentity(SharpAstro.Serial.SerialIdentityKind.Device, "usb:0403:6001:B20NOTSGP");
+        var sgp = StubProbe.Sync("iOptron", baud: 28800,
+            match: (port, _) => port is "serial:COM15" ? null
+                : new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{port[7..]}?port={port}&firmware=170518#iOptron SkyGuider Pro (170518) on {port[7..]}")));
+        var onStep = StubProbe.Sync("OnStep", baud: 9600,
+            match: (port, _) => port is "serial:COM15" ? new SerialProbeMatch(port, new Uri($"Mount://OnStepDevice/OnStep_1_abc-uuid?port={port}")) : null);
+        var service = BuildService(external, output, sgp, onStep);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var sgps = service.ResultsFor("iOptron").ToDictionary(m => m.Port);
+        var onCable = sgps["serial:COM14"].DeviceUri;
+        onCable.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_usb-0403-6001-A10MOSEFA").DeviceKey);
+        onCable.QueryValue(DeviceQueryKey.Port).ShouldBe("serial:COM14", "the port is transport, in the query");
+        onCable.Fragment.ShouldBe("#iOptron%20SkyGuider%20Pro%20(170518)%20on%20COM14");
+        onCable.ModelKey.ShouldBe("mount://ioptrondevice/SkyGuider-Pro", "the model is recognised on the cable's id too");
+        onCable.QueryValue(DeviceQueryKey.Firmware).ShouldBe("170518", "the firmware is evidence in the query, never in the id");
+
+        var onSocket = sgps["serial:COM13"].DeviceUri;
+        onSocket.DeviceKey.ShouldBe(new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{SerialPortIdentity.IdSuffixOf("socket", "socket:PCIROOT(0)#USB(3)")}").DeviceKey, "a socket port is keyed on its socket");
+        onSocket.AbsolutePath.ShouldNotContain("COM13");
+        onSocket.ModelKey.ShouldBe("mount://ioptrondevice/SkyGuider-Pro", "and its model is recognised too");
+
+        service.ResultsFor("OnStep").ShouldHaveSingleItem().DeviceUri.DeviceKey
+            .ShouldBe(new Uri("Mount://OnStepDevice/OnStep_1_abc-uuid").DeviceKey, "a UUID names the hardware, whatever the cable");
+    }
+
+    /// <summary>
+    /// Two units on adapters that ship ONE USB serial (a clone FT232's <c>A50285BI</c>) must stay two devices. The cable's key
+    /// as their id would be the same <c>DeviceKey</c> on both, and the hub's URI to driver map is keyed on it, so one of the
+    /// rig's two mounts would be lost. A serial another listed port reports too is never put into an id: both keep the COM id
+    /// they had before the key existed, with the key still noted. The identities come from <see cref="SerialPortIdentity.Of"/>
+    /// over the described ports, the way the real enumeration builds them.
+    /// </summary>
+    [Fact]
+    public async Task TwoUnitsOnAdaptersSharingOneSerialStayTwoDevices()
+    {
+        static SerialPortInfo Clone(string name) => new(name) { VendorId = 0x0403, ProductId = 0x6001, SerialNumber = "A50285BI" };
+        IReadOnlyList<SerialPortInfo> listed = [Clone("COM5"), Clone("COM6")];
+        var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
+        foreach (var info in listed)
+        {
+            external.Identities[$"serial:{info.PortName}"] = SerialPortIdentity.Of(info, listed);
+        }
+
+        var sgp = StubProbe.Sync("iOptron", baud: 28800,
+            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://IOptronDevice/SkyGuider-Pro_{port[7..]}?port={port}#iOptron SkyGuider Pro (170518) on {port[7..]}")));
+        var service = BuildService(external, output, sgp);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        var found = service.ResultsFor("iOptron").ToDictionary(m => m.Port);
+        found.Count.ShouldBe(2);
+        var com5 = found["serial:COM5"].DeviceUri;
+        var com6 = found["serial:COM6"].DeviceUri;
+        com5.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_COM5").DeviceKey, "a shared serial keeps the port id");
+        com6.DeviceKey.ShouldBe(new Uri("Mount://IOptronDevice/SkyGuider-Pro_COM6").DeviceKey);
+        com5.DeviceKey.ShouldNotBe(com6.DeviceKey, "two units are two devices to the hub");
+        com5.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A50285BI", "what the port reports is still noted");
+        com6.QueryValue(DeviceQueryKey.PortKey).ShouldBe("usb:0403:6001:A50285BI");
     }
 
     [Fact]
@@ -602,6 +701,11 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public Dictionary<string, string> NotToProbe { get; } = [];
 
         public override string? ReasonNotToProbeSerialPort(string port) => NotToProbe.GetValueOrDefault(port);
+
+        /// <summary>Each port's own identity, as the enumeration would have described it (#1090).</summary>
+        public Dictionary<string, SerialPortIdentity> Identities { get; } = [];
+
+        public override SerialPortIdentity? SerialPortIdentityOf(string port) => Identities.TryGetValue(port, out var identity) ? identity : null;
     }
 
     /// <summary>Minimal <see cref="ITestOutputHelper"/> for the zero-arg FakeExternal path.</summary>

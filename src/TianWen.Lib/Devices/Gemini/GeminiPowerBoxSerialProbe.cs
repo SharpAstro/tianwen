@@ -42,6 +42,8 @@ internal sealed class GeminiPowerBoxSerialProbe : ISerialProbe
         var firmware = await GeminiPowerBoxProtocol.GetFirmwareAsync(conn, cancellationToken);
         var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(port);
         var device = new GeminiPowerBoxDevice($"GeminiPowerBox_{portWithoutPrefix}", $"Gemini Power&Data Hub Advanced 3 on {portWithoutPrefix}", port);
-        return new SerialProbeMatch(port, device.DeviceUri, firmware is { } fw ? new Dictionary<string, string> { ["firmware"] = fw.ToString(System.Globalization.CultureInfo.InvariantCulture) } : null);
+        // The firmware is evidence in the query too (#2040), so a moved hub is matched on it.
+        var uri = device.DeviceUri.WithQueryValues((DeviceQueryKey.Firmware.Key, firmware?.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        return new SerialProbeMatch(port, uri, firmware is { } fw ? new Dictionary<string, string> { ["firmware"] = fw.ToString(System.Globalization.CultureInfo.InvariantCulture) } : null);
     }
 }

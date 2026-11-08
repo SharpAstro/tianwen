@@ -41,6 +41,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     protected override void OnConnected()
     {
+        // The hub is resolved HERE, never from a frame's end: that runs on the exposure timer, and a host going down
+        // marks its service provider disposed BEFORE it disposes the hub, which then disconnects this camera. A frame
+        // ending in that window asked a disposed provider for the hub and threw on the clock's thread (#2025's CI).
+        _hub ??= ServiceProvider.GetService<IDeviceHub>();
+
         // Initialize sensor readout area to full frame on first connect.
         // BinX must be set first: NumX/NumY setters validate against binned size.
         lock (_lock)
@@ -222,6 +227,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// </summary>
     public bool CouplesToMount { get; set; } = true;
 
+    private IDeviceHub? _hub;
     private IMountDriver? _coupledMount;
     private Transform? _coupledMountTransform; // reused SOFA transform for native -> J2000 (built once, time refreshed per exposure)
     private bool _mountRefCaptured;     // reference (zero-drift) pointing captured?
@@ -1047,10 +1053,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         // Fake-only: the synthetic-star renderer needs the celestial catalog to
         // project real stars at the target, so the (real) plate solver in a
         // centering / focus / guider loop can match the rendered frame. Resolve
-        // it lazily from the same DI-provided IExternal the rest of the app uses
+        // it lazily from the same DI container the rest of the app uses
         // -- the session / shared layer stays unaware of this fake-only need.
-        // GetCelestialObjectDBAsync performs the (idempotent) DB init, so by the
-        // time StopExposureCore renders, the catalog is loaded. Explicit test
+        // InitDBAsync is idempotent and serialised, so by the
+        // time StopExposureCore renders, the catalog is loaded. A host that
+        // registered no catalogue leaves it unavailable. Explicit test
         // wiring of CelestialObjectDB short-circuits this; on failure the synth
         // falls back to a random star field (the prior behaviour).
         // Claim the resolve atomically: only the caller that flips the gate 0 -> 1
@@ -1061,8 +1068,16 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         {
             try
             {
-                CelestialObjectDB = await External.GetCelestialObjectDBAsync(cancellationToken).ConfigureAwait(false);
-                // Success: leave the gate claimed (1) -- never re-attempt.
+                if (ServiceProvider.GetService<Astrometry.Catalogs.ICelestialObjectDB>() is { } db)
+                {
+                    await db.InitDBAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+                    CelestialObjectDB = db;
+                }
+                else
+                {
+                    Logger.LogWarning("FakeCamera: no catalog DB registered; synthetic frames will use a RANDOM star field, which cannot plate-solve");
+                }
+                // Success or nothing registered: leave the gate claimed (1) -- never re-attempt.
             }
             catch (OperationCanceledException)
             {
@@ -1606,9 +1621,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// Lazily finds the connected mount in the device hub (single-mount invariant),
     /// caching it once found. Returns <c>null</c> when no hub is registered (unit
     /// tests) or no mount is connected yet -- the guide star then uses only the
-    /// self-contained PE+ST-4 drift. Resolved from the retained
-    /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> so nothing in the session /
-    /// shared layer needs to know this fake-only coupling exists.
+    /// self-contained PE+ST-4 drift. The hub is the one the retained
+    /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> gave at connect, so nothing in the session /
+    /// shared layer needs to know this fake-only coupling exists, and a frame ending on the timer never
+    /// asks a provider that may already be disposed.
     /// </summary>
     internal IMountDriver? ResolveCoupledMount()
     {
@@ -1622,8 +1638,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             return _coupledMount;
         }
 
-        var hub = ServiceProvider.GetService<IDeviceHub>();
-        if (hub is null)
+        if (_hub is not { } hub)
         {
             return null;
         }

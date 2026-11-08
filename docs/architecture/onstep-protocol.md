@@ -186,9 +186,11 @@ probe and run under the connection lock:
      base64url (12 characters), written as `:S<slot>TW@<12 chars>#`, kept when the one-byte reply is `1`.
    - Any other name is a real site, kept for the fallback id.
 
-The id is `<product>_<number>_<uuid>`, each part through `SafeName` (`_`, `/` and `:` become `-`). With no
-UUID it falls back to `<product>_<number>_<sites>_<port>` on serial and `<product>_<number>_<sites>_<n>_wifi_<ip>`
-on WiFi, which differ by transport. With a stable id, `IDeviceDiscovery.ReconcileUri` adopts whatever transport
+The id is `Lx200DeviceId`'s, one shape for serial and WiFi (#2040): `<product>_<uuid>`, each part through `SafeName`
+(`_`, `/` and `:` become `-`), and with no UUID `<product>_<port or host>`, which differ by transport (on serial the
+port's own key, a USB bridge serial or socket, replaces the COM name where discovery has one). The `:GVN#` number is
+never in the id: it rides in `?firmware=`, evidence for matching, so a firmware update keeps the device, and the site
+names are out of it, so renaming a site does too. With a stable id, `IDeviceDiscovery.ReconcileUri` adopts whatever transport
 discovery found (a new COM port, a serial profile now reached over WiFi) and keeps the stored URI's
 non-transport keys (`DeviceDiscoveryExtensionsTests`).
 
@@ -197,7 +199,7 @@ answers one byte; if either is wrong, no UUID is written and the id falls back. 
 DISCOVERY, and usually not by this code: Meade is registered before OnStep in all three hosts and both
 probes are `HashTerminated`, so on the shared 9600-baud handle `MeadeDeviceSource.TryGetMountInfo`, a copy of
 this method, runs first and writes the same `TW@` UUID before its product regex rejects `On-Step`. The two
-copies must stay identical. The id also carries the `:GVN#` version, so a firmware update changes it.
+copies must stay identical.
 
 ## Discovery
 
@@ -328,7 +330,6 @@ the axis angle at home, after an hour of tracking and synced off home, in both h
   mDNS (general form: #674); tests for `EquipmentActions.ReconcileAllProfilesAsync`.
 - **No periodic-error phase.** OnStep's raw counts would be `:GX42#` / `:GX43#` times `:GXE4#` / `:GXE5#` (steps
   per degree), and its worm period `:GXE7#`; a harmonic drive like the TeeSeek has no worm, so nothing asks yet.
-- **The device id changes with the firmware version**, since it includes the `:GVN#` product number.
 - **A dead TCP link leaves the driver `Connected`.** `TcpSerialConnection` sets `IsOpen = false` on a fault and
   every later read returns `null`, but nothing clears `DeviceDriverBase.Connected`, and `ResilientCall`
   reconnects only when it is clear.

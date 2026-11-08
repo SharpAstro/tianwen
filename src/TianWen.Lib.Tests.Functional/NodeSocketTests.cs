@@ -36,7 +36,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await using var node = await NodeHarness.StartAsync(outputHelper, ct, socketPath: NewSocketPath());
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
 
         var answer = await client.GetNodeAsync(ct);
 
@@ -58,7 +58,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
         node.Factory.Initialised.SetResult();
 
         var received = new TaskCompletionSource<WebSocketEventDto>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var stream = node.Transport.CreateEventStream(new SystemTimeProvider(), FakeExternal.CreateLogger(outputHelper));
+        await using var stream = node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(outputHelper));
         stream.EventReceived += (_, e) =>
         {
             if (e.Event == "SESSION-PHASE-CHANGED")
@@ -68,7 +68,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
         };
         stream.Start(ct);
 
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
         var attached = 0;
         for (var i = 0; i < 250 && attached == 0; i++)
         {
@@ -96,7 +96,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var socketPath = NewSocketPath();
         await using var node = await NodeHarness.StartAsync(outputHelper, ct, socketPath: socketPath);
-        var running = (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull();
+        var running = (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).Value.ShouldNotBeNull();
 
         NodeLock.TryAcquire(socketPath, out var second, out var refusal).ShouldBeFalse("one node per socket");
         second.ShouldBeNull();
@@ -107,7 +107,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
 
         // Refused, it touched nothing: the running node still answers on its socket.
         File.Exists(socketPath).ShouldBeTrue();
-        (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).IsSuccess.ShouldBeTrue();
     }
 
     [Fact(Timeout = 30_000)]
@@ -124,7 +124,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
 
         await using var node = await NodeHarness.StartAsync(outputHelper, ct, socketPath: socketPath);
 
-        (await new TianWenNodeClient(node.Client).GetNodeAsync(ct)).IsSuccess.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(node.Client).GetNodeAsync(ct)).IsSuccess.ShouldBeTrue();
     }
 
     [Fact(Timeout = 30_000)]
@@ -175,7 +175,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         await using var node = await NodeHarness.StartAsync(outputHelper, ct, socketPath: NewSocketPath());
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
         (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().HoldsHardware.ShouldBeFalse("an idle node holds nothing");
 
         node.Factory.Initialised.SetResult();

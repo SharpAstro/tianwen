@@ -160,8 +160,7 @@ public sealed class SaturnRingFaceTests(ITestOutputHelper output)
         var view = rig.Tab.OrreryViews.Single(v => v.Body == CatalogIndex.Saturn);
         output.WriteLine($"B {LatitudeDeg(view.Toward.Z):F2}, B' {LatitudeDeg(view.Sun.Z):F2}");
 
-        var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(SaturnRingFaceTests));
-        Directory.CreateDirectory(folder);
+        var folder = SharedTestData.CreateTempTestOutputDir(nameof(SaturnRingFaceTests));
         var stem = $"saturn-{instant:yyyy-MM-dd}-el13-az90";
         var whole = Path.Combine(folder, $"{stem}-orrery.png");
         await File.WriteAllBytesAsync(whole, PngWriter.Encode(rig.Renderer.Surface.Pixels, OrreryTests.Width, OrreryTests.Height), ct);

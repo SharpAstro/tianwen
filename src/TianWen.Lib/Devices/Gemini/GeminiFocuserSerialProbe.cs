@@ -63,6 +63,7 @@ internal sealed class GeminiFocuserSerialProbe : ISerialProbe
             }
         }
 
-        return new SerialProbeMatch(port, uri, metadata);
+        // The firmware is evidence in the query too (#2040), so a moved focuser is matched on it.
+        return new SerialProbeMatch(port, uri.WithQueryValues((DeviceQueryKey.Firmware.Key, firmware?.Version?.ToString(System.Globalization.CultureInfo.InvariantCulture))), metadata);
     }
 }

@@ -46,7 +46,7 @@ public class LocalNodeLauncherTests : IDisposable
         }, folder);
     }
 
-    private static LocalNodeLauncher Launcher(LocalNodeOptions options) => new LocalNodeLauncher(options, NullLogger.Instance);
+    private static LocalNodeLauncher Launcher(LocalNodeOptions options) => new LocalNodeLauncher(options, SystemTimeProvider.Instance, NullLogger.Instance);
 
     /// <summary>
     /// Stops whatever node answers on each socket when the test ends, pass or fail: a node the launcher starts

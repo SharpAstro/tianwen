@@ -521,38 +521,24 @@ namespace TianWen.Lib.Imaging.Dataset
             var decDeg = solution?.CenterDec ?? meta.TargetDec;
 
             var epoch = meta.ExposureStartTime;
-            double lat = meta.Latitude;
-            double lon = meta.Longitude;
-            var hasEpoch = epoch.Year >= 1900;
-            var lst = hasEpoch ? SiteContext.ComputeLST(epoch, lon) : double.NaN;
-            var ha = CoordinateUtils.ConditionHA(lst - raHours);
-            var alt = SiteContext.AltitudeDegrees(lat, ha, decDeg);
-            var az = SiteContext.AzimuthDegrees(lat, ha, decDeg);
-            var airmass = double.IsNaN(alt) ? double.NaN : SiteContext.AirmassFromAltitude(alt);
-            var parallactic = double.IsNaN(ha) || double.IsNaN(decDeg) || double.IsNaN(lat) ? double.NaN : CoordinateUtils.ParallacticAngleDeg(ha, decDeg, lat);
+            var cov = SkyCovariates.From(meta, solution);
+            var alt = cov.AltitudeDeg;
+            var az = cov.AzimuthDeg;
+            var airmass = cov.Airmass;
+            var parallactic = cov.ParallacticDeg;
             // The zenith is at the parallactic angle; the horizon (where sky glow comes from) is opposite.
             var horizonInFrame = solution is { } horizonWcs && !double.IsNaN(parallactic)
                 ? horizonWcs.SkyPositionAngleToPixelAngleDeg(parallactic + 180.0)
                 : double.NaN;
 
-            var moonAlt = double.NaN;
-            var moonIllumination = double.NaN;
-            var moonSeparation = double.NaN;
+            var moonAlt = cov.MoonAltitudeDeg;
+            var moonIllumination = cov.MoonIllumination;
+            var moonSeparation = cov.MoonSeparationDeg;
             var moonInFrame = double.NaN;
-            if (hasEpoch && !double.IsNaN(lat) && !double.IsNaN(lon)
-                && VSOP87a.Reduce(CatalogIndex.Moon, epoch, lat, lon, out var moonRa, out var moonDec, out _, out var moonAltitude, out _))
+            if (solution is { } moonWcs && double.IsFinite(raHours) && double.IsFinite(decDeg) && double.IsFinite(cov.MoonRaHours))
             {
-                moonAlt = moonAltitude;
-                moonIllumination = MeeusMoon.GetPhase(epoch.ToJulian()).Illumination;
-                if (double.IsFinite(raHours) && double.IsFinite(decDeg))
-                {
-                    moonSeparation = CoordinateUtils.AngularSeparationDeg(raHours, decDeg, moonRa, moonDec);
-                    if (solution is { } moonWcs)
-                    {
-                        moonInFrame = moonWcs.SkyPositionAngleToPixelAngleDeg(
-                            CoordinateUtils.PositionAngleDeg(raHours, decDeg, moonRa, moonDec));
-                    }
-                }
+                moonInFrame = moonWcs.SkyPositionAngleToPixelAngleDeg(
+                    CoordinateUtils.PositionAngleDeg(raHours, decDeg, cov.MoonRaHours, cov.MoonDecDeg));
             }
 
             return new MasterGradient(

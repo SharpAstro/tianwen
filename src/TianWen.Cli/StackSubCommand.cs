@@ -28,6 +28,8 @@ internal sealed class StackSubCommand(
     ILogger<StackingPipeline> pipelineLogger,
     ICelestialObjectDB catalogDb,
     TianWen.Lib.Imaging.Enhancement.SharpenPipeline sharpenPipeline,
+    // The data folder the viewer's clear-night references (#1976) are read from, so the stack judges cloud as the viewer does.
+    TianWen.Lib.Devices.IExternal external,
     // Optional: --remove-stars needs it, nothing else does, and a host that registered no AI backend
     // must still be able to run an ordinary stack.
     TianWen.Lib.Imaging.Enhancement.IStarRemover? starRemover = null)
@@ -175,7 +177,9 @@ internal sealed class StackSubCommand(
         };
         var rejectCloudOpt = new Option<bool>("--reject-cloud")
         {
-            Description = "Leave out the lights the FITS viewer's grade calls cloud or twilight: each light is graded on its calibrated frame before normalization (the sky's patchiness against the group's clearest and its neighbours within an hour, the sky against the night's darkest, the Sun's altitude), and every frame left out is logged with the reason and marked SkippedCloud in the manifest. Off by default until it is checked against labelled nights.",
+            Description = "Leave out the lights the FITS viewer's grade calls cloud or twilight: each light is graded on its calibrated frame before normalization (the sky's patchiness against the group's clearest and its neighbours within an hour, the sky against the night's darkest, the Sun's altitude), and every frame left out is logged with the reason and marked SkippedCloud in the manifest. On by default; --reject-cloud false stacks every light the other gates keep.",
+            // The record's own default, so an absent option defers to it rather than replacing it (#1370's lesson).
+            DefaultValueFactory = _ => new StackingOptions(string.Empty, string.Empty).RejectCloud,
         };
         var rejectLowSigmaOpt = new Option<float?>("--reject-low-sigma")
         {
@@ -669,7 +673,8 @@ internal sealed class StackSubCommand(
                 // isolate the body it then subtracts from every frame. Passing it costs nothing when
                 // unused -- the RC-vs-in-house choice and its licence probe are deferred to the first
                 // EnhanceAsync, so merely holding the reference spawns no process.
-                starRemover: options.RemoveStarsPerFrame || options.CometStarLayer ? starRemover : null);
+                starRemover: options.RemoveStarsPerFrame || options.CometStarLayer ? starRemover : null,
+                external: external);
             // The preview PNG + split-plate TIFFs are rendered INSIDE the pipeline
             // (MasterPostProcessor) now, so they share one WB + bg-neut solve and the
             // plates come out colour-matched to the preview. EXR is still written here

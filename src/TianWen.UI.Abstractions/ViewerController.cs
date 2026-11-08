@@ -1271,9 +1271,24 @@ public sealed class ViewerController(
             {
                 // The grade reads the planes, so it runs inside the detection, before the planes are released
                 // (LightGrading.Grade is synchronous and a released image refuses a read).
+                // The transparency (#1974) needs a WCS the document ALREADY has (its header's or a solve it ran: none is started for the
+                // grade) and the Tycho-2 catalogue; the catalogue is awaited here, off the render thread, only for such a frame.
+                var gradeWcs = grade && document.Findings.Wcs is { HasCDMatrix: true } known ? known : (TianWen.Lib.Astrometry.WCS?)null;
+                TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? gradeCatalogue = null;
+                if (gradeWcs is not null && CelestialObjectDB is { } lazyCatalogue)
+                {
+                    try
+                    {
+                        gradeCatalogue = await lazyCatalogue.WithCancellation(sdCts.Token);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogDebug(ex, "Catalogue unavailable for the grade's transparency");
+                    }
+                }
                 await document.DetectStarsAsync(sdCts.Token, whileResident: (image, stars) =>
                 {
-                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars, document.FullScaleAdu) is { } frameGrade)
+                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars, document.FullScaleAdu, gradeWcs, gradeCatalogue) is { } frameGrade)
                     {
                         state.RecordFrameGrade(document.FilePath, frameGrade);
                     }
@@ -1784,12 +1799,36 @@ public sealed class ViewerController(
     /// <summary>A table of grades this still while it grows is taken as settled, and its clear nights recorded.</summary>
     private const double GradesSettleSeconds = 5;
 
+    // The stored expected-sky models (#1974): read off the render thread once per folder opened, published as one swap. The frame loop
+    // only polls the task; a failed read leaves the previous models (or none, and the night fits itself).
+    private Task<ImmutableArray<ExpectedSkyEntry>>? _expectedSkyTask;
+    private string? _expectedSkyFolder;
+
+    private void FollowExpectedSky(TianWen.Lib.Devices.IExternal store)
+    {
+        if (_expectedSkyTask is { IsCompleted: true } done)
+        {
+            _expectedSkyTask = null;
+            if (done.IsCompletedSuccessfully)
+            {
+                state.ExpectedSky = done.Result;
+            }
+        }
+        if (_expectedSkyTask is null && state.CurrentFolder is { Length: > 0 } folder
+            && !string.Equals(folder, _expectedSkyFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            _expectedSkyFolder = folder;
+            _expectedSkyTask = Task.Run(() => ExpectedSkyStore.LoadAsync(store, CancellationToken.None));
+        }
+    }
+
     private void FollowGradeReferences()
     {
         if (external is not { } store)
         {
             return;
         }
+        FollowExpectedSky(store);
         if (_referencesTask is { IsCompleted: true } done)
         {
             _referencesTask = null;
@@ -2470,12 +2509,19 @@ public sealed class ViewerController(
     }
 
     /// <summary>
+    /// TEST SEAM (#2012), never set in production: run by <see cref="SaveLeavingDisplayAsync"/> after it followed the frame renames
+    /// and before it reads <see cref="ViewerState.PendingMark"/>, so a test can finish a rename in exactly that gap.
+    /// </summary>
+    internal Action? AfterLeavingFollow { get; set; }
+
+    /// <summary>
     /// Writes the display of the file on show, when the user changed it since it opened (#1814). The record is captured on the calling
     /// thread. A follower of a held run keeps nothing: its display is the anchor's, not its own, and neither does an enhance result,
     /// which carries its source's path but shows the enhanced view's display (and drops its crop): the source's record stays as it was.
     /// </summary>
     private Task SaveLeavingDisplayAsync()
     {
+        // The follow below is where a finished rename is taken; the test seam runs right after it.
         FollowFrameRenames();
         if (external is null
             || _displayPath is not { } path
@@ -2491,7 +2537,10 @@ public sealed class ViewerController(
         // A thumbs rename of THIS file still running (a slow folder): the leave waits for it before it settles the path, so the record
         // lands under the name the file ends with. Written under the old one, the completion (applied with another document open) would
         // match no path state and the renamed frame would reopen at its defaults.
-        var renaming = state.PendingMark is { Rename.IsCompleted: false } pending && ReferenceEquals(pending.Document, document) ? pending.Rename : null;
+        // Taken whether or not it has finished: a rename that completes after the follow above (and before this read) is still not
+        // applied to the path state, so only awaiting it here sends the record to the new name.
+        AfterLeavingFollow?.Invoke();
+        var renaming = state.PendingMark is { } pending && ReferenceEquals(pending.Document, document) ? pending.Rename : null;
         var now = ViewerDisplayMemory.Capture(state);
         if (now == atOpen && !_displaySaveOwed && !(renaming is not null && _displayRemembered))
         {

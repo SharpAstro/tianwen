@@ -243,13 +243,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
         output.WriteLine($"  [{m[6],7:F4}  {m[7],7:F4}  {m[8],7:F4}]");
     }
 
-    private static string CreateTestOutputDir(string testName)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests",
-            DateTime.Now.ToString("yyyyMMdd"), testName);
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    private static string CreateTestOutputDir(string testName) => SharedTestData.CreateTempTestOutputDir(testName);
 
     /// <summary>
     /// The Canon driver reads each sub into a RECYCLED plane, which holds the previous sub's pixels: the

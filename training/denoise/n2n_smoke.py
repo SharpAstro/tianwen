@@ -244,6 +244,72 @@ def add_speckle(loss, args, pred, x, y, plane):
     return loss + args.speckle_weight * term, term
 
 
+FLUX_HUBER = 0.5     # R3o: the flux term is r^2 up to |r| = 0.5 and linear past it (flux_term)
+
+
+def flux_footprints(x, y, plane, floor, grow, border):
+    """The --flux-loss footprints (R3o, C:/temp/e2/r3o.prereg): per tile, the pixels where the star layer (the draw x less
+    its truth y, the channels' mean, in the draw's own noise sigmas) stands at `floor` or more, grown by `grow` pixels and
+    split into connected components, inside the `border` the pixel term leaves out. A footprint that reaches the border is
+    dropped: a star cut by the crop keeps a faint wing inside, so its flux sums to little and its ratio to the error beside it
+    is huge (one such footprint sent the term from 0.1 to 3 on synth18's batch 1100). Returns (labels, count): labels is an
+    int64 tensor [B, H', W'] of the cropped tile, 0 off every footprint and 1..count on one, numbered across the batch so
+    one scatter sums every footprint at once. Detached: where a star IS is the truth's fact, not something to learn."""
+    import torch
+    from scipy import ndimage
+    with torch.no_grad():
+        z = star_layer_sigmas(x, y, plane)
+        mask = (z >= floor).float()
+        if grow > 0:
+            mask = torch.nn.functional.max_pool2d(mask, kernel_size=2 * grow + 1, stride=1, padding=grow)
+        mask = mask[:, 0].cpu().numpy() > 0.5
+    h, w = mask.shape[1] - 2 * border, mask.shape[2] - 2 * border
+    labels = np.zeros((mask.shape[0], h, w), dtype=np.int64)
+    count = 0
+    for b in range(mask.shape[0]):
+        lab, n = ndimage.label(mask[b])
+        if not n:
+            continue
+        inner = lab[border:-border, border:-border]
+        # A component with any pixel outside the interior, or on its first or last row or column, is cut by the crop.
+        outside = np.ones(n + 1, bool)
+        outside[np.unique(inner)] = False
+        cut = np.unique(np.concatenate([inner[0], inner[-1], inner[:, 0], inner[:, -1]]))
+        whole = ~outside
+        whole[cut] = False
+        whole[0] = False
+        ids = np.flatnonzero(whole)
+        if ids.size:
+            remap = np.zeros(n + 1, dtype=np.int64)
+            remap[ids] = np.arange(1, ids.size + 1) + count
+            labels[b] = remap[inner]
+            count += ids.size
+    return torch.from_numpy(labels).to(x.device), count
+
+
+def flux_term(pred, x, y, labels, count, border):
+    """The --flux-loss term (R3o): for each footprint F of `flux_footprints`, r_F = sum_F (pred - y) / sum_F (x - y) on the
+    channels' mean, the share of the star's light the output left in (+) or dug past (-), and the term is the mean of a Huber
+    of r_F (r^2 to |r| = 0.5, linear past it, so one wild footprint cannot own the step's gradient) with every footprint
+    counted once, faint or bright: the fair oracle's view, which fits ONE flux per star, where the pixel
+    term grades each pixel and lets a wrong flux under a bright core cost what the hidden background's texture costs. A
+    footprint whose star layer sums to nothing (a grown rim alone, never in practice) is left out rather than divided by.
+    pred, x, y are [B, C, H, W]; returns (term, footprints counted)."""
+    import torch
+    lab = labels.flatten()
+    keep = lab > 0
+    idx = lab[keep]
+    err = (pred - y).mean(dim=1)[:, border:-border, border:-border].flatten()[keep]
+    star = (x - y).mean(dim=1)[:, border:-border, border:-border].flatten()[keep].detach()
+    num = torch.zeros(count + 1, device=pred.device, dtype=err.dtype).scatter_add(0, idx, err)[1:]
+    den = torch.zeros(count + 1, device=pred.device, dtype=star.dtype).scatter_add(0, idx, star)[1:]
+    ok = den > 0
+    if not bool(ok.any()):
+        return pred.sum() * 0.0, 0
+    r = num[ok] / den[ok]
+    return torch.nn.functional.huber_loss(r, torch.zeros_like(r), delta=FLUX_HUBER) * 2.0, int(ok.sum())
+
+
 def resume_fingerprint(args, meta):
     """What makes two invocations the SAME run, for --resume to refuse anything else: the recipe's switches, the seed, and
     the cache's shape. The step cap is left out under --schedule plateau, where it only bounds the run (a resumed run may
@@ -261,6 +327,9 @@ def resume_fingerprint(args, meta):
         fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
     if getattr(args, "speckle_weight", 0.0):
         fp.update(speckle_weight=args.speckle_weight, speckle_sigma=args.speckle_sigma)
+    if getattr(args, "flux_loss", None):
+        fp.update(flux_loss=args.flux_loss, flux_sigma=args.flux_sigma, flux_grow=args.flux_grow,
+                  flux_from=getattr(args, "flux_from", 1))
     if getattr(args, "oversample_factor", 1.0) != 1.0:
         fp.update(oversample_sessions=sorted(read_session_list(args.oversample_sessions)), oversample_factor=args.oversample_factor)
     if getattr(args, "clip_grad", 0.0):
@@ -1569,6 +1638,25 @@ def train(args):
         print(f"objective: + {args.speckle_weight:g} x the speckle penalty at the peaks of the star layer "
               f"({args.speckle_sigma:g} sigma or more, the output's core pixels under its own sky less 4 sigma; "
               f"--speckle-weight, #1362)")
+    if args.flux_loss:
+        # The footprints are where the star layer stands in the draw's own noise, the planes --bright-weight reads.
+        if sigma_planes is None:
+            raise SystemExit("--flux-loss finds each star's footprint in the star layer in the draw's own noise: it needs "
+                             "--cond-map's planes")
+        if args.flux_loss != "auto":
+            try:
+                ok = float(args.flux_loss) > 0.0
+            except ValueError:
+                ok = False
+            if not ok:
+                raise SystemExit("--flux-loss takes 'auto' or a weight over 0")
+        if not args.flux_sigma > 0.0 or args.flux_grow < 0 or args.flux_from < 1:
+            raise SystemExit("--flux-sigma takes a floor over 0, --flux-grow a growth of 0 or more pixels and "
+                             "--flux-from a step of 1 or more")
+        print(f"objective: + the flux term, each star's share of its flux left in or dug, squared, one per footprint "
+              f"(star layer {args.flux_sigma:g} sigma or more, grown {args.flux_grow} px; weight {args.flux_loss}, "
+              f"from step {args.flux_from}; "
+              f"--flux-loss, R3o)")
 
     # R2d's D4: the sky near a source the plate itself kept is left out of the pixel and band terms, in training and in
     # the plateau's held-out objective alike, so neither asks the net to keep a faint star it is asked to remove elsewhere.
@@ -1901,6 +1989,8 @@ def train(args):
     running = []
     running_star = []
     running_speckle = []
+    running_flux = []
+    flux_w = None
     regime_steps = defaultdict(int)
     best = (-1.0, 0, None, None)      # (score, step, metrics, state_dict)
     # The same tuple, tracked WITHOUT the noise threshold: the best-by-noise probe among those
@@ -1969,6 +2059,7 @@ def train(args):
             torch.cuda.set_rng_state_all([s.cpu() for s in ck["cuda_rng"]])
         val_best, val_best_step, val_bad, val_decays = ck["plateau"]
         val_hist, star_w, running, running_star = ck["val_hist"], ck["star_w"], ck["running"], ck["running_star"]
+        flux_w = ck.get("flux_w")
         regime_steps = defaultdict(int, ck["regime_steps"])
         best, best_struct, snapshots = ck["best"], ck["best_struct"], ck["snapshots"]
         if ck.get("clip") is not None:
@@ -2179,6 +2270,28 @@ def train(args):
         if sp_term is not None:
             running_speckle.append(float(sp_term.item()))
 
+        # R3o's --flux-loss: each star's flux left in or dug, one number per footprint (flux_term). Its weight is set ONCE,
+        # as the star term's: equal to the pixel term on the first batch with a footprint, then fixed. The held-out
+        # objective stays the plain one, so the plateau selects as R3l's did.
+        if args.flux_loss and step >= args.flux_from:
+            f_lab, f_n = flux_footprints(x, y, torch.from_numpy(np.ascontiguousarray(plane_now)).to(dev),
+                                         args.flux_sigma, args.flux_grow, BORDER)
+            if f_n > 0:
+                f_term, f_kept = flux_term(pred, x, y, f_lab, f_n, BORDER)
+                if f_kept > 0:
+                    if flux_w is None:
+                        if args.flux_loss == "auto":
+                            flux_w = float(pixel.item()) / max(float(f_term.item()), 1e-12)
+                            print(f"  flux-loss weight FIXED at {flux_w:.4e} on step {step}: pixel term "
+                                  f"{pixel.item():.4e} / flux term {f_term.item():.4e} over {f_kept} footprints "
+                                  f"(--flux-from {args.flux_from})",
+                                  flush=True)
+                        else:
+                            flux_w = float(args.flux_loss)
+                            print(f"  flux-loss weight {flux_w:.4e} (given)", flush=True)
+                    loss = loss + flux_w * f_term
+                    running_flux.append(float(f_term.item()))
+
         # The star term (E2.8). Its weight is set on the FIRST batch that carries a star so the term
         # equals the pixel term there, then never moves: logged once, saved in the checkpoint, and
         # never tuned on the gate.
@@ -2267,6 +2380,8 @@ def train(args):
                          if star_term is not None and running_star else "")
             if args.speckle_weight and running_speckle:
                 star_note += f"  speckle {np.mean(running_speckle[-args.log_every:]):.4e}"
+            if args.flux_loss and running_flux:
+                star_note += f"  flux {np.mean(running_flux[-args.log_every:]):.4e}"
             print(f"  step {step:6d}/{steps}  loss {np.mean(running[-args.log_every:]):.5f}{star_note}  "
                   f"{step*args.batch/el:5.1f} tiles/s  elapsed {el/60:5.1f} min", flush=True)
 
@@ -2373,7 +2488,7 @@ def train(args):
                         "torch_rng": torch.get_rng_state(),
                         "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
                         "plateau": (val_best, val_best_step, val_bad, val_decays), "val_hist": val_hist,
-                        "star_w": star_w, "running": running[-args.log_every:],
+                        "star_w": star_w, "flux_w": flux_w, "running": running[-args.log_every:],
                         "running_star": running_star[-args.log_every:], "regime_steps": dict(regime_steps),
                         "best": best, "best_struct": best_struct, "snapshots": snapshots,
                         "clip": (list(grad_hist), clipped, grad_max) if args.clip_grad else None,
@@ -2753,6 +2868,19 @@ if __name__ == "__main__":
                         "off and leaves the run, its rng stream and its fingerprint untouched")
     p.add_argument("--speckle-sigma", type=float, default=100.0,
                    help="#1362: the star layer's floor, in the draw's own noise sigma, for a --speckle-weight site")
+    p.add_argument("--flux-loss", default=None,
+                   help="R3o: add the flux term (flux_term): per star footprint, the share of its flux the output left in "
+                        "or dug, squared, every footprint counted once. 'auto' sets its weight ONCE so the term equals the "
+                        "pixel term on the first batch with a footprint and fixes it (logged, saved in the checkpoint); a "
+                        "number is used as given. The held-out objective stays the plain one. Needs --cond-map")
+    p.add_argument("--flux-from", type=int, default=1,
+                   help="R3o: the step the flux term starts, its 'auto' weight set there. A random net's flux term is "
+                        "hundreds of times a trained one's (585 against 3 to 30 by step 300 on synth18), so a weight "
+                        "matched on step 1 is matched to the initialisation")
+    p.add_argument("--flux-sigma", type=float, default=5.0,
+                   help="R3o: the star layer's floor, in the draw's own noise sigma, for a --flux-loss footprint")
+    p.add_argument("--flux-grow", type=int, default=2,
+                   help="R3o: pixels a --flux-loss footprint is grown by before it is split into stars")
     p.add_argument("--upsample", action="store_true")
     p.add_argument("--pair-avg", type=int, default=1)
     p.add_argument("--mix-avg", action="store_true")

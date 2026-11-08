@@ -129,6 +129,7 @@ var rootCommand = new RootCommand
             services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.StackingPipeline>>(),
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
             services.GetRequiredService<SharpenPipeline>(),
+            services.GetRequiredService<TianWen.Lib.Devices.IExternal>(),
             // GetService, not GetRequiredService: --remove-stars is the only thing that needs it, and
             // a host with no AI backend must still be able to run an ordinary stack.
             services.GetService<TianWen.Lib.Imaging.Enhancement.IStarRemover>()).Build(),
@@ -249,7 +250,8 @@ var rootCommand = new RootCommand
             consoleHost,
             // GetService: only gradient-report solves anything, and a host with no catalog must still build a dataset.
             services.GetService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
-            services.GetService<ILogger<DatasetSubCommand>>()).Build(),
+            services.GetService<ILogger<DatasetSubCommand>>(),
+            services.GetService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };

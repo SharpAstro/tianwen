@@ -1,7 +1,23 @@
 ---
 name: test-image-diff
-description: Compare test-output PNGs across yyyyMMdd run folders to flag visual regressions. Walks `%TEMP%/TianWen.Lib.Tests/` and `%TEMP%/FC.SDK.Raw.Tests/`, picks the two most recent date directories, diffs same-named PNGs (matched by test-name folder + filename), and reports per-file mean absolute pixel difference, max difference, changed-pixel percent, and byte-size delta. Use after a CPU/GPU pipeline change to confirm nothing else moved, or after refactoring the render pipeline to spot unintended regressions in the Canon CR2, FITS viewer, or stretch-test outputs.
+description: Compare test-output PNGs across yyyyMMdd run folders to flag visual regressions. Walks `%TEMP%/TianWen.Lib.Tests/` and `%TEMP%/FC.SDK.Raw.Tests/`, picks the two most recent date directories, diffs same-named PNGs (matched by test-name folder + filename), and reports per-file mean absolute pixel difference, max difference, changed-pixel percent, and byte-size delta. TianWen.Lib.Tests removes a test's output when the test ends, so run the suite with TIANWEN_KEEP_TEST_OUTPUT=1 first or there is nothing to compare. Use after a CPU/GPU pipeline change to confirm nothing else moved, or after refactoring the render pipeline to spot unintended regressions in the Canon CR2, FITS viewer, or stretch-test outputs.
 ---
+
+**Run the tests with `TIANWEN_KEEP_TEST_OUTPUT=1` first.** Since #2035 a TianWen.Lib.Tests test deletes its own dated
+output folder when it ends, pass or fail, and the first test process of a run sweeps dated folders before yesterday, so
+`%TEMP%/TianWen.Lib.Tests/<yyyyMMdd>/` exists only where a run was asked to keep it. Set the variable for the runs
+you want to compare (it also stops that run's start-up sweep, so kept folders survive):
+
+```
+$env:TIANWEN_KEEP_TEST_OUTPUT = '1'      # pwsh
+TIANWEN_KEEP_TEST_OUTPUT=1 dotnet test ...   # Git Bash
+```
+
+A kept folder is named `<test-name>_<twelve random letters>`, so two runs never share a folder name; this skill drops
+that suffix to match the same test across runs, and takes the newest when one date folder holds several runs of a test.
+The comparison is still between two DATE folders, so the two kept runs must be on different days. A run without
+the variable deletes the kept folders it finds that are dated before yesterday, so compare soon after the second run or
+keep every run in between. The switch is TianWen's: `FC.SDK.Raw.Tests` is another repo's suite and does not read it.
 
 Usage:
 
