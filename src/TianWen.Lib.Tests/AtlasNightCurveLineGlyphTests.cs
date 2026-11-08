@@ -23,8 +23,12 @@ namespace TianWen.Lib.Tests;
 /// <para>The runes come from the lines <see cref="ObjectInfoPanel.NightLine"/> really produces, not from a literal here, so a mark added
 /// to that line is asked of the face too. The face is the copy the tests carry under <c>TestFonts</c> (the file the apps bundle).</para>
 /// </remarks>
-public class AtlasNightCurveLineGlyphTests
+public class AtlasNightCurveLineGlyphTests : IDisposable
 {
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly string FacePath = Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
 
     private static List<Rune> NonAsciiRunesOfTheLine()
@@ -110,5 +114,28 @@ public class AtlasNightCurveLineGlyphTests
         }
 
         blank.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The window's own resolve, over a folder that bundles the face as the apps do: it takes the bundled face before anything the
+    /// machine ships, and the chain it builds draws every mark of the night line.
+    /// </summary>
+    [Fact]
+    public void TheWindowsResolveOverABundlingHostDrawsEveryMarkOfTheNightLine()
+    {
+        var host = _folders.Create("bundling-host");
+        var fonts = Directory.CreateDirectory(Path.Combine(host.FullName, "Fonts"));
+        var bundled = Path.Combine(fonts.FullName, "DejaVuSans.ttf");
+        File.Copy(FacePath, bundled);
+
+        var set = BundledFonts.ResolveFrom(host.FullName);
+
+        set.Text.ShouldBe(bundled, "a bundled face is taken before the platform's, whose coverage is not known");
+        set.Fallback.ShouldNotBeNull();
+        set.Fallback.PrimaryFontPath.ShouldBe(bundled);
+
+        var runes = NonAsciiRunesOfTheLine();
+        var missing = runes.Where(r => set.Fallback.TryResolveFont(r) is null).Select(r => $"U+{r.Value:X4}").ToList();
+        missing.ShouldBeEmpty("marks the window's chain cannot draw, which would show nothing");
     }
 }
