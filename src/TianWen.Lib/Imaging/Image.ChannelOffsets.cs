@@ -134,6 +134,11 @@ public partial class Image
     /// has no centroid), without signal above the noise in any colour, or when a colour lands more than
     /// <see cref="ChannelOffsetOptions.MaxOffsetPx"/> from the reference. All three colours must read on a star for it to count,
     /// so the three colours' counts are one number.</para>
+    /// <para><b>A debayered image reads the offsets its demosaic LEFT, which are not the sky's.</b> Every colour demosaic here
+    /// (AHD, VNG, MHC) rebuilds red and blue from green's structure (AHD as green plus a median of the colour difference), so a
+    /// colour's shift is pulled toward green: a 0.28 px red shift reads about 0.18 px on an AHD frame, and an independent plain
+    /// moment agrees that the frame holds that much. A frame's colours are therefore measured on its MOSAIC, before the demosaic;
+    /// the debayered read is exact only for a demosaic that keeps the colours apart (bilinear per colour).</para>
     /// <para>Too few stars (<see cref="ChannelOffsetOptions.MinStars"/>) reads as <see cref="ChannelOffset.Unmeasured"/>:
     /// NaN, never a guess and never zero.</para>
     /// </remarks>

@@ -124,17 +124,161 @@ public class ChannelOffsetsTests
         ShouldRead(mosaic.ChannelOffsets(stars));
     }
 
+    /// <summary>
+    /// A debayer that keeps the colours apart: each colour at each pixel is the mean of that colour's own photosites in the 3 x 3
+    /// about it (the classic bilinear demosaic), so no colour borrows another's structure and the shift the mosaic holds is the
+    /// shift the planes hold.
+    /// </summary>
+    private static Image BilinearPerColour(Image mosaic, int offsetX, int offsetY)
+    {
+        var pattern = SensorType.RGGB.GetBayerPatternMatrix(offsetX, offsetY);
+        var raw = mosaic.GetChannelArray(0);
+        var planes = new[] { new float[Size, Size], new float[Size, Size], new float[Size, Size] };
+        Span<double> sum = stackalloc double[3];
+        Span<int> count = stackalloc int[3];
+        for (var y = 1; y < Size - 1; y++)
+        {
+            for (var x = 1; x < Size - 1; x++)
+            {
+                sum.Clear();
+                count.Clear();
+                var own = pattern[y & 1, x & 1];
+                for (var dy = -1; dy <= 1; dy++)
+                {
+                    for (var dx = -1; dx <= 1; dx++)
+                    {
+                        var c = pattern[(y + dy) & 1, (x + dx) & 1];
+                        // Green at a green photosite is that photosite alone; elsewhere the colour's photosites in the 3 x 3.
+                        if (c == own && (dx != 0 || dy != 0))
+                        {
+                            continue;
+                        }
+
+                        sum[c] += raw[y + dy, x + dx];
+                        count[c]++;
+                    }
+                }
+
+                for (var c = 0; c < 3; c++)
+                {
+                    planes[c][y, x] = (float)(sum[c] / count[c]);
+                }
+            }
+        }
+
+        return new Image(planes, BitDepth.Float32, mosaic.MaxValue, 0f, 0f, mosaic.ImageMeta with { SensorType = SensorType.Color, BayerOffsetX = 0, BayerOffsetY = 0 });
+    }
+
     [Theory]
     [InlineData(0, 0)]
     [InlineData(1, 1)]
-    public async Task ADebayeredFrameReadsTheSameShiftsWithTheStackersDefaultDemosaic(int offsetX, int offsetY)
+    public async Task ADebayeredFrameReadsTheSameShiftsWhenItsDemosaicKeepsTheColoursApart(int offsetX, int offsetY)
+    {
+        var mosaic = Mosaic(offsetX, offsetY, StarPositions(36));
+        var stars = await mosaic.FindStarsAsync(0, snrMin: 20f, minStars: 20, cancellationToken: TestContext.Current.CancellationToken);
+        var rgb = BilinearPerColour(mosaic, offsetX, offsetY);
+        rgb.ChannelCount.ShouldBe(3);
+
+        ShouldRead(rgb.ChannelOffsets(stars));
+    }
+
+    /// <summary>
+    /// The stacker's default demosaic, AHD, rebuilds red and blue as green plus a median of the colour difference, so red takes
+    /// green's structure and the debayered frame HOLDS a smaller shift than the sky put there (about two thirds of it here). The
+    /// primitive reads what the frame holds: an independent estimator (a plain, unweighted moment over a wide window) agrees with it
+    /// on the AHD planes, and both fall well short of the truth that the mosaic reads. That is why a frame's colours are measured
+    /// on its mosaic, before the demosaic, never on the debayered frame.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    public async Task TheStackersDefaultDemosaicPullsRedAndBlueTowardGreenAndTheReadSaysSo(int offsetX, int offsetY)
     {
         var mosaic = Mosaic(offsetX, offsetY, StarPositions(36));
         var stars = await mosaic.FindStarsAsync(0, snrMin: 20f, minStars: 20, cancellationToken: TestContext.Current.CancellationToken);
         var rgb = await mosaic.DebayerAsync(DebayerAlgorithm.AHD, cancellationToken: TestContext.Current.CancellationToken);
-        rgb.ChannelCount.ShouldBe(3);
 
-        ShouldRead(rgb.ChannelOffsets(stars));
+        var read = rgb.ChannelOffsets(stars);
+        read.IsMeasured.ShouldBeTrue();
+
+        var (redX, redY) = PlainMomentOffset(rgb, stars, 0);
+        var (blueX, blueY) = PlainMomentOffset(rgb, stars, 2);
+        // AHD leaves each star slightly lopsided in red and blue, so a Gaussian-weighted centre and a plain moment weigh it a
+        // little differently (0.18 against 0.20 px on red): they agree to 0.04 px, and both sit a third short of the truth.
+        const double agreement = 0.04;
+        read.Red.Dx.ShouldBe(redX, agreement);
+        read.Red.Dy.ShouldBe(redY, agreement);
+        read.Blue.Dx.ShouldBe(blueX, agreement);
+        read.Blue.Dy.ShouldBe(blueY, agreement);
+
+        // Same direction as the truth, and short of it by more than the bound: the demosaic moved the colours, not the read.
+        read.Red.Dx.ShouldBeGreaterThan(0d);
+        read.Red.Dx.ShouldBeLessThan(RedShift.Dx - (3 * Tolerance));
+        read.Blue.Dx.ShouldBeLessThan(0d);
+        read.Blue.Dx.ShouldBeGreaterThan(BlueShift.Dx + (3 * Tolerance));
+        mosaic.ChannelOffsets(stars).Red.Dx.ShouldBe(RedShift.Dx, Tolerance);
+    }
+
+    /// <summary>The median over the stars of a colour's plain first moment less green's, over a 9 px window less a ring median.</summary>
+    private static (double Dx, double Dy) PlainMomentOffset(Image rgb, StarList stars, int colour)
+    {
+        const int radius = 9;
+        const int ring = 13;
+        var dxs = new List<double>();
+        var dys = new List<double>();
+        foreach (var star in stars)
+        {
+            var ix = (int)MathF.Round(star.XCentroid);
+            var iy = (int)MathF.Round(star.YCentroid);
+            if (ix - ring < 0 || iy - ring < 0 || ix + ring >= Size || iy + ring >= Size)
+            {
+                continue;
+            }
+
+            var c = Moment(rgb.GetChannelArray(colour), ix, iy);
+            var g = Moment(rgb.GetChannelArray(1), ix, iy);
+            dxs.Add(c.X - g.X);
+            dys.Add(c.Y - g.Y);
+        }
+
+        dxs.Sort();
+        dys.Sort();
+        return (dxs[dxs.Count / 2], dys[dys.Count / 2]);
+
+        static (double X, double Y) Moment(float[,] plane, int ix, int iy)
+        {
+            var background = new List<float>();
+            for (var y = iy - ring; y <= iy + ring; y++)
+            {
+                for (var x = ix - ring; x <= ix + ring; x++)
+                {
+                    var d2 = ((x - ix) * (x - ix)) + ((y - iy) * (y - iy));
+                    if (d2 > radius * radius && d2 <= ring * ring)
+                    {
+                        background.Add(plane[y, x]);
+                    }
+                }
+            }
+
+            background.Sort();
+            var level = background[background.Count / 2];
+            double s = 0d, sx = 0d, sy = 0d;
+            for (var y = iy - radius; y <= iy + radius; y++)
+            {
+                for (var x = ix - radius; x <= ix + radius; x++)
+                {
+                    if (((x - ix) * (x - ix)) + ((y - iy) * (y - iy)) <= radius * radius)
+                    {
+                        var f = plane[y, x] - level;
+                        s += f;
+                        sx += f * x;
+                        sy += f * y;
+                    }
+                }
+            }
+
+            return (sx / s, sy / s);
+        }
     }
 
     [Fact]
