@@ -833,60 +833,8 @@ public sealed class StackingPipeline(
         // early frames win on dense fields even when their PSF was 30%
         // broader -- bad reference for the rest of the session to
         // register against.
-        progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
-        var measureStart = StageTimings.Start();
-        long measuredPixels = 0;
-        var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score, StarList Stars)>(lightList.Count);
-        // The viewer's grade of each light, taken here because this is the one place a light is calibrated and its stars found
-        // BEFORE normalization (CloudRejection; null when the option is off, so nothing extra is read).
-        var cloudGrades = options.RejectCloud ? ImmutableDictionary.CreateBuilder<string, LightGrade>(StringComparer.OrdinalIgnoreCase) : null;
-        foreach (var lf in lightList)
-        {
-            ct.ThrowIfCancellationRequested();
-            var raw = await lf.LoadFullAsync(ct);
-            measuredPixels += (long)raw.Width * raw.Height;
-            // The grade's sky LEVEL is the raw light's, the scale the viewer's references and NightSkyCloudFrom are on (#2003), and so
-            // is the patchiness a clear-night reference is compared with (#2005); read here because calibration consumes the frame.
-            var (rawSky, rawPatchiness) = cloudGrades is not null
-                ? (LightGrading.RawSkyLevel(raw), raw.SkyPatchiness(raw.ReferenceStarChannel))
-                : (float.NaN, float.NaN);
-            var calibrated = calibrator.Apply(raw);
-            // BEFORE DetectAsync, whose internal debayer can rescale the calibrated frame in
-            // place: the accumulator must see the same values the integration producers' own
-            // Apply emits. (The outlier test is scale-invariant per frame, but seeing the
-            // producer's values is the invariant worth stating.)
-            if (badPixelAccumulators is { } accumulators && nightOf is { } nights)
-            {
-                accumulators[nights[lf]].Accumulate(calibrated);
-            }
-            // Shared detect site (FrameRegistration.DetectAsync): pre-debayer luminance, which this
-            // path used to reach by detecting on channel 0 of the VNG-debayered frame. That is the
-            // interpolated RED plane, and measured on a real session its top-K detections could not
-            // produce even 20 mutual matches between consecutive subs where the mono route
-            // reproduced at 92%.
-            var (stars, _) = await FrameRegistration.DetectAsync(
-                calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, knownBad: knownBad, cancellationToken: ct);
-            var metrics = FrameRegistration.MetricsFrom(stars);
-            if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
-            {
-                // Patchiness within the run stays the calibrated frame's: the flat divides out vignetting a raw frame's surface fit
-                // cannot absorb, which halves the frame-to-frame noise the local tests read (2026-09-10: 51-62 % of the raw
-                // patchiness). A clear-night reference was recorded from raw frames, 2x that scale (5.40 against 2.64 at the
-                // clearest), so the raw light's is carried for that one comparison (#2005, LightGrade.OnReferenceScale).
-                cloudGrades[lf.Path] = grade with
-                {
-                    SkyLevel = float.IsFinite(grade.SkyLevel) ? rawSky : grade.SkyLevel,
-                    ReferencePatchiness = rawPatchiness,
-                };
-            }
-            // The star list is RETAINED (the dataset registrar's model): registration is centroid
-            // work, so keeping it makes the register pass below pixel-free instead of reloading,
-            // re-calibrating and re-detecting every frame this loop just measured. Centroids only,
-            // tens of KB per frame -- the registrar retains them for whole 300-sub sessions.
-            frameCandidates.Add((lf, metrics, FrameRegistration.ReferenceScore(metrics), stars));
-        }
-        timings.Record(StageNames.Measure, measureStart, lightList.Count, measuredPixels);
-
+        // Read BEFORE the measure pass (it needs nothing the pass finds): a manifest also carries each frame's colour offsets, and a
+        // frame that has them is not measured, since a derived plate (a starless layer) has no stars to read them on (#1993).
         // A manifest DRIVES this run rather than informing it: frame list, reference and every star
         // transform come from the earlier run, and the register pass below is skipped entirely. That
         // is what makes a starless layer possible -- StarXTerminator leaves no point sources, so a
@@ -925,6 +873,192 @@ public sealed class StackingPipeline(
                     manifestByEpoch is null ? "unavailable (duplicate epochs)" : "available");
             }
         }
+        // A frame's entry in the manifest: by its own data digest, else by the SRCDGST a derived plate carries, else by exposure
+        // epoch (the same three joins the register pass below uses, see there for why).
+        ManifestFrame? ManifestEntryOf(FrameInfo frame, string digest)
+        {
+            ManifestFrame? entry = null;
+            if (digest.Length > 0)
+            {
+                _ = manifestByDigest?.TryGetValue(digest, out entry);
+            }
+            return entry ?? (manifestByEpoch is not null && manifestByEpoch.TryGetValue(frame.Meta.ExposureStartTime.UtcDateTime, out var byEpoch) ? byEpoch : null);
+        }
+
+        progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
+        var measureStart = StageTimings.Start();
+        long measuredPixels = 0;
+        var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score, StarList Stars)>(lightList.Count);
+        // The viewer's grade of each light, taken here because this is the one place a light is calibrated and its stars found
+        // BEFORE normalization (CloudRejection; null when the option is off, so nothing extra is read).
+        var cloudGrades = options.RejectCloud ? ImmutableDictionary.CreateBuilder<string, LightGrade>(StringComparer.OrdinalIgnoreCase) : null;
+        // Each colour frame's red and blue offsets from green, read off the stars this pass already found (#1993), keyed by the
+        // light's own path: the register pass, the quality and cloud filters and the starless swap all rebuild the matched
+        // list, and a path survives all of them where an index would not. Null when the option is off.
+        var colourShifts = options.AlignColours ? new Dictionary<string, ChannelShifts>(StringComparer.OrdinalIgnoreCase) : null;
+        // The same offsets as the stack's DEMOSAIC leaves them (colour demosaics pull red and blue toward green, so a debayered plane
+        // holds only part of what the mosaic read: AHD about 80 % of red's, 50 % of blue's), which the strategies that warp debayered
+        // planes remove: correcting those by the mosaic's full shift overshoots by the difference (0.05 px on blue in the
+        // ColourAlignmentStackingTests lights). Read once here, on the demosaic the stack itself will use, and only when a
+        // strategy that debayers can run (a forced drizzle never does).
+        // A drizzle never debayers, so the read is skipped only when drizzle is CERTAIN (one is forced). Anything else reads it: an
+        // auto-pick that is not drizzle (cost, memory, a comet layer's mask) and a forced debayering strategy both warp debayered
+        // planes, and "the selector will probably pick drizzle" (drizzlePlausible) is not a reason to leave them uncorrected.
+        var demosaicedShifts = colourShifts is not null
+            && options.ForcedStrategy is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle)
+            ? new Dictionary<string, ChannelShifts>(StringComparer.OrdinalIgnoreCase)
+            : null;
+        var colourReadings = new List<ChannelOffsetsResult>();
+        var colourUnmeasured = 0;
+        var demosaicedMissing = 0;
+        var demosaicedMeasuredOnRerun = 0;
+        // Each light's data digest, taken once when a manifest is in play (the offsets lookup below and the transform lookup after
+        // the measure pass both join on it).
+        var lightDigests = manifest is not null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : null;
+        var colourFromManifest = 0;
+        foreach (var lf in lightList)
+        {
+            ct.ThrowIfCancellationRequested();
+            var raw = await lf.LoadFullAsync(ct);
+            measuredPixels += (long)raw.Width * raw.Height;
+            // The grade's sky LEVEL is the raw light's, the scale the viewer's references and NightSkyCloudFrom are on (#2003), and so
+            // is the patchiness a clear-night reference is compared with (#2005); read here because calibration consumes the frame.
+            var (rawSky, rawPatchiness) = cloudGrades is not null
+                ? (LightGrading.RawSkyLevel(raw), raw.SkyPatchiness(raw.ReferenceStarChannel))
+                : (float.NaN, float.NaN);
+            var calibrated = calibrator.Apply(raw);
+            // BEFORE DetectAsync, whose internal debayer can rescale the calibrated frame in
+            // place: the accumulator must see the same values the integration producers' own
+            // Apply emits. (The outlier test is scale-invariant per frame, but seeing the
+            // producer's values is the invariant worth stating.)
+            if (badPixelAccumulators is { } accumulators && nightOf is { } nights)
+            {
+                accumulators[nights[lf]].Accumulate(calibrated);
+            }
+            // Shared detect site (FrameRegistration.DetectAsync): pre-debayer luminance, which this
+            // path used to reach by detecting on channel 0 of the VNG-debayered frame. That is the
+            // interpolated RED plane, and measured on a real session its top-K detections could not
+            // produce even 20 mutual matches between consecutive subs where the mono route
+            // reproduced at 92%.
+            var (stars, detectDebayered, masked) = await FrameRegistration.DetectMaskedAsync(
+                calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, knownBad: knownBad, cancellationToken: ct);
+            var metrics = FrameRegistration.MetricsFrom(stars);
+            // The colours are read on the CALIBRATED MOSAIC, before any demosaic pulls red and blue toward green
+            // (Image.ChannelOffsets: a 0.28 px red shift reads 0.22 px on an AHD frame), with the stars detection just found:
+            // no second detection pass. A mono frame has no colours to read; a colour frame with too few stars reads
+            // nothing and aligns with zero offsets, which the summary below counts.
+            // A frame the manifest recorded offsets for takes them and is NOT measured: on a derived plate (a starless layer) there is
+            // nothing to read, and on a raw re-run the recorded reading is the one the transforms were solved beside. A frame it
+            // holds none for (written before colour alignment, or unmeasured then) is measured on this plate as ever.
+            ManifestFrame? recorded = null;
+            if (lightDigests is not null)
+            {
+                var digest = FrameProvenance.SourceDigestOf(lf.Path);
+                lightDigests[lf.Path] = digest;
+                recorded = ManifestEntryOf(lf, digest);
+            }
+            // The stack's demosaic of this frame, taken only when a strategy that debayers can run (demosaicedShifts is null otherwise) and
+            // never twice: the detection's own debayer is the stack's when both name the same algorithm (a default run: VNG and AHD
+            // differ, so AHD is taken once, here). A frame that is already three planes has nothing to demosaic: the mosaic reading
+            // IS the debayered one. This reads the demosaic of the unmasked calibrated frame while the mosaic reading is on the masked one:
+            // that is what the stack itself demosaics, so the correction removes what the stack's own planes hold.
+            async Task<ChannelShifts> DemosaicedReadingAsync()
+            {
+                var demosaiced = !calibrated.IsCfaMosaic
+                    ? calibrated
+                    : options.StackDebayerAlg == options.CentroidDebayerAlg
+                        ? detectDebayered
+                        : await calibrated.DebayerAsync(options.StackDebayerAlg, cancellationToken: ct);
+                return ChannelShifts.From(demosaiced.ChannelOffsets(stars));
+            }
+            if (colourShifts is not null && recorded is not null && recorded.TryGetColourShifts(out var recordedMosaic, out var recordedDemosaiced))
+            {
+                colourShifts[lf.Path] = recordedMosaic;
+                if (demosaicedShifts is not null)
+                {
+                    // A manifest written by a drizzle run holds the mosaic's reading only. This run debayers, so the half it lacks is
+                    // read on this plate when the plate still has stars to read it on; a derived plate with none stays uncorrected
+                    // (counted, and said below), never corrected by the mosaic's full shift, which overshoots.
+                    var demosaicedReading = recordedDemosaiced ?? (stars.Count > 0 && (calibrated.IsCfaMosaic || calibrated.ChannelCount == 3)
+                        ? await DemosaicedReadingAsync()
+                        : ChannelShifts.None);
+                    demosaicedShifts[lf.Path] = demosaicedReading;
+                    if (recordedDemosaiced is null)
+                    {
+                        if (demosaicedReading.IsZero)
+                        {
+                            demosaicedMissing++;
+                        }
+                        else
+                        {
+                            demosaicedMeasuredOnRerun++;
+                        }
+                    }
+                }
+                colourFromManifest++;
+            }
+            else if (colourShifts is not null && (calibrated.IsCfaMosaic || calibrated.ChannelCount == 3))
+            {
+                // On the frame the stars were found on, known defects read as their neighbours: a defect beside a star would
+                // otherwise pull its colour's centroid.
+                var reading = masked.ChannelOffsets(stars);
+                colourShifts[lf.Path] = ChannelShifts.From(reading);
+                if (reading.IsMeasured)
+                {
+                    colourReadings.Add(reading);
+                    if (demosaicedShifts is not null)
+                    {
+                        demosaicedShifts[lf.Path] = await DemosaicedReadingAsync();
+                    }
+                }
+                else
+                {
+                    colourUnmeasured++;
+                }
+            }
+            if (cloudGrades is not null && LightGrading.Grade(calibrated, stars) is { } grade)
+            {
+                // Patchiness within the run stays the calibrated frame's: the flat divides out vignetting a raw frame's surface fit
+                // cannot absorb, which halves the frame-to-frame noise the local tests read (2026-09-10: 51-62 % of the raw
+                // patchiness). A clear-night reference was recorded from raw frames, 2x that scale (5.40 against 2.64 at the
+                // clearest), so the raw light's is carried for that one comparison (#2005, LightGrade.OnReferenceScale).
+                cloudGrades[lf.Path] = grade with
+                {
+                    SkyLevel = float.IsFinite(grade.SkyLevel) ? rawSky : grade.SkyLevel,
+                    ReferencePatchiness = rawPatchiness,
+                };
+            }
+            // The star list is RETAINED (the dataset registrar's model): registration is centroid
+            // work, so keeping it makes the register pass below pixel-free instead of reloading,
+            // re-calibrating and re-detecting every frame this loop just measured. Centroids only,
+            // tens of KB per frame -- the registrar retains them for whole 300-sub sessions.
+            frameCandidates.Add((lf, metrics, FrameRegistration.ReferenceScore(metrics), stars));
+        }
+        timings.Record(StageNames.Measure, measureStart, lightList.Count, measuredPixels);
+        if (colourFromManifest > 0)
+        {
+            logger.LogInformation(
+                "  colour alignment: {FromManifest} frames took their offsets from the manifest, {Measured} measured on this run's plates",
+                colourFromManifest, colourReadings.Count);
+        }
+        if (demosaicedMeasuredOnRerun > 0)
+        {
+            logger.LogInformation(
+                "  colour alignment: the manifest holds the mosaic reading only for {Count} frames; their demosaiced offsets were measured on this run's plates",
+                demosaicedMeasuredOnRerun);
+        }
+        if (demosaicedMissing > 0)
+        {
+            logger.LogWarning(
+                "  colour alignment: the manifest holds the mosaic reading only for {Count} frames, and this run's plates have no stars to read the demosaiced "
+                    + "offsets on; those frames' debayered planes are not colour-aligned (the mosaic's full shift would overshoot)",
+                demosaicedMissing);
+        }
+        if (colourReadings.Count + colourUnmeasured > 0)
+        {
+            ColourAlignmentReport.Log(logger, colourReadings, colourUnmeasured);
+        }
+
         // Digest every candidate ONCE, here, so both the reference lookup and the per-frame
         // transform lookup below read the same map.
         Dictionary<string, FrameInfo>? candidateByDigest = null;
@@ -934,7 +1068,9 @@ public sealed class StackingPipeline(
             var digested = new string[frameCandidates.Count];
             Parallel.For(0, frameCandidates.Count, new ParallelOptions { CancellationToken = ct }, i =>
             {
-                digested[i] = FrameProvenance.SourceDigestOf(frameCandidates[i].Frame.Path);
+                digested[i] = lightDigests is not null && lightDigests.TryGetValue(frameCandidates[i].Frame.Path, out var known)
+                    ? known
+                    : FrameProvenance.SourceDigestOf(frameCandidates[i].Frame.Path);
             });
             for (var i = 0; i < frameCandidates.Count; i++)
             {
@@ -1111,6 +1247,15 @@ public sealed class StackingPipeline(
         if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true);
         Directory.CreateDirectory(stagingDir);
 
+        // One frame's colour shifts, or none: a frame the measure pass did not read (too few stars, a mono frame, the option off)
+        // is placed by its transform alone, which is what every frame was before colour alignment.
+        ChannelShifts ColourShiftsOf(string lightPath)
+            => colourShifts is not null && colourShifts.TryGetValue(lightPath, out var shifts) ? shifts : ChannelShifts.None;
+
+        // The same frame's offsets as the stack's demosaic leaves them, for the strategies that warp debayered planes.
+        ChannelShifts DemosaicedColourShiftsOf(string lightPath)
+            => demosaicedShifts is not null && demosaicedShifts.TryGetValue(lightPath, out var shifts) ? shifts : ChannelShifts.None;
+
         // 3b. Per-light: register the RETAINED star lists against the reference through the shared
         // RegisterLoop (min-stars floor -> quad-form -> tolerance ladder -> rigid refine, plus the
         // census + skip counters -- the same loop body the dataset registrar runs). No pixel is
@@ -1146,21 +1291,15 @@ public sealed class StackingPipeline(
                 // matched is dropped here rather than registered on its own: the layers must agree on
                 // depth, and a frame the star layer rejected for bad stars is precisely the one that
                 // must not quietly contribute to the comet layer.
-                var digest = FrameProvenance.SourceDigestOf(candidate.Frame.Path);
-                ManifestFrame? entry = null;
-                if (digest.Length > 0)
-                {
-                    _ = manifestByDigest.TryGetValue(digest, out entry);
-                }
                 // A DERIVED plate has different pixels by construction, so it can only be matched by
                 // provenance. SRCDGST states it outright and is preferred; failing that, the exposure
                 // epoch is a join that costs nothing, because sxt preserves DATE-OBS and the manifest
                 // already records it. The uniqueness of those epochs is checked ONCE when the map is
                 // built -- a duplicated epoch would silently hand one frame another's transform, so
                 // the map is simply not offered in that case.
-                entry ??= manifestByEpoch is null
-                    ? null
-                    : manifestByEpoch.TryGetValue(candidate.Frame.Meta.ExposureStartTime.UtcDateTime, out var byEpoch) ? byEpoch : null;
+                var entry = ManifestEntryOf(
+                    candidate.Frame,
+                    lightDigests is not null && lightDigests.TryGetValue(candidate.Frame.Path, out var digest) ? digest : "");
                 if (entry?.AsMatrix() is { } fromManifest)
                 {
                     transform = fromManifest;
@@ -1642,8 +1781,16 @@ public sealed class StackingPipeline(
             logger.LogInformation("  [canvas] union bbox = {W}x{H} (origin {X},{Y} in ref space)",
                 outWidth, outHeight, outOriginX, outOriginY);
 
+            // A colour plane shifted onto green lands up to its shift outside the quad the transform alone draws, and a
+            // footprint-staged strategy writes nothing beyond a footprint: widen every one by the longest shift of the group.
+            var footprintMargin = 0;
+            for (var fi = 0; fi < matched.Count; fi++)
+            {
+                footprintMargin = Math.Max(footprintMargin,
+                    Math.Max(ColourShiftsOf(matched[fi].Light.Path).HaloPx, DemosaicedColourShiftsOf(matched[fi].Light.Path).HaloPx));
+            }
             var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
-                layerTransforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight);
+                layerTransforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight, footprintMargin);
 
             // One preparation for BOTH producers: load, calibrate for this layer, and take the body
             // out of the raw CFA frame (subtract it, or blank it) before anything debayers or warps.
@@ -1733,7 +1880,8 @@ public sealed class StackingPipeline(
                     // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
                     // three lines the dataset registrar runs, so the two paths cannot drift here.
                     var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
-                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, options.WarpInterpolation, token);
+                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, options.WarpInterpolation,
+                        DemosaicedColourShiftsOf(matched[fi].Light.Path), token);
                     yield return warped;
                 }
             }
@@ -1749,7 +1897,7 @@ public sealed class StackingPipeline(
                 for (var fi = 0; fi < matched.Count; fi++)
                 {
                     var (calibrated, transformOrig) = await PrepareFrameAsync(fi, token);
-                    yield return new RawBayerFrame(calibrated, transformOrig * canvasShift);
+                    yield return new RawBayerFrame(calibrated, transformOrig * canvasShift, ColourShiftsOf(matched[fi].Light.Path));
                 }
             }
 
@@ -1855,6 +2003,14 @@ public sealed class StackingPipeline(
             }
             var selection = IntegrationStrategySelector.Pick(probe, preferred: preferredStrategy, pool: pool);
             logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
+            if (colourShifts is { Count: > 0 } && demosaicedShifts is null
+                && selection.Chosen.Kind is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle))
+            {
+                logger.LogWarning(
+                    "  colour alignment: a drizzle was forced, so no demosaiced offsets were read, but this layer picked {Kind}, which debayers; "
+                        + "its planes are not colour-aligned (drop --strategy to let the stack read them)",
+                    selection.Chosen.Kind);
+            }
             logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);
             var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
 
@@ -1876,7 +2032,11 @@ public sealed class StackingPipeline(
             {
                 rawSources.Add(new RawLightSource(
                     Path: (useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light).Path,
-                TransformToCanvas: layerTransforms[fi] * canvasShift));
+                TransformToCanvas: layerTransforms[fi] * canvasShift,
+                // Keyed by the ORIGINAL light even for a starless plate: the plate is that frame, calibrated and with its stars
+                // taken out, and its colours still sit where the lens put them.
+                ColourShifts: ColourShiftsOf(matched[fi].Light.Path),
+                DemosaicedColourShifts: DemosaicedColourShiftsOf(matched[fi].Light.Path)));
             }
 
             // Forward strategy progress into the StackingProgress channel.
@@ -2327,7 +2487,14 @@ public sealed class StackingPipeline(
                     digests[i],
                     fate,
                     frame.Meta.ExposureStartTime,
-                    star is { } m ? ManifestFrame.From(m) : null);
+                    star is { } m ? ManifestFrame.From(m) : null,
+                    // The offsets this run placed the frame's colours by, taken from its own measure pass or, on a manifest run, from
+                    // the manifest it was given: written through so a layer of a layer keeps them (#1993).
+                    colourShifts is not null && colourShifts.TryGetValue(frame.Path, out var mosaicShifts)
+                        ? ManifestFrame.OffsetsFrom(
+                            mosaicShifts,
+                            demosaicedShifts is not null && demosaicedShifts.TryGetValue(frame.Path, out var demosaiced) ? demosaiced : null)
+                        : null);
             }
             var referenceDigest = "";
             for (var i = 0; i < manifestFates.Count; i++)

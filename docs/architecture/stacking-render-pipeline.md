@@ -534,6 +534,55 @@ Deliberately NOT covered, so the switch can never fill a disk: condition-recover
 (unbounded while cloud lasts), the rough-focus sweep, plate-solve frames and flat-metering frames.
 Each is one `WriteIntermediateFrameToFitsFileAsync` call away if it earns its keep.
 
+## Colour alignment: red and blue are placed on green per frame (#1993)
+
+**Why.** Registration finds ONE transform per frame, on its stars, and used to move all three colour planes by it. The
+atmosphere does not: it disperses each star into a short spectrum along the vertical, so a colour frame's red and blue sit on
+opposite sides of green by an amount that changes with altitude through the night. In the master that is a red/blue split on
+every star, and once stretched a blue cap over a red one on a bright, steep feature.
+
+**What was measured** (M83, 2025-03-07, QHY294PROC 11M mode, Quattro 8", 1.58"/px, site -37.9; per sub, on the RAW mosaic,
+median over 60 to 170 stars): red against green moved from (+0.282, +0.149) px at altitude 34 degrees to (+0.140, +0.055) px
+at 53, blue against green from (-0.151, -0.081) to (-0.064, -0.012), so red to blue went from 0.49 px to 0.22 px. The split
+roughly halves as the target climbs, as tan(zenith distance) does: it is in the light, not in the Bayer handling. The masters
+carried it (Bayer drizzle R-G +0.107, +0.223 and B-G -0.069, -0.152; AHD about half of that, because a demosaic pulls red and
+blue toward green).
+
+**The one primitive.** `Image.ChannelOffsets(stars, reference: green)` (`TianWen.Lib.Imaging`,
+`Image.ChannelOffsets.cs`) is the ONLY place a colour's offset is measured: the median centroid offset of each colour from the
+reference over the frame's stars, with the star count and the stars' spread, on a raw Bayer mosaic (each colour on its own
+photosites at their TRUE positions, the cell position taken out) and on a debayered image alike. A frame with too few usable
+stars reads nothing (`ChannelOffsetsResult.IsMeasured` false, NaN, never zero). The stacker, `tianwen image channel-offsets`
+and any later reader (the viewer, the session) ask it and never re-derive it.
+
+**Where it applies.** The measure pass reads each colour frame's offsets once, on the CALIBRATED MOSAIC with the stars its
+detection just found (no second detection pass), as `ChannelShifts` in the frame's own source pixels, taken out BEFORE the
+registration transform (dispersion belongs to the optics and the frame's axes, not the sky). Then:
+
+- **Debayered paths** (in-RAM warp producer, `TilePipelined`): each colour plane is warped by `ChannelShifts.Compose`, its own
+  translation then the frame's transform. These planes come out of a demosaic that pulled red and blue toward green, so the
+  strategies remove the offsets the demosaic LEFT (a second reading, taken once in the measure pass on the same demosaic the
+  stack uses), not the mosaic's full shift, which would overshoot (AHD keeps about 80 % of red's and 50 % of blue's).
+- **Bayer drizzle** (`BayerDrizzle`, `TilePipelinedDrizzle`): each photosite colour is deposited at `ChannelShifts.CanvasDelta`
+  from where the transform alone puts it, with the mosaic's reading, so drizzle and the debayered paths agree.
+- A frame with too few stars aligns with zero offsets and is counted in the run's one `colour alignment:` log line (median and
+  longest red and blue offsets); `--no-colour-align` (`StackingOptions.AlignColours`) switches the whole step off.
+
+**The manifest carries the offsets.** `ManifestFrame.ColourOffsets` holds a matched frame's readings (six floats, the mosaic's
+red, green, blue as x,y pairs, or twelve with the demosaiced reading after them; `null` for an unmeasured frame). A `--manifest`
+run (a starless or comet layer) takes a frame's recorded offsets with its recorded transform and does NOT measure that frame on
+its own plate, which for a starless plate has no stars to read: a layer built from a manifest is aligned exactly as the
+original run was, and writes the offsets through to its own manifest. A manifest written before this existed has none, so a
+run measures those frames on its own plates as it always did, which works wherever stars exist and aligns with zero
+elsewhere. The schema version stays 1: an older reader ignores the key, a newer one reads its absence as `null`.
+`StackManifestTests` pins the round trip and the old file, and `ColourAlignmentStackingTests.AManifestRunUsesTheRecordedOffsetsAndDoesNotMeasure`
+pins the reuse with a manifest whose offsets were swapped for ones that correct nothing.
+
+**Check.** The synthetic-lights test (`ColourAlignmentStackingTests`) reads the master's own stars on all four strategies
+and holds red and blue within 0.03 px of green aligned, and clear of it with `--no-colour-align`. The real-data check is
+re-stacking M83 2025-03-07: median R-G and B-G centroid offsets in the master under 0.03 px (`tianwen image channel-offsets
+<master>` on a debayered master reads them).
+
 ## The rules in full (moved from CLAUDE.md, 2026-09-25)
 
 CLAUDE.md keeps one line per rule; this is the full text, with the measurements behind each rule.

@@ -311,5 +311,10 @@ public sealed record StackingOptions(
     // logged with the verdict's own words and marked SkippedCloud in the manifest. ON by default since two of the owner's labelled
     // nights read the same through the stacker as through the viewer: 490 of 506 frames, 4 unmarked frames dropped (2026-09-10 and
     // 09-12, docs/plans/stacking.md, section O).
-    bool RejectCloud = true);
+    bool RejectCloud = true,
+    // Place red and blue on green per frame before integration (#1993): the measure pass reads each colour's centroid offset
+    // from green on the frame's own stars (Image.ChannelOffsets), and the debayered paths warp each colour plane by its own
+    // shift while the drizzle deposits each photosite colour by its own, so atmospheric dispersion and lateral colour that
+    // change with altitude do not fringe the stars. ON by default; off integrates every colour by the frame's transform alone.
+    bool AlignColours = true);
 

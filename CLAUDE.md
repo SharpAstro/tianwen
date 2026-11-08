@@ -864,6 +864,10 @@ Planetary stacker below.
 - **Drizzle rejects per deposited sample** (#93, `DrizzleClip.SlopeScale`); a rejecting drizzle streams
   `RawBayerFrames` twice; its parallel strips are BIT-IDENTICAL to serial (`DrizzleParallelBitIdentityTests`).
 - **Never re-ingest our own outputs** (`STACK_N > 0` or `SWCREATE`, unless `--include-integrations`).
+- **Colour planes are placed on green PER FRAME, through the one primitive `Image.ChannelOffsets`** (#1993: dispersion splits red
+  from blue by an amount that changes with altitude), never measured anywhere else; the offsets are recorded in the manifest
+  (`ManifestFrame.ColourOffsets`), and a `--manifest` run reuses them where the manifest records them, measuring only a frame
+  it holds none for (a starless plate has no stars to read). `docs/architecture/stacking-render-pipeline.md`, "Colour alignment".
 - **A light's `CALSTAT` is a read guard** (#466, `PreCalibration`, `ImageMeta.PreCalibrated`): a correction its own
   software already applied (B, D, F) is never applied again, in the bake (`CalibrationResolver.Choose`) or `stack`;
   the provenance records the letters (`CalibrationProvenance.PreCalibrated`), so such a session reads calibrated.

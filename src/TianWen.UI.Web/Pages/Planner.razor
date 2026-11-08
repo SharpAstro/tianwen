@@ -351,6 +351,12 @@
             _skyTab.ShareWindowWith(_tab);
             _calendar = new NightCalendarPopover<WebGlContext>(_webGl) { Bus = _bus };
             _skyTab.ShareWindowWith(_calendar);
+            // The GUI's own chrome scale (GuiTheme.InterfaceScale), as the desktop GUI sets it on these same widgets: without it the
+            // browser drew every tab's text, rows and strips 15 % smaller than the GUI does (the orrery's bottom strip, 2026-11-08).
+            foreach (var widget in (ReadOnlySpan<PixelWidgetBase<WebGlContext>>)[_tab, _skyTab, _calendar])
+            {
+                widget.InterfaceScale = GuiTheme.InterfaceScale;
+            }
             _focus = _skyTab.Ui.Focus;
             BindTextInputFocus();
             _router = BuildRouter();
@@ -2273,7 +2279,8 @@
             {
                 calendar.Pointer = _mouse;
                 var dpr = (float)_metrics.DevicePixelRatio;
-                var calendarWidth = CalendarDesignWidth * dpr;
+                // Its design width at its OWN scale (the window's DPI times GuiTheme.InterfaceScale), which its content is laid out at.
+                var calendarWidth = CalendarDesignWidth * calendar.DpiScale;
                 var centreX = _calendarAnchorCssX is { } cssX ? (float)cssX * dpr : content.Width / 2f;
                 var calendarX = Math.Clamp(centreX - (calendarWidth / 2f), 0f, Math.Max(0f, content.Width - calendarWidth));
                 _paintedCalendarBox = (calendarX, calendarWidth);
@@ -2840,6 +2847,26 @@
         Nav.NavigateTo($"{Nav.BaseUri}?view={(view == View.SkyMap ? "sky" : "planner")}{objectSuffix}");
     }
 
+    // The render stats' orreryFocusDrawn: the focused body where the last orrery frame drew it, in CSS pixels.
+    string OrreryFocusDrawnJson()
+    {
+        if (_skyTab is not { State.Orrery: { IsOpen: true, Focus: { } focus } } tab)
+        {
+            return "null";
+        }
+        var dpr = _metrics.DevicePixelRatio > 0 ? _metrics.DevicePixelRatio : 1;
+        foreach (var (index, x, y, radius) in tab.OrreryDrawn)
+        {
+            if (index == focus)
+            {
+                var ci = CultureInfo.InvariantCulture;
+                return "{\"x\":" + (x / dpr).ToString("F1", ci) + ",\"y\":" + (y / dpr).ToString("F1", ci)
+                    + ",\"r\":" + (radius / dpr).ToString("F1", ci) + "}";
+            }
+        }
+        return "null";
+    }
+
     // --- E2E view-state inspection hook (activated by ?e2e=1) --------------------------------
     // The sky atlas is a single WebGL canvas with no DOM to inspect, so a browser test can't read
     // zoom/pan the way a DOM-mirrored canvas app (e.g. Drawboard) can. This hook exposes the live
@@ -2938,6 +2965,11 @@
             + ",\"orreryOpen\":" + ((_skyTab?.State.Orrery.IsOpen ?? false) ? "true" : "false")
             + ",\"orreryPlaying\":" + ((_skyTab?.State.Orrery.Playing ?? false) ? "true" : "false")
             + ",\"orreryFrames\":" + (_skyTab?.OrreryFrames ?? 0).ToString(CultureInfo.InvariantCulture)
+            // Where the last orrery frame drew its focused body, in CSS pixels of the canvas (x, y, radius), or null: what a test
+            // reads the body's pixels at (the selected planet vanished from its orbit in the browser, 2026-11-08).
+            + ",\"orreryFocusDrawn\":" + OrreryFocusDrawnJson()
+            + ",\"orreryFocusDisc\":" + ((_skyTab?.OrreryFocusDiscDrawn ?? false) ? "true" : "false")
+            + ",\"orreryPanelOpen\":" + ((_skyTab?.State.Orrery.Selected is not null) ? "true" : "false")
             // The speed in force (days a second) and the atlas's scrub offset (days): what a test of the speed drop-up reads back.
             + ",\"orreryDaysPerSecond\":" + (_skyTab?.State.Orrery.DaysPerSecond ?? 0).ToString("R", CultureInfo.InvariantCulture)
             + ",\"timeOffsetDays\":" + (_skyTab?.State.TimeOffset.TotalDays ?? 0).ToString("R", CultureInfo.InvariantCulture)
