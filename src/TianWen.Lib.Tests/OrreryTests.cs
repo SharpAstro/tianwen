@@ -1020,6 +1020,40 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A link naming a comet before the comet set has loaded (#2072): the first application takes everything else and reports the
+    /// comet unresolved; once the repository holds it the retry, applying only the bodies, resolves it and leaves what the person
+    /// did to the camera, scale and speed in the meantime alone.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ALinkNamingACometResolvesOnceTheSetHoldsItWithoutUndoingWhatWasDoneMeanwhile()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        var comet = StubCometRepository.Comet("C/2026 A1", "PANSTARRS").CatalogIndex.ShouldNotBeNull();
+        var repo = new StubCometRepository(StubCometRepository.Comet("10P", "Tempel"), StubCometRepository.Comet("C/2026 A1", "PANSTARRS"));
+        var orrery = rig.Tab.State.Orrery;
+        var link = OrreryLink.Parse("?orrery=1&scale=true&speed=1y&az=40&el=10&dist=3&centre=1&focus="
+            + Uri.EscapeDataString(OrreryLink.BodyToken(comet))).ShouldNotBeNull();
+
+        // Before the set: no repository, nothing to resolve the comet with; the rest of the link is in.
+        rig.Tab.ApplyOrreryLink(link, comets: null).ShouldBeFalse();
+        (orrery.IsOpen, orrery.Focus, orrery.Scale).ShouldBe((true, null, OrreryScale.True));
+
+        // The person moves the camera and changes the scale and speed while the set loads.
+        (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance) = (200, 30, 4.5);
+        orrery.Scale = OrreryScale.Auto;
+        orrery.DaysPerSecond = OrreryState.DefaultPlaySpeed.DaysPerSecond;
+
+        rig.Tab.ApplyOrreryLink(link, repo, bodiesOnly: true).ShouldBeTrue();
+        (orrery.Focus, orrery.Comet, orrery.Selected, orrery.CentredOnFocus).ShouldBe((comet, comet, comet, true));
+        (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance).ShouldBe((200, 30, 4.5));
+        (orrery.Scale, orrery.DaysPerSecond).ShouldBe((OrreryScale.Auto, OrreryState.DefaultPlaySpeed.DaysPerSecond));
+
+        // A whole application with the set held resolves the comet too.
+        rig.Tab.ApplyOrreryLink(link, repo).ShouldBeTrue();
+        (orrery.Focus, orrery.Scale).ShouldBe((comet, OrreryScale.True));
+    }
+
+    /// <summary>
     /// With the backdrop the orbits and labels stay readable: the backdrop draws stars (it changes some pixels of the frame), and under
     /// every label the backdrop adds at most <see cref="MaxBackdropUnderLabel"/> to any channel, compared with the same frame drawn
     /// without it.

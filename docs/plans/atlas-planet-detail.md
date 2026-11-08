@@ -833,16 +833,26 @@ page only moves the string in and out:
   `play=1` and `speed` (a `PlaySpeeds` short name, `1d`, `10y`); `focus` and `centre=1`; `panel` when it is not the
   focus's (`none` for closed); `az`, `el` and `dist`, all three or none; `scale=true`; `comets` (`6`, `9`, `12` or `all`);
   `backdrop=0`. A body is the orrery's own label (`Mars`), a comet its designation (`10P`), which the comet search reads
-  back. A setting at a new view's value is left out, so a fresh orrery is `orrery=1` alone; a value that does not parse
-  reads as absent, never as an error (`OrreryLinkTests`).
-- **When it is written**: on a change, compared per frame as a tuple (no string built for an unchanged frame), never
-  during a drag or pinch, at most twice a second, always as a replace, so the history is not filled. The instant is
-  written only off live time and not playing: live time would rewrite the link every second, a played clock every frame.
-  Play stopping is a change, so the link then holds the instant it stopped at.
+  back. A setting at a new view's value is left out, so a `new OrreryState()` is `orrery=1` alone; a value that does not parse
+  reads as absent, never as an error (`OrreryLinkTests`). The page itself never writes that bare form once a frame has
+  drawn: the first frame frames the focus and so moves the distance, and the camera is written whole once any part of it
+  moved, so a page-written link carries `az`, `el` and `dist` too. A link with no camera is a hand-written one, and
+  frames its focus.
+- **When it is written**: on a change, compared per frame as a tuple (no string built for an unchanged frame), after the
+  frame is painted (Play stops itself there), never during a drag or pinch, at most twice a second, always as a replace,
+  so the history is not filled. A change throttled by that interval is not lost: this host has no per-frame loop, so the
+  throttle schedules one trailing repaint for when the interval is up (`ScheduleOrreryUrlRetry`). Nothing is written while a
+  link is still being applied (a comet waiting for its set). The instant is written only off live time and not playing: live
+  time would rewrite the link every second, a played clock every frame. Play stopping is a change, so the link then holds
+  the instant it stopped at.
 - **When it is read**: at start, and on any address change the page did not make itself (`_urlWritten`), through
-  `SkyMapTab.ApplyOrreryLink`. A link naming a comet before the comet set has loaded is applied as far as it resolves and
-  tried again when the set lands (`ALinkReopensTheOrreryItWasWrittenFrom`); a link with no camera frames its focus, as
-  opening the orrery from a panel does.
+  `SkyMapTab.ApplyOrreryLink`. Such a change also forgets what the page last wrote, so the next frame compares the orrery
+  with what the address bar says now (a chip click, back or forward writes a link with no orrery in it while the orrery
+  stays open), and a link's instant raises `NeedsRecompute` like any other date change. A link naming a comet before the
+  comet set has loaded is applied as far as it resolves and tried again when the set lands, applying only its bodies
+  (`bodiesOnly`), so what was done to the camera meanwhile stays (`ALinkReopensTheOrreryItWasWrittenFrom`,
+  `ALinkNamingACometResolvesOnceTheSetHoldsIt`); a link applied after the set has settled is its own last try. A link with
+  no camera frames its focus, as opening the orrery from a panel does.
 
 Not yet looked at in a real browser.
 

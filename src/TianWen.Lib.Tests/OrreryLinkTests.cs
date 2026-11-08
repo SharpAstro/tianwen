@@ -91,4 +91,32 @@ public class OrreryLinkTests
         // A comet needs the comet set; with none, it does not resolve (and the host tries again once it has loaded).
         OrreryLink.TryResolveBody("10P", null, out _).ShouldBeFalse();
     }
+
+    /// <summary>
+    /// A comet is written as its canonical designation and read back through the comet search, so it resolves once the repository
+    /// holds it: a numbered one (<c>10P</c>) and a provisional one, whose designation has a space and a slash (<c>C/2026 A1</c>),
+    /// through the link's own escaping as well.
+    /// </summary>
+    [Theory]
+    [InlineData("10P", "Tempel")]
+    [InlineData("C/2026 A1", "PANSTARRS")]
+    [InlineData("C/2026 A1", null)]
+    public void ACometIsItsDesignationAndResolvesOnceTheRepositoryHoldsIt(string designation, string? commonName)
+    {
+        var comet = StubCometRepository.Comet(designation, commonName);
+        var index = comet.CatalogIndex.ShouldNotBeNull();
+        var repo = new StubCometRepository(StubCometRepository.Comet("12P", null), comet);
+
+        var token = OrreryLink.BodyToken(index);
+        OrreryLink.TryResolveBody(token, null, out _).ShouldBeFalse("a comet needs the set");
+        OrreryLink.TryResolveBody(token, new StubCometRepository(), out _).ShouldBeFalse("an empty set holds none");
+        OrreryLink.TryResolveBody(token, repo, out var resolved).ShouldBeTrue(token);
+        resolved.ShouldBe(index);
+
+        // Through the whole link: written, escaped, parsed, resolved.
+        var query = OrreryLink.QueryFor(new OrreryState { Focus = index, Selected = index }, null);
+        var link = OrreryLink.Parse("?" + query).ShouldNotBeNull();
+        OrreryLink.TryResolveBody(link.Focus, repo, out var viaLink).ShouldBeTrue(query);
+        viaLink.ShouldBe(index);
+    }
 }

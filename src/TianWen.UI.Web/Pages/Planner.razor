@@ -1343,11 +1343,24 @@
             // A "?object=<comet>" deep link could not resolve until the repository was populated.
             ApplyPendingObjectSelection();
             // Nor an orrery link's comet; this is its last chance, so a name that matches no comet leaves the rest applied.
+            _cometLoadSettled = true;
             ApplyPendingOrrery(lastTry: true);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[tianwen-web] comets unavailable (DSO-only session): {ex.Message}");
+            // No comet will ever resolve, so a pending orrery link is given up (the rest of it applied) rather than held for ever,
+            // which would also hold back the orrery's link from being written (MaybeSyncOrreryToUrl waits out a pending one).
+            _cometLoadSettled = true;
+            try
+            {
+                ApplyPendingOrrery(lastTry: true);
+            }
+            catch (Exception applyEx)
+            {
+                Console.WriteLine($"[tianwen-web] orrery link not applied: {applyEx.Message}");
+                _pendingOrrery = null;
+            }
         }
     }
 
@@ -2212,8 +2225,6 @@
                 // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
                 // returns immediately unless the quantized view key actually moved.
                 MaybeFetchVisibleMembers();
-                // The orrery's settings into the address bar as they change (#2072); a tuple compare when nothing did.
-                MaybeSyncOrreryToUrl();
                 // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
                 // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
                 // _metrics / _fontPath out of band). The emoji face is a SUBSET (see LoadFontAsync), so it
@@ -2223,6 +2234,9 @@
                 _skyTab.EmojiFontPath = _emojiFontPath;
                 _skyTab.Render(_state, content, Time);
                 skyMs = Since(ref phase);
+                // The orrery's settings into the address bar as they change (#2072); a tuple compare when nothing did. After the paint,
+                // which is where Play stops itself at its end and where the first frame frames the camera: this frame's state is the link's.
+                MaybeSyncOrreryToUrl();
 
                 // The overlay skips its labels while the view is moving -- about half of a gesture's
                 // frame time, spent on text sliding past too fast to read. There is no render loop
@@ -2442,10 +2456,41 @@
     // tuple compare (no string built). Not while a drag or pinch is under way (one write when it ends), at most twice a second.
     (bool, CatalogIndex?, CatalogIndex?, bool, bool, double, double, double, double, OrreryScale, OrreryCometFilter, bool, DateTimeOffset?, TimeSpan) _orreryUrlKey;
     long _orreryUrlWrittenAt;
+    static readonly TimeSpan OrreryUrlWriteInterval = TimeSpan.FromMilliseconds(500);
+
+    // One trailing repaint at a time: a throttled frame asks for it, and the frames of a burst that follow find it already armed.
+    bool _orreryUrlRetryPending;
+
+    void ScheduleOrreryUrlRetry(TimeSpan remaining)
+    {
+        if (_orreryUrlRetryPending)
+        {
+            return;
+        }
+        _orreryUrlRetryPending = true;
+        // Task.Delay truncates to whole milliseconds and completes a zero delay synchronously: round up, never under 1 ms.
+        var delayMs = Math.Max(1, (int)Math.Ceiling(remaining.TotalMilliseconds) + 1);
+        _tracker.Run(() => RetryOrreryUrlAsync(delayMs), "Retry the orrery's URL write");
+    }
+
+    async Task RetryOrreryUrlAsync(int delayMs)
+    {
+        try
+        {
+            await Task.Delay(delayMs);
+        }
+        finally
+        {
+            _orreryUrlRetryPending = false;
+        }
+        RenderFrame(); // runs MaybeSyncOrreryToUrl again, which re-arms this if the interval is somehow still not up
+    }
 
     void MaybeSyncOrreryToUrl()
     {
-        if (_skyTab is not { State: { Orrery: var orrery } sky } || orrery.Dragging || orrery.Pinching)
+        // Not while a link is still being applied (a comet waiting for its set): the orrery has not become the link's yet, and writing
+        // it now would drop what the link named from the address bar.
+        if (_skyTab is not { State: { Orrery: var orrery } sky } || orrery.Dragging || orrery.Pinching || _pendingOrrery is not null)
         {
             return;
         }
@@ -2458,8 +2503,13 @@
             return;
         }
         var now = Time.GetTimestamp();
-        if (_orreryUrlWrittenAt != 0 && Time.GetElapsedTime(_orreryUrlWrittenAt, now) < TimeSpan.FromMilliseconds(500))
+        var sinceWrite = _orreryUrlWrittenAt != 0 ? Time.GetElapsedTime(_orreryUrlWrittenAt, now) : TimeSpan.MaxValue;
+        if (sinceWrite < OrreryUrlWriteInterval)
         {
+            // This host has no per-frame loop, so nothing guarantees a next frame to try again: the change that was throttled would
+            // stay out of the link until some unrelated event repainted. A trailing repaint (at least 1 ms, as a delayed step in this
+            // host must be) retries it once the interval is up.
+            ScheduleOrreryUrlRetry(OrreryUrlWriteInterval - sinceWrite);
             return;
         }
         _orreryUrlKey = key;
@@ -2472,20 +2522,40 @@
     // the comet set has loaded), as ApplyPendingObjectSelection is.
     OrreryLinkData? _pendingOrrery;
 
+    // Whether the comet set has finished loading (or failed to): after it nothing more can resolve a comet, so a link applied then
+    // is its own last try, where one applied before it waits for the retry LoadCometsInBackgroundAsync makes.
+    bool _cometLoadSettled;
+
+    // True once a link has been applied whole, so the retry for its comet applies only the bodies (see ApplyOrreryLink's bodiesOnly).
+    bool _orreryLinkApplied;
+
     // Reads "orrery=1&..." from the address bar: at init, and on a LocationChanged this page did not cause itself.
     void ApplyOrreryFromLocation()
     {
-        if (string.Equals(Nav.Uri, _urlWritten, StringComparison.Ordinal)
-            || OrreryLink.Parse(Nav.ToAbsoluteUri(Nav.Uri).Query) is not { } link)
+        if (string.Equals(Nav.Uri, _urlWritten, StringComparison.Ordinal))
         {
             return;
         }
-        if (link.Instant is { } instant)
+        var query = Nav.ToAbsoluteUri(Nav.Uri).Query;
+        // A foreign location: what the address bar carries of the orrery is whatever it says now, not what this page last wrote, and
+        // the next frame must compare the orrery against THAT (a chip click, back or forward writes a link with no orrery in it while
+        // the orrery stays open and drawn).
+        _orreryUrlKey = default;
+        if (OrreryLink.Parse(query) is not { } link)
+        {
+            _urlOrrery = null;
+            return;
+        }
+        if (link.Instant is { } instant && instant != _state.PlanningDate)
         {
             _state.PlanningDate = instant;
+            // As every other date change: the night's scores, window and altitude profile follow the instant (CheckRecompute).
+            _state.NeedsRecompute = true;
+            _state.NeedsRedraw = true;
         }
         _pendingOrrery = link;
-        ApplyPendingOrrery(lastTry: false);
+        _orreryLinkApplied = false;
+        ApplyPendingOrrery(lastTry: _cometLoadSettled);
     }
 
     void ApplyPendingOrrery(bool lastTry)
@@ -2495,11 +2565,14 @@
             return;
         }
         _view = View.SkyMap; // an orrery link is an atlas link
-        if (link.Instant is not null)
+        var bodiesOnly = _orreryLinkApplied;
+        if (!bodiesOnly && link.Instant is not null)
         {
             sky.TimeOffset = TimeSpan.Zero;
         }
-        if (_skyTab.ApplyOrreryLink(link, _state.Comets) || lastTry)
+        var resolved = _skyTab.ApplyOrreryLink(link, _state.Comets, bodiesOnly);
+        _orreryLinkApplied = true;
+        if (resolved || lastTry)
         {
             _pendingOrrery = null;
         }

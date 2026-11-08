@@ -105,9 +105,11 @@ namespace TianWen.UI.Abstractions
         /// comet filter, backdrop, speed and play; what the link leaves out is a new view's (the camera framing the focus, as
         /// <see cref="OpenOrrery"/> does). The instant is the host's to apply, into the planning date, as the pointing link's is.
         /// Returns false when a body the link names could not be resolved yet (a comet before the comet set has loaded), so the host
-        /// applies it again once it has; whatever did resolve is applied either way.
+        /// applies it again once it has; whatever did resolve is applied either way. That second application passes
+        /// <paramref name="bodiesOnly"/>: only the bodies (focus, panel, centring, and the framing they decide) are applied, so what the
+        /// person did to the camera, speed, scale or play in the seconds the comet set took is not snapped back to the link.
         /// </summary>
-        internal bool ApplyOrreryLink(OrreryLinkData link, ICometRepository? comets)
+        internal bool ApplyOrreryLink(OrreryLinkData link, ICometRepository? comets, bool bodiesOnly = false)
         {
             var orrery = State.Orrery;
             var resolved = true;
@@ -144,6 +146,16 @@ namespace TianWen.UI.Abstractions
             orrery.Comet = focus is { } f && f.ToCatalog() == Catalog.Comet ? f : null;
             orrery.Selected = selected;
             orrery.CentredOnFocus = link.CentredOnFocus && focus is not null;
+            if (bodiesOnly)
+            {
+                // The distance a link's camera does not give is framed on the focus, which has just changed.
+                if (link.Camera is null)
+                {
+                    _orreryFramePending = true;
+                }
+                State.NeedsRedraw = true;
+                return resolved;
+            }
             orrery.Scale = link.Scale ?? OrreryScale.Auto;
             orrery.CometFilter = link.CometFilter ?? OrreryCometFilter.Default;
             orrery.ShowBackdrop = link.ShowBackdrop ?? true;
