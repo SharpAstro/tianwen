@@ -468,7 +468,11 @@ public class MirrorParityTests(ITestOutputHelper output)
         public bool TryTake([NotNullWhen(true)] out string? at) => _reached.Reader.TryRead(out at);
 
         /// <summary>Completes once a hold has been reached and not yet taken, at once when one is. Takes nothing.</summary>
-        public Task WaitForNextAsync() => _reached.Reader.WaitToReadAsync(ct).AsTask();
+        // One wait at a time, as SingleReader declares: an advance that ends before any hold leaves its wait pending, and the
+        // next advance takes that same wait up instead of starting another beside it.
+        private Task? _next;
+
+        public Task WaitForNextAsync() => _next is { IsCompleted: false } pending ? pending : _next = _reached.Reader.WaitToReadAsync(ct).AsTask();
 
         public void Release() => _released.Release();
 

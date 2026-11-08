@@ -254,6 +254,12 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             }
             while (AppState.LocalNode is null && AppState.LocalNodeProblem?.Contains(TianWenNodeClient.NoAnswerText, StringComparison.Ordinal) == true);
             AppState.LocalNode.ShouldNotBeNull(AppState.LocalNodeProblem);
+            if (asked > 1)
+            {
+                // Each ask that went unanswered left its Error note ("This computer's rig cannot be used: No node answers ..."),
+                // and a test built on this harness asserts its feed holds no Error: the start it got is clean, so its feed is.
+                AppState.ClearNotifications();
+            }
             var before = AppState.Notifications;
             Bus.ProcessPending(Tracker);
             try
@@ -421,7 +427,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     /// <paramref name="done"/>. When the handler ended an ask with the node's <see cref="TianWenNodeClient.NoAnswerText"/> and
     /// no connect or disconnect is in flight, the gesture is made again.
     /// <para>
-    /// That is the ONE failure it makes up for: a call that outran its client's 5 s or 10 s budget because a loaded runner
+    /// That is the ONE failure it makes up for: a call that outran its client's budget (10 s for a control call) because a loaded runner
     /// had not scheduled the node, where the handler notes it and gives up (the click is lost, nothing else comes), and the
     /// test, which waits on what the click would have done, waits for ever. CI run 41939984127 hung 30 s in
     /// <c>TuiEquipmentSlotClickTests</c> with a thread pool starved for longer than that. A refusal, a wrong signal or a

@@ -109,14 +109,14 @@ needs that bound**: a wedged run hangs rather than fails, and an unbounded hang 
 
 **A click through the GUI's handler is one shot, and a loaded runner can swallow it** (#2023, a TUI disconnect test
 that hung to its 30 s on CI with a thread pool starved for longer than that). The handler's safety read and its
-disconnect post each have a client budget (5 s and 10 s); a call that outruns it comes back as `TianWenNodeClient.NoAnswerText`,
+disconnect post are control calls, each on the client's 10 s budget (`Control`; the 5 s is the state poll's); a call that outruns it comes back as `TianWenNodeClient.NoAnswerText`,
 the handler notes it and gives up, and a test that waits on what the click would have done waits for ever. Two rules for
 a test in this shape. **Name every wait**: `GuiNodeHarness.UntilAsync(waitingFor, condition, ct)` is `NodeWait`'s, so the
 output says what it waited for and the handler's notes meanwhile, and a timeout says it again. **Ask again for a no-answer,
 and for nothing else**: `GuiNodeHarness.ActUntilAsync` makes the gesture again when the handler noted a no-answer and no
 transition is in flight, never for a refusal (a leased device, a wrong signal), which is what such a test is FOR
 (`GuiNodeHarnessAskAgainTests`). The harness's own connect asks again the same way: the launcher asks the node on its
-socket within 2 s, and a 5.9 s GC pause lost a whole test's start to "No answer within 2s" (j4184). A row also captures its device's connection when it is built, so a test builds the
+socket within 2 s, and a 5.9 s GC pause lost a whole test's start to "No answer within 2s" (j4184). Once an ask after a no-answer connects, the harness clears the notes the unanswered asks left, so the test starts with the feed a clean start has. A row also captures its device's connection when it is built, so a test builds the
 tab only after `UntilDevicesReadAsync`: the harness has no host loop to read the devices every two seconds.
 **A stall is said, never guessed**: a node's log with 8 to 16 s between two lines that are milliseconds apart in
 every other run, on CI and on a busy desktop alike, is the process or its pool not running, which a wait that logs
