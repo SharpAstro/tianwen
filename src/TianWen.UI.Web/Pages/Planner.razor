@@ -2222,9 +2222,6 @@
                     _tracker.Run(() => LoadMilkyWayAsync(), "Load the Milky Way texture");
                     _tracker.Run(() => LoadPlanetAtlasAsync(), "Load the planet texture atlas");
                 }
-                // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
-                // returns immediately unless the quantized view key actually moved.
-                MaybeFetchVisibleMembers();
                 // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
                 // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
                 // _metrics / _fontPath out of band). The emoji face is a SUBSET (see LoadFontAsync), so it
@@ -2234,6 +2231,11 @@
                 _skyTab.EmojiFontPath = _emojiFontPath;
                 _skyTab.Render(_state, content, Time);
                 skyMs = Since(ref phase);
+                // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
+                // returns immediately unless the quantized view key actually moved. After the paint, which
+                // is what records the orrery backdrop's cone (#2071): before it, the frame that ends a camera
+                // drag fetched for the frame before, and with no frame after it, never for where it came to rest.
+                MaybeFetchVisibleMembers();
                 // The orrery's settings into the address bar as they change (#2072); a tuple compare when nothing did. After the paint,
                 // which is where Play stops itself at its end and where the first frame frames the camera: this frame's state is the link's.
                 MaybeSyncOrreryToUrl();
