@@ -184,10 +184,11 @@ public class ChannelOffsetsTests
 
     /// <summary>
     /// The stacker's default demosaic, AHD, rebuilds red and blue as green plus a median of the colour difference, so red takes
-    /// green's structure and the debayered frame HOLDS a smaller shift than the sky put there (about two thirds of it here). The
-    /// primitive reads what the frame holds: an independent estimator (a plain, unweighted moment over a wide window) agrees with it
-    /// on the AHD planes, and both fall well short of the truth that the mosaic reads. That is why a frame's colours are measured
-    /// on its mosaic, before the demosaic, never on the debayered frame.
+    /// green's structure and the debayered frame HOLDS a smaller shift than the sky put there. Two demosaics of ONE mosaic, read by
+    /// the same primitive on the same stars, show it is the demosaic and not the read: the per-colour bilinear frame reads the
+    /// truth, the AHD frame reads short of it, in the same direction. How far short is AHD's own business (its CFA gain
+    /// equalisation, #1991, took red from about 0.18 to 0.22 px of 0.28) and is deliberately not pinned here. That is why a
+    /// frame's colours are measured on its mosaic, before the demosaic, never on an AHD frame.
     /// </summary>
     [Theory]
     [InlineData(0, 0)]
@@ -196,89 +197,22 @@ public class ChannelOffsetsTests
     {
         var mosaic = Mosaic(offsetX, offsetY, StarPositions(36));
         var stars = await mosaic.FindStarsAsync(0, snrMin: 20f, minStars: 20, cancellationToken: TestContext.Current.CancellationToken);
-        var rgb = await mosaic.DebayerAsync(DebayerAlgorithm.AHD, cancellationToken: TestContext.Current.CancellationToken);
+        var ahd = await mosaic.DebayerAsync(DebayerAlgorithm.AHD, cancellationToken: TestContext.Current.CancellationToken);
 
-        var read = rgb.ChannelOffsets(stars);
+        var read = ahd.ChannelOffsets(stars);
         read.IsMeasured.ShouldBeTrue();
+        var apart = BilinearPerColour(mosaic, offsetX, offsetY).ChannelOffsets(stars);
 
-        var (redX, redY) = PlainMomentOffset(rgb, stars, 0);
-        var (blueX, blueY) = PlainMomentOffset(rgb, stars, 2);
-        // AHD leaves each star slightly lopsided in red and blue, so a Gaussian-weighted centre and a plain moment weigh it a
-        // little differently (0.18 against 0.20 px on red): they agree to 0.04 px, and both sit a third short of the truth.
-        const double agreement = 0.04;
-        read.Red.Dx.ShouldBe(redX, agreement);
-        read.Red.Dy.ShouldBe(redY, agreement);
-        read.Blue.Dx.ShouldBe(blueX, agreement);
-        read.Blue.Dy.ShouldBe(blueY, agreement);
-
-        // Same direction as the truth, and short of it by more than the bound: the demosaic moved the colours, not the read.
-        read.Red.Dx.ShouldBeGreaterThan(0d);
-        read.Red.Dx.ShouldBeLessThan(RedShift.Dx - (3 * Tolerance));
-        read.Blue.Dx.ShouldBeLessThan(0d);
-        read.Blue.Dx.ShouldBeGreaterThan(BlueShift.Dx + (3 * Tolerance));
+        // The frame that keeps the colours apart holds the truth, as the mosaic does.
+        apart.Red.Dx.ShouldBe(RedShift.Dx, Tolerance);
         mosaic.ChannelOffsets(stars).Red.Dx.ShouldBe(RedShift.Dx, Tolerance);
-    }
 
-    /// <summary>The median over the stars of a colour's plain first moment less green's, over a 9 px window less a ring median.</summary>
-    private static (double Dx, double Dy) PlainMomentOffset(Image rgb, StarList stars, int colour)
-    {
-        const int radius = 9;
-        const int ring = 13;
-        var dxs = new List<double>();
-        var dys = new List<double>();
-        foreach (var star in stars)
-        {
-            var ix = (int)MathF.Round(star.XCentroid);
-            var iy = (int)MathF.Round(star.YCentroid);
-            if (ix - ring < 0 || iy - ring < 0 || ix + ring >= Size || iy + ring >= Size)
-            {
-                continue;
-            }
-
-            var c = Moment(rgb.GetChannelArray(colour), ix, iy);
-            var g = Moment(rgb.GetChannelArray(1), ix, iy);
-            dxs.Add(c.X - g.X);
-            dys.Add(c.Y - g.Y);
-        }
-
-        dxs.Sort();
-        dys.Sort();
-        return (dxs[dxs.Count / 2], dys[dys.Count / 2]);
-
-        static (double X, double Y) Moment(float[,] plane, int ix, int iy)
-        {
-            var background = new List<float>();
-            for (var y = iy - ring; y <= iy + ring; y++)
-            {
-                for (var x = ix - ring; x <= ix + ring; x++)
-                {
-                    var d2 = ((x - ix) * (x - ix)) + ((y - iy) * (y - iy));
-                    if (d2 > radius * radius && d2 <= ring * ring)
-                    {
-                        background.Add(plane[y, x]);
-                    }
-                }
-            }
-
-            background.Sort();
-            var level = background[background.Count / 2];
-            double s = 0d, sx = 0d, sy = 0d;
-            for (var y = iy - radius; y <= iy + radius; y++)
-            {
-                for (var x = ix - radius; x <= ix + radius; x++)
-                {
-                    if (((x - ix) * (x - ix)) + ((y - iy) * (y - iy)) <= radius * radius)
-                    {
-                        var f = plane[y, x] - level;
-                        s += f;
-                        sx += f * x;
-                        sy += f * y;
-                    }
-                }
-            }
-
-            return (sx / s, sy / s);
-        }
+        // AHD's red, the largest shift, is short of it by more than the bound, and never past the truth or the wrong way.
+        read.Red.Dx.ShouldBeGreaterThan(0d);
+        read.Red.Dx.ShouldBeLessThan(apart.Red.Dx - Tolerance);
+        read.Red.Dy.ShouldBeInRange(0d, RedShift.Dy + Tolerance);
+        read.Blue.Dx.ShouldBeInRange(BlueShift.Dx - Tolerance, 0d);
+        read.Blue.Dy.ShouldBeInRange(BlueShift.Dy - Tolerance, 0d);
     }
 
     [Fact]
