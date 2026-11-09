@@ -41,7 +41,8 @@ public sealed class TestRunTempTests : IDisposable
         Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(run)).ShouldBe(Path.TrimEndingDirectorySeparator(TestRunTemp.Root));
         TempFolders.Root.ShouldBe(Path.Combine(TestRunTemp.Root, "t"));
         TempFolders.Root.StartsWith(run, StringComparison.OrdinalIgnoreCase).ShouldBeFalse();
-        TestOutput.DefaultRoot.ShouldBe(TestRunTemp.Root);
+        // The dated output's root (TestOutput's own, which TestTempFoldersTests keeps to its owners) is TestRunTemp.Root too; TempFolders sits one level in.
+        Path.GetDirectoryName(TempFolders.Root).ShouldBe(TestRunTemp.Root);
         TestRunTemp.OriginalTemp.ShouldNotBe(Path.TrimEndingDirectorySeparator(run));
     }
 
