@@ -17,8 +17,9 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 /// <remarks>
 /// The registry itself is <see cref="TestOutputFolders"/>; this is the process's one instance of it, plus the environment
-/// (the keep switch, the root under <c>%TEMP%</c>) and the run-start sweep. Every test process (unit, functional, GPU)
-/// registers <see cref="TestOutputCleanupAttribute"/> and <see cref="TestOutputRun"/>.
+/// (the keep switch, the root under the ORIGINAL <c>%TEMP%</c>, not the run folder the process's temp path is redirected to,
+/// <see cref="TestRunTemp"/>, #2083: kept output outlives that folder) and the run-start sweep. Every test process (unit, functional,
+/// GPU, simulators) registers <see cref="TestOutputCleanupAttribute"/> and <see cref="TestOutputRun"/>.
 /// </remarks>
 internal static class TestOutput
 {
@@ -33,8 +34,12 @@ internal static class TestOutput
 
     internal static bool KeepRequested => Environment.GetEnvironmentVariable(KeepVariable) == "1";
 
-    /// <summary>The root every dated folder lives under: <c>%TEMP%/TianWen.Lib.Tests</c>.</summary>
-    internal static string DefaultRoot { get; } = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests");
+    /// <summary>
+    /// The root every dated folder lives under: <c>&lt;original temp&gt;/TianWen.Lib.Tests</c>. The temp folder the process STARTED with, not
+    /// the run's redirected one (<see cref="TestRunTemp"/>), which is deleted when the run ends: kept output
+    /// (<see cref="KeepVariable"/>) has to outlive it.
+    /// </summary>
+    internal static string DefaultRoot { get; } = TestRunTemp.Root;
 
     /// <summary>A folder for <paramref name="sub"/>, owned by the test now running (the run when none is).</summary>
     internal static string Create(string sub)
@@ -287,10 +292,17 @@ public sealed class TestOutputCleanupAttribute : BeforeAfterTestAttribute
     public override void After(MethodInfo methodUnderTest, IXunitTest test) => TestOutput.Release(test.UniqueID);
 }
 
-/// <summary>An assembly fixture: its disposal, after the last test, ends the run's own output folders.</summary>
+/// <summary>
+/// An assembly fixture: its disposal, after the last test, ends the run's own output folders and then the run's temp folder
+/// (<see cref="TestRunTemp"/>, #2083), so the one fixture every test project registers ends both.
+/// </summary>
 public sealed class TestOutputRun : IDisposable
 {
     public TestOutputRun() => TestOutput.SweepOnce();
 
-    public void Dispose() => TestOutput.ReleaseAll();
+    public void Dispose()
+    {
+        TestOutput.ReleaseAll();
+        TestRunTemp.End();
+    }
 }

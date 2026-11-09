@@ -4,7 +4,9 @@ description: >
   (<tmp>/TianWen.Lib.Tests) and fails naming it. A test removes its dated output folder when it ends, pass or
   fail (SharedTestData.CreateTempTestOutputDir, TestOutput; #2035), and its temp folders when its TempFolders is
   disposed, so a green run leaves that folder empty but for the TempFolders root (`t`) itself. Anything else is a
-  test that built a path of its own beside them, or wrote after it ended.
+  test that built a path of its own beside them, or wrote after it ended. That includes the run's own temp folder
+  (`r<8 hex>`, where a bare Path.GetTempPath() lands, TestRunTemp; #2083), which the run deletes when it ends: one
+  left here is a run that was killed, or a file a process still held.
 
   ONE definition for every job that runs a test project, so each proves the same thing. Put it after the last test
   step of the job; it runs on success only, since a crashed or killed test process leaves its folders by nature and
