@@ -1,7 +1,8 @@
 # Deconvolver training (P2): the psf01-conditioned non-stellar sharpener
 
-**Status: TRAINED, NOT YET IN THE RUNTIME (corrected 2026-10-09).** E3.4d's prior meets the goal's star clauses on the
-real pair, two seeds (2026-09-14); wiring it in is E7 (#844), and the nebula clause is open. The paragraph below is the
+**Status: TRAINED, IN THE RUNTIME AS AN OPTION (E7, #844, PR #1382, 2026-10-09).** E3.4d's prior meets the goal's star clauses on the
+real pair, two seeds (2026-09-14); E7 wired it in as `OnnxTianWenDeconvolver`, served only for `--ai-backend tianwen` with a stated
+kernel (`--deconv-kernel`), and the nebula clause is open. The paragraph below is the
 plan as written on 2026-09-02, before any pair or net, kept as the record: "NOT STARTED as training; the measurements it
 needs are DONE and the blockers are known." No pair had been generated, no net trained. This is the P2 row of
 [ai-denoise-deconv.md](ai-denoise-deconv.md) section 5 at run-level detail; the PSF measurements it

@@ -44,8 +44,8 @@ Both native drivers mirror its shape exactly:
 # Phase D -- native ZWO + QHY raw video
 
 **Tracked by #813.** ZWO streams through the one `DALCameraDriver` loop ("feat(devices): a DAL camera streams native
-video (#813)"), and so does ToupTek, which joined the DAL after this was written, since ToupTek.SDK 1.2 (#1596). QHY, and
-Player One, which also joined since, do not yet, and until each does it is single-frame. Four plans wait on it: live capture on real hardware, [guiding-improvements.md](guiding-improvements.md)
+video (#813)"), and so does ToupTek, which joined the DAL after this was written, since ToupTek.SDK 1.2 (#1596). QHY streams
+since QHYCCD.SDK 2.3 (D.3), about 4 frames a second at full frame on a QHY PoleMaster (3.9 through QHYCCD.SDK 2.4's live read, 2026-11-05), which is the camera's own rate: SharpCap gets about the same. Player One, which also joined since, does not yet, and until it does it is single-frame. Four plans wait on it: live capture on real hardware, [guiding-improvements.md](guiding-improvements.md)
 (step 0), [camera-collimation.md](camera-collimation.md) (C3), and the video autofocus in
 [focus-tolerance.md](focus-tolerance.md) (F6).
 
@@ -145,6 +145,8 @@ These map cleanly onto `RoiConstraints { WidthStep=8, HeightStep=2, OriginStepX=
 defined for the fake.
 
 ## D.3 (QHYCCD.SDK) wire the bound-but-unused live calls on `QHYCCD_CAMERA_INFO`
+
+**DONE 2026-11-05** (QHYCCD.SDK 2.3, "feat: QHY live video through the DAL's video verbs"; 2.4 polls the live read with TianWen.DAL's `PreciseWait`). Measured on a QHY PoleMaster: 3.2 frames a second at full frame through TianWen's driver against 3.7 from the raw SDK on 2.3, and 3.9 on 2.4 (468 frames over four 30 s streams, none repeated). That is the camera's own rate, about what SharpCap gets; USB traffic and `CONTROL_SPEED` did not move the raw rate. `CanPanRoiWhileStreaming` stays false until a body shows `SetQHYCCDResolution` is safe live. The rest of this section is the plan as written.
 
 The live P/Invokes are present but never called (only single-frame is used today):
 
