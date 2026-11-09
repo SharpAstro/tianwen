@@ -132,6 +132,14 @@ internal static class TestRunTemp
         {
             Environment.SetEnvironmentVariable(name, value);
         }
+
+        // The assembly fixture ends the run, but only when xUnit makes it, and a run whose filter picks few or no tests of the assembly
+        // (the Debug job's Category=DebugOnly) left the run folder and its lock behind on CI. The process's exit ends it too; End is a
+        // no-op once it has run.
+        if (plan.OwnsRun)
+        {
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => End();
+        }
     }
 
     /// <summary>
