@@ -27,12 +27,27 @@ The time from the run's start is when gate reported; gate is the one check main'
 | test-windows, each shard | | 6m47s to 14m27s (built itself) | 3m13s to 7m58s |
 | gate, from the run's start | 25.5 min | 33.6 min (red) | 18.3 min |
 
-Round 3 (`build-linux` and the sharded Linux jobs, `build-windows` split by suite) has no run yet: CI was held at
-the flight's budget when it was committed. Its jobs are meant to come to: a test build of about 5 to 6.5 minutes (the
-arm unit build is the longest, 4m46s in round 2), then shards of about 2 minutes of setup and at most about 5.5 of
-tests (the heaviest Linux x64 shard summed 1172 s in round 1's slow run, at round 1's parallelism of about 3.5), so
-gate at about 13 to 14 minutes. The issue's 12 is not reached by sharding alone: what is left is the build in front
-of every shard, and the Linux x64 runner's own speed, which halved between two runs of the same tree.
+### Round 3 and round 4, by job
+
+Round 3 built the Linux test projects once per runner and suite (`build-linux`, three legs), sharded the Linux jobs
+like the Windows ones (5 unit shards on each runner, 2 functional) and split `build-windows` by suite. Round 4 cut the
+slow tests' causes, took the test builds' analyzers off and their catalogs from a cache, ran the Linux x64 shards from
+`build`'s own build, and went to 4 unit shards and 3 functional, balanced by chain (below). A job's time is its own,
+from its start; the wait is the longest any job of the row spent queued for a runner; "ended" is how far into the run
+the row's last job ended.
+
+| | round 3 (42885521250) |
+|---|---|
+| build | 4m46s |
+| build-linux (x64 unit, arm unit, x64 functional) | 6m17s, 5m53s, 5m00s |
+| build-windows (unit, functional) | 7m28s, 7m04s |
+| test-unit (debug) | 5m44s |
+| test-unit (ubuntu-latest), each shard | 3m36s to 7m29s, ended 14m14s in |
+| test-unit (ubuntu-24.04-arm), each shard | 2m51s to 5m26s, waited up to 1m00s, ended 12m44s in |
+| test-functional, each shard | 4m42s to 5m15s, ended 12m00s in |
+| test-windows (unit), each shard | 4m31s to 6m11s, waited up to 2m27s, ended 15m25s in |
+| test-windows (functional), each shard | 5m34s to 7m29s, waited up to 3m17s, ended 17m53s in |
+| gate, from the run's start | 18.0 min (red: the Windows cancel test below) |
 
 ## What the tables said, and what was done
 
@@ -53,6 +68,39 @@ of every shard, and the Linux x64 runner's own speed, which halved between two r
   `.github/test-shards.json` as Windows. The counts hold a run to about 20 jobs at once, the org plan's limit (round 1's
   x64 unit job waited three minutes for a runner), which is also why the Windows functional suite went from four
   shards to two.
+- **Round 3 gated at 18.0 minutes, for two reasons, and sharding was neither.** A 5 to 7.5 minute test build sat in
+  front of every shard, and 19 shards plus the builds against the org's 20 jobs at once left Windows shards queued for
+  up to 3m17s. The slowest Linux shard was not the busiest: unit 4/5 summed only 629 s but held the five planetary
+  viewer classes, one xUnit collection (`ViewerPlanetaryCollection`) and so one chain of 324 s, and took 6 minutes. A
+  shard is never shorter than its longest chain, since xUnit runs a collection's classes, and a class's tests, one
+  after another.
+- **Round 4 cut the causes the runs pointed at, each measured on 4 cores (affinity 0xF, DOTNET_PROCESSOR_COUNT=4)
+  before and after on one build:**
+  - `SyntheticBackgroundTests.ByAreaACutHoldsKnotsPerExportCellOfItsArea` drew 360 whole cells, texture and all, to
+    count their knots: 32.7 to 45.6 s on Linux x64. It now counts knots drawn onto planes of zeros through the one
+    method `Cell` draws them with (`SyntheticBackground.DrawKnots`): 0.66 s.
+  - `Image.AnalyseStar`, which star detection calls for every pixel over its level, zeroed its 1.3 KB annulus buffer
+    on every call (a CPU trace of the synthetic plate solve put `Buffer.ZeroMemoryInternal` under it at 35 % of the
+    samples). `[SkipLocalsInit]`, with its one counted buffer cleared: detection 30 to 40 % faster (795 ms against
+    1189 on the RGGB fixture), every star, solution and residual the same.
+  - `PlanetarySharpeningTests` rendered the same diffracted Jupiter once per test (and the viewer's planetary tests
+    through `NoisyStack`), half as much CPU as all its sharpening: rendered once and copied out, 136 s against 165,
+    every printed number the same.
+- **Measured, and not a cause.** `ViewerE2E.PumpUntilAsync`'s full-frame paint every 10 ms: pausing up to 100 ms
+  while the host wants no frame changed the five planetary viewer classes from 273 to 268 s, inside the noise, so it
+  was not kept; their time is the sharpening they compare against (the slowest test sharpens the same master at every
+  strength stop, once per DPI). The synthetic plate-solve theory's 7 s is 3.4 s of solve. `SaturnLimbFitTests`' and
+  the rest of `PlanetarySharpeningTests`' time is the limb fit's Levenberg-Marquardt model evaluations (`DiskModel`'s
+  `Evaluate` and `Blur`, from the same trace), work the tests are about.
+- **Round 4's test build skips analyzers and XML documentation**, which only report and which `build` still runs over
+  the same sources: a full rebuild of the unit test project's graph took 1m55s against 3m50s. The catalog
+  preprocessing comes from a cache keyed on its inputs (`.github/actions/catalog-cache`), the Linux x64 shards run
+  `build`'s own build (two jobs fewer), and the shards are balanced by chain as well as by sum (`.github/test-shards.json`):
+  4 unit and 3 functional, 18 test jobs instead of 19.
+- **`ExternalPlateSolverProcessTests.ACancelledSolveKillsTheToolAndRethrows` timed out at 60 s on Windows in round 3**,
+  the first of its class to start `pwsh` in that process, and printed nothing. The test now waits for the tool's id
+  or the solve, whichever comes first, logs every stage and tool line live, and the stand-in starts its child without
+  a cmdlet (module auto-loading is the one first-use cost on its path). The cause is not proven; the log will say.
 
 ## Run 42814136317 against the before run, classes at 2 s or more
 

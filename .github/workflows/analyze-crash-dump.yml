@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       artifact:
-        description: "Artifact name to analyze (default: the first x64 unit shard's blame bundle; the failed shard is the job name's N/5)"
+        description: "Artifact name to analyze (default: the first x64 unit shard's blame bundle; the failed shard is the N of the job name's N/M)"
         required: false
         default: 'test-blame-ubuntu-latest-1'
         type: string
