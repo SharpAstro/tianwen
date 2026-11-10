@@ -281,6 +281,9 @@ namespace TianWen.UI.Web.SkyMap
         private bool _linked;
         private GpuBufferHandle? _corners;
 
+        /// <summary>A new frame: a body drawn twice in it (the orrery's disc and its panel's) has a block per draw (<see cref="PlanetBodyInstances{TBuffer}"/>).</summary>
+        public void BeginFrame() => _instances.BeginFrame();
+
         /// <summary>How many colour maps have been sent: one a body and texture version, never one a frame.</summary>
         public int Uploads { get; private set; }
 

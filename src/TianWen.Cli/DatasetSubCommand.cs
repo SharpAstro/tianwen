@@ -12,6 +12,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.IO;
 using TianWen.UI.Abstractions;
@@ -23,7 +24,8 @@ namespace TianWen.Cli;
 /// CLI contract: NO machine specifics; archive roots and the output dir are required parameters
 /// with fail-fast validation; behavioural knobs carry portable defaults only.
 /// </summary>
-internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null)
+internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null,
+    TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? objectDb = null)
 {
     public Command Build()
     {
@@ -503,6 +505,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 buildCommand,
                 BuildReportCommand(consoleHost),
                 BuildGradientReportCommand(),
+                BuildSkyModelCommand(),
                 BuildStarlessPlatesCommand(),
                 BuildGradientExportCommand(),
                 BuildDegradeCommand(),
@@ -852,6 +855,53 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
         });
 
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset sky-model</c>: fit the expected sky of each site, rig, filter, exposure and bin from the lights under
+    /// the named folders and keep it in AppData (#1974). A thin call of <c>ExpectedSkyFitter</c> and <c>ExpectedSkyStore</c>.
+    /// </summary>
+    private Command BuildSkyModelCommand()
+    {
+        var foldersArg = new Argument<string[]>("folders")
+        {
+            Description = "Folders of light frames, searched recursively (an archive root such as E:/Captures).",
+            Arity = ArgumentArity.OneOrMore,
+        };
+        var command = new Command("sky-model",
+            "Fit an expected sky per site, rig, filter, exposure and bin from clear frames (twilight and rejected names left out) and save it.")
+        {
+            Arguments = { foldersArg },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var folders = parseResult.GetValue(foldersArg) ?? [];
+            foreach (var folder in folders)
+            {
+                if (!Directory.Exists(folder))
+                {
+                    consoleHost.WriteError($"Folder does not exist: {folder}");
+                    return 1;
+                }
+            }
+            // With the catalogue the zero point of every frame whose header holds a WCS is fitted too; without it the sky alone is.
+            var result = await ExpectedSkyFitter.FitAsync(folders, logger, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct, objectDb);
+            await ExpectedSkyStore.SaveAsync(consoleHost.External, result.Entries, ct);
+            foreach (var entry in result.Entries)
+            {
+                var m = entry.Model;
+                var zeroPoint = m.HasZeroPoint
+                    ? string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                        $"zero point {m.ZeroPoint0:0.00} - {m.Extinction:0.00} X mag (scatter {m.ZeroPointScatter:0.00}, {m.ZeroPointCount} frames)")
+                    : "no zero point (no frames with a WCS)";
+                consoleHost.WriteScrollable(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"{entry.Key.Describe()}: {m.FrameCount} of {m.OfferedCount} frames, {entry.Nights} nights, terms [{string.Join(' ', m.Terms)}], level scatter {m.LevelScatter:0.000}, gradient scatter {m.GradientScatter:0.000}, {zeroPoint}"));
+            }
+            consoleHost.WriteScrollable(
+                $"[sky-model] {result.FilesSeen} files, {result.Measured} measured, {result.Rejected} rejected by name, {result.Twilight} twilight, {result.NotLights} not usable lights, {result.Unmeasured} unmeasured, {result.WithZeroPoint} with a zero point; {result.Entries.Length} models saved to {ExpectedSkyStore.PathFor(consoleHost.External)}, {result.TooFew} keys had too few frames or nights");
+            return 0;
+        });
         return command;
     }
 

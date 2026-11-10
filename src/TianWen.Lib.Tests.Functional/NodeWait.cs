@@ -89,6 +89,37 @@ internal static class NodeWait
     }
 
     /// <summary>
+    /// Asks the node until it ANSWERS, and returns what it said. A call that got no answer inside its client's wall-clock
+    /// budget (5 s to read, 10 s to command) comes back as <see cref="NoAnswer"/>, and a node on a loaded runner can be
+    /// unscheduled for longer than either: CI run 41953529496 lost 13 s at a dismissal with nothing in the node's log between
+    /// its start and the failure, though nothing in that route can wait. That is no refusal, so the call is asked again,
+    /// bounded by the test's own timeout like every other wait here, and what each answer was goes to the output. Any other
+    /// status, a refusal included, is returned for the test to assert with its code and error, where
+    /// <see cref="UntilAnsweredAsync{T}(string, Func{CancellationToken, Task{NodeResult{T}}}, CancellationToken)"/> asks again
+    /// until there is a value. Only for a call that is safe to repeat.
+    /// </summary>
+    public static async Task<NodeResult<T>> AskUntilAnsweredAsync<T>(string call, Func<CancellationToken, Task<NodeResult<T>>> ask, CancellationToken ct)
+    {
+        NodeResult<T> answer = default;
+        await UntilAsync($"the node to answer {call}", async token =>
+        {
+            answer = await ask(token);
+            return (answer.StatusCode != NoAnswer, $"{answer.StatusCode}: {answer.Error ?? "answered"}");
+        }, ct);
+        return answer;
+    }
+
+    /// <summary>What a node's answer says, for an assertion's message: its status and its error.</summary>
+    public static string Said<T>(NodeResult<T> answer) => $"the node answered {answer.StatusCode}: {answer.Error ?? "no error"}";
+
+    /// <summary>
+    /// The status <see cref="TianWenNodeClient"/> gives a call that got no answer (a timeout, an unreachable host):
+    /// <c>(int)HttpStatusCode.ServiceUnavailable</c>. A route that answers 503 itself (the enhance endpoint with no pipeline)
+    /// cannot be told from it, so <see cref="AskUntilAnsweredAsync"/> is for routes that never do, such as <c>/api/v1/node</c>.
+    /// </summary>
+    private const int NoAnswer = 503;
+
+    /// <summary>
     /// Waits until <paramref name="look"/> says it is <c>Done</c>; <c>Seen</c> is what it found, for the output.
     /// </summary>
     public static Task UntilAsync(string waitingFor, Func<CancellationToken, ValueTask<(bool Done, string Seen)>> look, CancellationToken ct) =>

@@ -59,7 +59,7 @@ namespace TianWen.UI.Abstractions
         // Installed fonts can change while a process runs, and this deliberately does not notice -- both
         // hosts resolve at startup and hold the paths for the process lifetime regardless.
         private static readonly Lazy<FontSet> Resolved =
-            new(ResolveUncached, LazyThreadSafetyMode.ExecutionAndPublication);
+            new(() => ResolveFrom(AppContext.BaseDirectory), LazyThreadSafetyMode.ExecutionAndPublication);
 
         /// <summary>Resolves all roles together, so no caller can resolve a subset inconsistently.</summary>
         /// <remarks>
@@ -77,10 +77,15 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public static FontSet Resolve() => Resolved.Value;
 
-        private static FontSet ResolveUncached()
+        /// <summary>
+        /// The same resolve as <see cref="Resolve"/>, looking for the app's own faces under <paramref name="baseDirectory"/>
+        /// instead of the process's. A test seam: it lets a test stand in for a host that bundles its faces, which the test host
+        /// does not (a <c>Fonts</c> folder there would switch every viewer test to it).
+        /// </summary>
+        internal static FontSet ResolveFrom(string baseDirectory)
         {
-            var text = ResolveText();
-            var emoji = ResolveEmoji();
+            var text = ResolveText(baseDirectory);
+            var emoji = ResolveEmoji(baseDirectory);
 
             // No primary face means no chain to hang fallbacks off, which is not a failure -- it is a host
             // that will draw no text at all, and a resolver over nothing would answer misleadingly.
@@ -94,13 +99,13 @@ namespace TianWen.UI.Abstractions
             return new FontSet(text, emoji, fallback);
         }
 
-        private static string ResolveText()
-            => Bundled(BundledTextRelativePath) is { Length: > 0 } bundled
+        private static string ResolveText(string baseDirectory)
+            => Bundled(baseDirectory, BundledTextRelativePath) is { Length: > 0 } bundled
                 ? bundled
                 : FontResolver.ResolveSystemFont();
 
-        private static string ResolveEmoji()
-            => Bundled(BundledEmojiRelativePath) is { Length: > 0 } bundled
+        private static string ResolveEmoji(string baseDirectory)
+            => Bundled(baseDirectory, BundledEmojiRelativePath) is { Length: > 0 } bundled
                 ? bundled
                 : FontResolver.ResolveEmojiFont();
 
@@ -112,9 +117,9 @@ namespace TianWen.UI.Abstractions
         /// both roles because it was written out once per role, identically, and the roles must not drift
         /// on where "our own file" lives.
         /// </remarks>
-        private static string Bundled(string relativePath)
+        private static string Bundled(string baseDirectory, string relativePath)
         {
-            var path = Path.Combine(AppContext.BaseDirectory,
+            var path = Path.Combine(baseDirectory,
                 relativePath.Replace('/', Path.DirectorySeparatorChar));
             return File.Exists(path) ? path : string.Empty;
         }

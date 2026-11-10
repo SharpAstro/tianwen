@@ -21,15 +21,16 @@ needs to plan, build, check and land.
 
 ## How a flight merges
 
-- main is protected by a merge queue that **rebases** each PR (the ruleset's `merge_method` is `REBASE`): every
-  commit of the branch is replayed onto main, and the queue drops a PR whose commits do not replay cleanly, even when
-  a plain merge of the branch would. This is the opposite of pilot's own repo, whose queue squashes.
-- So the branch's history matters here. Take main by a merge (`git fetch origin`, `git merge origin/main`), never a
-  rebase, and never push with `--force`. A clean merge replays fine. A merge that RESOLVED a conflict keeps the
-  resolution in the merge commit, which the rebase drops, so the branch stops replaying: say so in the leg's report,
-  and the step that prepares the PR for the queue lays the branch on main as one commit with the reviewed tree.
-- Keep a flight's commits few and each one whole. A fixup that only undoes an earlier commit of the same branch is a
-  replay hazard; fold it in before the leg ends.
+- main is protected by a merge queue that **squashes** each PR (the ruleset's `merge_method` is `SQUASH`, as in
+  pilot's own repo): the whole branch lands as ONE commit whose tree is the branch merged with main. Its title is the
+  PR's title and its message the branch's commit messages, so the PR title is what main's history shows.
+- So the branch's history does not have to replay. Take main by a merge (`git fetch origin`, `git merge origin/main`),
+  never a rebase, and never push with `--force`: a reviewer and the node follow the branch by its head, and a merge
+  that resolved a conflict lands whole, resolution included.
+- Commit messages still matter, since the squash keeps them as the landed commit's body: each one says what its commit
+  did, and a fixup of an earlier commit on the branch is fine.
+- A landed flight's commits are on main under one new hash, so `git branch -d` refuses the branch: prove it landed by
+  its patch (`git patch-id`), never by diffing the branch against main's files.
 
 ## Build and check
 

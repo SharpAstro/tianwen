@@ -45,18 +45,18 @@ public class PlanetaryThroughTheNodeTests(ITestOutputHelper output)
         h.AppState.ActiveTab.ShouldBe(GuiTab.LiveSession);
 
         // The render thread's drive, until a master the node stacked is on show.
-        await h.UntilAsync(() =>
+        await h.UntilAsync("a master the node stacked to be on show", () =>
         {
             planetary.Tick();
             return planetary.HasMaster;
         }, ct);
         var master = planetary.CurrentMaster.ShouldNotBeNull();
         (master.Width, master.Height, master.ChannelCount).ShouldBe((320, 200, 3), "the node's colour master at the window's size");
-        await h.UntilAsync(() => planetary.Capture.FramesReceived > 0, ct);
+        await h.UntilAsync("the capture to receive its first frame", () => planetary.Capture.FramesReceived > 0, ct);
 
         h.Post(new StopVideoCaptureSignal());
 
-        await h.UntilAsync(() => !planetary.IsCapturing && !h.Claimed(h.CameraUri), ct);
+        await h.UntilAsync("the planetary capture to end and the camera to be given back", () => !planetary.IsCapturing && !h.Claimed(h.CameraUri), ct);
         (await h.Local.Client.GetPlanetaryAsync(ct)).Value?.Running.ShouldNotBe(true, "the node's capture ended");
     }
 
@@ -73,7 +73,7 @@ public class PlanetaryThroughTheNodeTests(ITestOutputHelper output)
         var planetary = await StartedAsync(h);
         planetary.ViewerState.ShowStacked = false;
 
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the camera's live frame to be the view's source", () =>
         {
             planetary.Tick();
             return planetary.Source is LiveFramePreviewSource;
@@ -82,7 +82,7 @@ public class PlanetaryThroughTheNodeTests(ITestOutputHelper output)
         (raw.Width, raw.Height).ShouldBe((320, 200), "the camera's frame at the window's size, not the stack");
 
         planetary.ViewerState.ShowStacked = true;
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the node's rolling stack to be on show", () =>
         {
             planetary.Tick();
             return planetary.HasMaster;
@@ -90,7 +90,7 @@ public class PlanetaryThroughTheNodeTests(ITestOutputHelper output)
         planetary.Source.ShouldBeOfType<LiveStackPreviewSource>("STACK shows the node's rolling stack");
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 
     [Fact(Timeout = 90_000)]
@@ -102,12 +102,12 @@ public class PlanetaryThroughTheNodeTests(ITestOutputHelper output)
 
         planetary.Capture.SetRoiSize(160, 100);
 
-        await h.UntilAsync(() => planetary.Capture.Roi == (160, 100), ct);
+        await h.UntilAsync("the capture's window to read 160 by 100", () => planetary.Capture.Roi == (160, 100), ct);
         var onTheNode = (await h.Local.Client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull();
         (onTheNode.RoiWidth, onTheNode.RoiHeight).ShouldBe((160, 100), "the node's capture reads the new window");
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 
     [Fact(Timeout = 60_000)]
@@ -133,7 +133,7 @@ public class PlanetaryThroughTheNodeTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
         var planetary = await StartedAsync(h);
-        await h.UntilAsync(() => planetary.Capture.FramesReceived > 0, ct);
+        await h.UntilAsync("the capture to receive its first frame", () => planetary.Capture.FramesReceived > 0, ct);
 
         await planetary.DisposeAsync();
 

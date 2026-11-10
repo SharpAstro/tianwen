@@ -844,8 +844,13 @@ public static class SessionRegistrar
             }
             // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
             // three lines StackingPipeline's producer runs, so the two paths cannot drift here.
+            //
+            // No colour alignment here, stated rather than left out (#1993): the stacker places red and blue on green per
+            // frame from the offsets its measure pass reads, and this pass measures none, so a dataset master keeps the
+            // colours exactly where the lens put them. Passing the stacker's offsets would change what every training master
+            // looks like, which is for the dataset's owner to decide, not a side effect of the stacker's option.
             var (warped, shifted) = await FrameRegistration.WarpToCanvasAsync(
-                calibrated, transform, canvasShift, debayerAlgorithm, canvasW, canvasH, warpInterpolation, cancellationToken);
+                calibrated, transform, canvasShift, debayerAlgorithm, canvasW, canvasH, warpInterpolation, ChannelShifts.None, cancellationToken);
             var warpedPath = Path.Combine(sessionScratch, $"warped_{i:D4}.fits");
             warped.WriteToFitsFile(warpedPath);
             subs.Add(new RegisteredSub(f.Frame, warpedPath, shifted, f.Metrics));

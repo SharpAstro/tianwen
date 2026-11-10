@@ -127,10 +127,11 @@ internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<
                 {
                     var host = result.RemoteEndPoint.Address.ToString();
                     var modelName = firmware.MountModel.DisplayName;
-                    var deviceId = $"Skywatcher_{modelName.Replace(' ', '_')}_{firmware.VersionString}_{host}";
+                    var deviceId = $"Skywatcher_{modelName.Replace(' ', '_')}_{host}";
                     var displayName = $"Skywatcher {modelName} WiFi (FW {firmware.VersionString})";
 
-                    yield return new SkywatcherDevice(DeviceType.Mount, deviceId, displayName, host);
+                    var device = new SkywatcherDevice(DeviceType.Mount, deviceId, displayName, host);
+                    yield return new SkywatcherDevice(device.DeviceUri.WithQueryValues((DeviceQueryKey.Firmware.Key, firmware.VersionString)));
                 }
             }
         }

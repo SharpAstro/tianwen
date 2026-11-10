@@ -24,11 +24,11 @@ public class PlanetaryReadoutsThroughTheNodeTests(ITestOutputHelper output)
         h.Post(new StartVideoCaptureSignal(ExposureMs: 10, RoiWidth: 320, RoiHeight: 200));
         await h.UntilSettledAsync(ct);
         var planetary = h.Planetary;
-        await h.UntilAsync(() => planetary.Capture is { AppliedExposureMs: 10, CurrentFps: > 0 }, ct);
+        await h.UntilAsync("the capture to report the applied 10 ms exposure and a current rate", () => planetary.Capture is { AppliedExposureMs: 10, CurrentFps: > 0 }, ct);
 
         planetary.Capture.SetExposure(TimeSpan.FromMilliseconds(5));
-        await h.UntilAsync(() => planetary.Capture.AppliedExposureMs is 5, ct);
-        await h.UntilAsync(() => h.AppState.Notifications.Any(static n => n.Message.StartsWith("Planetary capture at", StringComparison.Ordinal)), ct);
+        await h.UntilAsync("the capture to report the applied 5 ms exposure", () => planetary.Capture.AppliedExposureMs is 5, ct);
+        await h.UntilAsync("the status line's note of the capture at 5 ms", () => h.AppState.Notifications.Any(static n => n.Message.StartsWith("Planetary capture at", StringComparison.Ordinal)), ct);
 
         var said = h.AppState.Notifications.Last(static n => n.Message.StartsWith("Planetary capture at", StringComparison.Ordinal)).Message;
         output.WriteLine(said);
@@ -39,6 +39,6 @@ public class PlanetaryReadoutsThroughTheNodeTests(ITestOutputHelper output)
         output.WriteLine($"current {state.CurrentFramesPerSecond:F1} fps, the run's average {state.FramesPerSecond:F1}");
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 }

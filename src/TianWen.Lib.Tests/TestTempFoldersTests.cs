@@ -88,7 +88,8 @@ public class TestTempFoldersTests
         var folderName = "\"TianWen.Lib" + ".Tests\"";
         var offenders = TestSources(root)
             .Where(static f => !Path.GetFileName(f).Equals(Definition, StringComparison.Ordinal)
-                && !Path.GetFileName(f).Equals("TestOutput.cs", StringComparison.Ordinal))
+                && !Path.GetFileName(f).Equals("TestOutput.cs", StringComparison.Ordinal)
+                && !Path.GetFileName(f).Equals("TestRunTemp.cs", StringComparison.Ordinal))
             .Where(f => File.ReadAllText(f).Contains(folderName, StringComparison.Ordinal))
             .Select(f => Path.GetRelativePath(root, f))
             .Order(StringComparer.Ordinal)

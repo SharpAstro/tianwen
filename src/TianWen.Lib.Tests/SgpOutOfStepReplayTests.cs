@@ -50,7 +50,8 @@ public class SgpOutOfStepReplayTests(ITestOutputHelper output)
         var match = await new IOptronSerialProbe().ProbeAsync("serial:COM99", conn, TestContext.Current.CancellationToken);
 
         match.ShouldNotBeNull("the held status is not the firmware's answer; the probe asks again");
-        match.DeviceUri.ToString().ShouldContain("170518");
+        match.DeviceUri.QueryValue(DeviceQueryKey.Firmware).ShouldBe("170518", "the firmware is evidence in the query (#2040)");
+        match.DeviceUri.AbsolutePath.Contains("170518", StringComparison.Ordinal).ShouldBeFalse("never part of the id, which an update would change");
         output.WriteLine(string.Join(Environment.NewLine, mount.Traffic));
     }
 

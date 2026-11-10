@@ -78,7 +78,7 @@ otherwise. Don't repeat that here.
 |---|---|---|
 | Deep-sky stacking pipeline | DONE, exceeds NINA's scope | CLAUDE.md "Deep-Sky Stacking + Enhance Pipeline" |
 | AI enhancement (SAS Pro AI4 / RC-Astro / in-house N2N) | DONE | [rc-astro-enhancers.md](rc-astro-enhancers.md), [ai-denoise-deconv.md](ai-denoise-deconv.md) |
-| Planetary lucky-imaging stack | DONE except native ZWO/QHY live-video capture (#813) and recording to SER (#814) | [planetary-stacking.md](planetary-stacking.md) -- Phase D (`DALCameraDriver` native video) not implemented |
+| Planetary lucky-imaging stack | DONE except native video on Player One (#813); a capture records to SER on the node with the Planetary mode's Record control (#1344) | [planetary-stacking.md](planetary-stacking.md) -- Phase D (`DALCameraDriver` native video) done for ZWO, ToupTek and QHY |
 
 ## Deliberately NOT replicated (philosophy difference, not a gap)
 

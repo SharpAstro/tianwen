@@ -304,12 +304,15 @@ tracking, a sync and `SetSideOfPierAsync` throw `NotSupportedException`.
 **Serial:** two `ISerialProbe`s with one handshake (`SkywatcherSerialProbeBase`): `SkywatcherSerialProbeUsb`
 at 115200 and `SkywatcherSerialProbeLegacy` at 9600, `Shared`, `CarriageReturnTerminated`, a 300 ms budget
 and one attempt. Each writes `:e1` and matches any reply `TryParseFirmwareResponse` accepts, then publishes
-`Mount://SkywatcherDevice/Skywatcher_<model>_<fw>_<port>?port=<port>&baud=<baud>#Skywatcher <model> (FW <fw>)`.
+`Mount://SkywatcherDevice/Skywatcher_<model>_<port>?port=<port>&baud=<baud>&firmware=<fw>#Skywatcher <model> (FW <fw>)`
+(firmware is evidence in the query, never in the id, #2040; over WiFi `Skywatcher_<model>_<host>`).
 `SerialProbeService` runs the 9600 group before the 115200 one (`BaudSortOrder`), on its own connection
 with synchronous reads. **WiFi:** `SkywatcherDeviceSource.DiscoverWiFiAsync` broadcasts `:e1\r` to
 255.255.255.255:11880 and collects replies for 2 s; each responder becomes a device whose `port` is its IP
 address. `AddSkywatcher()` registers the source (which `ConsumesSerialProbe`) and both probes. The Synta
-handshake names the model and the firmware and nothing else, so the port (or IP address) is the identity.
+handshake names the model and the firmware and nothing else, so the port (or IP address) is the identity, and on
+serial discovery swaps the COM name for the port's own key where it has one (the USB bridge's serial, else its socket;
+docs/architecture/device-architecture.md, "Step 3").
 
 ## The fake
 

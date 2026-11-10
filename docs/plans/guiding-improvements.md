@@ -6,7 +6,7 @@ The built-in guider and its panel, milestone `guiding-improvements`. Two parts: 
 
 ## Guide panel preview
 
-**Status: NOT STARTED.** Tracked by #1915. The guide panel shows nothing of the guide camera until guiding runs, while
+**Status: SHIPPED 2026-10-30** (#1915, PR #1927): the Guider tab loops the profile's guide camera through the node's live view with no session running, picks a guide star (a click or Auto) with its HFD, SNR, peak and profile, focuses a guide focuser with the live Preview's own controls, calibrates and guides from the loop as a node run, and takes a guide dark library that the loop and the guider subtract; [live-session-preview.md, P17](live-session-preview.md#p17-the-guide-cameras-loop-on-the-guider-tab). The ask as written: The guide panel shows nothing of the guide camera until guiding runs, while
 PHD2 does most of its setup without guiding: loop the guide camera, pick a star, read its HFD / SNR / profile, calibrate
 on demand, take the guide camera's darks, and start guiding from the loop with the star kept. The profile's guide focuser
 gets the live Preview's own focuser controls, reused, so the guide camera is focused against that star readout. Through
@@ -113,7 +113,7 @@ shape:
   **Correction, 2026-09-25:** this bullet used to say the capture side was shipped, "ZWO/QHY native" plus a
   universal `RapidExposureVideoAdapter`, with "nothing new needed there". That was wrong on three counts:
   - Native ZWO and QHY video is Phase D of [planetary-native-video.md](planetary-native-video.md), and it was
-    never built.
+    never built. (It has been since: ZWO and ToupTek by 2026-10-15, QHY on 2026-11-05; Player One remains, #813.)
   - Every `DALCameraDriver` body (ZWO, QHY, Player One, ToupTek) is single-frame. For QHY it is hard-coded: see
     "docs(qhy): the vendor already uses the overscan, and we are always in single-frame mode".
   - `RapidExposureVideoAdapter` exists only in a doc comment. The real fallback is

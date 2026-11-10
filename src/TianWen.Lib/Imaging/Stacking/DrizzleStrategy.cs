@@ -285,7 +285,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                     anyClip = true;
                     DrizzleKernel.IterateAndAccumulateMomentsParallel(
                         frame.Raw, frame.Transform, frame.Pattern, halfP, moments,
-                        canvasW, canvasH, badPixelMask, hasBadPixelMask);
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask, frame.Shifts);
                 }
                 else
                 {
@@ -297,7 +297,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                     // dumbbell stars in combined-pier-flip output.
                     DrizzleKernel.IterateAndDepositParallel(
                         frame.Raw, frame.Transform, frame.Pattern, halfP, target.Flux, target.Weight,
-                        canvasW, canvasH, badPixelMask, hasBadPixelMask);
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask, frame.Shifts);
                 }
             }
 
@@ -331,7 +331,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
                     var (rejected, total) = DrizzleKernel.IterateAndDepositClippedParallel(
                         frame.Raw, frame.Transform, frame.Pattern, halfP, moments, clip, target.Flux, target.Weight,
-                        canvasW, canvasH, badPixelMask, hasBadPixelMask, target.Scatter, drift, frameIndex);
+                        canvasW, canvasH, badPixelMask, hasBadPixelMask, target.Scatter, drift, frameIndex, frame.Shifts);
                     target.RejectedDeposits += rejected;
                     target.TotalDeposits += total;
                 }
@@ -386,7 +386,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             // full scale -- a per-frame starless plate, whose brightest pixel was a star that has
             // been removed, so its peak understates its scale by ~7x.
             return new PreparedFrame(raw, frame.TransformToCanvas, pattern, meta,
-                frame.RawCfa.UnitScaleDivisor, frame.RawCfa.Pedestal);
+                frame.RawCfa.UnitScaleDivisor, frame.RawCfa.Pedestal, frame.ColourShifts);
         }
     }
 
@@ -448,7 +448,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
     /// <summary>One prepared frame and what a target reads off its first one.</summary>
     private readonly record struct PreparedFrame(
-        Image Raw, Matrix3x2 Transform, int[,] Pattern, ImageMeta Meta, float UnitScaleDivisor, float Pedestal);
+        Image Raw, Matrix3x2 Transform, int[,] Pattern, ImageMeta Meta, float UnitScaleDivisor, float Pedestal, ChannelShifts Shifts);
 
     /// <summary>One integration of a fused run: its accumulators, statistics, clip, and first-frame
     /// metadata, exactly the state <see cref="RunAsync"/> keeps for its one integration.</summary>

@@ -1,6 +1,8 @@
-using SharpAstro.Serial;
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+using SharpAstro.Serial;
 
 namespace TianWen.Lib.Devices.Discovery;
 
@@ -32,28 +34,39 @@ public readonly record struct SerialPortIdentity(SerialIdentityKind Kind, string
     };
 
     /// <summary>
-    /// Whether a device id that ends in its port ends in this port's key instead (#1090 step 2): the port reports a USB serial
-    /// number (<see cref="SerialIdentityKind.Device"/>) and no other listed port reports the same one. A clone adapter that
-    /// ships one serial on every unit (<c>A50285BI</c> on cheap FT232 copies) gives two units one key, which as an id would be
-    /// one device; those keep their port ids, so two such units stay two devices, as they were before the key existed.
+    /// The key as a port-keyed device id ends in it, in place of the COM name, or null where the port has nothing better than
+    /// its name:
+    /// <list type="bullet">
+    ///   <item><c>device</c> (#1090 step 2): the USB bridge's serial, <c>usb-0403-6001-A10MOSEFA</c> for
+    ///   <c>usb:0403:6001:A10MOSEFA</c>, the characters a probe's <c>SafeName</c> also replaces (<c>_</c>, <c>/</c>, <c>:</c>)
+    ///   made <c>-</c>. The same in any socket.</item>
+    ///   <item><c>socket</c> (#2040): the USB socket, as <c>socket-</c> and eight hex digits of the location path's SHA-256 (a
+    ///   Windows path is long and full of <c>#</c>, which a URI path cannot carry). The same while the device stays in that
+    ///   socket, whatever COM number Windows hands it; the whole path stays in <see cref="DeviceQueryKey.PortKey"/>.</item>
+    /// </list>
+    /// Null for a key another listed port reports too (<see cref="SharedWithAnotherPort"/>): clone FT232 adapters ship one
+    /// serial on every unit (<c>A50285BI</c>), which as an id would make two units one device in the hub's driver map, so those
+    /// keep their COM ids, as before the key existed.
     /// </summary>
-    public bool NamesTheDeviceInItsId => Kind is SerialIdentityKind.Device && !SharedWithAnotherPort;
+    public string? IdSuffix => SharedWithAnotherPort ? null : IdSuffixOf(KindName, Key);
 
-    /// <summary>
-    /// The key as a device id ends in it (#1090 step 2): <c>usb-0403-6001-A10MOSEFA</c> for <c>usb:0403:6001:A10MOSEFA</c>, the
-    /// characters a probe's <c>SafeName</c> also replaces (<c>_</c>, <c>/</c>, <c>:</c>) made <c>-</c>. Only a port that
-    /// <see cref="NamesTheDeviceInItsId"/> is ever put into an id, since only that one survives a move to another socket.
-    /// </summary>
-    public string IdSuffix => IdSuffixOf(Key);
+    /// <summary>Whether a port-keyed device id ends in this port's key (<see cref="IdSuffix"/>) rather than its COM name.</summary>
+    public bool NamesTheDeviceInItsId => IdSuffix is not null;
 
-    /// <summary><see cref="IdSuffix"/> for a key read back from a URI's <see cref="DeviceQueryKey.PortKey"/>.</summary>
-    public static string IdSuffixOf(string key) => key.Replace('_', '-').Replace('/', '-').Replace(':', '-');
+    /// <summary><see cref="IdSuffix"/> for a kind and key read back from a URI's <see cref="DeviceQueryKey.PortIdentity"/> and
+    /// <see cref="DeviceQueryKey.PortKey"/>.</summary>
+    public static string? IdSuffixOf(string? kindName, string? key) => (kindName, key) switch
+    {
+        ("device", { Length: > 0 } k) => k.Replace('_', '-').Replace('/', '-').Replace(':', '-'),
+        ("socket", { Length: > 0 } k) => "socket-" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(k)), 0, 4),
+        _ => null,
+    };
 
     /// <summary>
     /// The identity of <paramref name="info"/>, one of the ports <paramref name="listed"/> by one enumeration (the whole list,
     /// the ports a connected driver holds as well as the free ones: a held port still reports its key). Sharing is judged
     /// among THAT list only, so a unit unplugged since is no longer counted, and a unit that is the only one plugged in is
-    /// keyed on its cable until a second one with the same serial appears.
+    /// keyed on its bridge's serial until a second one with the same serial appears.
     /// </summary>
     public static SerialPortIdentity Of(SerialPortInfo info, IReadOnlyList<SerialPortInfo> listed)
     {
