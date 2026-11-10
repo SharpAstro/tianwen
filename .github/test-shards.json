@@ -1,0 +1,18 @@
+{
+  "$comment": "How a test project is split across CI jobs (#2054); read by .github/scripts/test-shard-filter.ps1. Each project's 'shards' lists the class-name prefixes of every shard but the last; the last shard is everything the others did not take, so a new class always runs somewhere. A prefix matches by contains on FullyQualifiedName, and a shard leaves out what an earlier shard took, so the shards never overlap. The workflow's matrix states the shard count beside this file, and the script refuses a count that disagrees with it. Balanced on the per-class times of a green ubuntu-latest run; rebalance from the Windows vs Linux table on the PR that changes it.",
+  "TianWen.Lib.Tests": {
+    "filter": "Category!=Heavy",
+    "shards": [
+      [ "TianWen.Lib.Tests.Planetary", "TianWen.Lib.Tests.Saturn" ],
+      [ "TianWen.Lib.Tests.Synthetic", "TianWen.Lib.Tests.Classical", "TianWen.Lib.Tests.Star" ],
+      [ "TianWen.Lib.Tests.Dataset", "TianWen.Lib.Tests.Viewer", "TianWen.Lib.Tests.Orrery", "TianWen.Lib.Tests.Stretch" ]
+    ]
+  },
+  "TianWen.Lib.Tests.Functional": {
+    "filter": "",
+    "shards": [
+      [ "TianWen.Lib.Tests.Functional.Node" ],
+      [ "TianWen.Lib.Tests.Functional.Session", "TianWen.Lib.Tests.Functional.Planetary", "TianWen.Lib.Tests.Functional.Remote", "TianWen.Lib.Tests.Functional.Rig" ]
+    ]
+  }
+}
