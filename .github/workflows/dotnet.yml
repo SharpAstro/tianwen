@@ -595,24 +595,100 @@ jobs:
   # Windows runner can read since lfs-pull sets enableCrossOsArchive, never from a live pull. NuGet comes from a
   # Windows-only cache that only main SAVES (nuget-cache-windows below), so it costs one entry per change of the
   # package set, not one per PR: the budget note on build's setup-dotnet is why the Linux jobs cache nothing.
-  test-windows:
-    timeout-minutes: 15   # each shard is meant to stay under 10 minutes, build included
+  #
+  # The two test projects are BUILT ONCE, here, and every shard runs that build (#2054). Each shard built them itself
+  # at first, and the build was 3 to 5 minutes of every shard's 7 to 14 (run 42804689190): no shard could stay under 10
+  # minutes with it, and the slowest two did not. It also kept the build's MSBuild and compiler servers, and their
+  # memory, resident on the machine the tests then ran on. A shard restores its project (the NuGet cache makes that
+  # seconds) and unpacks the bin folder over its checkout, so `dotnet test --no-build` finds it where it was built.
+  build-windows:
+    timeout-minutes: 15   # first measured by this change; the shards built in 3 to 5 minutes
     needs: plan
-    # Not again on a push of a tree its PR tested, nor in the merge queue: as test-unit.
     if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     env:
       VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
+    runs-on: windows-latest
+    steps:
+    - name: Defender off for the workspace, temp and NuGet
+      shell: pwsh
+      run: |
+        $nuget = Join-Path $env:RUNNER_TEMP 'nuget-packages'
+        "NUGET_PACKAGES=$nuget" >> $env:GITHUB_ENV
+        Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:USERPROFILE\AppData\Local\Temp", $nuget, "$env:USERPROFILE\.nuget", "$env:ProgramFiles\dotnet"
+        try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Warning "real-time scanning stays on, the exclusions hold: $_" }
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        lfs: false
+    # The unit suite's set, which holds the functional suite's: what the build embeds or copies to the output.
+    - name: Fetch required LFS objects
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+        cache-prefix: lfs-tests
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    - name: Restore the NuGet cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.temp }}\nuget-packages
+        key: nuget-windows-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/Directory.Build.props', 'src/*.targets', 'src/**/*.csproj') }}
+        restore-keys: |
+          nuget-windows-
+    - name: Restore dependencies
+      run: |
+        dotnet restore TianWen.Lib.Tests -p:Configuration=$env:BUILD_CONF
+        dotnet restore TianWen.Lib.Tests.Functional -p:Configuration=$env:BUILD_CONF
+      working-directory: src
+    - name: Build
+      run: |
+        foreach ($p in 'TianWen.Lib.Tests', 'TianWen.Lib.Tests.Functional') {
+          dotnet build $p -c $env:BUILD_CONF --no-restore "-p:Version=$env:VERSION_PREFIX$env:VERSION_REV$env:VERSION_HASH" "-p:FileVersion=$env:VERSION_PREFIX.$env:VERSION_REV" -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+      working-directory: src
+    # A tar of each bin folder, with repo-relative paths, for the reason build's LFS payload gives: upload-artifact roots
+    # a path list at its common ancestor. Two artifacts, so a shard downloads only the suite it runs.
+    - name: Pack the test builds
+      shell: pwsh
+      run: |
+        tar -czf windows-unit-bin.tgz src/TianWen.Lib.Tests/bin/Release
+        tar -czf windows-functional-bin.tgz src/TianWen.Lib.Tests.Functional/bin/Release
+        Get-Item windows-*-bin.tgz | ForEach-Object { "{0} {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+    - uses: actions/upload-artifact@v7
+      with:
+        name: windows-unit-bin
+        path: windows-unit-bin.tgz
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+    - uses: actions/upload-artifact@v7
+      with:
+        name: windows-functional-bin
+        path: windows-functional-bin.tgz
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+
+  test-windows:
+    timeout-minutes: 15   # each shard is meant to stay under 10 minutes
+    needs: [plan, build-windows]
+    # Not again on a push of a tree its PR tested, nor in the merge queue: as test-unit.
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 1, of: 4 }
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 2, of: 4 }
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 3, of: 4 }
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 4, of: 4 }
-          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 1, of: 3 }
-          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 2, of: 3 }
-          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 3, of: 3 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 1, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 2, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 3, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 4, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 5, of: 5 }
+          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 1, of: 4 }
+          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 2, of: 4 }
+          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 3, of: 4 }
+          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 4, of: 4 }
     name: test-windows (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.of }})
     runs-on: windows-latest
     steps:
@@ -651,9 +727,25 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore ${{ matrix.project }} -p:Configuration=$env:BUILD_CONF
       working-directory: src
-    - name: Build
-      run: dotnet build ${{ matrix.project }} -c $env:BUILD_CONF --no-restore "-p:Version=$env:VERSION_PREFIX$env:VERSION_REV$env:VERSION_HASH" "-p:FileVersion=$env:VERSION_PREFIX.$env:VERSION_REV" -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false
-      working-directory: src
+    # build-windows' build of this suite, unpacked where it was built (its job says why it is not built here).
+    - name: Download the build
+      uses: actions/download-artifact@v8
+      with:
+        name: windows-${{ matrix.suite }}-bin
+    - name: Unpack the build
+      shell: pwsh
+      run: |
+        tar -xzf windows-${{ matrix.suite }}-bin.tgz
+        Remove-Item windows-${{ matrix.suite }}-bin.tgz
+    # What else holds the machine as the tests start: a shard that stalls (run 42804689190's functional 3/3 had 1.5 s GC
+    # pauses and a starved thread pool in its first three minutes, and none on Linux or on a 4-core local run) is read
+    # against this, never guessed at.
+    - name: The machine as the tests start
+      shell: pwsh
+      run: |
+        $os = Get-CimInstance Win32_OperatingSystem
+        "free memory {0:N1} of {1:N1} GB, {2} logical processors" -f ($os.FreePhysicalMemory / 1MB), ($os.TotalVisibleMemorySize / 1MB), [Environment]::ProcessorCount
+        Get-Process | Sort-Object CPU -Descending | Select-Object -First 8 Name, Id, @{ n = 'CPU s'; e = { [int]$_.CPU } }, @{ n = 'WS MB'; e = { [int]($_.WorkingSet64 / 1MB) } } | Format-Table -AutoSize
     # The TRX is kept on every run, not only a failed one: it holds each test's time, which is what the Windows vs
     # Linux per-class table is read from. The platform exits 8 when a shard ran no test, so an empty shard fails.
     - name: Tests
@@ -1184,13 +1276,13 @@ jobs:
   # or was skipped as it should be (the merge queue, or a push of a tree its PR tested).
   gate:
     timeout-minutes: 5
-    needs: [build, test-unit, test-functional, test-windows]
+    needs: [build, test-unit, test-functional, build-windows, test-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
     - name: Build and tests passed
       run: |
-        echo "build: ${{ needs.build.result }}, test-unit: ${{ needs.test-unit.result }}, test-functional: ${{ needs.test-functional.result }}, test-windows: ${{ needs.test-windows.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
+        echo "build: ${{ needs.build.result }}, test-unit: ${{ needs.test-unit.result }}, test-functional: ${{ needs.test-functional.result }}, build-windows: ${{ needs.build-windows.result }}, test-windows: ${{ needs.test-windows.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
         ok() { [ "$1" = success ] || { [ "$1" = skipped ] && { [ "${{ github.event_name }}" = merge_group ] || [ "${{ needs.build.outputs.tested-on-pr }}" = true ]; }; }; }
         [ "${{ needs.build.result }}" = success ] && ok "${{ needs.test-unit.result }}" && ok "${{ needs.test-functional.result }}" && ok "${{ needs.test-windows.result }}"
 
