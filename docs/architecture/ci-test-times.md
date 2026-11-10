@@ -36,18 +36,33 @@ slow tests' causes, took the test builds' analyzers off and their catalogs from 
 from its start; the wait is the longest any job of the row spent queued for a runner; "ended" is how far into the run
 the row's last job ended.
 
-| | round 3 (42885521250) |
-|---|---|
-| build | 4m46s |
-| build-linux (x64 unit, arm unit, x64 functional) | 6m17s, 5m53s, 5m00s |
-| build-windows (unit, functional) | 7m28s, 7m04s |
-| test-unit (debug) | 5m44s |
-| test-unit (ubuntu-latest), each shard | 3m36s to 7m29s, ended 14m14s in |
-| test-unit (ubuntu-24.04-arm), each shard | 2m51s to 5m26s, waited up to 1m00s, ended 12m44s in |
-| test-functional, each shard | 4m42s to 5m15s, ended 12m00s in |
-| test-windows (unit), each shard | 4m31s to 6m11s, waited up to 2m27s, ended 15m25s in |
-| test-windows (functional), each shard | 5m34s to 7m29s, waited up to 3m17s, ended 17m53s in |
-| gate, from the run's start | 18.0 min (red: the Windows cancel test below) |
+| | round 3 (42885521250) | round 4 (42900071837) |
+|---|---|---|
+| build | 4m46s | 5m54s (packing the x64 test builds too) |
+| build-linux (x64 unit, arm unit, x64 functional) | 6m17s, 5m53s, 5m00s | arm unit only: 3m36s, ended 4m03s in |
+| build-windows | 7m28s and 7m04s, a leg per suite | 4m56s for both suites, ended 5m20s in |
+| test-unit (debug) | 5m44s | 3m10s |
+| test-unit (ubuntu-latest), each shard | 3m36s to 7m29s (of 5), ended 14m14s in | 4m01s to 7m41s (of 4), ended 14m02s in |
+| test-unit (ubuntu-24.04-arm), each shard | 2m51s to 5m26s, waited up to 1m00s, ended 12m44s in | 3m38s to 4m37s, ended 11m00s in |
+| test-functional, each shard | 4m42s to 5m15s (of 2), ended 12m00s in | 3m32s to 4m15s (of 3), ended 10m36s in |
+| test-windows (unit), each shard | 4m31s to 6m11s, waited up to 2m27s, ended 15m25s in | 4m54s to 7m40s (of 4), ended 13m03s in |
+| test-windows (functional), each shard | 5m34s to 7m29s, waited up to 3m17s, ended 17m53s in | 4m38s to 5m27s (of 3), ended 10m50s in |
+| longest wait for a runner, any job | 3m17s | 6 s |
+| gate, from the run's start | 18.0 min (red: the Windows cancel test below) | 14.2 min (green) |
+
+Round 4 took the builds off the path (the Windows one ends 5.3 minutes in where it ended 7.9) and the runner waits
+off the run (18 shards, none queued for more than 6 s), and every Windows job stayed under 8 minutes. What held its
+gate was one unit shard on both OSes, 3/4, which tested for 6.5 minutes on Linux x64 and 6.2 on Windows while the other
+shards took 3.5 to 4.7: its family prefixes had gathered the planetary viewer collection and PlanetarySharpeningTests
+beside other CPU-heavy classes, 1067 s summed on Linux and 1228 on Windows against 603 to 927, two chains of about 5
+minutes. And the Linux x64 shards waited for `build`, whose whole-solution compile with analyzers ran 4m47s; the
+analyzer-free ARM64 build had ended two minutes earlier.
+
+Two changes answer them, committed after round 4 and not yet run, since the flight's CI budget stopped further pushes:
+the x64 shards run an analyzer-free `build-linux` leg of their own again (both suites in one job), and the unit shards
+are rebalanced on round 4's own per-class times, 4 on Linux and 5 on Windows (whose build ends a minute later), from a
+layout per shard count in `.github/test-shards.json`. On round 4's numbers the heaviest unit shard then sums 870 s on
+Linux and 934 on Windows (against 1067 and 1228), and the x64 shards start about two minutes earlier.
 
 ## What the tables said, and what was done
 
@@ -102,326 +117,333 @@ the row's last job ended.
   or the solve, whichever comes first, logs every stage and tool line live, and the stand-in starts its child without
   a cmdlet (module auto-loading is the one first-use cost on its path). The cause is not proven; the log will say.
 
-## Run 42814136317 against the before run, classes at 2 s or more
+## Run 42900071837 (round 4) against the before run, classes at 2 s or more
 
-### unit: 1037 classes, Linux before 2471 s summed, Linux 2286 s summed, Windows 3638 s (174 at 2 s or more shown)
+### unit: 1040 classes, Linux before 2471 s summed, Linux 3149 s summed, Windows 3710 s (182 at 2 s or more shown)
 
 | class | Linux before s | Linux s | Windows s | W/L | tests L/W | failed on W | Windows shard |
 |---|---:|---:|---:|---:|---:|---:|---|
-| PlanetarySharpeningTests | 152.2 | 96.4 | 308.8 | 3.2 | 39/39 |  | unit-1 |
-| SyntheticBackgroundTests | 181.9 | 150.6 | 147.5 | 1.0 | 35/35 |  | unit-2 |
-| SkyTextureTests | 28.8 | 28.1 | 150.2 | 5.3 | 8/8 |  | unit-5 |
-| ClassicalStarRemoverTests | 76.7 | 125.3 | 141.0 | 1.1 | 17/17 |  | unit-2 |
-| ViewerWaveletDeriveTests | 67.5 | 125.0 | 99.3 | 0.8 | 21/21 |  | unit-4 |
-| StarInjectionTests | 98.3 | 124.0 | 108.3 | 0.9 | 66/66 |  | unit-2 |
-| PlanetaryLimbFitTests | 98.3 | 55.9 | 120.6 | 2.2 | 13/13 |  | unit-1 |
-| PlanetaryCompositionTests | 66.0 | 48.2 | 106.9 | 2.2 | 7/7 |  | unit-1 |
-| DatasetDegradationExporterTests | 106.4 | 70.3 | 89.3 | 1.3 | 48/49 |  | unit-3 |
-| DatasetBuildRunnerTests | 96.9 | 67.1 | 105.2 | 1.6 | 18/18 |  | unit-3 |
-| PlateSolverTests | 81.5 | 55.9 | 104.3 | 1.9 | 21/31 |  | unit-5 |
-| SaturnLimbFitTests | 57.2 | 50.9 | 96.7 | 1.9 | 7/7 |  | unit-1 |
-| PlanetaryDegradeTests | 41.5 | 35.5 | 88.6 | 2.5 | 29/29 |  | unit-1 |
-| ViewerPlanetaryLookTests | 38.4 | 78.0 | 46.5 | 0.6 | 6/6 |  | unit-4 |
-| PlanetaryRenderTests | 67.5 | 45.7 | 65.9 | 1.4 | 12/13 |  | unit-1 |
-| ViewerPlanetaryMasterTests | 36.0 | 62.0 | 66.8 | 1.1 | 8/8 |  | unit-4 |
-| ColourAlignmentStackingTests | 21.9 | 59.2 | 31.3 | 0.5 | 9/9 |  | unit-5 |
-| DatasetSessionRegistrarTests | 56.1 | 33.2 | 48.9 | 1.5 | 13/13 |  | unit-3 |
-| N2nDenoiserTests | 13.5 | 14.0 | 55.8 | 4.0 | 18/18 |  | unit-5 |
-| VelaMosaicFieldTests | 30.3 | 26.0 | 47.7 | 1.8 | 53/53 |  | unit-5 |
-| ViewerAutoViewTests | 20.7 | 41.1 | 23.3 | 0.6 | 5/5 |  | unit-4 |
-| PlanetaryColourTests | 36.6 | 29.2 | 40.4 | 1.4 | 18/18 |  | unit-1 |
-| OrreryTests | 38.5 | 36.2 | 39.1 | 1.1 | 101/101 |  | unit-3 |
-| ApertureFromSpectrumTests | 21.4 | 17.4 | 38.2 | 2.2 | 8/8 |  | unit-5 |
-| OnnxTianWenDeconvolverTests | 8.8 | 13.6 | 37.5 | 2.8 | 19/19 |  | unit-5 |
-| BiasPedestalFallbackTests | 1.8 | 5.4 | 36.1 | 6.7 | 1/1 |  | unit-5 |
-| Planetary.PlanetaryChannelAlignmentTests | 35.3 | 14.8 | 20.2 | 1.4 | 11/11 |  | unit-1 |
-| DatasetTileExporterTests | 10.0 | 34.7 | 24.1 | 0.7 | 11/11 |  | unit-3 |
-| PlanetaryBestStackTests | 29.8 | 23.7 | 33.3 | 1.4 | 3/3 |  | unit-1 |
-| Cr2ImportTests | 23.1 | 14.5 | 32.5 | 2.2 | 3/3 |  | unit-5 |
-| PlanetarySpectralRatioTests | 20.7 | 17.3 | 32.2 | 1.9 | 3/3 |  | unit-1 |
-| PlanetaryPictureTests | 31.2 | 25.8 | 31.5 | 1.2 | 6/6 |  | unit-1 |
-| DALCameraVideoTests | 2.1 | 1.2 | 28.6 | 23.4 | 35/35 |  | unit-5 |
-| NightCalendarTests | 21.6 | 18.0 | 26.7 | 1.5 | 23/23 |  | unit-5 |
-| SaturationStackingTests | 11.9 | 6.7 | 25.9 | 3.9 | 7/7 |  | unit-5 |
-| ExternalPlateSolverProcessTests | 20.5 | 20.5 | 25.9 | 1.3 | 4/4 |  | unit-5 |
-| PlanetaryLookFitsTests | 18.7 | 12.3 | 24.4 | 2.0 | 2/2 |  | unit-1 |
-| StarRemovalEvalTests | 21.1 | 11.2 | 23.9 | 2.1 | 10/10 |  | unit-2 |
-| Tycho2PartialCatalogTests | 23.0 | 15.0 | 21.4 | 1.4 | 9/9 |  | unit-5 |
-| StretchTests_DebayeredImageUnlinked | 16.2 | 22.3 | 22.9 | 1.0 | 4/4 |  | unit-4 |
-| ViewerBestStackTests | 13.7 | 22.7 | 14.5 | 0.6 | 12/12 |  | unit-4 |
-| PlanetaryFrameTimeOrderTests | 11.4 | 8.8 | 22.2 | 2.5 | 6/6 |  | unit-1 |
-| GuideStarAcceptanceTests | 21.9 | 12.6 | 19.0 | 1.5 | 53/53 |  | unit-5 |
-| StretchTests_NewPipeline | 21.3 | 16.4 | 18.1 | 1.1 | 15/15 |  | unit-4 |
-| DrizzleOutlierRejectionTests | 1.8 | 4.5 | 20.4 | 4.6 | 5/5 |  | unit-5 |
-| PlanetaryGhostTests | 20.1 | 17.0 | 19.9 | 1.2 | 11/11 |  | unit-1 |
-| LightGradingTests | 7.3 | 3.6 | 19.9 | 5.6 | 42/42 |  | unit-5 |
-| CometModelTests | 11.9 | 9.0 | 19.0 | 2.1 | 10/10 |  | unit-5 |
-| Tycho2RegionBakeProbe | 6.2 | 4.5 | 18.7 | 4.1 | 2/3 |  | unit-5 |
-| OrreryCometTests | 18.1 | 13.0 | 12.1 | 0.9 | 35/35 |  | unit-3 |
-| SaturnDerotationTests | 12.2 | 9.1 | 17.7 | 1.9 | 2/2 |  | unit-1 |
-| PlanetaryCaptureStreamingTests | 16.6 | 7.7 | 16.5 | 2.2 | 8/8 |  | unit-1 |
-| Tycho2RegionSelectorTests | 7.7 | 5.2 | 16.1 | 3.1 | 7/7 |  | unit-5 |
-| PlanetaryTrainingPairsTests | 6.9 | 5.8 | 15.6 | 2.7 | 2/2 |  | unit-1 |
-| AlignmentPointMatchingTests | 10.0 | 7.9 | 15.3 | 1.9 | 3/3 |  | unit-5 |
-| SimbadMergeSnapshotTests | 8.5 | 7.6 | 14.6 | 1.9 | 20/20 |  | unit-5 |
-| CorruptReadoutTests | 3.7 | 2.5 | 14.3 | 5.7 | 5/5 |  | unit-5 |
-| ViewerAutoFrameDemandTests | 8.2 | 6.6 | 14.2 | 2.2 | 8/8 |  | unit-4 |
-| DatasetCrossNightExporterTests | 6.4 | 14.0 | 9.5 | 0.7 | 17/17 |  | unit-3 |
-| FindStarsFromFitsFileTests | 4.6 | 6.6 | 13.9 | 2.1 | 12/12 |  | unit-5 |
-| CanonPreviewRobustnessTests | 9.7 | 8.1 | 12.8 | 1.6 | 19/19 |  | unit-5 |
-| PlanetaryPointKeepTests | 2.2 | 1.1 | 12.8 | 11.8 | 2/2 |  | unit-1 |
-| PlanetaryIdentificationTests | 7.8 | 6.3 | 12.7 | 2.0 | 10/10 |  | unit-1 |
-| FindBestFocusTests | 8.4 | 5.4 | 12.6 | 2.3 | 5/5 |  | unit-5 |
-| ViewerBestViewTests | 5.6 | 4.3 | 12.6 | 2.9 | 2/2 |  | unit-4 |
-| PoleMasterFrameSolveTests | 10.4 | 10.7 | 12.4 | 1.2 | 2/2 |  | unit-5 |
-| InheritedWhiteBalanceStampTests | 12.3 | 8.8 | 5.7 | 0.6 | 2/2 |  | unit-5 |
-| RealFrameSolveTests | 3.0 | 2.3 | 11.2 | 4.8 | 2/2 |  | unit-5 |
-| PolarAlignmentRampIntegrationTests | 4.3 | 3.5 | 11.1 | 3.1 | 1/1 |  | unit-5 |
-| GpuStretchPipelineTests | 11.0 | 9.3 | 0.0 | 0.0 | 26/0 |  |  |
-| SaveTargetExtensionTests | 2.4 | 1.8 | 10.7 | 5.8 | 10/10 |  | unit-5 |
-| SkyMapDarkNebulaScreenFilterTests | 4.1 | 3.1 | 10.7 | 3.4 | 6/6 |  | unit-5 |
-| DebayerRegressionTests | 6.4 | 4.6 | 9.5 | 2.1 | 5/5 |  | unit-5 |
-| DebayerRegionTests | 2.9 | 4.9 | 9.3 | 1.9 | 2/2 |  | unit-5 |
-| StackingIntermediateDumpTests | 3.5 | 9.0 | 5.4 | 0.6 | 3/3 |  | unit-5 |
-| StretchTests_MonoImage | 1.9 | 3.5 | 8.9 | 2.5 | 2/2 |  | unit-4 |
-| PlanetaryCaptureTests | 0.9 | 0.3 | 8.8 | 29.3 | 8/8 |  | unit-1 |
-| FakeFieldSolveProbe | 8.8 | 1.5 | 3.9 | 2.5 | 6/6 |  | unit-5 |
-| PlanetaryFinishingTests | 2.3 | 1.8 | 8.7 | 4.7 | 7/7 |  | unit-1 |
-| TexturedHoleFillTests | 5.0 | 5.2 | 8.4 | 1.6 | 1/1 |  | unit-5 |
-| TiffRoundTripTests | 6.2 | 8.4 | 6.6 | 0.8 | 6/6 |  | unit-5 |
-| StarRemoverRunnerTests | 7.9 | 5.0 | 8.3 | 1.7 | 17/17 |  | unit-2 |
-| PlanetaryCaptureLiveViewTests | 1.9 | 0.2 | 8.0 | 37.2 | 10/10 |  | unit-1 |
-| StackingPipelineRgbBayerSyntheticTest | 2.8 | 6.8 | 7.8 | 1.2 | 2/2 |  | unit-5 |
-| SolveHintCacheTests | 2.7 | 1.9 | 7.7 | 4.1 | 4/4 |  | unit-5 |
-| DeviceOwnershipTests | 7.6 | 2.0 | 1.3 | 0.7 | 20/20 |  | unit-5 |
-| CometRepositoryTests | 2.2 | 1.9 | 7.1 | 3.7 | 17/17 |  | unit-5 |
-| ViewerDisplayMemoryE2ETests | 0.4 | 0.3 | 6.9 | 27.3 | 16/16 |  | unit-4 |
-| DatasetPsfNoiseReportTests | 6.8 | 3.4 | 3.1 | 0.9 | 17/17 |  | unit-3 |
-| SkyMapPlanetDiscTests | 4.1 | 2.6 | 6.7 | 2.6 | 36/36 |  | unit-5 |
-| Cr3ImportTests | 5.9 | 4.3 | 6.7 | 1.6 | 2/2 |  | unit-5 |
-| ViewerSkyBackdropAgreementTests | 1.8 | 0.8 | 6.5 | 7.8 | 10/10 |  | unit-4 |
-| PlanetaryInverseTests | 4.9 | 5.4 | 6.4 | 1.2 | 8/8 |  | unit-1 |
-| NightSummaryTests | 3.7 | 2.9 | 6.3 | 2.2 | 10/10 |  | unit-5 |
-| SolverSamplingFloorTests | 3.1 | 1.9 | 6.1 | 3.3 | 6/6 |  | unit-5 |
-| SyntheticClusterExportTests | 2.2 | 1.5 | 5.6 | 3.6 | 4/4 |  | unit-2 |
-| CometMaskTests | 5.5 | 3.7 | 3.3 | 0.9 | 10/10 |  | unit-5 |
-| NeuralGuideTrainerTests | 3.6 | 1.4 | 5.5 | 4.0 | 4/4 |  | unit-5 |
-| RegistrationComparisonTests | 3.1 | 2.2 | 5.5 | 2.5 | 10/10 |  | unit-5 |
-| PlanetaryCeilingsTests | 1.8 | 1.9 | 5.4 | 2.9 | 8/8 |  | unit-1 |
-| Tycho2LiteLookupParityTests | 2.0 | 1.9 | 5.4 | 2.8 | 1/1 |  | unit-5 |
-| PlanetaryReframeTests | 2.8 | 1.4 | 5.4 | 3.9 | 3/3 |  | unit-1 |
-| StackingPipelineRgbBayerDrizzleTest | 4.2 | 5.3 | 3.7 | 0.7 | 3/3 |  | unit-5 |
-| OrreryCompassTests | 2.2 | 2.2 | 5.2 | 2.4 | 7/7 |  | unit-3 |
-| SkyMapDeepLinkTests | 3.2 | 3.3 | 5.0 | 1.5 | 7/7 |  | unit-5 |
-| LiveCloudJudgeTests | 0.6 | 0.5 | 4.9 | 9.7 | 7/7 |  | unit-5 |
-| SessionAutoFocusFrameCaptureTests | 2.0 | 2.6 | 4.9 | 1.9 | 2/2 |  | unit-5 |
-| OrreryGpuTests | 4.9 | 4.0 | 0.0 | 0.0 | 7/0 |  |  |
-| ChannelOffsetsTests | 2.3 | 2.2 | 4.9 | 2.2 | 15/15 |  | unit-5 |
-| TonightsBestTests | 4.8 | 3.8 | 3.5 | 0.9 | 15/15 |  | unit-5 |
-| StretchTests_ColorImageLuma | 4.8 | 1.3 | 1.5 | 1.2 | 1/1 |  | unit-4 |
-| StarDetectionSkyTriggerTests | 0.6 | 1.0 | 4.7 | 4.8 | 1/1 |  | unit-2 |
-| DrizzleParallelBitIdentityTests | 3.1 | 3.3 | 4.7 | 1.4 | 13/13 |  | unit-5 |
-| PlanetaryLimbKernelTests | 4.7 | 3.5 | 4.2 | 1.2 | 1/1 |  | unit-1 |
-| Tycho2BulkInjectionTests | 4.7 | 3.8 | 4.4 | 1.2 | 5/5 |  | unit-5 |
-| SaturnRingFaceTests | 1.1 | 0.8 | 4.5 | 5.9 | 5/5 |  | unit-1 |
-| InfoPanelLiveStackViewerTests | 3.7 | 2.8 | 4.4 | 1.5 | 6/6 |  | unit-5 |
-| SpccWhiteReferenceProbe | 1.9 | 1.9 | 4.4 | 2.3 | 1/1 |  | unit-5 |
-| SkyMapPinnedOnlyGatherTests | 2.8 | 2.1 | 4.2 | 2.0 | 7/7 |  | unit-5 |
-| DatasetStarlessReportTests | 1.1 | 1.9 | 4.2 | 2.2 | 1/1 |  | unit-3 |
-| SharedAppDataFileTests | 1.9 | 1.4 | 4.2 | 3.0 | 4/5 |  | unit-5 |
-| ExpectedSkyModelTests | 0.8 | 0.6 | 4.0 | 6.6 | 8/8 |  | unit-5 |
-| LightGradeReferenceStoreTests | 0.1 | 0.1 | 3.9 | 29.0 | 6/6 |  | unit-5 |
-| PlanetaryReferenceJudgeTests | 1.1 | 3.9 | 1.0 | 0.3 | 2/2 |  | unit-1 |
-| CelestialObjectDBBenchmarkTests | 1.6 | 1.3 | 3.9 | 3.1 | 4/4 |  | unit-5 |
-| ImageTransformTests | 3.9 | 1.8 | 0.6 | 0.3 | 5/5 |  | unit-5 |
-| SyntheticStarDetectionTests | 2.0 | 1.7 | 3.8 | 2.2 | 26/26 |  | unit-2 |
-| FindStarsFromCameraImageTests | 3.8 | 1.2 | 2.8 | 2.3 | 6/6 |  | unit-5 |
-| StandardErrorPlaneTests | 3.3 | 3.7 | 2.5 | 0.7 | 22/22 |  | unit-5 |
-| StackingCloudEmptiedGroupTest | 0.8 | 3.6 | 1.1 | 0.3 | 3/3 |  | unit-5 |
-| ClassicalBackgroundExtractorTests | 1.1 | 2.6 | 3.5 | 1.3 | 19/19 |  | unit-2 |
-| LayoutRectSweep | 3.0 | 2.1 | 3.5 | 1.7 | 1/1 |  | unit-5 |
-| SkyMapAtlasNightCurveTests | 1.0 | 0.9 | 3.4 | 3.8 | 20/20 |  | unit-5 |
-| MoffatCompositionTests | 1.8 | 1.3 | 3.3 | 2.6 | 14/14 |  | unit-5 |
-| GuiWindowTests | 0.0 | 0.0 | 3.2 |  | 0/1 |  | unit-5 |
-| PlanetaryMoonProbeTests | 2.1 | 2.1 | 3.2 | 1.5 | 8/8 |  | unit-1 |
-| ReloadBackedReleaseTests | 0.6 | 0.4 | 3.1 | 7.7 | 12/12 |  | unit-5 |
-| StarMagnitudeIndexTests | 3.1 | 1.8 | 2.6 | 1.4 | 14/14 |  | unit-2 |
-| DatasetSplitAndParityTests | 0.8 | 1.6 | 3.1 | 2.0 | 7/7 |  | unit-3 |
-| PhotometricTransparencyTests | 2.1 | 3.1 | 3.0 | 1.0 | 8/8 |  | unit-5 |
-| PlanetaryTelescopePersistenceTests | 0.0 | 0.0 | 3.1 |  | 2/2 |  | unit-1 |
-| ViewerRepaintResidueTests | 0.3 | 0.2 | 2.9 | 16.0 | 7/7 |  | unit-4 |
-| SkyMapHoverAndPictureTests | 1.1 | 0.9 | 2.9 | 3.2 | 38/38 |  | unit-5 |
-| TiffReadoutTileTests | 2.0 | 2.8 | 2.9 | 1.0 | 52/52 |  | unit-5 |
-| Tycho2MemberManifestTests | 1.3 | 1.2 | 2.8 | 2.2 | 17/17 |  | unit-5 |
-| StarDetectionRetryProbe | 1.0 | 1.5 | 2.8 | 1.9 | 7/7 |  | unit-2 |
-| SpccBeforeEnhanceTests | 0.5 | 0.5 | 2.7 | 5.2 | 30/30 |  | unit-5 |
-| SessionFlatsTests | 0.8 | 0.4 | 2.7 | 6.3 | 12/12 |  | unit-5 |
-| IncrementalSolverTests | 2.5 | 1.5 | 1.7 | 1.1 | 13/13 |  | unit-5 |
-| SessionPersistenceTests | 0.1 | 0.1 | 2.5 | 29.9 | 10/10 |  | unit-5 |
-| CaptureStatisticsFileTests | 1.7 | 1.4 | 2.5 | 1.8 | 3/3 |  | unit-5 |
-| DarkFrameRunCoolingTests | 0.7 | 0.8 | 2.5 | 3.3 | 7/7 |  | unit-5 |
-| FaintFrameStretchStatsTests | 1.5 | 1.6 | 2.5 | 1.5 | 8/8 |  | unit-5 |
-| PlanetaryCaptureInterludeTests | 1.0 | 2.5 | 0.4 | 0.2 | 11/12 |  | unit-1 |
-| SharpenPipelineTests | 0.9 | 0.9 | 2.5 | 2.7 | 29/29 |  | unit-5 |
-| HistogramSelectionParityTests | 0.6 | 1.3 | 2.4 | 1.9 | 5/5 |  | unit-5 |
-| ContrastBoostTests | 1.0 | 2.0 | 2.4 | 1.2 | 15/15 |  | unit-5 |
-| FakeTimePumpTests | 1.6 | 1.5 | 2.4 | 1.6 | 6/6 |  | unit-5 |
-| CelestialObjectDBTests | 1.9 | 1.9 | 2.4 | 1.2 | 356/356 |  | unit-5 |
-| RaDecCellEnumerationTests | 1.2 | 1.1 | 2.4 | 2.2 | 2/2 |  | unit-5 |
-| SyntheticClusterSceneTests | 1.5 | 1.1 | 2.4 | 2.1 | 14/14 |  | unit-2 |
-| PlannerTabLayoutTests | 0.7 | 0.6 | 2.3 | 4.2 | 34/34 |  | unit-5 |
-| PlanetaryApStackTests | 2.3 | 1.3 | 1.1 | 0.8 | 12/12 |  | unit-1 |
-| OrreryPanelTests | 2.3 | 2.2 | 2.3 | 1.1 | 12/12 |  | unit-3 |
-| OnStepQuirkProbeTests | 0.2 | 0.8 | 2.3 | 2.7 | 1/1 |  | unit-5 |
-| ViewerWaveletDialRangeTests | 2.1 | 1.8 | 2.3 | 1.2 | 5/5 |  | unit-4 |
-| ViewerGradeVerdictE2ETests | 1.2 | 1.0 | 2.3 | 2.4 | 8/8 |  | unit-4 |
-| CometObservabilityTests | 1.6 | 1.1 | 2.2 | 2.0 | 2/2 |  | unit-5 |
-| BayerCentroidShiftProbe | 0.4 | 0.6 | 2.2 | 3.9 | 1/1 |  | unit-5 |
-| StretchedNoiseTests | 1.2 | 2.2 | 2.1 | 1.0 | 10/10 |  | unit-4 |
+| PlanetarySharpeningTests | 152.2 | 190.3 | 281.2 | 1.5 | 39/39 |  | unit-3 |
+| ClassicalStarRemoverTests | 76.7 | 152.7 | 235.2 | 1.5 | 17/17 |  | unit-2 |
+| SyntheticBackgroundTests | 181.9 | 152.3 | 192.0 | 1.3 | 35/35 |  | unit-2 |
+| ViewerWaveletDeriveTests | 67.5 | 166.5 | 191.8 | 1.2 | 21/21 |  | unit-2 |
+| DatasetBuildRunnerTests | 96.9 | 43.0 | 168.0 | 3.9 | 18/18 |  | unit-1 |
+| ViewerPlanetaryMasterTests | 36.0 | 112.0 | 111.2 | 1.0 | 8/8 |  | unit-3 |
+| ViewerPlanetaryLookTests | 38.4 | 106.8 | 77.2 | 0.7 | 6/6 |  | unit-3 |
+| DatasetDegradationExporterTests | 106.4 | 86.4 | 88.9 | 1.0 | 48/49 |  | unit-1 |
+| SkyTextureTests | 28.8 | 69.8 | 104.3 | 1.5 | 8/8 |  | unit-4 |
+| PlanetaryLimbFitTests | 98.3 | 102.1 | 102.4 | 1.0 | 13/13 |  | unit-2 |
+| StarInjectionTests | 98.3 | 95.3 | 46.4 | 0.5 | 66/66 |  | unit-1 |
+| PlateSolverTests | 81.5 | 55.5 | 69.5 | 1.3 | 21/31 |  | unit-1 |
+| VelaMosaicFieldTests | 30.3 | 75.4 | 59.3 | 0.8 | 53/53 |  | unit-3 |
+| PlanetaryDegradeTests | 41.5 | 50.6 | 68.8 | 1.4 | 29/29 |  | unit-2 |
+| ViewerAutoViewTests | 20.7 | 54.9 | 67.8 | 1.2 | 5/5 |  | unit-3 |
+| PlanetaryRenderTests | 67.5 | 47.7 | 41.6 | 0.9 | 12/13 |  | unit-1 |
+| PlanetaryCompositionTests | 66.0 | 48.5 | 43.5 | 0.9 | 7/7 |  | unit-1 |
+| N2nDenoiserTests | 13.5 | 46.8 | 61.1 | 1.3 | 18/18 |  | unit-3 |
+| SaturnLimbFitTests | 57.2 | 52.2 | 55.5 | 1.1 | 7/7 |  | unit-1 |
+| DatasetSessionRegistrarTests | 56.1 | 37.1 | 41.8 | 1.1 | 13/13 |  | unit-1 |
+| PlanetaryBestStackTests | 29.8 | 52.8 | 38.1 | 0.7 | 3/3 |  | unit-3 |
+| ViewerBestStackTests | 13.7 | 48.3 | 52.5 | 1.1 | 12/12 |  | unit-3 |
+| PlanetarySpectralRatioTests | 20.7 | 46.3 | 32.8 | 0.7 | 3/3 |  | unit-3 |
+| StretchTests_NewPipeline | 21.3 | 29.1 | 44.6 | 1.5 | 15/15 |  | unit-3 |
+| StretchTests_DebayeredImageUnlinked | 16.2 | 32.3 | 43.6 | 1.3 | 4/4 |  | unit-3 |
+| DatasetTileExporterTests | 10.0 | 38.3 | 43.2 | 1.1 | 11/11 |  | unit-1 |
+| PlanetaryColourTests | 36.6 | 42.0 | 29.6 | 0.7 | 18/18 |  | unit-2 |
+| PlanetaryCaptureStreamingTests | 16.6 | 8.3 | 41.6 | 5.0 | 8/8 |  | unit-3 |
+| OrreryTests | 38.5 | 30.6 | 27.2 | 0.9 | 101/101 |  | unit-1 |
+| OnnxTianWenDeconvolverTests | 8.8 | 33.2 | 35.6 | 1.1 | 19/19 |  | unit-3 |
+| Planetary.PlanetaryChannelAlignmentTests | 35.3 | 27.3 | 16.4 | 0.6 | 11/11 |  | unit-3 |
+| PlanetaryPictureTests | 31.2 | 32.0 | 30.4 | 1.0 | 6/6 |  | unit-2 |
+| StarRemovalEvalTests | 21.1 | 20.6 | 29.8 | 1.4 | 10/10 |  | unit-2 |
+| ColourAlignmentStackingTests | 21.9 | 27.7 | 28.7 | 1.0 | 9/9 |  | unit-4 |
+| Cr2ImportTests | 23.1 | 15.5 | 25.0 | 1.6 | 3/3 |  | unit-4 |
+| StackingPipelineRgbBayerSyntheticTest | 2.8 | 6.2 | 24.9 | 4.0 | 2/2 |  | unit-4 |
+| PlanetaryLookFitsTests | 18.7 | 24.9 | 20.2 | 0.8 | 2/2 |  | unit-3 |
+| PlanetaryGhostTests | 20.1 | 23.2 | 24.5 | 1.1 | 11/11 |  | unit-3 |
+| ApertureFromSpectrumTests | 21.4 | 13.8 | 24.3 | 1.8 | 8/8 |  | unit-4 |
+| ExternalPlateSolverProcessTests | 20.5 | 20.3 | 23.2 | 1.1 | 4/4 |  | unit-4 |
+| Tycho2PartialCatalogTests | 23.0 | 13.7 | 18.2 | 1.3 | 9/9 |  | unit-4 |
+| NightCalendarTests | 21.6 | 20.0 | 22.1 | 1.1 | 23/23 |  | unit-4 |
+| GuideStarAcceptanceTests | 21.9 | 13.5 | 15.5 | 1.1 | 53/53 |  | unit-4 |
+| PlanetaryFrameTimeOrderTests | 11.4 | 17.5 | 21.3 | 1.2 | 6/6 |  | unit-3 |
+| SaturationStackingTests | 11.9 | 20.1 | 18.5 | 0.9 | 7/7 |  | unit-4 |
+| StackingIntermediateDumpTests | 3.5 | 7.2 | 19.9 | 2.8 | 3/3 |  | unit-4 |
+| CorruptReadoutTests | 3.7 | 5.3 | 19.5 | 3.7 | 5/5 |  | unit-4 |
+| LightGradingTests | 7.3 | 19.5 | 17.7 | 0.9 | 42/42 |  | unit-4 |
+| PoleMasterFrameSolveTests | 10.4 | 13.0 | 19.4 | 1.5 | 2/2 |  | unit-4 |
+| CometModelTests | 11.9 | 15.4 | 18.7 | 1.2 | 10/10 |  | unit-4 |
+| OrreryCometTests | 18.1 | 11.8 | 10.4 | 0.9 | 35/35 |  | unit-1 |
+| PlanetaryTrainingPairsTests | 6.9 | 14.1 | 17.9 | 1.3 | 2/2 |  | unit-3 |
+| DALCameraVideoTests | 2.1 | 3.2 | 15.7 | 5.0 | 35/35 |  | unit-4 |
+| PlanetaryPointKeepTests | 2.2 | 4.2 | 15.1 | 3.6 | 2/2 |  | unit-3 |
+| DatasetCrossNightExporterTests | 6.4 | 14.7 | 6.1 | 0.4 | 17/17 |  | unit-1 |
+| ViewerAutoFrameDemandTests | 8.2 | 11.6 | 14.4 | 1.2 | 8/8 |  | unit-3 |
+| SkyMapPlanetDiscTests | 4.1 | 7.9 | 14.1 | 1.8 | 36/36 |  | unit-4 |
+| ViewerBestViewTests | 5.6 | 8.1 | 14.0 | 1.7 | 2/2 |  | unit-3 |
+| BiasPedestalFallbackTests | 1.8 | 9.8 | 13.4 | 1.4 | 1/1 |  | unit-4 |
+| PlanetaryIdentificationTests | 7.8 | 11.8 | 13.4 | 1.1 | 10/10 |  | unit-3 |
+| SimbadMergeSnapshotTests | 8.5 | 13.3 | 12.1 | 0.9 | 20/20 |  | unit-4 |
+| StretchTests_MonoImage | 1.9 | 5.4 | 13.2 | 2.4 | 2/2 |  | unit-3 |
+| AlignmentPointMatchingTests | 10.0 | 13.0 | 10.0 | 0.8 | 3/3 |  | unit-4 |
+| Tycho2RegionBakeProbe | 6.2 | 9.0 | 13.0 | 1.4 | 2/3 |  | unit-4 |
+| SyntheticStarDetectionTests | 2.0 | 12.3 | 4.8 | 0.4 | 26/26 |  | unit-2 |
+| InheritedWhiteBalanceStampTests | 12.3 | 10.8 | 3.1 | 0.3 | 2/2 |  | unit-4 |
+| SaturnDerotationTests | 12.2 | 7.2 | 6.8 | 0.9 | 2/2 |  | unit-1 |
+| FindBestFocusTests | 8.4 | 5.8 | 11.9 | 2.1 | 5/5 |  | unit-4 |
+| TexturedHoleFillTests | 5.0 | 6.5 | 11.4 | 1.7 | 1/1 |  | unit-4 |
+| DrizzleParallelBitIdentityTests | 3.1 | 11.1 | 3.1 | 0.3 | 13/13 |  | unit-4 |
+| GpuStretchPipelineTests | 11.0 | 9.5 | 0.0 | 0.0 | 26/0 |  |  |
+| DrizzleOutlierRejectionTests | 1.8 | 1.5 | 10.4 | 6.7 | 5/5 |  | unit-4 |
+| DatasetPsfNoiseReportTests | 6.8 | 10.2 | 5.3 | 0.5 | 17/17 |  | unit-1 |
+| PlanetaryFinishingTests | 2.3 | 6.0 | 10.1 | 1.7 | 7/7 |  | unit-3 |
+| CanonPreviewRobustnessTests | 9.7 | 7.0 | 7.6 | 1.1 | 19/19 |  | unit-4 |
+| DebayerRegressionTests | 6.4 | 6.7 | 9.6 | 1.4 | 5/5 |  | unit-4 |
+| StackingPipelineRgbBayerDrizzleTest | 4.2 | 9.1 | 3.2 | 0.3 | 3/3 |  | unit-4 |
+| SaveTargetExtensionTests | 2.4 | 2.8 | 9.1 | 3.3 | 10/10 |  | unit-4 |
+| TiffRoundTripTests | 6.2 | 9.0 | 7.2 | 0.8 | 6/6 |  | unit-4 |
+| StarRemoverRunnerTests | 7.9 | 7.9 | 8.9 | 1.1 | 17/17 |  | unit-2 |
+| Tycho2RegionSelectorTests | 7.7 | 7.3 | 8.9 | 1.2 | 7/7 |  | unit-4 |
+| FakeFieldSolveProbe | 8.8 | 4.3 | 1.7 | 0.4 | 6/6 |  | unit-4 |
+| Tycho2LiteLookupParityTests | 2.0 | 3.7 | 8.8 | 2.4 | 1/1 |  | unit-4 |
+| CometRepositoryTests | 2.2 | 3.4 | 8.4 | 2.5 | 17/17 |  | unit-4 |
+| SyntheticClusterExportTests | 2.2 | 8.2 | 2.9 | 0.3 | 4/4 |  | unit-2 |
+| DeviceOwnershipTests | 7.6 | 8.0 | 4.0 | 0.5 | 20/20 |  | unit-4 |
+| FindStarsFromFitsFileTests | 4.6 | 7.5 | 6.9 | 0.9 | 12/12 |  | unit-4 |
+| ViewerSkyBackdropAgreementTests | 1.8 | 4.3 | 7.5 | 1.7 | 10/10 |  | unit-3 |
+| StandardErrorPlaneTests | 3.3 | 7.5 | 2.1 | 0.3 | 22/22 |  | unit-4 |
+| PolarAlignmentRampIntegrationTests | 4.3 | 6.7 | 7.4 | 1.1 | 1/1 |  | unit-4 |
+| PlanetaryInverseTests | 4.9 | 7.3 | 6.6 | 0.9 | 8/8 |  | unit-3 |
+| ContrastBoostTests | 1.0 | 2.0 | 7.2 | 3.6 | 15/15 |  | unit-4 |
+| StretchTests_ColorImageLuma | 4.8 | 7.2 | 6.0 | 0.8 | 1/1 |  | unit-3 |
+| PlanetaryLimbKernelTests | 4.7 | 7.2 | 4.4 | 0.6 | 1/1 |  | unit-2 |
+| Tycho2BulkInjectionTests | 4.7 | 4.7 | 7.1 | 1.5 | 5/5 |  | unit-4 |
+| SharedAppDataFileTests | 1.9 | 5.3 | 7.0 | 1.3 | 4/5 |  | unit-4 |
+| ViewerDisplayMemoryE2ETests | 0.4 | 0.5 | 6.9 | 14.3 | 16/16 |  | unit-3 |
+| PlanetaryApStackTests | 2.3 | 6.9 | 1.1 | 0.2 | 12/12 |  | unit-3 |
+| NightSummaryTests | 3.7 | 6.8 | 4.6 | 0.7 | 10/10 |  | unit-4 |
+| SolverSamplingFloorTests | 3.1 | 2.1 | 6.7 | 3.1 | 6/6 |  | unit-4 |
+| PlanetaryCeilingsTests | 1.8 | 3.6 | 6.5 | 1.8 | 8/8 |  | unit-3 |
+| DebayerRegionTests | 2.9 | 3.9 | 6.4 | 1.7 | 2/2 |  | unit-4 |
+| SolveHintCacheTests | 2.7 | 3.1 | 6.4 | 2.1 | 4/4 |  | unit-4 |
+| StarDetectionRetryProbe | 1.0 | 3.6 | 6.2 | 1.7 | 7/7 |  | unit-2 |
+| PlateSolveParityRaceTests | 0.3 | 0.6 | 6.0 | 10.8 | 5/5 |  | unit-4 |
+| Cr3ImportTests | 5.9 | 3.0 | 4.3 | 1.5 | 2/2 |  | unit-4 |
+| CometMaskTests | 5.5 | 1.8 | 3.4 | 1.9 | 10/10 |  | unit-4 |
+| SkyMapDarkNebulaScreenFilterTests | 4.1 | 5.0 | 5.4 | 1.1 | 6/6 |  | unit-4 |
+| DatasetSplitAndParityTests | 0.8 | 5.2 | 2.7 | 0.5 | 7/7 |  | unit-1 |
+| ClassicalBackgroundExtractorTests | 1.1 | 5.0 | 2.8 | 0.6 | 19/19 |  | unit-2 |
+| RealFrameSolveTests | 3.0 | 5.0 | 3.7 | 0.7 | 2/2 |  | unit-4 |
+| FakeTimePumpTests | 1.6 | 4.9 | 3.0 | 0.6 | 6/6 |  | unit-4 |
+| StretchLinkedRealImageWhiteBalanceTests | 0.3 | 1.6 | 4.9 | 3.1 | 2/2 |  | unit-3 |
+| OrreryGpuTests | 4.9 | 4.1 | 0.0 | 0.0 | 7/0 |  |  |
+| ViewerEnhancePopoverTests | 0.6 | 2.6 | 4.8 | 1.8 | 41/41 |  | unit-3 |
+| TonightsBestTests | 4.8 | 3.9 | 3.0 | 0.8 | 15/15 |  | unit-4 |
+| SkyMapDeepLinkTests | 3.2 | 3.5 | 4.7 | 1.3 | 7/7 |  | unit-4 |
+| CaptureStatisticsFileTests | 1.7 | 4.4 | 1.7 | 0.4 | 3/3 |  | unit-4 |
+| ViewerTonePopoverTests | 0.2 | 0.6 | 4.4 | 7.1 | 12/12 |  | unit-3 |
+| LiveCloudJudgeTests | 0.6 | 0.6 | 4.3 | 6.9 | 7/7 |  | unit-4 |
+| LayoutRectSweep | 3.0 | 4.1 | 3.1 | 0.8 | 1/1 |  | unit-4 |
+| DatasetGradientFrameExporterTests | 0.8 | 2.5 | 4.0 | 1.6 | 7/7 |  | unit-1 |
+| ImageTransformTests | 3.9 | 2.4 | 0.5 | 0.2 | 5/5 |  | unit-4 |
+| PlanetaryCaptureLiveViewTests | 1.9 | 0.8 | 3.8 | 5.0 | 10/10 |  | unit-3 |
+| PlanetaryMoonProbeTests | 2.1 | 3.8 | 3.4 | 0.9 | 8/8 |  | unit-3 |
+| StretchedNoiseTests | 1.2 | 3.8 | 3.4 | 0.9 | 10/10 |  | unit-3 |
+| FindStarsFromCameraImageTests | 3.8 | 1.6 | 1.4 | 0.9 | 6/6 |  | unit-4 |
+| ExpectedSkyModelTests | 0.8 | 3.1 | 3.8 | 1.2 | 8/8 |  | unit-4 |
+| InfoPanelLiveStackViewerTests | 3.7 | 3.3 | 3.5 | 1.0 | 6/6 |  | unit-4 |
+| NeuralGuideTrainerTests | 3.6 | 1.6 | 2.2 | 1.4 | 4/4 |  | unit-4 |
+| SyntheticLuminanceTests | 0.2 | 3.5 | 0.9 | 0.3 | 4/4 |  | unit-2 |
+| ChannelOffsetsTests | 2.3 | 1.7 | 3.5 | 2.1 | 15/15 |  | unit-4 |
+| StretchTests_ColorImagelinked | 0.4 | 0.9 | 3.5 | 4.0 | 1/1 |  | unit-3 |
+| HdHipCrossSnapshotTests | 1.2 | 1.6 | 3.5 | 2.3 | 2/2 |  | unit-4 |
+| StarMagnitudeIndexTests | 3.1 | 2.3 | 3.5 | 1.5 | 14/14 |  | unit-2 |
+| CelestialObjectDBTests | 1.9 | 2.6 | 3.5 | 1.4 | 356/356 |  | unit-4 |
+| StarDetectionSkyTriggerTests | 0.6 | 3.4 | 3.0 | 0.9 | 1/1 |  | unit-2 |
+| TiffReadoutTileTests | 2.0 | 3.4 | 2.7 | 0.8 | 52/52 |  | unit-4 |
+| SkyMapPinnedOnlyGatherTests | 2.8 | 3.4 | 3.4 | 1.0 | 7/7 |  | unit-4 |
+| RegistrationComparisonTests | 3.1 | 3.4 | 2.1 | 0.6 | 10/10 |  | unit-4 |
+| RaDecCellEnumerationTests | 1.2 | 1.3 | 3.3 | 2.5 | 2/2 |  | unit-4 |
+| SpccWhiteReferenceProbe | 1.9 | 2.3 | 3.2 | 1.4 | 1/1 |  | unit-4 |
+| DatasetStarlessReportTests | 1.1 | 3.1 | 2.8 | 0.9 | 1/1 |  | unit-1 |
+| SaturnRingFaceTests | 1.1 | 1.4 | 3.1 | 2.2 | 5/5 |  | unit-1 |
+| SyntheticCatalogProjectionTests | 1.2 | 2.0 | 2.9 | 1.4 | 6/6 |  | unit-2 |
+| OrreryNightTests | 1.0 | 2.9 | 0.6 | 0.2 | 2/2 |  | unit-1 |
+| FaintFrameStretchStatsTests | 1.5 | 1.3 | 2.8 | 2.1 | 8/8 |  | unit-4 |
+| PhotometricTransparencyTests | 2.1 | 2.1 | 2.8 | 1.3 | 8/8 |  | unit-4 |
+| PlanetaryCaptureInterludeTests | 1.0 | 1.0 | 2.8 | 2.8 | 11/12 |  | unit-3 |
+| PlanetaryReframeTests | 2.8 | 2.3 | 2.4 | 1.1 | 3/3 |  | unit-3 |
+| GuiWindowTests | 0.0 | 0.0 | 2.7 |  | 0/1 |  | unit-4 |
+| ExpectedSkyFitterTests | 1.7 | 2.7 | 0.9 | 0.3 | 3/3 |  | unit-4 |
+| CelestialObjectDBBenchmarkTests | 1.6 | 2.2 | 2.6 | 1.2 | 4/4 |  | unit-4 |
+| CoverageEdgeWalkTests | 1.6 | 1.5 | 2.6 | 1.7 | 11/11 |  | unit-4 |
+| ViewerDisplayMemoryTests | 0.0 | 0.2 | 2.6 | 12.0 | 6/6 |  | unit-3 |
+| SkyMapHoverAndPictureTests | 1.1 | 1.7 | 2.6 | 1.5 | 38/38 |  | unit-4 |
+| IncrementalSolverTests | 2.5 | 1.9 | 2.0 | 1.1 | 13/13 |  | unit-4 |
+| SpccBeforeEnhanceTests | 0.5 | 1.4 | 2.5 | 1.8 | 30/30 |  | unit-4 |
+| PlanetaryFrameDerotationTests | 0.1 | 0.2 | 2.5 | 15.0 | 7/7 |  | unit-3 |
+| MoffatCompositionTests | 1.8 | 1.6 | 2.5 | 1.6 | 14/14 |  | unit-4 |
+| ViewerGradeVerdictE2ETests | 1.2 | 2.5 | 1.9 | 0.8 | 8/8 |  | unit-3 |
+| PlanetaryBayerTwinTests | 0.6 | 1.8 | 2.5 | 1.3 | 7/7 |  | unit-3 |
+| PlanetaryPowerSpectrumTests | 1.8 | 2.4 | 2.3 | 1.0 | 2/2 |  | unit-3 |
+| PlanetaryWaveletGainsTests | 2.0 | 2.4 | 1.3 | 0.6 | 6/6 |  | unit-3 |
+| SharpenPipelineTests | 0.9 | 1.4 | 2.3 | 1.6 | 29/29 |  | unit-4 |
+| Tycho2MemberManifestTests | 1.3 | 2.0 | 2.3 | 1.2 | 17/17 |  | unit-4 |
+| ViewerObjectSelectionTests | 0.6 | 2.3 | 1.8 | 0.8 | 32/32 |  | unit-3 |
+| ModelContractTests | 0.1 | 0.1 | 2.3 | 31.3 | 32/32 |  | unit-4 |
+| StackingCloudEmptiedGroupTest | 0.8 | 2.3 | 0.9 | 0.4 | 3/3 |  | unit-4 |
+| OrreryPanelTests | 2.3 | 1.6 | 1.8 | 1.1 | 12/12 |  | unit-1 |
+| OrreryCompassTests | 2.2 | 1.8 | 1.9 | 1.0 | 7/7 |  | unit-1 |
+| DatasetGradientReportTests | 0.4 | 1.1 | 2.1 | 2.0 | 21/21 |  | unit-1 |
+| SkyMapAtlasNightCurveTests | 1.0 | 1.2 | 2.1 | 1.8 | 20/20 |  | unit-4 |
+| ViewerSkyPaletteRoutingTests | 0.1 | 1.6 | 2.1 | 1.3 | 2/2 |  | unit-3 |
+| QuadScaleRecoveryTests | 1.2 | 1.1 | 2.1 | 1.9 | 5/5 |  | unit-4 |
+| ViewerWaveletDialRangeTests | 2.1 | 0.2 | 0.1 | 0.4 | 5/5 |  | unit-3 |
+| SyntheticClusterSceneTests | 1.5 | 1.7 | 2.1 | 1.3 | 14/14 |  | unit-2 |
 | GpuVngDebayerParityTests | 2.1 | 1.7 | 0.0 | 0.0 | 20/0 |  |  |
-| QuadScaleRecoveryTests | 1.2 | 1.0 | 2.0 | 2.1 | 5/5 |  | unit-5 |
-| ViewerEnhancePopoverTests | 0.6 | 0.5 | 2.0 | 4.2 | 41/41 |  | unit-4 |
-| PlanetaryWaveletGainsTests | 2.0 | 0.9 | 0.8 | 0.9 | 6/6 |  | unit-1 |
+| ViewerWhiteBalancePopoverTests | 0.2 | 0.7 | 2.1 | 3.1 | 16/16 |  | unit-3 |
+| SessionAutoFocusFrameCaptureTests | 2.0 | 1.6 | 1.7 | 1.1 | 2/2 |  | unit-4 |
+| ViewerRepaintResidueTests | 0.3 | 0.6 | 2.0 | 3.3 | 7/7 |  | unit-3 |
+| StarStatisticsTests | 0.4 | 1.9 | 2.0 | 1.1 | 10/10 |  | unit-2 |
 
 #### unit: the 30 slowest tests
 
 | test | Linux before s | Linux s | Windows s |
 |---|---:|---:|---:|
-| SkyTextureTests.SparseSharpStructureFillsTheTailThatTheMadIgnores | 4.6 | 4.1 | 93.0 |
-| SaturnLimbFitTests.TheLimbFitFindsAnEdgeOnSaturnWhereItWasPut(instant: "2025-11-25T19:00:00Z") | 25.1 | 18.6 | 47.3 |
-| PlanetaryLimbFitTests.EachChannelIsFittedAgainstItsOwnLimbAndOneWithNoDiskKeepsTheSharedFit | 40.5 | 22.8 | 45.7 |
-| BiasPedestalFallbackTests.WithNoMatchingDarkTheBiasStillRemovesThePedestal | 1.8 | 5.4 | 36.1 |
-| SyntheticBackgroundTests.ByAreaACutHoldsKnotsPerExportCellOfItsArea | 36.0 | 32.7 | 20.3 |
-| PlanetaryCompositionTests.TheJoinAveragesOnlyTheStacksThatReachAPixelThroughTheStepFilesAsInTheRecipe | 26.7 | 19.2 | 35.9 |
-| PlanetaryBestStackTests.ADerotatedRunCountsItsLimbFitLoadsAndReportsEveryStageOnceInOrder | 29.6 | 23.5 | 33.2 |
-| StarInjectionTests.AMeasureTheFitCannotReachIsShrunkTowardIndependent | 29.5 | 32.7 | 30.2 |
-| PlanetaryCompositionTests.AStacksLimbEdgeIsReadUnturnedAtItsRegistrationAndNoGainOrSkyMovesIt | 10.0 | 6.0 | 30.3 |
-| SaturnLimbFitTests.TheLimbFitFindsAnEdgeOnSaturnWhereItWasPut(instant: "2025-09-21T03:00:00Z") | 21.2 | 21.2 | 30.3 |
-| PlanetarySharpeningTests.AtStrengthTwoNothingInsideTheOutlineIsLeftAtTheSkyInTheBatchOrTheLiveView | 16.8 | 11.4 | 30.0 |
-| N2nDenoiserTests.TheChunkSeamsDoNotShowInTheStitchedOutput(overlap: 128) | 8.1 | 8.0 | 30.0 |
-| PlanetarySharpeningTests.ADerivedSharpeningComesCloserToTheTruthThanTheStackAndDoesNotRing(fix: Floored) | 4.4 | 3.2 | 29.0 |
-| ViewerWaveletDeriveTests.DeriveOnAColourCaptureMovesEveryLaterMastersColoursOntoGreen(dpi: 1.5) | 10.7 | 28.4 | 16.4 |
-| PlanetaryColourTests.ASaturnsGlobeIsBalancedToSaturnsColourWhereItsRingsLeaveItClear | 28.4 | 22.4 | 21.2 |
-| PlanetarySharpeningTests.TheDefaultTargetUndoesTheTelescopeHoweverFineThePixels | 13.9 | 8.3 | 27.9 |
-| ViewerPlanetaryLookTests.TheLiveStackedViewDrawsTheLookOnTheMastersADeriveBalanced(dpi: 1) | 13.3 | 27.3 | 14.0 |
-| StarInjectionTests.AFlatTruthReadsTheSameGainInEveryBandOnceTheSkyBiasIsTakenOff | 18.1 | 27.1 | 22.7 |
-| Cr2ImportTests.Cr2_OpensViaImageTryReadImageFile_WithMatrixAndRgbRender | 19.5 | 12.4 | 27.0 |
-| ViewerPlanetaryLookTests.TheLiveStackedViewDrawsTheLookOnTheMastersADeriveBalanced(dpi: 1.5) | 11.4 | 27.0 | 14.0 |
-| ClassicalStarRemoverTests.AColourFieldWithUnequalChannelSkiesStillHasItsStarsSubtracted | 16.8 | 23.9 | 26.7 |
-| SyntheticBackgroundTests.TailsFromASmoothPlateDrawASmootherTextureThanTheOneWidth | 26.6 | 13.5 | 15.3 |
-| SyntheticBackgroundTests.ASteeredTextureRunsAlongThePlatesCoarseContoursWhereAnIsotropicOneDoesNot | 5.2 | 4.3 | 25.9 |
-| PlanetaryDegradeTests.TheLimbsEdgeWidthIsTheBlursForAUniformDisk | 6.9 | 6.0 | 25.6 |
-| ViewerWaveletDeriveTests.DeriveOnAColourCaptureMovesEveryLaterMastersColoursOntoGreen(dpi: 1) | 10.9 | 25.0 | 16.0 |
-| PlanetarySharpeningTests.WhereTheNoiseIsWhiteTheHalvesNoiseSharpensAsTheWhiteLevelDoes | 8.2 | 5.6 | 24.4 |
-| OnnxTianWenDeconvolverTests.TheShippedDeconvolverIsThePythonRuntime | 6.6 | 9.6 | 24.0 |
-| PlanetarySpectralRatioTests.TheFitFindsTheR0ARatioWasMadeAt | 14.6 | 12.0 | 23.2 |
-| SyntheticBackgroundTests.AWanderLoosensTheTieToTheCoarseContoursButKeepsTheTextureOneWay | 21.1 | 17.2 | 10.3 |
-| PlateSolverTests.GivenSyntheticCatalogImageWhenCatalogPlateSolvingThenSolutionMatchesTarget(targetRA: 5.5899999999999999, targetDec: -5.3899999999999997, targetName: "M42", focalLengthMm: 200, accuracy: 0.050000000000000003, cameraDeviceId: 1) | 17.5 | 9.4 | 20.9 |
+| ClassicalStarRemoverTests.AColourFieldWithUnequalChannelSkiesStillHasItsStarsSubtracted | 16.8 | 32.4 | 60.2 |
+| PlanetaryBestStackTests.ADerotatedRunCountsItsLimbFitLoadsAndReportsEveryStageOnceInOrder | 29.6 | 52.7 | 38.0 |
+| SkyTextureTests.SparseSharpStructureFillsTheTailThatTheMadIgnores | 4.6 | 6.0 | 50.1 |
+| ViewerPlanetaryMasterTests.AMastersStopShowsWhatPlanetarySharpenWritesAtThatStrength(dpi: 1) | 10.7 | 43.5 | 32.6 |
+| PlanetaryLimbFitTests.EachChannelIsFittedAgainstItsOwnLimbAndOneWithNoDiskKeepsTheSharedFit | 40.5 | 39.6 | 36.1 |
+| PlanetaryCaptureStreamingTests.AutoRecenterOffLeavesTheRoiWindowFixed | 12.9 | 7.0 | 38.4 |
+| SyntheticBackgroundTests.ByAreaACutHoldsKnotsPerExportCellOfItsArea | 36.0 | 0.6 | 0.4 |
+| ViewerPlanetaryLookTests.TheLiveStackedViewDrawsTheLookOnTheMastersADeriveBalanced(dpi: 1) | 13.3 | 35.3 | 14.7 |
+| ViewerPlanetaryLookTests.TheLiveStackedViewDrawsTheLookOnTheMastersADeriveBalanced(dpi: 1.5) | 11.4 | 34.8 | 19.4 |
+| ViewerPlanetaryMasterTests.AMastersStopShowsWhatPlanetarySharpenWritesAtThatStrength(dpi: 1.5) | 10.8 | 34.3 | 29.8 |
+| N2nDenoiserTests.TheChunkSeamsDoNotShowInTheStitchedOutput(overlap: 128) | 8.1 | 26.8 | 33.3 |
+| ViewerWaveletDeriveTests.DeriveOnAColourCaptureMovesEveryLaterMastersColoursOntoGreen(dpi: 1.5) | 10.7 | 25.0 | 33.1 |
+| ViewerWaveletDeriveTests.DeriveTakesTheBalanceSaturationChosenInThePanel(dpi: 1) | 10.6 | 32.6 | 31.0 |
+| PlanetaryColourTests.ASaturnsGlobeIsBalancedToSaturnsColourWhereItsRingsLeaveItClear | 28.4 | 32.2 | 15.8 |
+| PlanetarySharpeningTests.ADerivationReportsItsStagesInOrderOnAColourMaster | 11.6 | 16.7 | 31.4 |
+| PlanetarySpectralRatioTests.TheFitFindsTheR0ARatioWasMadeAt | 14.6 | 30.6 | 21.9 |
+| ViewerWaveletDeriveTests.DeriveOnAColourCaptureMovesEveryLaterMastersColoursOntoGreen(dpi: 1) | 10.9 | 24.5 | 30.2 |
+| StarInjectionTests.AMeasureTheFitCannotReachIsShrunkTowardIndependent | 29.5 | 23.1 | 12.2 |
+| SyntheticBackgroundTests.ASteeredTextureRunsAlongThePlatesCoarseContoursWhereAnIsotropicOneDoesNot | 5.2 | 7.0 | 29.5 |
+| ViewerWaveletDeriveTests.DeriveTakesTheBalanceSaturationChosenInThePanel(dpi: 1.5) | 11.0 | 29.0 | 27.9 |
+| SkyTextureTests.WhiteNoiseReadsAFlatSpectrumAndNoKurtosis | 5.8 | 28.9 | 2.2 |
+| SaturnLimbFitTests.TheLimbFitFindsAnEdgeOnSaturnWhereItWasPut(instant: "2025-11-25T19:00:00Z") | 25.1 | 17.5 | 28.8 |
+| StarInjectionTests.AFlatTruthReadsTheSameGainInEveryBandOnceTheSkyBiasIsTakenOff | 18.1 | 28.5 | 9.4 |
+| SyntheticBackgroundTests.AWanderLoosensTheTieToTheCoarseContoursButKeepsTheTextureOneWay | 21.1 | 27.6 | 19.8 |
+| PlanetaryCompositionTests.TheJoinAveragesOnlyTheStacksThatReachAPixelThroughTheStepFilesAsInTheRecipe | 26.7 | 17.8 | 16.6 |
+| SyntheticBackgroundTests.TailsFromASmoothPlateDrawASmootherTextureThanTheOneWidth | 26.6 | 20.6 | 24.5 |
+| OnnxTianWenDeconvolverTests.TheShippedDeconvolverIsThePythonRuntime | 6.6 | 23.6 | 25.9 |
+| DatasetBuildRunnerTests.Run_Resume_RedoesASessionWhoseInputsMovedOrWhoseMasterIsIncomplete_AndOnlyThat | 10.1 | 4.8 | 24.0 |
+| DatasetBuildRunnerTests.Run_Resume_RedoesAMovedSession_AndRebuildsOnlyTheNamedSessions | 12.2 | 6.5 | 23.5 |
+| SyntheticBackgroundTests.AFineSteerFollowsThePlatesOwnFineStructureWhereItDisagreesWithTheCoarse | 13.4 | 15.1 | 23.3 |
 
-### functional: 109 classes, Linux before 0 s summed, Linux 1348 s summed, Windows 1315 s (65 at 2 s or more shown)
+### functional: 109 classes, Linux before 0 s summed, Linux 1171 s summed, Windows 1389 s (65 at 2 s or more shown)
 
 (run 42751729433 printed no per-test times for this suite, so its before column is empty)
 
 | class | Linux before s | Linux s | Windows s | W/L | tests L/W | failed on W | Windows shard |
 |---|---:|---:|---:|---:|---:|---:|---|
-| FakeCameraMountCouplingTests | 0.0 | 155.1 | 139.9 | 0.9 | 15/15 |  | functional-3 |
-| NodeRunsProcessTests | 0.0 | 140.4 | 136.7 | 1.0 | 2/2 |  | functional-1 |
-| SessionObservationLoopTests | 0.0 | 94.7 | 96.0 | 1.0 | 18/18 |  | functional-2 |
-| EquipmentFlowProcessTests | 0.0 | 74.4 | 73.3 | 1.0 | 1/1 |  | functional-3 |
-| SessionImagingTests | 0.0 | 66.9 | 58.3 | 0.9 | 16/16 |  | functional-2 |
-| PlanetarySequenceThroughTheGuiTests | 0.0 | 59.2 | 32.4 | 0.5 | 1/1 |  | functional-2 |
-| GuideDarkLibraryNodeTests | 0.0 | 26.4 | 54.8 | 2.1 | 4/4 |  | functional-4 |
-| QuitThroughTheNodeTests | 0.0 | 50.6 | 43.3 | 0.9 | 11/11 |  | functional-4 |
-| MotionOperationTests | 0.0 | 43.0 | 47.9 | 1.1 | 23/23 |  | functional-3 |
-| NodePlanetaryTests | 0.0 | 45.6 | 42.5 | 0.9 | 11/11 |  | functional-1 |
-| NodePolarAlignmentTests | 0.0 | 40.1 | 37.9 | 0.9 | 7/7 |  | functional-1 |
-| LocalNodeLauncherTests | 0.0 | 17.9 | 35.3 | 2.0 | 20/20 |  | functional-4 |
-| SlewLessSessionTests | 0.0 | 30.2 | 26.6 | 0.9 | 3/3 |  | functional-4 |
-| GuiContextGatingTests | 0.0 | 19.3 | 25.2 | 1.3 | 9/9 |  | functional-4 |
-| EquipmentThroughTheNodeTests | 0.0 | 23.2 | 10.7 | 0.5 | 10/10 |  | functional-3 |
-| NodeKeeperProcessTests | 0.0 | 20.8 | 14.1 | 0.7 | 7/7 |  | functional-1 |
-| PlanetaryThroughTheNodeTests | 0.0 | 20.3 | 10.2 | 0.5 | 5/5 |  | functional-2 |
-| MirrorParityTests | 0.0 | 13.8 | 18.7 | 1.4 | 1/1 |  | functional-3 |
-| MeridianFlipVerificationSessionTests | 0.0 | 18.7 | 18.3 | 1.0 | 5/5 |  | functional-4 |
-| NodeLiveViewTests | 0.0 | 17.8 | 17.7 | 1.0 | 6/6 |  | functional-1 |
-| TuiEquipmentSlotClickTests | 0.0 | 17.5 | 13.0 | 0.7 | 8/8 |  | functional-4 |
-| NodeGuidingTests | 0.0 | 8.5 | 17.0 | 2.0 | 4/4 |  | functional-1 |
-| NodeJournalServiceTests | 0.0 | 14.0 | 16.9 | 1.2 | 19/19 |  | functional-1 |
-| LiveSessionThroughTheNodeTests | 0.0 | 16.4 | 14.9 | 0.9 | 7/7 |  | functional-4 |
-| GuideLoopTests | 0.0 | 16.3 | 12.7 | 0.8 | 19/19 |  | functional-4 |
-| RunsThroughTheNodeTests | 0.0 | 16.1 | 10.8 | 0.7 | 6/6 |  | functional-4 |
-| LocalNodeConnectionTests | 0.0 | 14.8 | 15.7 | 1.1 | 8/8 |  | functional-4 |
-| SessionCloudTests | 0.0 | 15.5 | 13.8 | 0.9 | 4/4 |  | functional-2 |
-| NodeJournalProcessTests | 0.0 | 15.4 | 9.7 | 0.6 | 3/3 |  | functional-1 |
-| NodeAccessTests | 0.0 | 13.7 | 15.2 | 1.1 | 17/17 |  | functional-1 |
-| NodePresenceTests | 0.0 | 15.1 | 15.2 | 1.0 | 2/2 |  | functional-1 |
-| PlanetaryRecordingThroughTheNodeTests | 0.0 | 14.5 | 10.5 | 0.7 | 4/4 |  | functional-2 |
-| CliVerbsThroughTheNodeTests | 0.0 | 10.7 | 13.3 | 1.2 | 14/14 |  | functional-4 |
-| RigSiteTests | 0.0 | 13.1 | 13.0 | 1.0 | 6/6 |  | functional-2 |
-| NodeFrameStreamTests | 0.0 | 12.6 | 11.4 | 0.9 | 6/6 |  | functional-1 |
-| DeviceStateTests | 0.0 | 8.4 | 12.5 | 1.5 | 3/3 |  | functional-4 |
-| LocalProfileAtConnectTests | 0.0 | 11.6 | 6.4 | 0.6 | 1/1 |  | functional-4 |
-| SessionPhaseTests | 0.0 | 9.5 | 9.6 | 1.0 | 6/6 |  | functional-2 |
-| SharedMemoryProcessTests | 0.0 | 9.4 | 6.6 | 0.7 | 1/1 |  | functional-4 |
-| AlpacaServerRoundTripTests | 0.0 | 5.5 | 9.0 | 1.6 | 15/15 |  | functional-4 |
-| RigCommandRoutingTests | 0.0 | 8.3 | 7.0 | 0.8 | 3/3 |  | functional-2 |
-| HostingApiTests | 0.0 | 1.3 | 8.3 | 6.3 | 30/30 |  | functional-4 |
-| GuiNodeHarnessAskAgainTests | 0.0 | 7.5 | 6.9 | 0.9 | 3/3 |  | functional-4 |
-| NodeRunLifecycleTests | 0.0 | 6.4 | 7.2 | 1.1 | 13/13 |  | functional-1 |
-| PlanetaryFilterChangeTests | 0.0 | 3.7 | 6.6 | 1.8 | 2/2 |  | functional-2 |
-| NodeSolveTests | 0.0 | 5.7 | 5.0 | 0.9 | 4/4 |  | functional-1 |
-| NodePreviewTests | 0.0 | 0.2 | 5.3 | 26.0 | 3/3 |  | functional-1 |
-| SessionAutoFocusTests | 0.0 | 5.1 | 1.9 | 0.4 | 7/7 |  | functional-2 |
-| NodeDarkLibraryTests | 0.0 | 4.9 | 4.0 | 0.8 | 5/5 |  | functional-1 |
-| NodePreviewExposureTests | 0.0 | 4.8 | 4.7 | 1.0 | 5/5 |  | functional-1 |
-| RigControlTests | 0.0 | 4.4 | 4.6 | 1.1 | 2/2 |  | functional-2 |
-| TuiLiveSessionRigRowsTests | 0.0 | 4.5 | 3.0 | 0.7 | 2/2 |  | functional-4 |
-| RemoteRigContactTests | 0.0 | 2.1 | 4.3 | 2.0 | 1/1 |  | functional-2 |
-| ControlRequestOnThisComputerTests | 0.0 | 4.1 | 2.8 | 0.7 | 2/2 |  | functional-4 |
-| NodeActiveProfileTests | 0.0 | 4.0 | 2.7 | 0.7 | 3/3 |  | functional-1 |
-| PlanetaryFilterThroughTheNodeTests | 0.0 | 3.7 | 2.5 | 0.7 | 1/1 |  | functional-2 |
-| NodeFrameTests | 0.0 | 3.5 | 2.5 | 0.7 | 8/8 |  | functional-1 |
-| CameraOperationTests | 0.0 | 0.6 | 3.4 | 5.7 | 9/9 |  | functional-4 |
-| PlanetaryReadoutsThroughTheNodeTests | 0.0 | 3.4 | 2.3 | 0.7 | 1/1 |  | functional-2 |
-| ProfileFlowProcessTests | 0.0 | 2.6 | 3.3 | 1.3 | 1/1 |  | functional-4 |
-| SessionFilterTests | 0.0 | 3.0 | 2.4 | 0.8 | 3/3 |  | functional-2 |
-| SessionLifecycleTests | 0.0 | 2.4 | 2.7 | 1.1 | 31/31 |  | functional-2 |
-| NodePlanetaryFindTests | 0.0 | 2.5 | 2.1 | 0.8 | 1/1 |  | functional-1 |
-| NodeGuideLoopTests | 0.0 | 2.2 | 2.4 | 1.1 | 3/3 |  | functional-1 |
-| RemoteRigLiveFrameTests | 0.0 | 1.6 | 2.1 | 1.3 | 1/1 |  | functional-2 |
+| FakeCameraMountCouplingTests | 0.0 | 139.4 | 152.3 | 1.1 | 15/15 |  | functional-2 |
+| NodeRunsProcessTests | 0.0 | 136.1 | 142.3 | 1.0 | 2/2 |  | functional-1 |
+| SessionImagingTests | 0.0 | 51.3 | 126.7 | 2.5 | 16/16 |  | functional-1 |
+| SessionObservationLoopTests | 0.0 | 86.1 | 92.6 | 1.1 | 18/18 |  | functional-2 |
+| EquipmentFlowProcessTests | 0.0 | 73.5 | 75.9 | 1.0 | 1/1 |  | functional-2 |
+| MotionOperationTests | 0.0 | 42.3 | 51.2 | 1.2 | 23/23 |  | functional-1 |
+| NodePlanetaryTests | 0.0 | 42.4 | 49.2 | 1.2 | 11/11 |  | functional-1 |
+| QuitThroughTheNodeTests | 0.0 | 47.8 | 43.5 | 0.9 | 11/11 |  | functional-3 |
+| NodePolarAlignmentTests | 0.0 | 37.5 | 42.7 | 1.1 | 7/7 |  | functional-1 |
+| GuideDarkLibraryNodeTests | 0.0 | 33.3 | 11.9 | 0.4 | 4/4 |  | functional-3 |
+| NodeKeeperProcessTests | 0.0 | 16.9 | 31.0 | 1.8 | 7/7 |  | functional-1 |
+| SlewLessSessionTests | 0.0 | 30.4 | 24.1 | 0.8 | 3/3 |  | functional-2 |
+| PlanetarySequenceThroughTheGuiTests | 0.0 | 26.4 | 29.5 | 1.1 | 1/1 |  | functional-2 |
+| PlanetaryRecordingThroughTheNodeTests | 0.0 | 23.7 | 11.0 | 0.5 | 4/4 |  | functional-2 |
+| LocalNodeLauncherTests | 0.0 | 16.4 | 21.4 | 1.3 | 20/20 |  | functional-2 |
+| NodeLiveViewTests | 0.0 | 18.4 | 20.7 | 1.1 | 6/6 |  | functional-1 |
+| SessionPhaseTests | 0.0 | 15.5 | 19.2 | 1.2 | 6/6 |  | functional-3 |
+| NodeGuidingTests | 0.0 | 4.9 | 18.3 | 3.8 | 4/4 |  | functional-3 |
+| GuiContextGatingTests | 0.0 | 9.1 | 18.1 | 2.0 | 9/9 |  | functional-3 |
+| MirrorParityTests | 0.0 | 12.7 | 17.7 | 1.4 | 1/1 |  | functional-1 |
+| PlanetaryThroughTheNodeTests | 0.0 | 17.6 | 11.2 | 0.6 | 5/5 |  | functional-2 |
+| MeridianFlipVerificationSessionTests | 0.0 | 15.3 | 17.3 | 1.1 | 5/5 |  | functional-1 |
+| GuideLoopTests | 0.0 | 17.1 | 12.0 | 0.7 | 19/19 |  | functional-3 |
+| NodeJournalProcessTests | 0.0 | 10.9 | 17.1 | 1.6 | 3/3 |  | functional-1 |
+| NodeJournalServiceTests | 0.0 | 13.7 | 16.9 | 1.2 | 19/19 |  | functional-3 |
+| EquipmentThroughTheNodeTests | 0.0 | 14.1 | 16.7 | 1.2 | 10/10 |  | functional-1 |
+| LocalNodeConnectionTests | 0.0 | 14.5 | 16.4 | 1.1 | 8/8 |  | functional-2 |
+| SessionCloudTests | 0.0 | 13.8 | 16.1 | 1.2 | 4/4 |  | functional-2 |
+| NodeAccessTests | 0.0 | 13.6 | 16.0 | 1.2 | 17/17 |  | functional-3 |
+| NodePresenceTests | 0.0 | 15.1 | 15.2 | 1.0 | 2/2 |  | functional-3 |
+| RigSiteTests | 0.0 | 5.8 | 13.5 | 2.3 | 6/6 |  | functional-3 |
+| NodeFrameStreamTests | 0.0 | 10.5 | 12.9 | 1.2 | 6/6 |  | functional-3 |
+| LiveSessionThroughTheNodeTests | 0.0 | 12.2 | 11.9 | 1.0 | 7/7 |  | functional-3 |
+| SessionFilterTests | 0.0 | 3.7 | 11.1 | 3.0 | 3/3 |  | functional-3 |
+| CliVerbsThroughTheNodeTests | 0.0 | 8.4 | 10.5 | 1.2 | 14/14 |  | functional-3 |
+| RunsThroughTheNodeTests | 0.0 | 8.8 | 9.1 | 1.0 | 6/6 |  | functional-3 |
+| DeviceStateTests | 0.0 | 8.3 | 8.9 | 1.1 | 3/3 |  | functional-3 |
+| NodeActiveProfileTests | 0.0 | 2.4 | 8.4 | 3.5 | 3/3 |  | functional-1 |
+| TuiEquipmentSlotClickTests | 0.0 | 7.7 | 8.2 | 1.1 | 8/8 |  | functional-3 |
+| SessionAutoFocusTests | 0.0 | 5.7 | 7.3 | 1.3 | 7/7 |  | functional-3 |
+| NodeRunLifecycleTests | 0.0 | 5.4 | 7.2 | 1.3 | 13/13 |  | functional-3 |
+| NodeSolveTests | 0.0 | 4.4 | 7.0 | 1.6 | 4/4 |  | functional-3 |
+| AlpacaServerRoundTripTests | 0.0 | 2.6 | 6.5 | 2.5 | 15/15 |  | functional-3 |
+| RigCommandRoutingTests | 0.0 | 5.9 | 6.3 | 1.1 | 3/3 |  | functional-3 |
+| PlanetaryFilterChangeTests | 0.0 | 3.1 | 6.0 | 1.9 | 2/2 |  | functional-3 |
+| SessionLifecycleTests | 0.0 | 3.6 | 5.7 | 1.6 | 31/31 |  | functional-3 |
+| LocalProfileAtConnectTests | 0.0 | 5.5 | 5.5 | 1.0 | 1/1 |  | functional-3 |
+| RigControlTests | 0.0 | 4.1 | 5.0 | 1.2 | 2/2 |  | functional-3 |
+| NodePreviewExposureTests | 0.0 | 4.1 | 4.8 | 1.2 | 5/5 |  | functional-3 |
+| GuiNodeHarnessAskAgainTests | 0.0 | 3.6 | 4.8 | 1.3 | 3/3 |  | functional-3 |
+| HostingApiTests | 0.0 | 0.9 | 4.6 | 5.1 | 30/30 |  | functional-3 |
+| SharedMemoryProcessTests | 0.0 | 3.4 | 4.2 | 1.2 | 1/1 |  | functional-3 |
+| RemoteRigContactTests | 0.0 | 2.0 | 4.2 | 2.1 | 1/1 |  | functional-3 |
+| NodeDarkLibraryTests | 0.0 | 3.1 | 4.0 | 1.3 | 5/5 |  | functional-3 |
+| NodePlanetaryFindTests | 0.0 | 2.4 | 3.4 | 1.4 | 1/1 |  | functional-1 |
+| CameraOperationTests | 0.0 | 0.2 | 3.4 | 15.9 | 9/9 |  | functional-3 |
+| PlanetaryReadoutsThroughTheNodeTests | 0.0 | 3.1 | 2.2 | 0.7 | 1/1 |  | functional-2 |
+| NodeFrameTests | 0.0 | 2.2 | 3.1 | 1.4 | 8/8 |  | functional-3 |
+| NodeActuationGateTests | 0.0 | 0.7 | 3.1 | 4.2 | 27/27 |  | functional-3 |
+| SessionScoutAndProbeTests | 0.0 | 1.7 | 3.0 | 1.7 | 14/14 |  | functional-3 |
+| PlanetaryFilterThroughTheNodeTests | 0.0 | 2.3 | 2.6 | 1.1 | 1/1 |  | functional-2 |
+| GuiderCalibrationOnFakeGuideCameraTests | 0.0 | 1.8 | 2.5 | 1.4 | 1/1 |  | functional-3 |
+| NodeGuideLoopTests | 0.0 | 2.1 | 2.5 | 1.2 | 3/3 |  | functional-3 |
+| TuiLiveSessionRigRowsTests | 0.0 | 2.4 | 2.3 | 1.0 | 2/2 |  | functional-3 |
+| ControlRequestOnThisComputerTests | 0.0 | 2.3 | 2.3 | 1.0 | 2/2 |  | functional-3 |
 
 #### functional: the 30 slowest tests
 
 | test | Linux before s | Linux s | Windows s |
 |---|---:|---:|---:|
-| EquipmentFlowProcessTests.TheEquipmentTabsFlowsRunOverTheSocketAgainstASpawnedNode |  | 74.4 | 73.3 |
-| NodeRunsProcessTests.AnInteractiveRunStopsAGraceAfterItsLastClientGoesAndAClientBackWithinItKeepsIt |  | 71.8 | 69.0 |
-| NodeRunsProcessTests.ASessionAndADarkLibraryGoOnWithTheirLastClientGone |  | 68.6 | 67.6 |
-| PlanetarySequenceThroughTheGuiTests.AStartedSequenceRunsOnTheNodeAndThePanelsStateFollowsItToItsEnd |  | 59.2 | 32.4 |
-| GuideDarkLibraryNodeTests.GuideDarkLibraryTakesAFrameSetPerExposureInTheGuideCamerasFolderAndTheLoopAppliesThem |  | 24.2 | 51.3 |
-| FakeCameraMountCouplingTests.GivenBuiltInGuiderWithMisalignedSkywatcherAndCameraPulseWhenCalibrateAndGuideThenStaysLockedWhileMountDrifts |  | 40.1 | 37.0 |
-| NodePolarAlignmentTests.AWatchedRunGoesOnAClientBackWithinTheGraceKeepsItAndAnUnwatchedOneStops |  | 33.3 | 32.3 |
-| FakeCameraMountCouplingTests.FreshNeuralModelTrainsStablyAndSavesNewSample |  | 23.3 | 22.4 |
-| FakeCameraMountCouplingTests.GivenCloudDuringFirstCalibrationWhenItClearsThenRetrySucceedsAndGuides |  | 22.9 | 18.3 |
-| FakeCameraMountCouplingTests.GivenGuidingWhenDitherThenSettleCompletesViaGetSettleProgressAlone |  | 22.6 | 21.7 |
-| QuitThroughTheNodeTests.WithACameraCoolingItOffersToWarmItUpAndTheNodeDoes |  | 21.4 | 22.0 |
-| FakeCameraMountCouplingTests.GivenCloudWhenGuidingRestartsWithReusedCalibrationThenAcquisitionFailsLoudly |  | 21.5 | 18.4 |
-| FakeCameraMountCouplingTests.GivenCloudDuringGuidingThenStatusReportsLostLockAndRecoversOnClear |  | 21.1 | 19.2 |
-| MirrorParityTests.ASessionSeenThroughAMirrorMatchesItSeenInProcess |  | 13.8 | 18.7 |
-| SessionObservationLoopTests.GivenSkywatcherWithLimitsWhenTargetCrossesMeridianThenItFlipsAndTheLimitStaysClear |  | 17.2 | 15.7 |
-| SessionObservationLoopTests.GivenSkywatcherWithAFlipConfiguredLaterThanTheLimitThenTheLimitStopsTheRunAsALimit |  | 16.4 | 15.0 |
+| EquipmentFlowProcessTests.TheEquipmentTabsFlowsRunOverTheSocketAgainstASpawnedNode |  | 73.5 | 75.9 |
+| NodeRunsProcessTests.AnInteractiveRunStopsAGraceAfterItsLastClientGoesAndAClientBackWithinItKeepsIt |  | 70.4 | 74.3 |
+| NodeRunsProcessTests.ASessionAndADarkLibraryGoOnWithTheirLastClientGone |  | 65.6 | 68.0 |
+| FakeCameraMountCouplingTests.GivenBuiltInGuiderWithMisalignedSkywatcherAndCameraPulseWhenCalibrateAndGuideThenStaysLockedWhileMountDrifts |  | 38.9 | 43.4 |
+| SessionImagingTests.GivenFilterLadderAlternatingEveryFrameWhenFocusDriftsSlowlyThenRefocusFires |  | 9.3 | 32.4 |
+| NodePolarAlignmentTests.AWatchedRunGoesOnAClientBackWithinTheGraceKeepsItAndAnUnwatchedOneStops |  | 32.2 | 32.2 |
+| GuideDarkLibraryNodeTests.GuideDarkLibraryTakesAFrameSetPerExposureInTheGuideCamerasFolderAndTheLoopAppliesThem |  | 31.7 | 9.6 |
+| PlanetarySequenceThroughTheGuiTests.AStartedSequenceRunsOnTheNodeAndThePanelsStateFollowsItToItsEnd |  | 26.4 | 29.5 |
+| FakeCameraMountCouplingTests.FreshNeuralModelTrainsStablyAndSavesNewSample |  | 22.8 | 22.8 |
+| FakeCameraMountCouplingTests.GivenCloudWhenGuidingRestartsWithReusedCalibrationThenAcquisitionFailsLoudly |  | 18.3 | 22.1 |
+| QuitThroughTheNodeTests.WithACameraCoolingItOffersToWarmItUpAndTheNodeDoes |  | 21.4 | 21.5 |
+| FakeCameraMountCouplingTests.GivenCloudDuringGuidingThenStatusReportsLostLockAndRecoversOnClear |  | 16.9 | 21.0 |
+| FakeCameraMountCouplingTests.GivenCloudDuringFirstCalibrationWhenItClearsThenRetrySucceedsAndGuides |  | 18.5 | 20.4 |
+| FakeCameraMountCouplingTests.GivenGuidingWhenDitherThenSettleCompletesViaGetSettleProgressAlone |  | 20.4 | 17.8 |
+| SessionImagingTests.GivenStartOfNightAutoFocusWhenFocusDriftsAtALongerExposureThenRefocusFiresAndFiresAgain |  | 5.5 | 19.1 |
+| SessionObservationLoopTests.GivenSkywatcherWithLimitsWhenTargetCrossesMeridianThenItFlipsAndTheLimitStaysClear |  | 15.1 | 18.6 |
+| MirrorParityTests.ASessionSeenThroughAMirrorMatchesItSeenInProcess |  | 12.7 | 17.7 |
+| SessionObservationLoopTests.GivenSkywatcherWithAFlipConfiguredLaterThanTheLimitThenTheLimitStopsTheRunAsALimit |  | 15.7 | 15.7 |
+| SessionObservationLoopTests.GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging |  | 15.3 | 4.8 |
 | NodePresenceTests.APromptWaitsForAWindowThatKeepsDrawingAndIsLetGoOnceItFreezes |  | 15.0 | 15.0 |
-| LocalNodeConnectionTests.AWindowWhoseNodeWentFindsItsNodeAgain |  | 14.3 | 14.5 |
-| MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot(dec: 70, expectedHomeCalls: 0, expectedStep: null) |  | 13.7 | 13.8 |
-| MotionOperationTests.AGotoAwayFromThePoleNeverReadsTheSiteLatitude |  | 13.6 | 13.7 |
-| SessionImagingTests.GivenFilterLadderAlternatingEveryFrameWhenFocusDriftsSlowlyThenRefocusFires |  | 13.6 | 12.3 |
-| NodePlanetaryTests.ARecordingFinishesItsDurationThoughNobodyWatchesAndTheLiveViewStopsAGraceAfter |  | 13.3 | 13.3 |
-| SessionObservationLoopTests.GivenNonGermanMountWhenTargetCrossesMeridianThenImagesWithoutFlipping(alignment: Polar) |  | 5.6 | 13.0 |
-| SlewLessSessionTests.AFlipTurnsRaAHalfTurnAtOnceThenWaitsForTheOperatorToSwingDecOverThePole |  | 12.4 | 10.5 |
-| SlewLessSessionTests.ARigThatCannotGotoIsCentredWithItsOwnRaMotorAndTheOperatorsDec |  | 12.3 | 10.4 |
-| SessionObservationLoopTests.GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging |  | 11.8 | 4.8 |
-| LocalProfileAtConnectTests.TheProfileIsNeverKnownAsNoneWhileTheFramesPoll |  | 11.6 | 6.4 |
-| NodeLiveViewTests.ALiveViewNobodyWatchesStopsOnceTheGraceIsSpent |  | 10.3 | 10.4 |
-| NodePlanetaryTests.ACaptureNobodyWatchesStopsOnceTheGraceIsSpent |  | 10.3 | 10.3 |
-| NodeAccessTests.APromptHeldForTheOwnerIsLetGoOnceOnlyAWatcherIsLeft |  | 10.1 | 9.0 |
-
+| LocalNodeConnectionTests.AWindowWhoseNodeWentFindsItsNodeAgain |  | 14.2 | 14.7 |
+| MotionOperationTests.AGotoAwayFromThePoleNeverReadsTheSiteLatitude |  | 13.7 | 14.1 |
+| NodePlanetaryTests.ARecordingFinishesItsDurationThoughNobodyWatchesAndTheLiveViewStopsAGraceAfter |  | 13.3 | 13.8 |
+| MotionOperationTests.AGotoAtTheSitesPoleGoesHomeAndAnyOtherDoesNot(dec: 70, expectedHomeCalls: 0, expectedStep: null) |  | 13.6 | 13.8 |
+| SlewLessSessionTests.AFlipTurnsRaAHalfTurnAtOnceThenWaitsForTheOperatorToSwingDecOverThePole |  | 12.5 | 9.8 |
+| SlewLessSessionTests.ARigThatCannotGotoIsCentredWithItsOwnRaMotorAndTheOperatorsDec |  | 12.2 | 9.0 |
+| SessionImagingTests.GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization(subSeconds: 20, leastUtilization: 0.75) |  | 4.7 | 11.8 |
+| SessionImagingTests.GivenHighMinAltitudeWhenTargetDropsBelowThenImagingStopsEarly |  | 11.3 | 11.3 |
+| NodeLiveViewTests.ALiveViewNobodyWatchesStopsOnceTheGraceIsSpent |  | 10.3 | 11.1 |
+| NodePlanetaryTests.ACaptureNobodyWatchesStopsOnceTheGraceIsSpent |  | 10.2 | 10.9 |
