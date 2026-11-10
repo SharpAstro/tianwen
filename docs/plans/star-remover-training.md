@@ -4995,6 +4995,87 @@ share. R3k digs between R2w s1 and R3i or less, with P1's medians between R3i's 
 (0.15 / 0.3 / 0.5) monotone in both dig and P1 says the dose is the lever; a non-monotone one says a single seed cannot read it,
 and the next step is seeds, not shares.
 
+#### R3q and R3r: saturated stars as the masters show them (2026-11-10)
+
+Tracked as #2088 (PR #2086). The owner's direction, 2026-11-07: "we need synthetic more aligned to real", toward realistic
+bright stars.
+
+**The gap.** Real-star check 3 (`training/star-removal/real_star_check3.py`) scores R3l on the val masters' own stars,
+with a reference ring sized per star, a plane fitted on the output's ring, per-channel noise and neighbours masked. On the
+truth twin it reads a perfect output 97-99 % clean and agrees with the truth 92-97 %. R3l s0 / s1 read HIP 80609's
+saturated stars at 63.6 / 68.2 % clean and M42's 100-1000 sigma stars at 27.2 / 39.0 %, where the twin reads synthetic
+bright stars at about 93 %. The difference is the training data's.
+
+**Two causes, measured.**
+- **Too few saturated stars.** The masters carry 2.45 saturated stars per 256 px tile over the 136 training sessions, and
+  synth18 drew 0.25, a tenth (`training/star-removal/saturated_per_tile.py`). The old injector added at most one per draw,
+  a quarter of the time.
+- **The wrong halo.** A saturated star's catalogued amplitude is a wing fit the clip inflates, and its halo does not scale
+  with it: per amplitude, the faintest third of M42's saturated stars carry nine times the brightest third's light at 5 px.
+  A per-amplitude table (`--bright-halos`) overshot and made the unsaturated bright stars less realistic, and was dropped.
+
+**The options** (`dataset degrade --mode stars`, both off by default):
+- `--saturated-own-share` draws each site saturated at the master's own share of saturated catalogue sites.
+- `--saturated-measured` draws every saturated star the plate builder subtracted as the master shows it
+  (`InjectionPopulation.MeasureSaturated`). It is read off the master less its plate, at the amplitude matching its own
+  light 3 to 5 px out, with its own ring residual to 30 px as its halo. It is clipped only in the channels its light says it
+  clipped, and drawn on the round profile it was measured against, whatever the cell draws for its other stars.
+
+**The PR #2086 review** found three faults in the first version, all fixed before R3r: the halo was laid under the
+cell's shaped profile (a drawn beta of 1.3 to 6 on 30 % of cells counted its wings twice); every channel was clipped at its
+core, flat-topping channels that never clipped; and the halo was read off the master less a ring median, so the nebula
+under a star became its halo.
+
+**The probe** (`MeasuredSaturatedRenderProbe`, on demand) plans 1,500 saturated stars per val master with the training
+recipe's beta draw, renders each alone and reads its absolute light in ring medians against the master's own saturated
+stars, master less plate. At the fixed injector:
+
+| master | 5 px | 8 px | 12 px | measured channels kept clipped |
+|---|---|---|---|---|
+| Lobster | 1.13 | 0.95 | 0.97 | 89 % |
+| HIP 80609 | 0.97 | 1.04 | 1.00 | 93 % |
+| M42 | 1.09 | 1.05 | 0.95 | 84 % |
+| SMC (22 real stars) | 0.93 | 0.93 | 0.88 | 94 % |
+
+Stars that fall back to the catalogued entry carry about half the measured stars' light; on SMC they are 15 % of the drawn
+saturated stars.
+
+**R3q, read 2026-11-10: killed.** synth20 = synth18's export with the two options, at the injector BEFORE the review's
+fixes; R3l's recipe, seed 0. Without the options its binary reproduced synth18 byte for byte (160 of 160 injection rows,
+40 of 40 tiles compared), and the first chunk drew 1.18x the masters' saturated stars per tile. Against R3l s0 / s1:
+
+| bar | R3q | R3l s0 / s1 | verdict |
+|---|---|---|---|
+| HIP 80609 saturated >= 80 | 81.8 (input ring 36.4) | 63.6 / 68.2 | no evidence: n = 22, the ring variants disagree by 45 points |
+| M42 100-1000 sigma >= 50 | 29.4 | 27.2 / 39.0 | missed |
+| Lobster saturated within 3 of s0 | 94.8 | 100 / 94.8 | missed |
+| truth tiles 20-100 >= 72, 100-1000 >= 54 | 66.9, 47.9 | 73.3, 54.5 | missed |
+| Andromeda dug <= 47 | 31.7 | 44.8 / 45.3 | held, better |
+| Tarantula dark flat >= 69 | 68.4 | 70.3 / 74.4 | missed by 0.6 |
+
+Not barred, a regression: SMC's 20-100 sigma stars 45.2 % clean (94.9 / 89.8) and 100-1000 sigma 32.2 % (96.6 / 84.7),
+pooled 20-100 ring left 18.6 % (2.3 / 3.5). R3q leaves faint and mid stars it used to take. The M31 nucleus was kept at
+77-83 % (R3l 2-16 %). It reads as a test of that export, faults included.
+
+**R3r, pre-registered 2026-11-10.** R3q again on the fixed injector: synth21 = the recipe in
+`training/star-removal/export-synth.ps1` with `--saturated-own-share --saturated-measured`, its binary built from PR #2086's
+head (the commit is recorded in the export's folder), and R3l's training exactly: `training/denoise/run-r2.ps1 -Tag r3r
+-Arms synth21 -SeedCount 1 -FirstSeed 0 -Patience 24 -Steps 480000 -CheckpointEvery 2000` (its flux loss off, as R3l's).
+Scored by `training/star-removal/score-arm.ps1` against R3l's baselines, `score_whole.py` over the held-out whole masters,
+and `real_star_check3.py --sessions` on both ring variants.
+- **Q1, the export, before training:** saturated stars per tile within 25 % of the masters', pooled over the 138 sessions
+  and per session at the median.
+- **Q2, check 3 against R3l s0 / s1:** HIP 80609 saturated at least 80 on BOTH ring variants (R3q passed one and failed
+  the other); M42 100-1000 sigma at least 50; Lobster every band within 3 points of s0; and, from R3q's regression, SMC's
+  20-100 and 100-1000 sigma bands not below R3l s1 by more than 5 points.
+- **Q3, truth tiles (on-random):** 20-100 sigma at least 72, 100-1000 at least 54.
+- **Q4, whole masters:** Andromeda dark dug at most 47, Tarantula dark flat at least 69.
+- **Kill:** Q1 fails; or SMC's regression returns (the faults were not its cause); or HIP's saturated stars do not gain 8
+  points over R3l's mean (66) on both rings while Q3 holds.
+- **Prediction:** Q1 holds; HIP gains; SMC's regression goes, since its saturated stars drew a doubled wing on a third of
+  cells and nebula as halo; M42's 100-1000 sigma band gains little, those stars being mostly unsaturated, which this arm
+  does not touch. If M42 is the only miss, the next arm is the unsaturated bright class measured the same way.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
