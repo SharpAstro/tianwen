@@ -1,5 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
@@ -253,6 +255,119 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var dec = await mount.GetDeclinationAsync(ct);
         ra.ShouldBe(14.0, 0.001);
         dec.ShouldBe(50.0, 0.001);
+    }
+
+    private static readonly TimeSpan LateTick = TimeSpan.FromTicks(1_156_000);
+
+    /// <summary>A mount on a clock the test moves by hand, so a timer callback arrives exactly as late as the test says (#2022).</summary>
+    private async Task<(FakeMountDriver Mount, HandClock Clock)> CreateMountOnHandClockAsync(CancellationToken ct)
+    {
+        var clock = new HandClock();
+        var services = new ServiceCollection()
+            .AddSingleton<IExternal>(new FakeExternal(output))
+            .AddSingleton<ITimeProvider>(clock)
+            .AddLogging()
+            .BuildServiceProvider();
+        var mount = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 1), services);
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+        return (mount, clock);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAxisMoveOnTheFakeClockThenItMovesExactlyTheRatePerSecond()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, timeProvider, _) = CreateMount();
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+
+        await mount.MoveAxisAsync(TelescopeAxis.Seconary, 1.0, ct);
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0.6, ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
+        await mount.MoveAxisAsync(TelescopeAxis.Seconary, 0, ct);
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0, ct);
+
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(46.0, 1e-6);
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(12.0 + 0.6 / 15.0, 1e-6);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAxisMoveWithLateTicksThenItStillMovesTheRatePerSecond()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, clock) = await CreateMountOnHandClockAsync(ct);
+
+        await mount.MoveAxisAsync(TelescopeAxis.Seconary, 1.0, ct);
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0.6, ct);
+
+        // Ten callbacks, each 115.6 ms after the one before (Windows' timer resolution): 1.156 s. A fixed 0.1 s a callback is 1 s.
+        for (var tick = 0; tick < 10; tick++)
+        {
+            clock.TickAfter(LateTick);
+        }
+
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0 + 1.156, 1e-6);
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(12.0 + 0.6 * 1.156 / 15.0, 1e-6);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAxisRateChangedWhileMovingThenTheOldRateOwnsTheTimeBefore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, clock) = await CreateMountOnHandClockAsync(ct);
+
+        await mount.MoveAxisAsync(TelescopeAxis.Seconary, 1.0, ct);
+        clock.Advance(TimeSpan.FromSeconds(1)); // no tick has run: a second owed at 1 degree a second
+        await mount.MoveAxisAsync(TelescopeAxis.Seconary, 0.5, ct);
+        clock.TickAfter(TimeSpan.FromSeconds(1)); // and a second at 0.5
+
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0 + 1.0 + 0.5, 1e-6, "the second before the change was at the old rate");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSlewWithLateTicksThenItFollowsTheClockAndLandsOnTheTarget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, clock) = await CreateMountOnHandClockAsync(ct);
+
+        // 2 hours of RA is 30 degrees: 20 s at 1.5 degrees a second.
+        await mount.BeginSlewRaDecAsync(14.0, 50.0, ct);
+
+        for (var tick = 0; tick < 100; tick++)
+        {
+            clock.TickAfter(LateTick); // 11.56 s
+        }
+
+        (await mount.IsSlewingAsync(ct)).ShouldBeTrue();
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(12.0 + 11.56 * 1.5 / 15.0, 1e-6, "the slew follows the clock, not the callback count");
+
+        for (var tick = 100; tick < 200; tick++) // 23.12 s, past the 20 s the slew needs
+        {
+            clock.TickAfter(LateTick);
+            (await mount.GetRightAscensionAsync(ct)).ShouldBeLessThanOrEqualTo(14.0 + 1e-9, "never past the target");
+        }
+
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(14.0, 1e-9);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(50.0, 1e-9);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSlewOnTheFakeClockThenItTakesTheDistanceOverTheRate()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, timeProvider, _) = CreateMount();
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+
+        await mount.BeginSlewRaDecAsync(14.0, 50.0, ct); // 30 degrees of RA: 20 s
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(19.5), ct);
+        (await mount.IsSlewingAsync(ct)).ShouldBeTrue();
+
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(14.0, 1e-9);
     }
 
     [Fact(Timeout = 60_000)]
