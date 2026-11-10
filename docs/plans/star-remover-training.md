@@ -5120,6 +5120,16 @@ measured and is wrong:
 
 Neither explains a core dig, which is under a clipped plateau, where the output can only guess the sky. What the saturated
 cells teach about the sky under a clipped core is the next thing to read, in the injector's code before any measurement.
+Read: nothing there biases it. A plateau clips at the larger of the star's level and the plate (`StarInjection.RenderStacked`)
+and the target is the plate, so a clipped core teaches only what the input shows. And R3l's own two seeds differ by 0.3 to
+0.5 sigma in HIP's saturated cores, more than R3r's shift, so one seed cannot say the dig is the data's.
+
+**R3r seed 1, pre-registered 2026-11-11.** R3r exactly, `-FirstSeed 1`, scored the same way.
+- **Seed noise:** s1's pooled saturated ring dug (own ring) at most 35 % (R3l 21 to 30 %). Then s0's dig was the seed, and
+  R3r's bars are read again on the two seeds' mean.
+- **The data's:** s1's saturated ring dug at least 45 %. Then R3r stays killed, and the next place to look is the measured
+  stars' unclipped channels (a blue core drawn on the round profile from its 3-5 px light), measured before any arm.
+- Between the two, R3r stays killed and the dig is called unresolved.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
