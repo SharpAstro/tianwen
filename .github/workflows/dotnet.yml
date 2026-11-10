@@ -31,7 +31,11 @@ env:
   APP_LFS_INCLUDE: '*.lz,*.ttf,*.bin.gz,*.onnx'
 
 jobs:
-  build:
+  # What every other job starts from: the version and whether the tests run at all. Its own job so that the test jobs
+  # need nothing from build and start beside it (#2054): they waited about 5 min for build to finish, and then built
+  # again themselves, so build's whole length sat on the required path ahead of the 15 min of tests. It costs one short
+  # runner start ahead of build, which is no longer on that path.
+  plan:
     # Every job in this repo is bounded. GitHub's default is SIX HOURS, and that is not a
     # theoretical ceiling: an unreachable apt archive parked a sibling repo's job on it for a whole
     # morning on 2026-08-19, and a hung step gates everything downstream of it while burning runner
@@ -39,16 +43,14 @@ jobs:
     # job over its limit is stuck rather than slow. publish-apps has no measured figure (it only
     # runs on workflow_dispatch and none is recent), so its bound is a guess sized to catch a hang
     # rather than to be tight.
-    timeout-minutes: 20   # healthy 3m18s
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     # Published for the downstream jobs. $GITHUB_ENV is PER-JOB, so the `echo >> $GITHUB_ENV` step
     # that single-job repos use (Lzip.Lib, the reference implementation) would set VERSION_PREFIX
     # for this job only and leave test-unit / test-functional / publish-apps / release with an empty
     # value -- silently malforming `-p:Version=` and tagging a release `v.`. A job output crosses
     # the boundary; each consumer maps it back to the same env name, so no `run:` line changes.
-    # Resolved here rather than in a dedicated `version` job so it costs no extra runner: this job
-    # already checks out and sets up the SDK, and a separate job would serialise its own startup
-    # onto every push and PR.
+    # build passes both on as its own outputs, so the jobs after it read them where they always did.
     outputs:
       version-prefix: ${{ steps.resolve-version.outputs.prefix }}
       tested-on-pr: ${{ steps.tested-on-pr.outputs.tested-on-pr }}
@@ -60,14 +62,9 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-    # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
-    # resources from *.json.lz / *.csv.lz sources, decoding the .lz inputs with
-    # the managed lzip decoder (Lzip.Lib) and writing the .gs.gz output via .NET
-    # GZipStream -- no external `lzip` binary is needed. *.gs.gz is gitignored,
-    # so a fresh checkout regenerates it during build.
     - uses: actions/checkout@v7
       with:
-        submodules: recursive
+        submodules: false
         lfs: false
     # A push to main whose tree a passing PR run already tested skips test-unit and test-functional
     # (#1287). A PR is rebased onto main just before it is pushed, so the tree a rebase merge lands is
@@ -105,6 +102,51 @@ jobs:
         fi
         echo "tested-on-pr=$tested"
         echo "tested-on-pr=$tested" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    # Read the major.minor back from the ONE place it is written (src/Directory.Build.props ->
+    # VersionMajorMinor) instead of restating it in this file. It used to be a literal in the
+    # workflow `env:`, so the number lived in two places and nothing compared them.
+    #
+    # -getProperty only EVALUATES the file: nothing is built and no restore is needed. The value is
+    # CAPTURED from stdout, so nothing else may print to it: DOTNET_NOLOGO (workflow env) keeps the SDK
+    # first-run banner out, and the shape check makes anything unexpected, or a renamed property, FAIL
+    # the run rather than quietly stamping every package and the release tag as ".<run>". Written to
+    # $GITHUB_OUTPUT for the downstream jobs, since $GITHUB_ENV does not cross a job boundary.
+    - name: Resolve version prefix
+      id: resolve-version
+      run: |
+        MM="$(dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor -nologo | tr -d '[:space:]')"
+        case "$MM" in
+          [0-9]*.[0-9]*) ;;
+          *) echo "::error::VersionMajorMinor did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
+        esac
+        echo "prefix=${MM}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        echo "Resolved VERSION_PREFIX=${MM}.${{ github.run_number }}"
+
+  build:
+    timeout-minutes: 20   # healthy 3m18s
+    needs: plan
+    runs-on: ubuntu-latest
+    env:
+      VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
+    # plan's two answers, passed on: publish-nuget, release, gate and the packaging jobs read them here.
+    outputs:
+      version-prefix: ${{ needs.plan.outputs.version-prefix }}
+      tested-on-pr: ${{ needs.plan.outputs.tested-on-pr }}
+    permissions:
+      contents: read
+    steps:
+    # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
+    # resources from *.json.lz / *.csv.lz sources, decoding the .lz inputs with
+    # the managed lzip decoder (Lzip.Lib) and writing the .gs.gz output via .NET
+    # GZipStream -- no external `lzip` binary is needed. *.gs.gz is gitignored,
+    # so a fresh checkout regenerates it during build.
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        lfs: false
     # Narrow LFS pull: build needs catalog .lz (TianWen.Lib EmbeddedResource),
     # milkyway .lz (Gui Content), fonts .ttf (Gui Content), the prebaked
     # snapshot .bin.gz files (TianWen.Lib EmbeddedResource - if missing, the
@@ -166,27 +208,6 @@ jobs:
         # entries. With the LFS budget spent, a job whose LFS cache misses cannot pull and FAILS
         # (#775 did), so those entries are what keeps CI green. A nuget.org restore is free and
         # cannot refuse.
-    # Read the major.minor back from the ONE place it is written (src/Directory.Build.props ->
-    # VersionMajorMinor) instead of restating it in this file. It used to be a literal in the
-    # workflow `env:`, so the number lived in two places and nothing compared them.
-    #
-    # -getProperty only EVALUATES the file: nothing is built and no restore is needed, so this runs
-    # before restore. The value is CAPTURED from stdout, so nothing else may print to it:
-    # DOTNET_NOLOGO (workflow env) keeps the SDK first-run banner out, and the shape check makes
-    # anything unexpected, or a renamed property, FAIL the run rather than quietly stamping every
-    # package and the release tag as ".<run>". Written to BOTH $GITHUB_ENV (for this job's own steps)
-    # and $GITHUB_OUTPUT (for the downstream jobs, since $GITHUB_ENV does not cross a job boundary).
-    - name: Resolve version prefix
-      id: resolve-version
-      run: |
-        MM="$(dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor -nologo | tr -d '[:space:]')"
-        case "$MM" in
-          [0-9]*.[0-9]*) ;;
-          *) echo "::error::VersionMajorMinor did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
-        esac
-        echo "VERSION_PREFIX=${MM}.${{ github.run_number }}" >> "$GITHUB_ENV"
-        echo "prefix=${MM}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-        echo "Resolved VERSION_PREFIX=${MM}.${{ github.run_number }}"
     # The baked icon table is generated from src/TianWen.UI.Abstractions/icons.recipe and committed. The
     # build already warns (TWIC0001) when the recipe is NEWER than the table, but a timestamp only ever
     # catches a forgotten re-bake -- it cannot see a table that was hand-edited, or one committed from a
@@ -270,12 +291,13 @@ jobs:
     # healthy ~6m when the bound was set; 17-24m on ubuntu-latest and 14-18m on arm by #1309-#1317, and the
     # serial Viewer collection's tail took #1318's x64 leg past 25 with no test stuck
     timeout-minutes: 60
-    needs: build
-    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr), nor in the
+    # plan, not build: this job builds what it tests itself, so it starts beside build instead of after it (#2054).
+    needs: plan
+    # Not again on a push to main whose tree its PR's passing run already tested (plan's tested-on-pr), nor in the
     # merge queue, which only builds (see merge_group above).
-    if: needs.build.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     env:
-      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
+      VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
     # Matrix on x86_64 + ARM64 so we cover both architectures, plus a third leg for the
     # DEBUG-gated suites. `fail-fast: false` so a regression on one leg doesn't cancel the others.
     #
@@ -344,17 +366,8 @@ jobs:
       with:
         include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
         cache-prefix: lfs-tests
-    # Pull in the .gs.gz preprocessed catalogs from the build job so the
-    # preprocess-catalog.ps1 script doesn't have to re-run here. Touch them to
-    # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the
-    # PreprocessCatalogs target.
-    - name: Download preprocessed catalogs
-      uses: actions/download-artifact@v8
-      with:
-        name: preprocessed-catalogs
-        path: src/TianWen.Lib/Astrometry/Catalogs/
-    - name: Refresh preprocessed catalog mtimes
-      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+    # No preprocessed catalogs from build: this job no longer waits for it, so its own build runs the
+    # PreprocessCatalogs target (about 25 s on the build job) from the .lz sources the pull above fetched.
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
@@ -369,8 +382,16 @@ jobs:
       # built Release, so the #if DEBUG types the debug-inspector layer consumes are absent from it
       # (CS0234 on DIR.Lib.Diagnostics and its counterparts). TianWen.Lib.Tests alone does not reach
       # those projects, which is why the Debug build below is scoped to it.
+      #
+      # Only the two projects this leg tests, never the solution: build compiles the whole solution
+      # already, and every test job compiling it again (the apps, the web host, the benchmarks) was most of
+      # its 3.5 to 4.5 min build (#2054). No package either: TianWen.Lib packs on build, and nothing here
+      # uploads it.
       if: matrix.config == 'Release'
-      run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
+      run: |
+        for p in TianWen.Lib.Tests TianWen.Lib.Tests.Gpu; do
+          dotnet build $p -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false
+        done
       working-directory: src
     - name: Unit Tests
       if: matrix.config == 'Release'
@@ -507,13 +528,14 @@ jobs:
 
   test-functional:
     timeout-minutes: 20   # healthy 13 to 14 min on main and other flights (a run that held every test apart took 19.8 min, #2000)
-    needs: build
-    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr), nor in the
+    # plan, not build, as test-unit (#2054).
+    needs: plan
+    # Not again on a push to main whose tree its PR's passing run already tested (plan's tested-on-pr), nor in the
     # merge queue, which only builds (see merge_group above).
-    if: needs.build.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     env:
-      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
+      VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
     steps:
     # astrometry-data-2mass-08-19 alone is ~1 GB. Caching saves ~30-60s and a
     # fair chunk of network on every run.
@@ -532,13 +554,7 @@ jobs:
       with:
         include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
         cache-prefix: lfs-tests
-    - name: Download preprocessed catalogs
-      uses: actions/download-artifact@v8
-      with:
-        name: preprocessed-catalogs
-        path: src/TianWen.Lib/Astrometry/Catalogs/
-    - name: Refresh preprocessed catalog mtimes
-      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+    # No preprocessed catalogs from build, as test-unit: its own build preprocesses them.
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
@@ -546,11 +562,15 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore -p:Configuration=$BUILD_CONF
       working-directory: src
+    # The one project this job tests (and what it brings beside it, tianwen-server and the rest:
+    # src/ExeBeside.targets), never the whole solution, and no package: test-unit says why.
     - name: Build
-      run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
+      run: dotnet build TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false
       working-directory: src
+    # --output Detailed prints each test's time, which is what a slow suite is ranked by (#2054); the log had
+    # only the run's total before.
     - name: Functional Tests
-      run: dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build
+      run: dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build --output Detailed
       working-directory: src
 
   # publish-apps runs in parallel with the test jobs -- dotnet publish is long
