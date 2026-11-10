@@ -627,7 +627,9 @@ public sealed class InjectionPopulation
                 : RandomPosition(x0, y0, x1, y1, rng);
             if (at is { } p)
             {
-                var drawn = DrawSaturated(rng, out fallback);
+                // Either draw falling back makes the plan a fallback one: the extra star's answer never clears an own-share star's.
+                var drawn = DrawSaturated(rng, out var extraFallback);
+                fallback |= extraFallback;
                 // A saturated star is the brightest band's, however its source star was found.
                 stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, WithOwnHalo(Shaped(p.X, p.Y, float.PositiveInfinity), drawn), Saturated: true, drawn.Clips));
                 AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity, halo: false));

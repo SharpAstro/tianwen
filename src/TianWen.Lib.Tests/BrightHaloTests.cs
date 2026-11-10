@@ -48,6 +48,19 @@ public class BrightHaloTests : IDisposable
     }
 
     [Fact]
+    public void ANegativeTableNeverDrawsNegativeLightNorShortensTheReach()
+    {
+        // A measured saturated star's table is negative where the drawn profile is brighter than the star.
+        var profile = StarProfile.Round(StarProfileFamily.Moffat, 2.0, 4.0);
+        var under = profile with { Outer = new OuterHalo(0, 0, 0, [0f, 0f, -0.5f, -0.5f, -0.5f, -0.5f, -0.5f]) };
+        profile.PixelMean(4, 0, 0, 0).ShouldBeGreaterThan(0.0);
+        under.PixelMean(4, 0, 0, 0).ShouldBe(0.0, "the table takes more than the profile holds there");
+        under.PixelMean(0, 0, 0, 0).ShouldBe(profile.PixelMean(0, 0, 0, 0), 1e-12, "the table is nothing at the centre");
+        under.At(4, 0).ShouldBe(profile.At(4, 0), "the point value is the profile's alone; the halo is drawn in the pixel mean");
+        under.RadiusAtFraction(1e-4).ShouldBe(profile.RadiusAtFraction(1e-4), "the stamp is the profile's, never smaller");
+    }
+
+    [Fact]
     public void AMoffatAndATableAreAddedTogether()
     {
         var moffat = new OuterHalo(4e-3, 6.0, 1.2);
