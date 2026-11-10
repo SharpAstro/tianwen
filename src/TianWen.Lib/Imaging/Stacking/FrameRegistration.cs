@@ -120,11 +120,31 @@ public static class FrameRegistration
         BitMatrix[]? knownBad = null,
         CancellationToken cancellationToken = default)
     {
+        var (stars, debayered, _) = await DetectMaskedAsync(
+            calibrated, debayerAlgorithm, snrMin, minStars, spikeGuard, knownBad, cancellationToken);
+        return (stars, debayered);
+    }
+
+    /// <summary>
+    /// <see cref="DetectAsync"/> that also hands back the frame the stars were found on: <paramref name="calibrated"/> itself when
+    /// there is no mask or nothing in it, else the copy with the known defects read as their neighbours. A reading taken at the
+    /// stars' positions (<see cref="Image.ChannelOffsets"/>) is taken on that frame, so a defect beside a star cannot bias it any
+    /// more than it could bias the detection (#1993). The copy is the one detection already made, never a second.
+    /// </summary>
+    public static async Task<(StarList Stars, Image Debayered, Image Masked)> DetectMaskedAsync(
+        Image calibrated,
+        DebayerAlgorithm debayerAlgorithm,
+        float snrMin,
+        int minStars,
+        SpikeGuard spikeGuard = SpikeGuard.PeakShare,
+        BitMatrix[]? knownBad = null,
+        CancellationToken cancellationToken = default)
+    {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         var detectOn = knownBad is null ? calibrated : BadPixelDetection.WithMaskedFromNeighbours(calibrated, knownBad);
         var stars = await detectOn.FindStarsAsync(
             channel: 0, snrMin: snrMin, minStars: minStars, spikeGuard: spikeGuard, cancellationToken: cancellationToken);
-        return (stars, debayered);
+        return (stars, debayered, detectOn);
     }
 
     /// <summary>
@@ -180,6 +200,11 @@ public static class FrameRegistration
     /// result (the stacker yields it to a streaming integrator, the registrar writes a scratch
     /// FITS) -- and a divergence HERE would be silent behavioural drift between the master a user
     /// sees and the master a model trains on, the exact class of drift this file exists to end.
+    ///
+    /// <para><b>Each colour is placed on green here too</b> (<paramref name="colourShifts"/>, #1993): the debayered planes are
+    /// warped one by one, each by the frame's transform composed with that colour's own source-space shift. A caller states it
+    /// either way, <see cref="ChannelShifts.None"/> being the plain warp, so a path that does not align colours says so at its
+    /// call site rather than by omission.</para>
     /// </summary>
     public static async Task<(Image Warped, Matrix3x2 CanvasTransform)> WarpToCanvasAsync(
         Image calibrated,
@@ -188,12 +213,13 @@ public static class FrameRegistration
         DebayerAlgorithm debayerAlgorithm,
         int canvasWidth,
         int canvasHeight,
-        WarpInterpolation interpolation = WarpInterpolation.Lanczos3Clamped,
+        WarpInterpolation interpolation,
+        ChannelShifts colourShifts,
         CancellationToken cancellationToken = default)
     {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         var shifted = transformToReference * canvasShift;
-        var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasWidth, canvasHeight, interpolation, cancellationToken);
+        var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasWidth, canvasHeight, interpolation, colourShifts, cancellationToken);
         return (warped, shifted);
     }
 }

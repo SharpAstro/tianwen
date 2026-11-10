@@ -90,6 +90,9 @@ internal sealed class ViewerE2E : IAsyncDisposable
 
     internal Surface Viewer { get; }
 
+    /// <summary>The CPU surface the viewer paints on, which a sky map hosted behind it paints on too.</summary>
+    internal RgbaImageRenderer Renderer => _renderer;
+
     /// <summary>The controller's clock, which a test advances to age what the viewer words by time.</summary>
     internal FakeTimeProviderWrapper Clock { get; }
 
@@ -161,6 +164,30 @@ internal sealed class ViewerE2E : IAsyncDisposable
                 RowOrder.TopDown, float.NaN, float.NaN));
         var path = Path.Combine(Folder, name);
         image.WriteToFitsFile(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Writes a one-channel FITS file of <paramref name="width"/> x <paramref name="height"/> carrying <paramref name="wcs"/>,
+    /// the solved frame a sky-backdrop test opens.
+    /// </summary>
+    internal string WriteSolvedFits(string name, int width, int height, WCS wcs)
+    {
+        var plane = new float[height, width];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                plane[y, x] = 1000f + ((x + y) % 64);
+            }
+        }
+
+        var image = new Image([plane], BitDepth.Int16, 65535f, 0f, 0f,
+            new ImageMeta("e2e", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
+                0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                RowOrder.TopDown, float.NaN, float.NaN));
+        var path = Path.Combine(Folder, name);
+        image.WriteToFitsFile(path, wcs);
         return path;
     }
 
@@ -348,8 +375,15 @@ internal sealed class ViewerE2E : IAsyncDisposable
         protected override void RenderHistogramQuad(StretchUniforms stretch, HistogramDisplay histogram,
             ViewerState state, float left, float top, float right, float bottom, uint projW, uint projH) { }
 
+        /// <summary>One ellipse as the viewer asked for it, in screen pixels.</summary>
+        internal readonly record struct DrawnEllipse(float Cx, float Cy, float SemiMajor, float SemiMinor, float AngleRad);
+
+        /// <summary>The stroked ellipses of the last frame, in draw order; a selection ring is the last of them.</summary>
+        internal System.Collections.Generic.List<DrawnEllipse> Ellipses { get; } = [];
+
         protected override void DrawEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
-            float rotationRad, RGBAColor32 color, float thickness) { }
+            float rotationRad, RGBAColor32 color, float thickness)
+            => Ellipses.Add(new DrawnEllipse(cx, cy, semiMajor, semiMinor, rotationRad));
 
         protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color) { }
 

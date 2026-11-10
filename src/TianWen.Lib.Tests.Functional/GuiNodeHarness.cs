@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -40,11 +42,14 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     private readonly CancellationTokenSource _cts;
     private readonly List<RemoteSessionMirror> _mirrors = [];
     private readonly List<IAsyncDisposable> _rigs = [];
+    private readonly StallWatch _stalls;
 
     private GuiNodeHarness(NodeHarness node, ServiceProvider services, CancellationTokenSource cts, GuiAppState appState,
         ViewContexts contexts, SkyMapState skyMap, EquipmentTabState equipment, SignalBus bus, BackgroundTaskTracker tracker,
-        Uri mountUri, Uri cameraUri, Uri focuserUri, AppSignalHandler handler, PlannerState planner, SessionTabState session, Profile profile)
+        Uri mountUri, Uri cameraUri, Uri focuserUri, AppSignalHandler handler, PlannerState planner, SessionTabState session, Profile profile,
+        StallWatch stalls)
     {
+        _stalls = stalls;
         Node = node;
         Session = session;
         _services = services;
@@ -116,7 +121,19 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     public static async Task<GuiNodeHarness> StartAsync(ITestOutputHelper output, CancellationToken ct, bool remoteOnScreen = false,
         bool withFilterWheel = false)
     {
-        var node = await NodeHarness.StartAsync(output, ct, onItsSocket: true);
+        // First, so the node's own start-up is watched as well: a stall there (8 to 16 s, measured) spends the test's time
+        // before its first wait begins, and nothing else in the output would say so (#2023).
+        var stalls = new StallWatch(output);
+        NodeHarness node;
+        try
+        {
+            node = await NodeHarness.StartAsync(output, ct, onItsSocket: true);
+        }
+        catch
+        {
+            stalls.Dispose();
+            throw;
+        }
         var socketPath = node.SocketPath ?? throw new InvalidOperationException("A node started on its own socket has one.");
         // The view's mirror polls the node's state all along, so a session the node makes answers it as a real one does.
         node.Factory.OnCreated = static controlled => RemoteSessionMirrorTests.Observing(controlled.Session);
@@ -156,11 +173,12 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             }
 
             return new GuiNodeHarness(node, services, cts, appState, contexts, skyMap, equipment, bus, tracker,
-                mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri, handler, planner, session, profile);
+                mount.DeviceUri, camera.DeviceUri, focuser.DeviceUri, handler, planner, session, profile, stalls);
         }
         catch
         {
             await node.DisposeAsync();
+            stalls.Dispose();
             throw;
         }
     }
@@ -219,14 +237,47 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         /// </summary>
         public async Task ConnectAsync(string socketPath, LocalOnlyMode localOnly, bool includeFake, CancellationToken ct)
         {
-            await Handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null, LocalOnly = localOnly },
-                requestedProfile: null, includeFake, ct);
-            AppState.LocalNode.ShouldNotBeNull(AppState.LocalNodeProblem);
-            Bus.ProcessPending(Tracker);
-            while (Equipment.IsDiscovering || Equipment.DiscoveredDevices.Count == 0)
+            // The launcher asks the node on its socket within 2 s and the handler gives up with the node's no-answer text, which on a
+            // runner that did not schedule the node for longer (a 5.9 s GC pause in j4184) lost the whole start of the test. A
+            // window's host asks again (MaybeReconnectLocalNode) and so does this, for that and for nothing else: any other problem
+            // is an answer, and fails at once. Bounded by the caller's token, which a test's timeout cancels (#2023).
+            var options = new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null, LocalOnly = localOnly };
+            var asked = 0;
+            do
             {
-                Tracker.ProcessCompletions(NullLogger.Instance);
-                await Task.Delay(20, ct);
+                if (asked++ > 0)
+                {
+                    TestContext.Current.TestOutputHelper?.WriteLine($"{DateTime.Now:HH:mm:ss.fff} info The node did not answer ({AppState.LocalNodeProblem}); asking again, ask {asked}");
+                    await Task.Delay(100, ct);
+                }
+                await Handler.ConnectLocalNodeAsync(options, requestedProfile: null, includeFake, ct);
+            }
+            while (AppState.LocalNode is null && AppState.LocalNodeProblem?.Contains(TianWenNodeClient.NoAnswerText, StringComparison.Ordinal) == true);
+            AppState.LocalNode.ShouldNotBeNull(AppState.LocalNodeProblem);
+            if (asked > 1)
+            {
+                // Each ask that went unanswered left its Error note ("This computer's rig cannot be used: No node answers ..."),
+                // and a test built on this harness asserts its feed holds no Error: the start it got is clean, so its feed is.
+                AppState.ClearNotifications();
+            }
+            var before = AppState.Notifications;
+            Bus.ProcessPending(Tracker);
+            try
+            {
+                while (Equipment.IsDiscovering || Equipment.DiscoveredDevices.Count == 0)
+                {
+                    Tracker.ProcessCompletions(NullLogger.Instance);
+                    await Task.Delay(20, ct);
+                }
+            }
+            catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+            {
+                // Not NodeWait's: the real-node probes that share this connect declare no timeout of their own. The same words,
+                // though: a test that never got past its start-up said nothing of where it was (#2023).
+                var ended = $"The test's time ran out waiting for the first discovery to list the node's devices ("
+                    + $"{(Equipment.IsDiscovering ? "discovering" : "not discovering")}, {Equipment.DiscoveredDevices.Count} listed; {HandlerSaid(AppState, Tracker, before)})";
+                TestContext.Current.TestOutputHelper?.WriteLine(ended);
+                throw new OperationCanceledException(ended, ex, ct);
             }
         }
     }
@@ -240,7 +291,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         var sent = new ConcurrentQueue<string>();
         var http = new HttpClient(new RecordingNode(sent)) { BaseAddress = new Uri("http://rig.local:1888/") };
         var clock = SystemTimeProvider.Instance;
-        var mirror = new RemoteSessionMirror(new TianWenNodeClient(http),
+        var mirror = new RemoteSessionMirror(NodeTestClients.ClientOf(http),
             new TianWenEventStream(http.BaseAddress, clock, NullLogger.Instance), clock, NullLogger.Instance);
         _mirrors.Add(mirror);
         Contexts.Active.LiveSession.ActiveSession = mirror;
@@ -335,15 +386,106 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     /// Waits until <paramref name="condition"/> holds, draining the tracker and beating presence as the host's loop does:
     /// without the beat the node counts this window as gone and ends an interactive run after its grace, so a view that
     /// never asked for a stop still sees its run end, and a test of the stop passes slowly on nothing.
+    /// <para>
+    /// The wait is <see cref="NodeWait"/>'s, bounded by the test's own timeout and by nothing shorter, and it is named:
+    /// <paramref name="waitingFor"/> goes to the output with what the handler has done meanwhile (the notes it raised, a
+    /// refusal or a node's "No answer" among them, and the work it still has running), and again when the timeout ends the
+    /// wait, so a hang says what it waited for. A bare timeout said only that 30 s had passed (#2023).
+    /// </para>
     /// </summary>
-    public async Task UntilAsync(Func<bool> condition, CancellationToken ct)
+    /// <param name="waitingFor">What the wait is for, completing "Waiting for ...": the state it waits on, never the code.</param>
+    public Task UntilAsync(string waitingFor, Func<bool> condition, CancellationToken ct)
     {
-        while (!condition())
+        var before = AppState.Notifications;
+        return NodeWait.UntilAsync(waitingFor, _ =>
         {
-            Handler.BeatNodes();
-            Tracker.ProcessCompletions(NullLogger.Instance);
-            await Task.Delay(20, ct);
+            var done = condition();
+            if (!done)
+            {
+                Handler.BeatNodes();
+                Tracker.ProcessCompletions(NullLogger.Instance);
+            }
+            return ValueTask.FromResult((done, HandlerSaid(AppState, Tracker, before)));
+        }, ct);
+    }
+
+    /// <summary>
+    /// Reads the node's devices into the view, asking again until one read is answered: what a window's host does every two
+    /// seconds and this harness has no loop to do. A row built before a read says every device is off, whatever the node
+    /// holds, and a click on it then asks the node to CONNECT a device it holds, which is nothing a test would be looking for.
+    /// </summary>
+    public Task UntilDevicesReadAsync(CancellationToken ct) =>
+        NodeWait.UntilAsync("the view to read the node's devices", async token =>
+        {
+            var read = await Local.RefreshDevicesNowAsync(token);
+            return (read, read ? $"{Local.Devices.Count} device(s) read" : "not answered yet");
+        }, ct);
+
+    /// <summary>
+    /// Does what a user does, and again as a user would when the window did not answer. <paramref name="act"/> is the
+    /// gesture (a click, a key); the signal it posts is run, and the wait is <see cref="UntilAsync"/>'s for
+    /// <paramref name="done"/>. When the handler ended an ask with the node's <see cref="TianWenNodeClient.NoAnswerText"/> and
+    /// no connect or disconnect is in flight, the gesture is made again.
+    /// <para>
+    /// That is the ONE failure it makes up for: a call that outran its client's budget (10 s for a control call) because a loaded runner
+    /// had not scheduled the node, where the handler notes it and gives up (the click is lost, nothing else comes), and the
+    /// test, which waits on what the click would have done, waits for ever. CI run 41939984127 hung 30 s in
+    /// <c>TuiEquipmentSlotClickTests</c> with a thread pool starved for longer than that. A refusal, a wrong signal or a
+    /// click that is never routed says something else, is never asked again, and still fails the test.
+    /// </para>
+    /// </summary>
+    public Task ActUntilAsync(string waitingFor, Action act, Func<bool> done, CancellationToken ct)
+    {
+        var asked = AppState.Notifications;
+        void Ask()
+        {
+            asked = AppState.Notifications;
+            act();
+            Bus.ProcessPending(Tracker);
         }
+
+        Ask();
+        return UntilAsync(waitingFor, () =>
+        {
+            if (done())
+            {
+                return true;
+            }
+            if (Equipment.PendingTransitions.IsEmpty && NotesSince(AppState, asked).Any(static note => note.Message.Contains(TianWenNodeClient.NoAnswerText, StringComparison.Ordinal)))
+            {
+                Ask();
+            }
+            return false;
+        }, ct);
+    }
+
+    /// <summary>The notes raised after <paramref name="before"/> was read, newest first.</summary>
+    private static IEnumerable<NotificationEntry> NotesSince(GuiAppState appState, ImmutableArray<NotificationEntry> before)
+    {
+        foreach (var note in appState.Notifications)
+        {
+            if (!before.IsDefaultOrEmpty && note.Equals(before[0]))
+            {
+                yield break;
+            }
+            yield return note;
+        }
+    }
+
+    /// <summary>What the handler did since <paramref name="before"/>: its notes, newest first (the last three), and its work running.</summary>
+    internal static string HandlerSaid(GuiAppState appState, BackgroundTaskTracker tracker, ImmutableArray<NotificationEntry> before)
+    {
+        var notes = 0;
+        var latest = new List<string>(3);
+        foreach (var note in NotesSince(appState, before))
+        {
+            notes++;
+            if (latest.Count < 3)
+            {
+                latest.Add($"[{note.Severity}] {note.Message}");
+            }
+        }
+        return $"{tracker.PendingCount} tracked task(s) running, {notes} note(s) raised" + (notes > 0 ? $": {string.Join(" | ", latest)}" : "");
     }
 
     /// <summary>
@@ -384,5 +526,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         await Node.DisposeAsync();
         await _services.DisposeAsync();
         _cts.Dispose();
+        // Last, so a teardown that stalls (7 s, measured) is said as well.
+        _stalls.Dispose();
     }
 }

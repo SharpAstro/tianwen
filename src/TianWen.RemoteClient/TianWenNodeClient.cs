@@ -217,10 +217,17 @@ namespace TianWen.RemoteClient
             }
         }
 
+        /// <summary>
+        /// How the error of a call that ran out of its budget begins (then the budget, as <c>No answer within 10s</c>): a node
+        /// that did not answer, which is no refusal, so a view that asks again is doing what a user would. One wording, here,
+        /// for a test that has to tell the two apart.
+        /// </summary>
+        public const string NoAnswerText = "No answer within";
+
         /// <summary>Error text for a call that ran out of budget -- <c>OperationCanceledException.Message</c>
         /// is just "The operation was canceled", which tells a user nothing when surfaced verbatim.</summary>
         private static string TimedOut(TimeSpan budget) =>
-            $"No answer within {budget.TotalSeconds:0.#}s";
+            $"{NoAnswerText} {budget.TotalSeconds:0.#}s";
 
         // ---------------------------------------------------------------------------------
         // Node

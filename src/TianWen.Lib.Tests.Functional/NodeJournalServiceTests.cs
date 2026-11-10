@@ -103,22 +103,30 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await using var node = await StartAsync(path, afterCrashOf: 31337, lastBoot: written.AddDays(1), ct);
         var client = NodeTestClients.ClientOf(node.Client);
 
-        var report = (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldNotBeNull();
+        // Each call to the node waits for it to ANSWER (AskUntilAnsweredAsync) and then asserts what it said: a node on a loaded
+        // runner can outrun the client's own 5 s and 10 s budgets, which is no answer, and a refusal is the one thing here
+        // that is worth failing on, with its status and error.
+        var info = await AskUntilAnsweredAsync("GET /api/v1/node", client.GetNodeAsync, ct);
+        var report = info.Value.ShouldNotBeNull($"the node's report of itself, which {Said(info)}")
+            .Recovery.ShouldNotBeNull("the report of the node before it, whose journal this node found");
         report.AfterCrash.ShouldBeTrue("its keeper saw that very node crash");
         report.Stale.ShouldBeFalse("so a boot the machine reports later is not one that came between");
-        report.CrashLoop.ShouldBeTrue();
-        report.SuspectDevice.ShouldBe(Camera);
-        report.InterruptedRun.ShouldNotBeNull().Target.ShouldBe("NGC 7000");
-        var camera = report.Devices.ShouldHaveSingleItem();
-        camera.Cooler.ShouldBe(CoolerIntentKind.Cool);
-        camera.CoolerSetpointC.ShouldBe(-20);
+        report.CrashLoop.ShouldBeTrue("the journal's crash history and this crash make two within the window");
+        report.SuspectDevice.ShouldBe(Camera, "the device the node before it died reconnecting");
+        report.InterruptedRun.ShouldNotBeNull("the run the node before it died in").Target.ShouldBe("NGC 7000", "that run's target");
+        var camera = report.Devices.ShouldHaveSingleItem("the one device the journal held");
+        camera.Cooler.ShouldBe(CoolerIntentKind.Cool, "the cooling the journal held");
+        camera.CoolerSetpointC.ShouldBe(-20, "the setpoint the journal held");
         camera.Reconnected.ShouldBeNull("a crash loop reconnects nothing");
-        node.App.Services.GetRequiredService<IDeviceHub>().ConnectedDevices.ShouldBeEmpty();
+        node.App.Services.GetRequiredService<IDeviceHub>().ConnectedDevices.ShouldBeEmpty("a crash loop reconnects nothing");
         File.Exists(path).ShouldBeTrue("kept, naming the suspect, while this node holds nothing, for the next one should this one die too");
 
-        (await client.DismissRecoveryAsync(ct)).IsSuccess.ShouldBeTrue();
+        var dismissal = await AskUntilAnsweredAsync("DELETE /api/v1/node/recovery", client.DismissRecoveryAsync, ct);
+        dismissal.IsSuccess.ShouldBeTrue($"the node to accept the dismissal of the report, which {Said(dismissal)}");
 
-        (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull().Recovery.ShouldBeNull();
+        var after = await AskUntilAnsweredAsync("GET /api/v1/node after the dismissal", client.GetNodeAsync, ct);
+        after.Value.ShouldNotBeNull($"the node's report of itself, which {Said(after)}")
+            .Recovery.ShouldBeNull("a dismissed report is gone from the node's answer");
         await UntilTheJournalIsGoneAsync(path, ct);
     }
 
@@ -526,7 +534,8 @@ public class NodeJournalServiceTests(ITestOutputHelper outputHelper) : IDisposab
         await UntilTheJournalAsync(path, static j => j.ProcessId == Environment.ProcessId && j.Devices.Length == 1 && j.Touching is null, ct);
 
         // And it goes on journaling: the camera going is written, and holding nothing more, the file goes.
-        (await NodeTestClients.ClientOf(node.Client).DismissRecoveryAsync(ct)).IsSuccess.ShouldBeTrue();
+        var dismissal = await AskUntilAnsweredAsync("DELETE /api/v1/node/recovery", NodeTestClients.ClientOf(node.Client).DismissRecoveryAsync, ct);
+        dismissal.IsSuccess.ShouldBeTrue($"the node to accept the dismissal of the report, which {Said(dismissal)}");
         await hub.DisconnectAsync(new Uri(Camera), cancellationToken: ct);
         await UntilTheJournalIsGoneAsync(path, ct);
     }

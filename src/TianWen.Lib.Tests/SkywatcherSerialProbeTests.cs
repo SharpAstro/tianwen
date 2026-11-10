@@ -48,6 +48,11 @@ public class SkywatcherSerialProbeTests
         match.DeviceUri.Host.ShouldBe(nameof(SkywatcherDevice).ToLowerInvariant());
         match.DeviceUri.QueryValue(DeviceQueryKey.Port).ShouldBe("serial:COM5");
         match.DeviceUri.QueryValue(DeviceQueryKey.Baud).ShouldBe(baud.ToString());
+
+        // The firmware is evidence in the query, never part of the id (#2040): an update must not make a new device.
+        var firmware = match.DeviceUri.QueryValue(DeviceQueryKey.Firmware).ShouldNotBeNull();
+        match.DeviceUri.AbsolutePath.ShouldNotContain(firmware);
+        match.DeviceUri.AbsolutePath.ShouldEndWith("_COM5");
     }
 
     [Fact]

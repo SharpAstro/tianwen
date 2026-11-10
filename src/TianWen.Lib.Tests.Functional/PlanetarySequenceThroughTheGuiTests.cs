@@ -26,7 +26,7 @@ public class PlanetarySequenceThroughTheGuiTests(ITestOutputHelper output)
         h.Post(new StartVideoCaptureSignal(RoiWidth: 320, RoiHeight: 200));
         await h.UntilSettledAsync(ct);
         var planetary = h.Planetary;
-        await h.UntilAsync(() => planetary.Capture.FramesReceived > 0, ct);
+        await h.UntilAsync("the capture to receive its first frame", () => planetary.Capture.FramesReceived > 0, ct);
 
         var draft = new PlanetarySequenceDraft();
         draft.Add(slots: 4, exposureMs: 5, gain: 100);
@@ -39,7 +39,7 @@ public class PlanetarySequenceThroughTheGuiTests(ITestOutputHelper output)
         h.Post(new StartPlanetarySequenceSignal(draft.ToRequest()));
         await h.UntilSettledAsync(ct);
 
-        await h.UntilAsync(() => planetary.Capture.Sequence is { Phase: PlanetarySequencePhase.Done or PlanetarySequencePhase.Failed }, ct);
+        await h.UntilAsync("the sequence to be done or to have failed", () => planetary.Capture.Sequence is { Phase: PlanetarySequencePhase.Done or PlanetarySequencePhase.Failed }, ct);
         var done = planetary.Capture.Sequence.ShouldNotBeNull();
         output.WriteLine(PlanetaryControlPanel.SequenceInWords(done));
         (done.Phase, done.FailureReason).ShouldBe((PlanetarySequencePhase.Done, (string?)null));
@@ -49,6 +49,6 @@ public class PlanetarySequenceThroughTheGuiTests(ITestOutputHelper output)
         planetary.IsCapturing.ShouldBeTrue("the capture streams on after its sequence");
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 }

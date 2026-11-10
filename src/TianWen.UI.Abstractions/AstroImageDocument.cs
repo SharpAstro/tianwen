@@ -1368,8 +1368,10 @@ public sealed class AstroImageDocument : IPreviewSource
     /// Detects stars in the image. Should be called as a background task after loading.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="whileResident">Runs over the image and the stars once they are found and BEFORE the planes are released
-    /// (<see cref="ReleasePlanesAfterLoad"/>), for a reader that needs both and is synchronous, such as <see cref="LightGrading"/>.</param>
+    /// <param name="whileResident">Runs over the image and the stars once they are found, BEFORE they are published to
+    /// <see cref="Findings"/> and before the planes are released (<see cref="ReleasePlanesAfterLoad"/>), for a reader that needs both
+    /// and is synchronous, such as <see cref="LightGrading"/>: what it records lands before anything shows the stars, so the info
+    /// strip never shows a frame's stars without its grade.</param>
     public async Task DetectStarsAsync(CancellationToken cancellationToken = default, Action<Image, StarList>? whileResident = null)
     {
         // The pin is let go in a finally: the viewer cancels the previous document's detection on every open, and a pin
@@ -1399,6 +1401,10 @@ public sealed class AstroImageDocument : IPreviewSource
             channel: UnstretchedImage.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
         sw.Stop();
 
+        // The reader runs BEFORE the stars are published: a frame shown with its stars and no grade yet read as "Not graded: no stars
+        // found" for as long as the background rescan below and the grade took, which on a 4164 x 2795 light is long enough to see
+        // when stepping through a folder.
+        whileResident?.Invoke(UnstretchedImage, stars);
         RecordStars(stars);
         StarDetectionDuration = sw.Elapsed;
 
@@ -1451,10 +1457,6 @@ public sealed class AstroImageDocument : IPreviewSource
         // The passes above read the float planes, and a read restores them (Image.Planes publishes what it
         // rebuilds), so an 8-bit document left here would hold 12 B/px for the rest of its life instead of
         // the 6 B/px D1' evicted it to. Whatever reads next restores them again, for as long as it needs them.
-        if (whileResident is not null && Findings.Stars is { } found)
-        {
-            whileResident(UnstretchedImage, found);
-        }
     }
 
     /// <summary>

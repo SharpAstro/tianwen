@@ -18,7 +18,8 @@ Drive a full `RunAsync` session against simulated hardware with **no human in th
 screenshot-poll-and-OCR**. Three pieces compose:
 
 1. **A fake-device profile.** Fakes share the real URI shape with host `FakeDevice` (`FakeDeviceSource`):
-   `Mount://FakeDevice/FakeMount1?latitude=…&longitude=…&port=SkyWatcher`, `Camera://FakeDevice/FakeCamera1`,
+   `Mount://FakeDevice/FakeMount_SkyWatcher?latitude=…&longitude=…&port=SkyWatcher` (the id follows the port:
+   `FakeMount_<port>`, and `FakeMount1` only with no `port`), `Camera://FakeDevice/FakeCamera1`,
    `Camera://FakeDevice/FakeGuideCam`, `Guider://FakeDevice/FakeGuider1`, `Focuser://FakeDevice/FakeFocuser1`,
    `FilterWheel://FakeDevice/FakeFilterWheel1`, `Weather://FakeDevice/FakeWeather1`. Discovery surfaces **two**
    cover/calibrators (both ASCOM-`CoverCalibrator` class): `CoverCalibrator://FakeDevice/FakeCoverCalibrator1`

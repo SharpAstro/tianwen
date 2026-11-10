@@ -823,8 +823,8 @@ the tiles with no reload, every restored sample bit-identical to a resident open
 file refused, a displayed PNG byte-identical to a resident document's, Calibrate returning the resident answer, and a channel
 toggle through `ViewerE2E` reading the file once and then uploading.
 
-**Not done, and filed.** Planes are not released again after an on-demand consumer is done with them: a Calibrate or a toggle
-puts a released master back at 12 B/px until it is replaced (#1852). A gzip or CR2 master cannot be read at an offset, so it is
+**Settled.** Planes are not released again when an on-demand consumer is done with them: a Calibrate or a toggle
+puts a released master back at 12 B/px until an open over the total budget releases it, least recently used first (#1852, PR #1857, the owner's answer of 2026-10-27). A gzip or CR2 master cannot be read at an offset, so it is
 never released (#1853 serves TIFF and `.fz`; those two stay by design). 16-bit retention (#748) stays gated behind this.
 
 ### A total budget across open documents, a pin, and the release order (#368 follow-up)
@@ -852,8 +852,8 @@ that forgot to hold one.
 A released document keeps its GPU texture and its readout tiles; the next consumer reads the file once (`PlaneReloads`), however
 many callers wait. **Pinned by** `ViewerMemoryReleaseTests` (CPU only): opening under the budget releases nothing, the least
 recently used goes first, a pinned document is never released (and a double dispose lets go once), the next consumer reads the file
-exactly once and gets the same samples, and an in-memory frame or a crop is never released. **Not done:** releasing again when a
-consumer goes idle rather than at an open (#1852); TIFF, `.fz` and CR2 (#1853).
+exactly once and gets the same samples, and an in-memory frame or a crop is never released. **Not done, by decision:** releasing again when a
+consumer goes idle rather than at an open (the owner's answer on #1852, 2026-10-27). TIFF and `.fz` are released and read back too (#1853, above); CR2 and gzip stay plane-backed.
 
 ## Phasing
 

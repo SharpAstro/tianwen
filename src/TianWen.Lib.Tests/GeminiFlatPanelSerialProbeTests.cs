@@ -30,6 +30,7 @@ public class GeminiFlatPanelSerialProbeTests
         match.DeviceUri.QueryValue(DeviceQueryKey.Port).ShouldBe("serial:COM4");
         match.Metadata.ShouldNotBeNull();
         match.Metadata!["firmware"].ShouldBe("205");
+        match.DeviceUri.QueryValue(DeviceQueryKey.Firmware).ShouldBe("205", "evidence in the query too (#2040)");
     }
 
     [Fact]

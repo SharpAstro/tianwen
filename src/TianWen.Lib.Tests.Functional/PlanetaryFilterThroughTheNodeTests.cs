@@ -28,7 +28,7 @@ public class PlanetaryFilterThroughTheNodeTests(ITestOutputHelper output)
         h.Post(new StartVideoCaptureSignal(RoiWidth: 320, RoiHeight: 200));
         await h.UntilSettledAsync(ct);
         var planetary = h.Planetary;
-        await h.UntilAsync(() => planetary.Capture.FramesReceived > 0, ct);
+        await h.UntilAsync("the capture to receive its first frame", () => planetary.Capture.FramesReceived > 0, ct);
 
         var otas = h.Profile.Data.ShouldNotBeNull().OTAs;
         var wheelUri = otas[0].FilterWheel.ShouldNotBeNull();
@@ -39,7 +39,7 @@ public class PlanetaryFilterThroughTheNodeTests(ITestOutputHelper output)
 
         h.Post(new ChangeFilterSignal(0, 1));
         await h.UntilSettledAsync(ct);
-        await h.UntilAsync(() => ((FakeCameraDriver)camera).VideoStarts.Length > streams, ct);
+        await h.UntilAsync("the camera's stream to start again after the filter change", () => ((FakeCameraDriver)camera).VideoStarts.Length > streams, ct);
 
         (await wheel.GetPositionAsync(ct)).ShouldBe(1, "the wheel turned to the slot chosen");
         h.AppState.Notifications.ShouldNotContain(static n => n.Severity >= NotificationSeverity.Warning,
@@ -53,6 +53,6 @@ public class PlanetaryFilterThroughTheNodeTests(ITestOutputHelper output)
         Path.GetFileName(recording.Path).ShouldContain(red.Replace(' ', '_'), Case.Insensitive, "the recording is named for the filter in the beam");
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 }

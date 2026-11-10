@@ -1,12 +1,12 @@
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
@@ -57,8 +57,9 @@ public class MirrorParityTests(ITestOutputHelper output)
         // a catalogued target, a priority, a gain and an offset, and a plan of two filters at different sub-exposures.
         ScheduledObservation[] observations =
         [
-            // Ten minutes, when the plan's four frames need about five: how many frames an observation fits depends on how far
-            // the pump below moves the clock per frame, and at three minutes a slow runner fitted two, one short of FramesHeld.
+            // Ten minutes, 600 ticks of the imaging loop, of which the held frames need about 130: a frame lands every 30 ticks
+            // once the pump below steps a tick at a time, where at 5 s steps two fitted in three minutes and a run of the ten
+            // held two.
             new ScheduledObservation(new Target(3.7886, 24.1167, "M45", CatalogIndex.M045), WinterNight, TimeSpan.FromMinutes(10),
                 AcrossMeridian: false,
                 FilterPlan: [new FilterExposure(0, TimeSpan.FromSeconds(20), 2), new FilterExposure(1, TimeSpan.FromSeconds(30), 2)],
@@ -74,9 +75,9 @@ public class MirrorParityTests(ITestOutputHelper output)
         await using var node = await NodeHarness.StartAsync(output, ct,
             services => services.AddSingleton<ISessionFactory>(new OneSessionFactory(ctx.Session)));
 
-        using var http = node.Transport.CreateHttpClient();
+        using var http = NodeTestClients.Create(node.Transport);
         await using var events = node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(output));
-        await using var mirror = new RemoteSessionMirror(new TianWenNodeClient(http), events, SystemTimeProvider.Instance,
+        await using var mirror = new RemoteSessionMirror(NodeTestClients.ClientOf(http), events, SystemTimeProvider.Instance,
             FakeExternal.CreateLogger(output))
         {
             // What the GUI asks of the rig on screen: its frames, the guider's included.
@@ -114,7 +115,8 @@ public class MirrorParityTests(ITestOutputHelper output)
 
         async Task CompareAsync(string at)
         {
-            output.WriteLine($"{DateTimeOffset.Now:HH:mm:ss.fff} comparing {at}, the session's clock at {ctx.TimeProvider.GetUtcNow():HH:mm:ss}");
+            output.WriteLine($"{DateTimeOffset.Now:HH:mm:ss.fff} comparing {at}, the session's clock at {ctx.TimeProvider.GetUtcNow():HH:mm:ss}, "
+                + $"{ctx.Session.TotalFramesWritten} frames written, {ctx.Session.ImagingLoopTicks} imaging ticks, {ctx.Session.FetchesGivenUp} fetches given up");
             compared.Add(at);
             var (members, tabs) = await ReadBothAsync(local, remote, mirror, (localTabs, remoteTabs), ctx.TimeProvider, at, ct);
             foreach (var (member, inProcess, mirrored) in members)
@@ -137,44 +139,76 @@ public class MirrorParityTests(ITestOutputHelper output)
 
         // The pump. The clock moves only when the test advances it (ExternalTimePump, set before the run starts), so a hold
         // freezes every loop on it (the guider's, the cooling ramp, the imaging loop) and a comparison reads one instant.
-        // An advance runs on a thread of its own, since a timer it fires can run the session inline, onto the very handler
-        // that holds it; and never while a hold is open.
+        // It is the shared cooperative pump (FakeTimeProviderWrapper.PumpUntilAsync), which advances once the session is
+        // parked on the clock and waits for what an advance released, with no wall-clock budget of this test's own. It
+        // stops at each hold, which is compared here, and goes on. An advance runs on a thread of its own, since a timer
+        // it fires can run the session inline, onto the very handler that holds it, and a hold reached during one is
+        // compared from the wait on it (AdvanceAsync).
+        //
+        // While the session observes, until the frames this test holds are in, no step is longer than one tick of the
+        // imaging loop. The loop counts a sub's seconds in the ticks it SEES, and a PeriodicTimer keeps one pending tick: a
+        // 5 s step fires five 1 s ticks at once, and the loop saw about four of them (457 ticks in 109 advances locally).
+        // Each tick it misses leaves the countdown behind the shutter, so the camera is idle again before the frame is
+        // fetched and the loop starts the next exposure over it: with 5 s steps a local run wrote 8 or 9 frames in its 600
+        // ticks, exposures 7 to 10 of one each overwritten, and on a slower runner every exposure is. CI run 41968369404
+        // held frames 1 and 2 and no more before its observation ran out 530 s later. At one tick a step the loop has a
+        // whole pump cycle to see each: stepping a tick throughout wrote 18 or 19 frames in 600 ticks, and with the step
+        // relaxed after the held frames the third came by tick 130 in seven runs, none giving a fetch up. After the held
+        // frames nothing depends on a frame, and the 5 s step is a fifth of the cost. The tick is the plan's: a sixth of
+        // the 10 s gcd of its 20 s and 30 s subs, never under a second (Session.ImagingLoopAsync).
+        var tick = TimeSpan.FromSeconds(1);
         var step = TimeSpan.FromSeconds(5);
+
+        async Task AdvanceAsync(TimeSpan by)
+        {
+            var advance = Task.Run(() => ctx.TimeProvider.Advance(by), ct);
+            while (!advance.IsCompleted)
+            {
+                await Task.WhenAny(advance, holds.WaitForNextAsync()).WaitAsync(ct);
+                while (holds.TryTake(out var inside))
+                {
+                    await CompareAsync(inside);
+                    holds.Release();
+                }
+            }
+            await advance;
+        }
+
+        // The run has ended once the request that started it has answered and the node holds no run: a state the node gives
+        // no signal of, so it is watched the way every wait on a node's own state is (NodeWait).
+        var ended = Task.Run(async () =>
+        {
+            await start;
+            await NodeWait.UntilAsync("the node's run to end",
+                _ => ValueTask.FromResult((!node.Node.IsRunning, node.Node.IsRunning ? "still running" : "idle")), ct);
+        }, ct);
         try
         {
-            while (!start.IsCompleted || node.Node.IsRunning || holds.IsHolding)
+            while (!ended.IsCompleted)
             {
-                if (holds.TryTake(out var at))
+                ct.ThrowIfCancellationRequested();
+                // A segment of the pump runs from one hold to the next, and the phase changes only at a hold (each one is
+                // raised through PhaseChanged), so the step is chosen here. The stall bound is in fake time, as it is for
+                // every pumped test, and far past the longest stretch the imaging loop does not tick (the whole of
+                // Finalising is 7 minutes).
+                var ticking = ctx.Session.Phase is SessionPhase.Observing && Volatile.Read(ref framesHeld) < FramesHeld;
+                await ctx.TimeProvider.PumpUntilAsync(
+                    () => holds.HasReached || ended.IsCompleted,
+                    maxFakeTime: TimeSpan.FromHours(2),
+                    progress: () => ctx.Session.ImagingLoopTicks,
+                    finestStep: ticking ? tick : null,
+                    coarsestStep: ticking ? tick : step,
+                    cancellationToken: ct,
+                    advance: AdvanceAsync);
+                while (holds.TryTake(out var at))
                 {
                     await CompareAsync(at);
                     holds.Release();
-                    continue;
                 }
-                // Paced to the session: advance once something is parked on the clock, or after a short wait, since a
-                // phase with nothing parked must still move.
-                for (var waited = 0; ctx.TimeProvider.WaiterCount == 0 && !holds.IsHolding && waited < 50; waited++)
-                {
-                    await Task.Delay(1, ct);
-                }
-                if (holds.IsHolding)
-                {
-                    continue;
-                }
-                var advance = Task.Run(() => ctx.TimeProvider.Advance(step), ct);
-                while (!advance.IsCompleted)
-                {
-                    if (holds.TryTake(out var inside))
-                    {
-                        await CompareAsync(inside);
-                        holds.Release();
-                    }
-                    await Task.Delay(1, ct);
-                }
-                await advance;
-                await Task.Delay(1, ct);
             }
+            await ended;
         }
-        catch
+        catch (Exception ex)
         {
             // Let the run end, so the node can stop and the failure reports itself rather than a hang: nothing holds it
             // any more, it is aborted, and its Finalise is given the clock it waits on.
@@ -184,6 +218,15 @@ public class MirrorParityTests(ITestOutputHelper output)
             {
                 ctx.TimeProvider.Advance(step);
                 await Task.Delay(5, CancellationToken.None);
+            }
+            if (ex is OperationCanceledException && ct.IsCancellationRequested)
+            {
+                // Said as a wait says it (NodeWait): what the pump was doing when the test's own timeout ended it.
+                throw new OperationCanceledException(
+                    $"The test timed out pumping the session: its clock at {ctx.TimeProvider.GetUtcNow():HH:mm:ss} in {ctx.Session.Phase}, "
+                    + $"{ctx.TimeProvider.WaiterCount} sleeps parked, {ctx.Session.TotalFramesWritten} frames written in {ctx.Session.ImagingLoopTicks} imaging ticks, "
+                    + $"{(holds.IsHolding ? "a hold open" : "no hold open")}; compared at: {string.Join("; ", compared)}; {NodeWait.PoolState()}",
+                    ex, ct);
             }
             throw;
         }
@@ -199,7 +242,9 @@ public class MirrorParityTests(ITestOutputHelper output)
         output.WriteLine($"Diverged: {string.Join(", ", diverged.Order(StringComparer.Ordinal))}");
         ctx.Session.Phase.ShouldBe(SessionPhase.Complete, "the session ran its whole night");
         compared.ShouldContain("entering Observing");
-        compared.Count(c => c.StartsWith("frame ", StringComparison.Ordinal)).ShouldBe(FramesHeld);
+        compared.Count(c => c.StartsWith("frame ", StringComparison.Ordinal)).ShouldBe(FramesHeld,
+            $"the session wrote {ctx.Session.TotalFramesWritten} frames in {ctx.Session.ImagingLoopTicks} imaging ticks ({ctx.Session.FetchesGivenUp} fetches given up), "
+            + $"and compared at: {string.Join("; ", compared)}");
 
         unexplained.ShouldBeEmpty("a mirror renders these differently, and no P5b part names them");
         KnownGaps.Keys.Where(g => !diverged.Contains(g)).ShouldBeEmpty("these agree now: delete them from KnownGaps");
@@ -390,12 +435,16 @@ public class MirrorParityTests(ITestOutputHelper output)
     /// </summary>
     private sealed class SessionHolds(CancellationToken ct) : IDisposable
     {
-        private readonly ConcurrentQueue<string> _reached = new ConcurrentQueue<string>();
+        // A channel, not a queue, so that a hold reached is a signal a pump can wait on beside its other signals.
+        private readonly Channel<string> _reached = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
         private readonly SemaphoreSlim _released = new SemaphoreSlim(0);
         private int _holding;
         private int _closed;
 
         public bool IsHolding => Volatile.Read(ref _holding) > 0;
+
+        /// <summary>A hold has been reached and not yet taken.</summary>
+        public bool HasReached => _reached.Reader.TryPeek(out _);
 
         /// <summary>Called on the session's thread: blocks it until <see cref="Release"/>, unless the holds are closed.</summary>
         public void Hold(string at)
@@ -405,7 +454,7 @@ public class MirrorParityTests(ITestOutputHelper output)
                 return;
             }
             Interlocked.Increment(ref _holding);
-            _reached.Enqueue(at);
+            _reached.Writer.TryWrite(at);
             try
             {
                 _released.Wait(ct);
@@ -416,7 +465,14 @@ public class MirrorParityTests(ITestOutputHelper output)
             }
         }
 
-        public bool TryTake([NotNullWhen(true)] out string? at) => _reached.TryDequeue(out at);
+        public bool TryTake([NotNullWhen(true)] out string? at) => _reached.Reader.TryRead(out at);
+
+        /// <summary>Completes once a hold has been reached and not yet taken, at once when one is. Takes nothing.</summary>
+        // One wait at a time, as SingleReader declares: an advance that ends before any hold leaves its wait pending, and the
+        // next advance takes that same wait up instead of starting another beside it.
+        private Task? _next;
+
+        public Task WaitForNextAsync() => _next is { IsCompleted: false } pending ? pending : _next = _reached.Reader.WaitToReadAsync(ct).AsTask();
 
         public void Release() => _released.Release();
 

@@ -19,8 +19,9 @@ namespace TianWen.Lib.Tests;
 /// run.
 /// </para>
 /// <para>
-/// <b>One common root</b>, <see cref="Root"/>, beside the dated test-output folders under the same
-/// <c>TianWen.Lib.Tests</c> folder: whatever a deletion misses is in one known place rather than scattered, and the
+/// <b>One common root</b>, <see cref="Root"/>, beside the dated test-output folders and the run's own temp folder (<see cref="TestRunTemp"/>,
+/// where a bare <see cref="Path.GetTempPath"/> lands, #2083) under the same <c>TianWen.Lib.Tests</c> folder, in the temp folder the
+/// process STARTED with: whatever a deletion misses is in one known place rather than scattered, and the
 /// first <see cref="TempFolders"/> in a test process sweeps the root of folders older than <see cref="StaleAfter"/>,
 /// which no test run lasts, so a miss cleans itself up. The root's name is one letter on purpose: a node's socket
 /// lives in one of these folders, and a Unix-domain socket path must stay under about 104 characters.
@@ -31,14 +32,18 @@ namespace TianWen.Lib.Tests;
 /// the sweep, never retried with a wait.
 /// </para>
 /// <para>
-/// Not for the dated test-output folders (<c>SharedTestData.CreateTempTestOutputDir</c>), which are kept on purpose for
-/// a human to look at and trimmed by the <c>test-output-prune</c> skill.
+/// Not for the dated test-output folders (<c>SharedTestData.CreateTempTestOutputDir</c>): those live as long as their test
+/// (<see cref="TestOutput"/>) and <c>TIANWEN_KEEP_TEST_OUTPUT=1</c> keeps them for a human to look at.
 /// </para>
 /// </remarks>
 public sealed class TempFolders : IDisposable
 {
-    /// <summary>Where every test's temporary folders are made: <c>%TEMP%/TianWen.Lib.Tests/t</c>.</summary>
-    public static string Root { get; } = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", "t");
+    /// <summary>
+    /// Where every test's temporary folders are made: <c>&lt;original temp&gt;/TianWen.Lib.Tests/t</c>. The ORIGINAL temp folder, never
+    /// <see cref="Path.GetTempPath"/> as it reads after the run's redirect (<see cref="TestRunTemp"/>), which would put this inside the run's
+    /// folder, a few characters longer for a node's socket path and gone when the run ends.
+    /// </summary>
+    public static string Root { get; } = Path.Combine(TestRunTemp.Root, "t");
 
     /// <summary>How old a folder under <see cref="Root"/> must be before the sweep takes it: longer than any run.</summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromDays(1);

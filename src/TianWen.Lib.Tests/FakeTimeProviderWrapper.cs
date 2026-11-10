@@ -249,6 +249,9 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// wait ends the moment the count is back. It is not always back: an advance that released two parks, one of which
     /// ends without parking again, pays the whole bound, so a long bound costs wall-clock time on every such advance
     /// (<see cref="ReParkWaitsRunOut"/> counts them). The pool-quiet wait keeps its 2 ms bound.
+    /// <paramref name="advance"/> is how the clock is moved when the caller must not let the pump do it inline: a timer
+    /// an advance fires can run the code under test on the advancing thread, and that code may block there (a test that
+    /// holds a session at an event). It is given the step and returns when the clock has moved; null advances inline.
     /// </summary>
     public Task<TimeSpan> PumpUntilAsync(
         Func<bool> condition,
@@ -258,8 +261,9 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         TimeSpan? finestStep = null,
         TimeSpan? coarsestStep = null,
         CancellationToken cancellationToken = default,
-        TimeSpan? settleBound = null)
-        => PumpCoreAsync(condition, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken, settleBound);
+        TimeSpan? settleBound = null,
+        Func<TimeSpan, Task>? advance = null)
+        => PumpCoreAsync(condition, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken, settleBound, advance);
 
     private async Task<TimeSpan> PumpCoreAsync(
         Func<bool> isDone,
@@ -269,7 +273,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         TimeSpan? finestStep = null,
         TimeSpan? coarsestStep = null,
         CancellationToken cancellationToken = default,
-        TimeSpan? settleBound = null)
+        TimeSpan? settleBound = null,
+        Func<TimeSpan, Task>? advance = null)
     {
         var settle = settleBound ?? SettleBound;
         var finest = finestStep ?? DefaultFinestStep;
@@ -318,7 +323,14 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             var waitersBefore = WaiterCount;
             var advancedAt = global::System.Diagnostics.Stopwatch.GetTimestamp();
             var step = NextStep(finest, coarsest);
-            Advance(step);
+            if (advance is null)
+            {
+                Advance(step);
+            }
+            else
+            {
+                await advance(step);
+            }
             pumped += step;
             iteration++;
 

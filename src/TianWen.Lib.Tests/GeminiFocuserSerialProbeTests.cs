@@ -32,6 +32,7 @@ public class GeminiFocuserSerialProbeTests
         match.Metadata.ShouldNotBeNull();
         match.Metadata!["firmwareName"].ShouldBe("myFP2ESP32");
         match.Metadata!["firmware"].ShouldBe("312");
+        match.DeviceUri.QueryValue(DeviceQueryKey.Firmware).ShouldBe("312", "evidence in the query too (#2040)");
     }
 
     [Fact]

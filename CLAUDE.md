@@ -44,7 +44,7 @@ non-trivial work:
 | `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |
 | `CHANGELOG.md` | Released version history, newest first, one section per `MAJOR.MINOR`. A version bump adds its entry **in the same commit** (`/bump-version` step 6), so a number can never ship without its note. The GitHub Release lists the commits; this says what the release was FOR and what breaks |
 
-**A doc never cites a commit by hash.** Every PR merges by rebase, so a hash written into a plan or
+**A doc never cites a commit by hash.** Every PR merges through the queue by squash (rebase before 2026-11-08), so a hash written into a plan or
 TODO before its PR lands is rewritten on landing, and the 2026-04-22 LFS migration rewrote everything
 before it; sixteen dangling hashes were found in the docs on 2026-09-06. Cite the commit SUBJECT in
 quotes, a release tag (`v6.3.1352`), or a PR or issue number (`#227`), all of which survive both.
@@ -147,7 +147,7 @@ TianWen depends on in-house libraries published to nuget.org under the **SharpAs
 at `../<repo>` (csproj layout varies; the full table with paths and the auto-detect column:
 `docs/architecture/sibling-builds-and-releases.md`): `DIR.Lib`, `SdlVulkan.Renderer`, `Console.Lib`, `FITS.Lib`
 (csproj `CSharpFITS/CSharpFITS.csproj`), `FC.SDK` (+ `FC.SDK.Raw`), `ZWOptical.SDK`, `QHYCCD.SDK`,
-`SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `WebGl.Renderer`,
+`SharpAstro.Fonts` (`../Fonts.Lib`, transitive), `SER.Lib`, `Lzip.Lib`, `Serial.Lib`, `LAN.Lib`, `Node.Lib` (+ `.Hosting`), `WebGl.Renderer`,
 `SharpAstro.AppShell` (`../AppShell`), `TianWen.DAL` and the `Codecs`-repo codec family.
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all. The build
@@ -215,7 +215,7 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   a delete missed is swept after a day. A node harness owns its own (`NodeHarness.StartAsync(onItsSocket: true)`,
   `KeptNode`). A helper that names a folder after its test takes the test's `TempFolders` (`FitsFixture.CreateTempDir`,
   `TempStackingWorkspace`): a fixed parent of its own under `%TEMP%` is a folder nothing sweeps (#1323: about
-  9,000 folders and 1.1 GB in a week). `TestTempFoldersTests` fails on a bare `CreateTempSubdirectory` in any test project.
+  9,000 folders and 1.1 GB in a week). `TestTempFoldersTests` fails on a bare `CreateTempSubdirectory` in any test project. **Every test process points TMP, TEMP and TMPDIR at a run folder of its own**, `<original temp>/TianWen.Lib.Tests/r<8 hex>` (`TestRunTemp`, a module initializer linked into all four projects, #2083): a bare `Path.GetTempPath()` and every process a test starts land there, `TestOutputRun` deletes it when the run ends (read-only marks cleared) and the next run sweeps a dead run's (a live one holds `.run.lock`); a nested test host reuses it through `TIANWEN_TEST_RUN`. **`TempFolders.Root` and the dated output keep their roots under the ORIGINAL temp** (`TestRunTemp.Root`), never `GetTempPath()` after the redirect: kept output must outlive the run folder, and a node's socket path must stay under about 104 characters. A dated output folder (`SharedTestData.CreateTempTestOutputDir`) lives as long as its test (`TestOutput`), and `TIANWEN_KEEP_TEST_OUTPUT=1` keeps it.
 - **A test that drives a real GPU goes in `TianWen.Lib.Tests.Gpu`, never the unit suite** (#1634): a fault inside a GPU
   driver cannot be caught in .NET and ends its whole process, and the unit host died twice on one in NVIDIA's Vulkan driver.
   The run shares ONE instance and device (`SharedGpuStack`); a fixture derives from `OffscreenGpuFixtureBase`, which resizes
@@ -864,6 +864,10 @@ Planetary stacker below.
 - **Drizzle rejects per deposited sample** (#93, `DrizzleClip.SlopeScale`); a rejecting drizzle streams
   `RawBayerFrames` twice; its parallel strips are BIT-IDENTICAL to serial (`DrizzleParallelBitIdentityTests`).
 - **Never re-ingest our own outputs** (`STACK_N > 0` or `SWCREATE`, unless `--include-integrations`).
+- **Colour planes are placed on green PER FRAME, through the one primitive `Image.ChannelOffsets`** (#1993: dispersion splits red
+  from blue by an amount that changes with altitude), never measured anywhere else; the offsets are recorded in the manifest
+  (`ManifestFrame.ColourOffsets`), and a `--manifest` run reuses them where the manifest records them, measuring only a frame
+  it holds none for (a starless plate has no stars to read). `docs/architecture/stacking-render-pipeline.md`, "Colour alignment".
 - **A light's `CALSTAT` is a read guard** (#466, `PreCalibration`, `ImageMeta.PreCalibrated`): a correction its own
   software already applied (B, D, F) is never applied again, in the bake (`CalibrationResolver.Choose`) or `stack`;
   the provenance records the letters (`CalibrationProvenance.PreCalibrated`), so such a session reads calibrated.
@@ -1389,7 +1393,11 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   are colour emoji in the file list, and baked masks only in Night or with no emoji face, and on the verdict buttons
   (`ImageRendererBase.GradeMarks.cs`, `GradeMarksInColour`); a reject is the `BAD_` rename the stacker reads, its CAUSE in the
   name (`BAD_CLOUD_`, `BAD_STREAKY_`, `BAD_DEFOCUSED_`, `BAD_OBSTRUCTION_`; a bare `BAD_` is N.I.N.A.'s, unspecified), Good takes
-  both off (`CaptureRejection.TryMark` / `CauseOf`, this name only, the count of other hard links said). **A run is not its own clear baseline** (#1976): a group or night baseline far above the rig's clear reference from another night (`Viewer/clear-sky.json`, `LightGradeReferenceStore`, recorded from folders at least half of whose frames graded clear) is replaced by it, said in the tooltip, and with none the run is judged on its own baselines alone and says so. **A frame is scored on its stars over SNR 30** (`LightGrading.ScoredSnrFloor`; detection depth flips a raw count 2.5x, #2010) **and as a share of the best CLEAR frame**.
+  both off (`CaptureRejection.TryMark` / `CauseOf`, this name only, the count of other hard links said). **A run is not its own clear baseline** (#1976): a group or night baseline far above the rig's clear reference from another night (`Viewer/clear-sky.json`, `LightGradeReferenceStore`, recorded from folders at least half of whose frames graded clear) is replaced by it, said in the tooltip, and with none the run is judged on its own baselines alone and says so. **A frame is scored on its stars over SNR 30** (`LightGrading.ScoredSnrFloor`; detection depth flips a raw count 2.5x, #2010) **and as a share of the best CLEAR frame**. **Cloud is also a sky that turns against its OWN trend**
+  (`SkyOverTrend`, `SkyRiseFrom` 4 % and 6x the line's scatter, the line fitted to the hour before, from ten clear frames or four spanning 20 minutes, so a held rise reads for 51 minutes at 1 minute subs, about 30 at 10 and none at 20 minute subs; a smooth climb or fall is a
+  target, never cloud), **and every frame between two cloud frames within `CloudBracketSpan` (15 min) is cloud** (broken cloud
+  leaves clear-looking frames inside a bank): on the owner's 2026-09-12 marks 17 of 42 caught became 37, 09-10 40 of 44 became 42.
+  **A thin smooth veil is read against the EXPECTED sky** (#1974, `LightGrade.Surface`/`Covariates`, `ExpectedSkyModel`): the summed level and gradient excess, in the model's own clear sigma, at `ExpectedSkyCloudFrom` (5) is Cloud; the site's stored model for the rig first (`ViewerState.ExpectedSky`, loaded off the render thread once per folder), else one fitted robustly from the night's, rig's and OBJECT's own frames (`SelfFitMinFrames` 30 over `SelfFitMinAirmassSpan`), fitted OFF the render thread, a FIRST fit reading NO term until it lands and a refit the object-night's previous fit (#2069: `LightGrading`'s `SelfFitMemo`, one fit per object-night reused while its samples are unchanged, the viewer's idle loop woken by `SelfFitGeneration`, `ViewerController.SelfFitWantsFrame`), else NO term, never a guess. A stored model reads only frames inside its `SkyCoverage`, else NaN; the session's judge reads the stored models, the stacker and the judge never self-fit (`selfFit: false`). **Transparency is absolute and read from the STORED model only** (`PhotometricZeroPoint`, shared with SPCC: median of V + 2.5 log10 flux over Tycho-2 matches, against the rig's clear line `zp0 - k X`; `LightGradeVerdict.Transparency`, `TransparencyCloudBelow` 0.7): a frame needs a WCS, a group is never its own reference, so a uniformly dim run reads Cloud where its own baseline would not.
   **A `MAYBE_CLOUD_` name is the session's SUSPICION, never a reject** (#1977, `CaptureRejection.IsSuspectedCloud`;
   `IsRejectedAtCapture` is false for it): the stacker leaves it out unless `--include-maybe-cloud`; the row carries its own mark
   (`GradeMark.SuspectedCloud`, a sun behind cloud, the cloud mask at half ink), neither thumb is inked as its state, Cloud confirms
