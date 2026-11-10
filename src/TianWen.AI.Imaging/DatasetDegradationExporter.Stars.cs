@@ -158,41 +158,15 @@ public static partial class DatasetDegradationExporter
     {
         internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null,
             Dictionary<string, StarShapeRow>? shapes = null, ChannelWingCut? wingCut = null, ChannelWingEnvelope? wingEnvelope = null,
-            OuterHaloFit? outerHalos = null, Dictionary<string, BrightHalo>? brightHalos = null)
+            OuterHaloFit? outerHalos = null)
         {
             OuterHalos = outerHalos;
-            BrightHalos = brightHalos;
             PlatesDir = platesDir;
             Psf = psf;
             Variation = variation;
             Shapes = shapes;
             WingCut = wingCut;
             WingEnvelope = wingEnvelope;
-        }
-
-        /// <summary>Each session's measured bright-star halo (<see cref="Options.BrightHalosPath"/>), or null for none.</summary>
-        public Dictionary<string, BrightHalo>? BrightHalos { get; }
-
-        private readonly ConcurrentDictionary<string, byte> _brightHaloWarned = new(StringComparer.Ordinal);
-
-        /// <summary>The measured bright-star halo of <paramref name="sessionId"/>, or null without the option or for a session the
-        /// file lacks, which is said once.</summary>
-        public BrightHalo? BrightHaloFor(string sessionId, ILogger? logger)
-        {
-            if (BrightHalos is not { } halos)
-            {
-                return null;
-            }
-            var key = BrightHalo.KeyOf(sessionId);
-            if (halos.TryGetValue(key, out var halo))
-            {
-                return halo;
-            }
-            if (_brightHaloWarned.TryAdd(key, 0))
-            {
-                logger?.LogWarning("[degrade] bright halos: the file has no table for {Session}, so its bright stars are drawn with none", key);
-            }
-            return null;
         }
 
         /// <summary>The per-rig outer halos fitted to <see cref="Options.OuterHaloPath"/>, or null for none.</summary>
@@ -412,17 +386,7 @@ public static partial class DatasetDegradationExporter
                     logger?.LogInformation("[degrade] outer halo, {Fit}", outerHalos.InWords(rig));
                 }
             }
-            Dictionary<string, BrightHalo>? brightHalos = null;
-            if (options.BrightHalosPath is { } brightPath)
-            {
-                if (outerHalos is not null)
-                {
-                    throw new InvalidOperationException("--bright-halos draws each session's measured halo; --outer-halo is the fitted one, give one");
-                }
-                brightHalos = await BrightHalo.ReadAsync(brightPath, cancellationToken);
-                logger?.LogInformation("[degrade] bright halos: {Count} sessions' measured tables from {Path}", brightHalos.Count, brightPath);
-            }
-            return new StarsContext(platesDir, psf, variation, shapes, wingCut, wingEnvelope, outerHalos, brightHalos);
+            return new StarsContext(platesDir, psf, variation, shapes, wingCut, wingEnvelope, outerHalos);
         }
 
         public string PlatePath(string sessionId) => Path.Combine(PlatesDir, DatasetTileExporter.Sanitize(sessionId) + "_plate.fits");
@@ -624,7 +588,7 @@ public static partial class DatasetDegradationExporter
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
                 options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger),
-                brightHalo: stars.BrightHaloFor(sessionId, logger), measuredSaturated: options.SaturatedMeasured);
+                measuredSaturated: options.SaturatedMeasured);
             if (options.SaturatedAtOwnShare)
             {
                 logger?.LogInformation("[degrade] {Session}: saturated at its own share, {Share:P1} of its sites", sessionId, population.SaturatedShare);

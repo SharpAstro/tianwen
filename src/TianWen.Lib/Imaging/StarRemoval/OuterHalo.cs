@@ -13,10 +13,10 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <param name="Fraction">The term's value at the centre, a fraction of the star's peak.</param>
 /// <param name="AlphaPx">The Moffat scale radius in pixels.</param>
 /// <param name="Beta">The Moffat exponent; low, so the tail is long.</param>
-/// <param name="Table">A MEASURED halo instead of (or beside) the Moffat (<see cref="BrightHalo"/>): the excess light a master's real
-/// bright stars carry over what the field profile draws, as a fraction of the star's catalogued amplitude, at radius
+/// <param name="Table">A MEASURED halo instead of (or beside) the Moffat (<see cref="InjectionPopulation.MeasureSaturated"/>): the
+/// light a real saturated star carries over what its drawn profile draws, as a fraction of its drawn amplitude, at radius
 /// <c>k * </c><see cref="TableStepPx"/> for entry k, read linearly between entries and nothing past the last; empty for none.</param>
-/// <param name="Source">What the halo was drawn from, for the record (a rig's key, or a measured table's session and class).</param>
+/// <param name="Source">What the halo was drawn from, for the record (a rig's key, or a measured star).</param>
 public readonly record struct OuterHalo(double Fraction, double AlphaPx, double Beta, ImmutableArray<float> Table = default, string? Source = null) : IPointProfile
 {
     /// <summary>The radius between two entries of <see cref="Table"/>, pixels.</summary>
