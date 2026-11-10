@@ -43,10 +43,17 @@ internal static partial class HighResolutionWait
     /// A cancelled token ends it with an <see cref="OperationCanceledException"/> and releases the timer.
     /// </summary>
     internal static Task DelayAsync(TimeSpan duration, CancellationToken cancellationToken)
+        => Arm(duration, cancellationToken).Wait;
+
+    /// <summary>
+    /// <see cref="DelayAsync"/> and which primitive it armed, for a test to pin WHICH wait a duration gets (#2031): the answer
+    /// belongs to this call alone, so tests running side by side cannot read one another's.
+    /// </summary>
+    internal static (Task Wait, WaitPrimitive Primitive) Arm(TimeSpan duration, CancellationToken cancellationToken)
     {
         if (!Applies(duration) || cancellationToken.IsCancellationRequested)
         {
-            return Task.Delay(duration, cancellationToken);
+            return (Task.Delay(duration, cancellationToken), WaitPrimitive.NotApplicable);
         }
 
         var timer = CreateWaitableTimerExW(IntPtr.Zero, IntPtr.Zero, CreateWaitableTimerHighResolution, TimerAllAccess);
@@ -56,10 +63,10 @@ internal static partial class HighResolutionWait
         {
             // Older Windows refuses the flag: an ordinary delay, a tick long at worst.
             timer.Dispose();
-            return Task.Delay(duration, cancellationToken);
+            return (Task.Delay(duration, cancellationToken), WaitPrimitive.DelayFallback);
         }
 
-        return WaitAsync(timer, cancellationToken);
+        return (WaitAsync(timer, cancellationToken), WaitPrimitive.HighResolution);
     }
 
     /// <summary>
@@ -92,6 +99,26 @@ internal static partial class HighResolutionWait
     private sealed class TimerWaitHandle : WaitHandle
     {
         public TimerWaitHandle(SafeWaitHandle timer) => SafeWaitHandle = timer;
+    }
+
+    /// <summary>
+    /// Which primitive a wait went through (<see cref="Arm"/>): what a test asserts instead of timing the wait against the
+    /// wall clock, which a loaded machine moves whatever the code does (#2031).
+    /// </summary>
+    internal enum WaitPrimitive
+    {
+        /// <summary>
+        /// Not a wait the high-resolution timer serves, so it took the ordinary path: an off-Windows system, a duration that
+        /// is zero, negative or past <see cref="PreciseUpTo"/>, a token already cancelled, or (for a
+        /// <see cref="HighResolutionTimer"/>) a periodic timer or one not yet armed.
+        /// </summary>
+        NotApplicable,
+
+        /// <summary>A <c>CREATE_WAITABLE_TIMER_HIGH_RESOLUTION</c> timer was made, set and waited on.</summary>
+        HighResolution,
+
+        /// <summary>The wait is one the timer serves but it could not be made or set (Windows before 10 1803), so <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</summary>
+        DelayFallback,
     }
 
     [LibraryImport("kernel32.dll", SetLastError = true)]

@@ -12,19 +12,23 @@ namespace TianWen.Lib.Tests;
 /// timer tick (15.625 ms by default): QHY's live read polls with it (2026-11-05).
 /// </summary>
 /// <remarks>
-/// Wall-clock measurements, so off CI (<see cref="StressTestGate"/>): a shared runner measures the runner, and a loaded
-/// machine fails the bars (#2031). Only <see cref="PreciseWait"/> is asserted. What a <see cref="Thread.Sleep(int)"/> of 1 ms
+/// Wall-clock measurements, so opt-in (<see cref="TimingTestGate"/>, <c>TIANWEN_TIMING_TESTS=1</c>, <c>Category=Timing</c>), run
+/// alone in <see cref="TimingCollection"/>, and never on CI: a loaded machine fails the bars whatever the code does (#2031).
+/// <see cref="PreciseWait"/> lives in the TianWen.DAL package, so what it does cannot be pinned from here; only its latency is
+/// measured. Only <see cref="PreciseWait"/> is asserted. What a <see cref="Thread.Sleep(int)"/> of 1 ms
 /// costs is the process's timer resolution, which anything in the test host may have raised (<c>timeBeginPeriod</c>), so it
 /// is printed beside the measurement for the reader and never a bar.
 /// </remarks>
+[Collection(TimingCollection.Name)]
 public class PreciseWaitTests(ITestOutputHelper output)
 {
     private const int Waits = 50;
 
     [Fact]
+    [Trait("Category", "Timing")]
     public void AMillisecondsWaitEndsNearTheMillisecondNotAtATimerTick()
     {
-        StressTestGate.SkipOnCi();
+        TimingTestGate.SkipUnlessOptedIn();
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the 15.6 ms tick is Windows'; other systems already sleep fine-grained");
 
         var precise = Average(() => PreciseWait.Sleep(TimeSpan.FromMilliseconds(1)));
@@ -36,9 +40,11 @@ public class PreciseWaitTests(ITestOutputHelper output)
     }
 
     [Fact]
+    [Trait("Category", "Timing")]
     public void NoWaitReturnsAtOnce()
     {
-        StressTestGate.SkipOnCi();
+        // A wall-clock bar too (50 ms for three calls that must not wait), so it is opt-in with the others.
+        TimingTestGate.SkipUnlessOptedIn();
 
         var clock = Stopwatch.StartNew();
         PreciseWait.Sleep(TimeSpan.Zero);

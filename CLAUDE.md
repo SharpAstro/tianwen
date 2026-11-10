@@ -224,6 +224,10 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   from several threads for wall-clock time measures the runner, and on a shared 4-core runner its loops held the thread
   pool and stalled the whole test process into the hang dump (#1385). Its loops take threads of their own
   (`TaskCreationOptions.LongRunning`), never pool workers. A deterministic test of a known interleaving runs on CI as any other.
+- **A wall-clock latency bar is opt-in, and never widened** (#2031): it skips unless `TIANWEN_TIMING_TESTS=1` (`TimingTestGate`,
+  never on CI), is `[Trait("Category", "Timing")]` and its class is in the non-parallel `TimingCollection`, so it measures alone.
+  What the code DOES (the primitive `HighResolutionWait.Arm` chose, the order of a pulse's events) is pinned in the normal suite
+  (`HighResolutionWaitTests`, `DALCameraPulseTests`).
 - **A test that takes 30 s or more on a CI runner is `[Trait("Category", "Heavy")]`** (the owner, 2026-10-10): the PR legs
   filter it out (`dotnet.yml`) and `heavy-tests.yml` runs it nightly against main and on dispatch; a local `dotnet test`
   runs everything. Tag by MEASUREMENT on a green x64 leg (its log prints each test's time), never by guess: 28 such tests

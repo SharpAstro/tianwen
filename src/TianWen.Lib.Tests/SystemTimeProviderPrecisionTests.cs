@@ -18,10 +18,14 @@ namespace TianWen.Lib.Tests;
 /// as its wait, so the tick was guiding error (#2020).
 /// </summary>
 /// <remarks>
-/// The measurements run on the REAL clock, so off CI (<see cref="StressTestGate"/>): a shared runner measures the runner. The
-/// collection keeps them from running beside the device tests, which would load the pool they are measuring.
+/// <para>The latency bars run on the REAL clock, so they are opt-in (<see cref="TimingTestGate"/>, <c>TIANWEN_TIMING_TESTS=1</c>,
+/// <c>Category=Timing</c>) and run alone in <see cref="TimingCollection"/>: a loaded machine moves the medians whatever the code
+/// does (#2031). The bars themselves are unchanged. WHICH primitive a wait or a one-shot timer arms, and the order of the DAL
+/// pulse's events, are pinned deterministically in <c>HighResolutionWaitTests</c> and <c>DALCameraPulseTests</c>, which run every time.</para>
+/// <para>The two tests without a bar (a cancelled wait releases its timer, a superseded one-shot fires nothing) are not latency
+/// measurements and run every time; the collection runs them with nothing beside them, which a process-wide handle count wants.</para>
 /// </remarks>
-[Collection("Devices")]
+[Collection(TimingCollection.Name)]
 public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
 {
     private const int Waits = 50;
@@ -35,7 +39,8 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
     /// </remarks>
     private const double SlackMs = 2.5;
 
-    [Theory]
+    [Theory(Timeout = 120_000)]
+    [Trait("Category", "Timing")]
     [InlineData(1)]
     [InlineData(5)]
     [InlineData(20)]
@@ -54,7 +59,8 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         precise.Median.ShouldBeLessThan(milliseconds + SlackMs, "it ends near the asked time, not at a timer tick");
     }
 
-    [Theory]
+    [Theory(Timeout = 120_000)]
+    [Trait("Category", "Timing")]
     [InlineData(1)]
     [InlineData(5)]
     [InlineData(20)]
@@ -124,7 +130,8 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         await rearmed.DisposeAsync();
     }
 
-    [Theory]
+    [Theory(Timeout = 120_000)]
+    [Trait("Category", "Timing")]
     [InlineData(5)]
     [InlineData(20)]
     public async Task ADriverTimedDalPulseIsSwitchedOffOnTime(int milliseconds)
@@ -132,13 +139,14 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         SkipUnlessMeasurable();
         var ct = TestContext.Current.CancellationToken;
         var duration = TimeSpan.FromMilliseconds(milliseconds);
+        var provider = SystemTimeProvider.Instance;
 
         // The real clock, which a DAL camera on a guide port uses at night; the scripted body times nothing itself
         // (CanPulseGuideForDuration is false), so the driver switches the line off.
         var external = new FakeExternal(output, new FakeTimeProviderWrapper());
         var services = new ServiceCollection()
             .AddSingleton<IExternal>(external)
-            .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
+            .AddSingleton<ITimeProvider>(provider)
             .AddSingleton<IDeviceHub, DeviceHub>()
             .AddLogging()
             .BuildServiceProvider();
@@ -155,10 +163,11 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
             await camera.StartPulseGuideAsync(GuideDirection.West, duration, ct);
             lengths[i] = (await pulse.WaitAsync(ct)).TotalMilliseconds;
 
-            // The bookkeeping clears right after the line is switched off, on the timer's own thread.
+            // The bookkeeping clears right after the line is switched off, on the timer's own thread: wait for it on a timer,
+            // never in a loop that spins, bounded by the test's Timeout.
             while (await camera.GetIsPulseGuidingAsync(ct))
             {
-                await Task.Yield();
+                await provider.SleepAsync(TimeSpan.FromMilliseconds(1), ct);
             }
         }
 
@@ -172,7 +181,7 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
 
     private static void SkipUnlessMeasurable()
     {
-        StressTestGate.SkipOnCi();
+        TimingTestGate.SkipUnlessOptedIn();
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the 15.6 ms tick is Windows'; other systems already wait fine-grained");
     }
 
