@@ -139,13 +139,14 @@ public class SystemTimeProviderPrecisionTests(ITestOutputHelper output)
         SkipUnlessMeasurable();
         var ct = TestContext.Current.CancellationToken;
         var duration = TimeSpan.FromMilliseconds(milliseconds);
+        var provider = SystemTimeProvider.Instance;
 
         // The real clock, which a DAL camera on a guide port uses at night; the scripted body times nothing itself
         // (CanPulseGuideForDuration is false), so the driver switches the line off.
         var external = new FakeExternal(output, new FakeTimeProviderWrapper());
         var services = new ServiceCollection()
             .AddSingleton<IExternal>(external)
-            .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
+            .AddSingleton<ITimeProvider>(provider)
             .AddSingleton<IDeviceHub, DeviceHub>()
             .AddLogging()
             .BuildServiceProvider();

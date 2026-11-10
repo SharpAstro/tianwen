@@ -114,7 +114,7 @@ public class HighResolutionWaitTests
     [Fact(Timeout = 30_000)]
     public async Task AWaitWhoseTokenIsAlreadyCancelledTakesTheOrdinaryPathAndIsCancelled()
     {
-        using var cts = new CancellationTokenSource();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         await cts.CancelAsync();
 
         var (wait, primitive) = SystemTimeProvider.ArmSleep(FiveMs, cts.Token);
@@ -161,11 +161,11 @@ public class HighResolutionWaitTests
         await fired.Task.WaitAsync(TestContext.Current.CancellationToken);
     }
 
-    [Fact(Timeout = 30_000)]
-    public async Task AOneShotTimerAtPreciseUpToIsTheHighResolutionOneAndOnePastItIsTheInnerProvidersOwn()
+    [Fact]
+    public void AOneShotTimerAtPreciseUpToIsTheHighResolutionOneAndOnePastItIsTheInnerProvidersOwn()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the high-resolution waitable timer is Windows'");
-        await using var timer = SystemTimeProvider.Instance.CreateTimer(static _ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        using var timer = SystemTimeProvider.Instance.CreateTimer(static _ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         var precise = timer.ShouldBeOfType<HighResolutionTimer>();
 
         precise.Change(HighResolutionWait.PreciseUpTo, Timeout.InfiniteTimeSpan);
@@ -175,11 +175,11 @@ public class HighResolutionWaitTests
         precise.ArmedWith.ShouldBe(Primitive.NotApplicable, "a long due time is a poll or a timeout: the inner provider's timer");
     }
 
-    [Fact(Timeout = 30_000)]
-    public async Task APeriodicTimerAndADisarmTakeTheInnerProvidersTimer()
+    [Fact]
+    public void APeriodicTimerAndADisarmTakeTheInnerProvidersTimer()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the high-resolution waitable timer is Windows'");
-        await using var timer = SystemTimeProvider.Instance.CreateTimer(static _ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        using var timer = SystemTimeProvider.Instance.CreateTimer(static _ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         var precise = timer.ShouldBeOfType<HighResolutionTimer>();
 
         precise.Change(FiveMs, TimeSpan.FromMilliseconds(10));
