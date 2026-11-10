@@ -60,6 +60,45 @@ public class ViewerBestStackTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task TheAutoStacksNoteWaitsForTheViewsReSharpenAndStaysOnScreen(float dpi)
+    {
+        // #2090: the Auto view's dials, swapped in as it comes on show, ask its master sharpened again, and that master's upload clears the
+        // status line. A note said before it landed was gone for good, and a loaded Windows runner waited three minutes for it. Held here,
+        // so the order is the test's, not the machine's.
+        await using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
+
+        var gate = new TaskCompletionSource();
+        e2e.Controller.AutoLayerSharpenGate = gate.Task;
+        e2e.Key(InputKey.K, InputModifier.Shift);
+        await e2e.PumpUntilAsync(() => e2e.Controller.ViewLayers.Auto is { HasMaster: true, IsSettled: false } layer
+            && ReferenceEquals(e2e.Controller.Source, layer) && !e2e.Controller.IsAutoStackPending, "the Auto view on show, its re-sharpen held", ct,
+            untilTimeout: true);
+
+        for (var i = 0; i < 20; i++)
+        {
+            e2e.Frame();
+            e2e.State.StatusMessage?.StartsWith("Full stack:", StringComparison.Ordinal).ShouldNotBe(true,
+                "the note is said only once the view's re-sharpen has landed: '" + e2e.State.StatusMessage + "'");
+        }
+
+        gate.SetResult();
+        await e2e.PumpUntilAsync(() => e2e.State.StatusMessage?.StartsWith("Full stack:", StringComparison.Ordinal) == true,
+            "the Auto stack's note", ct, untilTimeout: true);
+        for (var i = 0; i < 20; i++)
+        {
+            e2e.Frame();
+        }
+        e2e.Controller.ViewLayers.Auto.ShouldNotBeNull().IsSettled.ShouldBeTrue();
+        e2e.State.StatusMessage.ShouldNotBeNull().ShouldStartWith("Full stack:");
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task TheAutoSegmentNamesTheStageTheRunIsInAndReturnsToAutoWhenDone(float dpi)
     {
         // #1879: Stacking with its percent, then a later stage by its word, never a percent frozen at 99.

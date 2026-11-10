@@ -183,6 +183,9 @@ public sealed class ViewerController(
     /// <summary>A task the next Auto run awaits before it starts its work, so a test can hold the run pending (#1875). For tests.</summary>
     internal Task? AutoRunGate { get; set; }
 
+    /// <summary>A task the Auto view's layer awaits before each re-sharpen, so a test can hold one in flight (#2090). For tests.</summary>
+    internal Task? AutoLayerSharpenGate { get; set; }
+
     /// <summary>How many derivations the sharpening layer has started (#1314 rule 7). For tests.</summary>
     internal int DerivationsStarted => _derivation.Started;
 
@@ -1549,8 +1552,10 @@ public sealed class ViewerController(
     public bool TickAutoStack(CancellationToken appToken = default)
     {
         var changed = false;
-        // Said once its view is on screen and uploaded (#1314 part 2): the upload clears the status line.
-        if (_auto.Note is { } note && !state.NeedsTextureUpdate && BatchLayerOnShow is not null
+        // Said once its view is on screen and uploaded (#1314 part 2): the upload clears the status line. And once its layer has settled:
+        // the view's dials swapped in as it came on show ask its master sharpened again, and that master's upload, a tick or many later,
+        // cleared a note said before it (a loaded Windows runner waited three minutes for one, #2090).
+        if (_auto.Note is { } note && !state.NeedsTextureUpdate && BatchLayerOnShow is { IsSettled: true }
             && string.Equals(_auto.Capture, note.Path, StringComparison.OrdinalIgnoreCase))
         {
             _auto.Note = null;
@@ -2409,6 +2414,7 @@ public sealed class ViewerController(
         batch.Layer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger)
         {
             Capture = string.Equals(state.SequencePath, outcome.CapturePath, StringComparison.OrdinalIgnoreCase) ? _rawSource?.Capture : null,
+            SharpenGate = AutoLayerSharpenGate,
         };
         batch.Capture = outcome.CapturePath;
         batch.Dials = derived is { } d

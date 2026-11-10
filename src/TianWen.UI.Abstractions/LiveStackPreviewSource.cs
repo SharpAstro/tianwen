@@ -430,6 +430,16 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IUnsharpenedPreview
     /// <summary>True while a background stack is running (the stream's reader is in use -- don't dispose).</summary>
     public bool IsBusy => _stackTask is { IsCompleted: false };
 
+    /// <summary>
+    /// True when nothing is owed to the screen: no stack or sharpen running, none finished and waiting for <see cref="TryPublishMaster"/>,
+    /// and no sharpen asked for and not yet started. <see cref="IsBusy"/> is false over a finished result not yet published, whose
+    /// publish still re-uploads the texture. Render-thread only.
+    /// </summary>
+    public bool IsSettled => _stackTask is null && !_sharpenDirty;
+
+    /// <summary>A task every sharpen-only pass awaits before its work, so a test can hold a re-sharpen in flight (#2090). For tests.</summary>
+    internal Task? SharpenGate { get; init; }
+
     // --- Follow-the-playhead drive (render thread) ---
 
     /// <summary>
@@ -639,8 +649,13 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IUnsharpenedPreview
         _stallWarned = false;
         _logger?.LogDebug("Live stack start: {Kind} playhead {Target}.", doStack ? "stack" : "sharpen", target);
 
+        var gate = doStack ? null : SharpenGate;
         _stackTask = Task.Run(async () =>
         {
+            if (gate is not null)
+            {
+                await gate.WaitAsync(token).ConfigureAwait(false);
+            }
             // Re-stack only when following the playhead; a sharpen-only pass reuses the captured master so it
             // re-runs just the (cheap) wavelet pass, not the window integration.
             // The cached master is what makes a sharpen-only pass possible, so it is ASKED for: with
