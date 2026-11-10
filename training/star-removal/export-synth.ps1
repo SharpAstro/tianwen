@@ -40,6 +40,8 @@ if (Test-Path $stop) { return }
 
 try {
     if (-not (Test-Path $exportLog)) { New-Item -ItemType File $exportLog | Out-Null }
+    # Through `pwsh -File` an array arrives as one comma-joined string, which the CLI refuses as one unknown option.
+    $Extra = @($Extra | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $list = @(Get-Content $Sessions | Where-Object { $_ })
     if ($list.Count -ne 138) { Say "FAILED: $($list.Count) sessions, the training set has 138"; return }
     "bin $Bin; extra $($Extra -join ' ')" | Out-File "$Root/export.recipe" -Encoding utf8
