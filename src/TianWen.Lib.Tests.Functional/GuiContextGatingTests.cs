@@ -57,7 +57,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
 
         h.Post(new ConfirmAbortSessionSignal());
 
-        await h.UntilAsync(() => rig.Contains("POST /api/v1/session/abort"), ct);
+        await h.UntilAsync("the rig's node to be sent the session abort", () => rig.Contains("POST /api/v1/session/abort"), ct);
     }
 
     /// <summary>A rig's flat run puts its view in the Flats mode (P5b part 4); its Cancel goes to that rig's node.</summary>
@@ -70,7 +70,7 @@ public class GuiContextGatingTests(ITestOutputHelper output)
 
         h.Post(new CancelFlatsSignal());
 
-        await h.UntilAsync(() => rig.Contains("POST /api/v1/session/abort"), ct);
+        await h.UntilAsync("the rig's node to be sent the flat run's cancel", () => rig.Contains("POST /api/v1/session/abort"), ct);
     }
 
     /// <summary>A rig not connected has no node to send the abort to: the view says so, and the local run is left alone.</summary>

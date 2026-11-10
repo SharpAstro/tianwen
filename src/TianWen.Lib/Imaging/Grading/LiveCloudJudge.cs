@@ -10,7 +10,9 @@ using System.Threading;
 /// frame is read against the run's earlier frames of its own group and rig, and, given the rig's clear nights
 /// (<paramref name="references"/>, <see cref="LightGradeReferenceStore"/>, #1976), against another night where the run's own
 /// baseline is implausibly bright, so a run cloudy from its first light is not its own clear baseline. With no reference for
-/// the rig the run's own baselines decide, as before.
+/// the rig the run's own baselines decide, as before. The rig's stored expected sky (<paramref name="expectedSky"/>, #1974) adds the
+/// veil and transparency terms exactly as the viewer reads them; the night's self-fit is the viewer's alone (a run still arriving
+/// is no sample to fit), so with no stored model those terms are absent here.
 /// </summary>
 /// <remarks>
 /// The graded lights are an <see cref="ImmutableDictionary{TKey, TValue}"/> swapped atomically, so the imaging loop adds and
@@ -18,7 +20,7 @@ using System.Threading;
 /// (the sky patchiness and masked median on a frame it already found stars on) and one baseline build per new snapshot,
 /// which is a single pass over the run's grades (a few hundred at most) plus a sort per group.
 /// </remarks>
-public sealed class LiveCloudJudge(ImmutableArray<LightGradeReference> references = default)
+public sealed class LiveCloudJudge(ImmutableArray<LightGradeReference> references = default, ImmutableArray<ExpectedSkyEntry> expectedSky = default)
 {
     private ImmutableDictionary<string, LightGrade> _grades = ImmutableDictionary<string, LightGrade>.Empty.WithComparers(StringComparer.Ordinal);
 
@@ -43,7 +45,7 @@ public sealed class LiveCloudJudge(ImmutableArray<LightGradeReference> reference
             next = seen.SetItem(name, g);
         }
         while (Interlocked.CompareExchange(ref _grades, next, seen) != seen);
-        return LightGrading.Verdict(next, g, references);
+        return LightGrading.Verdict(next, g, references, expectedSky, selfFit: false);
     }
 
     /// <summary>Whether a verdict carries <see cref="GradeCause.Cloud"/>; null (not judged) is not cloud, and callers must not read it as clear.</summary>

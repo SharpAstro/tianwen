@@ -77,7 +77,7 @@ public class GuideLoopTests(ITestOutputHelper output) : IDisposable
             CalibrationSteps = 3
         };
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var calResult = (await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
         calResult.ShouldNotBeNull();
 
         output.WriteLine($"Calibration: RA rate={calResult.Value.RaRatePixPerSec:F2} px/s, " +
@@ -336,7 +336,7 @@ public class GuideLoopTests(ITestOutputHelper output) : IDisposable
             CalibrationSteps = 3
         };
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var calResult = (await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
         calResult.ShouldNotBeNull();
 
         // Enable PE
@@ -468,7 +468,7 @@ public class GuideLoopTests(ITestOutputHelper output) : IDisposable
             CalibrationSteps = 3
         };
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var calResult = (await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
         calResult.ShouldNotBeNull($"calibration should succeed even with {label}");
 
         output.WriteLine($"[{label}] Calibration: RA rate={calResult.Value.RaRatePixPerSec:F2} px/s, " +
@@ -645,7 +645,7 @@ public class GuideLoopTests(ITestOutputHelper output) : IDisposable
             CalibrationSteps = 3
         };
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var calResult = (await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
         calResult.ShouldNotBeNull($"calibration should succeed even with {label}");
 
         output.WriteLine($"[{label}] Calibration: RA rate={calResult.Value.RaRatePixPerSec:F2} px/s, " +
@@ -1244,7 +1244,7 @@ public class GuideLoopTests(ITestOutputHelper output) : IDisposable
             CalibrationSteps = 4
         };
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var calResult = (await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
         calResult.ShouldNotBeNull();
 
         // Re-acquire + lock at the post-calibration position.

@@ -1,0 +1,49 @@
+name: Fail on temp output the tests left behind
+description: >
+  After a green test run, lists what is still under the tests' own temp folder
+  (<tmp>/TianWen.Lib.Tests) and fails naming it. A test removes its dated output folder when it ends, pass or
+  fail (SharedTestData.CreateTempTestOutputDir, TestOutput; #2035), and its temp folders when its TempFolders is
+  disposed, so a green run leaves that folder empty but for the TempFolders root (`t`) itself. Anything else is a
+  test that built a path of its own beside them, or wrote after it ended. That includes the run's own temp folder
+  (`r<8 hex>`, where a bare Path.GetTempPath() lands, TestRunTemp; #2083), which the run deletes when it ends: one
+  left here is a run that was killed, or a file a process still held.
+
+  ONE definition for every job that runs a test project, so each proves the same thing. Put it after the last test
+  step of the job; it runs on success only, since a crashed or killed test process leaves its folders by nature and
+  the failure already says so. Never set TIANWEN_KEEP_TEST_OUTPUT on a step before this one: that variable keeps
+  every folder on purpose, and this would then list all of them.
+
+runs:
+  using: composite
+  steps:
+  - name: List the test temp output left behind
+    shell: bash
+    run: |
+      # .NET's Path.GetTempPath() on Unix is $TMPDIR, else /tmp.
+      root="${TMPDIR:-/tmp}/TianWen.Lib.Tests"
+      if [ ! -d "$root" ]; then
+        echo "$root does not exist: the tests left nothing behind"
+        exit 0
+      fi
+
+      # `t` is the TempFolders root, made once and kept (empty); everything else, and anything inside it, is left over.
+      left=$(find "$root" -mindepth 1 ! -path "$root/t" | sort)
+      if [ -z "$left" ]; then
+        echo "the tests left nothing behind under $root"
+        exit 0
+      fi
+
+      count=$(printf '%s\n' "$left" | wc -l)
+      echo "::error title=Tests left temp output behind::$count entries under $root were not removed when their tests ended. A test's output folder comes from SharedTestData.CreateTempTestOutputDir and its temp folders from TempFolders."
+      printf '%s\n' "$left" | head -n 200 | while IFS= read -r entry; do
+        if [ -d "$entry" ]; then
+          echo "folder  $entry"
+        else
+          echo "file    $(stat -c %s "$entry") bytes  $entry"
+        fi
+      done
+      if [ "$count" -gt 200 ]; then
+        echo "... and $((count - 200)) more"
+      fi
+      du -sh "$root"
+      exit 1

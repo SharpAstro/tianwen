@@ -28,7 +28,7 @@ public class ControlRequestOnThisComputerTests(ITestOutputHelper output)
         var view = h.Contexts.Local.LiveSession;
 
         var ticket = access.Request("Laptop, TianWen", IPAddress.Parse("192.168.1.20")).ShouldNotBeNull();
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the control request to reach the Live Session view", () =>
         {
             h.Handler.PollPreviewTelemetry();
             return view.ControlRequest is not null;
@@ -54,7 +54,7 @@ public class ControlRequestOnThisComputerTests(ITestOutputHelper output)
         var access = h.Node.App.Services.GetRequiredService<NodeAccess>();
         var view = h.Contexts.Local.LiveSession;
         access.Request("Laptop, TianWen", IPAddress.Parse("192.168.1.20")).ShouldNotBeNull();
-        await h.UntilAsync(() =>
+        await h.UntilAsync("the waiting control request to reach the Live Session view", () =>
         {
             h.Handler.PollPreviewTelemetry();
             return view.ControlRequest is not null;

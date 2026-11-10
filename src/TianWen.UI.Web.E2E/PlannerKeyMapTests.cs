@@ -27,12 +27,16 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
         return (page, page.Locator("#planner"));
     }
 
-    private static async Task<double> FovAsync(IPage page)
+    private static async Task<(double Fov, double Ra, double Dec, double TimeOffsetMin)> ViewAsync(IPage page)
     {
         var json = await page.EvaluateAsync<string>("async () => await window.__tianwenTest.getSkyView()");
         using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.GetProperty("fovDeg").GetDouble();
+        var r = doc.RootElement;
+        return (r.GetProperty("fovDeg").GetDouble(), r.GetProperty("centerRA").GetDouble(),
+            r.GetProperty("centerDec").GetDouble(), r.GetProperty("timeOffsetMin").GetDouble());
     }
+
+    private static async Task<double> FovAsync(IPage page) => (await ViewAsync(page)).Fov;
 
     private static async Task<double> PressAsync(IPage page, ILocator canvas, string chord)
     {
@@ -63,5 +67,28 @@ public sealed class PlannerKeyMapTests(TianWenWebFixture fixture)
         var before = await FovAsync(page);
         var after = await PressAsync(page, canvas, chord);
         Assert.True(after > before, $"{chord} should grow the FOV; before={before}, after={after}");
+    }
+
+    /// <summary>
+    /// A named key (not a symbol) reaches the sky map through the same mapping. In the sky map the arrows
+    /// step its clock (<c>SkyMapTab.StepTime</c>, Up an hour later, Down an hour earlier), so the sky moves
+    /// under the view. The view's centre is held in RA/Dec and does not change, nor does the FOV, so what
+    /// the key moved is read off the clock's scrub offset.
+    /// </summary>
+    [Theory]
+    [InlineData("ArrowUp", 60)]
+    [InlineData("ArrowDown", -60)]
+    public async Task AnArrowKeyStepsTheSkyClockAndLeavesTheView(string key, double stepMin)
+    {
+        var (page, canvas) = await SkyMapAsync();
+        var before = await ViewAsync(page);
+        await canvas.PressAsync(key);
+        await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+        await Task.Delay(150, TestContext.Current.CancellationToken);
+        var after = await ViewAsync(page);
+        Assert.Equal(before.TimeOffsetMin + stepMin, after.TimeOffsetMin, 6);
+        Assert.Equal(before.Fov, after.Fov, 6);
+        Assert.Equal(before.Ra, after.Ra, 6);
+        Assert.Equal(before.Dec, after.Dec, 6);
     }
 }

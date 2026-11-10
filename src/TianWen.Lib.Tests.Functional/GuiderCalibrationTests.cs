@@ -3,6 +3,7 @@ using Shouldly;
 using System;
 using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -66,8 +67,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
 
         // Calibrate
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var result = await calibration.CalibrateAsync(
-            pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var result = (await calibration.CalibrateAsync(
+            pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
 
         result.ShouldNotBeNull();
 
@@ -124,7 +125,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
         // Full calibration first
         tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var calResult = (await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
         calResult.ShouldNotBeNull();
 
         output.WriteLine($"Calibrated: angle={calResult.Value.CameraAngleDeg:F1}°, RA rate={calResult.Value.RaRatePixPerSec:F3}");
@@ -385,8 +386,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
         tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
-        var result = await calibration.CalibrateAsync(
-            pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        var result = (await calibration.CalibrateAsync(
+            pulseTarget, tracker, RenderFrame, timeProvider, ct)).Result;
 
         result.ShouldNotBeNull();
 
@@ -497,7 +498,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
         rig.WestResponse = (-1.0, 0.0);
         rig.NorthResponse = (-1.0, 0.0);
         var degenerate = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
-        degenerate.ShouldBeNull("a non-orthogonal (degenerate) calibration must be rejected");
+        degenerate.Result.ShouldBeNull("a non-orthogonal (degenerate) calibration must be rejected");
+        degenerate.Failure.ShouldNotBeNull().Cause.ShouldBe(GuiderCalibrationFailureCause.AxesNotOrthogonal);
 
         // Sanity: with perpendicular axes the very same machinery accepts the calibration, so the
         // gate is not just refusing everything.
@@ -506,8 +508,138 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
         tracker.Reset();
         tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
         rig.NorthResponse = (0.0, -1.0);
-        var ok = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        var ok = (await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct)).Result;
         ok.ShouldNotBeNull("a perpendicular calibration must still be accepted (the gate must not false-reject)");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenChosenPositionWithNoStarWhenCalibrateThenRefusedUpFrontWithoutPulsing()
+    {
+        // #2050: a calibration started where the frame holds only noise and hot pixels used to take a noise maximum for the
+        // star, pulse, measure zero movement and fail "insufficient star displacement". It now refuses before the first pulse.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var rng = new Random(2050);
+        var pixels = new float[240, 320];
+        for (var y = 0; y < 240; y++)
+        {
+            for (var x = 0; x < 320; x++)
+            {
+                pixels[y, x] = (float)(500 + 6 * Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()));
+            }
+        }
+        pixels[120, 160] += 2000f; // a hot pixel exactly at the chosen position
+        pixels[60, 90] += 3000f;
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { PreferredStar = (160, 120) };
+        tracker.ProcessFrame(pixels);
+        tracker.IsAcquired.ShouldBeFalse("a hot pixel and noise are no star to acquire");
+
+        var rig = new DirectionalStarRig();
+        var outcome = await new GuiderCalibration().CalibrateAsync(rig, tracker,
+            token => ValueTask.FromResult(Image.FromChannel(pixels)), timeProvider, ct);
+
+        outcome.Result.ShouldBeNull();
+        var failure = outcome.Failure.ShouldNotBeNull();
+        failure.Cause.ShouldBe(GuiderCalibrationFailureCause.NoStarAtChosenPosition);
+        failure.Sweeps.ShouldBeEmpty("it never started pulsing");
+        rig.X.ShouldBe(0.0);
+        rig.Y.ShouldBe(0.0);
+        output.WriteLine(failure.Describe());
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoStarChosenAndNoStarInTheFrameWhenCalibrateThenFailureNamesNoStarFoundAndNeverPulses()
+    {
+        // #2050 review note: "no star at the chosen position" is only true when a star was chosen. A frame of noise with
+        // nothing chosen is a different refusal, NoStarFound, and it must not blame a position nobody picked.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var rng = new Random(2051);
+        var pixels = new float[240, 320];
+        for (var y = 0; y < 240; y++)
+        {
+            for (var x = 0; x < 320; x++)
+            {
+                pixels[y, x] = (float)(500 + 6 * Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()));
+            }
+        }
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        tracker.ProcessFrame(pixels);
+        tracker.IsAcquired.ShouldBeFalse();
+
+        var rig = new DirectionalStarRig();
+        var outcome = await new GuiderCalibration().CalibrateAsync(rig, tracker,
+            token => ValueTask.FromResult(Image.FromChannel(pixels)), timeProvider, ct);
+
+        outcome.Result.ShouldBeNull();
+        var failure = outcome.Failure.ShouldNotBeNull();
+        failure.Cause.ShouldBe(GuiderCalibrationFailureCause.NoStarFound);
+        failure.Sweeps.ShouldBeEmpty("it never started pulsing");
+        rig.X.ShouldBe(0.0);
+        rig.Y.ShouldBe(0.0);
+        output.WriteLine(failure.Describe());
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenPulsesThatMoveNothingWhenCalibrateThenFailureNamesTooLittleDisplacementAndEveryStep()
+    {
+        // #2050: a calibration that fails must say why. Pulses that move nothing leave the star where it was, so the
+        // gate that refuses is "too little displacement", and the failure lists the displacement after every pulse of
+        // every sweep (backlash clearing included) and the star it started on.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var rig = new DirectionalStarRig { RatePxPerSec = 0.0 };
+
+        ValueTask<Image> Render(CancellationToken token)
+        {
+            ReadOnlySpan<ProjectedStar> stars = [new ProjectedStar(160 + rig.X, 120 + rig.Y, Magnitude: 5.0)];
+            return ValueTask.FromResult(Image.FromChannel(SyntheticStarFieldRenderer.Render(
+                320, 240, 0, stars, offsetX: 0, offsetY: 0, exposureSeconds: 2.0, pixelScaleArcsec: PixelScaleArcsec)));
+        }
+
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        const int steps = 3;
+        const int backlashSteps = 2;
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            CalibrationSteps = steps,
+            BacklashClearingEnabled = true,
+            MaxBacklashClearingSteps = backlashSteps,
+        };
+
+        var outcome = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+
+        outcome.Result.ShouldBeNull("pulses that move nothing cannot calibrate");
+        var failure = outcome.Failure.ShouldNotBeNull("a refused calibration says why");
+        failure.Cause.ShouldBe(GuiderCalibrationFailureCause.TooLittleDisplacement);
+
+        failure.StarX.ShouldBe(160.0, 1.0);
+        failure.StarY.ShouldBe(120.0, 1.0);
+        failure.StarSnr.ShouldBeGreaterThan(0.0);
+        failure.StarFlux.ShouldBeGreaterThan(0.0);
+
+        failure.Sweeps.Select(s => s.Phase).ShouldBe(["RA backlash clearing", "RA measurement", "Dec backlash clearing", "Dec measurement"]);
+        failure.Sweeps.Select(s => s.DisplacementsPx.Length).ShouldBe([backlashSteps, steps, backlashSteps, steps]);
+        foreach (var sweep in failure.Sweeps)
+        {
+            foreach (var px in sweep.DisplacementsPx)
+            {
+                px.ShouldBeLessThan(0.5, $"{sweep.Phase}: nothing moved");
+            }
+        }
+
+        var described = failure.Describe();
+        described.ShouldContain("TooLittleDisplacement");
+        described.ShouldContain("RA measurement");
+        described.ShouldContain("Dec measurement");
+        output.WriteLine(described);
     }
 
     [Fact(Timeout = 60_000)]
@@ -542,7 +674,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
         rig.WestResponse = (-1.0, 0.0);
         rig.NorthResponse = (Math.Cos(northAngleRad), Math.Sin(northAngleRad));
 
-        var calResult = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        var calResult = (await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct)).Result;
         calResult.ShouldNotBeNull("15deg non-orthogonality is within the fresh calibration tolerance");
 
         // Re-acquire and validate the just-saved calibration on the unchanged rig.
@@ -589,7 +721,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
             AssumeDecOrthogonal = assumeOrthogonal,
         };
 
-        var result = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        var result = (await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct)).Result;
         result.ShouldNotBeNull();
 
         // The measured Dec sense is clockwise from West: sin(DecAngle - CameraAngle) < 0.
@@ -651,7 +783,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output) : IDisposable
         tracker.IsAcquired.ShouldBeTrue();
 
         var calibration = new GuiderCalibration { CalibrationPulseDuration = TimeSpan.FromSeconds(1), CalibrationSteps = 3 };
-        var cal = (await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct)).ShouldNotBeNull();
+        var cal = (await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct)).Result.ShouldNotBeNull();
 
         var flipped = cal.WithMeridianFlip(decIsSkyRelative);
 

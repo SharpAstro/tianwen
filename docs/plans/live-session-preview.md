@@ -24,8 +24,8 @@ just a Canon thing really", and a live view in the preview "which is useful beyo
   Mode", plus a Solve's result once there is one: an empty column otherwise.
 - **Live video** exists in the Planetary mode only: `IVideoCameraDriver`, `LiveCameraFrameStream`, the node's run
   (`PlanetaryCapture`), frames copied at display rate by `FrameSampler` and streamed through `FrameStreamWire` (shared
-  memory over this machine's socket), shown by `LiveStackPreviewSource`. Canon Live View streams today; the DAL cameras
-  (ZWO, QHY, Player One, ToupTek) are single-frame until native video lands (#813, `live-planetary-capture.md` D).
+  memory over this machine's socket), shown by `LiveStackPreviewSource`. Canon Live View streams, and so do the DAL cameras
+  from ZWO, ToupTek and QHY; Player One is single-frame until its native video lands (#813, `live-planetary-capture.md` D).
   `multi-source-previewer.md` already named the follow-up: "a live astro-camera video stream is just another
   `IPreviewSource`".
 

@@ -31,7 +31,7 @@ public class NodeGuideLoopTests(ITestOutputHelper outputHelper)
     // Binned 4: the fake's whole sensor is slow to render a frame of in a Debug build.
     private static readonly LiveViewRequestDto Loop = new LiveViewRequestDto { CameraRole = LiveViewCamera.Guider, ExposureMs = 10, Binning = 4 };
 
-    private static TianWenNodeClient ClientOf(NodeHarness node) => new TianWenNodeClient(node.Client);
+    private static TianWenNodeClient ClientOf(NodeHarness node) => NodeTestClients.ClientOf(node.Client);
 
     private static Task<LiveViewStateDto> UntilStateAsync(TianWenNodeClient client, string what, Func<LiveViewStateDto, bool> done, CancellationToken ct) =>
         UntilAsync<LiveViewStateDto>(what, async token =>

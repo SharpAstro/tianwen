@@ -710,7 +710,7 @@ hardware server must survive its parent:
   CLAUDE.md's "ground truth for fine telemetry is `GUI_*.log`" moves to `Server_*.log` at the cut.
 - **Sleep** (the owner, 2026-11-01): the node keeps the computer awake while it holds hardware, a
   connected device or a run's lease, and lets it sleep again when the last is let go; the display may
-  still sleep. Nothing does today. #1957; #1958 is the later warning for a pending Windows Update restart.
+  still sleep. Shipped 2026-11-02 as `NodeKeepsAwake` (#1957, PR #1967, the bullet above); #1958 is the later warning for a pending Windows Update restart.
 
 ### When the server dies
 

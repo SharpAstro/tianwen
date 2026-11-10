@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Grading;
@@ -194,5 +195,40 @@ public class CloudRejectionTests
             .SelectMany(n => Enumerable.Range(0, 3).Select(i => ($"n{n}_{i}", Night(n, i, n == 3 && i == 2 ? 100f : 10f)))).ToArray();
 
         CloudRejection.Rejected(Grades(entries)).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// #1974: the stacker never reads a night against its own fitted sky (the viewer may; the stacker and the session's judge take
+    /// the stored model only), so a thin veil over the last 34 of 300 frames rejects nothing, and a frame rejected inside it for its
+    /// patchiness carries no expected-sky excess. With the night's self-fit read, that frame's verdict would carry the veil's sigma.
+    /// </summary>
+    /// <remarks>
+    /// The contrast is what keeps this from passing on its own: "the stacker rejects nothing for a veil" is true whenever nobody can see
+    /// the veil, so the viewer's verdict of the last veiled frame is asserted to be Cloud by the veil alone (its patchiness is as clear as
+    /// any), worded against the night's own frames, while the stacker leaves that very frame in. The words of the patchy frame cannot
+    /// carry the veil in either case (the veil's wording needs the frame NOT patchy), so what pins that frame is its NaN sigmas.
+    /// </remarks>
+    [Fact(Timeout = 60_000)]
+    public async Task TheStackerDoesNotReadAVeilAgainstTheNightsOwnSky()
+    {
+        var frames = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266, objectName: "stacker-veil")
+            .Select(static g => g with { Patchiness = 1f }).ToArray();
+        frames[290] = frames[290] with { Patchiness = 2.5f };
+        var grades = LightGradingTests.Table(frames);
+
+        await LightGradingTests.AwaitSelfFitAsync(grades, "stacker-veil", TestContext.Current.CancellationToken);
+        LightGrading.Verdict(grades, grades["f290"]).LevelSigma.ShouldBeGreaterThan(0f, "the viewer's self-fit sees the veil");
+        var viewer = LightGrading.Verdict(grades, grades["f299"]);
+        (viewer.Causes & GradeCause.Cloud).ShouldNotBe(GradeCause.None, "the viewer calls the last veiled frame cloud by the veil alone");
+        viewer.ExpectedSkySigma.ShouldBeGreaterThanOrEqualTo(LightGrading.ExpectedSkyCloudFrom);
+        LightGrading.CloudInWords(viewer).ShouldContain("this night's own frames");
+
+        var rejected = CloudRejection.Rejected(grades);
+
+        rejected.Keys.ShouldBe(["f290"], "the veil alone rejects nothing");
+        rejected.ContainsKey("f299").ShouldBeFalse("the frame the viewer calls veiled is left in the stack");
+        rejected["f290"].LevelSigma.ShouldBe(float.NaN);
+        rejected["f290"].GradientSigma.ShouldBe(float.NaN);
+        CloudRejection.InWords(rejected["f290"]).ShouldStartWith("Cloud: the sky is 2.5x as patchy");
     }
 }

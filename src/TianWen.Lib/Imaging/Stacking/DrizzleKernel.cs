@@ -27,6 +27,27 @@ internal readonly struct AffineMap(Matrix3x2 transform) : ISourceToCanvas
 }
 
 /// <summary>
+/// Where each colour's drops land relative to where the transform alone puts them, on the canvas (#1993): a frame's
+/// <see cref="ChannelShifts"/> carried through its transform's linear part, once per call. <c>default</c> is zero on every
+/// colour, and adding it to a drop's centre leaves that centre bit for bit, so a deposit that aligns nothing is exactly the
+/// deposit it was.
+/// </summary>
+internal readonly struct ChannelDeltas(Vector2 red, Vector2 green, Vector2 blue)
+{
+    public static ChannelDeltas For(ChannelShifts shifts, Matrix3x2 transform) => shifts.IsZero
+        ? default
+        : new ChannelDeltas(shifts.CanvasDelta(0, transform), shifts.CanvasDelta(1, transform), shifts.CanvasDelta(2, transform));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Vector2 For(int channel) => channel switch
+    {
+        0 => red,
+        1 => green,
+        _ => blue,
+    };
+}
+
+/// <summary>
 /// Shared forward-projection kernel for the drizzle family of strategies
 /// (<see cref="DrizzleStrategy"/>, <see cref="TilePipelinedDrizzleStrategy"/>).
 /// Per-frame, iterates a source-pixel rectangle and deposits each valid CFA
@@ -93,10 +114,10 @@ internal static class DrizzleKernel
         int yEnd,
         PixelRect sourceRect,
         BitMatrix badPixelMask,
-        bool hasBadPixelMask)
-        => IterateAndDeposit(
-            raw, new AffineMap(transform), pattern, halfP, flux, weight,
-            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+        bool hasBadPixelMask,
+        ChannelShifts shifts = default)
+        => Iterate(raw, new AffineMap(transform), pattern, halfP, new FluxWeightSink(flux, weight),
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask, ChannelDeltas.For(shifts, transform));
 
     /// <summary>
     /// Generic over the source -&gt; canvas <paramref name="map"/> so the planetary AP-mesh path can
@@ -121,7 +142,7 @@ internal static class DrizzleKernel
         bool hasBadPixelMask)
         where TMap : struct, ISourceToCanvas
         => Iterate(raw, map, pattern, halfP, new FluxWeightSink(flux, weight),
-            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask, default);
 
     /// <summary>
     /// The statistics pass of a REJECTING drizzle: deposits exactly as <see cref="IterateAndDeposit(Image, Matrix3x2, int[,], float, float[][,], float[][,], int, int, int, int, PixelRect, BitMatrix, bool)"/>
@@ -140,9 +161,10 @@ internal static class DrizzleKernel
         int yEnd,
         PixelRect sourceRect,
         BitMatrix badPixelMask,
-        bool hasBadPixelMask)
+        bool hasBadPixelMask,
+        ChannelShifts shifts = default)
         => Iterate(raw, new AffineMap(transform), pattern, halfP, new MomentsSink(moments),
-            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask, ChannelDeltas.For(shifts, transform));
 
     /// <summary>
     /// The deposit pass of a REJECTING drizzle: every sample is tested, per cell it lands in, against
@@ -169,12 +191,13 @@ internal static class DrizzleKernel
         bool hasBadPixelMask,
         DrizzleScatter? scatter = null,
         FrameDrift? drift = null,
-        int driftFrame = 0)
+        int driftFrame = 0,
+        ChannelShifts shifts = default)
     {
         var counts = new long[2];
         Iterate(raw, new AffineMap(transform), pattern, halfP,
             new ClippedSink(moments, clip, flux, weight, counts, scatter, drift, driftFrame, yStart),
-            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask, ChannelDeltas.For(shifts, transform));
         return (counts[0], counts[1]);
     }
 
@@ -190,10 +213,11 @@ internal static class DrizzleKernel
         int yEnd,
         PixelRect sourceRect,
         BitMatrix badPixelMask,
-        bool hasBadPixelMask)
+        bool hasBadPixelMask,
+        ChannelDeltas deltas)
         where TMap : struct, ISourceToCanvas
         where TSink : struct, IDropSink
-        => Iterate(raw, map, pattern, halfP, sink, xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask,
+        => Iterate(raw, map, pattern, halfP, sink, xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask, deltas,
             clampY0: yStart, clampY1: yEnd);
 
     /// <summary>Canvas rows one worker owns in a parallel deposit (<see cref="ForEachStrip"/>). Small
@@ -209,36 +233,44 @@ internal static class DrizzleKernel
     public static void IterateAndDepositParallel(
         Image raw, Matrix3x2 transform, int[,] pattern, float halfP,
         float[][,] flux, float[][,] weight, int canvasW, int canvasH,
-        BitMatrix badPixelMask, bool hasBadPixelMask)
-        => ForEachStrip(raw, transform, canvasW, canvasH, (y0, y1, source) =>
+        BitMatrix badPixelMask, bool hasBadPixelMask, ChannelShifts shifts = default)
+    {
+        var deltas = ChannelDeltas.For(shifts, transform);
+        ForEachStrip(raw, transform, canvasW, canvasH, shifts, (y0, y1, source) =>
             Iterate(raw, new AffineMap(transform), pattern, halfP, new FluxWeightSink(flux, weight),
-                0, canvasW, 0, canvasH, source, badPixelMask, hasBadPixelMask, y0, y1));
+                0, canvasW, 0, canvasH, source, badPixelMask, hasBadPixelMask, deltas, y0, y1));
+    }
 
     /// <summary>The statistics pass of a rejecting drizzle, in parallel strips; bit-identical to
     /// <see cref="IterateAndAccumulateMoments"/> over the whole canvas.</summary>
     public static void IterateAndAccumulateMomentsParallel(
         Image raw, Matrix3x2 transform, int[,] pattern, float halfP,
         DrizzleMoments moments, int canvasW, int canvasH,
-        BitMatrix badPixelMask, bool hasBadPixelMask)
-        => ForEachStrip(raw, transform, canvasW, canvasH, (y0, y1, source) =>
+        BitMatrix badPixelMask, bool hasBadPixelMask, ChannelShifts shifts = default)
+    {
+        var deltas = ChannelDeltas.For(shifts, transform);
+        ForEachStrip(raw, transform, canvasW, canvasH, shifts, (y0, y1, source) =>
             Iterate(raw, new AffineMap(transform), pattern, halfP, new MomentsSink(moments),
-                0, canvasW, 0, canvasH, source, badPixelMask, hasBadPixelMask, y0, y1));
+                0, canvasW, 0, canvasH, source, badPixelMask, hasBadPixelMask, deltas, y0, y1));
+    }
 
     /// <summary>The clipped deposit of a rejecting drizzle, in parallel strips; bit-identical to
     /// <see cref="IterateAndDepositClipped"/> over the whole canvas, counts included.</summary>
     public static (long Rejected, long Total) IterateAndDepositClippedParallel(
         Image raw, Matrix3x2 transform, int[,] pattern, float halfP,
         DrizzleMoments moments, DrizzleClip clip, float[][,] flux, float[][,] weight, int canvasW, int canvasH,
-        BitMatrix badPixelMask, bool hasBadPixelMask, DrizzleScatter? scatter = null, FrameDrift? drift = null, int driftFrame = 0)
+        BitMatrix badPixelMask, bool hasBadPixelMask, DrizzleScatter? scatter = null, FrameDrift? drift = null, int driftFrame = 0,
+        ChannelShifts shifts = default)
     {
         long rejected = 0, total = 0;
-        ForEachStrip(raw, transform, canvasW, canvasH, (y0, y1, source) =>
+        var deltas = ChannelDeltas.For(shifts, transform);
+        ForEachStrip(raw, transform, canvasW, canvasH, shifts, (y0, y1, source) =>
         {
             // Per strip: a counter shared between workers would be a race, not a count.
             var counts = new long[2];
             Iterate(raw, new AffineMap(transform), pattern, halfP,
                 new ClippedSink(moments, clip, flux, weight, counts, scatter, drift, driftFrame),
-                0, canvasW, 0, canvasH, source, badPixelMask, hasBadPixelMask, y0, y1);
+                0, canvasW, 0, canvasH, source, badPixelMask, hasBadPixelMask, deltas, y0, y1);
             Interlocked.Add(ref rejected, counts[0]);
             Interlocked.Add(ref total, counts[1]);
         });
@@ -258,9 +290,9 @@ internal static class DrizzleKernel
     /// source order either way (the strip visits a sub-rectangle of the frame in the same order), so
     /// every cell's float sums are formed in the same order and round the same.</para>
     /// </remarks>
-    private static void ForEachStrip(Image raw, Matrix3x2 transform, int canvasW, int canvasH, Action<int, int, PixelRect> body)
+    private static void ForEachStrip(Image raw, Matrix3x2 transform, int canvasW, int canvasH, ChannelShifts shifts, Action<int, int, PixelRect> body)
     {
-        var halo = StripProjectionHalo(transform);
+        var halo = StripProjectionHalo(transform, shifts);
         var strips = (canvasH + ParallelStripRows - 1) / ParallelStripRows;
         Parallel.For(0, strips, s =>
         {
@@ -282,6 +314,14 @@ internal static class DrizzleKernel
     /// value. Twice that, and never under the two the tile-pipelined drizzle uses; a degenerate
     /// transform takes the whole frame.
     /// </summary>
+    internal static int StripProjectionHalo(Matrix3x2 transform, ChannelShifts shifts)
+    {
+        // A colour's drops sit its shift (in SOURCE pixels, #1993) from where the transform puts them, so a photosite
+        // whose drop reaches the strip can lie that much further out than the transform alone says: widen by the longest.
+        var halo = StripProjectionHalo(transform);
+        return halo >= int.MaxValue / 4 ? halo : halo + (int)MathF.Ceiling(shifts.MaxLength);
+    }
+
     internal static int StripProjectionHalo(Matrix3x2 transform)
     {
         var a = transform.M11;
@@ -320,6 +360,7 @@ internal static class DrizzleKernel
         PixelRect sourceRect,
         BitMatrix badPixelMask,
         bool hasBadPixelMask,
+        ChannelDeltas deltas,
         int clampY0,
         int clampY1)
         where TMap : struct, ISourceToCanvas
@@ -353,7 +394,7 @@ internal static class DrizzleKernel
                     {
                         var v = row[xSrc];
                         if (float.IsNaN(v)) continue;
-                        DepositOne(v, (xSrc & 1) == 0 ? chEven : chOdd, xSrc, ySrc, map, halfP, sink,
+                        DepositOne(v, (xSrc & 1) == 0 ? chEven : chOdd, xSrc, ySrc, map, deltas, halfP, sink,
                             xStart, xEnd, yStart, clampY0, clampY1);
                     }
                 }
@@ -366,7 +407,7 @@ internal static class DrizzleKernel
                         if ((maskWord & (1UL << (xSrc & 63))) != 0UL) continue;
                         var v = row[xSrc];
                         if (float.IsNaN(v)) continue;
-                        DepositOne(v, (xSrc & 1) == 0 ? chEven : chOdd, xSrc, ySrc, map, halfP, sink,
+                        DepositOne(v, (xSrc & 1) == 0 ? chEven : chOdd, xSrc, ySrc, map, deltas, halfP, sink,
                             xStart, xEnd, yStart, clampY0, clampY1);
                     }
                 }
@@ -388,13 +429,13 @@ internal static class DrizzleKernel
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void DepositOne<TMap, TSink>(
         float v, int ch, int xSrc, int ySrc,
-        TMap map, float halfP,
+        TMap map, ChannelDeltas deltas, float halfP,
         TSink sink,
         int xStart, int xEnd, int yStart, int clampY0, int clampY1)
         where TMap : struct, ISourceToCanvas
         where TSink : struct, IDropSink
     {
-        var p = map.Map(xSrc, ySrc);
+        var p = map.Map(xSrc, ySrc) + deltas.For(ch);
         var xLo = p.X - halfP;
         var xHi = p.X + halfP;
         var yLo = p.Y - halfP;

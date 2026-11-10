@@ -411,6 +411,23 @@ the gate exists to catch**, so a guard built on it would share the failure. Defa
 is therefore the safe default of the two. Pinned by four cases in `SkyBackdropViewTests`, including
 monotonicity across nine zooms and the NaN answer for a frame with no usable scale.
 
+**A grid's labels read the SAME solution as its lines: the tangent plane, never the SIP-corrected one (#1994).** The grid
+shader is given CRPIX, CD and the reference sky point and nothing else, so its lines, which the pane-wide pass carries across
+the frame's edge into the backdrop, are the frame's tangent-plane grid. The labels at the picture's edge were placed through
+`WCS.PixelToSky`, which applies the SIP polynomial, so on a distorted frame each named a declination its line was not on, by
+the distortion at the edge (a few px at the test's declinations with about 20 px of distortion at the edge). **The larger
+part of the owner's roughly constant 57 px was the label TEXT, not the transform**: `FormatDecLabel` and `FormatRALabel`
+floored the minutes of a value like -29.9 deg (0.9 x 60 = 53.99999) and printed `-29d53'` on the line that is `-29d54'`, one
+whole arcminute (50 px at 132 % on the test's field) from the line it names; both now round the total seconds to the label's
+precision before splitting into units. The map draws no Dec labels
+of its own while the pane-wide grid holds (`SuppressOwnGrid`), so there was never a second grid, only the labels disagreeing
+with the lines they name. `RenderGridLabels` now goes through `ImageRendererBase.GridWcs`, the one statement of what the
+shader draws; a backend that gives its grid the distortion owes the labels the same solution. Past the tangent handover the
+map's spherical grid draws instead and is rigid, so it meets the frame's grid only where the frame has no distortion, which
+is a limit of the map's view and not a transform in disagreement. Pinned by
+`ViewerSkyBackdropAgreementTests.GridLabelsSitOnTheLinesThatContinueIntoTheBackdrop` at DPI 1 and 1.5 (two declinations
+leave the picture through its right edge, each within 1 px of its line; it fails with the fix reverted, 51.8 px).
+
 **A pane-wide grid needs its own shader mode, and its own UBO slot.** `image.frag` gained a
 `gridMode == 2` branch that returns the grid alone on transparent black, drawn as a second pass over
 the whole pane rather than the image quad; `StretchUboSlots` went to 3 because a Vulkan UBO is read

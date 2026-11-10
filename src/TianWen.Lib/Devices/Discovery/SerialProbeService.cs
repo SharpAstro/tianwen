@@ -605,6 +605,9 @@ internal sealed class SerialProbeService : ISerialProbeService
                         // onMatch is the verification gate: returns true to publish, false to
                         // discard (identity mismatch). In the general pass, onMatch is null,
                         // so all matches are published unconditionally.
+                        // The port's identity first, so the verification gate compares the id the profile was saved
+                        // with: where the USB bridge chip has a serial, the id ends in it, not in the port (#1090).
+                        match = WithPortIdentity(match);
                         var publish = onMatch?.Invoke(match) ?? true;
                         if (publish)
                         {
@@ -664,6 +667,41 @@ internal sealed class SerialProbeService : ISerialProbeService
             probeName,
             _ => [match],
             (_, existing) => existing.Add(match));
+    }
+
+    /// <summary>
+    /// The match with its port's own identity on its URI (#1090), for every serial family at once, so no probe has to know
+    /// about it; a port the enumeration did not describe comes back as it came.
+    /// <list type="bullet">
+    ///   <item>Noted: <see cref="DeviceQueryKey.PortIdentity"/>, how stable the port is, and <see cref="DeviceQueryKey.PortKey"/>,
+    ///   the key that names it.</item>
+    ///   <item>An id that ENDS IN ITS PORT (<see cref="DeviceUriExtensions.ModelKey"/>: <c>SkyGuider-Pro_COM14</c>) ends in
+    ///   something steadier where the port has it (<see cref="SerialPortIdentity.IdSuffix"/>): on a <c>device</c> port the USB
+    ///   bridge's serial (<c>SkyGuider-Pro_usb-0403-6001-A10MOSEFA</c>, the same in any socket; step 2), on a <c>socket</c> port
+    ///   the socket (<c>SkyGuider-Pro_socket-1a2b3c4d</c>, the same whatever COM number Windows hands it; #2040). The port stays
+    ///   in the query, where a re-discovery refreshes it. An id that names the hardware itself (a UUID, a serial) has no port in
+    ///   it and is left alone, and so is a <c>name</c> port. <b>So is a serial that another listed port reports too</b>
+    ///   (<see cref="SerialPortIdentity.SharedWithAnotherPort"/>: clone FT232 adapters ship one serial on every unit): the key
+    ///   would name two units as one device, the hub's driver map is keyed on the id, and one of them would be lost; they keep
+    ///   their COM ids, as before the key existed.</item>
+    /// </list>
+    /// </summary>
+    private SerialProbeMatch WithPortIdentity(SerialProbeMatch match)
+    {
+        if (_external.SerialPortIdentityOf(match.Port) is not { } identity)
+        {
+            return match;
+        }
+
+        var uri = match.DeviceUri.WithQueryValues(
+            (DeviceQueryKey.PortIdentity.Key, identity.KindName),
+            (DeviceQueryKey.PortKey.Key, identity.Key));
+        if (identity.IdSuffix is { } suffix && uri.ModelKey is { } model)
+        {
+            uri = new Uri($"{model}_{suffix}{uri.Query}{uri.Fragment}");
+        }
+
+        return match with { DeviceUri = uri };
     }
 
     /// <summary>

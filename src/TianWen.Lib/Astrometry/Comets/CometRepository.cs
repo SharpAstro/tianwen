@@ -99,6 +99,16 @@ internal sealed class CometRepository : ICometRepository
     // by ApparitionRetryCooldown below, which is what stops "later" meaning "immediately, forever".
     private readonly ConcurrentDictionary<CatalogIndex, byte> _apparitionInFlight = new();
 
+    // The last apparition fetch started for each comet, so a caller that owns the cache folder can wait for every write to land
+    // before it removes the folder (#2078: a test's dispose deleted it and a fetch settling after it wrote apparitions.json back).
+    private readonly ConcurrentDictionary<CatalogIndex, Task> _apparitionWork = new();
+
+    /// <summary>
+    /// Completes once every apparition fetch started so far has settled, its cache write included. The fetches never fault (they
+    /// log and back off), so this never throws. For whoever owns the cache folder and is about to remove it: the tests.
+    /// </summary>
+    internal Task ApparitionWorkSettledAsync() => Task.WhenAll(_apparitionWork.Values);
+
     // When each comet's last Horizons attempt failed, so the retry can be spaced out. Written from the
     // fetch continuation (a thread-pool thread) and read from the render/poll path, hence concurrent.
     private readonly ConcurrentDictionary<CatalogIndex, DateTimeOffset> _apparitionFailedAtUtc = new();
@@ -279,7 +289,7 @@ internal sealed class CometRepository : ICometRepository
             return; // already in the air
         }
 
-        _ = Task.Run(async () =>
+        _apparitionWork[index] = Task.Run(async () =>
         {
             // Anything that did NOT settle the question counts as a failure for backoff purposes,
             // including the null return (Horizons answered with no usable element record, which repeats
@@ -324,7 +334,7 @@ internal sealed class CometRepository : ICometRepository
             // takes CancellationToken.None -- so an OperationCanceledException reaching here can only be
             // `HttpClient.Timeout` reporting itself as a TaskCanceledException, which derives from it.
             // The `ex is not OperationCanceledException` filter this used to carry therefore excluded
-            // JPL being SLOW, the one failure mode most worth seeing: the task is discarded (`_ =
+            // JPL being SLOW, the one failure mode most worth seeing: the task was discarded (`_ =
             // Task.Run`), so it went out as an unobserved exception and the line below was never
             // written, while a 404 from the same endpoint logged normally. The `finally` recorded the
             // backoff either way, which is why this never presented as a retry storm.

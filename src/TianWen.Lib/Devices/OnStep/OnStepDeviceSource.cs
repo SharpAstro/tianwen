@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Meade;
 
 namespace TianWen.Lib.Devices.OnStep;
 
@@ -129,8 +130,6 @@ internal partial class OnStepDeviceSource(
         }
     }
 
-    internal static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
-
     internal static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string? UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
     {
         const string uuidPrefix = "TW@";
@@ -249,7 +248,7 @@ internal partial class OnStepDeviceSource(
 
         try
         {
-            var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(conn, cts.Token);
+            var (productName, productNumber, _, uuid) = await TryGetMountInfo(conn, cts.Token);
 
             if (productName is null || productNumber is null || !SupportedProductsRegex.IsMatch(productName))
             {
@@ -258,30 +257,15 @@ internal partial class OnStepDeviceSource(
 
             var deviceList = devices.TryGetValue(DeviceType.Mount, out var existing) ? existing : (devices[DeviceType.Mount] = []);
 
-            // Prefer the mount-resident UUID (same stable ID as the serial path). Fall back to
-            // IP only if the mount doesn't expose 4 site slots (non-standard firmware).
-            string deviceId;
-            if (uuid is { Length: > 0 })
-            {
-                deviceId = string.Join('_', SafeName(productName), SafeName(productNumber), uuid);
-            }
-            else
-            {
-                deviceId = string.Join('_',
-                    SafeName(productName),
-                    SafeName(productNumber),
-                    SafeName(string.Join(',', siteNames)),
-                    deviceList.Count + 1,
-                    "wifi",
-                    SafeName(ipAddr)
-                );
-            }
+            // The mount-resident UUID (the same id as the serial path), else the host it answered on.
+            var deviceId = Lx200DeviceId.Of(productName, uuid, ipAddr);
 
             var displayName = instanceName.Length > 0
                 ? $"{productName} ({productNumber}) [{instanceName} @ {ipAddr}]"
                 : $"{productName} ({productNumber}) [WiFi @ {ipAddr}]";
 
-            deviceList.Add(new OnStepDevice(DeviceType.Mount, deviceId, displayName, ipAddr, tcpPort));
+            var device = new OnStepDevice(DeviceType.Mount, deviceId, displayName, ipAddr, tcpPort);
+            deviceList.Add(new OnStepDevice(device.DeviceUri.WithQueryValues((DeviceQueryKey.Firmware.Key, productNumber))));
 
             logger.LogDebug("Discovered OnStep WiFi mount: {Name} at {Ip}:{Port} (uuid={Uuid})", displayName, ipAddr, tcpPort, uuid ?? "<none>");
         }

@@ -267,6 +267,10 @@ internal sealed class StackSubCommand(
         {
             Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or to compare the two strategies' rejection (the AHD path rejects per output pixel, drizzle per deposited sample). --strategy overrides still win - forcing BayerDrizzle bypasses this flag.",
         };
+        var noColourAlignOpt = new Option<bool>("--no-colour-align")
+        {
+            Description = "Do not place red and blue on green per frame. By default each frame's red and blue centroid offsets from green are measured on its stars and taken out before integration (the debayered paths warp each colour plane by its own shift, the Bayer drizzle deposits each photosite colour by its own), so dispersion that changes with altitude does not fringe the stars. A frame with too few stars aligns with zero offsets and is counted in the log.",
+        };
         var includeMaybeCloudOpt = new Option<bool>("--include-maybe-cloud")
         {
             Description = "Keep frames named MAYBE_CLOUD_ (the session suspects cloud, #1977) as inputs. Default behaviour is to leave them out, and to say how many. Confirm one as cloud in the viewer to rename it BAD_CLOUD_, or keep it to take the prefix off.",
@@ -341,7 +345,7 @@ internal sealed class StackSubCommand(
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
                 inheritWbOpt,
-                noBayerDrizzleOpt, includeIntegrationsOpt, includeMaybeCloudOpt,
+                noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
                 saturationOpt, contrastBoostOpt,
@@ -381,6 +385,7 @@ internal sealed class StackSubCommand(
             var pixfrac = parseResult.GetValue(drizzlePixfracOpt);
             var drizzleMinFrames = parseResult.GetValue(drizzleMinFramesOpt);
             var disableBayerDrizzle = parseResult.GetValue(noBayerDrizzleOpt);
+            var alignColours = !parseResult.GetValue(noColourAlignOpt);
             // Drizzle options now apply for both forced drizzle AND auto-
             // picked drizzle, so build them whenever drizzle could be
             // selected (anything except a non-drizzle forced strategy).
@@ -507,6 +512,7 @@ internal sealed class StackSubCommand(
                 StackDebayerAlg: parseResult.GetValue(stackDebayerOpt),
                 WarpInterpolation: parseResult.GetValue(warpInterpolationOpt),
                 RejectCloud: parseResult.GetValue(rejectCloudOpt),
+                AlignColours: alignColours,
                 SnrMin: parseResult.GetValue(snrMinOpt),
                 MinStars: parseResult.GetValue(minStarsOpt),
                 QuadStars: parseResult.GetValue(quadStarsOpt),

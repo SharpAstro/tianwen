@@ -196,7 +196,7 @@ public class NodeJobTests(ITestOutputHelper outputHelper)
         var ct = TestContext.Current.CancellationToken;
         var (node, discovery) = await StartAsync(ct);
         await using var host = node;
-        var client = new TianWenNodeClient(node.Client);
+        var client = NodeTestClients.ClientOf(node.Client);
 
         var started = await client.StartDiscoveryAsync(ct);
         started.IsSuccess.ShouldBeTrue(started.Error);

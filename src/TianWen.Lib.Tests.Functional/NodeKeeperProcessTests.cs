@@ -67,7 +67,7 @@ public class NodeKeeperProcessTests
         var node = await kept.WaitForNodeAsync(static _ => true, ct);
         using var nodeProcess = Process.GetProcessById(node.ProcessId);
 
-        using var http = TianWen.RemoteClient.NodeTransport.OverSocket(kept.SocketPath).CreateHttpClient();
+        using var http = NodeTestClients.Create(TianWen.RemoteClient.NodeTransport.OverSocket(kept.SocketPath));
         (await NodeHarness.EnvelopeStatusAsync(http.PostAsync("api/v1/node/shutdown", null, ct), ct)).ShouldBe(202);
 
         // The keeper ends with Stopped only when its node did: the node's exit code, which a process this test did not
@@ -83,13 +83,32 @@ public class NodeKeeperProcessTests
         // No client beats (this test's reads are not presence), no device is connected, no run and no job: the node a client
         // started exits once its idle grace is spent, cleanly, so its keeper ends with it (decision 2, amended 2026-09-30).
         var ct = TestContext.Current.CancellationToken;
+        // The grace runs from the node's start, so on a loaded runner it can be spent before the first answer comes back
+        // (7 s on ubuntu-latest, 2026-11-05): the node is never asked again, its first answer is all the test needs.
         await using var kept = await KeptNode.StartAsync(ct, arguments: ["--idle-exit", "3"]);
-        var node = await kept.WaitForNodeAsync(static _ => true, ct);
-        using var nodeProcess = Process.GetProcessById(node.ProcessId);
+        var nodeId = kept.FirstAnswer.ShouldNotBeNull().ProcessId;
 
+        // The keeper ends with Stopped only when its node did.
         (await kept.KeeperExitAsync(ct)).ShouldBe(NodeExitCodes.Stopped);
-        await nodeProcess.WaitForExitAsync(ct).WaitAsync(TimeSpan.FromSeconds(30), ct);
-        nodeProcess.HasExited.ShouldBeTrue();
+        await NodeWait.UntilAsync($"the node (pid {nodeId}) to have exited",
+            _ => ValueTask.FromResult((!IsRunning(nodeId), "still running")), ct);
+    }
+
+    /// <summary>Whether a process <paramref name="id"/> is running, asked without a handle that a gone process cannot give.</summary>
+    private static bool IsRunning(int id)
+    {
+        var processes = Process.GetProcesses();
+        try
+        {
+            return Array.Exists(processes, process => process.Id == id);
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                process.Dispose();
+            }
+        }
     }
 
     [Fact(Timeout = 120_000)]

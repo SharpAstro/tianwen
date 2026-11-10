@@ -21,12 +21,30 @@ namespace TianWen.Lib.Tests;
 /// reuse (no refetch), TTL-expiry refetch, and offline stale fallback -- all driven by a fake SBDB
 /// source and the <see cref="FakeExternal"/> temp-dir + fake clock (no network, no wall-clock).
 /// </summary>
-public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
+public class CometRepositoryTests(ITestOutputHelper output) : IAsyncDisposable
 {
     /// <summary>The temporary folders this test made, deleted after it (#1197).</summary>
     private readonly TempFolders _folders = new();
 
-    public void Dispose() => _folders.Dispose();
+    // Every repository the test built: an apparition fetch it started runs on after the test's last line, and its cache write
+    // landing after the folders were deleted wrote SmallBodies/apparitions.json back (#2078), which CI's leftover check fails.
+    private readonly System.Collections.Concurrent.ConcurrentBag<CometRepository> _repositories = [];
+
+    private CometRepository Track(CometRepository repository)
+    {
+        _repositories.Add(repository);
+        return repository;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var repository in _repositories)
+        {
+            // Bounded by the run's own cancellation (no wall clock in a test), so a fetch left gated fails the run instead of hanging it.
+            await repository.ApparitionWorkSettledAsync().WaitAsync(TestContext.Current.CancellationToken);
+        }
+        _folders.Dispose();
+    }
 
     private sealed class FakeSbdbCometSource(IReadOnlyList<CometElements> elements, bool @throw = false) : ISbdbCometSource
     {
@@ -53,9 +71,9 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
     private static void Parse(string s, out CometDesignation d)
         => CometDesignation.TryParse(s, out d).ShouldBeTrue();
 
-    // A fresh, isolated cache root per test -- the shared CreateTempTestOutputDir helper is stable per
-    // caller within a day and is never cleaned, so a prior run's comets.json would otherwise bleed in
-    // and read as "fresh" against the fixed default fake epoch.
+    // A fresh cache root per call, from TempFolders. CreateTempTestOutputDir is no help here: it answers the SAME
+    // folder to every ask under one name within a test, so a second external built by one test would read the
+    // first one's comets.json and see it as "fresh" against the fixed default fake epoch.
     private FakeExternal CreateExternal(FakeTimeProviderWrapper timeProvider)
     {
         var root = _folders.Create("comet-repo-test-");
@@ -66,7 +84,7 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
         => CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 7, 10, 0, 0, 0, TimeSpan.Zero)));
 
     private CometRepository NewRepository(FakeExternal external, ISbdbCometSource source, IHorizonsCometSource? horizons = null, ApparitionCacheFile? seed = null)
-        => new(source, horizons ?? new NeverFetchesHorizons(), new FakeApparitionSeed(seed), external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+        => Track(new(source, horizons ?? new NeverFetchesHorizons(), new FakeApparitionSeed(seed), external, external.TimeProvider, NullLogger<CometRepository>.Instance));
 
     /// <summary>The publish-time overlay a browser host is given. Null = the desktop shape (no seed).</summary>
     private sealed class FakeApparitionSeed(ApparitionCacheFile? seed) : IApparitionSeedSource
@@ -274,10 +292,10 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
     private static CometElements RefreshedComet()
         => StaleComet() with { PerihelionJdTt = 2461254.615, EpochJdTt = 2461258.5 };
 
-    private static async Task<CometRepository> LoadedWithStaleCometAsync(FakeExternal external, IHorizonsCometSource horizons, ApparitionCacheFile? seed, CancellationToken ct,
+    private async Task<CometRepository> LoadedWithStaleCometAsync(FakeExternal external, IHorizonsCometSource horizons, ApparitionCacheFile? seed, CancellationToken ct,
         ILogger<CometRepository>? logger = null)
     {
-        var repo = new CometRepository(new FakeSbdbCometSource([StaleComet()]), horizons, new FakeApparitionSeed(seed), external, external.TimeProvider, logger ?? NullLogger<CometRepository>.Instance);
+        var repo = Track(new CometRepository(new FakeSbdbCometSource([StaleComet()]), horizons, new FakeApparitionSeed(seed), external, external.TimeProvider, logger ?? NullLogger<CometRepository>.Instance));
         await repo.EnsureLoadedAsync(ct);
         return repo;
     }
@@ -343,7 +361,7 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
         var horizons = new FakeHorizons(RefreshedComet());
         // Epoch inside the current apparition: nothing to gain, so no round-trip.
         var fresh = StaleComet() with { EpochJdTt = 2461200.0, PerihelionJdTt = 2461254.615 };
-        var repo = new CometRepository(new FakeSbdbCometSource([fresh]), horizons, new FakeApparitionSeed(null), external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+        var repo = Track(new CometRepository(new FakeSbdbCometSource([fresh]), horizons, new FakeApparitionSeed(null), external, external.TimeProvider, NullLogger<CometRepository>.Instance));
         await repo.EnsureLoadedAsync(ct);
 
         repo.RequestCurrentApparition(fresh.CatalogIndex.ShouldNotBeNull());
@@ -577,6 +595,48 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
+    /// What the tests' teardown relies on (#2078): <c>ApparitionWorkSettledAsync</c> stays pending while a fetch is in the air
+    /// and completes only after that fetch's cache write has landed, so deleting the folder after it cannot be followed by a
+    /// write that recreates <c>SmallBodies/apparitions.json</c>.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ApparitionWorkSettledWaitsForTheFetchAndItsCacheWrite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero)));
+        var comet = StaleComet();
+        var index = comet.CatalogIndex.ShouldNotBeNull();
+        var release = new TaskCompletionSource();
+        var horizons = new RefiningHorizons(release.Task);
+        var repository = NewRepository(external, new FakeSbdbCometSource([comet]), horizons);
+        try
+        {
+            await repository.EnsureLoadedAsync(ct);
+
+            repository.RequestCurrentApparition(index);
+            (await WaitForAsync(() => Volatile.Read(ref horizons.FetchCount) == 1)).ShouldBeTrue("premise: the fetch started");
+
+            var settled = repository.ApparitionWorkSettledAsync();
+            settled.IsCompleted.ShouldBeFalse("a fetch is still gated on Horizons");
+            File.Exists(ApparitionsPath(external)).ShouldBeFalse("premise: nothing was written while the fetch is gated");
+
+            release.SetResult();
+            await settled.WaitAsync(ct);
+
+            // No polling: the write is on disk the moment the work reports settled.
+            File.Exists(ApparitionsPath(external)).ShouldBeTrue("settled completed before the fetch's cache write landed");
+        }
+        finally
+        {
+            // A premise that fails must not leave the fetch gated: the teardown waits for every fetch.
+            release.TrySetResult();
+        }
+    }
+
+    private static string ApparitionsPath(FakeExternal external)
+        => Path.Combine(external.AppDataFolder.FullName, "SmallBodies", "apparitions.json");
+
+    /// <summary>
     /// Every host keeps the apparition cache (the GUI, the CLI, the server, the viewer, MCP), and each wrote its
     /// whole in-memory set over the file, so a host that had read the file before another one upgraded a comet
     /// dropped that upgrade with its next write (P0c item 3 of docs/plans/hardware-in-the-server.md, #788).
@@ -595,21 +655,29 @@ public class CometRepositoryTests(ITestOutputHelper output) : IDisposable
 
         var release = new TaskCompletionSource();
         var serverHorizons = new RefiningHorizons(release.Task);
-        var server = NewRepository(external, sbdb, serverHorizons);
-        var gui = NewRepository(external, sbdb, new RefiningHorizons());
-        await server.EnsureLoadedAsync(ct);
-        await gui.EnsureLoadedAsync(ct);
+        try
+        {
+            var server = NewRepository(external, sbdb, serverHorizons);
+            var gui = NewRepository(external, sbdb, new RefiningHorizons());
+            await server.EnsureLoadedAsync(ct);
+            await gui.EnsureLoadedAsync(ct);
 
-        // The server reads the (empty) cache and holds its fetch; the GUI then upgrades another comet and writes.
-        server.RequestCurrentApparition(enckeIndex);
-        (await WaitForAsync(() => Volatile.Read(ref serverHorizons.FetchCount) == 1)).ShouldBeTrue("premise: the server read the cache first");
-        gui.RequestCurrentApparition(tempelIndex);
-        (await OnDiskAsync(tempelIndex)).ShouldBeTrue("premise: the GUI wrote its upgrade");
+            // The server reads the (empty) cache and holds its fetch; the GUI then upgrades another comet and writes.
+            server.RequestCurrentApparition(enckeIndex);
+            (await WaitForAsync(() => Volatile.Read(ref serverHorizons.FetchCount) == 1)).ShouldBeTrue("premise: the server read the cache first");
+            gui.RequestCurrentApparition(tempelIndex);
+            (await OnDiskAsync(tempelIndex)).ShouldBeTrue("premise: the GUI wrote its upgrade");
 
-        release.SetResult();
+            release.SetResult();
 
-        (await OnDiskAsync(enckeIndex)).ShouldBeTrue("the server wrote its upgrade");
-        (await OnDiskAsync(tempelIndex)).ShouldBeTrue("the server's write dropped the upgrade the GUI had written");
+            (await OnDiskAsync(enckeIndex)).ShouldBeTrue("the server wrote its upgrade");
+            (await OnDiskAsync(tempelIndex)).ShouldBeTrue("the server's write dropped the upgrade the GUI had written");
+        }
+        finally
+        {
+            // A premise above that fails must not leave the server's fetch gated: the dispose waits for every fetch.
+            release.TrySetResult();
+        }
 
         async Task<bool> OnDiskAsync(CatalogIndex index)
         {

@@ -215,11 +215,5 @@ public class Cr3ImportTests(ITestOutputHelper output)
             ? 12.92f * linear
             : 1.055f * MathF.Pow(linear, 1f / 2.4f) - 0.055f;
 
-    private static string CreateTestOutputDir(string testName)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests",
-            DateTime.Now.ToString("yyyyMMdd"), testName);
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    private static string CreateTestOutputDir(string testName) => SharedTestData.CreateTempTestOutputDir(testName);
 }

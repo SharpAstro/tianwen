@@ -51,6 +51,26 @@ public class DocumentResidencyTests : IDisposable
     /// A measurement of the two interactions a user makes after load: neither a channel toggle (state
     /// only) nor a cursor readout (served from the retained raster) restores the float planes.
     /// </summary>
+    /// <summary>
+    /// The grade runs BEFORE the stars are published, so nothing shows a frame's stars without its grade: the Grade line read
+    /// "Not graded: no stars found" between the two when stepping through a folder of 4164 x 2795 lights (owner, 2026-11-05).
+    /// </summary>
+    [Fact]
+    public async Task TheReaderRunsBeforeTheStarsArePublished()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var document = await OpenAsync(ct);
+        bool? starsPublishedWhileReading = null;
+        await document.DetectStarsAsync(ct, whileResident: (_, stars) =>
+        {
+            stars.Count.ShouldBeGreaterThan(0, "the planted stars must be found");
+            starsPublishedWhileReading = document.Findings.Stars is not null;
+        });
+
+        starsPublishedWhileReading.ShouldBe(false, "a reader that records a grade must land before the stars are shown");
+        document.Findings.Stars.ShouldNotBeNull().Count.ShouldBeGreaterThan(0);
+    }
+
     [Fact]
     public async Task ACursorReadoutAndAChannelToggleLeaveThePlanesEvicted()
     {

@@ -19,6 +19,20 @@ driver uses it, and the firmware analysis closes the document.
 - **Command prefix**: `:M` (mount command)
 - **Response prefix**: `:H` (host response) or `:R` (read response)
 
+### Ports
+
+The command set is iOptron's own and undocumented; it is not the iOptron RS-232 command language of
+their goto mounts. Two ports carry it, at 28800 baud, 8-N-1:
+
+- **The HBX port**, through a USB-to-serial cable. Source: the Stargazers Lounge thread
+  [Is there a way to control the RA on the SkyGuider Pro with a laptop?](https://stargazerslounge.com/topic/356836-is-there-a-way-to-control-the-ra-on-the-skyguider-pro-with-a-laptop/).
+- **The mount's own USB socket**, a Prolific PL2303 bridge (`067B:2303`), which is DUAL USE: firmware
+  updates and this control protocol. Measured on the bench on 2026-11-05 (firmware `170518`): discovery
+  found the mount on it, and it answered every query and moved and stopped the RA axis.
+
+The firmware has only two UARTs (see Firmware Analysis): 9600 baud between the hand controller and the
+head, and 28800 baud for control, so both ports most likely reach the same command parser.
+
 ## Command Reference
 
 ### Mount Info
@@ -31,7 +45,7 @@ driver uses it, and the firmware analysis closes the document.
 
 | Command | Response | Description |
 |---------|----------|-------------|
-| `:MGAS#` | `:HRAS01{TR}{SP}0{HEM}1{xx}#` | Get axis status (see breakdown below) |
+| `:MGAS#` | `:HRAS0{MO}{TR}{SP}0{HEM}1{xx}#` | Get axis status (see breakdown below) |
 
 `:HRAS013501105#` field breakdown:
 ```
@@ -41,10 +55,15 @@ driver uses it, and the firmware analysis closes the document.
       |  | | | | +---- fixed (always 1?)
       |  | | | +------ hemisphere (1=north, 0=south)
       |  | | +-------- fixed separator (always 0?)
-      |  | +---------- speed index (0-7)
+      |  | +---------- speed index (0-7 here; 9 on the bench, see below)
       |  +------------ tracking rate (0=solar, 1=lunar, 2=half-sidereal, 3=sidereal)
-      +--------------- fixed prefix (always 01)
+      +--------------- motion: 01 at rest, 02 while the RA axis moves
 ```
+
+The first field is not a fixed prefix, as this table used to say: on the bench of 2026-11-05 (firmware
+`170518`) it read `01` at rest and `02` through a move, and stayed `02` for about 1.6 s after a stop at full
+speed while the RA servo wound down (`:HRAS023900105#` moving, `:HRAS013900105#` at rest). The same mount read
+speed index `9`, outside the seven speeds `:MSMS` sets; what 9 is was not found out.
 
 ### Hemisphere
 
@@ -70,6 +89,11 @@ driver uses it, and the firmware analysis closes the document.
 | `:MSMR1#` | `:HRMR1#` | Move west |
 | `:MSMR2#` | `:HRMR2#` | Stop (resume tracking) |
 
+On the bench the acknowledgements did not follow this table: a stop came back as `:HRMR0#` in one run and
+`:HRMR1#` in another, and a move's or a stop's acknowledgement arrived late (see "Replies out of step"). So
+the driver matches an `:HRMR` reply by its prefix alone. One `:MSMR2#` stops the axis; the status keeps
+reporting motion until the servo is at rest.
+
 ### Slew Speed
 
 | Command | Response | Description |
@@ -88,10 +112,15 @@ Speed multiples of sidereal rate (15.0417 arcsec/sec): 1, 2, 8, 16, 64, 128, 144
 
 | Command | Response | Description |
 |---------|----------|-------------|
-| `:MGGR` | `:HRGR{xx}{yy}#` | Get guide rate (RA=xx, DEC=yy, 0-99). **Note: unterminated command** |
+| `:MGGR#` | `:HRGR{xx}{yy}#` | Get guide rate (RA=xx, DEC=yy, 0-99) |
 | `:MSGR{nn}{mm}#` | `:HRGR0#` | Set guide rate (nn=RA 0-99, mm=DEC 0-99) |
 
 Default: `:MSGR5050#` = 50% RA, 50% DEC.
+
+This table used to call `:MGGR` an unterminated command. On the bench `:MGGR#` with its `#` answered
+`:HRGR5050#` at once, while `:MGGR` without it was taken together with the next command (`:MGGR:MRSVE#` was
+answered `:HRGR5050#`, the firmware query lost). Send it terminated. `:MGEL` is listed unterminated below
+for the same reason and was not tried.
 
 ### Camera Snap
 
@@ -135,12 +164,35 @@ Example: `:MSCA10030005002#` = start, shutter=30, interval=5, 2 shots.
 | `:MGEL` | `:HREL{x}#` | Get intensity (0-9). **Note: unterminated command** |
 | `:MSEL{x}#` | `:HREL{x}#` | Set intensity (x=0-9) |
 
+## Replies out of step
+
+Measured on the bench of 2026-11-05 (firmware `170518`, over the mount's own USB socket, logging every byte
+for up to a second after each command):
+
+- **At rest the mount is in step** and sends nothing unasked: each command gets its own reply within about
+  25 ms. An unknown command, or a valid one with a stray byte in front of it, gets no reply at all.
+- **After a move starts it falls one behind.** The move's `:HRMR0#` came at once AND again with the next
+  command, and from then on the mount answered each command with the reply it was holding and held the new
+  one. A stop was answered with the previous status, its own `:HRMR` coming with the next command.
+- **It stays behind across a port close.** The next session's first `:MRSVE#` was answered with the last
+  session's status, so the discovery probe, reading one reply, did not recognise the mount.
+- **Waiting never brings the held reply**: only the next command releases it.
+
+So every exchange, the driver's and the probe's, goes through `SgpWire.ExchangeAsync`: it discards what is
+already on the wire, sends the command, and takes the reply that carries the command's own prefix (`:MSxx`
+and `:MGxx` are answered by `:HRxx`, `:MRSVE` by `:RMRVE`). A reply with another prefix answered an earlier
+command, so the command is SENT AGAIN, up to three times. Every command but the camera-snap trigger
+(`:MSCA`) can be repeated harmlessly. Once the driver has seen the mount out of step it sends each
+repeatable command twice and takes the second reply, so a status it reads is the mount's state now and not
+at the previous poll. `SgpOutOfStepReplayTests` replays the bench's sequences; `SgpMountHardwareProbe`
+(gated on `TIANWEN_SGP_PORT`) runs the driver against the mount.
+
 ## Mapping to `IMountDriver`
 
-Every exchange takes the port's lock (`ISerialConnection.WaitAsync`), writes the command and reads one
-`#`-terminated reply through `ISerialConnection.TryReadTerminatedAsync`
-(`SgpMountDriverBase.SendAndReceiveAsync` for a read, `SendCommandAsync` for a command). Four transport
-facts decide what "no reply" means here (#810):
+Every exchange takes the port's lock (`ISerialConnection.WaitAsync`) and goes through
+`SgpWire.ExchangeAsync` (above), which reads `#`-terminated replies through
+`ISerialConnection.TryReadTerminatedAsync` (`SgpMountDriverBase.SendAndReceiveAsync` for a read,
+`SendCommandAsync` for a command). The transport facts that decide what "no reply" means here (#810):
 
 - **The read has no deadline of its own.** Only a write is bounded (`SerialConnection.WriteTimeout`, 2 s,
   held by Serial.Lib), and `SerialConnection` opens its port with no read deadline, so a mount that never
@@ -149,10 +201,10 @@ facts decide what "no reply" means here (#810):
   `SerialConnection.TryReadTerminatedRawAsync` returns -1 and `TryReadTerminatedAsync` null, exactly as
   for a reply whose `#` is not within `MaxTerminatedResponseBytes`, so the driver cannot tell a lost reply
   from a cancelled one.
-- **Nothing discards input before a command** (the driver never calls `DiscardInBuffer`), so a reply that
-  arrives after its read was given up is taken as the answer to the next command.
-- **A failed write throws `InvalidOperationException`** (`SgpMountDriverBase.WriteAsync`), and so does a
-  command sent with the port closed (`SendCommandAsync`: "Serial port is not connected").
+- **Input is discarded before each exchange**, and a reply is taken only when its prefix is the command's,
+  so a late reply no longer answers the next command.
+- **A failed write ends the exchange with no reply**, and a command sent with the port closed throws
+  `InvalidOperationException` (`SendCommandAsync`: "Serial port is not connected").
   `ResilientCall.IsTransient` accepts neither (it retries `IOException`, `SocketException`,
   `ObjectDisposedException`, `TimeoutException`, a `TaskCanceledException` wrapping a `TimeoutException`,
   `COMException` and an `AggregateException` whose inner exceptions are all transient), so these faults get
@@ -166,14 +218,14 @@ throws a transient exception.
 
 | Member | Sends | Not connected | Connected, reply missing, late or unparseable |
 |---|---|---|---|
-| `IsTrackingAsync` | `:MGAS#` through `GetMountStatusAsync`; `true` when the reply matches `MountStatusRegex`, whatever its tracking-rate digit | `false` | **`false`**: `GetMountStatusAsync` returns `TrackingRate -1`, and that is the only way this can be false, since the mount has no tracking-off command. It feeds `Session.DetectDriverEnforcedStop` (two such polls after tracking was seen latch `MountLimitVerdict.DriverEnforcedStop` and end the run) and `IMountDriver.EnsureTrackingAsync`, which with `CanSetTracking` false is this read alone, so `ObservationLoopAsync` and `InitialRoughFocusAsync` give up with "Failed to enable tracking" |
+| `IsSlewingAsync` | `:MGAS#` through `GetMountStatusAsync`; the motion field (`02` moving), so it stays `true` while the servo winds down after a stop | the last motion read | **the last motion read**, which the connect sets and every valid status updates |
 | `GetCameraSnapSettingsAsync` | `:MGCS#`; shutter and interval parsed as whole seconds, then the shot count (`CameraSettingsRegex`) | the cached settings | **the cached settings**: the last `CameraSnapAsync` this driver instance sent, or `null` if none, which reads the same as a real answer |
 | `SetTrackingSpeedAsync` | `:MSTR3#` Sidereal, `:MSTR1#` Lunar, `:MSTR0#` Solar; `ArgumentException` for any other speed, before anything is sent | `InvalidOperationException` | **returns normally**: the `:HRTR0#` ack is read and discarded, and the cached speed is updated as if the mount accepted it |
 | `SetTrackingAsync` | `true`: the cached speed's `:MSTR` again (through `SetTrackingSpeedAsync`). `false`: nothing, and it returns normally (`CanSetTracking` is `false`) | `true`: `InvalidOperationException`. `false`: returns normally | `true`: **returns normally**, as `SetTrackingSpeedAsync` |
-| `MoveAxisAsync` | Primary only; any other axis throws `InvalidOperationException`. Rate 0: `:MSMR2#`. Otherwise `:MSMS<n>#` then `:MSMR1#` (positive rate, west) or `:MSMR0#` (east) under one lock, `n` being the highest of the seven speeds not above the rate's magnitude (1 below 1x) | rate 0: `InvalidOperationException`. Any other rate: sends nothing, yet returns normally and sets the slewing flag | **returns normally**: every ack is read and discarded, and the slewing flag is set (cleared for rate 0) as if the mount obeyed |
-| `AbortSlewAsync` | `:MSMR2#` | `InvalidOperationException` | **returns normally and clears the slewing flag**, the stop unacknowledged |
+| `MoveAxisAsync` | Primary only; any other axis throws `InvalidOperationException`. Rate 0: `:MSMR2#`. Otherwise `:MSMS<n>#` then `:MSMR1#` (positive rate, west) or `:MSMR0#` (east) under one lock, `n` being the highest of the seven speeds not above the rate's magnitude (1 below 1x) | rate 0: `InvalidOperationException`. Any other rate: sends nothing, yet returns normally and sets the slewing record | **returns normally**: every ack is matched and discarded, and a move sets the slewing record; a stop leaves it for `IsSlewingAsync` to clear from the mount's status |
+| `AbortSlewAsync` | `:MSMR2#` | `InvalidOperationException` | **returns normally**, the stop unacknowledged |
 | `SetGuideRateRightAscensionAsync` | `:MSGR<pp>50#`: `pp` is the rate as a whole percentage of sidereal, and the Dec field is always `50`; `ArgumentException` outside 0 to 99 percent, before anything is sent | `InvalidOperationException` | **returns normally**, cached percentage updated |
-| `CameraSnapAsync` | `:MSCA1<ssss><iii><nnn>#`: shutter and interval in whole seconds (the unit is unconfirmed, a TODO in the code), then the shot count | `InvalidOperationException` | **returns normally**, settings cached |
+| `CameraSnapAsync` | `:MSCA1<ssss><iii><nnn>#`: shutter and interval in whole seconds (the unit is unconfirmed, a TODO in the code), then the shot count. The one command never sent twice, since it starts the shutter sequence | `InvalidOperationException` | **returns normally**, settings cached |
 | `SetHemisphereAsync` (not on `IMountDriver`; only tests call it) | `:MSHE1#` north, `:MSHE0#` south; sets the modelled Dec to +90 or -90 | `InvalidOperationException` | **returns normally**, Dec updated |
 
 The driver never sends `:MSTR2#` (half-sidereal is not in `TrackingSpeeds`), `:MGGR`, `:MGEL` or `:MSEL`.
@@ -186,7 +238,7 @@ the last connect, sync or setter.
 
 | Member | Returns |
 |---|---|
-| `IsSlewingAsync` | **the `_isMoving` flag, not a read**: set by a non-zero `MoveAxisAsync`, cleared by `MoveAxisAsync(0)` and `AbortSlewAsync` once `:MSMR2#` has been written, whether or not the mount acknowledged the stop. The driver parses no motion field from `:MGAS#` |
+| `IsTrackingAsync` | `true` while connected, without asking: the mount has no tracking-off, a stop resumes tracking. It used to read `:MGAS#` and answer `false` on any reply that did not parse, which was every read during a move (`:HRAS02...`) and every stale reply; two such polls latch `DriverEnforcedStop` and end a run |
 | `GetRightAscensionAsync` | the RA of the last `SyncRaDecAsync`, `0.0` before any. Held constant: neither time nor `MoveAxisAsync` moves it. `SyncRaDecAsync` and `SetTrackingAsync(true)` record a tracking-start anchor (`_trackingStartTicks`, `_raAtTrackingStart`) that nothing reads |
 | `GetDeclinationAsync` | +90 or -90 from the hemisphere (the connect's `:MGAS#`, or `SetHemisphereAsync`), or the Dec of the last `SyncRaDecAsync` |
 | `GetTargetRightAscensionAsync` / `GetTargetDeclinationAsync` | `0.0` always (`_targetRa` is never set); the +90 or -90 set at connect, which neither a sync nor `SetHemisphereAsync` updates |
@@ -217,11 +269,11 @@ the last connect, sync or setter.
    no boot wait). It returns no connection for any other baud and throws for a URI without `port`; either
    way `DoConnectDeviceAsync` reports failure (logging any exception) and `ConnectAsync` throws
    `InvalidOperationException` ("Could not connect to device").
-2. `:MRSVE#`. A reply matching `^:RMRVE12(\d{6})$` (`SgpFirmwareRegex`) sets the firmware date that
+2. `:MRSVE#`, through `SgpWire`, so a reply a previous session left held is passed over. A reply matching `^:RMRVE12(\d{6})$` (`SgpFirmwareRegex`) sets the firmware date that
    `DriverInfo` shows. **Any other outcome is not an error**: no reply, a wrong reply or another device's
    answer leaves the firmware `Unknown` and the connect goes on, so connecting never checks that an SGP is
    on the port (discovery does).
-3. `:MGAS#` through `GetMountStatusAsync`. The hemisphere digit sets the modelled Dec, and the target Dec,
+3. `:MGAS#` through `GetMountStatusAsync`. The motion field starts the slewing record, the hemisphere digit sets the modelled Dec, and the target Dec,
    to +90 or -90. The tracking-rate digit sets the cached tracking speed: `0` Solar, `1` Lunar, `3`
    Sidereal, and anything else Sidereal, which takes in half-sidereal (`2`) and a failed read. A failed
    read keeps the hemisphere the driver last knew (north on a new driver instance).
@@ -241,19 +293,20 @@ mount source; the CLI, server and GUI `Program.cs` all call it.
 
 - **`IOptronSerialProbe`** runs at 28800 baud, ASCII, `ProbeFraming.HashTerminated`,
   `ProbeExclusivity.Shared`, with a 500 ms `Budget`, one attempt, no `Warmup` and no `AssertControlLines`.
-  It writes `:MRSVE#`, reads to `#` and matches the same `^:RMRVE12(\d{6})$` as the connect (`12` for the
+  It sends `:MRSVE#` through `SgpWire` (so a reply a previous session left held is passed over, which a single
+  read once mistook for "not an SGP") and matches the same `^:RMRVE12(\d{6})$` as the connect (`12` for the
   SGP, six digits of firmware date). No other registered probe runs at 28800 (the rest use 9600 or
   115200), so it has its baud group, and that port handle, to itself.
 - **The published URI** is
-  `Mount://IOptronDevice/SkyGuider-Pro_<date>_<port>?port=<probed port>#iOptron SkyGuider Pro (<date>) on <port>`,
+  `Mount://IOptronDevice/SkyGuider-Pro_<port>?port=<probed port>&firmware=<date>#iOptron SkyGuider Pro (<date>) on <port>`,
   where `<port>` has lost its `serial:` prefix and `SafeName` turns `_`, `/` and `:` into `-`. The firmware
-  keeps no serial number (see Device Identity below), so the device id is the firmware date plus the port,
-  and a firmware update or a different port makes a different device. The probe's comment expects
-  `ReconcileUri` to carry a stored URI across a port change, but `ReconcileUri` pairs URIs by path
-  (`DeviceBase.SameDevice`), and here the path holds the port.
+  keeps no serial number (see Device Identity below), so the id ends in the port, which discovery swaps for the
+  USB bridge's serial (the FTDI HBX cable: `SkyGuider-Pro_usb-0403-6001-A10MOSEFA`) or the USB socket (the
+  SGP's own Prolific) where the port has one (#1090, #2040). The firmware date is evidence in the query, never
+  in the id, so an update does not make a new device (`device-architecture.md`, "Step 3").
 - **Pinned ports.** `MatchesDeviceHosts` is `IOptronDevice`, so a port a profile pins to an SGP is
   re-verified by this probe alone before the general pass (`SerialProbeService`). Verification compares
-  scheme, host and path, so the date and the port must both still match; otherwise the port falls through
+  scheme, host and path, so the port's own key must still match; otherwise the port falls through
   to the general pass.
 - **`IOptronDeviceSource`** (`ConsumesSerialProbe = true`, `CheckSupportAsync` always true, mounts only)
   turns `ISerialProbeService.ResultsFor("iOptron")` into `IOptronDevice`s, and
@@ -284,7 +337,9 @@ Where it is simpler than the mount:
   `false`, so the driver throws `InvalidOperationException`), and a read with nothing buffered returns
   `null` immediately where the real port waits for the caller's token. It has no lost-reply knob like
   `FakeGeminiFocuserSerialDevice.DropReplies`, so no test reaches the **bold** rows above.
-- **It always tracks** and always sends a valid `:MGAS#`, so `IsTrackingAsync` is never `false` on the fake.
+- **It is always in step** (see "Replies out of step"; `SgpOutOfStepReplayTests` scripts the real mount's
+  sequences instead), and its `:MGAS#` motion field drops to `01` the moment a stop arrives, with no servo to
+  wind down.
 - **The speed digit in its `:MGAS#` is always `0`**: the field it prints is never assigned, not even by
   `:MSMS`.
 - **No COMMAND reports the hour-angle offset** it accumulates (no command reports position, as on the real
@@ -303,11 +358,10 @@ Where it is simpler than the mount:
 The SGP driver is listed as affected in #810 (a native serial driver that is connected and gets no valid
 reply must throw a transient exception, never return a value). The bold rows above are its cases:
 
-- **`IsTrackingAsync`** (#810's known-instances table, row 5): a lost or unparseable `:MGAS#` reads "not
-  tracking", which on a mount that cannot stop tracking is always wrong, and which two polls in a row turn
-  into `DriverEnforcedStop`.
-- **`IsSlewingAsync`**: not a read at all; the flag clears once a stop is written, acknowledged or not.
-- **Every command** (`SendCommandAsync`, and `MoveAxisAsync`'s inline pair): the ack is read and discarded,
+- **`IsTrackingAsync`** (#810's known-instances table, row 5) is no longer one: it no longer reads the
+  mount (2026-11-05).
+- **`IsSlewingAsync`**: a lost status keeps the last motion read rather than throwing.
+- **Every command** (`SendCommandAsync`, and `MoveAxisAsync`'s inline pair): the ack is matched and discarded,
   so no command is verified, and the cached state (tracking speed, guide rate, slewing flag, camera
   settings, Dec) moves as if each was accepted.
 - **`GetCameraSnapSettingsAsync`**: falls back to the settings last sent, indistinguishable from a read.

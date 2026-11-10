@@ -1,8 +1,10 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Grading;
@@ -105,6 +107,144 @@ public class ViewerGradeVerdictE2ETests
         e2e.State.ImageFileNames.ShouldContain("light_0091.fits");
         e2e.State.GradeOf("light_0091.fits").ShouldNotBeNull("the grade follows the name");
         PaintedStripText(e2e).ShouldContain("Folder: 1 rejected, 2 unmarked");
+    }
+
+    /// <summary>
+    /// #1974: the open frame carries a thin veil against its folder's own night (the stored models none), and the Grade section says
+    /// Cloud with the expected-sky words, naming where the clear sky came from.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AThinVeilIsSaidInTheGradeSectionAgainstTheFoldersOwnNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(1f);
+        var path = e2e.WriteColourFits("light_0200.fits", level: 3f);
+        await e2e.OpenAsync(path, ct);
+
+        // The folder's night, 300 synthetic frames, the open one (285) in the middle of the veil.
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266, objectName: "e2e-veil");
+        for (var i = 0; i < 300; i++)
+        {
+            if (i == 285)
+            {
+                continue;
+            }
+            e2e.State.RecordFrameGrade(Path.Combine(Path.GetDirectoryName(path)!, $"light_{i:0000}.fits"), night[i]);
+        }
+        e2e.State.RecordFrameGrade(path, night[285]);
+        e2e.State.ExpectedSky = [];
+        // The night's own sky is fitted off the thread that draws (#2069): start it and let it land, as the viewer's poll repaints on.
+        await LightGradingTests.AwaitSelfFitAsync(e2e.State.FrameGrades, "e2e-veil", ct);
+        e2e.Frame();
+
+        var verdict = LightGrading.Verdict(e2e.State.FrameGrades, night[285], e2e.State.GradeReferences, e2e.State.ExpectedSky);
+        verdict.Causes.HasFlag(GradeCause.Cloud).ShouldBeTrue("the veiled last frame reads as cloud");
+        PaintedStripText(e2e).ShouldContain("sigma brighter");
+    }
+
+    /// <summary>
+    /// #2069: a night's self-fit lands on the pool while the pointer rests, and the idle loop must ask for the frame that shows its veil.
+    /// A flag set inside the frame that noticed the landing is cleared by that frame, so the loop's own redraw gate has to ask
+    /// (<see cref="ViewerController.SelfFitWantsFrame"/>), with no input in between.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ASelfFitThatLandsWhileIdleAsksTheLoopForAFrame()
+    {
+        const string obj = "e2e-wake";
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(1f);
+        var path = e2e.WriteColourFits("light_0285.fits", level: 3f);
+        await e2e.OpenAsync(path, ct);
+
+        var night = LightGradingTests.SyntheticSkyNight(300, veilFrom: 266, objectName: obj);
+        var dir = Path.GetDirectoryName(path)!;
+        for (var i = 0; i < 300; i++)
+        {
+            e2e.State.RecordFrameGrade(i == 285 ? path : Path.Combine(dir, $"light_{i:0000}.fits"), night[i]);
+        }
+        e2e.State.ExpectedSky = [];
+        var release = new TaskCompletionSource();
+        LightGrading.HoldSelfFitsFor(obj, release.Task);
+        _ = LightGrading.Verdict(e2e.State.FrameGrades, night[285]);
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(1, "the verdict asked for the night's fit, which is held");
+
+        // Paint until the loop has nothing left to draw: the fit is pending, so the idle loop would sleep here.
+        var idle = false;
+        for (var i = 0; i < 50 && !idle; i++)
+        {
+            e2e.Frame();
+            idle = !e2e.Host.WantsFrame();
+        }
+        idle.ShouldBeTrue("the viewer settles while the fit is pending");
+
+        release.SetResult();
+        await LightGrading.SelfFitsLandedFor(obj).WaitAsync(ct);
+
+        e2e.Host.WantsFrame().ShouldBeTrue("a fit that landed while idle asks for the frame that shows it");
+        e2e.Frame();
+        LightGrading.Verdict(e2e.State.FrameGrades, night[285], e2e.State.GradeReferences, e2e.State.ExpectedSky)
+            .Causes.HasFlag(GradeCause.Cloud).ShouldBeTrue("the frame it asked for reads the veil");
+    }
+
+    /// <summary>
+    /// #1974 section 2, through the viewer's own path and not a hand-built grade: a real light with a header WCS is opened, the viewer's
+    /// star detection grades it through <c>LightGrading.Grade</c> with the document's WCS and the catalogue (the frame adopted on [0, 1]
+    /// and its zero point put back into counts by the document's full scale), and the verdict reads that zero point against a model the
+    /// real fitter fitted from clear lights in FILE counts. The two sides measure the zero point in different spaces, so a slip in the
+    /// scale (a sign, a missing term) is a transparency that is wrong by a fixed factor, which only a frame that went the whole way
+    /// shows: a clear light reads about 1, the same field 40 % dimmer about 0.6, and is Cloud, said in the Grade section.
+    /// </summary>
+    [Fact(Timeout = 240_000)]
+    public async Task ALightGradedThroughTheViewerReadsItsTransparencyAgainstTheFittedModel()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var field = PhotometricTransparencyTests.BuildField(54, seed: 2);
+        using var folders = new TempFolders();
+        var clearFolder = folders.Create("clear").FullName;
+        var random = new Random(77);
+        foreach (var day in new[] { 10, 11 })
+        {
+            for (var i = 0; i < 24; i++)
+            {
+                var when = new DateTimeOffset(2026, 6, day, 11, 0, 0, TimeSpan.Zero).AddMinutes(i * 9);
+                PhotometricTransparencyTests.WriteStarLight(Path.Combine(clearFolder, $"Light_{day}_{i:000}.fits"),
+                    PhotometricTransparencyTests.MetaFor(when, -5.0 + 10.0 * i / 23), field, 1.0, withWcs: true, random);
+            }
+        }
+        var fitted = await ExpectedSkyFitter.FitAsync([clearFolder], logger: null, cancellationToken: ct, catalogue: field.Db);
+        fitted.Entries.Length.ShouldBe(1);
+        fitted.Entries[0].Model.HasZeroPoint.ShouldBeTrue("the fitter read a clear zero point from the lights' header WCS");
+
+        await using var e2e = ViewerE2E.Start(1f);
+        e2e.Controller.CelestialObjectDB = new DotNext.Threading.AsyncLazy<ICelestialObjectDB>(field.Db);
+        e2e.State.ExpectedSky = fitted.Entries;
+        var taken = new DateTimeOffset(2026, 6, 10, 11, 0, 0, TimeSpan.Zero).AddMinutes(100);
+        var clearPath = Path.Combine(e2e.Folder, "light_clear.fits");
+        var dimPath = Path.Combine(e2e.Folder, "light_dim.fits");
+        PhotometricTransparencyTests.WriteStarLight(clearPath, PhotometricTransparencyTests.MetaFor(taken, 1.0), field, 1.0, withWcs: true, random);
+        PhotometricTransparencyTests.WriteStarLight(dimPath, PhotometricTransparencyTests.MetaFor(taken.AddMinutes(1), 1.0), field, 0.6, withWcs: true, random);
+
+        async Task<LightGradeVerdict> VerdictOfAsync(string path)
+        {
+            await e2e.OpenAsync(path, ct);
+            var full = Path.GetFullPath(path);
+            await e2e.PumpUntilAsync(() => e2e.State.FrameGrades.ContainsKey(full), $"{Path.GetFileName(path)} to be graded", ct);
+            var grade = e2e.State.FrameGrades[full];
+            float.IsFinite(grade.ZeroPoint).ShouldBeTrue("the viewer's grade measured a zero point: the header WCS and the catalogue reached LightGrading.Grade");
+            return LightGrading.Verdict(e2e.State.FrameGrades, grade, e2e.State.GradeReferences, e2e.State.ExpectedSky);
+        }
+
+        var clear = await VerdictOfAsync(clearPath);
+        var dim = await VerdictOfAsync(dimPath);
+
+        clear.Transparency.ShouldBeInRange(0.85f, 1.15f, "a clear light reads the rig's own clear light");
+        (clear.Transparency < LightGrading.TransparencyCloudBelow).ShouldBeFalse();
+        dim.Transparency.ShouldBeInRange(0.5f, 0.7f, "the same field 40 % dimmer");
+        (dim.Causes & GradeCause.Cloud).ShouldNotBe(GradeCause.None, "a dim light is cloud against the rig's clear light");
+        LightGrading.CloudInWords(dim).ShouldContain("transmits");
+
+        e2e.Frame();
+        PaintedStripText(e2e).ShouldContain("transmits");
     }
 
     /// <summary>The info strip's painted words in reading order, joined by spaces: what the strip says, read off the captured layout.</summary>

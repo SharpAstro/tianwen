@@ -53,11 +53,12 @@ internal abstract class SkywatcherSerialProbeBase : ISerialProbe
         }
 
         var modelName = firmware.MountModel.DisplayName;
-        var deviceId = $"Skywatcher_{modelName.Replace(' ', '_')}_{firmware.VersionString}_{ISerialConnection.CleanupPortName(port)}";
+        var deviceId = $"Skywatcher_{modelName.Replace(' ', '_')}_{ISerialConnection.CleanupPortName(port)}";
         var displayName = $"Skywatcher {modelName} (FW {firmware.VersionString})";
 
         var device = new SkywatcherDevice(DeviceType.Mount, deviceId, displayName, port, BaudRate);
-        return new SerialProbeMatch(port, device.DeviceUri);
+        // The firmware is evidence, never identity (#2040): an update must not make the mount a new device.
+        return new SerialProbeMatch(port, device.DeviceUri.WithQueryValues((DeviceQueryKey.Firmware.Key, firmware.VersionString)));
     }
 }
 

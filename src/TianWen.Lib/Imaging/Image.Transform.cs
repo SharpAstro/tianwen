@@ -100,8 +100,19 @@ public partial class Image
     /// since 7.1) and keeps a 2 px star's width where <see cref="WarpInterpolation.Bilinear"/>, the
     /// kernel before it, adds up to a pixel of it in quadrature (the enum's remarks carry the measurement).
     /// </summary>
-    public async Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, WarpInterpolation interpolation, CancellationToken cancellationToken = default)
+    public Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, WarpInterpolation interpolation, CancellationToken cancellationToken = default)
+        => WarpToReferenceGridAsync(transform, refWidth, refHeight, interpolation, ChannelShifts.None, cancellationToken);
+
+    /// <summary>
+    /// The warp with each colour plane of a three-plane image placed on the reference colour first
+    /// (<paramref name="shifts"/>, #1993): plane <c>c</c> is sampled through <see cref="ChannelShifts.Compose"/>, its own
+    /// source-space translation then <paramref name="transform"/>. <see cref="ChannelShifts.None"/> is the warp above, bit for
+    /// bit; an image that is not three planes ignores the shifts.
+    /// </summary>
+    public async Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, WarpInterpolation interpolation, ChannelShifts shifts, CancellationToken cancellationToken = default)
     {
+        var shifted = ChannelCount == 3 && !shifts.IsZero;
+
         // Identity-skip fast path. The reference frame in StackingPipeline
         // is registered against itself with transform = Matrix3x2.Identity
         // and the canvas grid is sized to the reference dims, so this
@@ -109,16 +120,13 @@ public partial class Image
         // sample + NaN-bounds check that otherwise runs over the full
         // canvas. Matches the precedent in TransformAsync (line 53) where
         // identity already short-circuits.
-        if (transform.IsIdentity && refWidth == Width && refHeight == Height)
+        if (!shifted && transform.IsIdentity && refWidth == Width && refHeight == Height)
         {
             await Task.CompletedTask;
             return this;
         }
 
-        if (!Matrix3x2.Invert(transform, out var inverseTransform))
-        {
-            throw new ArgumentException("Transform is not invertible", nameof(transform));
-        }
+        var inverses = InverseTransformsPerChannel(transform, shifts, shifted, ChannelCount);
 
         var channelCount = ChannelCount;
         var srcW = Width;
@@ -141,6 +149,7 @@ public partial class Image
             var channel = c;
             var dstChannel = output[channel];
             var srcPlane = srcPlanes[channel];
+            var inverseTransform = inverses[channel];
             await Parallel.ForAsync(0, refHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
             {
                 // The source plane's flat view and the destination row, both once per ROW: a span
@@ -198,14 +207,27 @@ public partial class Image
 
     /// <summary>The region warp with the resampling kernel chosen; see
     /// <see cref="WarpToReferenceGridAsync(Matrix3x2, int, int, WarpInterpolation, CancellationToken)"/>.</summary>
-    public async Task<Image> WarpRegionAsync(
+    public Task<Image> WarpRegionAsync(
         Matrix3x2 transform,
         PixelRect canvasRegion,
         int canvasWidth,
         int canvasHeight,
         WarpInterpolation interpolation,
         CancellationToken cancellationToken = default)
+        => WarpRegionAsync(transform, canvasRegion, canvasWidth, canvasHeight, interpolation, ChannelShifts.None, cancellationToken);
+
+    /// <summary>The region warp with each colour plane placed on the reference colour first; see
+    /// <see cref="WarpToReferenceGridAsync(Matrix3x2, int, int, WarpInterpolation, ChannelShifts, CancellationToken)"/>.</summary>
+    public async Task<Image> WarpRegionAsync(
+        Matrix3x2 transform,
+        PixelRect canvasRegion,
+        int canvasWidth,
+        int canvasHeight,
+        WarpInterpolation interpolation,
+        ChannelShifts shifts,
+        CancellationToken cancellationToken = default)
     {
+        var shifted = ChannelCount == 3 && !shifts.IsZero;
         if (canvasRegion.X < 0 || canvasRegion.Y < 0
             || canvasRegion.Right > canvasWidth || canvasRegion.Bottom > canvasHeight
             || canvasRegion.Width <= 0 || canvasRegion.Height <= 0)
@@ -230,7 +252,7 @@ public partial class Image
         // calls WarpRegionAsync once per strip per frame; under
         // identity (the reference frame's strips) that's `stripsTotal`
         // calls saved from the bilinear sampler.
-        if (transform.IsIdentity)
+        if (!shifted && transform.IsIdentity)
         {
             var copied = CreateChannelData(channelCount, regionH, regionW);
             // Intersect canvas region with source bounds. The reference
@@ -271,10 +293,7 @@ public partial class Image
             return new Image(copied, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
         }
 
-        if (!Matrix3x2.Invert(transform, out var inverseTransform))
-        {
-            throw new ArgumentException("Transform is not invertible", nameof(transform));
-        }
+        var inverses = InverseTransformsPerChannel(transform, shifts, shifted, channelCount);
 
         var output = CreateChannelData(channelCount, regionH, regionW);
 
@@ -291,6 +310,7 @@ public partial class Image
             var channel = c;
             var dstChannel = output[channel];
             var srcPlane = regionPlanes[channel];
+            var inverseTransform = inverses[channel];
             Parallel.For(0, regionH, parallelOptions, dy =>
             {
                 var src = MemoryMarshal.CreateReadOnlySpan(ref srcPlane[0, 0], srcPlane.Length);
@@ -312,6 +332,25 @@ public partial class Image
         // keeps callers consistent with WarpToReferenceGridAsync.
         await Task.CompletedTask;
         return new Image(output, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+    }
+
+    /// <summary>
+    /// The inverse of each plane's transform: the one <paramref name="transform"/> for every plane, or, when
+    /// <paramref name="shifted"/>, each colour's own (<see cref="ChannelShifts.Compose"/>), whose inverse is that of the
+    /// transform with the colour's translation after it.
+    /// </summary>
+    private static Matrix3x2[] InverseTransformsPerChannel(Matrix3x2 transform, ChannelShifts shifts, bool shifted, int channelCount)
+    {
+        var inverses = new Matrix3x2[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var forChannel = shifted ? shifts.Compose(c, transform) : transform;
+            if (!Matrix3x2.Invert(forChannel, out inverses[c]))
+            {
+                throw new ArgumentException("Transform is not invertible", nameof(transform));
+            }
+        }
+        return inverses;
     }
 
     /// <summary>One source sample at a fractional position, by the kernel chosen. The caller has

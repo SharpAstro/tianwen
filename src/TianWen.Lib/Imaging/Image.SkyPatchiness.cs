@@ -30,14 +30,21 @@ public partial class Image
     /// than on its own. A Bayer mosaic is read at one green phase, as the masked statistics are: a grid over a mosaic would
     /// otherwise mix the photosite colours, which sit at different levels.</para>
     /// </remarks>
-    public float SkyPatchiness(int channel)
+    public float SkyPatchiness(int channel) => SkySurface(channel).Patchiness;
+
+    /// <summary>
+    /// The sky of one channel in one pass over the <see cref="SkyPatchinessTile"/>-pixel tile medians (#1974): the fitted
+    /// quadratic surface's value at the frame centre, the size and direction of its linear part, and the patchiness about it
+    /// (the same figure as <see cref="SkyPatchiness"/>). Everything is NaN for a frame with too few tiles.
+    /// </summary>
+    public SkySurface SkySurface(int channel)
     {
         var (_, width, height) = Shape;
         var tilesX = width / SkyPatchinessTile;
         var tilesY = height / SkyPatchinessTile;
         if (tilesX < 3 || tilesY < 3)
         {
-            return float.NaN;
+            return TianWen.Lib.Imaging.SkySurface.Unknown;
         }
 
         // One green phase of a mosaic (its first start, which is red's row), every other pixel of a plain plane: either way a
@@ -83,7 +90,7 @@ public partial class Image
         }
         if (t < 6)
         {
-            return float.NaN;
+            return TianWen.Lib.Imaging.SkySurface.Unknown;
         }
 
         var coefficients = FitQuadraticSurface(us.AsSpan(0, t), vs.AsSpan(0, t), medians.AsSpan(0, t));
@@ -92,7 +99,11 @@ public partial class Image
         {
             residuals[i] = (float)(medians[i] - QuadraticAt(coefficients, us[i], vs[i]));
         }
-        return MedianAbsoluteDeviation(residuals.AsSpan(0, t));
+        var patchiness = MedianAbsoluteDeviation(residuals.AsSpan(0, t));
+        // u and v span one frame width and height, so b and c are the change per frame; the surface rises along (b, c).
+        var gradient = Math.Sqrt(coefficients[1] * coefficients[1] + coefficients[2] * coefficients[2]);
+        var angle = gradient > 0 ? Math.Atan2(coefficients[2], coefficients[1]) * 180.0 / Math.PI : double.NaN;
+        return new SkySurface((float)coefficients[0], (float)gradient, (float)angle, patchiness);
 
         (int Row, int Col) GreenPhase()
         {

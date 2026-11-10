@@ -1,8 +1,8 @@
 # Frame-path allocations: what a frame costs on its way through
 
 **Status: P0 DONE (2026-09-24, merged in #349, with FITS.Lib 6.1); P1 DONE (2026-09-24, #350); P2 to P4
-DONE (2026-09-24, #365): what is left is the SER frame ring (P2), the sibling libraries' own buffers, and
-three rows kept on purpose; P5 DONE (2026-09-25, #755, with FITS.Lib 6.2).**
+DONE (2026-09-24, #365, closed 2026-11-10): what is left has issues of its own, the SER frame ring (P2, #814)
+and the sibling libraries' own buffers (#854), beside three rows kept on purpose; P5 DONE (2026-09-25, #755, with FITS.Lib 6.2).**
 Raised by the user on 2026-09-24: "if we have allocations that are useless already right now, we should
 remove them prior to this server change" ([hardware-in-the-server](hardware-in-the-server.md), #751). A
 read-only sweep of every capture path the same day found the items below; each carries the file, the
@@ -86,8 +86,9 @@ that the lease is given back, so the owner's release still recycles the buffer.
 
 ### A memory-mapped SER as the frame ring
 
-**Tracked by #814**, carved out of #365. It is also what makes live capture RECORD: today nothing writes the stream
-to disk, and `SerWriter` is used only by test fixtures. The user's suggestion, 2026-09-24. A SER file is a fixed-size
+**Tracked by #814**, carved out of #365. When this was written nothing wrote the stream to disk; since 2026-09-27 the
+node records (`SerRecording`, a queue and a writer thread of its own into a `SerWriter`, asked for by the GUI's Record
+control), so what is left here is the float ring, and making the recording and the ring one file. The user's suggestion, 2026-09-24. A SER file is a fixed-size
 frame store: a 178-byte header, raw little-endian 8- or 16-bit frames, a timestamp trailer.
 - **What it would replace.** The capture loop writes each frame ONCE, in its native format (Bayer
   mosaic, uint16). The stacker and, after the hardware split, the GUI read frames from the same mapped

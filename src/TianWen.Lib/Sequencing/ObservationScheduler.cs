@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Runtime.InteropServices;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
@@ -181,6 +182,42 @@ internal static class ObservationScheduler
             : (MoonGrid?)null;
         return ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude, objectType, moonGrid: moonGrid);
     }
+
+    /// <summary>
+    /// <see cref="ScoreTarget(Target, Transform, DateTimeOffset, DateTimeOffset, byte, ObjectType, double)"/> and, from the
+    /// SAME loop that sums the score, how much each 15-minute sample counted (<see cref="WeightedScore.Weights"/>): 0 at or
+    /// below <paramref name="minHeightAboveHorizon"/>, else the moon factor the sample's score was scaled by (1 with no Moon
+    /// to count). A caller that draws or reports "the part of the night that counts" reads these, so it cannot disagree
+    /// with the score.
+    /// </summary>
+    public static WeightedScore ScoreTargetWithWeights(
+        Target target,
+        Transform transform,
+        DateTimeOffset astroDark,
+        DateTimeOffset astroTwilight,
+        byte minHeightAboveHorizon,
+        ObjectType objectType = ObjectType.Unknown,
+        double moonAvoidanceRadiusDeg = DefaultMoonAvoidanceRadiusDeg)
+    {
+        var (astroms, times) = PrecomputeAstromGrid(
+            astroDark, astroTwilight,
+            transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+        var moonGrid = moonAvoidanceRadiusDeg > 0
+            ? PrecomputeMoonGrid(times, astroms, moonAvoidanceRadiusDeg)
+            : (MoonGrid?)null;
+        var weights = new float[astroms.Length];
+        var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
+            transform.SiteLongitude, objectType, moonGrid: moonGrid, sampleWeights: weights);
+        return new WeightedScore(scored, ImmutableCollectionsMarshal.AsImmutableArray(weights));
+    }
+
+    /// <summary>A scored target and, per sample of its night grid, the weight the sample counted with.</summary>
+    /// <param name="Scored">The score, as <see cref="ScoreTarget(Target, Transform, DateTimeOffset, DateTimeOffset, byte, ObjectType, double)"/> gives it.</param>
+    /// <param name="Weights">
+    /// One per sample, in the order of <see cref="ScoredTarget.ElevationProfile"/>'s <see cref="RaDecEventTime.Balance"/> + i
+    /// entries: 0 at or below the minimum altitude, else the moon factor in (0, 1].
+    /// </param>
+    public readonly record struct WeightedScore(ScoredTarget Scored, ImmutableArray<float> Weights);
 
     /// <summary>
     /// Schedules proposed observations into a <see cref="ScheduledObservationTree"/>.
@@ -713,7 +750,8 @@ internal static class ObservationScheduler
         return 0;
     }
 
-    private static readonly TimeSpan AstromGridStep = TimeSpan.FromMinutes(15);
+    /// <summary>The spacing of the night's sample grid: what one counting sample is worth in time (the atlas's night curve reads it).</summary>
+    public static readonly TimeSpan AstromGridStep = TimeSpan.FromMinutes(15);
 
     /// <summary>
     /// Precomputes Astrom structs for evenly-spaced time samples across the night (every 15 minutes).
@@ -832,8 +870,16 @@ internal static class ObservationScheduler
         double siteLong,
         ObjectType objectType,
         double objectBonus = 1.0,
-        MoonGrid? moonGrid = null)
+        MoonGrid? moonGrid = null,
+        Span<float> sampleWeights = default)
     {
+        // The optional weights, one per sample: what a sample's (altitude - minimum) is multiplied by in the sum
+        // below, so the weights and the altitudes alone rebuild TotalScore (before the meridian halving). Written
+        // in THIS loop, never recomputed by a caller, so the rule has one copy.
+        if (!sampleWeights.IsEmpty && sampleWeights.Length != astroms.Length)
+        {
+            throw new ArgumentException("One weight per sample is needed.", nameof(sampleWeights));
+        }
         var profile = new Dictionary<RaDecEventTime, RaDecEventInfo>(astroms.Length + 4);
         var totalScore = 0d;
         var bestAlt = double.MinValue;
@@ -853,9 +899,15 @@ internal static class ObservationScheduler
 
             profile[RaDecEventTime.Balance + i] = new RaDecEventInfo(time, alt);
 
+            if (!sampleWeights.IsEmpty)
+            {
+                sampleWeights[i] = 0f;
+            }
+
             if (alt > minHeightAboveHorizon)
             {
                 var binScore = alt - minHeightAboveHorizon;
+                var weight = 1.0;
 
                 // Moonlight penalty: when a bright Moon is above the horizon at this bin and
                 // close to the target, scale the bin's contribution down by an
@@ -877,6 +929,12 @@ internal static class ObservationScheduler
                     var proximity = Math.Clamp((moon.AvoidanceRadiusDeg - sepDeg) / moon.AvoidanceRadiusDeg, 0.0, 1.0);
                     var moonFactor = 1.0 - moonIllumination * proximity * proximity;
                     binScore *= moonFactor;
+                    weight = moonFactor;
+                }
+
+                if (!sampleWeights.IsEmpty)
+                {
+                    sampleWeights[i] = (float)weight;
                 }
 
                 totalScore += binScore;

@@ -1271,9 +1271,24 @@ public sealed class ViewerController(
             {
                 // The grade reads the planes, so it runs inside the detection, before the planes are released
                 // (LightGrading.Grade is synchronous and a released image refuses a read).
+                // The transparency (#1974) needs a WCS the document ALREADY has (its header's or a solve it ran: none is started for the
+                // grade) and the Tycho-2 catalogue; the catalogue is awaited here, off the render thread, only for such a frame.
+                var gradeWcs = grade && document.Findings.Wcs is { HasCDMatrix: true } known ? known : (TianWen.Lib.Astrometry.WCS?)null;
+                TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? gradeCatalogue = null;
+                if (gradeWcs is not null && CelestialObjectDB is { } lazyCatalogue)
+                {
+                    try
+                    {
+                        gradeCatalogue = await lazyCatalogue.WithCancellation(sdCts.Token);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogDebug(ex, "Catalogue unavailable for the grade's transparency");
+                    }
+                }
                 await document.DetectStarsAsync(sdCts.Token, whileResident: (image, stars) =>
                 {
-                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars, document.FullScaleAdu) is { } frameGrade)
+                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars, document.FullScaleAdu, gradeWcs, gradeCatalogue) is { } frameGrade)
                     {
                         state.RecordFrameGrade(document.FilePath, frameGrade);
                     }
@@ -1784,12 +1799,60 @@ public sealed class ViewerController(
     /// <summary>A table of grades this still while it grows is taken as settled, and its clear nights recorded.</summary>
     private const double GradesSettleSeconds = 5;
 
+    // The stored expected-sky models (#1974): read off the render thread once per folder opened, published as one swap. The frame loop
+    // only polls the task; a failed read leaves the previous models (or none, and the night fits itself).
+    private Task<ImmutableArray<ExpectedSkyEntry>>? _expectedSkyTask;
+    private string? _expectedSkyFolder;
+
+    private void FollowExpectedSky(TianWen.Lib.Devices.IExternal store)
+    {
+        if (_expectedSkyTask is { IsCompleted: true } done)
+        {
+            _expectedSkyTask = null;
+            if (done.IsCompletedSuccessfully)
+            {
+                state.ExpectedSky = done.Result;
+            }
+        }
+        if (_expectedSkyTask is null && state.CurrentFolder is { Length: > 0 } folder
+            && !string.Equals(folder, _expectedSkyFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            _expectedSkyFolder = folder;
+            _expectedSkyTask = Task.Run(() => ExpectedSkyStore.LoadAsync(store, CancellationToken.None));
+        }
+    }
+
+    private int _selfFitGeneration = LightGrading.SelfFitGeneration;
+
+    /// <summary>
+    /// Whether a self-fitted expected sky landed since the last frame took it (#2069). No side effect, so the loop's redraw gate asks
+    /// it every iteration: a fit lands on the pool while the pointer rests and nothing else wakes the idle loop, and a flag set inside
+    /// the frame that notices it would be cleared by that same frame. <see cref="FollowSelfFits"/> takes it in the frame it asked for.
+    /// </summary>
+    public bool SelfFitWantsFrame => LightGrading.SelfFitGeneration != _selfFitGeneration;
+
+    /// <summary>
+    /// A night's self-fitted expected sky is fitted off this thread (#2069); a first fit reads no term until it lands and a refit reads the previous one, so the poll repaints
+    /// the file list and the info strip, whose verdicts now carry the veil, when the count of landed fits moves. The loop is woken
+    /// for it by <see cref="SelfFitWantsFrame"/>.
+    /// </summary>
+    private void FollowSelfFits()
+    {
+        var generation = LightGrading.SelfFitGeneration;
+        if (generation != _selfFitGeneration)
+        {
+            _selfFitGeneration = generation;
+            state.NeedsRedraw = true;
+        }
+    }
+
     private void FollowGradeReferences()
     {
         if (external is not { } store)
         {
             return;
         }
+        FollowExpectedSky(store);
         if (_referencesTask is { IsCompleted: true } done)
         {
             _referencesTask = null;
@@ -1843,6 +1906,7 @@ public sealed class ViewerController(
     private void FollowFrameRenames()
     {
         FollowGradeReferences();
+        FollowSelfFits();
         ViewerActions.TryCompleteMark(state);
         while (state.TryTakeFrameRename(out var oldPath, out var newPath))
         {

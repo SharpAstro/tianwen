@@ -189,7 +189,7 @@ public static class Tycho2ColorCalibration
     /// random photometry noise and could *worsen* matching by gating out
     /// genuine pairs. 20 is conservative: median of 20 floats with a clean
     /// inlier majority gives a ~0.1 mag standard error on the zero-point.</summary>
-    private const int MinForZeroPoint = 20;
+    private const int MinForZeroPoint = PhotometricZeroPoint.MinStars;
 
     /// <summary>Multiplier applied to the caller-supplied <c>matchRadiusArcsec</c>
     /// to choose the probe pass's generous tolerance. The probe needs to be
@@ -288,6 +288,9 @@ public static class Tycho2ColorCalibration
     /// <param name="tsysR">System throughput for the red channel (QE × filter × CFA).</param>
     /// <param name="tsysG">System throughput for the green channel.</param>
     /// <param name="tsysB">System throughput for the blue channel.</param>
+    /// <param name="saturationMap">Optional per-pixel count of subs saturated at that pixel, on the image's
+    /// geometry (the master's <c>.saturation.fits</c> sidecar). A star whose aperture holds a nonzero pixel is dropped,
+    /// beside the peak gate. A map of another size is ignored.</param>
     /// <returns>White balance (R, G, B) multipliers, or null if insufficient matches.</returns>
     public static SpccWhiteBalanceResult? ComputeSpectrophotometricWhiteBalance(
         Image image,
@@ -301,7 +304,8 @@ public static class Tycho2ColorCalibration
         int minStars = 5,
         WhiteReference? whiteReference = null,
         float saturationFraction = DefaultSaturationFraction,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        Image? saturationMap = null)
     {
         if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
 
@@ -345,7 +349,7 @@ public static class Tycho2ColorCalibration
         }
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius, saturationFraction,
-            bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB, white), logger);
+            bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB, white), logger, saturationMap);
         if (photometry.Count < minStars)
         {
             logger?.LogDebug("SPCC: {Photometry} usable apertures of {Matches} matches < {MinStars} required; funnel {Funnel}",
@@ -528,10 +532,11 @@ public static class Tycho2ColorCalibration
         // the floor we keep pass 1 unchanged so we never regress matching
         // when the field is too sparse for the photometric gate to help.
         if (coarseMatches.Count < MinForZeroPoint
-            || !TryComputeZeroPoint(coarseMatches, out var zp))
+            || !PhotometricZeroPoint.TryFromMatches(coarseMatches, out var zpResult, MinForZeroPoint))
         {
             return (coarseMatches, coarseFunnel);
         }
+        var zp = zpResult.ZeroPoint;
 
         // Pass 2: re-match with the photometric gate. Throws away pass-1
         // results (some pass-1 accepted matches may flip to RejMagDiff and
@@ -740,38 +745,6 @@ public static class Tycho2ColorCalibration
     }
 
     /// <summary>
-    /// Robust median zero-point estimator. For each (detection, catalog) pair
-    /// with positive flux and finite V_mag, accumulates the per-star sample
-    /// <c>V_mag + 2.5 * log10(Flux)</c>. The median over those samples is the
-    /// zero-point that maps detection flux to apparent V magnitude:
-    /// <c>m_pred = zp - 2.5 * log10(Flux)</c>. Median (not mean) is used so
-    /// the inevitable ~10-15% of pass-1 mis-matches do not bias the estimate.
-    /// Returns <c>false</c> if fewer than <see cref="MinForZeroPoint"/> usable
-    /// samples survived, signalling the caller to keep the gate disabled.
-    /// </summary>
-    private static bool TryComputeZeroPoint(
-        List<(ImagedStar Star, CelestialObject Tycho)> matches, out float zeroPoint)
-    {
-        Span<float> samples = matches.Count <= 256
-            ? stackalloc float[matches.Count]
-            : new float[matches.Count];
-        var k = 0;
-        for (var i = 0; i < matches.Count; i++)
-        {
-            var (s, t) = matches[i];
-            if (s.Flux <= 0 || Half.IsNaN(t.V_Mag)) continue;
-            samples[k++] = (float)t.V_Mag + 2.5f * MathF.Log10(s.Flux);
-        }
-        if (k < MinForZeroPoint) { zeroPoint = float.NaN; return false; }
-
-        // MedianFast permutes in place (QuickSelect, partial sort) so we must
-        // not rely on the buffer ordering after this call -- we just consume
-        // the return value.
-        zeroPoint = StatisticsHelper.MedianFast(samples[..k]);
-        return true;
-    }
-
-    /// <summary>
     /// Picks the angularly-closest catalog candidate within
     /// <paramref name="matchRadiusDeg"/> that also passes the magnitude gate
     /// (when <paramref name="predictedMag"/> is finite). Tracks per-star
@@ -868,9 +841,18 @@ public static class Tycho2ColorCalibration
     /// </summary>
     private static List<StarMatch> ExtractPhotometry(
         Image image, List<(ImagedStar Star, CelestialObject Tycho)> matches, int apertureRadius,
-        float saturationFraction, ExpectedColorFunc expectedColor, ILogger? logger = null)
+        float saturationFraction, ExpectedColorFunc expectedColor, ILogger? logger = null,
+        Image? saturationMap = null)
     {
         var (channelCount, width, height) = image.Shape;
+        // A map of another geometry cannot be laid over this image, and guessing would drop the wrong stars.
+        if (saturationMap is not null && (saturationMap.Width != width || saturationMap.Height != height))
+        {
+            logger?.LogWarning("SPCC: saturation map is {MW}x{MH} but the image is {W}x{H}; ignoring it",
+                saturationMap.Width, saturationMap.Height, width, height);
+            saturationMap = null;
+        }
+        var saturatedByMap = 0;
         var isBayer = channelCount == 1 && image.ImageMeta.SensorType is SensorType.RGGB;
         var result = new List<StarMatch>(matches.Count);
 
@@ -927,6 +909,7 @@ public static class Tycho2ColorCalibration
 
             var obsR = 0.0; var obsG = 0.0; var obsB = 0.0;
             var apertureClipped = false;
+            var apertureSaturatedByMap = false;
             var apR = 0; var apG = 0; var apB = 0;
             var bgR = 0.0; var bgG = 0.0; var bgB = 0.0;
             var bgRc = 0; var bgGc = 0; var bgBc = 0;
@@ -942,6 +925,12 @@ public static class Tycho2ColorCalibration
                     var isAp = dist <= apertureRadius;
                     var isBg = !isAp && dist >= annulusInner && dist <= annulusOuter;
                     if (!isAp && !isBg) continue;
+
+                    if (isAp && saturationMap is not null && SaturatedInSubs(saturationMap, x, y))
+                    {
+                        apertureClipped = true;
+                        apertureSaturatedByMap = true;
+                    }
 
                     if (isBayer)
                     {
@@ -980,6 +969,7 @@ public static class Tycho2ColorCalibration
             if (apertureClipped)
             {
                 clipped++;
+                if (apertureSaturatedByMap) saturatedByMap++;
                 continue;
             }
 
@@ -1006,11 +996,21 @@ public static class Tycho2ColorCalibration
 
         if (clipped > 0)
         {
-            logger?.LogDebug("SPCC: dropped {Clipped} of {Matches} matched stars for a clipped aperture pixel (>= {Frac:P0} of the observed per-channel peaks; clip levels {R:F3} / {G:F3} / {B:F3})",
-                clipped, matches.Count, saturationFraction, clipLevel[0], clipLevel[1], clipLevel[2]);
+            logger?.LogDebug("SPCC: dropped {Clipped} of {Matches} matched stars for a clipped aperture pixel (>= {Frac:P0} of the observed per-channel peaks; clip levels {R:F3} / {G:F3} / {B:F3}); {BySubs} of them touch a pixel saturated in the subs",
+                clipped, matches.Count, saturationFraction, clipLevel[0], clipLevel[1], clipLevel[2], saturatedByMap);
         }
 
         return result;
+    }
+
+    /// <summary>True when any channel of the saturation map holds a nonzero count at the pixel.</summary>
+    private static bool SaturatedInSubs(Image map, int x, int y)
+    {
+        for (var c = 0; c < map.ChannelCount; c++)
+        {
+            if (map[c, y, x] > 0f) return true;
+        }
+        return false;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

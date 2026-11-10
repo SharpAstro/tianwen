@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -342,6 +344,35 @@ public class LightGradingTests
     }
 
     /// <summary>
+    /// #2005: the stacker grades a CALIBRATED light, whose patchiness a flat roughly halves (2026-09-10: 2.64 against 5.40 raw at the
+    /// clearest), while a clear-night reference is recorded from raw frames. Compared on the calibrated scale a cloudy run's
+    /// clearest looked like the reference's and the run judged itself; with the raw light's patchiness carried for the reference
+    /// (<see cref="LightGrade.ReferencePatchiness"/>) it is judged against the reference, and within the run nothing changes.
+    /// </summary>
+    [Fact]
+    public void AReferenceIsComparedOnTheRawScaleWhileTheRunKeepsItsCalibratedOne()
+    {
+        var night = new DateOnly(2026, 7, 6);
+        var referenceNight = new DateOnly(2026, 6, 1);
+        var references = ClearReference("LMC", referenceNight, 1000f, 2f);
+        // Raw patchiness 2.6-3.5 (1.3x the reference's 2.0 and more), calibrated half that.
+        var calibratedOnly = Enumerable.Range(0, 10)
+            .Select(i => ($"lmc{i}", Run("LMC", 2200f + i * 20, 1.3f + i * 0.05f, night))).ToArray();
+        var withRaw = calibratedOnly.Select(e => (e.Item1, e.Item2 with { ReferencePatchiness = e.Item2.Patchiness * 2f })).ToArray();
+        var before = Grades(calibratedOnly);
+        var after = Grades(withRaw);
+
+        foreach (var (name, _) in calibratedOnly)
+        {
+            LightGrading.Verdict(before, before[name], references).ReferenceNight.ShouldBe(default, "calibrated, its clearest reads as the reference's");
+            var verdict = LightGrading.Verdict(after, after[name], references);
+            verdict.ReferenceNight.ShouldBe(referenceNight, "on the raw scale its clearest is 1.3x the reference's");
+            (verdict.Causes & GradeCause.Cloud).ShouldBe(GradeCause.Cloud);
+            LightGrading.RelativePatchiness(after, after[name]).ShouldBe(LightGrading.RelativePatchiness(before, before[name]), "the run's own scale is untouched");
+        }
+    }
+
+    /// <summary>
     /// A reference read from a hand-edited <c>clear-sky.json</c> may carry no objects at all (a default array): it still grades,
     /// the sky ratio alone deciding.
     /// </summary>
@@ -424,6 +455,256 @@ public class LightGradingTests
             .ToArray();
         wrong.ShouldBeEmpty();
         LightGrading.LocalPatchiness(grades, frames[390].Item2).ShouldBe(3f, 0.01f, "the middle is read against the clear part, not itself");
+    }
+
+    internal const double SiteLat = -37.9;
+    internal const double SiteLon = 145.2;
+    private static readonly DateOnly SyntheticNight = new(2026, 7, 6);
+
+    /// <summary>
+    /// A synthetic night of <paramref name="count"/> frames of one rig and object crossing the meridian: airmass 1 + t^2 for t from -1 to 1
+    /// (east, then west), a log sky level and gradient on the known law the model carries (X, X^2, west * (X - 1), hours from midnight)
+    /// plus seeded clear scatter (1.2 % of level, 12 % of gradient). Frames from <paramref name="veilFrom"/> on carry a thin smooth
+    /// veil: <paramref name="veilLevel"/> times the level and <paramref name="veilGradient"/> times the gradient.
+    /// </summary>
+    internal static LightGrade[] SyntheticSkyNight(int count, int veilFrom = int.MaxValue, double veilLevel = 1.07, double veilGradient = 1.86,
+        int seed = 7, string objectName = "T")
+    {
+        var random = new Random(seed);
+        double Gauss() => Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
+        var start = new DateTimeOffset(2026, 7, 6, 12, 0, 0, TimeSpan.Zero);
+        var frames = new LightGrade[count];
+        for (var i = 0; i < count; i++)
+        {
+            var t = count == 1 ? 0 : -1 + 2.0 * i / (count - 1);
+            var x = 1 + t * t;
+            var west = t > 0;
+            var logLevel = Math.Log(1000) + 0.30 * (x - 1) + 0.10 * (x - 1) * (x - 1) + (west ? 0.05 * (x - 1) : 0) + 0.02 * 3 * t + 0.012 * Gauss();
+            var logGradient = Math.Log(50) + 0.5 * (x - 1) + 0.12 * Gauss();
+            var level = Math.Exp(logLevel) * (i >= veilFrom ? veilLevel : 1);
+            var gradient = Math.Exp(logGradient) * (i >= veilFrom ? veilGradient : 1);
+            var covariates = new SkyCovariates(0, -30, 3 * t, 90 - 60 * t * t, 180, x, west, 0, -30, 0, 90, 0, 0, 3 * t);
+            frames[i] = new LightGrade(new LightGradeKey(4, 4, SensorType.Monochrome, "", objectName, 30_000, 1), new FrameMetrics(2f, 2.2f, 0.1f, 1000), 10f,
+                Night: SyntheticNight, Taken: start.AddMinutes(i), SiteLatitude: SiteLat, SiteLongitude: SiteLon,
+                Surface: new SkySurface((float)level, (float)gradient, 0f, 1f), Covariates: covariates);
+        }
+        return frames;
+    }
+
+    private static int CloudCount(ImmutableDictionary<string, LightGrade> grades, IEnumerable<string> names,
+        ImmutableArray<ExpectedSkyEntry> stored = default)
+        => names.Count(n => LightGrading.Verdict(grades, grades[n], expectedSky: stored).Causes.HasFlag(GradeCause.Cloud));
+
+    /// <summary>
+    /// Asks the first frame's verdict, which starts the night's self-fit on the pool (#2069), and waits until the fit has landed, so the
+    /// verdicts after it read the veil term. <paramref name="objectName"/> is the night's object: a test that reads a self-fit gives its
+    /// night an object of its own, since the fits are shared through a static memo keyed on the object-night.
+    /// </summary>
+    internal static async Task AwaitSelfFitAsync(ImmutableDictionary<string, LightGrade> grades, string objectName, CancellationToken ct)
+    {
+        _ = LightGrading.Verdict(grades, grades.Values.First());
+        await LightGrading.SelfFitsLandedFor(objectName).WaitAsync(ct);
+    }
+
+    internal static ImmutableDictionary<string, LightGrade> Table(LightGrade[] frames)
+        => frames.Select((g, i) => ($"f{i:000}", g)).ToImmutableDictionary(e => e.Item1, e => e.g, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>#1974: a veil of +7 % level and +86 % gradient over the night's last 34 of 300 frames, found against the night's own sky.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AThinVeilIsCloudAgainstTheNightsOwnExpectedSky()
+    {
+        var grades = Table(SyntheticSkyNight(300, veilFrom: 266, objectName: "veil-own"));
+        await AwaitSelfFitAsync(grades, "veil-own", TestContext.Current.CancellationToken);
+        var clear = Enumerable.Range(0, 266).Select(i => $"f{i:000}");
+        var veiled = Enumerable.Range(266, 34).Select(i => $"f{i:000}").ToArray();
+
+        CloudCount(grades, veiled).ShouldBeGreaterThanOrEqualTo(27, "the veiled frames are caught");
+        CloudCount(grades, clear).ShouldBeLessThanOrEqualTo(2, "the clear ones are not");
+
+        var verdict = LightGrading.Verdict(grades, grades[veiled[^1]]);
+        verdict.LevelSigma.ShouldBeGreaterThan(0f);
+        verdict.GradientSigma.ShouldBeGreaterThan(0f);
+        verdict.ExpectedFromStore.ShouldBeFalse();
+        verdict.Shown.ShouldBe(LightGrading.PoorBelow);
+        var words = LightGrading.CloudInWords(verdict);
+        words.ShouldContain("sigma brighter");
+        words.ShouldContain("sigma more graded");
+        words.ShouldContain("this night's own frames");
+    }
+
+    /// <summary>A night with no veil keeps the verdicts it has without the term, exactly, and none of its frames is Cloud.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AClearNightKeepsItsVerdictsExactly()
+    {
+        var frames = SyntheticSkyNight(300, objectName: "clear-exact");
+        var grades = Table(frames);
+        await AwaitSelfFitAsync(grades, "clear-exact", TestContext.Current.CancellationToken);
+        var withoutSurface = Table([.. frames.Select(static g => g with { Surface = default })]);
+
+        foreach (var name in grades.Keys)
+        {
+            var verdict = LightGrading.Verdict(grades, grades[name]);
+            verdict.Causes.ShouldBe(GradeCause.None, name);
+            (verdict with { LevelSigma = float.NaN, GradientSigma = float.NaN }).ShouldBe(LightGrading.Verdict(withoutSurface, withoutSurface[name]));
+        }
+    }
+
+    /// <summary>A night that is veiled from end to end is its own expected sky; the site's stored model, fitted from clear nights, is not fooled.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AStoredModelBeatsTheNightsSelfFit()
+    {
+        var veiledNight = SyntheticSkyNight(300, veilFrom: 0, seed: 11, objectName: "veiled-whole");
+        var grades = Table(veiledNight);
+        await AwaitSelfFitAsync(grades, "veiled-whole", TestContext.Current.CancellationToken);
+        var names = grades.Keys.ToArray();
+        CloudCount(grades, names).ShouldBeLessThan(30, "against itself a whole veiled night reads clear");
+
+        var clearSamples = SyntheticSkyNight(300, seed: 3).Concat(SyntheticSkyNight(300, seed: 5))
+            .Select(static g => new SkySample(g.Covariates, g.Surface.Level, g.Surface.GradientStrength)).ToList();
+        var model = ExpectedSkyModel.Fit(clearSamples) ?? throw new InvalidOperationException("the clear nights fit");
+        var sample = veiledNight[0];
+        var key = new ExpectedSkyKey(SiteLat, SiteLon, sample.Rig, sample.Key.SensorType, sample.Key.FilterKey, sample.Key.ExposureMs, sample.Key.Bin);
+        ImmutableArray<ExpectedSkyEntry> stored = [new ExpectedSkyEntry(key, model, 2)];
+
+        CloudCount(grades, names, stored).ShouldBeGreaterThanOrEqualTo(290, "the stored model sees the whole night as veiled");
+        var verdict = LightGrading.Verdict(grades, grades[names[100]], expectedSky: stored);
+        verdict.ExpectedFromStore.ShouldBeTrue();
+        LightGrading.CloudInWords(verdict).ShouldContain("stored model");
+    }
+
+    /// <summary>Too few frames of a night to fit is no expected-sky term at all, never a guess: the verdict is the one without it.</summary>
+    [Fact]
+    public void TooFewFramesGiveNoExpectedSkyTerm()
+    {
+        var grades = Table(SyntheticSkyNight(LightGrading.SelfFitMinFrames - 1, veilFrom: 10));
+        foreach (var grade in grades.Values)
+        {
+            var verdict = LightGrading.Verdict(grades, grade);
+            verdict.LevelSigma.ShouldBe(float.NaN);
+            verdict.GradientSigma.ShouldBe(float.NaN);
+            verdict.Causes.ShouldBe(GradeCause.None);
+        }
+    }
+
+    /// <summary>
+    /// #2069: a verdict never fits on the calling thread. With the fit held pending it returns at once and reads no veil term (NaN, as
+    /// with too few frames, never a guess); once the fit lands the same frame reads the veil, and the landing is counted for the viewer's poll.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task APendingSelfFitReadsNoTermAndTheVeilOnceItLands()
+    {
+        const string obj = "pending-fit";
+        var ct = TestContext.Current.CancellationToken;
+        var grades = Table(SyntheticSkyNight(300, veilFrom: 266, objectName: obj));
+        var release = new TaskCompletionSource();
+        LightGrading.HoldSelfFitsFor(obj, release.Task);
+        var generation = LightGrading.SelfFitGeneration;
+
+        var pending = LightGrading.Verdict(grades, grades["f299"]);
+
+        pending.LevelSigma.ShouldBe(float.NaN);
+        pending.GradientSigma.ShouldBe(float.NaN);
+        pending.Causes.ShouldBe(GradeCause.None);
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(1, "the first verdict asked for the fit and did not run it");
+        _ = LightGrading.Verdict(grades, grades["f290"]);
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(1, "a second row while the fit is pending starts none");
+
+        release.SetResult();
+        await LightGrading.SelfFitsLandedFor(obj).WaitAsync(ct);
+
+        LightGrading.SelfFitGeneration.ShouldBeGreaterThan(generation, "the landing is counted, for the viewer to repaint on");
+        var landed = LightGrading.Verdict(grades, grades["f299"]);
+        landed.LevelSigma.ShouldBeGreaterThan(0f);
+        landed.Causes.HasFlag(GradeCause.Cloud).ShouldBeTrue();
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(1);
+    }
+
+    /// <summary>#2069: every grade is a new snapshot, but a snapshot whose samples for the object-night are unchanged reuses the fit.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task TwentySnapshotsOfTheSameNightStartOneFit()
+    {
+        const string obj = "twenty-snapshots";
+        var ct = TestContext.Current.CancellationToken;
+        var frames = SyntheticSkyNight(300, veilFrom: 266, objectName: obj);
+        var first = Table(frames);
+        await AwaitSelfFitAsync(first, obj, ct);
+
+        for (var i = 0; i < 20; i++)
+        {
+            var snapshot = Table(frames);
+            ReferenceEquals(snapshot, first).ShouldBeFalse();
+            LightGrading.Verdict(snapshot, snapshot["f299"]).LevelSigma.ShouldBeGreaterThan(0f, $"snapshot {i} reads the landed fit");
+        }
+
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(1);
+    }
+
+    /// <summary>#2069: a grade landing in another object-night is a new snapshot and does not refit this one; it fits its own.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AGradeInAnotherObjectNightDoesNotRefitThisOne()
+    {
+        const string a = "night-a";
+        const string b = "night-b";
+        var ct = TestContext.Current.CancellationToken;
+        var framesA = SyntheticSkyNight(300, objectName: a);
+        await AwaitSelfFitAsync(Table(framesA), a, ct);
+        LightGrading.SelfFitsStartedFor(a).ShouldBe(1);
+
+        var both = Table([.. framesA, .. SyntheticSkyNight(300, seed: 9, objectName: b)]);
+        _ = LightGrading.Verdict(both, both["f000"]);
+        _ = LightGrading.Verdict(both, both["f300"]);
+        await LightGrading.SelfFitsLandedFor(b).WaitAsync(ct);
+
+        LightGrading.SelfFitsStartedFor(a).ShouldBe(1, "the other object's grades left this object-night's samples alone");
+        LightGrading.SelfFitsStartedFor(b).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// #2069: a changed set refits only once the fit in flight has landed, so a folder load, whose snapshots change at every grade,
+    /// cannot stack fits; the next snapshot after the landing picks the changed set up.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AChangedSetWaitsForTheFitInFlightAndThenRefits()
+    {
+        const string obj = "changed-set";
+        var ct = TestContext.Current.CancellationToken;
+        var frames = SyntheticSkyNight(300, veilFrom: 266, objectName: obj);
+        var early = Table(frames[..250]);
+        var full = Table(frames);
+        var release = new TaskCompletionSource();
+        LightGrading.HoldSelfFitsFor(obj, release.Task);
+
+        _ = LightGrading.Verdict(early, early["f249"]);
+        _ = LightGrading.Verdict(full, full["f299"]);
+        _ = LightGrading.Verdict(full, full["f290"]);
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(1, "snapshots that change while a fit is in flight queue no fit");
+
+        release.SetResult();
+        await LightGrading.SelfFitsLandedFor(obj).WaitAsync(ct);
+        _ = LightGrading.Verdict(full, full["f299"]);
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(2, "the changed set is fitted once the first has landed");
+        await LightGrading.SelfFitsLandedFor(obj).WaitAsync(ct);
+
+        LightGrading.Verdict(full, full["f299"]).LevelSigma.ShouldBeGreaterThan(0f);
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(2);
+    }
+
+    /// <summary>#2069: the stacker and the session's judge pass <c>selfFit: false</c>, and never start a fit.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AVerdictWithoutSelfFitStartsNoFit()
+    {
+        const string obj = "no-self-fit";
+        var ct = TestContext.Current.CancellationToken;
+        var grades = Table(SyntheticSkyNight(300, veilFrom: 266, objectName: obj));
+
+        foreach (var grade in grades.Values)
+        {
+            var verdict = LightGrading.Verdict(grades, grade, selfFit: false);
+            verdict.LevelSigma.ShouldBe(float.NaN);
+        }
+        await LightGrading.SelfFitsLandedFor(obj).WaitAsync(ct);
+
+        LightGrading.SelfFitsStartedFor(obj).ShouldBe(0);
     }
 
     /// <summary>
@@ -519,6 +800,78 @@ public class LightGradingTests
         readout.Lines[0].ShouldBe("Quality: 50% of the best of 2 (0 s)");
         readout.Lines[1].ShouldBe("Scored stars: 800, HFD 2.50, FWHM 2.80, ecc 0.12");
         readout.BestName.ShouldBe("best.fits");
+    }
+
+    // One frame a minute with an even patchiness (the 1.5 % jitter 2026-09-10 measured, seeded) and the given sky level.
+    private static LightGrade Timed(DateTimeOffset start, int minute, float sky, float patchiness, Random random)
+        => Patchy(10f, patchiness * (1f + 0.015f * (random.NextSingle() + random.NextSingle() - 1f))) with
+        {
+            Taken = start.AddMinutes(minute),
+            SkyLevel = sky * (1f + 0.002f * (random.NextSingle() + random.NextSingle() - 1f)),
+        };
+
+    /// <summary>
+    /// A sky that turns against its own trend is cloud, even with an even patchiness and every star kept: on 2026-09-12 the second
+    /// target's sky fell from 1.39 to 1.12 times the night's darkest for three hours, then climbed 4 to 8 % above that line from
+    /// 03:55, the owner's end-of-night marks. A sky that climbs or falls smoothly all night (a target setting, rising) is not.
+    /// </summary>
+    [Fact]
+    public void ASkyThatTurnsAgainstItsOwnTrendIsCloud()
+    {
+        var start = new DateTimeOffset(2026, 9, 12, 14, 0, 0, TimeSpan.Zero);
+        var random = new Random(11);
+        // Falling 1400 -> 1120 over 200 minutes; from minute 170 the sky stands 6 % above where that line would be.
+        var turning = Enumerable.Range(0, 200)
+            .Select(m => ($"t{m}", Timed(start, m, (1400f - 1.4f * m) * (m >= 170 ? 1.06f : 1f), 1f, random))).ToArray();
+        var grades = Grades(turning);
+        bool Cloud(string name) => (LightGrading.Verdict(grades, grades[name]).Causes & GradeCause.Cloud) != 0;
+
+        Enumerable.Range(0, 170).Count(m => Cloud($"t{m}")).ShouldBe(0, "on its own trend");
+        Enumerable.Range(170, 30).Count(m => Cloud($"t{m}")).ShouldBe(30, "6 % over the line it followed");
+        var risen = LightGrading.Verdict(grades, grades["t185"]);
+        risen.SkyRising.ShouldBeTrue();
+        risen.SkyOverTrend.ShouldBeGreaterThan(1f + LightGrading.SkyRiseFrom);
+        LightGrading.CloudInWords(risen).ShouldContain("brighter than its trend");
+
+        // The same night climbing smoothly the whole way (a target setting into the glow) reads clear throughout.
+        var climbing = Enumerable.Range(0, 200).Select(m => ($"c{m}", Timed(start, m, 1120f + 1.4f * m, 1f, random))).ToArray();
+        var smooth = Grades(climbing);
+        smooth.Values.Count(g => (LightGrading.Verdict(smooth, g).Causes & GradeCause.Cloud) != 0).ShouldBe(0);
+
+        // And curving ever faster, which no line fits exactly: 1000 + 0.012 m^2 over 300 minutes (2.08x by the end).
+        var curving = Enumerable.Range(0, 300).Select(m => ($"q{m}", Timed(start, m, 1000f + 0.012f * m * m, 1f, random))).ToArray();
+        var convex = Grades(curving);
+        convex.Values.Count(g => (LightGrading.Verdict(convex, g).Causes & GradeCause.Cloud) != 0).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// Every frame between two cloud frames no more than <see cref="LightGrading.CloudBracketSpan"/> apart is cloud (the owner's
+    /// backtracking): on 2026-09-12 the owner marked 04:06 to 04:37 whole while its patchiness flickered between 1.0 and 1.76. Two
+    /// cloud frames further apart leave the frames between them as measured.
+    /// </summary>
+    [Fact]
+    public void FramesBetweenTwoCloudFramesWithinTheBracketSpanAreCloud()
+    {
+        var start = new DateTimeOffset(2026, 9, 12, 14, 0, 0, TimeSpan.Zero);
+        var random = new Random(13);
+        var frames = Enumerable.Range(0, 240).Select(m => ($"f{m}", Timed(start, m, 1000f, 1f, random))).ToArray();
+        foreach (var m in new[] { 100, 112, 150, 170 })
+        {
+            frames[m] = ($"f{m}", Timed(start, m, 1000f, 2.2f, random));
+        }
+        var grades = Grades(frames);
+        bool Cloud(int m) => (LightGrading.Verdict(grades, grades[$"f{m}"]).Causes & GradeCause.Cloud) != 0;
+
+        Enumerable.Range(100, 13).All(Cloud).ShouldBeTrue("12 minutes apart: everything between is cloud");
+        var filled = LightGrading.Verdict(grades, grades["f105"]);
+        filled.InCloudRun.ShouldBeTrue();
+        LightGrading.CloudInWords(filled).ShouldContain("between cloud frames", customMessage: "worded by the cloud around it, not its clear patchiness");
+        LightGrading.CloudInWords(filled).ShouldNotContain("patchy");
+        Cloud(150).ShouldBeTrue();
+        Cloud(170).ShouldBeTrue();
+        Enumerable.Range(151, 19).Count(Cloud).ShouldBe(0, "20 minutes apart: the frames between keep their own verdict");
+        Cloud(99).ShouldBeFalse();
+        Cloud(113).ShouldBeFalse();
     }
 
     /// <summary>

@@ -98,7 +98,7 @@
 
     <!-- E2E-only view-state hook. When the app is opened with ?e2e=1, Blazor calls __tianwenTestInit
          with a .NET ref (see Planner.razor), so browser tests can read LIVE sky-map view state -
-         window.__tianwenTest.getSkyView() -> {fovDeg, centerRA, centerDec} - via page.evaluate. This
+         window.__tianwenTest.getSkyView() -> {fovDeg, centerRA, centerDec, timeOffsetMin} - via page.evaluate. This
          is how a single-WebGL-canvas app asserts "the gesture zoomed/panned" with no DOM to inspect
          and no pixel reads. Defined always (a harmless no-op until called); never invoked in a normal
          session because Planner only calls __tianwenTestInit behind the ?e2e=1 gate. -->

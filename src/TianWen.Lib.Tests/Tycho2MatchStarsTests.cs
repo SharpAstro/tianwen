@@ -29,8 +29,8 @@ namespace TianWen.Lib.Tests;
 [Collection("Astrometry")]
 public class Tycho2MatchStarsTests
 {
-    private const int ImageWidth = 1001;
-    private const int ImageHeight = 1001;
+    internal const int ImageWidth = 1001;
+    internal const int ImageHeight = 1001;
     private const double PixelScaleDeg = 1.0 / 3600.0;          // 1 arcsec/pixel
     private const double CenterRaHours = 12.0;
     private const double CenterDecDeg = 0.0;
@@ -43,7 +43,7 @@ public class Tycho2MatchStarsTests
     /// frame. Caller can use <see cref="WCS.PixelToSky"/> to derive the RA/Dec
     /// that the synthetic catalog must agree with.
     /// </summary>
-    private static WCS BuildTestWcs()
+    internal static WCS BuildTestWcs()
     {
         return new WCS(CenterRA: CenterRaHours, CenterDec: CenterDecDeg)
         {
@@ -66,7 +66,7 @@ public class Tycho2MatchStarsTests
     /// lookup. CoordinateGrid is keyed off a small (1 arcmin) cell so test
     /// detections in adjacent pixels share a candidate list.
     /// </summary>
-    private sealed class FakeCatalog
+    internal sealed class FakeCatalog
     {
         private readonly Dictionary<CatalogIndex, CelestialObject> _byIndex = new();
         private readonly Dictionary<(int RaCell, int DecCell), List<CatalogIndex>> _byCell = new();
@@ -148,7 +148,7 @@ public class Tycho2MatchStarsTests
     /// Helper: place detection at pixel (px, py) with magnitude <paramref name="vMag"/>
     /// and add a matching catalog star at exactly the WCS-derived RA/Dec.
     /// </summary>
-    private static (ImagedStar Det, CatalogIndex Cat) AddCleanPair(
+    internal static (ImagedStar Det, CatalogIndex Cat) AddCleanPair(
         WCS wcs, ConcurrentBag<ImagedStar> dets, FakeCatalog cat,
         float px, float py, float vMag, float bMinusV)
     {

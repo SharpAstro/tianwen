@@ -28,7 +28,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
             string.Join("; ", h.AppState.Notifications.Select(static n => n.Message)));
         var planetary = h.Planetary;
         planetary.IsCapturing.ShouldBeTrue("premise: the capture started");
-        await h.UntilAsync(() => planetary.Capture.FramesReceived > 0, ct);
+        await h.UntilAsync("the capture to receive its first frame", () => planetary.Capture.FramesReceived > 0, ct);
         return planetary;
     }
 
@@ -56,7 +56,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         h.AppState.Notifications.ShouldContain(n => n.Message == $"Recording 3 s to {file}");
 
         // It ends by itself at its duration, and the panel says why.
-        await h.UntilAsync(() => planetary.Capture.Recording is { Written: true }, ct);
+        await h.UntilAsync("the recording to end by itself at its duration", () => planetary.Capture.Recording is { Written: true }, ct);
         var written = planetary.Capture.Recording.ShouldNotBeNull();
         (written.Recording, written.EndReason, written.FailureReason).ShouldBe((false, "its duration is over", (string?)null));
         written.FramesWritten.ShouldBeGreaterThan(0);
@@ -71,7 +71,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         planetary.IsCapturing.ShouldBeTrue("a recording's end is not the capture's");
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 
     [Fact(Timeout = 90_000)]
@@ -91,7 +91,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         planetary.Capture.Recording.ShouldNotBeNull().Recording.ShouldBeTrue("the drain ended while the recording goes on");
 
         // While it records, what the panel shows is the node's: the file, the frames written and dropped, and the time left.
-        await h.UntilAsync(() => planetary.Capture.Recording is { Recording: true, FramesWritten: > 0 }, ct);
+        await h.UntilAsync("the recording's first frames to be written", () => planetary.Capture.Recording is { Recording: true, FramesWritten: > 0 }, ct);
         var recording = planetary.Capture.Recording.ShouldNotBeNull();
         var onTheNode = (await h.Local.Client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Recording.ShouldNotBeNull();
         recording.Path.ShouldBe(onTheNode.Path);
@@ -107,7 +107,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
 
         ShouldNotHaveWarned(h);
         h.AppState.Notifications.ShouldContain(static n => n.Message == "Recording stopped");
-        await h.UntilAsync(() => planetary.Capture.Recording is { Written: true }, ct);
+        await h.UntilAsync("the stopped recording to be written out", () => planetary.Capture.Recording is { Written: true }, ct);
         var stopped = planetary.Capture.Recording.ShouldNotBeNull();
         // Ten minutes asked, so a recording that ended on the stop, inside this test's bound, ended early.
         (stopped.Recording, stopped.EndReason).ShouldBe((false, "it was stopped"));
@@ -121,7 +121,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         planetary.IsCapturing.ShouldBeTrue();
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 
     /// <summary>
@@ -138,7 +138,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         var (rigNode, rig, _) = await h.ConnectRigAsync(output, ct);
         await GuiNodeHarness.GrantAsync(rigNode, rig, ct);
         var planetary = await CapturingAsync(h);
-        var rigClient = new TianWenNodeClient(rigNode.Client);
+        var rigClient = NodeTestClients.ClientOf(rigNode.Client);
         (await rigClient.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Running.ShouldBeTrue("premise: the capture is the rig's");
 
         h.Contexts.Activate(h.Contexts.Local).ShouldBeTrue();
@@ -160,7 +160,7 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
             "the stop reached the capture's own node, and the capture goes on");
 
         h.Post(new StopVideoCaptureSignal());
-        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+        await h.UntilAsync("the planetary capture to end", () => !planetary.IsCapturing, ct);
     }
 
     [Fact(Timeout = 60_000)]

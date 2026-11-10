@@ -35,7 +35,7 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
 
         h.Post(new ConnectDeviceSignal(h.FocuserUri));
         h.Equipment.PendingTransitions.ContainsKey(h.FocuserUri).ShouldBeTrue("the row shows the connect in flight");
-        await h.UntilAsync(() => !h.Equipment.PendingTransitions.ContainsKey(h.FocuserUri), ct);
+        await h.UntilAsync("the focuser's connect to stop being pending", () => !h.Equipment.PendingTransitions.ContainsKey(h.FocuserUri), ct);
 
         h.Hub.IsConnected(h.FocuserUri).ShouldBeTrue("the node holds it");
         h.Local.IsConnected(h.FocuserUri).ShouldBeTrue("and the view knows at once, without waiting for its next read");
@@ -71,7 +71,7 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
         await using var h = await GuiNodeHarness.StartAsync(output, ct);
         var read = h.AppState.ActiveProfile.ShouldNotBeNull();
         var elsewhere = await StoredAsync(h);
-        var other = await new TianWenNodeClient(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
+        var other = await NodeTestClients.ClientOf(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
             elsewhere.Profile.Data.ShouldNotBeNull() with { SiteElevation = 1234 }, elsewhere.Revision, null, ct);
         other.IsSuccess.ShouldBeTrue(other.Error);
 
@@ -92,7 +92,7 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
         var another = new Profile(Guid.NewGuid(), "Another rig", ProfileData.Empty);
         await another.SaveAsync(h.Node.External, ct);
         h.Post(new DiscoverDevicesSignal());
-        await h.UntilAsync(() => h.Equipment.AllProfiles.Any(p => p.ProfileId == another.ProfileId), ct);
+        await h.UntilAsync("the other profile to appear in the profile list", () => h.Equipment.AllProfiles.Any(p => p.ProfileId == another.ProfileId), ct);
 
         h.Post(new SwitchProfileSignal(another.ProfileId));
         await h.UntilSettledAsync(ct);
@@ -159,10 +159,10 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
         h.Local.ProfileRefreshDue.ShouldBeFalse("read at the connect");
         var stored = await StoredAsync(h);
 
-        (await new TianWenNodeClient(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
+        (await NodeTestClients.ClientOf(h.Node.Client).UpdateProfileAsync(h.Profile.ProfileId,
             stored.Profile.Data.ShouldNotBeNull() with { SiteElevation = 1234 }, stored.Revision, null, ct)).IsSuccess.ShouldBeTrue();
 
-        await h.UntilAsync(() => h.Local.ProfileRefreshDue, ct);
+        await h.UntilAsync("the view's profile refresh to fall due", () => h.Local.ProfileRefreshDue, ct);
         await h.Local.MaybeRefreshProfileAsync(ct);
         h.AppState.ActiveProfile.ShouldNotBeNull().Data.ShouldNotBeNull().SiteElevation.ShouldBe(1234);
     }
@@ -176,7 +176,7 @@ public class EquipmentThroughTheNodeTests(ITestOutputHelper output)
         h.Post(new SetCoolerSetpointSignal(h.CameraUri, -5));
 
         // The ramp runs on for minutes, on the node: what the node records is its target, never a step it reached.
-        await h.UntilAsync(() => h.Hub.TryGetCoolerIntent(h.CameraUri, out var intent) && intent == CoolerIntent.CoolTo(-5), ct);
+        await h.UntilAsync("the hub to record the intent to cool to -5", () => h.Hub.TryGetCoolerIntent(h.CameraUri, out var intent) && intent == CoolerIntent.CoolTo(-5), ct);
         h.AppState.Notifications.ShouldContain(n => n.Message.Contains("Cooling to -5.0"));
         h.AppState.Notifications.ShouldNotContain(n => n.Severity == NotificationSeverity.Error);
     }
