@@ -75,11 +75,19 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
             new CatalogPlateSolver(db, NullLogger<CatalogPlateSolver>.Instance));
     }
 
+    /// <summary>
+    /// Whether the losing parity was ABANDONED depends on the order the two ran in: a loser that
+    /// ran to the end before the winner seeded had nothing to be cancelled from, which a busy
+    /// scheduler can cause and which is legitimate. So the winner runs FIRST through the order
+    /// seam, the one order where the claim must stop the sibling (#2031). The upright field's
+    /// right parity is the mirror (see the flipped test).
+    /// </summary>
     [Fact(Timeout = 300_000)]
     public async System.Threading.Tasks.Task GivenASolvableFieldThenTheLosingParityIsAbandonedAndTheSolveStands()
     {
         var ct = TestContext.Current.CancellationToken;
         var (image, dim, hint, solver) = await BuildSolvableFakeFieldAsync(ct);
+        solver.ParityOrderForTest = false; // the mirror (the winner) first, then the standard
 
         var result = await solver.SolveImageAsync(image, dim, searchOrigin: hint, cancellationToken: ct);
 
@@ -93,8 +101,9 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
         output.WriteLine($"abandoned={race.AbandonedAParity} reRan={race.ReRanAbandonedParity} " +
             $"centre=({s.CenterRA:F4}h, {s.CenterDec:F3}) scale={s.PixelScaleArcsec:F3}");
 
+        race.WinnerIsStd.ShouldBeFalse("the upright field's right parity is the mirror");
         race.AbandonedAParity.ShouldBeTrue(
-            "the winning parity seeded clear of chance, so the other one must have been stopped; "
+            "the winning parity ran first and seeded clear of chance, so the other one must have been stopped; "
             + "this is the assertion that fails if the cancellation is deleted, since the WCS is identical either way");
         race.ReRanAbandonedParity.ShouldBeFalse(
             "a solve whose winner passes the acceptance gate must never pay for the abandoned half again");
@@ -117,17 +126,25 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
     /// tests green. It was checked, precisely because a pair of tests that watch each parity win
     /// looks like it must cover the flag and does not.</para>
     /// </summary>
-    [Fact(Timeout = 300_000)]
-    public async System.Threading.Tasks.Task GivenTheSameFieldFlippedOnYThenTheOtherParityWinsAndIsNotHardWired()
+    [Theory(Timeout = 300_000)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async System.Threading.Tasks.Task GivenTheSameFieldFlippedOnYThenTheOtherParityWinsAndIsNotHardWired(bool standardFirst)
     {
         var ct = TestContext.Current.CancellationToken;
 
+        // Each order is forced, so nothing depends on which parity a busy scheduler started first.
+        // The winner is what the solver decides; whether the loser was cancelled mid-seed is not
+        // (a loser that finished before the winner seeded was never abandoned), so that is asserted
+        // only when the winner ran first (#2031).
         var (upright, dimU, hintU, solverU) = await BuildSolvableFakeFieldAsync(ct);
+        solverU.ParityOrderForTest = standardFirst;
         var uprightResult = await solverU.SolveImageAsync(upright, dimU, searchOrigin: hintU, cancellationToken: ct);
         uprightResult.Solution.ShouldNotBeNull("premise: the upright field must solve");
         var uprightRace = solverU.LastParityRace;
 
         var (flipped, dimF, hintF, solverF) = await BuildSolvableFakeFieldAsync(ct, flipY: true);
+        solverF.ParityOrderForTest = standardFirst;
         var flippedResult = await solverF.SolveImageAsync(flipped, dimF, searchOrigin: hintF, cancellationToken: ct);
 
         output.WriteLine($"upright: winnerIsStd={uprightRace.WinnerIsStd} abandoned={uprightRace.AbandonedAParity}");
@@ -140,8 +157,11 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
         flippedRace.WinnerIsStd.ShouldBe(!uprightRace.WinnerIsStd,
             "flipping the frame on Y inverts the parity, so the OTHER attempt must win; the same winner "
             + "both times would mean the pick is not actually reading the image");
-        flippedRace.AbandonedAParity.ShouldBeTrue("the winning parity still stops its sibling");
         flippedRace.ReRanAbandonedParity.ShouldBeFalse("its winner passes the gate, so nothing is re-run");
+        if (flippedRace.WinnerIsStd == standardFirst)
+        {
+            flippedRace.AbandonedAParity.ShouldBeTrue("the winning parity ran first, so it stops its sibling");
+        }
     }
 
     /// <summary>
