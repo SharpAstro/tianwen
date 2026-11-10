@@ -198,7 +198,7 @@ public class HighResolutionWaitTests
         Assert.SkipWhen(OperatingSystem.IsWindows(), "other systems' waits are already fine-grained: this pins that they stay on the BCL's");
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
-        var (wait, primitive) = SystemTimeProvider.ArmSleep(FiveMs, cts.Token);
+        var (wait, primitive) = SystemTimeProvider.ArmSleep(TimeSpan.FromHours(1), cts.Token);
         primitive.ShouldBe(Primitive.NotApplicable);
 
         await using var timer = SystemTimeProvider.Instance.CreateTimer(static _ => { }, null, FiveMs, Timeout.InfiniteTimeSpan);
