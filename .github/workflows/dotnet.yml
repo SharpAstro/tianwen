@@ -766,10 +766,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 1, of: 4 }
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 2, of: 4 }
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 3, of: 4 }
-          - { suite: unit, project: TianWen.Lib.Tests, shard: 4, of: 4 }
+          # Five unit shards here against Linux's four: build-windows ends a minute after build-linux, so its shards have a
+          # minute less to finish in (test-shards.json has a layout of each count).
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 1, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 2, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 3, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 4, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 5, of: 5 }
           - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 1, of: 3 }
           - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 2, of: 3 }
           - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 3, of: 3 }

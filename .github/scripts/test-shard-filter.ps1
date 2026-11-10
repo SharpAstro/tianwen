@@ -5,8 +5,9 @@
 # test runs twice and a new class is never left out, whatever it is called. The project's own filter
 # (Category!=Heavy for the unit suite) is ANDed onto every shard.
 #
-# -Of is the shard count the workflow's matrix lists. It must equal the file's count, or a shard the matrix
-# does not list would go unrun (or a listed one would be empty), so a mismatch fails the step.
+# -Of is the shard count the workflow's matrix lists, and it picks the project's layout of that many shards (a
+# runner that starts later can take more, shorter shards). A count with no layout fails the step, and so does a
+# layout whose own count disagrees with its key: a shard the matrix does not list would go unrun.
 param(
     [Parameter(Mandatory)][string] $Project,
     [Parameter(Mandatory)][int] $Shard,
@@ -18,9 +19,13 @@ $config = Get-Content -Raw (Join-Path $PSScriptRoot '..' 'test-shards.json') | C
 $entry = $config.$Project
 if ($null -eq $entry) { throw "test-shards.json has no entry for $Project" }
 
-$prefixShards = @($entry.shards | ForEach-Object { , @($_) })
+$layout = $entry.layouts."$Of"
+if ($null -eq $layout) {
+    throw "$Project has no $Of-shard layout in test-shards.json (it has $(@($entry.layouts.PSObject.Properties.Name) -join ', ')); the matrix lists $Of"
+}
+$prefixShards = @($layout | ForEach-Object { , @($_) })
 $count = $prefixShards.Count + 1
-if ($Of -ne $count) { throw "$Project has $count shards in test-shards.json, the matrix lists $Of" }
+if ($Of -ne $count) { throw "$Project's $Of-shard layout in test-shards.json lists $count shards" }
 if ($Shard -lt 1 -or $Shard -gt $count) { throw "shard $Shard is outside 1..$count" }
 
 $terms = [System.Collections.Generic.List[string]]::new()
