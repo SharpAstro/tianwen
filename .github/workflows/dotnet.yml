@@ -163,16 +163,11 @@ jobs:
     # released binary as a 130-byte pointer stub that ModelResolver then refuses.
     #
     # The cache key, the restore-keys delta and why they matter: .github/actions/lfs-pull.
-    #
-    # The test fixtures too (#2054): this job's Build compiles the test projects with the rest of the solution, and the
-    # Linux x64 test jobs run that build (see "Pack the Linux x64 test builds"), so it embeds the fixtures they read. The
-    # set is the unit tests' (a superset of APP_LFS_INCLUDE) from the lfs-tests entries every test job shares; the payload
-    # below still packs APP_LFS_INCLUDE alone.
     - name: Fetch required LFS objects
       uses: ./.github/actions/lfs-pull
       with:
-        include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
-        cache-prefix: lfs-tests
+        include: ${{ env.APP_LFS_INCLUDE }}
+        cache-prefix: lfs-build
     # PreprocessCatalogs' outputs from a cache keyed on its sources: about 38 s of serial pwsh ahead of TianWen.Lib's
     # compile otherwise. The action says why an exact key alone is restored.
     - name: Restore the preprocessed catalogs
@@ -268,36 +263,6 @@ jobs:
         name: nuget-packages
         path: '**/*.nupkg'
         retention-days: 5
-    # The Linux x64 test jobs run THIS build of the test projects (#2054): the solution build above compiles them, and a
-    # separate build-linux leg per suite compiled them again on two more runners, 5 to 6.5 minutes each that every x64
-    # shard waited for (run 42885521250), and two of the 20 jobs the org's plan runs at once. A tar with repo-relative
-    # paths, for the reason the LFS payload gives; the shards unpack it over their checkout, where `dotnet test --no-build`
-    # finds it. Not where no test job runs (the merge queue, a push of a tree its PR tested). zstd on every core, not
-    # gzip: the unit build is 475 MB packed, and gzip took 29 s of the job for it.
-    - name: Pack the Linux x64 test builds
-      if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
-      run: |
-        tar -I 'zstd -T0 -3' -cf tests-bin-unit.tar.zst src/TianWen.Lib.Tests/bin/$BUILD_CONF src/TianWen.Lib.Tests.Gpu/bin/$BUILD_CONF
-        tar -I 'zstd -T0 -3' -cf tests-bin-functional.tar.zst src/TianWen.Lib.Tests.Functional/bin/$BUILD_CONF
-        du -h tests-bin-*.tar.zst
-    - name: Upload the unit test build
-      if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
-      uses: actions/upload-artifact@v7
-      with:
-        name: tests-bin-ubuntu-latest-unit
-        path: tests-bin-unit.tar.zst
-        if-no-files-found: error
-        retention-days: 1
-        compression-level: 0
-    - name: Upload the functional test build
-      if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
-      uses: actions/upload-artifact@v7
-      with:
-        name: tests-bin-ubuntu-latest-functional
-        path: tests-bin-functional.tar.zst
-        if-no-files-found: error
-        retention-days: 1
-        compression-level: 0
     # TianWen.UI.Web is IN TianWen.slnx, so the Build step above already compiled it; only the E2E
     # harness lives outside (IsTestProject + Playwright, so a solution-wide dotnet test would sweep a
     # suite needing a browser and a served app). An API change in TianWen.UI.Abstractions, or a sibling
@@ -326,12 +291,16 @@ jobs:
         dotnet build TianWen.UI.Web.E2E/TianWen.UI.Web.E2E.csproj -c $BUILD_CONF -p:UseLocalSiblings=false -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
 
-  # The unit suite's build for the ARM64 leg, BUILT ONCE and run by every arm shard, as build-windows builds the Windows
-  # one (#2054). Each test job used to build what it tested and then run the whole suite: the x64 unit job built for 3
-  # to 5 minutes and tested for 21.5 (run 42804689190), and nothing short of sharding could take that under 10. A shard
-  # that built for itself would spend half its 10 minutes compiling, so the shards unpack this job's bin folders instead.
-  # The x64 shards run build's own build of the test projects (its "Pack the Linux x64 test builds" says why); ARM64 has
-  # no build of its own otherwise, so it keeps this job.
+  # The Linux test projects, BUILT ONCE per runner, as build-windows builds the Windows ones (#2054), and run by every
+  # shard of that runner. Each test job used to build what it tested and then run the whole suite: the x64 unit job
+  # built for 3 to 5 minutes and tested for 21.5 (run 42804689190), and nothing short of sharding could take that under
+  # 10. A shard that built for itself would spend half its 10 minutes compiling, so the shards unpack this job's bin
+  # folders instead. Two legs, a matrix since both finish within seconds of each other: x64 builds the unit, GPU and
+  # functional projects in one job (they share everything but the test assemblies), ARM64 the unit and GPU ones.
+  #
+  # Not build's own build of the test projects, though build compiles them too: round 4's first run (42900071837) took
+  # the x64 shards' bins from build, whose whole-solution compile WITH analyzers (as it must) ran 4m47s and ended 6.3
+  # minutes into the run, where this job's analyzer-free build ended 4 minutes in on ARM64.
   #
   # Only the projects tested, never the solution: build compiles the whole solution already. No package either:
   # TianWen.Lib packs on build, and nothing here uploads it. And no analyzers nor XML documentation, which only report
@@ -341,15 +310,21 @@ jobs:
   # are the longest projects ahead of every shard. Source generators still run: RunAnalyzers=false makes the compiler skip
   # the analyzers only (/skipanalyzers), and a missing generator would fail this build.
   build-linux:
-    timeout-minutes: 15   # 5m53s with analyzers and the catalogs preprocessed here (run 42885521250)
+    timeout-minutes: 15   # 3m36s on ARM64 without analyzers and with the catalogs cached (run 42900071837)
     needs: plan
     # Not again on a push to main whose tree its PR's passing run already tested (plan's tested-on-pr), nor in the
     # merge queue, which only builds (see merge_group above).
     if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     env:
       VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
-    name: build-linux (ubuntu-24.04-arm unit)
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, projects: 'TianWen.Lib.Tests TianWen.Lib.Tests.Gpu TianWen.Lib.Tests.Functional' }
+          - { runner: ubuntu-24.04-arm, projects: 'TianWen.Lib.Tests TianWen.Lib.Tests.Gpu' }
+    name: build-linux (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
     steps:
     - uses: actions/checkout@v7
       with:
@@ -374,26 +349,37 @@ jobs:
         dotnet-version: 10.0.x
         # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
-      run: |
-        dotnet restore TianWen.Lib.Tests -p:Configuration=$BUILD_CONF
-        dotnet restore TianWen.Lib.Tests.Gpu -p:Configuration=$BUILD_CONF
+      run: for p in ${{ matrix.projects }}; do dotnet restore $p -p:Configuration=$BUILD_CONF || exit 1; done
       working-directory: src
     - name: Build
       run: |
         props="-c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false -p:RunAnalyzers=false -p:GenerateDocumentationFile=false"
-        dotnet build TianWen.Lib.Tests $props && dotnet build TianWen.Lib.Tests.Gpu $props
+        for p in ${{ matrix.projects }}; do dotnet build $p $props || exit 1; done
       working-directory: src
-    # A tar with repo-relative paths, for the reason build's LFS payload gives: upload-artifact roots a path list at its
-    # common ancestor. The shards unpack it over their own checkout, where `dotnet test --no-build` finds it. zstd, as
-    # build's pack says.
-    - name: Pack the test build
+    # A tar per suite with repo-relative paths, for the reason build's LFS payload gives: upload-artifact roots a path list
+    # at its common ancestor. The shards unpack it over their own checkout, where `dotnet test --no-build` finds it. zstd
+    # on every core, not gzip: the unit build is 475 MB packed, and gzip took 29 s of the job for it (run 42885521250).
+    - name: Pack the test builds
       run: |
         tar -I 'zstd -T0 -3' -cf tests-bin-unit.tar.zst src/TianWen.Lib.Tests/bin/$BUILD_CONF src/TianWen.Lib.Tests.Gpu/bin/$BUILD_CONF
-        du -h tests-bin-unit.tar.zst
-    - uses: actions/upload-artifact@v7
+        if [ -d src/TianWen.Lib.Tests.Functional/bin/$BUILD_CONF ]; then
+          tar -I 'zstd -T0 -3' -cf tests-bin-functional.tar.zst src/TianWen.Lib.Tests.Functional/bin/$BUILD_CONF
+        fi
+        du -h tests-bin-*.tar.zst
+    - name: Upload the unit test build
+      uses: actions/upload-artifact@v7
       with:
-        name: tests-bin-ubuntu-24.04-arm-unit
+        name: tests-bin-${{ matrix.runner }}-unit
         path: tests-bin-unit.tar.zst
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+    - name: Upload the functional test build
+      if: matrix.runner == 'ubuntu-latest'
+      uses: actions/upload-artifact@v7
+      with:
+        name: tests-bin-ubuntu-latest-functional
+        path: tests-bin-functional.tar.zst
         if-no-files-found: error
         retention-days: 1
         compression-level: 0
@@ -410,8 +396,7 @@ jobs:
   # against the org's 20 at once, which is what kept round 3's shards waiting for a runner.
   test-unit:
     timeout-minutes: 15   # each shard is meant to stay under 10 minutes
-    # build has the x64 build of the tests, build-linux the arm one.
-    needs: [plan, build, build-linux]
+    needs: [plan, build-linux]
     if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     strategy:
       fail-fast: false
@@ -606,10 +591,10 @@ jobs:
         if-no-files-found: ignore
         retention-days: 14
 
-  # The functional suite on Linux x64, sharded as test-unit is (#2054), from build's own build of it.
+  # The functional suite on Linux x64, sharded as test-unit is (#2054), from build-linux's x64 build.
   test-functional:
     timeout-minutes: 15   # each shard is meant to stay under 10 minutes; unsharded, the suite tested for 8 min
-    needs: [plan, build]
+    needs: [plan, build-linux]
     if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     strategy:
       fail-fast: false
