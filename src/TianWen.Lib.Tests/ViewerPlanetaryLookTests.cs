@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests;
 /// master on show, made by the routine <c>planetary look</c> runs and given back on "True colour" with the file untouched; no choice on a
 /// deep-sky frame; and the live stacked view drawing the look on its masters once a Derive has balanced them.
 /// </summary>
-[Collection("Viewer")]
+[Collection(ViewerPlanetaryCollection.Name)]
 public class ViewerPlanetaryLookTests
 {
     private static readonly DateTimeOffset At = new DateTimeOffset(2024, 12, 15, 12, 56, 42, TimeSpan.Zero);
@@ -29,7 +29,7 @@ public class ViewerPlanetaryLookTests
     [InlineData(1.5f)]
     public async Task TheBoostedLookShowsTheMastersLookedCopyAndTrueColourGivesTheMasterBack(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var path = WriteBalancedJupiter(e2e.Folder, "2024-12-15-1256_7-Jupiter_sharpened.fits");
         var bytes = await File.ReadAllBytesAsync(path, ct);
@@ -71,7 +71,7 @@ public class ViewerPlanetaryLookTests
     [InlineData(1.5f)]
     public async Task ADeepSkyFrameOffersNoColourLook(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await e2e.OpenAsync(e2e.WriteColourFits("m42.fits"), ct);
 
@@ -86,7 +86,7 @@ public class ViewerPlanetaryLookTests
     [InlineData(1.5f)]
     public async Task TheLiveStackedViewDrawsTheLookOnTheMastersADeriveBalanced(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await ViewerWaveletDeriveTests.OpenStackedAsync(e2e, ct, dispersed: true);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);

@@ -21,7 +21,8 @@ namespace TianWen.Lib.Tests
     /// archive-wide calibration resolved + cached, fp16 tiles + JSONL manifest written, pinned split
     /// + PSF/noise report produced, and the in-run zero-skew parity gate green.
     /// </summary>
-    [Collection("Imaging")]
+    // Not in the "Imaging" collection, which runs its classes one at a time for no reason but grouping: this class is
+    // among its longest and shares no state with the rest, so it runs beside them (#2054).
     public class DatasetBuildRunnerTests(ITestOutputHelper output) : IDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "dsrun-" + Guid.NewGuid().ToString("N")[..8]);
