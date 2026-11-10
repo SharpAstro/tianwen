@@ -100,7 +100,7 @@ public class BrightHaloTests : IDisposable
                 plane[(y * size) + x] = (float)Math.Min(clip + sky, sky + (amplitude * (profile.UngainedAt(r) + Halo(r))));
             }
         }
-        var measured = InjectionPopulation.MeasureSaturated([plane], size, size, cx, cy, 1.0, [profile], [clip + sky]);
+        var measured = InjectionPopulation.MeasureSaturated([plane], null, size, size, cx, cy, 1.0, [profile], [clip + sky]);
         measured.ShouldNotBeNull();
         var (amplitudes, clips, halo) = measured.Value;
         clips[0].ShouldBe(clip + sky, "the wings say the star was brighter than its top, so its core is its clip level");
@@ -114,7 +114,7 @@ public class BrightHaloTests : IDisposable
         halo[0].AtRadius(1).ShouldBe(0.0, "the core is the drawn profile's");
         halo[0].Source.ShouldBe("measured saturated star");
         // A stamp off the frame is not measured.
-        InjectionPopulation.MeasureSaturated([plane], size, size, 10, 50, 1.0, [profile], [clip + sky]).ShouldBeNull();
+        InjectionPopulation.MeasureSaturated([plane], null, size, size, 10, 50, 1.0, [profile], [clip + sky]).ShouldBeNull();
     }
 
     private const double Sky = 0.1, Ceiling = 0.9, StarX = 128.3, StarY = 127.8;
@@ -214,7 +214,7 @@ public class BrightHaloTests : IDisposable
         cores[0].ShouldBe(Ceiling, 1e-6, "the first channel's top is the ceiling");
         cores[1].ShouldBeLessThan(0.5, "the second channel's top is the star's own peak");
 
-        var measured = InjectionPopulation.MeasureSaturated(planes, size, size, StarX, StarY, 1.0, [Truth, Truth], cores);
+        var measured = InjectionPopulation.MeasureSaturated(planes, null, size, size, StarX, StarY, 1.0, [Truth, Truth], cores);
         measured.ShouldNotBeNull();
         var (amplitudes, clips, _) = measured.Value;
         clips[0].ShouldBe(Ceiling, 1e-6, "clipped: its wings extrapolate well past its top");
@@ -337,6 +337,37 @@ public class BrightHaloTests : IDisposable
         without.ShouldBe(0, "without the option no site is drawn saturated");
         // 1000 draws at 0.2: 200, with a standard deviation of 12.6.
         clipped.ShouldBeInRange(150, 250);
+    }
+
+    [Fact]
+    public void AStarIsMeasuredOffItsPlateSoTheNebulaUnderItIsNotItsHalo()
+    {
+        const int size = 101;
+        const double cx = 50.3, cy = 49.8, amplitude = 5.0, clip = 1.0;
+        var profile = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 3.0);
+        var (star, plate) = (new float[size * size], new float[size * size]);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                // A nebula brightest at the star, falling over 15 px: a ring median of the master alone reads it as the star's halo.
+                var nebula = 0.05 + (0.02 * Math.Exp(-r / 15.0));
+                plate[(y * size) + x] = (float)nebula;
+                star[(y * size) + x] = (float)Math.Min(clip + nebula, nebula + (amplitude * profile.UngainedAt(r)));
+            }
+        }
+        var core = clip + plate[(50 * size) + 50];
+        var offPlate = InjectionPopulation.MeasureSaturated([star], [plate], size, size, cx, cy, 1.0, [profile], [core]);
+        var alone = InjectionPopulation.MeasureSaturated([star], null, size, size, cx, cy, 1.0, [profile], [core]);
+        offPlate.ShouldNotBeNull();
+        alone.ShouldNotBeNull();
+        foreach (var r in new[] { 8, 12, 20 })
+        {
+            Math.Abs(offPlate.Value.Halo[0].AtRadius(r)).ShouldBeLessThan(2e-4, $"no halo of its own at {r} px");
+        }
+        alone.Value.Halo[0].AtRadius(8).ShouldBeGreaterThan(5e-4, "read off the master alone, the nebula is taken for halo");
+        offPlate.Value.Clips[0].ShouldBe(core, 1e-6, "the core stands on the plate under it, and is clipped");
     }
 
     [Fact]

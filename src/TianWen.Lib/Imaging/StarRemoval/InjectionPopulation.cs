@@ -354,7 +354,7 @@ public sealed class InjectionPopulation
                 }
                 // Measured, and clipped in a channel by its own light: drawn as measured. One the measurement reads as unclipped in
                 // every channel is no saturated star to draw from its pixels, and is asked as before.
-                if (MeasureSaturated(planes, width, height, s.X, s.Y, scale, drawnProfiles, cores) is { } m && m.Clips.Any(double.IsFinite))
+                if (MeasureSaturated(planes, platePlanes, width, height, s.X, s.Y, scale, drawnProfiles, cores) is { } m && m.Clips.Any(double.IsFinite))
                 {
                     measuredPool.Add(new PoolStar(m.Amplitudes, m.Clips, LobesOf(k), float.PositiveInfinity,
                         [.. drawnProfiles.Select((profile, c) => profile with { Outer = m.Halo[c] })]));
@@ -724,8 +724,11 @@ public sealed class InjectionPopulation
     public const double MinPeakOverClip = 1.2;
 
     /// <summary>
-    /// A saturated star as the master shows it: per channel, the azimuthal median of the master less its local sky (the median from
-    /// <see cref="MeasuredSkyFromPx"/> to <see cref="MeasuredSkyToPx"/> px) in 1 px rings to <see cref="MeasuredHaloReachPx"/>; the
+    /// A saturated star as the master shows it: per channel, the azimuthal median of the master less its starless plate
+    /// (<paramref name="platePlanes"/>; null reads the master alone, a test's flat sky) and less what is left from
+    /// <see cref="MeasuredSkyFromPx"/> to <see cref="MeasuredSkyToPx"/> px, in 1 px rings to <see cref="MeasuredHaloReachPx"/> (the
+    /// plate takes out the nebula under the star, which a ring median alone carried into its halo and on to another plate,
+    /// #2086 review finding 3); the
     /// amplitude at which <paramref name="drawn"/> (the profile the injector draws it with, peak 1) meets that light, the median
     /// ratio from <see cref="MatchFromPx"/> to <see cref="MatchToPx"/> px; the channel's clip level, its core
     /// (<paramref name="cores"/>, the brightest pixel there, positive infinity for none) where that amplitude's peak passes the
@@ -737,7 +740,8 @@ public sealed class InjectionPopulation
     /// or the match has no finite positive ratio; the star then keeps its catalogued amplitude and draws no halo of its own.
     /// </summary>
     internal static (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips, ImmutableArray<OuterHalo> Halo)? MeasureSaturated(
-        float[][] planes, int width, int height, double cx, double cy, double scale, IReadOnlyList<StarProfile> drawn, ImmutableArray<double> cores)
+        float[][] planes, float[][]? platePlanes, int width, int height, double cx, double cy, double scale, IReadOnlyList<StarProfile> drawn,
+        ImmutableArray<double> cores)
     {
         const int reach = MeasuredSkyToPx;
         var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
@@ -767,11 +771,12 @@ public sealed class InjectionPopulation
             }
             sky.Clear();
             var plane = planes[c];
+            var platePlane = platePlanes?[c];
             for (var y = iy - reach; y <= iy + reach; y++)
             {
                 for (var x = ix - reach; x <= ix + reach; x++)
                 {
-                    var v = plane[(y * width) + x];
+                    var v = plane[(y * width) + x] - (platePlane is null ? 0f : platePlane[(y * width) + x]);
                     if (!float.IsFinite(v))
                     {
                         return null;
@@ -835,7 +840,9 @@ public sealed class InjectionPopulation
             // Clipped where the matched profile's own centre pixel stands well above the core the master shows (the wings say the
             // star was brighter than its top). A channel whose core is about the matched peak was never cut, and its core as a
             // level would flatten it and every neighbour under the footprint (ClippedWingExcess), so it takes none and no floor.
-            var coreAboveSky = double.IsFinite(cores[c]) ? Math.Max(0.0, cores[c] - (skyLevel * scale)) : double.NaN;
+            // The core is the master's own value, so it stands on the plate under the star as well as on what is left at 32-36 px.
+            var under = platePlane is null ? skyLevel : skyLevel + platePlane[(iy * width) + ix];
+            var coreAboveSky = double.IsFinite(cores[c]) ? Math.Max(0.0, cores[c] - (under * scale)) : double.NaN;
             var clippedHere = double.IsFinite(coreAboveSky) && amplitude * drawnRing[0] > ClippedWingExcess * coreAboveSky;
             if (clippedHere)
             {

@@ -58,10 +58,13 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
             var planClip = new List<double>();
             var unmeasured = new List<double[]>();
             var rng = new Random(3);
+            // The training recipe's beta draw (synth18 to synth20, --star-beta-draw 0.3,1.3,6), which a measured star must not see.
+            var betaDraw = new StarBetaDraw(0.3, 1.3, 6.0);
+            var betaRng = new Random(4);
             for (var draw = 0; draw < 3000 && rendered.Count < 1500; draw++)
             {
                 var plan = population.Plan(rng.Next(master.Width - 300), rng.Next(master.Height - 300), 256, 0, InjectionPlacement.Random,
-                    StarProfileFamily.Field, 1.0, new Random(draw), saturatedAtOwnShare: true);
+                    StarProfileFamily.Field, 1.0, new Random(draw), starBeta: betaDraw.DrawCell(betaRng), saturatedAtOwnShare: true);
                 foreach (var s in plan.Stars.Where(static s => s.Saturated && !s.Lobe))
                 {
                     planAmp.Add(s.Amplitudes[Math.Min(1, channels - 1)]);
@@ -74,7 +77,8 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                     (alone.Profiles[0].Outer.Source == "measured saturated star" ? rendered : unmeasured).Add(Rings(render.Planes[Math.Min(1, channels - 1)], size, alone.X, alone.Y));
                 }
             }
-            // The master's own saturated stars, read the same way (ring medians against a 32-36 px median sky), green.
+            // The master's own saturated stars, read the same way (ring medians of the master less its plate, against a 32-36 px
+            // median of what is left), green: the star's own light, as the measurement reads it, with no nebula under it.
             var real = new List<double[]>();
             var pairs = new List<double[]>();
             var pairedRendered = new List<double[]>();
@@ -84,8 +88,11 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                 .Select(c => new StarProfile(StarProfileFamily.Field, field!.Channels[c].Fwhm, field.Channels[c].Beta, 1.0, 0.0, field.Channels[c].Table, field.Channels[c].TableAlpha))
                 .ToArray();
             var g = master.GetChannelSpan(Math.Min(1, channels - 1)).ToArray();
+            var gPlate = plate.GetChannelSpan(Math.Min(1, channels - 1)).ToArray();
+            var (clippedChannels, measuredChannels) = (0, 0);
             // The stars the measured pool can hold: subtracted, saturated, an amplitude per channel, and a whole finite stamp.
             var planesAll = Enumerable.Range(0, channels).Select(c => master.GetChannelSpan(c).ToArray()).ToArray();
+            var platesAll = Enumerable.Range(0, channels).Select(c => plate.GetChannelSpan(c).ToArray()).ToArray();
             foreach (var s in catalogue.Where(s => s.Saturated && s.Outcome == StarFitOutcome.Subtracted && s.ChannelAmplitudes.Length == channels
                 && s.ChannelAmplitudes.All(float.IsFinite)))
             {
@@ -118,7 +125,8 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                 {
                     for (var x = 0; x < 81; x++)
                     {
-                        stamp[(y * 81) + x] = g[((iy - 40 + y) * master.Width) + ix - 40 + x];
+                        var i = ((iy - 40 + y) * master.Width) + ix - 40 + x;
+                        stamp[(y * 81) + x] = g[i] - gPlate[i];
                     }
                 }
                 // On the unit scale the injector draws on, so the absolute light compares too.
@@ -140,7 +148,7 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                     }
                     return best / divisor;
                 }).ToImmutableArray();
-                if (InjectionPopulation.MeasureSaturated(planesAll, master.Width, master.Height, s.X, s.Y, 1.0 / divisor, drawnProfiles, clips) is { } m)
+                if (InjectionPopulation.MeasureSaturated(planesAll, platesAll, master.Width, master.Height, s.X, s.Y, 1.0 / divisor, drawnProfiles, clips) is { } m)
                 {
                     var star = new InjectedStar(half + (s.X - ix), half + (s.Y - iy), m.Amplitudes,
                         [.. drawnProfiles.Select((p, c) => p with { Outer = m.Halo[c] })], true, m.Clips);
@@ -150,6 +158,8 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                     pairedRendered.Add(r);
                     pairAmp.Add(m.Amplitudes[Math.Min(1, channels - 1)]);
                     pairClip.Add(m.Clips[Math.Min(1, channels - 1)]);
+                    clippedChannels += m.Clips.Count(double.IsFinite);
+                    measuredChannels += channels;
                 }
             }
             output.WriteLine($"  pairs n={pairs.Count}  rendered/own at 5, 8, 12 px: {Med(pairs.Select(p => p[0])):F3} {Med(pairs.Select(p => p[1])):F3} {Med(pairs.Select(p => p[2])):F3}");
@@ -158,7 +168,7 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
             string Line(string name, List<double[]> v) => v.Count == 0 ? $"{name}: none" :
                 $"{name} n={v.Count,4}  8/5 {Med(v.Select(r => r[1] / r[0])):F3}  12/5 {Med(v.Select(r => r[2] / r[0])):F4}  20/5 {Med(v.Select(r => r[3] / r[0])):F4}" +
                 $"  abs5 {1000 * Med(v.Select(r => r[0])):F3}  abs8 {1000 * Med(v.Select(r => r[1])):F3}  abs12 {1000 * Med(v.Select(r => r[2])):F4}";
-            output.WriteLine($"{sessionId}  saturated pool {population.SaturatedPool}");
+            output.WriteLine($"{sessionId}  saturated pool {population.SaturatedPool}  measured channels clipped {clippedChannels} of {measuredChannels}");
             output.WriteLine("  " + Line("rendered", rendered));
             output.WriteLine("  " + Line("unmeasrd", unmeasured));
             output.WriteLine("  " + Line("master  ", real));
