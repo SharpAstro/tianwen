@@ -252,6 +252,13 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         bool moving;
         using (await _sem.AcquireLockAsync(cancellationToken))
         {
+            // Motion done since the last tick was done at the OLD rates: apply it now, before the rate changes, so the new
+            // rate is never counted over time that passed at the old one.
+            if (Volatile.Read(ref _axisTimer) is not null)
+            {
+                ApplyAxisMotion();
+            }
+
             if (axis is TelescopeAxis.Primary)
             {
                 _primaryAxisRate = rate;
@@ -282,14 +289,20 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         if (!_sem.Wait(0)) return;
         try
         {
-            var seconds = ElapsedSince(ref _axisTick);
-            _ra = ConditionRA(_ra + _primaryAxisRate * seconds * DEG2HOURS);
-            _dec = Math.Clamp(_dec + _secondaryAxisRate * seconds, -90.0, 90.0);
+            ApplyAxisMotion();
         }
         finally
         {
             _sem.Release();
         }
+    }
+
+    /// <summary>Moves both axes by their rates over the time since the last application. The caller holds the lock.</summary>
+    private void ApplyAxisMotion()
+    {
+        var seconds = ElapsedSince(ref _axisTick);
+        _ra = ConditionRA(_ra + _primaryAxisRate * seconds * DEG2HOURS);
+        _dec = Math.Clamp(_dec + _secondaryAxisRate * seconds, -90.0, 90.0);
     }
 
     public IReadOnlyList<TrackingSpeed> TrackingSpeeds { get; } = [TrackingSpeed.Sidereal, TrackingSpeed.Lunar, TrackingSpeed.Solar];
