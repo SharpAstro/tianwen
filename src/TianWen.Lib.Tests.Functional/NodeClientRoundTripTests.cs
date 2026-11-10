@@ -75,7 +75,7 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
         var grant = await NodeAccessForTests.TrustTheTestAsync(_app, TestContext.Current.CancellationToken);
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         _http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", grant.Token);
-        _client = new TianWenNodeClient(_http);
+        _client = NodeTestClients.ClientOf(_http);
     }
 
     /// <summary>The node's data folder, deleted once it has stopped (#1197).</summary>

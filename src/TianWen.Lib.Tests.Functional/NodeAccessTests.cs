@@ -78,7 +78,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         using var stranger = Stranger();
-        var client = new TianWenNodeClient(stranger);
+        var client = NodeTestClients.ClientOf(stranger);
 
         var node = await client.GetNodeAsync(ct);
         node.IsSuccess.ShouldBeTrue("a read needs nothing");
@@ -97,14 +97,14 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         using var laptopHttp = Stranger();
-        var laptop = new TianWenNodeClient(laptopHttp);
+        var laptop = NodeTestClients.ClientOf(laptopHttp);
 
         var asked = await laptop.RequestControlAsync("Laptop, TianWen", ct);
         asked.IsSuccess.ShouldBeTrue(asked.Error);
         var ticket = asked.Value.ShouldNotBeNull();
 
         using var tabletHttp = Stranger();
-        (await new TianWenNodeClient(tabletHttp).RequestControlAsync("Tablet", ct)).StatusCode
+        (await NodeTestClients.ClientOf(tabletHttp).RequestControlAsync("Tablet", ct)).StatusCode
             .ShouldBe(409, "a person answers one request at a time");
 
         (await laptop.PollControlRequestAsync(ticket, ct)).Value.ShouldNotBeNull().State.ShouldBe(ControlRequestState.Pending);
@@ -124,7 +124,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 
         var grant = new NodeGrant(token);
         using var grantedHttp = NodeTransport.OverTcp(_harness.Transport.BaseAddress, grant).CreateHttpClient();
-        (await new TianWenNodeClient(grantedHttp).GetNodeAsync(ct)).Value.ShouldNotBeNull().CallerMayCommand.ShouldBeTrue();
+        (await NodeTestClients.ClientOf(grantedHttp).GetNodeAsync(ct)).Value.ShouldNotBeNull().CallerMayCommand.ShouldBeTrue();
         (await Owner.GetAccessAsync(ct)).Value.ShouldNotBeNull().Grants.ShouldContain(held => held.Label == "Laptop, TianWen");
     }
 
@@ -133,7 +133,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         using var laptopHttp = Stranger();
-        var laptop = new TianWenNodeClient(laptopHttp);
+        var laptop = NodeTestClients.ClientOf(laptopHttp);
         var ticket = (await laptop.RequestControlAsync("Laptop", ct)).Value.ShouldNotBeNull();
 
         (await Owner.AnswerControlRequestAsync(ticket.Id, allow: false, ct)).IsSuccess.ShouldBeTrue();
@@ -150,7 +150,7 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         var issued = await Access.GrantAsync("Laptop", ct);
         using var laptopHttp = NodeTransport.OverTcp(_harness.Transport.BaseAddress, new NodeGrant(issued.Token)).CreateHttpClient();
-        var laptop = new TianWenNodeClient(laptopHttp);
+        var laptop = NodeTestClients.ClientOf(laptopHttp);
         (await laptop.AbortSessionAsync(ct)).StatusCode.ShouldNotBe(401);
 
         (await Owner.RevokeGrantAsync(issued.Grant.Id, ct)).IsSuccess.ShouldBeTrue();
@@ -264,8 +264,8 @@ public class NodeAccessTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         using var stranger = Stranger();
 
-        (await new TianWenNodeClient(stranger).GetAccessAsync(ct)).StatusCode.ShouldBe(401);
-        (await new TianWenNodeClient(stranger).SetShareAsync(true, ct)).StatusCode.ShouldBe(401, "a stranger cannot put the rig on the LAN");
+        (await NodeTestClients.ClientOf(stranger).GetAccessAsync(ct)).StatusCode.ShouldBe(401);
+        (await NodeTestClients.ClientOf(stranger).SetShareAsync(true, ct)).StatusCode.ShouldBe(401, "a stranger cannot put the rig on the LAN");
         (await Owner.GetAccessAsync(ct)).IsSuccess.ShouldBeTrue();
     }
 

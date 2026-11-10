@@ -75,9 +75,9 @@ public class MirrorParityTests(ITestOutputHelper output)
         await using var node = await NodeHarness.StartAsync(output, ct,
             services => services.AddSingleton<ISessionFactory>(new OneSessionFactory(ctx.Session)));
 
-        using var http = node.Transport.CreateHttpClient();
+        using var http = NodeTestClients.Create(node.Transport);
         await using var events = node.Transport.CreateEventStream(SystemTimeProvider.Instance, FakeExternal.CreateLogger(output));
-        await using var mirror = new RemoteSessionMirror(new TianWenNodeClient(http), events, SystemTimeProvider.Instance,
+        await using var mirror = new RemoteSessionMirror(NodeTestClients.ClientOf(http), events, SystemTimeProvider.Instance,
             FakeExternal.CreateLogger(output))
         {
             // What the GUI asks of the rig on screen: its frames, the guider's included.
