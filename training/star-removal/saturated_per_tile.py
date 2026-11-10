@@ -2,10 +2,15 @@
 
 Real: the plate catalogue's subtracted saturated stars per 256x256 of frame area (the frame's NAXIS1 x NAXIS2; the canvas ring
 is counted as area, so the real density reads a few per cent low). Drawn: per tile, the injected stars with Saturated true and
-Lobe false (injections.jsonl, one streaming pass). Prints per session and the pooled ratio drawn / real.
+Lobe false whose centre lies INSIDE the 256 px tile (injections.jsonl, one pass). A cell is drawn with a margin about it, so
+a row also lists stars centred outside the tile; counting them read R3r's export 13 % high and failed its Q1 for nothing.
+Each row is parsed as JSON, so a session id the writer escapes (a '+' arrives as \\u002B) matches its line in sessions.txt;
+a raw string match skipped two sessions. Prints per session and the pooled ratio drawn / real.
 usage: python -I saturated_per_tile.py <injections.jsonl> <bake> <sessions.txt>
 """
-import re, sys, os, statistics
+import json, sys, os, statistics
+
+TILE = 256
 
 inj, bake, sessions_txt = sys.argv[1:4]
 sessions = [s.strip() for s in open(sessions_txt, encoding='utf-8') if s.strip()]
@@ -34,15 +39,14 @@ def real_density(sid):
                 n += 1
     return n * 256 * 256 / (w * h), n
 
-sat = re.compile(r'"Saturated":true,"ClipLevel":\[[^\]]*\],"Lobe":false')
 drawn = {}
 with open(inj, encoding='utf-8') as f:
     for line in f:
-        i = line.find('"SessionId":"')
-        sid = line[i + 13:line.index('"', i + 13)]
-        c = drawn.setdefault(sid, [0, 0])
+        row = json.loads(line)
+        c = drawn.setdefault(row['SessionId'], [0, 0])
         c[0] += 1
-        c[1] += len(sat.findall(line))
+        c[1] += sum(1 for s in row['Stars']
+                    if s['Saturated'] and not s['Lobe'] and 0 <= s['X'] < TILE and 0 <= s['Y'] < TILE)
 
 rows = []
 for sid in sessions:

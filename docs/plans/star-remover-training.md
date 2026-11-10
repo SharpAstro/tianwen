@@ -5076,6 +5076,17 @@ and `real_star_check3.py --sessions` on both ring variants.
   cells and nebula as halo; M42's 100-1000 sigma band gains little, those stars being mostly unsaturated, which this arm
   does not touch. If M42 is the only miss, the next arm is the unsaturated bright class measured the same way.
 
+**R3r's Q1, read 2026-11-11: holds, once the counter counted the tile.** As first run, `saturated_per_tile.py` read 1.27
+pooled (1.31 per session at the median) and R3r was briefly stopped as killed. The counter was wrong in two ways:
+- **It counted the margin.** A cell is drawn with about 8 px of margin about it, and a row lists the stars centred there
+  too, which is 13 % more area than the tile.
+- **It matched session ids as raw text.** It skipped the two sessions whose ids the writer escapes (a '+' as `+`).
+
+Counting only stars centred inside the tile, over all 138 sessions, Q1 reads **1.12 pooled and 1.15 at the median**,
+inside the bar, which did not move. What is left of the excess is mostly the recipe's own `--saturated-fraction` 0.25
+extra star, which R3l drew too. The rest is the frame's saturated share applied to steered cells that hold a lower share
+than the frame: 1.15 in the same cells. Training was never interrupted, and Q2 to Q4 are read as pre-registered.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
