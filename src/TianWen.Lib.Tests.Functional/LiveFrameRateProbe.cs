@@ -43,8 +43,8 @@ public class LiveFrameRateProbe(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
 
         var transport = NodeTransport.OverSocket(socket);
-        using var http = transport.CreateHttpClient();
-        var client = new TianWenNodeClient(http);
+        using var http = NodeTestClients.Create(transport);
+        var client = NodeTestClients.ClientOf(http);
         await using var window = NodeWindow.Open(transport, output, ct);
         await window.UntilConnectedAsync(ct);
 
