@@ -5107,8 +5107,19 @@ where the bar was 8 on both. The predictions on SMC (gone) and M42 (little gain)
 not less: check 3's pooled saturated "ring dug" is 54.5 % own and 63.5 % input ring (R3l 21 to 30 % and 56 to 57 %), and on
 the truth tiles saturated stars are 53.6 % clean and 35.1 % dug (R3l s0 60.8 % and 24.2 %). The 100-1000 sigma band's
 dug share on the truth tiles rose 1.4 points with it. The M31 nucleus was kept at 36 to 38 % (R3l 2 to 16 %, R3q 77 to
-83 %). So the measured halo is drawn larger, or brighter, than the light the masters' saturated stars hold where check 3
-reads them; that is a hypothesis, untested, and the next step is to measure it before another arm.
+83 %). The first hypothesis, that the measured halo is drawn larger or brighter than the masters' stars hold, was then
+measured and is wrong:
+- **The dig is in the core, not the halo.** Per channel, output less reference in sigma, median over saturated stars:
+  within 4.5 px R3r reads -0.92 / -1.19 / -0.75 on the real masters (reference: the input's 19-22 px plane), against R3l s0's
+  -0.78 / -1.04 / -0.51 and SXT's -0.86 / -0.88 / -0.34; at 6-12 px the three agree within 0.1. On the truth tiles
+  (reference: the truth) R3r reads 0.00 / -0.19 / -0.19 in the core against R3l s0's -0.01 / -0.20 / -0.11, the halo
+  -0.02 to -0.04 for both. So R3r takes a fifth of a sigma more under a saturated core, most in blue.
+- **The plates are not dug under the saturated stars the measurement reads.** Over 1,914 subtracted saturated stars in 24
+  training plates (2026-10-12 bake), the plate's core within 4.5 px stands +0.09 / +0.15 / +0.05 sigma over its 19-22 px
+  ring, 6-12 px +0.04 / +0.05 / +0.03: a measured star carries slightly less light than the master, not more.
+
+Neither explains a core dig, which is under a clipped plateau, where the output can only guess the sky. What the saturated
+cells teach about the sky under a clipped core is the next thing to read, in the injector's code before any measurement.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
