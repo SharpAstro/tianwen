@@ -455,7 +455,9 @@ namespace TianWen.AI.Imaging
         /// <param name="SaturatedMeasured">Stars mode: every saturated star is drawn as its master shows it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.MeasureSaturated"/>): at the amplitude matching its own light
         /// 3 to 5 px out, with its own radial residual to 30 px as its halo, in place of the catalogued wing-fit amplitude the clip
-        /// inflates. Recorded per star as its <c>OuterHalo</c> rows. Draws no random number.</param>
+        /// inflates, on the round profile it was measured against (no option that shapes the cell's stars moves a measured one, since
+        /// its halo is the residual against that profile alone) and clipped only in the channels its own light says it clipped.
+        /// Recorded per star as its <c>OuterHalo</c> rows. Draws no random number.</param>
         /// <param name="OuterHaloPath">Stars mode (#1870): a <c>halo-profiles.json</c> (training/star-removal/domain/halo_profile.py); every
         /// injected star is drawn with a second, wide, faint Moffat under its profile
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>), fitted in C# per rig (the master's camera) to that file's LINEAR

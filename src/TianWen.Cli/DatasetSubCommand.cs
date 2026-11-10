@@ -1894,7 +1894,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Description = "--mode stars: draw every saturated star as its master shows it: at the amplitude matching its own light 3 to 5 px " +
                           "out (a clipped star's catalogued amplitude is a wing fit the clip inflates) with its own radial residual to 30 px " +
-                          "as its halo. Off by default.",
+                          "as its halo, on the round profile it was measured against and clipped only in the channels its own light says " +
+                          "it clipped. A measured star keeps that shape whatever the cell's other star options ask (--star-beta, " +
+                          "--star-beta-draw, --chromatic-width, --star-shapes, the wing clamp): they move the other stars. Off by default.",
         };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
         {
@@ -2130,6 +2132,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(saturatedOwnShareOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
             {
                 consoleHost.WriteError("--saturated-own-share draws injected stars; it needs --mode stars");
+                return 1;
+            }
+            if (parseResult.GetValue(saturatedMeasuredOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--saturated-measured draws injected stars; it needs --mode stars");
                 return 1;
             }
             var channelWingCut = parseResult.GetValue(channelWingCutOpt);

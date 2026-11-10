@@ -143,13 +143,13 @@ public sealed class MeasuredSaturatedRenderProbe(ITestOutputHelper output)
                 if (InjectionPopulation.MeasureSaturated(planesAll, master.Width, master.Height, s.X, s.Y, 1.0 / divisor, drawnProfiles, clips) is { } m)
                 {
                     var star = new InjectedStar(half + (s.X - ix), half + (s.Y - iy), m.Amplitudes,
-                        [.. drawnProfiles.Select((p, c) => p with { Outer = m.Halo[c] })], true, clips);
+                        [.. drawnProfiles.Select((p, c) => p with { Outer = m.Halo[c] })], true, m.Clips);
                     var render = StarInjection.Render(empty, size, size, null, [star], [.. Enumerable.Repeat(1e-9, channels)], new Random(1));
                     var r = Rings(render.Planes[Math.Min(1, channels - 1)], size, star.X, star.Y);
                     pairs.Add([.. r.Zip(source, (a, b) => a / b)]);
                     pairedRendered.Add(r);
                     pairAmp.Add(m.Amplitudes[Math.Min(1, channels - 1)]);
-                    pairClip.Add(clips[Math.Min(1, channels - 1)]);
+                    pairClip.Add(m.Clips[Math.Min(1, channels - 1)]);
                 }
             }
             output.WriteLine($"  pairs n={pairs.Count}  rendered/own at 5, 8, 12 px: {Med(pairs.Select(p => p[0])):F3} {Med(pairs.Select(p => p[1])):F3} {Med(pairs.Select(p => p[2])):F3}");
