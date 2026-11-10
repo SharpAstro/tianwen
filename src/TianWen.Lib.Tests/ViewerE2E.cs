@@ -13,6 +13,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using TianWen.Lib.Devices;
+using Xunit;
 
 namespace TianWen.Lib.Tests;
 
