@@ -31,4 +31,10 @@
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
   </ItemGroup>
 
+
+  <!-- The temp redirect (#2083): the module initializer is linked in, the logic and the fixture that ends the run come from TianWen.Lib.Tests. -->
+  <ItemGroup>
+    <Compile Include="..\TianWen.Lib.Tests\TestRunTempInit.cs" Link="TestRunTempInit.cs" />
+  </ItemGroup>
+
 </Project>
