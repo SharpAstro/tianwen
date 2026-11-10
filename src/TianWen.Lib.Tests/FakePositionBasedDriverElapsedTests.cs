@@ -182,6 +182,25 @@ public class FakePositionBasedDriverElapsedTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task AStaleCallbackOfAReplacedMoveNeitherStepsNorEndsTheNewerMove()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new HandClock();
+        var (focuser, start) = await FocuserAsync(clock, ct);
+
+        await focuser.BeginMoveAsync(start + 2, ct);
+        await focuser.BeginMoveAsync(start + 100, ct);
+        clock.Timers.Count.ShouldBe(2);
+
+        // The first move's callback was already queued when its timer was replaced; it owes 2 steps, which would end ITS move.
+        clock.Advance(TimeSpan.FromSeconds(1));
+        clock.Timers[0].FireEvenIfDisposed();
+
+        (await focuser.GetPositionAsync(ct)).ShouldBe(start, "the stale callback moves nothing");
+        (await focuser.GetIsMovingAsync(ct)).ShouldBeTrue("and does not end the newer move");
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task ANewMoveCountsItsTimeFromItsOwnStart()
     {
         var ct = TestContext.Current.CancellationToken;

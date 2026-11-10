@@ -31,6 +31,7 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
     protected volatile bool _isMoving;
 
     private ITimer? _movingTimer;
+    private MovingState? _currentMove;
 
     /// <summary>
     /// Sets position (absolute)
@@ -47,6 +48,7 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
             _isMoving = true;
 
             var state = new MovingState(position, TimeProvider.GetTimestamp());
+            Volatile.Write(ref _currentMove, state);
 
             var movingTimer = TimeProvider.CreateTimer(MovingTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
@@ -67,8 +69,9 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
 
     private void MovingTimerCallback(object? state)
     {
-        // A Halt clears _isMoving and disposes the timer, but a callback already on its way still gets here.
-        if (state is not MovingState move || !_isMoving)
+        // A Halt clears _isMoving and disposes the timer, but a callback already on its way still gets here. So does one
+        // of a move a newer move replaced: it must not step or end the newer move, which has a timer and clock of its own.
+        if (state is not MovingState move || !_isMoving || !ReferenceEquals(Volatile.Read(ref _currentMove), move))
         {
             return;
         }
@@ -82,7 +85,8 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
 
         if (steps > 0 && Interlocked.CompareExchange(ref _position, nextPosition, currentPosition) != currentPosition)
         {
-            // Something else moved the position under this callback; the next one takes the move up from where it now is.
+            // Not reachable from a move's own callbacks (one timer per move, and a callback of a replaced move returns above);
+            // only a subclass writing _position directly gets here. The next callback takes the move up from where it now is.
             return;
         }
 
