@@ -5087,6 +5087,29 @@ inside the bar, which did not move. What is left of the excess is mostly the rec
 extra star, which R3l drew too. The rest is the frame's saturated share applied to steered cells that hold a lower share
 than the frame: 1.15 in the same cells. Training was never interrupted, and Q2 to Q4 are read as pre-registered.
 
+**R3r, read 2026-11-11: fails its bars.** Trained to step 174,500 (best held-out 6.95e-6 at 150,500, converged after
+the last halving). Against R3l s0 / s1, check 3 on its own ring and on the input's ring:
+
+| bar | R3r own / input ring | R3l s0 / s1 own (input ring) | verdict |
+|---|---|---|---|
+| Q2 HIP 80609 saturated >= 80 on both | 72.7 / 54.5 | 63.6 / 68.2 (63.6 / 63.6) | missed |
+| Q2 M42 100-1000 sigma >= 50 | 43.4 / 40.4 | 27.2 / 39.0 | missed, though the best yet |
+| Q2 Lobster every band within 3 of s0 | saturated 94.8 / 84.5 | 100 / 94.8 (94.8 / 94.8) | missed: 3 of 58 stars, and 10 points on the input ring |
+| Q2 SMC 20-100, 100-1000 not 5 below s1 | 97.7, 86.4 / 98.3, 93.2 | s1 89.8, 84.7 | held: the regression is gone |
+| Q3 truth tiles 20-100 >= 72, 100-1000 >= 54 | 72.6, 52.8 | 73.3, 54.5 | 100-1000 missed by 1.2 |
+| Q4 Andromeda dark dug <= 47 | 44.2 | 44.8 / 45.3 | held |
+| Q4 Tarantula dark flat >= 69 | 68.7 | 70.3 / 74.4 | missed by 0.3 |
+
+The kill on HIP fires: its saturated stars gain 6.7 points over R3l's mean on the own ring and lose 11.5 on the input's,
+where the bar was 8 on both. The predictions on SMC (gone) and M42 (little gain) held; the one on HIP did not.
+
+**What moved instead is the dig.** More saturated stars in training made the model take MORE light from saturated stars,
+not less: check 3's pooled saturated "ring dug" is 54.5 % own and 63.5 % input ring (R3l 21 to 30 % and 56 to 57 %), and on
+the truth tiles saturated stars are 53.6 % clean and 35.1 % dug (R3l s0 60.8 % and 24.2 %). The 100-1000 sigma band's
+dug share on the truth tiles rose 1.4 points with it. The M31 nucleus was kept at 36 to 38 % (R3l 2 to 16 %, R3q 77 to
+83 %). So the measured halo is drawn larger, or brighter, than the light the masters' saturated stars hold where check 3
+reads them; that is a hypothesis, untested, and the next step is to measure it before another arm.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
