@@ -876,7 +876,6 @@ public sealed class SyntheticBackground
     public float[][] Cell(int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random, out ImmutableArray<Knot> knots,
         bool withKnots = true, int energyInset = 0, bool knotsByArea = false)
     {
-        var knotCells = knotsByArea ? (double)size * size / (KnotCellPx * KnotCellPx) : 1.0;
         var texture = TextureScales(x0, y0, size, random);
         var planes = new float[Channels][];
         for (var c = 0; c < Channels; c++)
@@ -892,10 +891,22 @@ public sealed class SyntheticBackground
             }
             planes[c] = plane;
         }
-        knots = !withKnots ? []
-            : NebulaKnots ? AddNebulaKnots(planes, x0, y0, size, noiseSigma, random, knotCells)
-            : AddKnots(planes, size, noiseSigma, random, knotCells);
+        knots = withKnots ? DrawKnots(planes, x0, y0, size, noiseSigma, random, knotsByArea) : [];
         return planes;
+    }
+
+    /// <summary>
+    /// The knots <see cref="Cell"/> draws into its <paramref name="planes"/> (each <paramref name="size"/> squared, the cut at
+    /// (<paramref name="x0"/>, <paramref name="y0"/>)), added onto what the planes hold: how many, where and how bright, as
+    /// <see cref="Cell"/> asks with the same arguments. Its own seam so a test of the count reads it from planes of zeros, where
+    /// a whole cell's texture took 99 % of the draw and a mean over 360 draws took 33 to 46 s on a CI runner (#2054).
+    /// </summary>
+    internal ImmutableArray<Knot> DrawKnots(float[][] planes, int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random,
+        bool knotsByArea = false)
+    {
+        var knotCells = knotsByArea ? (double)size * size / (KnotCellPx * KnotCellPx) : 1.0;
+        return NebulaKnots ? AddNebulaKnots(planes, x0, y0, size, noiseSigma, random, knotCells)
+            : AddKnots(planes, size, noiseSigma, random, knotCells);
     }
 
     /// <summary>How many times <see cref="DrawnTexture"/> re-reads the drawn texture and corrects its gains.</summary>
