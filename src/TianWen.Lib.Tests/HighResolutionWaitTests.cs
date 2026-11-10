@@ -89,7 +89,7 @@ public class HighResolutionWaitTests
     }
 
     [Fact(Timeout = 30_000)]
-    public async TaskAZeroWaitTakesTheOrdinaryPathAndIsAlreadyOver()
+    public async Task AZeroWaitTakesTheOrdinaryPathAndIsAlreadyOver()
     {
         var (wait, primitive) = SystemTimeProvider.ArmSleep(TimeSpan.Zero, TestContext.Current.CancellationToken);
 
@@ -99,7 +99,7 @@ public class HighResolutionWaitTests
     }
 
     [Fact(Timeout = 30_000)]
-    public async TaskAnInfiniteWaitTakesTheOrdinaryPathAndEndsOnlyWithItsToken()
+    public async Task AnInfiniteWaitTakesTheOrdinaryPathAndEndsOnlyWithItsToken()
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var (wait, primitive) = SystemTimeProvider.ArmSleep(Timeout.InfiniteTimeSpan, cts.Token);
@@ -112,7 +112,7 @@ public class HighResolutionWaitTests
     }
 
     [Fact(Timeout = 30_000)]
-    public async TaskAWaitWhoseTokenIsAlreadyCancelledTakesTheOrdinaryPathAndIsCancelled()
+    public async Task AWaitWhoseTokenIsAlreadyCancelledTakesTheOrdinaryPathAndIsCancelled()
     {
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
@@ -149,7 +149,7 @@ public class HighResolutionWaitTests
     }
 
     [Fact(Timeout = 30_000)]
-    public async TaskAOneShotTimerMadeArmedIsTheHighResolutionOneToo()
+    public async Task AOneShotTimerMadeArmedIsTheHighResolutionOneToo()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the high-resolution waitable timer is Windows'");
         var fired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -162,7 +162,7 @@ public class HighResolutionWaitTests
     }
 
     [Fact(Timeout = 30_000)]
-    public async TaskAOneShotTimerAtPreciseUpToIsTheHighResolutionOneAndOnePastItIsTheInnerProvidersOwn()
+    public async Task AOneShotTimerAtPreciseUpToIsTheHighResolutionOneAndOnePastItIsTheInnerProvidersOwn()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the high-resolution waitable timer is Windows'");
         await using var timer = SystemTimeProvider.Instance.CreateTimer(static _ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
@@ -176,7 +176,7 @@ public class HighResolutionWaitTests
     }
 
     [Fact(Timeout = 30_000)]
-    public async TaskAPeriodicTimerAndADisarmTakeTheInnerProvidersTimer()
+    public async Task APeriodicTimerAndADisarmTakeTheInnerProvidersTimer()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the high-resolution waitable timer is Windows'");
         await using var timer = SystemTimeProvider.Instance.CreateTimer(static _ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
@@ -193,7 +193,7 @@ public class HighResolutionWaitTests
     }
 
     [Fact(Timeout = 30_000)]
-    public async TaskOffWindowsEveryWaitAndEveryTimerTakesTheOrdinaryPath()
+    public async Task OffWindowsEveryWaitAndEveryTimerTakesTheOrdinaryPath()
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "other systems' waits are already fine-grained: this pins that they stay on the BCL's");
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
