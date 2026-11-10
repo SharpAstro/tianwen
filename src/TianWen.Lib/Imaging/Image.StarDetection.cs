@@ -728,8 +728,17 @@ public partial class Image
     /// needs all three; handing them back is what keeps a deblend attempt from re-deriving a
     /// background the measurement has already established. <paramref name="context"/> is meaningful
     /// only when this returns true.
+    /// <para>
+    /// <see cref="SkipLocalsInitAttribute"/>: the detection pass calls this for EVERY pixel over the
+    /// detection level that no star has claimed, millions a pass on a noisy full frame, and most return
+    /// after the annulus. With its locals zeroed, each call cleared the whole 328-float annulus buffer
+    /// (1.3 KB, of which a 14 px box's annulus fills about 91): 35 % of the CPU of a synthetic plate
+    /// solve went to that clearing (dotnet-trace, PlateSolverTests, #2054). Every stackalloc below is
+    /// therefore either written before it is read or cleared where it is declared.
+    /// </para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    [SkipLocalsInit]
     internal bool AnalyseStar(int channel, int x1, int y1, int boxRadius, out ImagedStar star, out StarMeasurementContext context)
     {
         const int maxAnnulusBg = 328; // depends on boxSize <= 50
@@ -762,6 +771,7 @@ public partial class Image
         }
 
         var channelData = Planes[channel].Data;
+        // Not cleared: only the first backgroundIndex entries are read, each written first.
         Span<float> backgroundScratch = stackalloc float[maxAnnulusBg];
         int backgroundIndex = 0;
 
@@ -890,6 +900,7 @@ public partial class Image
 
             // Build signal histogram from center of gravity
             Span<int> distance_histogram = stackalloc int[boxRadius + 1]; // this has a fixed upper bound
+            distance_histogram.Clear(); // counted into, and [SkipLocalsInit] leaves the stack as it was
 
             for (var i = -boxRadius; i <= boxRadius; i++)
             {
@@ -977,9 +988,8 @@ public partial class Image
         // samples and is corner-only, so it is used to interpolate against but never as a result.
         Span<float> profileFlux = stackalloc float[r_aperture + 2];
         Span<float> profileWeight = stackalloc float[r_aperture + 2];
-        // Redundant today (no [SkipLocalsInit] in this assembly, so stackalloc is zeroed) and kept
-        // deliberately: both spans are accumulated into, never fully written, so adding that
-        // attribute for perf later would otherwise start every star from uninitialised stack.
+        // Required: both spans are accumulated into, never fully written, and this method is
+        // [SkipLocalsInit], so without it every star would start from whatever the stack held.
         profileFlux.Clear();
         profileWeight.Clear();
 

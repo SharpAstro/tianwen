@@ -31,7 +31,11 @@ env:
   APP_LFS_INCLUDE: '*.lz,*.ttf,*.bin.gz,*.onnx'
 
 jobs:
-  build:
+  # What every other job starts from: the version and whether the tests run at all. Its own job so that the test jobs
+  # need nothing from build and start beside it (#2054): they waited about 5 min for build to finish, and then built
+  # again themselves, so build's whole length sat on the required path ahead of the 15 min of tests. It costs one short
+  # runner start ahead of build, which is no longer on that path.
+  plan:
     # Every job in this repo is bounded. GitHub's default is SIX HOURS, and that is not a
     # theoretical ceiling: an unreachable apt archive parked a sibling repo's job on it for a whole
     # morning on 2026-08-19, and a hung step gates everything downstream of it while burning runner
@@ -39,16 +43,14 @@ jobs:
     # job over its limit is stuck rather than slow. publish-apps has no measured figure (it only
     # runs on workflow_dispatch and none is recent), so its bound is a guess sized to catch a hang
     # rather than to be tight.
-    timeout-minutes: 20   # healthy 3m18s
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     # Published for the downstream jobs. $GITHUB_ENV is PER-JOB, so the `echo >> $GITHUB_ENV` step
     # that single-job repos use (Lzip.Lib, the reference implementation) would set VERSION_PREFIX
     # for this job only and leave test-unit / test-functional / publish-apps / release with an empty
     # value -- silently malforming `-p:Version=` and tagging a release `v.`. A job output crosses
     # the boundary; each consumer maps it back to the same env name, so no `run:` line changes.
-    # Resolved here rather than in a dedicated `version` job so it costs no extra runner: this job
-    # already checks out and sets up the SDK, and a separate job would serialise its own startup
-    # onto every push and PR.
+    # build passes both on as its own outputs, so the jobs after it read them where they always did.
     outputs:
       version-prefix: ${{ steps.resolve-version.outputs.prefix }}
       tested-on-pr: ${{ steps.tested-on-pr.outputs.tested-on-pr }}
@@ -60,14 +62,9 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-    # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
-    # resources from *.json.lz / *.csv.lz sources, decoding the .lz inputs with
-    # the managed lzip decoder (Lzip.Lib) and writing the .gs.gz output via .NET
-    # GZipStream -- no external `lzip` binary is needed. *.gs.gz is gitignored,
-    # so a fresh checkout regenerates it during build.
     - uses: actions/checkout@v7
       with:
-        submodules: recursive
+        submodules: false
         lfs: false
     # A push to main whose tree a passing PR run already tested skips test-unit and test-functional
     # (#1287). A PR is rebased onto main just before it is pushed, so the tree a rebase merge lands is
@@ -105,6 +102,51 @@ jobs:
         fi
         echo "tested-on-pr=$tested"
         echo "tested-on-pr=$tested" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    # Read the major.minor back from the ONE place it is written (src/Directory.Build.props ->
+    # VersionMajorMinor) instead of restating it in this file. It used to be a literal in the
+    # workflow `env:`, so the number lived in two places and nothing compared them.
+    #
+    # -getProperty only EVALUATES the file: nothing is built and no restore is needed. The value is
+    # CAPTURED from stdout, so nothing else may print to it: DOTNET_NOLOGO (workflow env) keeps the SDK
+    # first-run banner out, and the shape check makes anything unexpected, or a renamed property, FAIL
+    # the run rather than quietly stamping every package and the release tag as ".<run>". Written to
+    # $GITHUB_OUTPUT for the downstream jobs, since $GITHUB_ENV does not cross a job boundary.
+    - name: Resolve version prefix
+      id: resolve-version
+      run: |
+        MM="$(dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor -nologo | tr -d '[:space:]')"
+        case "$MM" in
+          [0-9]*.[0-9]*) ;;
+          *) echo "::error::VersionMajorMinor did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
+        esac
+        echo "prefix=${MM}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        echo "Resolved VERSION_PREFIX=${MM}.${{ github.run_number }}"
+
+  build:
+    timeout-minutes: 20   # healthy 3m18s
+    needs: plan
+    runs-on: ubuntu-latest
+    env:
+      VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
+    # plan's two answers, passed on: publish-nuget, release, gate and the packaging jobs read them here.
+    outputs:
+      version-prefix: ${{ needs.plan.outputs.version-prefix }}
+      tested-on-pr: ${{ needs.plan.outputs.tested-on-pr }}
+    permissions:
+      contents: read
+    steps:
+    # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
+    # resources from *.json.lz / *.csv.lz sources, decoding the .lz inputs with
+    # the managed lzip decoder (Lzip.Lib) and writing the .gs.gz output via .NET
+    # GZipStream -- no external `lzip` binary is needed. *.gs.gz is gitignored,
+    # so a fresh checkout regenerates it during build.
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        lfs: false
     # Narrow LFS pull: build needs catalog .lz (TianWen.Lib EmbeddedResource),
     # milkyway .lz (Gui Content), fonts .ttf (Gui Content), the prebaked
     # snapshot .bin.gz files (TianWen.Lib EmbeddedResource - if missing, the
@@ -126,6 +168,10 @@ jobs:
       with:
         include: ${{ env.APP_LFS_INCLUDE }}
         cache-prefix: lfs-build
+    # PreprocessCatalogs' outputs from a cache keyed on its sources: about 38 s of serial pwsh ahead of TianWen.Lib's
+    # compile otherwise. The action says why an exact key alone is restored.
+    - name: Restore the preprocessed catalogs
+      uses: ./.github/actions/catalog-cache
     # Hand the materialised files to the publish matrix as an artifact so those legs never
     # touch LFS at all. They used to restore the lfs-build- cache this job saves, which a
     # Windows runner cannot read (actions/cache segregates Windows from POSIX entries unless
@@ -166,27 +212,6 @@ jobs:
         # entries. With the LFS budget spent, a job whose LFS cache misses cannot pull and FAILS
         # (#775 did), so those entries are what keeps CI green. A nuget.org restore is free and
         # cannot refuse.
-    # Read the major.minor back from the ONE place it is written (src/Directory.Build.props ->
-    # VersionMajorMinor) instead of restating it in this file. It used to be a literal in the
-    # workflow `env:`, so the number lived in two places and nothing compared them.
-    #
-    # -getProperty only EVALUATES the file: nothing is built and no restore is needed, so this runs
-    # before restore. The value is CAPTURED from stdout, so nothing else may print to it:
-    # DOTNET_NOLOGO (workflow env) keeps the SDK first-run banner out, and the shape check makes
-    # anything unexpected, or a renamed property, FAIL the run rather than quietly stamping every
-    # package and the release tag as ".<run>". Written to BOTH $GITHUB_ENV (for this job's own steps)
-    # and $GITHUB_OUTPUT (for the downstream jobs, since $GITHUB_ENV does not cross a job boundary).
-    - name: Resolve version prefix
-      id: resolve-version
-      run: |
-        MM="$(dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor -nologo | tr -d '[:space:]')"
-        case "$MM" in
-          [0-9]*.[0-9]*) ;;
-          *) echo "::error::VersionMajorMinor did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
-        esac
-        echo "VERSION_PREFIX=${MM}.${{ github.run_number }}" >> "$GITHUB_ENV"
-        echo "prefix=${MM}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-        echo "Resolved VERSION_PREFIX=${MM}.${{ github.run_number }}"
     # The baked icon table is generated from src/TianWen.UI.Abstractions/icons.recipe and committed. The
     # build already warns (TWIC0001) when the recipe is NEWER than the table, but a timestamp only ever
     # catches a forgotten re-bake -- it cannot see a table that was hand-edited, or one committed from a
@@ -266,198 +291,197 @@ jobs:
         dotnet build TianWen.UI.Web.E2E/TianWen.UI.Web.E2E.csproj -c $BUILD_CONF -p:UseLocalSiblings=false -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
 
-  test-unit:
-    # healthy ~6m when the bound was set; 17-24m on ubuntu-latest and 14-18m on arm by #1309-#1317, and the
-    # serial Viewer collection's tail took #1318's x64 leg past 25 with no test stuck
-    timeout-minutes: 60
-    needs: build
-    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr), nor in the
+  # The Linux test projects, BUILT ONCE per runner, as build-windows builds the Windows ones (#2054), and run by every
+  # shard of that runner. Each test job used to build what it tested and then run the whole suite: the x64 unit job
+  # built for 3 to 5 minutes and tested for 21.5 (run 42804689190), and nothing short of sharding could take that under
+  # 10. A shard that built for itself would spend half its 10 minutes compiling, so the shards unpack this job's bin
+  # folders instead. Two legs, a matrix since both finish within seconds of each other: x64 builds the unit, GPU and
+  # functional projects in one job (they share everything but the test assemblies), ARM64 the unit and GPU ones.
+  #
+  # Not build's own build of the test projects, though build compiles them too: round 4's first run (42900071837) took
+  # the x64 shards' bins from build, whose whole-solution compile WITH analyzers (as it must) ran 4m47s and ended 6.3
+  # minutes into the run, where this job's analyzer-free build ended 4 minutes in on ARM64.
+  #
+  # Only the projects tested, never the solution: build compiles the whole solution already. No package either:
+  # TianWen.Lib packs on build, and nothing here uploads it. And no analyzers nor XML documentation, which only report
+  # (build runs both over the same sources on every run, so a warning they raise is still raised). They were half the
+  # compile: a full rebuild of TianWen.Lib.Tests and everything under it took 3m50s with them and 1m55s without, on one
+  # machine back to back (#2054); TianWen.Lib (IsAotCompatible, so the trim and AOT analyzers) and TianWen.Cli (PublishAot)
+  # are the longest projects ahead of every shard. Source generators still run: RunAnalyzers=false makes the compiler skip
+  # the analyzers only (/skipanalyzers), and a missing generator would fail this build.
+  build-linux:
+    timeout-minutes: 15   # 3m36s on ARM64 without analyzers and with the catalogs cached (run 42900071837)
+    needs: plan
+    # Not again on a push to main whose tree its PR's passing run already tested (plan's tested-on-pr), nor in the
     # merge queue, which only builds (see merge_group above).
-    if: needs.build.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     env:
-      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
-    # Matrix on x86_64 + ARM64 so we cover both architectures, plus a third leg for the
-    # DEBUG-gated suites. `fail-fast: false` so a regression on one leg doesn't cancel the others.
-    #
-    # The DEBUG leg is a MATRIX LEG rather than a job of its own, and that is the whole point of
-    # the shape. It used to run inside the Release legs, after their tests, so its Debug compile
-    # plus test run was pure serial tail on the critical path of BOTH architectures. It cannot be
-    # merged into them either, because it needs a different CONFIGURATION of the same sources. A
-    # separate job would have to repeat this job's ~85-line preamble (apt + Vulkan, the narrow LFS
-    # cache and pull, the catalog artifact, restore) -- three copies of a setup that is already the
-    # subtlest part of this file. As a leg it inherits all of that unchanged and simply runs
-    # somewhere else, in parallel, so the wall clock is now max(Release, Debug) instead of the sum.
-    #
-    # One architecture for it, deliberately: the DebugOnly tests are arch-independent and the only
-    # thing the second arch bought was a second Debug COMPILE. That is a thin cover to pay a whole
-    # runner for, and the Release legs still compile on both.
-    #
-    # `name:` is set explicitly, and that is a compatibility requirement rather than cosmetics. A
-    # matrix job's check name is generated from its matrix values, so adding a `config` dimension
-    # would have renamed the two existing checks to "test-unit (ubuntu-latest, Release)" and
-    # "test-unit (ubuntu-24.04-arm, Release)". main is protected by an org-level ruleset, and a
-    # required status check is matched BY NAME: renaming one does not relax the rule, it leaves the
-    # rule waiting forever on a check that no longer reports. Naming the legs from `leg` keeps the
-    # two existing names byte-identical and makes this change purely additive -- the new
-    # "test-unit (debug)" simply is not required until somebody adds it.
+      VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
-            config: Release
-            leg: ubuntu-latest
-          - runner: ubuntu-24.04-arm
-            config: Release
-            leg: ubuntu-24.04-arm
-          - runner: ubuntu-latest
-            config: Debug
-            leg: debug
-    name: test-unit (${{ matrix.leg }})
+          - { runner: ubuntu-latest, projects: 'TianWen.Lib.Tests TianWen.Lib.Tests.Gpu TianWen.Lib.Tests.Functional' }
+          - { runner: ubuntu-24.04-arm, projects: 'TianWen.Lib.Tests TianWen.Lib.Tests.Gpu' }
+    name: build-linux (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     steps:
-    # Checkout comes FIRST: the two setup steps below are composites in this repo, which only
-    # exist once it is on disk.
     - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
-    # Fonts, the lavapipe software-Vulkan stack and lldb (for the "Symbolicate crash dump" step
-    # below). The list and why each package is there: .github/actions/unit-test-deps.
-    - name: Install unit-test system packages
-      uses: ./.github/actions/unit-test-deps
-    # Narrow LFS pull: tests need catalogs (.lz), fonts (.ttf), FITS test
-    # fixtures (.fits.gz) embedded in TianWen.Lib.Tests.dll, and the in-repo AI
-    # model weights (.onnx) so N2nDenoiserTests' cross-language parity test runs
-    # here instead of skipping.
-    #
-    # `*.CR2`/`*.cr2` cover Cr2ImportTests (Data/CR2/*, ~19 MB). `*.CR3`/`*.cr3`
-    # cover Cr3ImportTests (Data/CR3/*, ~7 MB). Both case variants are tracked
-    # in .gitattributes; we only ship uppercase today but the include set is
-    # exhaustive so a future lowercase-named fixture from a Canon body that
-    # emits one doesn't silently skip in CI.
-    #
-    # The prefix is shared with test-functional on purpose: their sets overlap almost
-    # entirely, so either job's saved entry is a near-complete starting point for the other.
+    # Narrow LFS pull: tests need catalogs (.lz), fonts (.ttf), FITS test fixtures (.fits.gz) embedded in
+    # TianWen.Lib.Tests.dll, and the in-repo AI model weights (.onnx) so N2nDenoiserTests' cross-language parity test
+    # runs instead of skipping. `*.CR2`/`*.cr2` cover Cr2ImportTests (Data/CR2/*, ~19 MB), `*.CR3`/`*.cr3`
+    # Cr3ImportTests (Data/CR3/*, ~7 MB); both case variants are tracked in .gitattributes, so a future lowercase
+    # fixture does not silently skip. The prefix is shared by every test job on purpose: their sets overlap almost
+    # entirely, so any one's saved entry is a near-complete starting point for the others (cache mechanics:
+    # .github/actions/lfs-pull).
     - name: Fetch required LFS objects
       uses: ./.github/actions/lfs-pull
       with:
         include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
         cache-prefix: lfs-tests
-    # Pull in the .gs.gz preprocessed catalogs from the build job so the
-    # preprocess-catalog.ps1 script doesn't have to re-run here. Touch them to
-    # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the
-    # PreprocessCatalogs target.
-    - name: Download preprocessed catalogs
-      uses: actions/download-artifact@v8
-      with:
-        name: preprocessed-catalogs
-        path: src/TianWen.Lib/Astrometry/Catalogs/
-    - name: Refresh preprocessed catalog mtimes
-      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+    - name: Restore the preprocessed catalogs
+      uses: ./.github/actions/catalog-cache
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
-      run: dotnet restore -p:Configuration=${{ matrix.config }}
+      run: for p in ${{ matrix.projects }}; do dotnet restore $p -p:Configuration=$BUILD_CONF || exit 1; done
       working-directory: src
     - name: Build
-      id: build
-      # Release legs only. The DEBUG leg builds its own, narrower target below -- it must NOT build
-      # the solution in Debug, because CI resolves siblings as PACKAGES and a published package is
-      # built Release, so the #if DEBUG types the debug-inspector layer consumes are absent from it
-      # (CS0234 on DIR.Lib.Diagnostics and its counterparts). TianWen.Lib.Tests alone does not reach
-      # those projects, which is why the Debug build below is scoped to it.
-      if: matrix.config == 'Release'
-      run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
+      run: |
+        props="-c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false -p:RunAnalyzers=false -p:GenerateDocumentationFile=false"
+        for p in ${{ matrix.projects }}; do dotnet build $p $props || exit 1; done
       working-directory: src
+    # A tar per suite with repo-relative paths, for the reason build's LFS payload gives: upload-artifact roots a path list
+    # at its common ancestor. The shards unpack it over their own checkout, where `dotnet test --no-build` finds it. zstd
+    # on every core, not gzip: the unit build is 475 MB packed, and gzip took 29 s of the job for it (run 42885521250).
+    - name: Pack the test builds
+      run: |
+        tar -I 'zstd -T0 -3' -cf tests-bin-unit.tar.zst src/TianWen.Lib.Tests/bin/$BUILD_CONF src/TianWen.Lib.Tests.Gpu/bin/$BUILD_CONF
+        if [ -d src/TianWen.Lib.Tests.Functional/bin/$BUILD_CONF ]; then
+          tar -I 'zstd -T0 -3' -cf tests-bin-functional.tar.zst src/TianWen.Lib.Tests.Functional/bin/$BUILD_CONF
+        fi
+        du -h tests-bin-*.tar.zst
+    - name: Upload the unit test build
+      uses: actions/upload-artifact@v7
+      with:
+        name: tests-bin-${{ matrix.runner }}-unit
+        path: tests-bin-unit.tar.zst
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+    - name: Upload the functional test build
+      if: matrix.runner == 'ubuntu-latest'
+      uses: actions/upload-artifact@v7
+      with:
+        name: tests-bin-ubuntu-latest-functional
+        path: tests-bin-functional.tar.zst
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+
+  # The unit suite on Linux, x86_64 and ARM64, sharded by class so each job stays under 10 minutes (#2054):
+  # .github/test-shards.json says which classes each shard takes, the same split as test-windows', and its last shard
+  # takes everything the others did not, so a new class always runs. The matrix's `of` must agree with that file or the
+  # test step fails. `fail-fast: false` so a regression on one shard does not cancel the others. The GPU suite runs on
+  # the last shard of each architecture, after its unit tests.
+  #
+  # The job names changed with the sharding ("test-unit (ubuntu-latest 1/4)"); that is safe because the ONE check
+  # main's ruleset requires is gate, and a required check is matched by name. Four shards, not round 3's five, once the
+  # slow tests' causes were cut and the shards balanced by their longest chain (test-shards.json says how): fewer jobs
+  # against the org's 20 at once, which is what kept round 3's shards waiting for a runner.
+  test-unit:
+    timeout-minutes: 15   # each shard is meant to stay under 10 minutes
+    needs: [plan, build-linux]
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ ubuntu-latest, ubuntu-24.04-arm ]
+        shard: [ 1, 2, 3, 4 ]
+        of: [ 4 ]
+    name: test-unit (${{ matrix.runner }} ${{ matrix.shard }}/${{ matrix.of }})
+    runs-on: ${{ matrix.runner }}
+    steps:
+    # Checkout comes FIRST: the two setup steps below are composites in this repo, which only exist once it is on disk.
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        lfs: false
+    # Fonts, the lavapipe software-Vulkan stack and lldb (for the "Symbolicate crash dump" step below). The list and
+    # why each package is there: .github/actions/unit-test-deps.
+    - name: Install unit-test system packages
+      uses: ./.github/actions/unit-test-deps
+    # build-linux's set, which is what the build embedded or copied (see there).
+    - name: Fetch required LFS objects
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+        cache-prefix: lfs-tests
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    - name: Restore dependencies
+      run: |
+        dotnet restore TianWen.Lib.Tests -p:Configuration=$BUILD_CONF
+        dotnet restore TianWen.Lib.Tests.Gpu -p:Configuration=$BUILD_CONF
+      working-directory: src
+    - name: Download the build
+      uses: actions/download-artifact@v8
+      with:
+        name: tests-bin-${{ matrix.runner }}-unit
+    - name: Unpack the build
+      run: tar -I zstd -xf tests-bin-unit.tar.zst && rm tests-bin-unit.tar.zst
     - name: Unit Tests
-      if: matrix.config == 'Release'
-      # --output Detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
-      # not just Fail, which is useful for the GPU comp tests' diagnostic dumps.
+      # --output Detailed surfaces ITestOutputHelper messages for Skip+Pass tests too, not just Fail, and prints each
+      # test's time, which is what tools/ci-test-timings.py reads.
       #
-      # --crashdump + --hangdump + --crash-sequence capture a <app>_<hash>_crash.sequence.log
-      # (tab separated STARTED / ENDED lines, written AS THE RUN GOES, so a hang leaves one
-      # too) and a *.dmp under test-results/. They are the
-      # Microsoft.Testing.Platform equivalents of VSTest's --blame-crash / --blame-hang,
-      # and they come from the CrashDump / HangDump extension packages TianWen.Lib.Tests
-      # references: on MTP the --blame-* flags do not exist at all, so a stale copy of
-      # this line fails the step with 'Unknown option' rather than quietly collecting less.
-      # The hang timeout fires when a single test stalls > 5 min, which catches
-      # the "tests finished but the test process lingered then crashed" pattern we saw
-      # on the ubuntu-24.04-arm runner in run 26022912901 (70 s of silence after
-      # the last test before SIGSEGV).
+      # --crashdump + --hangdump + --crash-sequence capture a <app>_<hash>_crash.sequence.log (tab separated STARTED /
+      # ENDED lines, written AS THE RUN GOES, so a hang leaves one too) and a *.dmp under test-results/: the
+      # Microsoft.Testing.Platform equivalents of VSTest's --blame-crash / --blame-hang (on MTP the --blame-* flags do
+      # not exist, so a stale copy fails with 'Unknown option'). The hang timeout fires when a single test stalls
+      # > 5 min, which catches the "tests finished but the process lingered then crashed" pattern of run 26022912901 on
+      # the arm runner. DOTNET_DbgEnableMiniDump is belt-and-suspenders: the runtime writes its own minidump on any
+      # fatal event, not just the crash the platform detects (Type 2 = heap + threads).
       #
-      # DOTNET_DbgEnableMiniDump is belt-and-suspenders: the runtime writes its
-      # own minidump on any unhandled .NET exception or fatal-runtime event,
-      # not just on the test-process crash the platform detects. Type=2 = "Heap"
-      # (managed heap + all threads, no full process memory). Path templated
-      # so multiple dumps don't overwrite each other.
-      #
-      # --filter "Category!=Heavy" leaves the tests that take 30 s or more on this runner to the nightly
-      # heavy-tests.yml (the owner, 2026-10-10): 28 of them were 46 % of the suite's summed time and held the
-      # x64 leg at 21 to 28 minutes. A test is tagged by MEASUREMENT on a green x64 run, never by guess.
+      # The shard's filter carries "Category!=Heavy" (test-shards.json): the tests that take 30 s or more on this
+      # runner are heavy-tests.yml's, nightly (the owner, 2026-10-10). A test is tagged by MEASUREMENT on a green x64
+      # run, never by guess. The platform exits 8 when a shard ran no test, so an empty shard fails.
       env:
         DOTNET_DbgEnableMiniDump: "1"
         DOTNET_DbgMiniDumpType: "2"
         DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
-      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --filter "Category!=Heavy" --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results/
+      shell: pwsh
+      run: |
+        $filter = & ../.github/scripts/test-shard-filter.ps1 -Project TianWen.Lib.Tests -Shard ${{ matrix.shard }} -Of ${{ matrix.of }}
+        "filter: $filter"
+        dotnet test TianWen.Lib.Tests -c $env:BUILD_CONF --no-build --filter $filter --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results/
+        exit $LASTEXITCODE
       working-directory: src
     - name: GPU Tests
       # Every test that drives a real GPU (here lavapipe), in a process of its own (#1634): a fault inside a GPU driver
       # cannot be caught in .NET and ends the process it happens in, so it ends this step, never the unit suite. For the
-      # same reason it runs whatever the unit tests did, on any build that succeeded. No Heavy filter: nothing here is
-      # Heavy, and heavy-tests.yml does not run this project, so a filter would drop such a test from every run.
-      if: ${{ !cancelled() && matrix.config == 'Release' && steps.build.outcome == 'success' }}
+      # same reason it runs whatever the unit tests did. No Heavy filter: nothing here is Heavy, and heavy-tests.yml
+      # does not run this project, so a filter would drop such a test from every run.
+      if: ${{ !cancelled() && matrix.shard == matrix.of }}
       env:
         DOTNET_DbgEnableMiniDump: "1"
         DOTNET_DbgMiniDumpType: "2"
         DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
       run: dotnet test TianWen.Lib.Tests.Gpu -c $BUILD_CONF --no-build --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results-gpu/
       working-directory: src
-    # ---------------------------------------------------------------------------------------
-    # DEBUG leg. Some instrumentation is compiled out of Release, so the Release run above
-    # SKIPS the tests that cover it and is no cover at all. ChannelBufferLeakTracker (P2 of
-    # docs/plans/frame-lifecycle.md) is the first of these: its tests open with
-    # Assert.SkipUnless(ChannelBufferLeakTracker.IsActive), which is the honest report for a
-    # Release run but would otherwise leave the feature verified nowhere.
-    #
-    # Selected by TRAIT, never by a list of class names, so a future DEBUG-gated suite is
-    # picked up by adding [Trait("Category", "DebugOnly")] and nothing here has to be
-    # remembered. It is its own matrix leg (see the strategy block), so it no longer runs as
-    # a serial tail on the Release legs' critical path.
-    - name: Build (Debug, for the DEBUG-gated suites)
-      if: matrix.config == 'Debug'
-      # Same version properties as the Release build above, and GeneratePackageOnBuild off:
-      # TianWen.Lib packs on build, and a Debug pack would drop a second .nupkg beside the
-      # Release one. Harmless in this job (publish runs elsewhere and globs its own runner)
-      # but it costs time and it is the exact shape that has bitten sibling repos.
-      run: dotnet build TianWen.Lib.Tests -c Debug --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false
-      working-directory: src
-    - name: Unit Tests (DEBUG-gated instrumentation)
-      if: matrix.config == 'Debug'
-      # The guard is not optional: a renamed or mistyped trait would otherwise turn this
-      # whole leg into a green no-op -- the same vacuous pass the SkipUnless above exists
-      # to prevent, one level up. --minimum-expected-tests is the platform's OWN enforcement
-      # of that rule (exit code 8 when fewer ran), so the count is no longer read back out
-      # of the TRX by hand. The TRX is still written, for the failure artifact.
-      run: |
-        dotnet test TianWen.Lib.Tests -c Debug --no-build --filter "Category=DebugOnly" \
-          --output Detailed --report-trx --report-trx-filename debug-only.trx \
-          --minimum-expected-tests 1 \
-          --results-directory test-results-debug/
-      working-directory: src
     # A green run leaves nothing under the tests' temp folder (#2035): a test removes its own output when it ends, so this
     # lists what is still there and fails naming it. After the last test step, on success only (default `if`).
     - name: No test temp output left behind
       uses: ./.github/actions/test-temp-leftovers
-    # On a native test-process crash (SIGSEGV -> exit 139), symbolicate the runtime minidump HERE, on
-    # the same runner, while the crashed process's shared libraries are still on disk -- lldb reads
-    # the minidump's module list and loads those .so from their recorded paths, so the backtrace
-    # names the culprit (e.g. the lavapipe software-Vulkan .so) directly in this run's log. The
-    # offline analyze-crash-dump workflow only gets bare addresses (its runner lacks the .so).
-    # Best-effort + capped: never let analysis failure mask the real test failure.
+    # On a native test-process crash (SIGSEGV -> exit 139), symbolicate the runtime minidump HERE, on the same runner,
+    # while the crashed process's shared libraries are still on disk: lldb loads those .so from their recorded paths, so
+    # the backtrace names the culprit (e.g. the lavapipe .so) in this run's log. The offline analyze-crash-dump workflow
+    # only gets bare addresses. Best-effort + capped: never let analysis failure mask the real test failure.
     - name: Symbolicate crash dump (native stacks)
       if: failure()
       run: |
@@ -476,53 +500,111 @@ jobs:
             -o "quit" 2>&1 | head -c 500000
           echo "(lldb exit $?)"
         done
-    # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
-    # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
-    # can be diagnosed without re-running CI to add diagnostics.
+    # Test temp output (cpu.tiff / gpu.tiff / diff.tiff) of GpuStretchPipelineTests on a failure, so a CPU/GPU divergence
+    # can be diagnosed without a re-run. A test's output folder is <name>_<random> and is removed when the test ends
+    # (#2035), so this finds files only where a run set TIANWEN_KEEP_TEST_OUTPUT=1.
     - name: Upload GPU stretch test output on failure
       if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: gpu-stretch-test-output-${{ matrix.leg }}
-        # Narrow to just the GpuStretchPipelineTests subdirs -- /tmp/TianWen.Lib.Tests/
-        # aggregates outputs from every test in the suite (>2 GB on a full failure run);
-        # this slice is ~15 MB (cpu.tiff + gpu.tiff + diff.tiff per case). A test's output folder is
-        # <name>_<random> and is removed when the test ends (#2035), so this finds files only where a
-        # run set TIANWEN_KEEP_TEST_OUTPUT=1.
+        name: gpu-stretch-test-output-${{ matrix.runner }}-${{ matrix.shard }}
         path: /tmp/TianWen.Lib.Tests/*/GpuStretchPipelineTests_*/
         if-no-files-found: ignore
         retention-days: 7
-    # Upload --crashdump / --hangdump artifacts + runtime minidumps so
-    # a SIGSEGV / hang in the test process can be diagnosed without re-running.
-    # The *_crash.sequence.log inside test-results/ names the tests that were
-    # running when it died (STARTED with no ENDED); the *.dmp files (test
-    # process + runtime) are loadable
-    # in `dotnet-dump analyze` or lldb.
+    # The --crashdump / --hangdump artifacts and runtime minidumps: the *_crash.sequence.log names the tests that were
+    # running when it died (STARTED with no ENDED); the *.dmp files load in `dotnet-dump analyze` or lldb.
     - name: Upload test-blame + crash dumps on failure
       if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: test-blame-${{ matrix.leg }}
+        name: test-blame-${{ matrix.runner }}-${{ matrix.shard }}
         path: |
           src/test-results/
           src/test-results-gpu/
-          src/test-results-debug/
           /tmp/coredump-*.dmp
         if-no-files-found: ignore
         retention-days: 14
 
-  test-functional:
-    timeout-minutes: 20   # healthy 13 to 14 min on main and other flights (a run that held every test apart took 19.8 min, #2000)
-    needs: build
-    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr), nor in the
-    # merge queue, which only builds (see merge_group above).
-    if: needs.build.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
-    runs-on: ubuntu-latest
+  # DEBUG-gated suites. Some instrumentation is compiled out of Release, so the Release shards SKIP the tests that cover
+  # it and are no cover at all. ChannelBufferLeakTracker (P2 of docs/plans/frame-lifecycle.md) is the first of these: its
+  # tests open with Assert.SkipUnless(ChannelBufferLeakTracker.IsActive), which is the honest report for a Release run but
+  # would otherwise leave the feature verified nowhere. Selected by TRAIT, never by a list of class names, so a future
+  # DEBUG-gated suite is picked up by adding [Trait("Category", "DebugOnly")].
+  #
+  # Its own job, beside build-linux rather than after it, since it needs a different CONFIGURATION of the same sources
+  # and builds it itself (4 to 5 min). One architecture, deliberately: the DebugOnly tests are arch-independent. It
+  # builds TianWen.Lib.Tests alone, never the solution in Debug: CI resolves siblings as PACKAGES, a published package
+  # is built Release, so the #if DEBUG types the debug-inspector layer consumes are absent from it (CS0234 on
+  # DIR.Lib.Diagnostics and its counterparts). The name is the leg's old one.
+  test-unit-debug:
+    timeout-minutes: 15   # 4 to 6 min
+    needs: plan
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     env:
-      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
+      VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
+    name: test-unit (debug)
+    runs-on: ubuntu-latest
     steps:
-    # astrometry-data-2mass-08-19 alone is ~1 GB. Caching saves ~30-60s and a
-    # fair chunk of network on every run.
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        lfs: false
+    - name: Install unit-test system packages
+      uses: ./.github/actions/unit-test-deps
+    - name: Fetch required LFS objects
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+        cache-prefix: lfs-tests
+    - name: Restore the preprocessed catalogs
+      uses: ./.github/actions/catalog-cache
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    - name: Restore dependencies
+      run: dotnet restore TianWen.Lib.Tests -p:Configuration=Debug
+      working-directory: src
+    # Same version properties as the Release builds, and GeneratePackageOnBuild off: TianWen.Lib packs on build, and a
+    # Debug pack would drop a second .nupkg beside the Release one (the shape that has bitten sibling repos). No analyzers
+    # nor documentation, for build-linux's reason.
+    - name: Build (Debug, for the DEBUG-gated suites)
+      run: dotnet build TianWen.Lib.Tests -c Debug --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false -p:RunAnalyzers=false -p:GenerateDocumentationFile=false
+      working-directory: src
+    # The guard is not optional: a renamed or mistyped trait would otherwise turn this job into a green no-op, the same
+    # vacuous pass the SkipUnless exists to prevent, one level up. --minimum-expected-tests is the platform's own
+    # enforcement (exit code 8 when fewer ran). The TRX is written for the failure artifact.
+    - name: Unit Tests (DEBUG-gated instrumentation)
+      run: |
+        dotnet test TianWen.Lib.Tests -c Debug --no-build --filter "Category=DebugOnly" \
+          --output Detailed --report-trx --report-trx-filename debug-only.trx \
+          --minimum-expected-tests 1 \
+          --results-directory test-results-debug/
+      working-directory: src
+    - name: No test temp output left behind
+      uses: ./.github/actions/test-temp-leftovers
+    - name: Upload the test results on failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-blame-debug
+        path: src/test-results-debug/
+        if-no-files-found: ignore
+        retention-days: 14
+
+  # The functional suite on Linux x64, sharded as test-unit is (#2054), from build-linux's x64 build.
+  test-functional:
+    timeout-minutes: 15   # each shard is meant to stay under 10 minutes; unsharded, the suite tested for 8 min
+    needs: [plan, build-linux]
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 1, 2, 3 ]
+        of: [ 3 ]
+    name: test-functional (${{ matrix.shard }}/${{ matrix.of }})
+    runs-on: ubuntu-latest
+    steps:
+    # astrometry-data-2mass-08-19 alone is ~1 GB. Caching saves ~30-60s and a fair chunk of network on every run.
     - uses: SharpAstro/cache-apt-pkgs-action@v1
       with:
         packages: astrometry.net astrometry-data-2mass-08-19
@@ -531,36 +613,298 @@ jobs:
       with:
         submodules: recursive
         lfs: false
-    # Narrow LFS pull: same as test-unit -- catalogs, fonts, FITS fixtures. The prefix is
-    # shared with test-unit on purpose (see there); cache mechanics: .github/actions/lfs-pull.
     - name: Fetch required LFS objects
       uses: ./.github/actions/lfs-pull
       with:
         include: '*.lz,*.ttf,*.bin.gz,*.fits.gz'
         cache-prefix: lfs-tests
-    - name: Download preprocessed catalogs
-      uses: actions/download-artifact@v8
-      with:
-        name: preprocessed-catalogs
-        path: src/TianWen.Lib/Astrometry/Catalogs/
-    - name: Refresh preprocessed catalog mtimes
-      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        # No NuGet cache: the build job's setup-dotnet says why.
     - name: Restore dependencies
-      run: dotnet restore -p:Configuration=$BUILD_CONF
+      run: dotnet restore TianWen.Lib.Tests.Functional -p:Configuration=$BUILD_CONF
       working-directory: src
-    - name: Build
-      run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
-      working-directory: src
+    - name: Download the build
+      uses: actions/download-artifact@v8
+      with:
+        name: tests-bin-ubuntu-latest-functional
+    - name: Unpack the build
+      run: tar -I zstd -xf tests-bin-functional.tar.zst && rm tests-bin-functional.tar.zst
+    # --output Detailed prints each test's time, which is what a slow suite is ranked by (#2054).
     - name: Functional Tests
-      run: dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build
+      shell: pwsh
+      run: |
+        $filter = & ../.github/scripts/test-shard-filter.ps1 -Project TianWen.Lib.Tests.Functional -Shard ${{ matrix.shard }} -Of ${{ matrix.of }}
+        "filter: $filter"
+        dotnet test TianWen.Lib.Tests.Functional -c $env:BUILD_CONF --no-build --filter $filter --output Detailed --crashdump --hangdump --hangdump-timeout 5min --results-directory test-results/
+        exit $LASTEXITCODE
       working-directory: src
     # Nothing left under the tests' temp folder after a green run (#2035); the same step as test-unit's.
     - name: No test temp output left behind
       uses: ./.github/actions/test-temp-leftovers
+    - name: Upload crash and hang dumps on failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-blame-functional-${{ matrix.shard }}
+        path: src/test-results/
+        if-no-files-found: ignore
+        retention-days: 14
+
+  # The unit and functional suites on Windows (#2054), where tianwen is mostly used and where its Windows-only
+  # behaviour (the 15.6 ms timer, file locks, process trees, temp folders) used to be exercised by no job at all.
+  # Sharded by class so each leg stays under 10 minutes: .github/test-shards.json says which classes each shard
+  # takes, its last shard takes everything the others did not (so a new class always runs), and the
+  # matrix's `of` must agree with that file or the test step fails. The GPU suite stays on Linux: a hosted
+  # Windows runner has no Vulkan device.
+  #
+  # Set up for speed the way publish-apps is: Defender's real-time scan in-lines every file write, so it is
+  # switched off (and the workspace, temp and NuGet folders excluded, should switching it off be refused)
+  # before checkout lands a file. LFS comes from the same lfs-tests cache entries the Linux jobs save, which a
+  # Windows runner can read since lfs-pull sets enableCrossOsArchive, never from a live pull. NuGet comes from a
+  # Windows-only cache that only main SAVES (nuget-cache-windows below), so it costs one entry per change of the
+  # package set, not one per PR: the budget note on build's setup-dotnet is why the Linux jobs cache nothing.
+  #
+  # The two test projects are BUILT ONCE, here, and every shard runs that build (#2054). Each shard built them itself
+  # at first, and the build was 3 to 5 minutes of every shard's 7 to 14 (run 42804689190): no shard could stay under 10
+  # minutes with it, and the slowest two did not. It also kept the build's MSBuild and compiler servers, and their
+  # memory, resident on the machine the tests then ran on. A shard restores its project (the NuGet cache makes that
+  # seconds) and unpacks the bin folder over its checkout, so `dotnet test --no-build` finds it where it was built.
+  # Both suites in ONE job: they share everything but the two test assemblies, so the second is a short incremental
+  # build. Split into a leg per suite (round 3 of #2054, run 42885521250) each compiled TianWen.Lib for itself, the legs
+  # took 7m04s and 7m28s against 6m01s for both in one job, and a matrix's dependants wait for every leg anyway. No
+  # analyzers nor documentation, and the catalogs from their cache, for build-linux's reasons: TianWen.Lib compiled
+  # for 2m44s and TianWen.Cli for 1m26s of that run's 5m37s build, behind 30 s of catalog preprocessing.
+  build-windows:
+    timeout-minutes: 15   # 6m01s for both suites in one job, with analyzers (run 42814136317)
+    needs: plan
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
+    env:
+      VERSION_PREFIX: ${{ needs.plan.outputs.version-prefix }}
+    runs-on: windows-latest
+    steps:
+    - name: Defender off for the workspace, temp and NuGet
+      shell: pwsh
+      run: |
+        $nuget = Join-Path $env:RUNNER_TEMP 'nuget-packages'
+        "NUGET_PACKAGES=$nuget" >> $env:GITHUB_ENV
+        Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:USERPROFILE\AppData\Local\Temp", $nuget, "$env:USERPROFILE\.nuget", "$env:ProgramFiles\dotnet"
+        try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Warning "real-time scanning stays on, the exclusions hold: $_" }
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        lfs: false
+    # The unit suite's set, a superset of the functional suite's: what either build embeds or copies to the output.
+    - name: Fetch required LFS objects
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+        cache-prefix: lfs-tests
+    - name: Restore the preprocessed catalogs
+      uses: ./.github/actions/catalog-cache
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    - name: Restore the NuGet cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.temp }}\nuget-packages
+        key: nuget-windows-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/Directory.Build.props', 'src/*.targets', 'src/**/*.csproj') }}
+        restore-keys: |
+          nuget-windows-
+    - name: Restore dependencies
+      run: |
+        dotnet restore TianWen.Lib.Tests -p:Configuration=$env:BUILD_CONF
+        dotnet restore TianWen.Lib.Tests.Functional -p:Configuration=$env:BUILD_CONF
+      working-directory: src
+    - name: Build
+      run: |
+        $props = '-c', $env:BUILD_CONF, '--no-restore', "-p:Version=$env:VERSION_PREFIX$env:VERSION_REV$env:VERSION_HASH", "-p:FileVersion=$env:VERSION_PREFIX.$env:VERSION_REV", '-p:ContinuousIntegrationBuild=true', '-p:GeneratePackageOnBuild=false', '-p:RunAnalyzers=false', '-p:GenerateDocumentationFile=false'
+        dotnet build TianWen.Lib.Tests @props
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet build TianWen.Lib.Tests.Functional @props
+        exit $LASTEXITCODE
+      working-directory: src
+    # A tar of each suite's bin folder, with repo-relative paths, for the reason build's LFS payload gives: upload-artifact
+    # roots a path list at its common ancestor. One artifact per suite, so a shard downloads only the suite it runs. The
+    # two at once, since each gzip holds one core (the unit one alone took 23 s).
+    - name: Pack the test builds
+      shell: pwsh
+      run: |
+        $packs = @(
+          Start-Process tar -ArgumentList '-czf', 'windows-unit-bin.tgz', 'src/TianWen.Lib.Tests/bin/Release' -NoNewWindow -PassThru
+          Start-Process tar -ArgumentList '-czf', 'windows-functional-bin.tgz', 'src/TianWen.Lib.Tests.Functional/bin/Release' -NoNewWindow -PassThru
+        )
+        # Read the handle now: a Process from Start-Process that is first asked for its handle after it exited reports no ExitCode.
+        $packs | ForEach-Object { $null = $_.Handle }
+        $packs | ForEach-Object { $_.WaitForExit() }
+        if ($packs | Where-Object ExitCode -ne 0) { throw "tar failed: $($packs.ExitCode)" }
+        Get-Item windows-*-bin.tgz | ForEach-Object { "{0} {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+    - name: Upload the unit test build
+      uses: actions/upload-artifact@v7
+      with:
+        name: windows-unit-bin
+        path: windows-unit-bin.tgz
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+    - name: Upload the functional test build
+      uses: actions/upload-artifact@v7
+      with:
+        name: windows-functional-bin
+        path: windows-functional-bin.tgz
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+
+  test-windows:
+    timeout-minutes: 15   # each shard is meant to stay under 10 minutes
+    needs: [plan, build-windows]
+    # Not again on a push of a tree its PR tested, nor in the merge queue: as test-unit.
+    if: needs.plan.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Five unit shards here against Linux's four: build-windows ends a minute after build-linux, so its shards have a
+          # minute less to finish in (test-shards.json has a layout of each count).
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 1, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 2, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 3, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 4, of: 5 }
+          - { suite: unit, project: TianWen.Lib.Tests, shard: 5, of: 5 }
+          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 1, of: 3 }
+          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 2, of: 3 }
+          - { suite: functional, project: TianWen.Lib.Tests.Functional, shard: 3, of: 3 }
+    name: test-windows (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.of }})
+    runs-on: windows-latest
+    steps:
+    # Inline, not a composite in this repo: a local action exists only once checkout has run, and this step must
+    # come before it.
+    - name: Defender off for the workspace, temp and NuGet
+      shell: pwsh
+      run: |
+        $nuget = Join-Path $env:RUNNER_TEMP 'nuget-packages'
+        "NUGET_PACKAGES=$nuget" >> $env:GITHUB_ENV
+        Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:USERPROFILE\AppData\Local\Temp", $nuget, "$env:USERPROFILE\.nuget", "$env:ProgramFiles\dotnet"
+        try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Warning "real-time scanning stays on, the exclusions hold: $_" }
+        Get-MpComputerStatus | Format-List RealTimeProtectionEnabled, AntivirusEnabled
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        lfs: false
+    # The unit suite's set is test-unit's, the functional suite's test-functional's; both share its prefix.
+    - name: Fetch required LFS objects
+      uses: ./.github/actions/lfs-pull
+      with:
+        include: ${{ matrix.suite == 'unit' && '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx' || '*.lz,*.ttf,*.bin.gz,*.fits.gz' }}
+        cache-prefix: lfs-tests
+    - uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    # Restore only: a PR never saves this entry (see the job's note). A key that moved (a pin bump) restores the
+    # newest older entry, so the restore fetches only what changed.
+    - name: Restore the NuGet cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.temp }}\nuget-packages
+        key: nuget-windows-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/Directory.Build.props', 'src/*.targets', 'src/**/*.csproj') }}
+        restore-keys: |
+          nuget-windows-
+    - name: Restore dependencies
+      run: dotnet restore ${{ matrix.project }} -p:Configuration=$env:BUILD_CONF
+      working-directory: src
+    # build-windows' build of this suite, unpacked where it was built (its job says why it is not built here).
+    - name: Download the build
+      uses: actions/download-artifact@v8
+      with:
+        name: windows-${{ matrix.suite }}-bin
+    - name: Unpack the build
+      shell: pwsh
+      run: |
+        tar -xzf windows-${{ matrix.suite }}-bin.tgz
+        Remove-Item windows-${{ matrix.suite }}-bin.tgz
+    # What else holds the machine as the tests start: a shard that stalls (run 42804689190's functional 3/3 had 1.5 s GC
+    # pauses and a starved thread pool in its first three minutes, and none on Linux or on a 4-core local run) is read
+    # against this, never guessed at.
+    - name: The machine as the tests start
+      shell: pwsh
+      run: |
+        $os = Get-CimInstance Win32_OperatingSystem
+        "free memory {0:N1} of {1:N1} GB, {2} logical processors" -f ($os.FreePhysicalMemory / 1MB), ($os.TotalVisibleMemorySize / 1MB), [Environment]::ProcessorCount
+        Get-Process | Sort-Object CPU -Descending | Select-Object -First 8 Name, Id, @{ n = 'CPU s'; e = { [int]$_.CPU } }, @{ n = 'WS MB'; e = { [int]($_.WorkingSet64 / 1MB) } } | Format-Table -AutoSize
+    # The TRX is kept on every run, not only a failed one: it holds each test's time, which is what the Windows vs
+    # Linux per-class table is read from. The platform exits 8 when a shard ran no test, so an empty shard fails.
+    - name: Tests
+      shell: pwsh
+      run: |
+        $filter = & ../.github/scripts/test-shard-filter.ps1 -Project ${{ matrix.project }} -Shard ${{ matrix.shard }} -Of ${{ matrix.of }}
+        "filter: $filter"
+        dotnet test ${{ matrix.project }} -c $env:BUILD_CONF --no-build --filter $filter --output Detailed --report-trx --report-trx-filename "windows-${{ matrix.suite }}-${{ matrix.shard }}.trx" --crashdump --hangdump --hangdump-timeout 5min --results-directory test-results/
+        exit $LASTEXITCODE
+      working-directory: src
+    - name: Upload the TRX
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-windows-trx-${{ matrix.suite }}-${{ matrix.shard }}
+        path: src/test-results/*.trx
+        if-no-files-found: ignore
+        retention-days: 14
+    - name: Upload crash and hang dumps on failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-windows-blame-${{ matrix.suite }}-${{ matrix.shard }}
+        path: |
+          src/test-results/
+          !src/test-results/*.trx
+        if-no-files-found: ignore
+        retention-days: 14
+
+  # The one job that SAVES test-windows' NuGet cache, on a push to main and only when main's package set has no
+  # entry yet: a pin bump costs one entry (about the size of the two test projects' package closure), which a PR
+  # then restores. Its key must be test-windows' to the character, path included, since the path is part of an
+  # entry's version.
+  nuget-cache-windows:
+    timeout-minutes: 15
+    needs: plan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+    - name: Defender off for the workspace, temp and NuGet
+      shell: pwsh
+      run: |
+        $nuget = Join-Path $env:RUNNER_TEMP 'nuget-packages'
+        "NUGET_PACKAGES=$nuget" >> $env:GITHUB_ENV
+        Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:USERPROFILE\AppData\Local\Temp", $nuget, "$env:USERPROFILE\.nuget", "$env:ProgramFiles\dotnet"
+        try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Warning "real-time scanning stays on, the exclusions hold: $_" }
+    - uses: actions/checkout@v7
+      with:
+        lfs: false
+    - name: Is main's package set cached already
+      id: lookup
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.temp }}\nuget-packages
+        key: nuget-windows-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/Directory.Build.props', 'src/*.targets', 'src/**/*.csproj') }}
+        lookup-only: true
+    - uses: actions/setup-dotnet@v6
+      if: steps.lookup.outputs.cache-hit != 'true'
+      with:
+        dotnet-version: 10.0.x
+    - name: Restore what test-windows builds
+      if: steps.lookup.outputs.cache-hit != 'true'
+      run: |
+        dotnet restore TianWen.Lib.Tests -p:Configuration=$env:BUILD_CONF
+        dotnet restore TianWen.Lib.Tests.Functional -p:Configuration=$env:BUILD_CONF
+      working-directory: src
+    - name: Save the NuGet cache
+      if: steps.lookup.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ runner.temp }}\nuget-packages
+        key: ${{ steps.lookup.outputs.cache-primary-key }}
 
   # publish-apps runs in parallel with the test jobs -- dotnet publish is long
   # on AOT targets (multiple minutes per RID), so gating on tests would block
@@ -961,7 +1305,7 @@ jobs:
   # off publish-apps, which is also dispatch-gated.
   release:
     timeout-minutes: 15   # uploads only
-    needs: [build, test-unit, test-functional, publish-apps, dmg]
+    needs: [build, test-unit, test-unit-debug, test-functional, publish-apps, dmg]
     # Dispatch AND main, because the tag below is derived from the version rather than from the
     # ref: a dispatch on a feature branch would publish v<major>.<minor>.<run> pointing at a commit
     # that is not on main, and there is nothing in the name to say so. The dispatch-only gate reads
@@ -1019,23 +1363,27 @@ jobs:
   # or was skipped as it should be (the merge queue, or a push of a tree its PR tested).
   gate:
     timeout-minutes: 5
-    needs: [build, test-unit, test-functional]
+    needs: [build, build-linux, test-unit, test-unit-debug, test-functional, build-windows, test-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
     - name: Build and tests passed
       run: |
-        echo "build: ${{ needs.build.result }}, test-unit: ${{ needs.test-unit.result }}, test-functional: ${{ needs.test-functional.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
+        echo "build: ${{ needs.build.result }}, build-linux: ${{ needs.build-linux.result }}, test-unit: ${{ needs.test-unit.result }}, test-unit-debug: ${{ needs.test-unit-debug.result }}, test-functional: ${{ needs.test-functional.result }}, build-windows: ${{ needs.build-windows.result }}, test-windows: ${{ needs.test-windows.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
         ok() { [ "$1" = success ] || { [ "$1" = skipped ] && { [ "${{ github.event_name }}" = merge_group ] || [ "${{ needs.build.outputs.tested-on-pr }}" = true ]; }; }; }
-        [ "${{ needs.build.result }}" = success ] && ok "${{ needs.test-unit.result }}" && ok "${{ needs.test-functional.result }}"
+        # The test builds are checked too, though a failed one already skips its tests (which ok refuses on a PR): so
+        # the check reads as what it means.
+        [ "${{ needs.build.result }}" = success ] && ok "${{ needs.build-linux.result }}" && ok "${{ needs.build-windows.result }}" \
+          && ok "${{ needs.test-unit.result }}" && ok "${{ needs.test-unit-debug.result }}" && ok "${{ needs.test-functional.result }}" && ok "${{ needs.test-windows.result }}"
 
   publish-nuget:
     timeout-minutes: 15   # one push
-    needs: [build, test-unit, test-functional]
+    needs: [build, test-unit, test-unit-debug, test-functional]
     runs-on: ubuntu-latest
     if: >-
       !cancelled() && github.ref == 'refs/heads/main' && github.event_name == 'push'
       && (needs.test-unit.result == 'success' || (needs.test-unit.result == 'skipped' && needs.build.outputs.tested-on-pr == 'true'))
+      && (needs.test-unit-debug.result == 'success' || (needs.test-unit-debug.result == 'skipped' && needs.build.outputs.tested-on-pr == 'true'))
       && (needs.test-functional.result == 'success' || (needs.test-functional.result == 'skipped' && needs.build.outputs.tested-on-pr == 'true'))
     steps:
     - name: Download NuGet packages

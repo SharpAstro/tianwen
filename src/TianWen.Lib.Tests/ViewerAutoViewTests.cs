@@ -18,7 +18,7 @@ namespace TianWen.Lib.Tests;
 /// so with nothing chosen the two write the same masters (rule 1); a choice made in the panel is given to the identification first, and
 /// a telescope only once it is set on the capture, the viewer's last one taken only where the capture names none.
 /// </summary>
-[Collection("Viewer")]
+[Collection(ViewerPlanetaryCollection.Name)]
 public class ViewerAutoViewTests
 {
     [Theory(Timeout = 300_000)]
@@ -26,7 +26,7 @@ public class ViewerAutoViewTests
     [InlineData(1.5f)]
     public async Task AutoReadsTheCaptureAndWritesTheMastersPlanetaryStackAutoWrites(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         // A TianWen recording: its name says the planet and the filter, its header the telescope (#1179).
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
@@ -82,7 +82,7 @@ public class ViewerAutoViewTests
     {
         // #817: the Best view took the panel's telescope, Auto read the capture's; folded together, a telescope set on this capture is
         // given, the capture's own word comes next, and the viewer's last telescope only where the capture names none.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var named = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
             telescope: "254 mm f/4.7 Newtonian, Test OTA");
@@ -114,7 +114,7 @@ public class ViewerAutoViewTests
     {
         // The panel's planet and filter stuck from one capture to the next (#1391's survey): a Saturn chosen for the last one was the
         // next one's too, whatever its name said.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenAsync(e2e, ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "calibrated.ser")), ct);
         (e2e.State.PlanetaryBody, e2e.State.PlanetaryFilterNm) = (CatalogIndex.Saturn, 460);

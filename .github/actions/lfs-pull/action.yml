@@ -21,9 +21,11 @@ description: >
   is a near-complete starting point for the other: `lfs-build` for the build-only sets,
   `lfs-tests` for the sets carrying test fixtures.
 
-  A Windows runner cannot restore an entry a Linux job saved (actions/cache segregates Windows
-  unless `enableCrossOsArchive` is set). That flag goes on the cache step below and nowhere else:
-  issue #540, "Set enableCrossOsArchive".
+  A Windows runner cannot restore an entry a Linux job saved unless `enableCrossOsArchive` is set
+  (actions/cache adds "windows-only" to the entry's version on Windows otherwise; issue #540). It is
+  set on the cache step below, so the Windows test legs (#2054) read the same `lfs-tests` entries
+  the Linux jobs save and never pull live. The flag changes nothing on Linux, so the entries already
+  on main keep matching.
 
 inputs:
   include:
@@ -56,6 +58,7 @@ runs:
       key: ${{ steps.key.outputs.key }}
       restore-keys: |
         ${{ inputs.cache-prefix }}-
+      enableCrossOsArchive: true
 
   - name: Fetch LFS objects
     shell: bash

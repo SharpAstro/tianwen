@@ -1,0 +1,36 @@
+name: Restore the preprocessed catalogs (cached)
+description: >
+  TianWen.Lib's build turns its catalog sources (*.json.lz, *.csv.lz, the Tycho-2 .bin.lz) into what it embeds:
+  PreprocessCatalogs writes Astrometry/Catalogs/*.gs.gz, ExpandTycho2 and ExpandTycho2CrossRef write obj/*.bin. Each is
+  one pwsh process per file, run one after another BEFORE TianWen.Lib compiles, so nothing else in the build overlaps
+  them: 30 s on a Windows runner and 38 s on Linux, every test build (#2054). Their outputs depend on nothing but the
+  sources, the three scripts and the Lzip.Lib pin, so this restores them from a cache keyed on exactly those, and the
+  targets' own Inputs/Outputs check then skips them.
+
+  Restored files carry the time they were saved at, older than the sources the checkout and the LFS pull just wrote, so
+  MSBuild would run the targets again. On an EXACT hit they are touched, which is what makes the check skip; there are
+  no restore-keys, so a key that changed never hands back an older set, it misses and the build writes and saves a new
+  one. Use it after the LFS pull (the key hashes the sources' content) and before the build. Shared across OSes
+  (enableCrossOsArchive), so the Windows build reads the entry a Linux build saved, as the LFS cache does.
+
+runs:
+  using: composite
+  steps:
+  - name: Restore the catalog outputs
+    id: cache
+    uses: actions/cache@v6
+    with:
+      path: |
+        src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+        src/TianWen.Lib/obj/tyc2.bin
+        src/TianWen.Lib/obj/hip_to_tyc.bin
+        src/TianWen.Lib/obj/hd_to_tyc.bin
+      key: catalogs-${{ hashFiles('src/TianWen.Lib/Astrometry/Catalogs/*.lz', 'src/TianWen.Lib/TianWen.Lib.csproj', 'tools/preprocess-catalog.ps1', 'tools/expand-tycho2.ps1', 'tools/lzip-util.ps1', 'Directory.Packages.props') }}
+      enableCrossOsArchive: true
+
+  - name: Newer than their sources
+    if: steps.cache.outputs.cache-hit == 'true'
+    shell: bash
+    run: |
+      touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz src/TianWen.Lib/obj/tyc2.bin src/TianWen.Lib/obj/hip_to_tyc.bin src/TianWen.Lib/obj/hd_to_tyc.bin
+      echo "restored $(ls src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz | wc -l) catalogs and the three expanded Tycho-2 tables"

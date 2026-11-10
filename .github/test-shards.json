@@ -1,0 +1,28 @@
+{
+  "$comment": "How a test project is split across CI jobs (#2054); read by .github/scripts/test-shard-filter.ps1. Each project has a layout per shard count, the count a workflow matrix lists as its `of`. A layout lists the class-name prefixes of every shard but the last; the last shard is everything the others did not take, so a new class always runs somewhere. A prefix matches by contains on FullyQualifiedName, and a shard leaves out what an earlier shard took, so the shards never overlap: a class named in an earlier shard is out of a later one's family prefix (StarInjection before Star, ViewerWaveletDerive before Viewer, PlanetarySharpening before Planetary). Balanced on two things, from the per-class times of run 42900071837 (tools/ci-test-timings.py): each shard's summed time, which four test threads share, and its longest CHAIN, since xUnit runs a collection's classes (and a class's tests) one after another, so a shard is never shorter than its longest chain however few its other tests. That run put the planetary viewer collection's four classes and PlanetarySharpeningTests in one unit shard: 1067 s summed on Linux and 1228 on Windows against 603 to 927 for the others, two chains of 5 minutes, 6.5 minutes of tests. The CPU-heavy classes (the planetary sharpening and limb fits, the star removers) are spread so no shard holds two of their chains. The unit suite has 4 shards on Linux, whose shards start first, and 5 on Windows, whose build ends last; summed Linux / Windows from that run, unit 4: 752/937, 706/867, 870/903, 753/934; unit 5: 619/699, 474/635, 559/678, 716/763, 714/866; functional 3: 403/544, 447/455, 315/379. That is 19 test jobs a run against the org plan's 20 at once; rebalance from that table on the PR that changes it.",
+  "TianWen.Lib.Tests": {
+    "filter": "Category!=Heavy",
+    "layouts": {
+      "4": [
+        [ "TianWen.Lib.Tests.StarInjection", "TianWen.Lib.Tests.Dataset", "TianWen.Lib.Tests.Orrery", "TianWen.Lib.Tests.PlateSolver", "TianWen.Lib.Tests.Saturn", "TianWen.Lib.Tests.PlanetarySharpening", "TianWen.Lib.Tests.ViewerAutoView" ],
+        [ "TianWen.Lib.Tests.Synthetic", "TianWen.Lib.Tests.Classical", "TianWen.Lib.Tests.Star", "TianWen.Lib.Tests.PlanetaryLimb", "TianWen.Lib.Tests.ViewerWaveletDerive", "TianWen.Lib.Tests.PlanetaryDegrade" ],
+        [ "TianWen.Lib.Tests.Viewer", "TianWen.Lib.Tests.Stretch", "TianWen.Lib.Tests.Onnx", "TianWen.Lib.Tests.Planetary" ]
+      ],
+      "5": [
+        [ "TianWen.Lib.Tests.StarInjection", "TianWen.Lib.Tests.Dataset", "TianWen.Lib.Tests.Orrery", "TianWen.Lib.Tests.PlateSolver", "TianWen.Lib.Tests.Saturn", "TianWen.Lib.Tests.ViewerPlanetaryMaster" ],
+        [ "TianWen.Lib.Tests.Synthetic", "TianWen.Lib.Tests.Classical", "TianWen.Lib.Tests.Star", "TianWen.Lib.Tests.ViewerAutoView", "TianWen.Lib.Tests.Stacking", "TianWen.Lib.Tests.Drizzle" ],
+        [ "TianWen.Lib.Tests.PlanetarySharpening", "TianWen.Lib.Tests.PlanetaryLimb", "TianWen.Lib.Tests.ViewerWaveletDerive", "TianWen.Lib.Tests.PlanetaryDegrade", "TianWen.Lib.Tests.PlanetaryColour" ],
+        [ "TianWen.Lib.Tests.Viewer", "TianWen.Lib.Tests.Stretch", "TianWen.Lib.Tests.Onnx", "TianWen.Lib.Tests.Planetary" ]
+      ]
+    }
+  },
+  "TianWen.Lib.Tests.Functional": {
+    "filter": "",
+    "layouts": {
+      "3": [
+        [ "TianWen.Lib.Tests.Functional.NodeRunsProcess", "TianWen.Lib.Tests.Functional.NodeKeeperProcess", "TianWen.Lib.Tests.Functional.NodeJournalProcess", "TianWen.Lib.Tests.Functional.NodeActiveProfile", "TianWen.Lib.Tests.Functional.EquipmentThroughTheNode", "TianWen.Lib.Tests.Functional.SessionImaging", "TianWen.Lib.Tests.Functional.MirrorParity", "TianWen.Lib.Tests.Functional.MeridianFlip", "TianWen.Lib.Tests.Functional.MotionOperation", "TianWen.Lib.Tests.Functional.NodePlanetary", "TianWen.Lib.Tests.Functional.NodePolarAlignment", "TianWen.Lib.Tests.Functional.NodeLiveView" ],
+        [ "TianWen.Lib.Tests.Functional.EquipmentFlow", "TianWen.Lib.Tests.Functional.PlanetarySequence", "TianWen.Lib.Tests.Functional.LocalNode", "TianWen.Lib.Tests.Functional.PlanetaryRecording", "TianWen.Lib.Tests.Functional.PlanetaryThroughTheNode", "TianWen.Lib.Tests.Functional.PlanetaryReadouts", "TianWen.Lib.Tests.Functional.PlanetaryFilterThroughTheNode", "TianWen.Lib.Tests.Functional.SessionObservationLoop", "TianWen.Lib.Tests.Functional.SlewLess", "TianWen.Lib.Tests.Functional.SessionCloud", "TianWen.Lib.Tests.Functional.FakeCameraMountCoupling" ]
+      ]
+    }
+  }
+}

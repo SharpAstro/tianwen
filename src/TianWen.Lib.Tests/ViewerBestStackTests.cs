@@ -18,7 +18,7 @@ namespace TianWen.Lib.Tests;
 /// (<see cref="ViewerE2E"/>): a SER opened, Shift+K, and the capture is identified and stacked by the routine <c>planetary stack --auto</c>
 /// runs, both masters written beside it under that verb's names, its view shown over the capture.
 /// </summary>
-[Collection("Viewer")]
+[Collection(ViewerPlanetaryCollection.Name)]
 public class ViewerBestStackTests
 {
     [Theory(Timeout = 180_000)]
@@ -26,7 +26,7 @@ public class ViewerBestStackTests
     [InlineData(1.5f)]
     public async Task ShiftKShowsTheWholeCaptureAsTheAutoViewAndWritesBothMasters(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
         e2e.Host.HandleDropFile(capture);
@@ -64,7 +64,7 @@ public class ViewerBestStackTests
     {
         // #1879: Stacking with its percent, then a later stage by its word, never a percent frozen at 99.
         // One design size at both scales, or at 1.5x the controls leave the scrub track no width (#1509).
-        await using var e2e = ViewerE2E.Start(dpi, width: (uint)(1600 * dpi), height: (uint)(1000 * dpi));
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi, width: (uint)(1600 * dpi), height: (uint)(1000 * dpi));
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
         e2e.Host.HandleDropFile(capture);
@@ -101,7 +101,7 @@ public class ViewerBestStackTests
     public async Task AStrengthChosenInThePanelTakesTheAutoStackPastTheTruth(float dpi)
     {
         // #1251: the truth by default, a post's look as an option. The panel's strength reaches the run, and its note says so.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
         e2e.Host.HandleDropFile(capture);
@@ -128,7 +128,7 @@ public class ViewerBestStackTests
     public async Task ACaptureWhoseNameGivesNoPlanetTakesThePlanetChosenInThePanel(float dpi)
     {
         // A twin named "calibrated" gave the run no planet, so its sharpening was the preset's (reported 2026-10-02).
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "calibrated.ser"));
         e2e.Host.HandleDropFile(capture);
@@ -149,7 +149,7 @@ public class ViewerBestStackTests
     [InlineData(1.5f)]
     public async Task AFrameWhoseObjectNamesAPlanetOpensInThePlanetaryStretchBetweenDeepSkyFrames(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var deepSky = e2e.WriteColourFits("deep-sky.fits");
         await e2e.OpenAsync(deepSky, ct);
@@ -182,7 +182,7 @@ public class ViewerBestStackTests
     public async Task ACaptureWhoseHeaderNamesItsTelescopeShowsThatTelescope(float dpi)
     {
         // A TianWen recording says in its header which telescope took it (#1179), and its Auto stack needs no telescope set by hand.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         e2e.State.PlanetaryApertureMm = null;
         e2e.State.PlanetaryDesign = TianWen.Lib.Devices.OpticalDesign.Refractor;

@@ -28,6 +28,22 @@ public class PlanetarySharpeningTests
 
     private static double Seeing(double f) => (0.7 * Math.Exp(-2 * Math.PI * Math.PI * 0.9 * 0.9 * f * f)) + (0.3 * Math.Exp(-2 * Math.PI * Math.PI * 4 * 4 * f * f));
 
+    // The fixture's truth (BeltedMap through the telescope's diffraction at the fixture's own placement) and that truth blurred
+    // by the seeing, rendered ONCE: every test here, and the viewer's planetary tests through NoisyStack, rendered the same planet
+    // through the same pupil again per call, which a CPU trace of this class put at half the CPU of all its sharpening (#2054).
+    // Both are deterministic, so sharing them changes no pixel; they are never handed out, only copied (RenderedCopy), so no test
+    // sees another's writes.
+    private static readonly Lazy<(float[] Truth, float[] Blurred)> Rendered = new(() =>
+    {
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
+        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
+        return (truth, PlanetaryInverse.Apply(truth, Size, Size, Seeing));
+    });
+
+    /// <summary>The fixture's truth and its blur by the seeing, each a copy of the one render (<see cref="Rendered"/>).</summary>
+    private static (float[] Truth, float[] Blurred) RenderedCopy() => ([.. Rendered.Value.Truth], [.. Rendered.Value.Blurred]);
+
     // Belts and, on them, a fine texture down to a couple of degrees (Jupiter's own, the twins' OPAL map's), with features along the
     // belts a fifth as strong as the belts. Two things the fixture must have for the test to be the real case:
     // - a texture at the fine scales, or inside the disk any sharpening only lifts the noise while the gains' disk term still asks for
@@ -74,13 +90,11 @@ public class PlanetarySharpeningTests
     public async Task ADerivedSharpeningComesCloserToTheTruthThanTheStackAndDoesNotRing(PlanetaryLimbFix fix)
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
-        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
-        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
-
-        // The seeing a stack keeps: a core and a halo (R7 part 2), its transfer about what 2022-09-03 Red's stack reads off its limb (0.44
-        // at 0.1 cycles a pixel, 0.09 at 0.3; this one 0.61 and 0.17), the noise of a large stack, a sky on the camera's offset. Not a single
-        // Gaussian: one of 1.4 px passes 0.03 at 0.3 cycles a pixel, below the noise floor the limb's edge reads there (it read 0.30).
-        var blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
+        // The seeing a stack keeps (Seeing): a core and a halo (R7 part 2), its transfer about what 2022-09-03 Red's stack reads off its
+        // limb (0.44 at 0.1 cycles a pixel, 0.09 at 0.3; this one 0.61 and 0.17), the noise of a large stack, a sky on the camera's offset.
+        // Not a single Gaussian: one of 1.4 px passes 0.03 at 0.3 cycles a pixel, below the noise floor the limb's edge reads there (it read
+        // 0.30).
+        var (truth, blurred) = RenderedCopy();
         var random = new Random(5);
         var stackPlane = new float[Size, Size];
         for (var i = 0; i < blurred.Length; i++)
@@ -374,10 +388,18 @@ public class PlanetarySharpeningTests
     // Also the viewer's planetary master (ViewerPlanetaryMasterTests), written with a header that names the planet and the instant.
     internal static (float[] Truth, Image Stack) NoisyStack(DiskPlacement? placement = null, ImageMeta? meta = null)
     {
-        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
-        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
-        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, placement ?? Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
-        var blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
+        float[] truth, blurred;
+        if (placement is { } elsewhere)
+        {
+            var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+            var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
+            truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, elsewhere, Size, Size, 0.95, Telescope, Wavelength, scale);
+            blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
+        }
+        else
+        {
+            (truth, blurred) = RenderedCopy();
+        }
         var random = new Random(5);
         var plane = new float[Size, Size];
         for (var i = 0; i < blurred.Length; i++)
@@ -390,10 +412,7 @@ public class PlanetarySharpeningTests
     // Two halves of a stack, each the blurred truth with its own white noise, and the stack their mean.
     private static (float[] Truth, Image Stack, PlanetaryStackHalves Halves) NoisyHalves()
     {
-        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
-        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
-        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
-        var blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
+        var (truth, blurred) = RenderedCopy();
         var random = new Random(5);
         float[] Noise()
         {
@@ -822,9 +841,7 @@ public class PlanetarySharpeningTests
         // glow as bands where a hand-back met it).
         const int width = 448, height = 320;
         var ct = TestContext.Current.CancellationToken;
-        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
-        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
-        var planet = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
+        var planet = RenderedCopy().Truth;
         var truth = new float[width * height];
         for (var y = 0; y < Size; y++)
         {
@@ -971,9 +988,7 @@ public class PlanetarySharpeningTests
     public async Task WithoutATelescopeThePresetSharpensWithTheLimbKeptAsStacked()
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
-        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
-        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
-        var blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
+        var (truth, blurred) = RenderedCopy();
         var stackPlane = new float[Size, Size];
         for (var i = 0; i < blurred.Length; i++)
         {

@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests;
 /// The gains themselves are pinned in Lib (<c>PlanetarySharpeningTests</c>, the seeded sliders against the batch's derived sharpening);
 /// this is the wiring the GUI's planetary capture shares (<c>WaveletDerivation</c>).
 /// </summary>
-[Collection("Viewer")]
+[Collection(ViewerPlanetaryCollection.Name)]
 public class ViewerWaveletDeriveTests
 {
     [Theory(Timeout = 180_000)]
@@ -27,7 +27,7 @@ public class ViewerWaveletDeriveTests
     [InlineData(1.5f)]
     public async Task DeriveWithNoApertureSaysItNeedsOneAndLeavesTheDialsAlone(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenStackedAsync(e2e, ct);
         e2e.State.PlanetaryApertureMm = null;
@@ -46,7 +46,7 @@ public class ViewerWaveletDeriveTests
     [InlineData(1.5f)]
     public async Task DeriveWithThePlanetAndTheTelescopeSeedsTheDialsWithTheDerivedGains(float dpi)
     {
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenStackedAsync(e2e, ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
@@ -86,7 +86,7 @@ public class ViewerWaveletDeriveTests
     {
         // #1202: a colour capture's live masters keep the atmosphere's dispersion (red 2 px above green, blue 2 px below here). Derive
         // reads it as the batch reads its master's, and every master from then on is moved by it before the dials sharpen it.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenStackedAsync(e2e, ct, dispersed: true);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
@@ -111,7 +111,7 @@ public class ViewerWaveletDeriveTests
     public async Task DeriveTakesTheStrengthChosenInThePanel(float dpi)
     {
         // #1251: Derive seeds the dials past the truth when the panel asks for it, as the Best stack sharpens.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenStackedAsync(e2e, ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
@@ -133,7 +133,7 @@ public class ViewerWaveletDeriveTests
     public async Task DeriveTakesTheBalanceSaturationChosenInThePanel(float dpi)
     {
         // #1880: the balance's stop goes into the derivation as it starts, as the strength's does.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         // A colour capture: a mono source shows no saturation stops.
         await OpenStackedAsync(e2e, ct, dispersed: true);
@@ -154,7 +154,7 @@ public class ViewerWaveletDeriveTests
     {
         // #1314: one Derive fits every strength stop, so a stop chosen after it puts that stop's gains on the dials in the frame it is
         // pressed, with no derivation run, and the truth's stop puts the derivation's own back.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenStackedAsync(e2e, ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);

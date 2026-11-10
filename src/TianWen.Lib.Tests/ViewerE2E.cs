@@ -73,6 +73,21 @@ internal sealed class ViewerE2E : IAsyncDisposable
         return e2e;
     }
 
+    /// <summary>
+    /// <see cref="Start"/> for a test that runs BESIDE other collections (<see cref="ViewerPlanetaryCollection"/>): every
+    /// <see cref="PumpUntilAsync"/> waits as long as the test's own <c>Timeout</c> allows, never a count of frames, because a
+    /// pool shared with other tests can be slow to schedule the viewer's work, which is the race <see cref="ViewerCollection"/>
+    /// otherwise answers by running alone.
+    /// </summary>
+    internal static ViewerE2E StartBesideOthers(float dpiScale, uint width = 1600, uint height = 1000, IExternal? external = null)
+    {
+        var e2e = Start(dpiScale, width, height, external);
+        e2e._waitsUntilTimeout = true;
+        return e2e;
+    }
+
+    private bool _waitsUntilTimeout;
+
     internal Surface Viewer { get; }
 
     /// <summary>The CPU surface the viewer paints on, which a sky map hosted behind it paints on too.</summary>
@@ -197,6 +212,7 @@ internal sealed class ViewerE2E : IAsyncDisposable
     /// </summary>
     internal async Task PumpUntilAsync(Func<bool> done, string what, CancellationToken ct, bool untilTimeout = false)
     {
+        untilTimeout |= _waitsUntilTimeout;
         for (var i = 0; untilTimeout || i < 1000; i++)
         {
             Frame();
