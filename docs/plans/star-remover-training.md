@@ -5184,6 +5184,33 @@ The deploy point is outside the training range, the case `--star-beta-draw` was 
 channels' relation. Every arm that widened star shapes took M31's nucleus (R2l, R2m, R2s, R2s2, R2v), so the arm that
 draws the channels' betas apart is read against the nucleus guard as well as M42.
 
+**R3s, pre-registered 2026-11-11.** One change from R3l: `--star-beta-draw 0.3,1.3,6,3`, whose fourth value draws a held
+cell's red and blue betas each at a factor of its green's, log-uniform in [1/3, 3] (`StarBetaDraw.ChannelSpread`). The cells
+the draw holds, their green beta and every other number are the draw R3l made: on one ASI533MC session's control export, 20
+of 24 rows and their tiles were byte-identical and the 4 held rows differed only in red and blue beta.
+- **The export:** synth22 = `training/star-removal/export-synth.ps1 -Name synth22 -BetaDraw 0.3,1.3,6,3` with no `-Extra`,
+  its binary built at "feat(training): --star-beta-draw takes a channel spread, drawing a held cell's red and blue betas
+  apart from green's" (the export's folder holds HEAD.txt), into `D:/temp/tianwen-scratch/r3-train-synth22`.
+- **The training:** R3l's exactly, both seeds, from the same frozen trainer copy R3l and R3r ran (`run-r2.ps1 -Tag r3s
+  -Arms synth22 -SeedCount 2 -FirstSeed 0 -Patience 24 -Steps 480000 -CheckpointEvery 2000`), so R3l s0 / s1 are the
+  baseline with nothing else different.
+- **Scored** by `score-arm.ps1`, `score_whole.py`, `real_star_check3.py --sessions` on both rings and
+  `bright_channel_profile.py`, every bar on the two seeds' mean against R3l's.
+
+The bars:
+- **Q1, the export, before training:** 2 to 4 % of synth22's unsaturated stars drawn with blue at 2.4 times green's beta
+  or more (synth21 1.2 %).
+- **Q2, M42:** its 100-1000 sigma stars at least 50 % clean on the own ring (R3l 27.2 / 39.0, mean 33.1); its blue at 2 to
+  3 px within 0.7 sigma of SXT's in `bright_channel_profile.py` (R3l s0 -2.7 / -1.7 against SXT -0.5 / 0.0).
+- **Guards:** HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below R3l's mean on the own ring;
+  truth tiles 20-100 at least 72 and 100-1000 at least 54; Andromeda dark dug at most 47 and Tarantula dark flat at least 69;
+  the M31 nucleus at 0-6 px under 40 % in every channel on both seeds (R3l +1 to +14 %, R3r 17 to 38 %, the arms that
+  took it 70 to 80 %).
+- **Kill:** Q1 fails; or M42 under 40 on the mean; or a guard fails.
+- **Prediction:** M42's blue dig falls toward SXT's and its band clears 50; the other sessions, whose channels' betas sit
+  at 0.8 to 1.5, do not move beyond their seed spread; the saturated rows are not read (one seed's spread there is 18 to 41
+  points). The nucleus is the risk.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
