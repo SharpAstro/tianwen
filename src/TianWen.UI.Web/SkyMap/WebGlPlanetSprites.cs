@@ -55,7 +55,13 @@ namespace TianWen.UI.Web.SkyMap
         private readonly Dictionary<(CatalogIndex Body, int Channel), Slot> _slots = [];
         private readonly float[] _quad = new float[24];
         private PipelineHandle? _pipeline;
-        private GpuBufferHandle? _buffer;
+
+        // A quad buffer per draw of a frame: the map's disc of a body and the info panel's disc of it are two draws, and with one
+        // buffer the panel's quad, uploaded later in the frame, was the one both replayed draws read, so the map's Moon vanished.
+        private FrameDrawBuffers<GpuBufferHandle>? _quads;
+
+        /// <summary>A new frame: the next draw takes the first quad buffer again.</summary>
+        public void BeginFrame() => _quads?.BeginFrame();
 
         /// <summary>Draws <paramref name="sprite"/> centred on (x, y), its globe <paramref name="radiusPx"/> on screen. False until a texture of the body has loaded.</summary>
         public bool Draw(PlanetSprite sprite, float x, float y, float radiusPx)
@@ -100,14 +106,8 @@ namespace TianWen.UI.Web.SkyMap
                 VertexSource, FragmentSource,
                 Attribs: [new VertexAttrib(0, 2), new VertexAttrib(1, 2)],
                 Blend: PipelineBlend.AlphaOver));
-            if (_buffer is { } buffer)
-            {
-                renderer.UpdateBuffer(buffer, _quad);
-            }
-            else
-            {
-                _buffer = buffer = renderer.CreateBuffer(_quad);
-            }
+            _quads ??= new FrameDrawBuffers<GpuBufferHandle>(data => renderer.CreateBuffer(data), (b, data) => renderer.UpdateBuffer(b, data));
+            var buffer = _quads.Write(_quad);
             renderer.UsePipeline(_pipeline.Value);
             renderer.SetPipelineColor(new RGBAColor32(0xFF, 0xFF, 0xFF, 0xFF));
             renderer.BindTexture(texture);
@@ -151,7 +151,7 @@ namespace TianWen.UI.Web.SkyMap
                 }
             }
             _slots.Clear();
-            if (_buffer is { } buffer)
+            foreach (var buffer in _quads?.Buffers ?? [])
             {
                 renderer.DestroyBuffer(buffer);
             }

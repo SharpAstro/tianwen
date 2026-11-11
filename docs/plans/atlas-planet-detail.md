@@ -267,7 +267,12 @@ Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
 - **The hosts** (`SkyMapTab.DrawPlanetSprite`): the base draws on the CPU surface (`RgbaImage`: the tests and the
   terminal), `VkSkyMapTab` through `VkPlanetSprites` (a queued upload, the previous texture drawn until the new one
   lands, a replaced texture's destroy deferred by the context), `WebSkyMapTab` through `WebGlPlanetSprites` (the
-  sprite handed to the browser as a PNG data URL, since the renderer takes textures only from a URL).
+  sprite handed to the browser as a PNG data URL, since the renderer takes textures only from a URL). **Each WebGL draw
+  takes a quad buffer of its own** (`FrameDrawBuffers`, counted from `WebSkyMapTab.OnFrameStarting`): WebGl.Renderer
+  uploads a buffer at once but replays the draws at Present, so with one shared quad the info panel's disc of the
+  selected body, drawn later in the frame, moved the map's disc of it onto the panel, and the map showed no Moon at all
+  (2026-11-11). The orrery's bodies had the same bug and fix (`PlanetBodyInstances`); `WebGlObjectPictures` takes the
+  same buffers.
 
 **Measured:** one sprite build, Jupiter from the atlas, after a warm-up, on this Surface Pro 11 (Snapdragon X Elite
 X1E80100, 12 cores, the rows spread over them by `ParallelFor`), Release: 0.6 ms at a 64 px sprite and 10.8 ms at
