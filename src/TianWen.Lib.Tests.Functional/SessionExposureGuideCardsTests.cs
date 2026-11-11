@@ -68,4 +68,30 @@ public class SessionExposureGuideCardsTests(ITestOutputHelper output)
         stats.Value.SampleCount.ShouldBe(1);
         stats.Value.RmsTotal.ShouldBe(0.5f, 1e-4f);
     }
+
+    [Fact(Timeout = 60_000)]
+    public async Task OpeningAWindowSeedsFromTheRingAndCountsALaterDeliveryOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ct.ThrowIfCancellationRequested();
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, SessionTestHelper.DefaultConfiguration, SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
+
+        // Two corrections landed before the window opened (one outside it); the ring holds both.
+        ctx.Session.RecordGuideSample(new GuideErrorSample(Start - TimeSpan.FromSeconds(5), 9, 9));
+        var inside = new GuideErrorSample(Start + TimeSpan.FromSeconds(1), 0.3, 0.4);
+        ctx.Session.RecordGuideSample(inside);
+
+        ctx.Session.OpenExposureGuideWindow(0, Start, Exposure);
+
+        ctx.Session.ExposureGuideStats(0).ShouldNotBeNull().SampleCount.ShouldBe(1);
+
+        // The same correction delivered again, and a new one: counted once, and once.
+        ctx.Session.RecordGuideSample(inside);
+        ctx.Session.RecordGuideSample(new GuideErrorSample(Start + TimeSpan.FromSeconds(3), 0.3, 0.4));
+
+        var stats = ctx.Session.ExposureGuideStats(0).ShouldNotBeNull();
+        stats.SampleCount.ShouldBe(2);
+        stats.RmsTotal.ShouldBe(0.5f, 1e-4f);
+    }
 }

@@ -45,6 +45,17 @@ public class GuideStatisticsTests
     }
 
     [Fact]
+    public void OverExposure_CountsASampleSeenTwiceOnce()
+    {
+        // Pins the tally's rule that OverExposure shares: a timestamp not after the last one counted is ignored.
+        var samples = ImmutableArray.Create(At(1, 1.0, 0.0), At(1, 1.0, 0.0), At(2, 1.0, 0.0));
+
+        var stats = GuideStatistics.OverExposure(samples, T0, TimeSpan.FromSeconds(10)).ShouldNotBeNull();
+
+        stats.SampleCount.ShouldBe(2);
+    }
+
+    [Fact]
     public void OverExposure_TotalIsTheQuadratureSumOfTheAxes()
     {
         var samples = ImmutableArray.Create(At(1, 3.0, 4.0), At(2, -3.0, -4.0));
