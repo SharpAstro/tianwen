@@ -333,8 +333,8 @@ public static partial class DatasetDegradationExporter
                 {
                     throw new ArgumentException("a star beta draw and a held star beta, channel relations or a wing cut are two arms; give one", nameof(options));
                 }
-                logger?.LogInformation("[degrade] star beta draw: {Share:P0} of the cells at one beta in [{Low}, {High}], on any plate",
-                    betaDraw.Share, betaDraw.Low, betaDraw.High);
+                logger?.LogInformation("[degrade] star beta draw: {Share:P0} of the cells at one beta in [{Low}, {High}], on any plate, red and blue within {Spread}x of green",
+                    betaDraw.Share, betaDraw.Low, betaDraw.High, betaDraw.ChannelSpread);
             }
             if (options.NoiseScale is { } noiseScale)
             {

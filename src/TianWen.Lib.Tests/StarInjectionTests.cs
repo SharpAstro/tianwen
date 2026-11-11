@@ -899,6 +899,53 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The channel spread (plan: "M42's bright stars: the channels' wings"): a held cell's red and blue betas are each drawn at a
+    /// factor of its green's inside [1/spread, spread], reaching past M42's 2.64 at a spread of 3; the first two numbers are the
+    /// draw R3i made, so held cells and green's beta are the same as without it; a mono star keeps one beta.
+    /// </summary>
+    [Fact]
+    public void AChannelSpreadDrawsRedAndBlueBetasApartFromGreensAndLeavesTheCellsAsTheyWere()
+    {
+        var plain = new StarBetaDraw(0.3, 1.3, 6.0);
+        var spread = new StarBetaDraw(0.3, 1.3, 6.0, channelSpread: 3.0);
+        var (held, wide) = (0, 0);
+        var rgb = ImmutableArray.Create(
+            new StarProfile(StarProfileFamily.Moffat, 2.0, 3.0, 1.0, 0.0),
+            new StarProfile(StarProfileFamily.Moffat, 2.0, 3.0, 1.0, 0.0),
+            new StarProfile(StarProfileFamily.Moffat, 2.0, 3.0, 1.0, 0.0));
+        for (var i = 0; i < 4000; i++)
+        {
+            var a = plain.DrawCell(new Random(i));
+            var b = spread.DrawCell(new Random(i));
+            (a is null).ShouldBe(b is null, "the spread draws after the held test and the beta, so the same cells are held");
+            if (a is null || b is null)
+            {
+                continue;
+            }
+            held++;
+            b.Beta.ShouldBe(a.Beta);
+            b.RedFactor.ShouldBeInRange(1.0 / 3.0, 3.0);
+            b.BlueFactor.ShouldBeInRange(1.0 / 3.0, 3.0);
+            if (b.BlueFactor >= 2.4)
+            {
+                wide++;
+            }
+            var drawn = b.Apply(rgb);
+            drawn[1].Beta.ShouldBe(b.Beta);
+            drawn[2].Beta.ShouldBe(Math.Clamp(b.Beta * b.BlueFactor, 1.1, 20.0));
+            a.RedFactor.ShouldBe(1.0);
+            a.BlueFactor.ShouldBe(1.0);
+        }
+        held.ShouldBeGreaterThan(1000);
+        // log-uniform over [1/3, 3]: ln(3/2.4)/(2 ln 3) = 10 % of held cells draw blue at 2.4 or more, against 1.2 % of synth21's stars.
+        ((double)wide / held).ShouldBe(0.10, 0.02);
+
+        new StarBeta(2.0, 2.0, 0.5).Apply([rgb[0]])[0].Beta.ShouldBe(2.0, "a mono star keeps one beta");
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.3, 1.3, 6.0, channelSpread: 0.9));
+        Should.Throw<ArgumentOutOfRangeException>(() => new StarBetaDraw(0.3, 1.3, 6.0, channelSpread: 4.5));
+    }
+
+    /// <summary>
     /// Synthetics S4's estimator: on two noise series of correlation 0.12 with one sample in fifty carrying light both share
     /// (a faint star, 3 to 7 sigma), a Pearson coefficient reads 0.41, the light taken for correlated noise, and the robust
     /// form 0.14. It is not immune (one sample in twenty moves it to 0.17), so the plate it reads has its stars subtracted.

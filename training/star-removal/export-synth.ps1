@@ -6,7 +6,7 @@
 # The recipe, written once here so every arm's export is this line plus its -Extra options:
 #   --mode stars --shape warped --warp-sigma 0.5 --warp-sigma-drizzle 0 --cells 40 --draws 4 --seed 1
 #   --background synthetic --steer 0.5,2,0.8,1 --nebula-knots --bright-knots-wide --stretch-from master
-#   --star-beta-draw 0.3,1.3,6
+#   --star-beta-draw 0.3,1.3,6   (-BetaDraw: R3s's export gives it a fourth value, the channel spread)
 # synth18 (R3l) is that line alone; synth20 (R3q) added --saturated-own-share --saturated-measured at "a measured saturated
 # star's amplitude floor stands on its own sky"; R3r's export adds the same two at the fixed injector (the plan's R3q/R3r
 # section). Record the binary's commit beside the export (-Bin's folder holds HEAD.txt when it was built for one).
@@ -19,6 +19,8 @@ param(
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][string]$Bin,
     [string[]]$Extra = @(),
+    # --star-beta-draw's value: share,low,high[,channel spread]. synth18 to synth21 drew 0.3,1.3,6.
+    [string]$BetaDraw = '0.3,1.3,6',
     [string]$Store = 'D:/Astro-Dataset/2026-10-12-full',
     # The 138 training sessions synth4 to synth20 were exported over, one session id per line.
     [string]$Sessions = (Join-Path $PSScriptRoot 'synth-sessions.txt'),
@@ -44,12 +46,12 @@ try {
     $Extra = @($Extra | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $list = @(Get-Content $Sessions | Where-Object { $_ })
     if ($list.Count -ne 138) { Say "FAILED: $($list.Count) sessions, the training set has 138"; return }
-    "bin $Bin; extra $($Extra -join ' ')" | Out-File "$Root/export.recipe" -Encoding utf8
+    "bin $Bin; beta draw $BetaDraw; extra $($Extra -join ' ')" | Out-File "$Root/export.recipe" -Encoding utf8
 
     $common = @('dataset', 'degrade', '--bake', "`"$Store`"", '--plates', "`"$plates`"", '--mode', 'stars', '--shape', 'warped',
         '--warp-sigma', '0.5', '--warp-sigma-drizzle', '0', '--cells', '40', '--draws', '4', '--seed', '1',
         '--background', 'synthetic', '--steer', '0.5,2,0.8,1', '--nebula-knots', '--bright-knots-wide', '--stretch-from', 'master',
-        '--star-beta-draw', '0.3,1.3,6') + $Extra + @('--out', "`"$out`"")
+        '--star-beta-draw', $BetaDraw) + $Extra + @('--out', "`"$out`"")
     for ($i = 0; $i -lt $list.Count; $i += $Chunk) {
         $tag = '{0}-{1:D3}' -f $Name, $i
         if (Select-String -Path $exportLog -SimpleMatch " $tag exit 0" -Quiet) { continue }

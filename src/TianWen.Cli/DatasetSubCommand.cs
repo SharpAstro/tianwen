@@ -1963,9 +1963,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var starBetaDrawOpt = new Option<string?>("--star-beta-draw")
         {
-            Description = "--mode stars: share,low,high: that share of the cells, in (0, 1], drawn with every star at one Moffat beta " +
+            Description = "--mode stars: share,low,high[,spread]: that share of the cells, in (0, 1], drawn with every star at one Moffat beta " +
                           "uniform in [low, high] (each in [1.1, 20]), on any plate (#1947, R3i: a heavy-winged star told by itself, not " +
-                          "by its session). From each draw's own stream, so the stars keep their places, brightness and colour; each " +
+                          "by its session). A spread in [1, 4] draws such a cell's red and blue betas each at a factor of its green's, " +
+                          "log-uniform in [1/spread, spread] (M42's blue sits at 2.64 times its green); 1 or none holds the channels at one. " +
+                          "From each draw's own stream, so the stars keep their places, brightness and colour; each " +
                           "star's beta is in injections.jsonl (Beta). Not with --star-beta, --channel-relations or --channel-wing-cut. " +
                           "Off by default.",
         };
@@ -2213,13 +2215,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(starBetaDrawOpt) is { } betaDrawText)
             {
                 var parts = betaDrawText.Split(',', StringSplitOptions.TrimEntries);
-                if (parts.Length != 3
+                var channelSpread = 1.0;
+                if (parts.Length is not (3 or 4)
                     || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var share)
                     || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var low)
                     || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var high)
-                    || !StarBetaDraw.IsDraw(share, low, high))
+                    || (parts.Length == 4 && !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out channelSpread))
+                    || !StarBetaDraw.IsDraw(share, low, high, channelSpread))
                 {
-                    consoleHost.WriteError($"--star-beta-draw takes share,low,high with a share in (0, 1] and betas low <= high in [1.1, 20], got '{betaDrawText}'");
+                    consoleHost.WriteError($"--star-beta-draw takes share,low,high[,spread] with a share in (0, 1], betas low <= high in [1.1, 20] and a channel spread in [1, 4], got '{betaDrawText}'");
                     return 1;
                 }
                 if (mode != DatasetDegradationExporter.DegradationMode.Stars)
@@ -2232,7 +2236,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     consoleHost.WriteError("--star-beta-draw and --star-beta, --channel-relations, --channel-wing-cut or --clamp-wing-relations are two arms; give one");
                     return 1;
                 }
-                starBetaDraw = new StarBetaDraw(share, low, high);
+                starBetaDraw = new StarBetaDraw(share, low, high, channelSpread);
             }
             var starBeta = parseResult.GetValue(starBetaOpt);
             if (starBeta is { } heldBeta)

@@ -14,28 +14,47 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 public sealed record StarBeta
 {
     /// <param name="beta">The Moffat exponent every channel is drawn at, in [1.1, 20].</param>
-    public StarBeta(double beta)
+    /// <param name="redFactor">An RGB star's red beta over <paramref name="beta"/>, its green's, in [1/4, 4]; 1 holds it.</param>
+    /// <param name="blueFactor">An RGB star's blue beta over its green's, in [1/4, 4]; 1 holds it.</param>
+    public StarBeta(double beta, double redFactor = 1.0, double blueFactor = 1.0)
     {
         if (!IsBeta(beta))
         {
             throw new ArgumentOutOfRangeException(nameof(beta), beta, "a held star beta is in [1.1, 20]");
         }
-        Beta = beta;
+        if (!IsFactor(redFactor) || !IsFactor(blueFactor))
+        {
+            throw new ArgumentOutOfRangeException(nameof(redFactor), (redFactor, blueFactor), "a channel's beta factor is in [1/4, 4]");
+        }
+        (Beta, RedFactor, BlueFactor) = (beta, redFactor, blueFactor);
     }
 
-    /// <summary>The Moffat exponent every channel is drawn at.</summary>
+    /// <summary>The Moffat exponent every channel is drawn at: green's in an RGB star.</summary>
     public double Beta { get; }
+
+    /// <summary>An RGB star's red beta over its green's.</summary>
+    public double RedFactor { get; }
+
+    /// <summary>An RGB star's blue beta over its green's.</summary>
+    public double BlueFactor { get; }
+
+    /// <summary>Whether <paramref name="factor"/> is one a channel's beta factor takes, [1/4, 4].</summary>
+    public static bool IsFactor(double factor) => factor >= 0.25 && factor <= 4.0;
 
     /// <summary>Whether <paramref name="beta"/> is one a held star beta takes, [1.1, 20].</summary>
     public static bool IsBeta(double beta) => beta >= 1.1 && beta <= 20.0;
 
-    /// <summary>The profiles with every channel's Moffat exponent at <see cref="Beta"/>.</summary>
+    /// <summary>
+    /// The profiles with every channel's Moffat exponent at <see cref="Beta"/>, an RGB star's red and blue at their factors of it,
+    /// kept inside [1.1, 20].
+    /// </summary>
     public ImmutableArray<StarProfile> Apply(ImmutableArray<StarProfile> profiles)
     {
         var set = ImmutableArray.CreateBuilder<StarProfile>(profiles.Length);
-        foreach (var profile in profiles)
+        for (var c = 0; c < profiles.Length; c++)
         {
-            set.Add(profile with { Beta = Beta });
+            var factor = profiles.Length == 3 ? c switch { 0 => RedFactor, 2 => BlueFactor, _ => 1.0 } : 1.0;
+            set.Add(profiles[c] with { Beta = Math.Clamp(Beta * factor, 1.1, 20.0) });
         }
         return set.MoveToImmutable();
     }
@@ -54,14 +73,24 @@ public sealed record StarBetaDraw
     /// <param name="share">The share of cells drawn at a held beta, in (0, 1].</param>
     /// <param name="low">The lowest beta drawn, in [1.1, 20].</param>
     /// <param name="high">The highest beta drawn, in [<paramref name="low"/>, 20].</param>
-    public StarBetaDraw(double share, double low, double high)
+    /// <param name="channelSpread">How far a held cell's red and blue betas are drawn from its green's, in [1, 4]: each a factor
+    /// log-uniform in [1/spread, spread], drawn per cell. 1, every channel at one beta, as R3i drew them.</param>
+    public StarBetaDraw(double share, double low, double high, double channelSpread = 1.0)
     {
-        if (!IsDraw(share, low, high))
+        if (!IsDraw(share, low, high, channelSpread))
         {
-            throw new ArgumentOutOfRangeException(nameof(share), (share, low, high), "a star beta draw is a share in (0, 1] and betas low <= high in [1.1, 20]");
+            throw new ArgumentOutOfRangeException(nameof(share), (share, low, high, channelSpread),
+                "a star beta draw is a share in (0, 1], betas low <= high in [1.1, 20] and a channel spread in [1, 4]");
         }
-        (Share, Low, High) = (share, low, high);
+        (Share, Low, High, ChannelSpread) = (share, low, high, channelSpread);
     }
+
+    /// <summary>
+    /// How far a held cell's red and blue betas are drawn from its green's (docs/plans/star-remover-training.md, "M42's bright
+    /// stars: the channels' wings, outside the training range"): M42's field fits blue at 2.64 times green's beta, where R3i's
+    /// draw held every channel at one, so a third of the training cells taught that blue's wing follows green's.
+    /// </summary>
+    public double ChannelSpread { get; }
 
     /// <summary>The share of cells drawn at a held beta.</summary>
     public double Share { get; }
@@ -73,17 +102,26 @@ public sealed record StarBetaDraw
     public double High { get; }
 
     /// <summary>Whether the three are a draw: a share in (0, 1] and betas low &lt;= high in [1.1, 20].</summary>
-    public static bool IsDraw(double share, double low, double high)
-        => share > 0.0 && share <= 1.0 && StarBeta.IsBeta(low) && StarBeta.IsBeta(high) && low <= high;
+    public static bool IsDraw(double share, double low, double high, double channelSpread = 1.0)
+        => share > 0.0 && share <= 1.0 && StarBeta.IsBeta(low) && StarBeta.IsBeta(high) && low <= high
+           && channelSpread >= 1.0 && channelSpread <= 4.0;
 
     /// <summary>
     /// One cell's held beta, or null for a cell drawn at its master's own, from a stream of its own so the cell's stars are the
-    /// ones it makes without the draw. Two numbers are taken whatever the outcome, so the stream's use does not depend on it.
+    /// ones it makes without the draw. Two numbers are taken whatever the outcome, so the stream's use does not depend on it,
+    /// and two more after them with a <see cref="ChannelSpread"/> over 1, so a draw without one is the draw R3i made.
     /// </summary>
     public StarBeta? DrawCell(Random rng)
     {
         var held = rng.NextDouble() < Share;
         var beta = Low + ((High - Low) * rng.NextDouble());
-        return held ? new StarBeta(beta) : null;
+        var (red, blue) = (1.0, 1.0);
+        if (ChannelSpread > 1.0)
+        {
+            var span = Math.Log(ChannelSpread);
+            red = Math.Exp(span * ((2.0 * rng.NextDouble()) - 1.0));
+            blue = Math.Exp(span * ((2.0 * rng.NextDouble()) - 1.0));
+        }
+        return held ? new StarBeta(beta, red, blue) : null;
     }
 }
