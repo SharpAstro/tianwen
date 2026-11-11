@@ -5161,6 +5161,27 @@ Both seeds trained from the frozen run copy R3l used (`run-r2.ps1` and `n2n_smok
 --oversample-sessions draws a listed set of sessions' cells more often (#1947)"), which is the repo's trainer less the
 later `--flux-loss` option that R3r runs with off; its log's commit field is blank because that copy is outside the repo.
 
+#### M42's bright stars: the channels' wings, outside the training range (2026-11-11)
+
+M42's 100-1000 sigma stars are the one miss every arm shares (R3l, R3q, R3r), and in check 3 they fail as DUG (52 to 78 %,
+SXT 7 %), on M42 alone: HIP, Lobster and SMC read about 99 % clean in that band. Measured on the real val tiles, output
+less the input's 19-22 px plane, per channel, median over the band's unsaturated stars (226 on M42):
+- **The dig is blue, at 2 to 3 px.** Blue reads -2.7 and -1.7 sigma at 2 and 3 px for R3r s0 and R3l s0 alike, where SXT
+  reads -0.5 and 0.0; at 6 to 12 px every model agrees with SXT within 0.1. It is the core's shape, not the halo or the
+  nebula under it.
+- **No colour plane is offset** (centroids within 0.1 px of green on M42; the SMC's red, 0.26 px off, is the filter's).
+- **M42's channels differ in their wings.** Its field PSF fits beta 3.06 / 1.72 / 4.54 (R / G / B): heavy green wings,
+  compact blue, a blue-over-green beta ratio of **2.64**, which the real stars bear out (at 2 px green holds 0.23 of its peak,
+  blue 0.16). The sessions that pass sit at 0.8 to 1.5 (HIP 80609 0.94 to 1.12, Lobster 0.78 to 1.46, SMC 0.94 to 1.11).
+- **Training holds almost none of it.** synth21's drawn stars have a blue-over-green beta of 1.00 at the median and 1.35 at
+  the 90th percentile; 1.2 % reach 2.4, and 5 of its 123 sessions reach 2 at the median. `--star-beta-draw` itself draws
+  every channel of a held cell at ONE beta, so 30 % of the cells teach a ratio of exactly 1.
+
+So the model learned that blue's wing follows green's, and on M42 it takes a green-shaped wing out of a compact blue star.
+The deploy point is outside the training range, the case `--star-beta-draw` was built for in one dimension and not in the
+channels' relation. Every arm that widened star shapes took M31's nucleus (R2l, R2m, R2s, R2s2, R2v), so the arm that
+draws the channels' betas apart is read against the nucleus guard as well as M42.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
