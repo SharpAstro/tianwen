@@ -15,7 +15,7 @@ another piece of work opened) reports without failing someone else's PR. The wee
 issues and milestones are the shared view. --markdown is what that workflow writes to the job summary.
 
 --roadmap writes the PUBLIC face of the same graph, https://sharpastro.github.io/tianwen/roadmap.html: what is next
-(priority:high, the newest priority:next), the plans in progress and planned by area with their progress, the latest
+(priority:high, the newest priority:medium), the plans in progress and planned by area with their progress, the latest
 releases and the shipped plans, and no findings. The pages workflow regenerates it on every deploy.
 """
 import argparse
@@ -311,7 +311,7 @@ code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em}
 footer{color:var(--dim);font-size:.82rem}
 """
 
-# How many issues marked priority:next the roadmap lists, newest first; every priority:high one is listed.
+# How many issues marked priority:medium the roadmap lists, newest first; every priority:high one is listed.
 NEXT_SHOWN = 8
 
 AREA_NAMES = {"astrometry": "Astrometry", "drivers": "Devices and drivers", "guider": "Guiding", "imaging": "Imaging",
@@ -411,7 +411,7 @@ def render_roadmap(r):
         return "".join(out)
 
     high = sorted((n for n, ls in labels.items() if "priority:high" in ls), key=lambda n: -n)
-    nexts = sorted((n for n, ls in labels.items() if "priority:next" in ls and "priority:high" not in ls), key=lambda n: -n)
+    nexts = sorted((n for n, ls in labels.items() if "priority:medium" in ls and "priority:high" not in ls), key=lambda n: -n)
 
     def plan_note(n):
         # The plan's name, unless the issue's own title already says it.
@@ -421,12 +421,12 @@ def render_roadmap(r):
         return "" if t.startswith(it[:40]) or it.startswith(t[:40]) else f' <span class="sub">({_inline_md(plan_of[n]["title"], 60)})</span>'
 
     next_items = "".join(
-        f'<li><span class="badge nx">{"high" if n in high else "next"}</span> '
+        f'<li><span class="badge nx">{"high" if n in high else "medium"}</span> '
         f'<a href="https://github.com/{GH_REPO}/issues/{n}">#{n}</a> {_inline_md(titles.get(n, ""), 130)}{plan_note(n)}</li>'
         for n in high + nexts[:NEXT_SHOWN])
     if len(nexts) > NEXT_SHOWN:
-        next_items += (f'<li class="more"><a href="https://github.com/{GH_REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Apriority%3Anext">'
-                       f'and {len(nexts) - NEXT_SHOWN} more marked next</a></li>')
+        next_items += (f'<li class="more"><a href="https://github.com/{GH_REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Apriority%3Amedium">'
+                       f'and {len(nexts) - NEXT_SHOWN} more marked medium</a></li>')
     shipped = "".join(f'<li><a href="{BLOB}{p["plan"]}.md">{_inline_md(p["title"], 80)}</a></li>'
                       for p in sorted(buckets["shipped"], key=lambda p: p["title"].lower()))
     releases = "".join(f'<div class="release"><b>{html.escape(v)}</b><p>{_inline_md(t, 320)}</p></div>'
