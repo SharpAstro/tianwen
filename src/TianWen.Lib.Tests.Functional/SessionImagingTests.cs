@@ -160,7 +160,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         await using var ctx = await CreateImagingSessionAsync(
             observations: GuidedObservation(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(5)), cancellationToken: ct);
 
-        var (frames, corrections) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: true, ct);
+        var (frames, corrections, _) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: true, ct);
 
         frames.Length.ShouldBeGreaterThan(0, "the loop should have written at least one light");
         corrections.Count.ShouldBeGreaterThan(0, "the guider should have corrected, only without a measured error");
@@ -193,12 +193,15 @@ public class SessionImagingTests(ITestOutputHelper output)
         await using var ctx = await CreateImagingSessionAsync(
             observations: GuidedObservation(TimeSpan.FromSeconds(subSeconds), TimeSpan.FromMinutes(minutes)), cancellationToken: ct);
 
-        var (frames, corrections) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: false, ct);
+        // Every sample of the run, not the session's ring of the latest ones, which a long run has turned over
+        // by now (#1680).
+        var (frames, corrections, samples) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: false, ct);
         frames.Length.ShouldBeGreaterThan(0, "the loop should have written at least one light");
+        output.WriteLine($"Guide corrections: {corrections.Count}, recorded by the session: {samples.Length}, still in its ring: {ctx.Session.GuideSamples.Length}");
 
         var checkedLights = 0;
         var exactLights = 0;
-        var lastRecorded = ctx.Session.GuideSamples.Select(s => s.Timestamp).DefaultIfEmpty().Max();
+        var lastRecorded = samples.Select(s => s.Timestamp).DefaultIfEmpty().Max();
         foreach (var frame in frames)
         {
             Image.TryReadFitsHeader(frame, out var info).ShouldBeTrue($"{frame} should be a readable FITS");
@@ -208,7 +211,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             var end = start + TimeSpan.FromSeconds(subSeconds);
             var n = corrections.Count(c => c.FrameTime >= start && c.FrameTime <= end);
             var guiden = info.Meta.Guiding?.SampleCount ?? 0;
-            var recorded = GuideStatistics.OverExposure(ctx.Session.GuideSamples, start, TimeSpan.FromSeconds(subSeconds))?.SampleCount ?? 0;
+            var recorded = GuideStatistics.OverExposure(samples, start, TimeSpan.FromSeconds(subSeconds))?.SampleCount ?? 0;
             output.WriteLine($"{Path.GetFileName(frame)}: [{start:O}, {end:O}] corrections={n} recorded={recorded} GUIDEN={guiden}");
 
             // Exact: the session holds one sample per correction in the exposure, no more, no fewer -- for
@@ -253,9 +256,8 @@ public class SessionImagingTests(ITestOutputHelper output)
         await using var ctx = await CreateImagingSessionAsync(
             observations: GuidedObservation(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(3)), cancellationToken: ct);
 
-        var (_, corrections) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: false, ct);
+        var (_, corrections, samples) = await RunGuidedImagingLoopAsync(ctx, reportsNoLastError: false, ct);
 
-        var samples = ctx.Session.GuideSamples;
         samples.Length.ShouldBeGreaterThan(0, "a guided loop records guide samples");
 
         var frameTimes = corrections.Select(c => c.FrameTime).ToHashSet();
@@ -280,9 +282,15 @@ public class SessionImagingTests(ITestOutputHelper output)
 
     /// <summary>
     /// Starts the fake guider, runs one imaging loop under the external time pump and returns the lights it
-    /// wrote with every correction the guider reported (recorded on the guider's thread).
+    /// wrote with every correction the guider reported (recorded on the guider's thread) and every guide
+    /// sample the session recorded.
+    /// <para>The samples are collected AS THE RUN GOES, from the ring's count of appends, as a mirror reads
+    /// it: <c>Session.GuideSamples</c> holds only the latest <see cref="ISessionTelemetry.GuideSampleCapacity"/>,
+    /// and how many the guider adds before the loop ends depends on how much fake time the pump gets through
+    /// while the loop does real work. An idle machine ends near 260 and a loaded one past 400, which evicted
+    /// the first light's samples before a test read them (#1680).</para>
     /// </summary>
-    private static async Task<(string[] Frames, IReadOnlyCollection<Devices.Guider.GuideCorrectionEventArgs> Corrections)> RunGuidedImagingLoopAsync(
+    private static async Task<(string[] Frames, IReadOnlyCollection<Devices.Guider.GuideCorrectionEventArgs> Corrections, ImmutableArray<GuideErrorSample> Recorded)> RunGuidedImagingLoopAsync(
         SessionTestContext ctx, bool reportsNoLastError, CancellationToken ct)
     {
         ctx.External.MaxFitsWrites = 100;
@@ -309,12 +317,35 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = ctx.Track(Task.Run(
             async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
+        // Read on the pump's thread after each advance, and once more when the loop has ended. An advance is
+        // five seconds of fake time at most, a few guide frames, so a read never falls a whole ring behind;
+        // one that did would have lost samples, and says so instead of returning a short record.
+        var recorded = ImmutableArray.CreateBuilder<GuideErrorSample>();
+        var taken = 0L;
+        void TakeNewSamples()
+        {
+            var (ring, appended) = ctx.Session.GuideSampleWindow;
+            var fresh = appended - taken;
+            fresh.ShouldBeLessThanOrEqualTo(ring.Length, "the ring was read too seldom to see every guide sample");
+            for (var i = ring.Length - (int)fresh; i < ring.Length; i++)
+            {
+                recorded.Add(ring[i]);
+            }
+            taken = appended;
+        }
+
         await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromHours(4),
+            onIteration: _ =>
+            {
+                TakeNewSamples();
+                return ValueTask.CompletedTask;
+            },
             progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         await imagingTask;
+        TakeNewSamples();
 
-        return (Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories), corrections.ToArray());
+        return (Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories), corrections.ToArray(), recorded.ToImmutable());
     }
 
     /// <summary>
