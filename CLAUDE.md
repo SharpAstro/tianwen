@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **The backlog is GitHub issues, not a file** (since 2026-09-24, when `TODO.md` and `docs/todo/*.md` were
 migrated, 345 open items). Labels: `area:astrometry` / `drivers` / `guider` / `imaging` / `infra` /
 `sequencing` / `ui`; `bench` (only a real device or night can answer it); `needs-triage` (the old inbox);
-`priority:high` / `priority:medium` / `priority:low` (`priority:next` went 2026-11-11); `from-todo` marks the migration. **Close an item through the PR that
+priority is the organisation's **Priority issue field** (Urgent, High, Medium, Low), never a label (the `priority:*` labels went 2026-11-11); `from-todo` marks the migration. **Close an item through the PR that
 does it** (`Closes #n`), so it cannot drift from the code, which is the whole reason for the move: the
 same task used to be kept in `TODO.md`, an area file, a plan and a tracking issue, and a PR landing
 updated at most one of them. **Never write a new open `- [ ]` into `TODO.md` or `docs/todo/`**; open an
