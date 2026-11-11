@@ -154,4 +154,53 @@ public class GuideStatisticsTests
         Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
         info.Meta.Guiding.ShouldBeNull();
     }
+
+    [Fact]
+    public void Tally_MatchesOverExposureOnTheSameSamples()
+    {
+        var samples = ImmutableArray.Create(At(1, 0.5, -0.2), At(2, -1.0, 0.3), At(3, double.NaN, 1), At(12, 9, 9), At(4, 0.1, 0.1, settling: true));
+        var tally = new ExposureGuideTally(T0, TimeSpan.FromSeconds(10));
+        foreach (var s in samples)
+        {
+            tally = tally.Add(s);
+        }
+
+        // At(4) is out of order after At(12 excluded) but after At(2): counted by both.
+        tally.ToStats().ShouldBe(GuideStatistics.OverExposure(samples, T0, TimeSpan.FromSeconds(10)));
+        tally.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public void Tally_CountsAThousandSampleExposureWhole()
+    {
+        var tally = new ExposureGuideTally(T0, TimeSpan.FromSeconds(1000));
+        for (var i = 0; i < 1000; i++)
+        {
+            tally = tally.Add(At(i + 0.5, 0.4, 0.3));
+        }
+
+        var stats = tally.ToStats().ShouldNotBeNull();
+        stats.SampleCount.ShouldBe(1000);
+        stats.RmsTotal.ShouldBe(0.5f, 1e-5f);
+    }
+
+    [Fact]
+    public void Tally_CountsARepeatedOrOutOfOrderTimestampOnce()
+    {
+        var tally = new ExposureGuideTally(T0, TimeSpan.FromSeconds(10))
+            .Add(At(2, 1, 0)).Add(At(2, 5, 5)).Add(At(1, 7, 7)).Add(At(3, 1, 0));
+
+        tally.Count.ShouldBe(2);
+        tally.ToStats().ShouldNotBeNull().Peak.ShouldBe(1f);
+    }
+
+    [Fact]
+    public void Tally_WindowIsInclusiveAtBothEnds()
+    {
+        var tally = new ExposureGuideTally(T0, TimeSpan.FromSeconds(10))
+            .Add(At(-0.001, 1, 1)).Add(At(0, 1, 0)).Add(At(10, 1, 0)).Add(At(10.001, 1, 1));
+
+        tally.Count.ShouldBe(2);
+        new ExposureGuideTally(T0, TimeSpan.FromSeconds(10)).ToStats().ShouldBeNull();
+    }
 }
