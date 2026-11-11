@@ -5177,6 +5177,8 @@ less the input's 19-22 px plane, per channel, median over the band's unsaturated
   the 90th percentile; 1.2 % reach 2.4, and 5 of its 123 sessions reach 2 at the median. `--star-beta-draw` itself draws
   every channel of a held cell at ONE beta, so 30 % of the cells teach a ratio of exactly 1.
 
+Measured by `training/star-removal/bright_channel_profile.py` and `channel_offset.py`.
+
 So the model learned that blue's wing follows green's, and on M42 it takes a green-shaped wing out of a compact blue star.
 The deploy point is outside the training range, the case `--star-beta-draw` was built for in one dimension and not in the
 channels' relation. Every arm that widened star shapes took M31's nucleus (R2l, R2m, R2s, R2s2, R2v), so the arm that
