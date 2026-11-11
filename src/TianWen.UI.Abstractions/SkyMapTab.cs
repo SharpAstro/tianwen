@@ -114,7 +114,8 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// The start of one frame of <see cref="Render"/>, for a host whose per-frame resources are counted per frame: the web's planet
-        /// bodies, which give each draw of a body within a frame its own block (<see cref="PlanetBodyInstances{TBuffer}"/>).
+        /// bodies, which give each draw of a body within a frame its own block (<see cref="PlanetBodyInstances{TBuffer}"/>), and its
+        /// sprites and pictures, which give each draw its own quad (<see cref="FrameDrawBuffers{TBuffer}"/>).
         /// </summary>
         protected virtual void OnFrameStarting()
         {

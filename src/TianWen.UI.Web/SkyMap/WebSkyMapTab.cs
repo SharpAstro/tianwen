@@ -53,7 +53,12 @@ namespace TianWen.UI.Web.SkyMap
         private WebGlPlanetBodies? _planetBodies;
 
         /// <inheritdoc/>
-        protected override void OnFrameStarting() => _planetBodies?.BeginFrame();
+        protected override void OnFrameStarting()
+        {
+            _planetBodies?.BeginFrame();
+            _planetSprites?.BeginFrame();
+            _pictures?.BeginFrame();
+        }
 
         /// <inheritdoc/>
         protected override bool TracesPlanetBodies => true;

@@ -54,7 +54,13 @@ namespace TianWen.UI.Web.SkyMap
         private readonly ObjectPictureCache<LoadedTexture, TextureHandle> _cache;
         private readonly float[] _quad = new float[24];
         private PipelineHandle? _pipeline;
-        private GpuBufferHandle? _buffer;
+
+        // A quad buffer per draw of a frame (FrameDrawBuffers): draws replay at Present, so a second picture drawn in a frame would
+        // otherwise move the first one onto its own place.
+        private FrameDrawBuffers<GpuBufferHandle>? _quads;
+
+        /// <summary>A new frame: the next draw takes the first quad buffer again.</summary>
+        public void BeginFrame() => _quads?.BeginFrame();
 
         /// <summary>How many times a picture that was in hand has been drawn.</summary>
         public int Drawn { get; private set; }
@@ -115,14 +121,8 @@ namespace TianWen.UI.Web.SkyMap
                 VertexSource, FragmentSource,
                 Attribs: [new VertexAttrib(0, 2), new VertexAttrib(1, 2)],
                 Blend: PipelineBlend.AlphaOver));
-            if (_buffer is { } buffer)
-            {
-                _renderer.UpdateBuffer(buffer, _quad);
-            }
-            else
-            {
-                _buffer = buffer = _renderer.CreateBuffer(_quad);
-            }
+            _quads ??= new FrameDrawBuffers<GpuBufferHandle>(data => _renderer.CreateBuffer(data), (b, data) => _renderer.UpdateBuffer(b, data));
+            var buffer = _quads.Write(_quad);
 
             _renderer.UsePipeline(_pipeline.Value);
             _renderer.SetPipelineColor(new RGBAColor32(0xFF, 0xFF, 0xFF, 0xFF));
@@ -134,7 +134,7 @@ namespace TianWen.UI.Web.SkyMap
         public void Dispose()
         {
             _cache.Clear();
-            if (_buffer is { } buffer)
+            foreach (var buffer in _quads?.Buffers ?? [])
             {
                 _renderer.DestroyBuffer(buffer);
             }
