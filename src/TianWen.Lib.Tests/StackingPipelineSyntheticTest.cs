@@ -255,16 +255,8 @@ internal sealed class XunitLogger(ITestOutputHelper output) : ILogger
     {
         var msg = formatter(state, exception);
         if (string.IsNullOrEmpty(msg) && exception is null) return;
-        try
-        {
-            output.WriteLine($"[{logLevel,5}] {msg}{(exception is null ? "" : $" -- {exception.Message}")}");
-        }
-        catch (InvalidOperationException)
-        {
-            // xUnit closes the output helper after the test finishes; the
-            // pipeline's background-style logging may try to write after
-            // that and we don't want to throw out of ILogger.Log.
-        }
+        // The pipeline's background logging can outlive the test, and ILogger.Log must not throw.
+        TestOutputLine.Write(output, $"[{logLevel,5}] {msg}{(exception is null ? "" : $" -- {exception.Message}")}");
     }
 
     private sealed class NullScope : IDisposable

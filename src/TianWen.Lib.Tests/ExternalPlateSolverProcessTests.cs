@@ -141,15 +141,8 @@ public class ExternalPlateSolverProcessTests
         /// <summary>Writes a stage to the test's output, with the seconds since the solver was made.</summary>
         public void Stage(string what)
         {
-            try
-            {
-                log?.WriteLine($"+{_since.Elapsed.TotalSeconds:0.000} s {what}");
-            }
-            catch (InvalidOperationException)
-            {
-                // A line the tool's output reader raises after the test ended: xUnit refuses output with no test running, and a
-                // throw here would be unhandled on the reader's thread.
-            }
+            // The tool's output reader can raise a line after the test ended, on its own thread.
+            TestOutputLine.Write(log, $"+{_since.Elapsed.TotalSeconds:0.000} s {what}");
         }
 
         // The probe's bound on the hanging stand-in: long enough for it to print its inner process's id first, since pwsh's cold start
