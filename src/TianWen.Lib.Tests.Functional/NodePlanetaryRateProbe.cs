@@ -576,14 +576,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         {
             return;
         }
-        try
-        {
-            output.WriteLine($"{what}: {line}");
-        }
-        catch (InvalidOperationException)
-        {
-            // The test has ended; the window's last words go nowhere.
-        }
+        TestOutputLine.Write(output, $"{what}: {line}");
     }
 
     /// <summary>The node's camera stream lines (starts, recoveries, ends) from every server log under its data root.</summary>

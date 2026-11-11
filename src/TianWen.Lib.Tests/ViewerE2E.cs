@@ -223,7 +223,7 @@ internal sealed class ViewerE2E : IAsyncDisposable
         if (untilTimeout)
         {
             lastStatus = State.StatusMessage;
-            WaitLog($"waiting for {what} (+0.0 s); status: '{lastStatus}'");
+            TestOutputLine.Write(TestContext.Current.TestOutputHelper, $"waiting for {what} (+0.0 s); status: '{lastStatus}'", ct);
         }
 
         for (var i = 0; untilTimeout || i < 1000; i++)
@@ -239,7 +239,7 @@ internal sealed class ViewerE2E : IAsyncDisposable
             if (untilTimeout && State.StatusMessage != lastStatus)
             {
                 lastStatus = State.StatusMessage;
-                WaitLog($"still waiting for {what} (+{started.Elapsed.TotalSeconds:F1} s); status: '{lastStatus}'");
+                TestOutputLine.Write(TestContext.Current.TestOutputHelper, $"still waiting for {what} (+{started.Elapsed.TotalSeconds:F1} s); status: '{lastStatus}'", ct);
             }
 
             try
@@ -254,18 +254,6 @@ internal sealed class ViewerE2E : IAsyncDisposable
         }
 
         throw new TimeoutException($"gave up waiting for {what}; status: '{State.StatusMessage}'");
-    }
-
-    private static void WaitLog(string line)
-    {
-        try
-        {
-            TestContext.Current.TestOutputHelper?.WriteLine(line);
-        }
-        catch (InvalidOperationException)
-        {
-            // The output helper refuses a line once the test has ended.
-        }
     }
 
     /// <summary>
