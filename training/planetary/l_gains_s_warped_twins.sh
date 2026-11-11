@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # L-GAINS-S step A's extension (RULES.md): colour twins of the EdgeHD 11 Jupiter of 2023-11-11 over the deploy family's air plus a local
-# warp, so the family brackets the real master's edge; degrade, stack, sharpen. plan-ext.json holds them (e000 on). Progress in
+# warp, so the family brackets the real master's edge; degrade, stack, sharpen. l_gains_s_warped_twins_plan.json holds them (e000 on). Progress in
 # extend.done; a twin is claimed by the first maker to start it, so several makers may run. Stop file: extend.stop.
 T=D:/temp/tianwen-scratch/i1056/bin/tianwen.exe
 EDGE="D:/Astro-Dataset/planetary/Jupiter-1100 EdgeHD + ASI678MC-f14-DS/2023-11-11-0244_2-MPO.ser"
 O=D:/Astro-Dataset/planetary/opal
 D=D:/temp/tianwen-scratch/i1056/deploy
+PLAN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -W)/l_gains_s_warped_twins_plan.json"  # the plan lives in the repo, next to this script
 one() {
   [ -f "$D/extend.stop" ] && return 0
   local i=$1
-  local row=$(python -c "import json; r=json.load(open('$D/plan-ext.json'))[$i]; print(r['epoch'], r['r0'], r['wind'], r['local'], r['scatter'], ','.join(map(str, r['defocus'])), r['warp'], r['seed'])")
+  local row=$(python -c "import json; r=json.load(open('$PLAN'))[$i]; print(r['epoch'], r['r0'], r['wind'], r['local'], r['scatter'], ','.join(map(str, r['defocus'])), r['warp'], r['seed'])")
   read epoch r0 wind local scatter defocus warp seed <<< "$row"
   local n=$(printf "e%03d" $i); local d="$D/$n"; mkdir -p "$d"
   [ -f "$d/derived/master_${n}_sharpened.fits" ] && return 0
@@ -25,7 +26,7 @@ one() {
   rm -f "$d/$n.ser"
   echo "$n done" >> "$D/extend.done"
 }
-export -f one; export T EDGE O D
-count=$(python -c "import json; print(len(json.load(open('$D/plan-ext.json'))))")
+export -f one; export T EDGE O D PLAN
+count=$(python -c "import json; print(len(json.load(open('$PLAN'))))")
 seq 0 $((count - 1)) | xargs -P ${1:-1} -I{} bash -c 'one {}'
 echo "all extension twins" >> "$D/extend.done"
