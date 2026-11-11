@@ -6582,9 +6582,31 @@ Logs, the runner and the reader: `D:/temp/tianwen-scratch/i1056/recheck-1111` on
 - It becomes the default only if every bar holds and the owner says so. Otherwise the refit replaces the option's model, or nothing
   changes.
 
-**What it needs.** The 54 twins (masters, truths and plans) are in `D:/temp/tianwen-scratch/i1056/deploy` on DE1 and not in the repo;
-their plans (`plan.json`, `plan-ext.json`, `plan-f.json`) move into `training/planetary/` with this work, so the twins can be made
-again. CPU only: a twin scored against the aperture truth takes 2 to 5 minutes.
+**What it needs.** The 54 twins (masters and truths) are in `D:/temp/tianwen-scratch/i1056/deploy` on DE1 and not in the repo; their
+plans are (`training/planetary/r9_deploy_twins_plan.json`, `l_gains_s_warped_twins_plan.json`, `l_gains_s_blurred_twins_plan.json`, the
+three maker scripts reading them from there, 2026-11-12), so the twins can be made again. CPU only: a twin scored against the aperture
+truth takes 2 to 5 minutes.
+
+#### Step 0 read: the stack did not move (2026-11-12)
+
+`training/planetary/r10_gains.py step0` (glue only: every number is the CLI's) re-made held twin d024 from its plan row and seed, with a
+CLI built at HEAD (`dotnet build src/TianWen.Cli/TianWen.Cli.csproj -c Release`; the commit subject "R10 step 0: r10_gains.py, glue that
+re-makes a held twin with today's build and scores it against its October master", which differs from main's "docs(plans): the training
+plans re-checked against the code, R10 pre-registered, and priority read from the Priority field (#2106, #2112) (#2108)" in no planetary
+file): `planetary degrade` of the real EdgeHD 11 Jupiter SER with OPAL's maps, 600 frames, then `planetary stack`, then both masters
+through `planetary sharpen --score-against aperture` against the ONE October truth, so only the master differs.
+
+- **The master is bit-identical.** All 3 x 640 x 640 values equal the October master's: 0.00 % of pixels differ, maximum difference 0.
+  The three truths the new run drew are bit-identical to October's too, so the degrade, the stack and the render all stand as they were.
+- **So the scores are identical, to the third decimal:** the stack's band error 2.891 (3.098, 2.535, 3.039 in r, g, b) and the default
+  arm's 2.414 (2.247, 2.273, 2.721), the limb profile error 0.0284, 0.0251, 0.0321 for the stack and 0.0043, 0.0096, 0.0067 for the
+  default, the rebound 0.0000. The change is +0.00 % against R9's seed spread of 2.1 % (#817 A2, A3).
+- **The October masters stand, and every later step reads them** (`D:/temp/tianwen-scratch/i1056/deploy`). No twin was re-stacked.
+  The evidence is one twin, d024 (a deploy twin; the warped e and blurred f families differ only in the degrade's `--warp-rms` and
+  `--static-blur`, and were not re-made), a bit-identical master being a stronger result than a score inside the noise.
+- Scratch on DE1: the CLI `D:/temp/tianwen-scratch/i2112/bin` (the commit it was built from in `BUILT_FROM.txt` beside it), the
+  re-made twin and the two scoring logs `D:/temp/tianwen-scratch/i2112/step0/d024`, the reading `step0/d024/step0.txt`.
+- Note the bands here (default 2.414 on d024) are one twin's, not the 14's mean of 2.621 above.
 
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
