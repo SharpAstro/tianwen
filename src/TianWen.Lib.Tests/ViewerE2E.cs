@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -12,6 +13,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using TianWen.Lib.Devices;
+using Xunit;
 
 namespace TianWen.Lib.Tests;
 
@@ -209,10 +211,21 @@ internal sealed class ViewerE2E : IAsyncDisposable
     /// machine is slow, and giving up throws with the status line, which is where a failed open says why.
     /// <paramref name="untilTimeout"/> drops the bound and waits for as long as the test's own <c>Timeout</c> allows (its token), for
     /// work whose length is the machine's rather than the viewer's: a derivation takes about 35 s in Debug, all of the bound.
+    /// That wait writes what it waits for, and every change of the status line, to the test's output, and when the token ends it
+    /// throws a <see cref="TimeoutException"/> naming both: a test that hit its <c>Timeout</c> on CI (#2095) said only
+    /// 'timed out after 180000 ms', and its cause could not be read from the log.
     /// </summary>
     internal async Task PumpUntilAsync(Func<bool> done, string what, CancellationToken ct, bool untilTimeout = false)
     {
         untilTimeout |= _waitsUntilTimeout;
+        var started = Stopwatch.StartNew();
+        string? lastStatus = null;
+        if (untilTimeout)
+        {
+            lastStatus = State.StatusMessage;
+            WaitLog($"waiting for {what} (+0.0 s); status: '{lastStatus}'");
+        }
+
         for (var i = 0; untilTimeout || i < 1000; i++)
         {
             Frame();
@@ -223,10 +236,36 @@ internal sealed class ViewerE2E : IAsyncDisposable
                 return;
             }
 
-            await Task.Delay(10, ct);
+            if (untilTimeout && State.StatusMessage != lastStatus)
+            {
+                lastStatus = State.StatusMessage;
+                WaitLog($"still waiting for {what} (+{started.Elapsed.TotalSeconds:F1} s); status: '{lastStatus}'");
+            }
+
+            try
+            {
+                await Task.Delay(10, ct);
+            }
+            catch (OperationCanceledException) when (untilTimeout && ct.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"gave up waiting for {what} after {started.Elapsed.TotalSeconds:F1} s (the test's token ended the wait); last status: '{State.StatusMessage}'");
+            }
         }
 
         throw new TimeoutException($"gave up waiting for {what}; status: '{State.StatusMessage}'");
+    }
+
+    private static void WaitLog(string line)
+    {
+        try
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine(line);
+        }
+        catch (InvalidOperationException)
+        {
+            // The output helper refuses a line once the test has ended.
+        }
     }
 
     /// <summary>
