@@ -888,6 +888,13 @@ public static partial class LightGrading
         public Dictionary<TimedGroup, float> SkyTrend { get; } = [];
         public HashSet<TimedGroup> SkyRise { get; } = [];
         private readonly Dictionary<TimedGroup, float> _starCount = [];
+
+        /// <summary>
+        /// How many frames the plateau test's side windows looked at, binary-search probes included: the work that must stay
+        /// bounded by the WINDOW, never the group (<see cref="LightGrading.SideWindowFramesRead"/>). Written only while the
+        /// baselines are built, on the one thread that builds them.
+        /// </summary>
+        public long SideWindowFramesRead { get; private set; }
         private readonly Dictionary<TimedGroup, float> _sky = [];
 
         /// <summary>
@@ -1267,11 +1274,12 @@ public static partial class LightGrading
 
         // The 20th percentile of the frames in [from, to], null when there are none. The frames are sorted by time, so the
         // bounds are two binary searches and only the frames inside are sorted: O(log n + w log w).
-        private static float? FloorOf(List<(DateTimeOffset Taken, float Patchiness)> frames, DateTimeOffset from, DateTimeOffset to, List<float> scratch)
+        private float? FloorOf(List<(DateTimeOffset Taken, float Patchiness)> frames, DateTimeOffset from, DateTimeOffset to, List<float> scratch)
         {
             scratch.Clear();
             for (var i = FirstAtOrAfter(frames, from); i < frames.Count && frames[i].Taken <= to; i++)
             {
+                SideWindowFramesRead++;
                 scratch.Add(frames[i].Patchiness);
             }
             if (scratch.Count == 0)
@@ -1283,11 +1291,12 @@ public static partial class LightGrading
         }
 
         // The index of the first frame taken at or after <from>, or frames.Count.
-        private static int FirstAtOrAfter(List<(DateTimeOffset Taken, float Patchiness)> frames, DateTimeOffset from)
+        private int FirstAtOrAfter(List<(DateTimeOffset Taken, float Patchiness)> frames, DateTimeOffset from)
         {
             int lo = 0, hi = frames.Count;
             while (lo < hi)
             {
+                SideWindowFramesRead++;
                 var mid = lo + (hi - lo) / 2;
                 if (frames[mid].Taken < from)
                 {
@@ -1334,6 +1343,13 @@ public static partial class LightGrading
 
     private static Baselines BaselinesOf(ImmutableDictionary<string, LightGrade> grades)
         => _baselines.GetValue(grades, static g => new Baselines(g).Build());
+
+    /// <summary>
+    /// How many frames the plateau test's side windows looked at while <paramref name="grades"/>' baselines were built. A test
+    /// pins the cost with it, as a count of work and never as a time: a scan of the group per frame is the group's size per
+    /// side window, a binary search the window's.
+    /// </summary>
+    internal static long SideWindowFramesRead(ImmutableDictionary<string, LightGrade> grades) => BaselinesOf(grades).SideWindowFramesRead;
 
     /// <summary>At or below this share of the best, a frame reads as poor.</summary>
     public const float PoorBelow = 0.5f;
