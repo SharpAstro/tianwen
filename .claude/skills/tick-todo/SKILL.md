@@ -7,7 +7,7 @@ Usage: `/tick-todo <search text or issue number>`. Examples: `DrawEllipse`, `#36
 
 **The backlog is GitHub issues**, labelled by area (`area:astrometry`, `area:drivers`, `area:guider`,
 `area:imaging`, `area:infra`, `area:sequencing`, `area:ui`), plus `bench` (needs a real device or a
-real night), `needs-triage` (the old inbox), and `priority:high` / `priority:next`. `from-todo` marks
+real night), `needs-triage` (the old inbox), and the Priority issue field (Urgent, High, Medium, Low) in place of the old `priority:*` labels. `from-todo` marks
 the 2026-09-24 migration. `TODO.md` and `docs/todo/*.md` hold only the DONE archive and never a new
 open box: an open box written there is the drift this move removed.
 

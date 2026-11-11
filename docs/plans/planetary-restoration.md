@@ -6534,6 +6534,58 @@ found, more than N on every colour twin (3 to 19 %).
   second place a model could pay: #1549, not run here.
 - **Frame quality:** R4's oracle bound stands (1.4 %); nothing here reads it afresh.
 
+### R10: the learned gains at today's target (pre-registered 2026-11-11)
+
+Tracked by #2112. Follows R9 (#1056) and #1552.
+
+**The re-check that opened it (2026-11-11).** The 14 held EdgeHD 11 Jupiter twins (L-GAINS-S's), their October masters sharpened by
+today's build and scored against the truth carried to the aperture (`--score-against aperture`; band error 1 to 4, mean of r, g, b):
+
+| arm | mean | against the default |
+|---|---|---|
+| the stack | 3.119 | |
+| the default (derived gains, the aperture target, Hann) | 2.621 | |
+| `--learned-gains` (the model of 2026-10-14) | 2.143 | -18.2 %, below the default on 14 of 14 |
+| `--learned-gains --finish deconvolve` (20 steps) | 2.288 | -12.7 %, on 12 of 14 |
+| the truth's own gains through the sharpening (the ceiling) | 1.801 | -31.3 %, on 14 of 14 |
+
+- **The aperture target closed part of R9's gap, not all of it.** L-GAINS-D read the derived gains at twice the truth's error (the
+  ceiling 50.6 % below, against the telescope truth); today's default leaves 31.3 %.
+- **The shipped model aims at the old target.** It was fitted before the default moved to the aperture (#1632, #1661, #1668), to the
+  gains the TELESCOPE truth asks: on twin d000 its red gains are -0.13, 1.85, 3.92, 0.82, the telescope truth's own -0.12, 1.85, 3.80,
+  0.89, where the aperture truth asks -0.22, 2.52, 7.28, 0.16. It still takes 18.2 % off.
+- **The limb's cost comes with the gains, not with the learning.** The limb profile error is 0.0080 for the default, 0.0125 for the
+  learned gains and 0.0117 for the truth's own. The worst rebound over every arm is 0.0001.
+- **The deconvolution after the learned gains now costs** (2.288 against 2.143), where on 2026-10-15 it gained (2.093 against 2.479).
+  The truth it is read against changed with the taper, so the two days are not one comparison.
+
+Logs, the runner and the reader: `D:/temp/tianwen-scratch/i1056/recheck-1111` on DE1. The binary was built at "feat(training):
+--star-beta-draw takes a channel spread", which differs from main in no planetary file.
+
+**The steps, each read before the next:**
+0. **The instrument.** One held twin re-stacked by today's build against its October master. If the stack's defaults moved it, every
+   twin is re-stacked first.
+1. **A, the limb.** Where the truth's own gains' limb profile error comes from (inside or outside the limb, the trough, by band), and
+   whether a change to the limb handling brings it to the default's without raising the band error by more than 2 %.
+2. **B, the refit.** L-GAINS-S's ridge (`training/planetary/l_gains_s_model_cs.py`: the glow to the truth's own gains, one a colour) on
+   the 40 training twins against today's aperture truth, read on the 14 held.
+3. **C, beyond one capture**, only if B holds: twins at a Saturn's sampling (#1552's unfinished step).
+
+**The bars, set before any of it is run:**
+- **B1:** the refitted gains' mean at least 24 % below the default on the held twins, and every held twin below the default.
+- **B2:** the limb profile error's mean no higher than the truth's own gains' through the same build (0.0117 today, or the default's
+  0.0080 if step A's change is adopted); rebound at most 0.005 of the disk and undershoot at most 0.002 on every twin (L-TARGET's bounds).
+- **B3:** the real EdgeHD master against its `_post` (`planetary judge`): C24 no lower than the default's, and band 2's gain no more
+  than 2 % below the default's.
+- **B4:** the owner's eye on the real master's strip, the default beside the refit.
+- **Kill:** B1's mean under the shipped model's 18.2 %. Then the target is not what holds the learned gains back, and R10 stops.
+- It becomes the default only if every bar holds and the owner says so. Otherwise the refit replaces the option's model, or nothing
+  changes.
+
+**What it needs.** The 54 twins (masters, truths and plans) are in `D:/temp/tianwen-scratch/i1056/deploy` on DE1 and not in the repo;
+their plans (`plan.json`, `plan-ext.json`, `plan-f.json`) move into `training/planetary/` with this work, so the twins can be made
+again. CPU only: a twin scored against the aperture truth takes 2 to 5 minutes.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind

@@ -15,7 +15,7 @@ another piece of work opened) reports without failing someone else's PR. The wee
 issues and milestones are the shared view. --markdown is what that workflow writes to the job summary.
 
 --roadmap writes the PUBLIC face of the same graph, https://sharpastro.github.io/tianwen/roadmap.html: what is next
-(priority:high, the newest priority:next), the plans in progress and planned by area with their progress, the latest
+(the Priority field: urgent and high, then the newest medium), the plans in progress and planned by area with their progress, the latest
 releases and the shipped plans, and no findings. The pages workflow regenerates it on every deploy.
 """
 import argparse
@@ -89,6 +89,31 @@ def plan_links(body):
 
 # ---------------------------------------------------------------- checks
 
+def priorities():
+    """Each open issue's value of the organisation's Priority issue field (urgent, high, medium, low), lower case. The field,
+    not a label, holds an issue's priority since 2026-11-11. A token that cannot read it gives an empty answer and a
+    warning: the report then lists no priorities, and nothing else changes."""
+    owner, name = GH_REPO.split("/")
+    found, cursor = {}, None
+    while True:
+        after = f', after:"{cursor}"' if cursor else ""
+        query = ('{repository(owner:"%s",name:"%s"){issues(states:OPEN,first:100%s){pageInfo{hasNextPage endCursor} nodes{number '
+                 'issueFieldValues(first:10){nodes{... on IssueFieldSingleSelectValue{value field{... on IssueFieldSingleSelect{name}}}}}}}}}'
+                 % (owner, name, after))
+        out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"], capture_output=True, text=True, encoding="utf-8", cwd=REPO_DIR)
+        if out.returncode != 0:
+            print(f"warning: the Priority field could not be read ({out.stderr.strip()[:200]}); no priorities listed", file=sys.stderr)
+            return {}
+        page = json.loads(out.stdout)["data"]["repository"]["issues"]
+        for node in page["nodes"]:
+            for value in node["issueFieldValues"]["nodes"]:
+                if value and (value.get("field") or {}).get("name") == "Priority":
+                    found[node["number"]] = value["value"].lower()
+        if not page["pageInfo"]["hasNextPage"]:
+            return found
+        cursor = page["pageInfo"]["endCursor"]
+
+
 def build():
     stems = sorted(f[:-3] for f in os.listdir(PLANS_DIR) if f.endswith(".md"))
     plans = {s: read_plan(s) for s in stems}
@@ -96,6 +121,7 @@ def build():
     issues = gh("issue", "list", "--repo", GH_REPO, "--state", "all", "--limit", "3000",
                 "--json", "number,title,state,body,milestone,labels,url")
     by_num = {i["number"]: i for i in issues}
+    priority = priorities()
     # Paged: the repo passed 80 milestones on 2026-09-28, and one page holds 100.
     milestones = [m for page in gh("api", "--paginate", "--slurp", f"repos/{GH_REPO}/milestones?state=all&per_page=100")
                   for m in page]
@@ -179,7 +205,10 @@ def build():
         "plans": table,
         "findings": findings,
         "titles": {i["number"]: i["title"] for i in issues},
-        "labels": {i["number"]: [l["name"] for l in i["labels"]] for i in issues if i["state"] == "OPEN"},
+        # The Priority field rides with the labels as "priority:<value>", so every reader of a priority has one place to look.
+        "labels": {i["number"]: [l["name"] for l in i["labels"] if not l["name"].startswith("priority:")]
+                                + ([f"priority:{priority[i['number']]}"] if i["number"] in priority else [])
+                   for i in issues if i["state"] == "OPEN"},
     }
 
 
@@ -311,7 +340,7 @@ code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em}
 footer{color:var(--dim);font-size:.82rem}
 """
 
-# How many issues marked priority:next the roadmap lists, newest first; every priority:high one is listed.
+# How many issues of medium priority the roadmap lists, newest first; every urgent and high one is listed.
 NEXT_SHOWN = 8
 
 AREA_NAMES = {"astrometry": "Astrometry", "drivers": "Devices and drivers", "guider": "Guiding", "imaging": "Imaging",
@@ -410,8 +439,9 @@ def render_roadmap(r):
                        f'<div class="grid">{"".join(card(p, kind) for p in ps)}</div>')
         return "".join(out)
 
-    high = sorted((n for n, ls in labels.items() if "priority:high" in ls), key=lambda n: -n)
-    nexts = sorted((n for n, ls in labels.items() if "priority:next" in ls and "priority:high" not in ls), key=lambda n: -n)
+    urgent = sorted((n for n, ls in labels.items() if "priority:urgent" in ls), key=lambda n: -n)
+    high = urgent + sorted((n for n, ls in labels.items() if "priority:high" in ls), key=lambda n: -n)
+    nexts = sorted((n for n, ls in labels.items() if "priority:medium" in ls), key=lambda n: -n)
 
     def plan_note(n):
         # The plan's name, unless the issue's own title already says it.
@@ -421,12 +451,12 @@ def render_roadmap(r):
         return "" if t.startswith(it[:40]) or it.startswith(t[:40]) else f' <span class="sub">({_inline_md(plan_of[n]["title"], 60)})</span>'
 
     next_items = "".join(
-        f'<li><span class="badge nx">{"high" if n in high else "next"}</span> '
+        f'<li><span class="badge nx">{"urgent" if n in urgent else "high" if n in high else "medium"}</span> '
         f'<a href="https://github.com/{GH_REPO}/issues/{n}">#{n}</a> {_inline_md(titles.get(n, ""), 130)}{plan_note(n)}</li>'
         for n in high + nexts[:NEXT_SHOWN])
     if len(nexts) > NEXT_SHOWN:
-        next_items += (f'<li class="more"><a href="https://github.com/{GH_REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Apriority%3Anext">'
-                       f'and {len(nexts) - NEXT_SHOWN} more marked next</a></li>')
+        next_items += (f'<li class="more"><a href="https://github.com/{GH_REPO}/issues">'
+                       f'and {len(nexts) - NEXT_SHOWN} more of medium priority</a></li>')
     shipped = "".join(f'<li><a href="{BLOB}{p["plan"]}.md">{_inline_md(p["title"], 80)}</a></li>'
                       for p in sorted(buckets["shipped"], key=lambda p: p["title"].lower()))
     releases = "".join(f'<div class="release"><b>{html.escape(v)}</b><p>{_inline_md(t, 320)}</p></div>'
