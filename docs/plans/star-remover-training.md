@@ -5131,6 +5131,36 @@ and the target is the plate, so a clipped core teaches only what the input shows
   stars' unclipped channels (a blue core drawn on the round profile from its 3-5 px light), measured before any arm.
 - Between the two, R3r stays killed and the dig is called unresolved.
 
+**R3r seed 1, read 2026-11-11: the dig was the seed's; on the two seeds' mean R3r still fails.** Trained to step 217,500
+(best held-out 6.61e-6 at 193,500, converged after the last halving). Its pooled saturated ring dug is **13.6 %** on its
+own ring (s0 54.5 %, R3l 21.1 / 30.0 %), so the seed-noise branch holds, and R3r's bars are read on the mean of s0 and s1:
+
+| bar | s0 / s1 own (input ring) | two-seed mean own / input | R3l s0 / s1 own | verdict |
+|---|---|---|---|---|
+| Q2 HIP 80609 saturated >= 80 on both | 72.7 / 90.9 (54.5 / 72.7) | 81.8 / 63.6 | 63.6 / 68.2 | missed on the input ring |
+| Q2 M42 100-1000 sigma >= 50 | 43.4 / 26.5 (40.4 / 22.8) | 35.0 / 31.6 | 27.2 / 39.0 | missed |
+| Q2 Lobster every band within 3 of R3l s0 | saturated 94.8 / 100 (84.5 / 93.1) | 97.4 / 88.8 | 100 / 94.8 | missed on the input ring |
+| Q2 SMC 20-100, 100-1000 not 5 below R3l s1 | 97.7, 86.4 / 97.2, 89.8 | 97.5, 88.1 | s1 89.8, 84.7 | held |
+| Q3 truth tiles 20-100 >= 72, 100-1000 >= 54 | 72.6, 52.8 / 72.5, 53.4 | 72.6, 53.1 | 73.3, 54.5 / 73.2, 58.2 | 100-1000 missed by 0.9 |
+| Q4 Andromeda dark dug <= 47 | 44.2 / 31.4 | 37.8 | 44.8 / 45.3 | held |
+| Q4 Tarantula dark flat >= 69 | 68.7 / 76.3 | 72.5 | 70.3 / 74.4 | held |
+
+The HIP kill fires on the mean too: its saturated stars gain 15.8 points over R3l's mean on the own ring and none on the
+input ring (63.6 against R3l's 63.6). So R3r stays killed, now for misses that do not depend on one seed: M42's bright
+stars, HIP and Lobster's saturated stars on the input ring, and the truth tiles' 100-1000 sigma band.
+
+**What the two seeds say about the instrument.** One seed against the other moved the pooled saturated dig by 41 points,
+HIP's saturated clean share by 18 (n = 22) and M42's 100-1000 sigma band by 17 (n = 136); R3l's seeds moved them 9, 5 and
+12. On the truth twin (check 3's `--twin`) the four models' saturated stars read 85 to 89 % truly clean with no order
+between the arms. A single-seed difference in the saturated or M42 rows of check 3 is therefore not evidence, and an arm
+that is to move them needs two seeds before it is read. The rows with many stars (Lobster, HIP below saturation, the truth
+tiles' bands, the whole masters) moved by 1 to 8 points between seeds. The M31 nucleus was kept at -4 / +17 / +27 % (s0
+36 to 38 %, R3l 2 to 16 %).
+
+Both seeds trained from the frozen run copy R3l used (`run-r2.ps1` and `n2n_smoke.py` as of "feat(training):
+--oversample-sessions draws a listed set of sessions' cells more often (#1947)"), which is the repo's trainer less the
+later `--flux-loss` option that R3r runs with off; its log's commit field is blank because that copy is outside the repo.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
