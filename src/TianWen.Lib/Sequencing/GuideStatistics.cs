@@ -27,9 +27,13 @@ public static class GuideStatistics
     /// subs of the night report the cleanest numbers.</para>
     ///
     /// <para><b>Null is a real answer and is not the same as zero.</b> An unguided rig, a sub shorter than
-    /// one guide exposure, and a ring buffer that has already discarded the window all produce no samples;
+    /// one guide exposure, and a window the supplied samples no longer reach all produce no samples;
     /// stamping <c>GUIDERMS = 0</c> for any of them would claim perfect guiding. Absence of the card means
     /// "not known", which is what <see cref="ImageMeta.Guiding"/> being null encodes.</para>
+    ///
+    /// <para><b>Samples are taken in time order.</b> A sample whose timestamp is not after the last one counted
+    /// is ignored (the per-exposure tally's rule, so a correction seen twice counts once). A chronological
+    /// snapshot, which is what the telemetry ring yields, is unaffected.</para>
     ///
     /// <para>Sample count is returned so a consumer can tell a two-sample RMS from a hundred-sample one;
     /// see <see cref="GuidingStats.SampleCount"/>.</para>

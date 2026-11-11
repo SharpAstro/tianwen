@@ -486,11 +486,11 @@ bin-2 calibration frames TianWen had written were retagged (`_provenance/CORRECT
 ## A light carries the guiding quality of its own exposure
 
 `ImageMeta.Guiding` (`GuidingStats`) is written as `GUIDERMS` / `GUIRMSRA` / `GUIRMSDE` / `GUIDEPK` /
-`GUIDEN`, all arcsec. the session's per-exposure `ExposureGuideTally` (one per OTA, opened when its exposure starts and fed from every
-guide correction, #2100) reduces the corrections over
-`[ExposureStartTime, +ExposureDuration]`, never the 300-sample telemetry ring, which is the graph's and never a rolling session average: that answers "how is the
-rig doing tonight", a different question, and is actively misleading stamped on a sub taken during the
-other hour. Three rules: settling/dither samples inside the window are INCLUDED (a live guiding
+`GUIDEN`, all arcsec. The session keeps one `ExposureGuideTally` per OTA, opened when that OTA's exposure
+starts and fed every guide correction (#2100). It reduces the corrections over
+`[ExposureStartTime, +ExposureDuration]`. It never reads the 300-sample telemetry ring, which belongs to the
+graph, and it is never a rolling session average: that answers "how is the rig doing tonight", a different
+question, and is actively misleading stamped on a sub taken during the other hour. Three rules: settling/dither samples inside the window are INCLUDED (a live guiding
 display excludes them because a dither is a commanded move, but if the guider had not settled while
 the shutter was open the sub IS smeared, and filtering makes the worst frames report the cleanest
 numbers); null is not zero, so an unguided rig writes NO cards rather than `GUIDERMS = 0`, which would

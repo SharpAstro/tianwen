@@ -836,16 +836,10 @@ internal partial record Session(
             tally = tally.Add(sample);
         }
 
-        // Publish by CAS against whatever is there, so a sample added between the seed read and now is not
-        // lost: it is re-added (idempotent through the last-included rule) from a fresh ring snapshot.
-        while (true)
-        {
-            var observed = Volatile.Read(ref slots[otaIndex]);
-            if (ReferenceEquals(Interlocked.CompareExchange(ref slots[otaIndex], tally, observed), observed))
-            {
-                break;
-            }
-        }
+        // A new exposure replaces whatever the slot held, so this is an unconditional swap, not a CAS loop.
+        // A sample recorded between the snapshot above and the swap is folded in again below (idempotent
+        // through the last-included rule).
+        Interlocked.Exchange(ref slots[otaIndex], tally);
 
         // A sample recorded between the ring snapshot and the publish reached no open slot: fold it in now.
         foreach (var sample in GuideSamples)

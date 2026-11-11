@@ -195,7 +195,7 @@ public enum ColourCalibrationSource
 /// against a low RMS is that signature, and averaging is what erases it.</param>
 /// <param name="SampleCount">Guide samples the statistics were computed from (FITS: GUIDEN). Present so
 /// an RMS derived from two samples is distinguishable from one derived from a hundred -- a short sub, a
-/// slow guide camera, or a ring buffer that did not retain the whole window all produce the former.</param>
+/// or a slow guide camera both produce the former.</param>
 public readonly record struct GuidingStats(
     float RmsTotal,
     float RmsRa,
