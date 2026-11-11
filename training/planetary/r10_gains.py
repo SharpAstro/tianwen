@@ -6,6 +6,10 @@ aperture target. Glue only: every score is the CLI's, as in l_gains_s.py and the
                                       sharpen` (the default arm, the aperture truth) and print the pixel difference and both band errors
   python r10_gains.py restack [twin ...]  re-make every twin (or the named ones) into SCR/twins/<twin>/ (degrade + stack, no sharpen);
                                       used only when step 0 shows the stack moved
+  python r10_gains.py limb [arm ...]  step A: the 14 held twins' October masters through the arms in ARMS (default all), logs kept in
+                                      SCR/limb/<twin>-<arm>.log, two twins at a time; ends with SCR/limb.done
+  python r10_gains.py limb-read [arm ...]  read those logs: band error (per band), limb profile error inside and outside, trough, rebound
+                                      and undershoot per twin and arm, the means, and each arm's band error against the default's
 
 Scratch is SCR (D:/temp/tianwen-scratch/i2112), never the checkout and never E:/Astro. A finished log or a finished master is never run
 again. Stop: create SCR/r10.stop. Every child runs BELOW NORMAL with no window.
@@ -94,6 +98,93 @@ def bands(log):
     return out
 
 
+# Step A's arms. A: the default (derived gains, the aperture target). B: the truth's own gains fitted jointly to the truth (read off A's
+# log) as the 2026-11-11 re-check gave them, nothing else, so the target is whatever --gains leaves it (the telescope). T: the same
+# gains with --target aperture, the target they were fitted toward. Further arms of step A are added here, one line each.
+ARMS = {"A": lambda own: [],
+        "B": lambda own: ["--gains", own],
+        "T": lambda own: ["--gains", own, "--target", "aperture"]}
+OWN = re.compile(r"the truth's own gains, ([rgb]), fitted jointly to it: gains ([0-9., -]+?); ")
+BAND = re.compile(r"^\[planetary\] (.*?), ([rgb]) against the truth: .*?error ([0-9., ]+) \(bands 1 to 4 ([0-9.]+)\); undershoot ([0-9.]+); "
+                  r"limb profile error ([0-9.]+); rebound ([0-9.]+)", re.M)
+TROUGH = re.compile(r"^\[planetary\] (.*?), ([rgb]): the limb's trough below the truth ([0-9.]+), below the stack ([0-9.NaN]+)", re.M)
+SIDES = re.compile(r"^\[planetary\] (.*?), ([rgb]): the limb profile's error within \d+ px inside it ([0-9.]+), outside ([0-9.]+)", re.M)
+
+
+def score_arm(master, truth, log, extra):
+    return child([BIN, "planetary", "sharpen", master, "--truth", truth, *SCORE, *extra], log)
+
+
+def limb_twin(n, arms):
+    log = lambda a: f"{SCR}/limb/{n}-{a}.log"
+    truth, master = f"{OCT}/{n}/{n}.truth.fits", f"{OCT}/{n}/master_{n}.fits"
+    if not score_arm(master, truth, log("A"), []):
+        return
+    found = dict(OWN.findall(open(log("A"), encoding="utf-8").read()))
+    own = ";".join(found[c].replace(" ", "") for c in "rgb")
+    for a in arms:
+        if a != "A":
+            score_arm(master, truth, log(a), ARMS[a](own))
+
+
+def limb_all(arms):
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(lambda n: limb_twin(n, arms), HELD))
+    open(f"{SCR}/limb.done", "w").write("done\n")
+
+
+def limb_log(log):
+    """{channel: dict} for the one sharpened arm of a limb log (the stack's own lines skipped)."""
+    text = open(log, encoding="utf-8").read()
+    out = {}
+    for label, c, errs, band, under, limb, reb in BAND.findall(text):
+        if not label.startswith("the master as stacked"):
+            out[c] = dict(band=float(band), bands=[float(x) for x in errs.split(",")[:4]], under=float(under), limb=float(limb), rebound=float(reb))
+    for label, c, tr, _ in TROUGH.findall(text):
+        if not label.startswith("the master as stacked"):
+            out[c]["trough"] = float(tr)
+    for label, c, i, o in SIDES.findall(text):
+        if not label.startswith("the master as stacked"):
+            out[c].update(inside=float(i), outside=float(o))
+    return out
+
+
+def limb_read(arms):
+    table = {}
+    for a in arms:
+        rows = {}
+        for n in HELD:
+            f = f"{SCR}/limb/{n}-{a}.log"
+            if os.path.exists(f):
+                ch = limb_log(f)
+                rows[n] = dict(band=st.mean(v["band"] for v in ch.values()), limb=st.mean(v["limb"] for v in ch.values()),
+                               inside=st.mean(v["inside"] for v in ch.values()), outside=st.mean(v["outside"] for v in ch.values()),
+                               trough=max(v["trough"] for v in ch.values()), rebound=max(v["rebound"] for v in ch.values()),
+                               under=max(v["under"] for v in ch.values()), bands=[st.mean(v["bands"][k] for v in ch.values()) for k in range(4)])
+        table[a] = rows
+    print(f"{'twin':5s} " + " | ".join(f"{a}: band  limb   in     out    trough rebound under" for a in arms))
+    for n in HELD:
+        cells = []
+        for a in arms:
+            r = table[a].get(n)
+            cells.append(f"   {r['band']:6.3f} {r['limb']:.4f} {r['inside']:.4f} {r['outside']:.4f} {r['trough']:.4f} {r['rebound']:.4f} {r['under']:.4f}" if r else " " * 50)
+        print(f"{n:5s} " + " | ".join(cells))
+    for a in arms:
+        rows = list(table[a].values())
+        if not rows:
+            continue
+        m = lambda k: st.mean(r[k] for r in rows)
+        per = ", ".join(f"{st.mean(r['bands'][k] for r in rows):.3f}" for k in range(4))
+        print(f"{a}: {len(rows)} twins, band {m('band'):.3f} (bands 1 to 4: {per}), limb {m('limb'):.4f}, inside {m('inside'):.4f}, "
+              f"outside {m('outside'):.4f}, worst trough {max(r['trough'] for r in rows):.4f}, worst rebound {max(r['rebound'] for r in rows):.4f}, "
+              f"worst undershoot {max(r['under'] for r in rows):.4f}")
+    if table.get("A"):
+        base = st.mean(r["band"] for r in table["A"].values())
+        for a in arms:
+            if a != "A" and table[a]:
+                print(f"{a}: band error {100 * (st.mean(r['band'] for r in table[a].values()) / base - 1):+.1f} % against A")
+
+
 def planes(path):
     import numpy as np
     from astropy.io import fits
@@ -162,6 +253,10 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "step0":
         step0(sys.argv[2] if len(sys.argv) > 2 else "d024")
+    elif cmd == "limb":
+        limb_all(sys.argv[2:] or list(ARMS))
+    elif cmd == "limb-read":
+        limb_read(sys.argv[2:] or list(ARMS))
     elif cmd == "restack":
         restack_all(sys.argv[2:] or all_twins())
     else:
