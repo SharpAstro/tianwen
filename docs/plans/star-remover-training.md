@@ -5198,8 +5198,9 @@ of 24 rows and their tiles were byte-identical and the 4 held rows differed only
   `bright_channel_profile.py`, every bar on the two seeds' mean against R3l's.
 
 The bars:
-- **Q1, the export, before training:** 2 to 4 % of synth22's unsaturated stars drawn with blue at 2.4 times green's beta
-  or more (synth21 1.2 %).
+- **Q1, the export, before training:** 3 to 5.5 % of synth22's unsaturated stars drawn with blue at 2.4 times green's beta
+  or more (`channel_beta_share.py`; synth21 1.2 %, all of it from the 70 % of cells the draw does not hold, so about 1.2 %
+  plus 0.3 x 10 % = 4.2 % expected).
 - **Q2, M42:** its 100-1000 sigma stars at least 50 % clean on the own ring (R3l 27.2 / 39.0, mean 33.1); its blue at 2 to
   3 px within 0.7 sigma of SXT's in `bright_channel_profile.py` (R3l s0 -2.7 / -1.7 against SXT -0.5 / 0.0).
 - **Guards:** HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below R3l's mean on the own ring;
