@@ -619,6 +619,8 @@ internal partial record Session
                         camerDriver,
                         ct => camerDriver.StartExposureAsync(frameExpTime, cancellationToken: ct),
                         ResilientCallOptions.NonIdempotentAction, cancellationToken);
+                    // This exposure's guide tally: every correction from here to the close is counted, not the ring's last 300 (#2100)
+                    OpenExposureGuideWindow(i, expStartTimes[i], frameExpTime);
                     // Rounded UP, so the tick a frame is fetched on comes less than one tick before its shutter closes (the
                     // ticker's phase is not the exposure's): rounded down, a 20 s sub on 3 s ticks was fetched at 15 to 18 s
                     expTicks[i] = (subExposureSec + tickSec - 1) / tickSec;
@@ -729,8 +731,7 @@ internal partial record Session
                         // one place an ImageMeta is built, so the try that takes the frame carries every guide sample
                         // recorded by then. One whose guide frame straddles the close may be reported later and missed
                         // (#1414). Null on an unguided rig, which writes no cards.
-                        camDriver.GuideStats = GuideStatistics.OverExposure(
-                            GuideSamples, expStartTimes[i], frameExpTime);
+                        camDriver.GuideStats = ExposureGuideStats(i);
                         if (await ResilientInvokeAsync(
                                 camDriver, camDriver.GetImageAsync,
                                 ResilientCallOptions.IdempotentRead, cancellationToken) is { Width: > 0, Height: > 0 } image)
@@ -938,6 +939,7 @@ internal partial record Session
                             // Nearly done: wait for it to finish and save the frame
                             _logger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
                             await _timeProvider.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
+                            camDriver.GuideStats = ExposureGuideStats(i);
                             if (await ResilientInvokeAsync(
                                     camDriver, camDriver.GetImageAsync,
                                     ResilientCallOptions.IdempotentRead, cancellationToken) is { Width: > 0, Height: > 0 } image)

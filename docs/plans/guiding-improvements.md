@@ -271,7 +271,7 @@ Tracked by #821. **Done**: the synthetic fallback went in #942 and the per-corre
 **What it was.** `Session.GuideSamples` was filled by polling `GetStatsAsync` once per imaging tick. The tick is
 `clamp(GCD(exposures) / 6, 1, 5)` seconds, and each sample was stamped at the time of the poll, so a guide frame
 could be sampled twice or missed and `GUIDEN` counted polls. When a driver had no last error, the loop appended
-`RMS · random(-1, 1)` instead, and `GuideStatistics.OverExposure` reduced those samples into `GUIDERMS`.
+`RMS · random(-1, 1)` instead, and `GuideStatistics.OverExposure` reduced those samples (since #2100 the light's cards come from a per-exposure tally instead of the ring) into `GUIDERMS`.
 
 **What was built.**
 
@@ -295,7 +295,7 @@ could be sampled twice or missed and `GUIDEN` counted polls. When a driver had n
   only the guider panel's RMS. #942's rule holds: a correction with no measured error appends nothing, and a pending
   dither mark waits for the next real sample.
 
-So `GuideStatistics.OverExposure` reduces real corrections, and `GUIDEN` counts guide frames.
+So the per-exposure `ExposureGuideTally` (#2100; `GuideStatistics.OverExposure` shares its arithmetic, and the 300-sample ring no longer bounds a light's cards) reduces real corrections, and `GUIDEN` counts guide frames.
 
 **What the tests found.**
 
