@@ -1300,7 +1300,7 @@ one read path is a bug in the other** (two copies once read an `EXPOSURE`-only f
 - **`ImageMeta.PixelSizeX` is the unbinned PHOTOSITE, the `XPIXSZ` card INCLUDES binning**: the one parse divides by
   `XBINNING`, the one writer multiplies back, nothing else converts; test on a bin-2 frame.
 - **A light carries the guiding quality of ITS OWN exposure** (`ImageMeta.Guiding`;
-  `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`): `GuideStatistics.OverExposure` over `Session.GuideSamples`,
+  `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`): the per-exposure `ExposureGuideTally` (opened per OTA at its exposure's start, fed from every guide correction, #2100), never the 300-sample `Session.GuideSamples` ring,
   **never a rolling session average**; **a sample is one guide CORRECTION** (`IGuider.GuideCorrectionEvent`),
   **never a poll of `GetStatsAsync`** (#821); null is not zero. Stamped via `ICameraDriver.GuideStats`.
 
