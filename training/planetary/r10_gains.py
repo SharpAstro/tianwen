@@ -14,6 +14,7 @@ aperture target. Glue only: every score is the CLI's, as in l_gains_s.py and the
                                       used only when step 0 shows the stack moved
   python r10_gains.py limb [arm ...]  step A: the 14 held twins' October masters through the arms in ARMS (default all), logs kept in
                                       SCR/limb/<twin>-<arm>.log, two twins at a time; ends with SCR/limb.done
+  python r10_gains.py b3 | b3-read          B3: the real EdgeHD master sharpened by default and by the learned gains, each judged against its _post
   python r10_gains.py limb-read [arm ...]  read those logs: band error (per band), limb profile error inside and outside, trough, rebound
                                       and undershoot per twin and arm, the means, and each arm's band error against the default's
 
@@ -164,7 +165,7 @@ def limb_read(arms):
     for a in arms:
         rows = {}
         for n in HELD:
-            f = f"{SCR}/limb/{n}-{a}.log"
+            f = f"{SCR}/refit/{n}.log" if a == "R" else f"{SCR}/limb/{n}-{a}.log"
             if os.path.exists(f):
                 ch = limb_log(f)
                 rows[n] = dict(band=st.mean(v["band"] for v in ch.values()), limb=st.mean(v["limb"] for v in ch.values()),
@@ -348,6 +349,33 @@ def all_twins():
                   for n in [f"{k}{r['index']:03d}"] if os.path.exists(f"{OCT}/{n}/master_{n}.fits"))
 
 
+# B3. The real EdgeHD master, sharpened by this build with the default gains and with the learned ones, each judged against the capture's own
+# _post (planetary judge); the post is read for the score only, never fitted to.
+REAL = "D:/temp/tianwen-scratch/final-1011/out/jup-edgehd/master_2023-11-11-0244_2-MPO_auto.fits"
+POST = "D:/Astro-Dataset/planetary/Jupiter-1100 EdgeHD + ASI678MC-f14-DS/2023-11-11-0244_2-MPO_post.png"
+JUDGE_ROW = re.compile(r"band (\d):\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)")
+
+
+def b3():
+    pupil = ["--aperture-mm", "279", "--obstruction", "0.33"]
+    os.makedirs(f"{SCR}/b3", exist_ok=True)
+    for arm, extra in (("default", []), ("refit", ["--learned-gains"])):
+        out = f"{SCR}/b3/{arm}"
+        child([BIN, "planetary", "sharpen", REAL, "--planet", "jupiter", "--wavelength", "610,535,460", *pupil, *extra, "-o", out], f"{SCR}/b3/{arm}.log")
+        sharpened = next(f for f in os.listdir(out) if f.endswith("_sharpened.fits"))
+        child([BIN, "planetary", "judge", "--planet", "jupiter", f"{out}/{sharpened}", POST], f"{SCR}/b3/judge-{arm}.log")
+    open(f"{SCR}/b3.done", "w").write("done\n")
+
+
+def b3_read():
+    rows = {}
+    for arm in ("default", "refit"):
+        rows[arm] = {int(b): (float(c), float(e), float(g)) for b, c, e, g in JUDGE_ROW.findall(open(f"{SCR}/b3/judge-{arm}.log", encoding="utf-8").read())}
+        c24 = st.mean(rows[arm][b][0] for b in (2, 3, 4))
+        print(f"{arm}: C24 {c24:.4f}; " + "; ".join(f"band {b} correlation {v[0]:.3f}, energy {v[1]:.3f}, gain {v[2]:.3f}" for b, v in rows[arm].items()))
+    print(f"band 2's gain: refit {rows['refit'][2][2]:.3f} against default {rows['default'][2][2]:.3f} ({100 * (rows['refit'][2][2] / rows['default'][2][2] - 1):+.1f} %)")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "step0":
@@ -364,6 +392,10 @@ if __name__ == "__main__":
         score_refit()
     elif cmd == "check":
         check()
+    elif cmd == "b3":
+        b3()
+    elif cmd == "b3-read":
+        b3_read()
     elif cmd == "restack":
         restack_all(sys.argv[2:] or all_twins())
     else:
