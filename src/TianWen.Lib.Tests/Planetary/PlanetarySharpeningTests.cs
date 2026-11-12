@@ -703,6 +703,27 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task GainsGivenOrLearnedTakeTheAutomaticTargetToo()
+    {
+        // R10 step A (#2112): given or learned gains once kept the telescope under Auto, whose model drawn outside the limb left the edge's
+        // halo (limb error 0.0117 against 0.0057 for the truth's own gains, 0.0125 against 0.0067 for the learned model, on the 14 held
+        // twins). They resolve as derived gains do; a target asked for by name is still the one taken.
+        var ct = TestContext.Current.CancellationToken;
+        var (_, stack) = NoisyStack();
+        var derived = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+        var given = derived with { FixedGains = [[1.0, 1.0, 1.0, 1.0]] };
+        var learned = derived with { GainsModel = PlanetaryGainsModels.EdgeHd11Jupiter };
+
+        foreach (var (what, options) in new[] { ("given", given), ("learned", learned) })
+        {
+            var automatic = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
+            automatic.Target.ShouldBe(PlanetarySharpenTarget.Aperture, $"{what} gains take the automatic target as derived gains do");
+            var named = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options with { Target = PlanetarySharpenTarget.Telescope }), ct)).ShouldNotBeNull();
+            named.Target.ShouldBe(PlanetarySharpenTarget.Telescope, $"a target asked for by name is taken with {what} gains");
+        }
+    }
+
+    [Fact(Timeout = 300_000)]
     public async Task TheDefaultTargetUndoesTheTelescopeHoweverFineThePixels()
     {
         // #1632, #1668: the default resolves once, by every channel's cutoff, to a named target and sharpens exactly as that target asked by
