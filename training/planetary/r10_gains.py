@@ -362,7 +362,7 @@ def b3():
     for arm, extra in (("default", []), ("refit", ["--learned-gains"])):
         out = f"{SCR}/b3/{arm}"
         child([BIN, "planetary", "sharpen", REAL, "--planet", "jupiter", "--wavelength", "610,535,460", *pupil, *extra, "-o", out], f"{SCR}/b3/{arm}.log")
-        sharpened = next(f for f in os.listdir(out) if f.endswith("_sharpened.fits"))
+        sharpened = next(f for f in os.listdir(out) if "_sharpened" in f and f.endswith(".fits"))
         child([BIN, "planetary", "judge", "--planet", "jupiter", f"{out}/{sharpened}", POST], f"{SCR}/b3/judge-{arm}.log")
     open(f"{SCR}/b3.done", "w").write("done\n")
 
