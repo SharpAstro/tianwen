@@ -3509,7 +3509,8 @@ Whether a night's own twin can supply them is #1369 (the AUTO mode's step 0, `pl
 `PlanetarySharpenTarget.Auto`, the default, took the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel, and since
 L-NYQ wherever every cutoff is known (resolved once by `PlanetarySharpening.TargetFor`, the target taken in `PlanetarySharpenResult.Target`), so
 `planetary stack`, `planetary sharpen` (`--target auto`), the viewer's Full view and the live view's Derive all take it. Gains given or
-learned (#817, #1552) were fitted toward the telescope and keep it. Two experiments, rules set before each ran
+learned (#817, #1552) took the telescope they were fitted toward until R10 step A (#2112), and take this default now (their limb error
+0.0125 to 0.0067 on the 14 held twins, below the default's 0.0080, the band error moving 0.5 %). Two experiments, rules set before each ran
 (`training/planetary/r9-rules.md`), found the aperture target the best arm wherever the sampling resolves the optics:
 
 | Finely sampled EdgeHD Jupiter twins | Detail, bands 1 to 4 | Limb, inside + outside | Light past the limb |
@@ -6573,8 +6574,8 @@ Logs, the runner and the reader: `D:/temp/tianwen-scratch/i1056/recheck-1111` on
 
 **The bars, set before any of it is run:**
 - **B1:** the refitted gains' mean at least 24 % below the default on the held twins, and every held twin below the default.
-- **B2:** the limb profile error's mean no higher than the truth's own gains' through the same build (0.0117 today, or the default's
-  0.0080 if step A's change is adopted); rebound at most 0.005 of the disk and undershoot at most 0.002 on every twin (L-TARGET's bounds).
+- **B2:** the limb profile error's mean no higher than the truth's own gains' through the same build (0.0057, at the aperture target
+  step A's change made the default for given and learned gains; it read 0.0117 at the telescope target before it); rebound at most 0.005 of the disk and undershoot at most 0.002 on every twin (L-TARGET's bounds).
 - **B3:** the real EdgeHD master against its `_post` (`planetary judge`): C24 no lower than the default's, and band 2's gain no more
   than 2 % below the default's.
 - **B4:** the owner's eye on the real master's strip, the default beside the refit.
@@ -6621,6 +6622,8 @@ outside the limb within 6 px (`PlanetaryMetrics.LimbReachPx`).
 | A, the default | 2.621 | 1.182, 0.719, 0.459, 0.260 | 0.0080 | 0.0203 | 0.0079 | 0.0016 | 0.0001 | 0.0001 |
 | B, the truth's own gains | 1.801 (-31.3 %) | 0.735, 0.579, 0.348, 0.139 | 0.0117 | 0.0169 | 0.0324 | 0.0000 | 0.0000 | 0.0000 |
 | T, B at the aperture target | 1.808 (-31.0 %) | 0.737, 0.581, 0.350, 0.140 | 0.0057 | 0.0110 | 0.0054 | 0.0022 | 0.0000 | 0.0000 |
+| L, the shipped learned model (`--learned-gains`) | 2.143 (-18.2 %) | 0.778, 0.668, 0.469, 0.228 | 0.0125 | 0.0230 | 0.0338 | 0.0000 | 0.0000 | 0.0000 |
+| LT, L at the aperture target | 2.153 (-17.8 %) | 0.783, 0.674, 0.470, 0.225 | 0.0067 | 0.0170 | 0.0070 | 0.0012 | 0.0000 | 0.0000 |
 
 - **The truth's own gains' limb excess is OUTSIDE the limb, and it is the target.** B is better than the default inside (0.0169 against
   0.0203) and four times worse outside (0.0324 against 0.0079, on every one of the 14 twins, 0.0304 to 0.0364). The band errors differ by
@@ -6635,8 +6638,34 @@ outside the limb within 6 px (`PlanetaryMetrics.LimbReachPx`).
   +0.4 % over B and -31.0 % under the default (the bar allows +2 %), worst rebound 0.0000 (at most 0.005), worst undershoot 0.0000 (at most
   0.002). The outside error falls most on the twins where the default's is largest (e002 0.0266 to 0.0155, f002 0.0231 to 0.0152, f014 0.0220
   to 0.0151). The worst trough is 0.0022 (the default's 0.0016), on d028; no bar reads it.
-- **So step A's change is the invocation, not the build:** a gain set fitted to the aperture truth is restored toward the aperture
-  (`--target aperture`). Nothing in `PlanetarySharpening` needs to change for the truth's own gains.
+- **The shipped learned model has the same excess and the same cure.** L's limb error 0.0125 is 0.0338 outside (0.0079 for the default);
+  LT, the same model at the aperture target, reads 0.0067 (0.0070 outside), below the default's 0.0080 and below L on 14 of the 14 twins, band error +0.5 % over L (2.143 to 2.153; the bar allows +2 %), worst rebound and undershoot
+  0.0000, worst trough 0.0012. The model was fitted toward the telescope truth and loses nothing by being applied toward the aperture:
+  what the target moves is the model drawn outside the limb, not the gains.
+
+#### Step A result: adopted, the automatic target for given and learned gains (2026-11-12)
+
+**The change.** Given (`--gains`) and learned (`--learned-gains`) gains take `PlanetarySharpenTarget.Auto` as derived gains do, the
+aperture wherever every channel's cutoff is known (`restoreToward` in `PlanetarySharpening.Sharpen` is `TargetFor(options.Target,
+cutoffs)` whatever the gains' source; it used to resolve with no cutoffs, hence the telescope, for given and learned gains). A target
+asked for by name is taken as asked, so `--target telescope` keeps the old behaviour. Pinned by `GainsGivenOrLearnedTakeTheAutomaticTargetToo`
+in the planetary sharpening tests.
+
+**The bar, met by the arm the change makes the default** (the 14 held twins, the same build, the same command, T and LT being the new
+defaults for B and L): the truth's own gains' mean limb error 0.0057 against the default's 0.0080; band error +0.4 % (T over B, the bar
+allows +2 %), and -31.0 % under the default; worst rebound 0.0000 (at most 0.005) and worst undershoot 0.0000 (at most 0.002) on every twin.
+The shipped learned model gains the same way (limb 0.0125 to 0.0067, band error +0.5 %), which no bar asked for and which is why a change
+to the rule, not an invocation, is the right shape.
+
+**Which B2 limb bar applies from here on: the truth's own gains' limb error at the aperture target, 0.0057 through this build** (T). B
+refits the gains against the aperture truth and measures them through the default invocation, which now restores toward the aperture, so
+the bar is T's 0.0057 and never B's 0.0117 (that arm is the telescope target, `--target telescope`), nor the default's 0.0080 (the old
+fallback; the refit has to beat the better of the two). The shipped learned model's 0.0067 through the same build is the number the
+refit has to improve on. Rebound at most 0.005 and undershoot at most 0.002 on every twin stand.
+
+**Not changed:** the derived gains, `TargetFor`, the aperture taper and the limb fix; the options' help text and the learned model
+(its coefficients were fitted toward the telescope and are applied as shipped). The default arm A is unchanged by the rule (it never took
+given gains).
 
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
@@ -7113,7 +7142,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     `--score-against aperture`), **band-limited by a Hann taper that ends at the lesser of the cutoff and the grid's Nyquist,
     never a Tukey, whose own edge response overshot 7.9 % and rang past Saturn's limb** (`PlanetaryApertureTaper`,
     `PlanetaryFinishing.GridNyquist`, `--aperture-taper`,
-    #1661); gains given or learned keep the telescope they were fitted toward. **Read a gain set by its FILTER** (`PlanetaryWaveletGains.Transfer`). The
+    #1661); gains given or learned take that default too (R10 step A, #2112; they kept the telescope they were fitted toward before, whose model
+    drawn outside the limb left the edge's halo; `--target telescope` still asks for it). **Read a gain set by its FILTER** (`PlanetaryWaveletGains.Transfer`). The
     panel's `PlanetaryStrength` is never saved.
   - **Learned gains are an OPTION, applied only inside what their twins covered** (`--learned-gains`,
     `PlanetaryGainsModels`, `PlanetaryGainsModel.Predict`, #1552): every reading inside the twins' range and the
