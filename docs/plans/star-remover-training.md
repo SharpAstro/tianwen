@@ -5212,6 +5212,39 @@ The bars:
   at 0.8 to 1.5, do not move beyond their seed spread; the saturated rows are not read (one seed's spread there is 18 to 41
   points). The nucleus is the risk.
 
+**R3s, read 2026-11-12: killed by two guards; M42's band clears its bar and the nucleus is kept.** Both seeds trained to
+convergence (s0 step 224,000, best held-out 6.61e-6 at 212,000; s1 best 6.64e-6 at 197,500). Every bar on the two seeds' mean:
+
+| bar | R3s s0 / s1 | R3s mean | R3l s0 / s1 (mean) | verdict |
+|---|---|---|---|---|
+| Q1 blue at 2.4 times green's beta, 3 to 5.5 % of stars | | 4.12 % | synth21 1.2 % | held |
+| Q2 M42 100-1000 sigma clean, own ring, >= 50 | 58.1 / 52.9 | 55.5 | 27.2 / 39.0 (33.1) | held |
+| Q2 M42 blue at 2 and 3 px within 0.7 sigma of SXT's (-0.47, -0.03) | -2.31, -1.10 / -2.26, -1.14 | -2.29, -1.12 | -2.68, -1.70 / -2.99, -1.79 | missed, by 1.8 and 1.1 |
+| guard HIP 80609 20-100, 100-1000, within 3 of R3l | 99.7, 98.4 / 99.9, 98.2 | 99.8, 98.3 | 99.8, 97.4 | held |
+| guard Lobster 20-100, 100-1000 | 99.8, 99.4 / 99.8, 99.6 | 99.8, 99.5 | 99.8, 99.6 | held |
+| guard SMC 20-100, 100-1000 | 83.6, 88.1 / 79.1, 83.1 | 81.4, 85.6 | 92.4, 90.7 | **failed, 11.0 and 5.1 below** |
+| guard truth tiles 20-100 >= 72, 100-1000 >= 54 | 71.5, 53.2 / 72.6, 55.0 | 72.1, 54.1 | 73.3, 56.4 | held, by 0.1 |
+| guard Andromeda dark dug <= 47 | 25.9 / 24.7 | 25.3 | 44.8 / 45.3 | held |
+| guard Tarantula dark flat >= 69 | 69.3 / 65.1 | 67.2 | 70.3 / 74.4 | **failed** |
+| guard M31 nucleus under 40 % in every channel, both seeds | -1.1, 2.3, 2.2 / 0.6, 1.9, 1.3 % | | +1 to +14 % | held |
+
+- **The kill fires on the guards:** the SMC's stars at 20-100 and 100-1000 sigma, and Tarantula's dark sky. M42 is not
+  under 40, and Q1 held.
+- **The SMC fails as stars LEFT, not dug** (dug 0.0 and 0.0 to 1.7 %): its 20-100 sigma stars read 83.6 / 79.1 % clean where
+  R3l's read 94.9 / 89.8. R3l's own seeds differ by 5 points there and by 12 at 100-1000 sigma (n = 59), so the 100-1000 row's
+  5.1 is inside one seed's spread and the 20-100 row's 11.0 is not. The SMC is the dual-band session whose red sits 0.26 px
+  off green by its filter; a model taught that the channels' wings may differ leaves more of such a star.
+- **The prediction, in three parts.** M42's band clears 50, as predicted. Its blue dig falls toward SXT's at 3 px (-1.75 to
+  -1.12) and barely at 2 px (-2.84 to -2.29), short of the bar: the channels' betas drawn apart are part of M42's dig, not
+  all of it. "The other sessions do not move beyond their seed spread" failed on the SMC. The nucleus, the stated risk, was
+  kept better than R3l kept it.
+- **Two gains outside the bars:** Andromeda's dark sky is dug on 25.3 % where R3l dug 45.1, and M42's bright stars are dug on
+  39.0 % (both seeds) where R3l dug 58 to 71. On the input ring M42 reads 48.5 / 47.1 (R3l 19.9 / 33.8).
+- The saturated rows are not read, as registered.
+
+Read from `C:/temp/e2/check3-r3s-own.txt`, `check3-r3s-input-ring.txt`, `bright-channel-r3s.txt`, `whole-r3s_synth22_s*.log`,
+`q1-r3s.txt` and `r2-eval/<model>/on-random/starless-eval-v5.json` on DE1. Not adopted; what follows is the owner's to choose.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
