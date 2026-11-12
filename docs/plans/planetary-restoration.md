@@ -6608,6 +6608,36 @@ through `planetary sharpen --score-against aperture` against the ONE October tru
   re-made twin and the two scoring logs `D:/temp/tianwen-scratch/i2112/step0/d024`, the reading `step0/d024/step0.txt`.
 - Note the bands here (default 2.414 on d024) are one twin's, not the 14's mean of 2.621 above.
 
+#### Step A read: where the truth's own gains lose on the limb (2026-11-12)
+
+`training/planetary/r10_gains.py limb` scored the 14 held twins' October masters through the CLI built at HEAD, `--score-against
+aperture`, three arms, and `limb-read` tabulates the logs (`D:/temp/tianwen-scratch/i2112/limb/<twin>-<arm>.log`; each number is the CLI's,
+the mean of r, g, b, then of the 14). **A** is the default. **B** is the truth's own gains (`--gains`, the three channels' own, read off
+A's log) and nothing else, as the re-check ran them. **T** is B with `--target aperture`. The limb profile error is split inside and
+outside the limb within 6 px (`PlanetaryMetrics.LimbReachPx`).
+
+| arm | band error | by band 1 to 4 | limb | inside | outside | worst trough | worst rebound | worst undershoot |
+|---|---|---|---|---|---|---|---|---|
+| A, the default | 2.621 | 1.182, 0.719, 0.459, 0.260 | 0.0080 | 0.0203 | 0.0079 | 0.0016 | 0.0001 | 0.0001 |
+| B, the truth's own gains | 1.801 (-31.3 %) | 0.735, 0.579, 0.348, 0.139 | 0.0117 | 0.0169 | 0.0324 | 0.0000 | 0.0000 | 0.0000 |
+| T, B at the aperture target | 1.808 (-31.0 %) | 0.737, 0.581, 0.350, 0.140 | 0.0057 | 0.0110 | 0.0054 | 0.0022 | 0.0000 | 0.0000 |
+
+- **The truth's own gains' limb excess is OUTSIDE the limb, and it is the target.** B is better than the default inside (0.0169 against
+  0.0203) and four times worse outside (0.0324 against 0.0079, on every one of the 14 twins, 0.0304 to 0.0364). The band errors differ by
+  band, B below A in all four. Nothing is wrong inside the limb and there is no trough or rebound to read: B's worst of each is 0.0000.
+- **Why:** `--gains` (and a learned model) restores toward the telescope target whatever `--target` is left at (`restoreToward` in
+  `PlanetarySharpening.Sharpen`: given gains were fitted toward the telescope, #817, #1552), so the planet's model drawn outside the limb to
+  the frame's edge is the telescope's, a pupil-only model, while the truth the score reads is carried to the aperture. The truth's own gains
+  are the aperture truth's, so they belong with the aperture target; the sky just outside the limb is then drawn one diffraction too soft.
+  T is that single change and nothing else.
+- **T clears the adoption bar with no change to the code.** Mean limb error 0.0057 against the bar of 0.0080, below the default's on
+  14 of the 14 twins (the highest are f005 0.0086, f002 0.0081 and f014 0.0081, against the default's 0.0102, 0.0107 and 0.0106), band error
+  +0.4 % over B and -31.0 % under the default (the bar allows +2 %), worst rebound 0.0000 (at most 0.005), worst undershoot 0.0000 (at most
+  0.002). The outside error falls most on the twins where the default's is largest (e002 0.0266 to 0.0155, f002 0.0231 to 0.0152, f014 0.0220
+  to 0.0151). The worst trough is 0.0022 (the default's 0.0016), on d028; no bar reads it.
+- **So step A's change is the invocation, not the build:** a gain set fitted to the aperture truth is restored toward the aperture
+  (`--target aperture`). Nothing in `PlanetarySharpening` needs to change for the truth's own gains.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
