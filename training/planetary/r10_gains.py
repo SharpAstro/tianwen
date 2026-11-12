@@ -4,6 +4,12 @@ aperture target. Glue only: every score is the CLI's, as in l_gains_s.py and the
   python r10_gains.py step0 [twin]    the instrument: re-make one held twin (default d024) from its plan row and seed with the build in
                                       BIN (degrade, then stack), then score its master and the October master through `planetary
                                       sharpen` (the default arm, the aperture truth) and print the pixel difference and both band errors
+  python r10_gains.py truths [twin ...]  step B: the default arm against the aperture truth on the 40 training twins (the truth's own gains
+                                      at that target), logs in SCR/truths, two at a time; ends with SCR/truths.done
+  python r10_gains.py train           step B: l_gains_s.py's ridge (glow, one a colour, strength by leave-one-out) fitted to those gains;
+                                      the model JSON to SCR/gains-r10-model.json (then l_gains_s_model_cs.py writes the C# constant)
+  python r10_gains.py score           the 14 held twins through the built CLI's --learned-gains, logs in SCR/refit; ends with SCR/refit.done
+  python r10_gains.py check           the built CLI's learned gains against the script's arithmetic on every held twin
   python r10_gains.py restack [twin ...]  re-make every twin (or the named ones) into SCR/twins/<twin>/ (degrade + stack, no sharpen);
                                       used only when step 0 shows the stack moved
   python r10_gains.py limb [arm ...]  step A: the 14 held twins' October masters through the arms in ARMS (default all), logs kept in
@@ -189,6 +195,95 @@ def limb_read(arms):
                 print(f"{a}: band error {100 * (st.mean(r['band'] for r in table[a].values()) / base - 1):+.1f} % against A")
 
 
+# Step B. The training twins are l_gains_s.py's (its plan files and finished-twin test, in the October folder); the fit is l_gains_s.fit,
+# imported, with the truth's own gains read from the aperture-truth logs of `truths` instead of the October logs' telescope-truth ones.
+MODEL = f"{SCR}/gains-r10-model.json"
+
+
+def _ls():
+    sys.path.insert(0, HERE)
+    import l_gains_s
+    return l_gains_s
+
+
+def truths(names):
+    """The default arm (derived gains, the aperture target) against the aperture truth on every training twin, logs kept in
+    SCR/truths/<twin>.log: each carries the truth's own gains at that target (the line `limb` also reads)."""
+    ls = _ls()
+    names = names or ls.training()
+    def one(n):
+        score_arm(f"{OCT}/{n}/master_{n}.fits", f"{OCT}/{n}/{n}.truth.fits", f"{SCR}/truths/{n}.log", [])
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(one, names))
+    open(f"{SCR}/truths.done", "w").write("done\n")
+
+
+def own_gains(n):
+    """{channel: [bands 1 to 4]} the truth's own gains of twin n at the aperture target, read off its truths log."""
+    text = open(f"{SCR}/truths/{n}.log", encoding="utf-8").read()
+    got = {c: [float(v) for v in g.split(",")[:4]] for c, g in OWN.findall(text)}
+    if sorted(got) != ["b", "g", "r"]:
+        raise SystemExit(f"{n}: the truth's own gains are not in {SCR}/truths/{n}.log")
+    return got
+
+
+def train():
+    """The ridge of L-GAINS-S (l_gains_s.fit: the glow, one a colour, strength by leave-one-out) on the training twins, to the aperture
+    truth's own gains. The model JSON goes to MODEL (l_gains_s_model_cs.py reads it)."""
+    ls = _ls()
+    tr = ls.training()
+    missing = [n for n in tr if not os.path.exists(f"{SCR}/truths/{n}.log")]
+    if missing:
+        raise SystemExit(f"run truths first, no log for {missing}")
+    original = ls.ds.read_log
+    def aperture_read(n):
+        derived, _, gains, edges = original(n)
+        return derived, own_gains(n), gains, edges
+    ls.ds.read_log = aperture_read
+    colours, report = ls.fit(tr, ("glow",))
+    ls.ds.read_log = original
+    json.dump({"name": f"the EdgeHD 11 Jupiter of 2023-11-11, {len(tr)} twins", "readings": ["glow"], "twins": tr, "colours": colours},
+              open(MODEL, "w"), indent=1)
+    print(f"{len(tr)} training twins ({sum(n[0] in 'ef' for n in tr)} warped or blurred), the aperture truth's own gains", *report, sep="\n")
+
+
+def refit(n):
+    return f"{SCR}/refit/{n}.log"
+
+
+GAINS = re.compile(r"\] (.*?): each channel's gains r ([0-9., -]+?); g ([0-9., -]+?); b ([0-9., -]+?)$", re.M)
+LEARNED = re.compile(r"the learned gains \(#1552\), (.*)$", re.M)
+
+
+def score_refit():
+    """The 14 held twins through the built CLI's --learned-gains (the refit compiled in, BIN), the aperture truth, logs in SCR/refit."""
+    ls = _ls()
+    def one(n):
+        score_arm(f"{OCT}/{n}/master_{n}.fits", f"{OCT}/{n}/{n}.truth.fits", refit(n), ["--learned-gains"])
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(one, ls.held()))
+    open(f"{SCR}/refit.done", "w").write("done\n")
+
+
+def check():
+    """The built CLI's learned gains (from its --learned-gains logs) against this script's arithmetic (l_gains_s.predict on MODEL), every
+    held twin and colour the guard did not refuse. Printed to 0.01, so a worst difference of 0.005 is rounding."""
+    ls = _ls()
+    model, worst = json.load(open(MODEL)), 0.0
+    for n in ls.held():
+        text = open(refit(n), encoding="utf-8").read()
+        g, answers = GAINS.search(text), LEARNED.search(text).group(1)
+        _, _, _, edges = ls.ds.read_log(n)
+        for i, c in enumerate(ls.ds.CH):
+            if f"{c} learned" not in answers:
+                continue
+            built = [float(v) for v in g.group(i + 2).split(",")[:4]]
+            mine = ls.predict(model["colours"][i], [ls.glow(n, c)])
+            worst = max(worst, max(abs(a - b) for a, b in zip(built, mine)))
+        print(f"{n}: {answers}")
+    print(f"the built CLI's gains against this script's, the worst band: {worst:.3f} (printed to 0.01)")
+
+
 def planes(path):
     import numpy as np
     from astropy.io import fits
@@ -261,6 +356,14 @@ if __name__ == "__main__":
         limb_all(sys.argv[2:] or list(ARMS))
     elif cmd == "limb-read":
         limb_read(sys.argv[2:] or list(ARMS))
+    elif cmd == "truths":
+        truths(sys.argv[2:])
+    elif cmd == "train":
+        train()
+    elif cmd == "score":
+        score_refit()
+    elif cmd == "check":
+        check()
     elif cmd == "restack":
         restack_all(sys.argv[2:] or all_twins())
     else:
