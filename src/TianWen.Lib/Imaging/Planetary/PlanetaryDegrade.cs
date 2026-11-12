@@ -505,7 +505,9 @@ public static partial class PlanetaryDegrade
     /// from the green one. One atmosphere for all three: the colours must share <see cref="DegradeOptions.Seed"/> and everything
     /// the air sets, so their screens, tilts and warp are the same path difference seen at three wavelengths (the phase is
     /// scaled by 500 nm over the wavelength). The frames are held until the last colour is made, then written in order; the warp,
-    /// achromatic, is reported from the green pass.
+    /// achromatic, is reported from the green pass. The three colours are made at once (#2116): each pass steps its own copy of
+    /// the air, three quarters of its time on one thread, and writes only its own photosites, so the capture is the same bytes as
+    /// one colour after another made.
     /// </summary>
     /// <returns>Each colour's frames as <see cref="MakeAsync"/> records them.</returns>
     /// <remarks>The screens are drawn once, at the finest of the three pupils' spacings (<see cref="DegradeOptions.ScreenSpacingM"/>),
@@ -539,23 +541,30 @@ public static partial class PlanetaryDegrade
         BayerColour Shared(BayerColour colour) => colour with { Options = colour.Options with { ScreenSpacingM = screenSpacing, ScreenSamples = screenSamples } };
 
         var n = times.Length;
+        // Every frame's mosaic before any pass writes into it: the passes run at once, each into its own photosites.
         var mosaic = new ushort[]?[n];
+        for (var t = 0; t < n; t++)
+        {
+            mosaic[t] = new ushort[width * height];
+        }
         var passes = new (BayerColour Colour, int[] Channels)[]
         {
             (red, [CfaPlaneStream.Red]),
             (green, [CfaPlaneStream.Green1, CfaPlaneStream.Green2]),
             (blue, [CfaPlaneStream.Blue]),
         };
-        var records = new ImmutableArray<SyntheticFrame>[passes.Length];
+        var making = new Task<ImmutableArray<SyntheticFrame>>[passes.Length];
         for (var p = 0; p < passes.Length; p++)
         {
             var (colour, channels) = passes[p];
             var phases = Array.ConvertAll(channels, c => CfaPlaneStream.PhaseOf(c, bayerOffsetX, bayerOffsetY));
-            var passProgress = progress is null ? null : new PassProgress(progress, p, passes.Length, n);
-            records[p] = await MakeAsync(colour.Map, planet, times, colour.Placement, arcsecPerPixel, shiftX, shiftY, brightness, width, height, colour.Options,
+            // The progress is green's alone: three passes reporting at once would count the capture three times over.
+            var passProgress = p == 1 ? progress : null;
+            var passWarps = p == 1 ? warps : null;
+            making[p] = Task.Run(() => MakeAsync(colour.Map, planet, times, colour.Placement, arcsecPerPixel, shiftX, shiftY, brightness, width, height, colour.Options,
                 (index, samples) =>
                 {
-                    var frame = mosaic[index] ??= new ushort[width * height];
+                    var frame = mosaic[index] ?? throw new InvalidOperationException($"Frame {index} was written already.");
                     foreach (var (px, py) in phases)
                     {
                         for (var y = py; y < height; y += 2)
@@ -567,8 +576,9 @@ public static partial class PlanetaryDegrade
                             }
                         }
                     }
-                }, passProgress, p == 1 ? warps : null, cancellationToken: cancellationToken).ConfigureAwait(false);
+                }, passProgress, passWarps, cancellationToken: cancellationToken), cancellationToken);
         }
+        var records = await Task.WhenAll(making).ConfigureAwait(false);
 
         for (var t = 0; t < n; t++)
         {
@@ -594,12 +604,6 @@ public static partial class PlanetaryDegrade
         var top = (screen[(y0 * n) + x0] * (1 - fx)) + (screen[(y0 * n) + x0 + 1] * fx);
         var bottom = (screen[((y0 + 1) * n) + x0] * (1 - fx)) + (screen[((y0 + 1) * n) + x0 + 1] * fx);
         return (top * (1 - fy)) + (bottom * fy);
-    }
-
-    // A pass's frames reported as the share of the whole three-colour make they are.
-    private sealed class PassProgress(IProgress<int> inner, int pass, int passes, int frames) : IProgress<int>
-    {
-        public void Report(int value) => inner.Report(((pass * frames) + value) / passes);
     }
 
     // The map at `aspect`, with its moons, on the fine grid, scaled so the disk's mean inside 0.8 radii is its level in electrons,
