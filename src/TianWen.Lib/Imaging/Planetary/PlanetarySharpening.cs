@@ -105,8 +105,10 @@ public enum PlanetarySharpenTarget
     /// (<see cref="PlanetaryFinishing.GridNyquist"/>): it then beat the telescope target on the colour twins' detail and limb and rang less
     /// on three of four, though one (sat-p5s2) still rebounds 0.010 against the telescope target's 0.015 (L-NYQ, adopted by the owner after
     /// the read). Resolved by <see cref="PlanetarySharpening.TargetFor"/>; the target taken is <see cref="PlanetarySharpenResult.Target"/>. Gains
-    /// given (<see cref="PlanetarySharpenOptions.FixedGains"/>) or learned (<see cref="PlanetarySharpenOptions.GainsModel"/>) were fitted
-    /// toward the telescope, so with them it takes the telescope.
+    /// given (<see cref="PlanetarySharpenOptions.FixedGains"/>) or learned (<see cref="PlanetarySharpenOptions.GainsModel"/>) take it too: they
+    /// were fitted toward the telescope, but drawn outside the limb the telescope's model left the edge's halo, and the aperture cut the
+    /// mean limb error of the learned model from 0.0125 to 0.0067 and of the truth's own gains from 0.0117 to 0.0057 on the 14 held EdgeHD 11
+    /// twins, the band error moving 0.5 % (R10 step A, #2112).
     /// </summary>
     Auto,
 
@@ -658,11 +660,12 @@ public static class PlanetarySharpening
                 cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(cutoffPupil, options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)], limbWindow.ArcsecPerPixel);
             }
         }
-        // What the gains restore toward, decided once for every channel by their cutoffs (#1632). Gains given or learned were fitted toward
-        // the telescope (#817, #1552), so the automatic choice leaves them there; a target asked for by name is taken as asked.
-        var restoreToward = options.FixedGains.IsDefaultOrEmpty && options.GainsModel is null
-            ? TargetFor(options.Target, cutoffs)
-            : TargetFor(options.Target, []);
+        // What the gains restore toward, decided once for every channel by their cutoffs (#1632), the same for derived, given and learned
+        // gains. Given or learned gains were fitted toward the telescope (#817, #1552) and used to keep it, but the planet's model drawn
+        // outside the limb is then the telescope's, which leaves the edge's halo there: the aperture cut the mean limb error of the shipped
+        // learned model from 0.0125 to 0.0067 on the 14 held twins for 0.5 % of band error (R10 step A, #2112); a target asked for by name
+        // is taken as asked.
+        var restoreToward = TargetFor(options.Target, cutoffs);
         var whiteLevels = new PlanetaryWhiteLevel[options.Pupil is null ? 0 : master.ChannelCount];
         var channelEdges = new (LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths, double NearGlow)[options.Pupil is null ? 0 : master.ChannelCount];
         var channelLearned = new string?[options.Pupil is not null && options.GainsModel is not null ? master.ChannelCount : 0];
