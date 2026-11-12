@@ -103,7 +103,11 @@ def bands(log):
 # gains with --target aperture, the target they were fitted toward. Further arms of step A are added here, one line each.
 ARMS = {"A": lambda own: [],
         "B": lambda own: ["--gains", own],
-        "T": lambda own: ["--gains", own, "--target", "aperture"]}
+        "T": lambda own: ["--gains", own, "--target", "aperture"],
+        # L: the shipped learned model as it is (it restores toward the telescope, the target it was fitted to). LT: the same model with
+        # --target aperture, which is what the Auto rule would do if given and learned gains left the telescope.
+        "L": lambda own: ["--learned-gains"],
+        "LT": lambda own: ["--learned-gains", "--target", "aperture"]}
 OWN = re.compile(r"the truth's own gains, ([rgb]), fitted jointly to it: gains ([0-9., -]+?); ")
 BAND = re.compile(r"^\[planetary\] (.*?), ([rgb]) against the truth: .*?error ([0-9., ]+) \(bands 1 to 4 ([0-9.]+)\); undershoot ([0-9.]+); "
                   r"limb profile error ([0-9.]+); rebound ([0-9.]+)", re.M)
