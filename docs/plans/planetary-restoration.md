@@ -6750,6 +6750,27 @@ model. It is not enough to replace the shipped model, because the real capture d
 0.0006 short of the truth's own gains (B2). The glow reading alone does not carry the aperture truth's gains as well as it carried the
 telescope truth's: what the refit gains over the shipped model is spent on the real master.
 
+#### Step C: not run (2026-11-12)
+
+The pre-registered rule made C conditional on B ("only if B holds"). B1 held but B2 and B3 failed, so the refit was not kept, and a
+Saturn-sampling twin family would only have tested whether a model that already disagrees with the one real capture it was fitted for
+carries to a second one. No Saturn twin was made or scored, no C bars were written, and `PlanetaryGainsModels.cs` is main's.
+
+**What R10 concluded:**
+- The default's target was part of the cost, and step A fixed it as a rule: given and learned gains take the automatic (aperture)
+  target, which cut the shipped learned model's limb error from 0.0125 to 0.0067 (band error +0.5 %), pinned by
+  `GainsGivenOrLearnedTakeTheAutomaticTargetToo`.
+- The shipped learned model's -18.2 % on the 14 held twins stands, and the aperture refit's -27.2 % is real on the synthetic twins, but
+  the real EdgeHD master's `_post` is the judge of whether a model deploys (G5/B3), and the refit loses there (C24 0.9240 against the
+  default's 0.9520). The model option stays as shipped; nothing becomes the default.
+- The October masters still stand (step 0: bit-identical re-stack of d024).
+
+**What is left for #1552** (its list of what would make a gain model deployable stands unchanged, none of it done by R10): twins whose
+air brackets the real master's own measured blur at the capture's own length; the limb's trough under a stronger band 3 (a term in the
+fit or a floor); every other capture with a `_post`, the two Saturns included, fitted to its own twin first. A step C would start from
+the Saturn captures' own twins (`planetary twin`), and from a fit that agrees with the real master's `_post` on EdgeHD first, since the
+aperture refit shows that agreement is the part the glow reading does not carry.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
