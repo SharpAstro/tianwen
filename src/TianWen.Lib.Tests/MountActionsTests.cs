@@ -289,7 +289,6 @@ public class MountActionsTests
     private static Profile MakeProfile()
     {
         // Realistic site (Melbourne / Mount Burnett-ish) so transform math stays sane.
-        // Mount URI is non-"none" so TransformFactory.FromProfile accepts the profile.
         var data = ProfileData.Empty with
         {
             Mount = new Uri("ascom://GSServer"),

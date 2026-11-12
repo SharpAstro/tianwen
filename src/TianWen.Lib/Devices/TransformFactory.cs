@@ -11,20 +11,16 @@ public static class TransformFactory
     /// <summary>
     /// Creates a Transform from <see cref="ProfileData.SiteLatitude"/>, <see cref="ProfileData.SiteLongitude"/>,
     /// and <see cref="ProfileData.SiteElevation"/>. Returns null with an error message if the
-    /// profile has no mount or no site coordinates configured.
+    /// profile has no site coordinates configured.
     /// </summary>
+    /// <remarks>
+    /// A site is not a mount: a profile with a site and no mount plans a night and places the atlas as any other.
+    /// A caller that commands a mount holds one already and asks nothing of this.
+    /// </remarks>
     public static Transform? FromProfile(Profile profile, ITimeProvider timeProvider, out string? error)
     {
         error = null;
-        var data = profile.Data;
-        if (data is null || data.Value.Mount == NoneDevice.Instance.DeviceUri)
-        {
-            error = "Profile has no mount configured. Use 'tianwen profile set-mount' first.";
-            return null;
-        }
-
-        var d = data.Value;
-        if (d.SiteLatitude is not { } lat || d.SiteLongitude is not { } lon)
+        if (profile.Data is not { } d || d.SiteLatitude is not { } lat || d.SiteLongitude is not { } lon)
         {
             error = "Profile has no site coordinates. Connect a mount to auto-seed, or set them in the Equipment tab.";
             return null;
