@@ -539,12 +539,7 @@ namespace TianWen.Lib.Tests
             var oneLine = await PanelWith("Gains derived.");
             var noted = await PanelWith(LongestDeriveNote);
 
-            // The body is the popover less its one-unit border ring. DIR.Lib measures a capped node's rows at the cap (its #157), so the
-            // wrapped sentence fills its lines up to the cap and no further, where the dials alone come a few units short of it.
-            var cap = (ImageRendererBase<RgbaImage>.EnhancePopoverMaxWidth - 2f) * dpiScale;
-            noted.Panel.Width.ShouldBeLessThanOrEqualTo(cap + 1f, "a sentence wraps at the popover's widest; it does not widen it past that");
-            noted.Panel.Width.ShouldBeGreaterThanOrEqualTo(bare.Panel.Width - 1f, "the note never narrows the popover");
-            bare.Panel.Width.ShouldBeGreaterThan(cap - (8f * dpiScale), "without the note the dials already bring the popover to within a few units of its widest");
+            noted.Panel.Width.ShouldBe(bare.Panel.Width, 1f, "a sentence wraps inside the popover's width; it does not set it");
             noted.Panel.Height.ShouldBeGreaterThan(oneLine.Panel.Height + (2f * 10f * dpiScale), "the note spans more than one line");
             noted.ContentBottom.ShouldBeLessThanOrEqualTo(noted.Panel.Bottom + 0.5f, "the body is as tall as the wrapped note and the last dial need");
             noted.Panel.Bottom.ShouldBeLessThanOrEqualTo(TallH * dpiScale, "the popover stays on the window");

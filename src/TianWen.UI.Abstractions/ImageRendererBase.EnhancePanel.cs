@@ -160,7 +160,12 @@ namespace TianWen.UI.Abstractions
             }
 
             var ctx = MeasureContext();
-            var content = BuildEnhanceTree(state).WStar(1f, BaseInfoPanelWidth, EnhancePopoverMaxWidth);
+            // The planetary half has ONE width, with or without the derivation's note (#1878): a capped node's rows are measured at
+            // the cap (DIR.Lib 11.57), so a wrapping sentence would otherwise widen the popover from its dials' width to the cap.
+            var body = BuildEnhanceTree(state);
+            var content = state.EnhancesAsPlanet
+                ? body.WFixed(EnhancePopoverMaxWidth)
+                : body.WStar(1f, BaseInfoPanelWidth, EnhancePopoverMaxWidth);
             var tree = Layout.Builder.Popover(anchor, content, state.EnhancePopover);
             _enhanceArranged = ArrangeLayout(tree, new RectF32(0f, 0f, Width, Height), ctx);
             PaintLayout(_enhanceArranged, ctx);
