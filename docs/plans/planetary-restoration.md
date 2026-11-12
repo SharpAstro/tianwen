@@ -6775,6 +6775,72 @@ fit or a floor); every other capture with a `_post`, the two Saturns included, f
 the Saturn captures' own twins (`planetary twin`), and from a fit that agrees with the real master's `_post` on EdgeHD first, since the
 aperture refit shows that agreement is the part the glow reading does not carry.
 
+### R11: why learned gains lose on the real capture (pre-registered 2026-11-12, #2116)
+
+**The question.** R10's refit beat the default on the held twins and lost on the real EdgeHD master, where the owner's eye read it as more
+contrast and less fine detail. Read from R10's logs afterwards (red, bands 1 to 4):
+
+| gains | band 1 | band 2 | band 3 | band 4 |
+|---|---|---|---|---|
+| the 40 training twins, the truth's own (median) | -0.10 | 1.02 | 11.74 | -0.64 |
+| the 40 training twins, derived (median) | 1.00 | 6.38 | 4.17 | 0.94 |
+| the real master, derived | 1.00 | 10.44 | -0.99 | 1.83 |
+| the real master, R10's refit | -0.25 | 2.78 | 7.02 | 0.13 |
+
+On every twin the truth puts the lift in band 3 and almost none in band 2; the refit learned that and gave it to the real master, where the
+default lifts band 2. The real master is outside the twins in measures the model does not read: the limb's edge at 0.1 cycles a pixel
+0.277 (the twins' 0.31 to 0.54), a halo of 0.50 over 370 px (the twins' median 0.33 over 20 px), a 2-pixel lattice of 4.95e-4 (the twins'
+largest 1.3e-5). Its glow, the model's one reading, is inside the range. So either the twins lack band 2 detail the real capture holds, or
+the default and the `_post` (made from the same frames) both lift noise there. Step 1 decides which. The bars, the kill line and the
+prediction are in #2116, written before any of it ran.
+
+#### Step 1 read: band 2 of the real stack is detail, and the twins' is half noise (2026-11-12)
+
+**Method.** `planetary stack --halves` folds the kept frames into two halves alternately by rank; `planetary judge <halfA> <halfB>` reads
+each a trous band's correlation between them inside 0.9 radii, c. A band's share of repeatable detail in the full stack is w = 2c / (1 + c).
+Nothing is sharpened and no `_post` is read. Three held twins, one a family, were re-made from their plan rows and stacked the same way,
+and each full master judged against its truth (green), r. Glue: `training/planetary/r11_halves.py` (`real`, `real 0.5`, `twins`, `read`);
+the build is R10's; scratch `D:/temp/tianwen-scratch/i2116`.
+
+**One change from the registration, made before any number was seen:** `--auto` refuses `--halves`, so the real capture is the plain stack
+at the measured defaults, the command the twins take. The plain stack keeps the best 10 % (539 of 5,392 frames) where `--auto` kept half
+for the 2026-10-11 master, so the real capture was stacked both ways.
+
+| capture | frames stacked | band 1 w | band 2 w | band 3 w | band 4 w |
+|---|---|---|---|---|---|
+| real, keep 10 % | 539 | 0.628 | 0.962 | 0.998 | 1.000 |
+| real, keep 50 % (the 2026-10-11 master's) | 2,696 | 0.885 | **0.990** | 0.999 | 1.000 |
+| twin d024 | 60 | 0.146 | 0.845 | 0.992 | 0.999 |
+| twin e002 (warped) | 60 | 0.024 | 0.488 | 0.943 | 0.988 |
+| twin f002 (blurred) | 60 | 0.035 | 0.649 | 0.986 | 0.999 |
+
+The twins, sqrt(w) from the halves against r from the truth:
+
+| twin | band 1 | band 2 | band 3 | band 4 |
+|---|---|---|---|---|
+| d024 | 0.383, 0.282 | 0.919, 0.859 | 0.996, 0.948 | 0.999, 0.974 |
+| e002 | 0.154, 0.038 | 0.699, 0.345 | 0.971, 0.679 | 0.994, 0.880 |
+| f002 | 0.188, 0.092 | 0.805, 0.590 | 0.993, 0.847 | 0.999, 0.941 |
+
+- **V, the kill line, holds: Spearman 0.967 over the twelve twin bands (the bar 0.8).** The bar as registered is mostly the bands' own order,
+  which any measure ranks; the stricter reading it also passes is that WITHIN each band the three twins rank by w as they rank by r (bands 1,
+  2 and 3 alike: d024, f002, e002).
+- **The read: the real capture's band 2 is repeatable detail**, w 0.990 at the master's own keep and 0.962 at the best tenth, both over the
+  0.8 line. By the registration the twins are what is wrong, and R11 makes twins first.
+- **The prediction holds, its reason does not.** Band 2's w is over 0.8, above every twin's (0.845, 0.488, 0.649) and 0.33 above their
+  mean (0.661; the bar 0.1). The reason given was nine times the frames; a twin's master holds 60 frames (the best tenth of 600) against the
+  real master's 2,696, which is 45 times.
+- **What the twins taught the model.** On a 60-frame twin band 2 is 49 to 85 % detail and band 1 2 to 15 %, so the truth's own gains leave
+  band 2 almost alone and take band 1 out, and lift band 3, which is clean. That is right for those stacks and wrong for a stack whose band
+  2 is 99 % detail. The loss was not at fault; the twins stand for a capture forty-five times shorter than the one they were drawn about.
+- **What it does not say.** sqrt(w) is above r on every twin band, most on the warped twin (band 2: 0.699 against 0.345): a blur or a warp
+  both halves share is detail to this measure. So w 0.990 says the real band 2 is not noise; it does not say the default's gain of 10.44
+  on it is the right one, and band 1 is not read (the 2-pixel lattice repeats across halves).
+
+**What follows** (bars to be set in #2116 before each runs): twins at the capture's own length and keep, so their noise per band is the
+real master's (their halves' w matched to the table above is the check, before any gain is fitted), bracketing its edge, halo and lattice;
+then a model that reads the capture's own measures and is refused outside its twins on every reading; then #1552's remaining items.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
