@@ -8,6 +8,12 @@ explanation after the fact is recorded as a finding rather than a conclusion. Th
 sections 1a to 1o and `docs/plans/denoiser-training.md`. A new run appends one row here and names
 the commit it ran from.
 
+**What this ledger does not hold (checked 2026-11-11).** Its rows stop at the denoiser's D5 (2026-09-06) and
+the four R9 rows of 2026-10-13. Not here, and recorded in their plans' run logs instead: the denoiser's E10 to
+E16 and the D6 ship (`docs/plans/denoiser-training.md`), the deconvolver's E3 onward and E7
+(`docs/plans/deconvolver-training.md`), and every star-remover arm, R0 to R3s
+(`docs/plans/star-remover-training.md`, section 6, each with its pre-registration and read).
+
 | gen | date | cache | what | seeds | verdict |
 |---|---|---|---|---|---|
 | l1, l2, a_up, a_avg, v2 to v8 | 2026-08-12 | n2n (calgated; 8 train + 2 val sessions, 960 cells) | smoke ablations: L1 vs L2, transposed conv vs upsample, 4v4 averaging, DoG band loss at three weights, noise conditioning with mixed levels | 1, unseeded | conditioning is what keeps faint stars (amplitude kept 0.75 / 0.62 for v4 / v8 against 0.10 / 0.07 for plain L1 / L2); fabricated point sources per tile 26 to 209 against the raw sub's own 22 |
