@@ -541,11 +541,34 @@ public static partial class PlanetaryDegrade
         BayerColour Shared(BayerColour colour) => colour with { Options = colour.Options with { ScreenSpacingM = screenSpacing, ScreenSamples = screenSamples } };
 
         var n = times.Length;
-        // Every frame's mosaic before any pass writes into it: the passes run at once, each into its own photosites.
+        // A frame's mosaic is held from the first pass that reaches it until the last has written its photosites, and is then
+        // written out in order: the passes run at once and keep within a block or two of each other, so a capture of any length
+        // holds a few blocks of frames, where one colour after another held every frame until the last colour was made.
         var mosaic = new ushort[]?[n];
-        for (var t = 0; t < n; t++)
+        var owed = new int[n];
+        Array.Fill(owed, 3);
+        var (next, draining) = (0, 0);
+        // The frames every pass has finished, in order, by one thread at a time; a frame finished while another thread drains is
+        // taken by a later call, or by the last one after the passes end.
+        void Drain()
         {
-            mosaic[t] = new ushort[width * height];
+            if (Interlocked.CompareExchange(ref draining, 1, 0) != 0)
+            {
+                return;
+            }
+            try
+            {
+                while (next < n && Volatile.Read(ref owed[next]) == 0)
+                {
+                    write(next, mosaic[next] ?? throw new InvalidOperationException($"Frame {next} was made by no colour."));
+                    mosaic[next] = null;
+                    next++;
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref draining, 0);
+            }
         }
         var passes = new (BayerColour Colour, int[] Channels)[]
         {
@@ -564,7 +587,10 @@ public static partial class PlanetaryDegrade
             making[p] = Task.Run(() => MakeAsync(colour.Map, planet, times, colour.Placement, arcsecPerPixel, shiftX, shiftY, brightness, width, height, colour.Options,
                 (index, samples) =>
                 {
-                    var frame = mosaic[index] ?? throw new InvalidOperationException($"Frame {index} was written already.");
+                    var fresh = Volatile.Read(ref mosaic[index]) is null ? new ushort[width * height] : null;
+                    var frame = fresh is null
+                        ? mosaic[index] ?? throw new InvalidOperationException($"Frame {index} was written out before every colour reached it.")
+                        : Interlocked.CompareExchange(ref mosaic[index], fresh, null) ?? fresh;
                     foreach (var (px, py) in phases)
                     {
                         for (var y = py; y < height; y += 2)
@@ -576,14 +602,17 @@ public static partial class PlanetaryDegrade
                             }
                         }
                     }
+                    if (Interlocked.Decrement(ref owed[index]) == 0)
+                    {
+                        Drain();
+                    }
                 }, passProgress, passWarps, cancellationToken: cancellationToken), cancellationToken);
         }
         var records = await Task.WhenAll(making).ConfigureAwait(false);
-
-        for (var t = 0; t < n; t++)
+        Drain();
+        if (next != n)
         {
-            write(t, mosaic[t] ?? throw new InvalidOperationException($"Frame {t} was made by no colour."));
-            mosaic[t] = null;
+            throw new InvalidOperationException($"Frame {next} was not made by every colour.");
         }
         return (records[0], records[1], records[2]);
     }

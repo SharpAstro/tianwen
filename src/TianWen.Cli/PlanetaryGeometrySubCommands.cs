@@ -706,12 +706,6 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                     consoleHost.WriteError("--bayer-wavelengths, --bayer-k and --bayer-defocus-nm take three numbers each, red, green and blue");
                     return 1;
                 }
-                // The colours are held until the last is made: a synthetic capture this size is made in parts.
-                if ((long)times.Length * reader.Width * reader.Height * 2 > 2L << 30)
-                {
-                    consoleHost.WriteError($"{times.Length} frames of {reader.Width} x {reader.Height} are more than a colour twin holds at once: pass --frames");
-                    return 1;
-                }
                 var (_, ox, oy) = reader.ColorId.ToSensorType();
                 using var redPlane = new CfaPlaneStream(real, CfaPlaneStream.Red);
                 using var greenPlane = new CfaPlaneStream(real, CfaPlaneStream.Green1);
