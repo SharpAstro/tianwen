@@ -6667,6 +6667,89 @@ refit has to improve on. Rebound at most 0.005 and undershoot at most 0.002 on e
 (its coefficients were fitted toward the telescope and are applied as shipped). The default arm A is unchanged by the rule (it never took
 given gains).
 
+#### Step B result: B1 holds, B2 and B3 fail, the refit is NOT kept (2026-11-12)
+
+**What was fitted.** `r10_gains.py truths` ran the default arm with `--score-against aperture` on the 40 training twins (24 d, 4 e, 12 f;
+16 warped or blurred), and read each twin's truth's own gains at the aperture from the log (`D:/temp/tianwen-scratch/i2112/truths/<twin>.log`,
+2 decimals, as L-GAINS-S read the telescope's). `r10_gains.py train` then fitted `l_gains_s.fit`, imported and unchanged (the glow reading,
+the ridge per colour, the strength by leave-one-out over the same ladder), with only those gains replacing the telescope truth's. Strength 1
+in all three colours, leave-one-out squared error 609.11, 1171.34 and 1194.78 (the telescope-truth fit's 291.48, 545.93 and 606.34; the
+two targets are different gains, so the errors say nothing about which fit is better). The model is
+`D:/temp/tianwen-scratch/i2112/gains-r10-model.json`. `l_gains_s_model_cs.py` wrote it into `PlanetaryGainsModels.cs` (the commit "R10 step
+B: PlanetaryGainsModels.cs written by l_gains_s_model_cs.py from the ridge fitted to the aperture truth's own gains (on trial until B1 and B2
+are read)"), the CLI was built at it (`D:/temp/tianwen-scratch/i2112/bin`, `BUILT_FROM.txt`), and `score` ran `--learned-gains` on the 14 held
+twins against the aperture truth (`i2112/refit/<twin>.log`). `check` read the built CLI's gains against the script's arithmetic on every
+held twin: the worst band differs by 0.005, inside the 2 decimals the log prints. (The check ran on the scoring logs, so the build was
+confirmed by the same run that scored, not before it.) Two held twins fall outside the training twins' glow range and take the derived gains
+for one channel, as the model's rule says (d029's blue, glow 2.459 under 2.464; f014's red, 2.725 over 2.602).
+
+| arm | band error | by band 1 to 4 | limb | inside | outside | worst trough | worst rebound | worst undershoot |
+|---|---|---|---|---|---|---|---|---|
+| A, the default | 2.621 | 1.182, 0.719, 0.459, 0.260 | 0.0080 | 0.0203 | 0.0079 | 0.0016 | 0.0001 | 0.0001 |
+| LT, the shipped learned model | 2.153 (-17.8 %) | 0.783, 0.674, 0.470, 0.225 | 0.0067 | 0.0170 | 0.0070 | 0.0012 | 0.0000 | 0.0000 |
+| R, the refit | **1.908 (-27.2 %)** | 0.756, 0.598, 0.379, 0.176 | **0.0063** | 0.0125 | 0.0055 | 0.0024 | 0.0000 | 0.0000 |
+| T, the truth's own gains (the ceiling) | 1.808 (-31.0 %) | 0.737, 0.581, 0.350, 0.140 | 0.0057 | 0.0110 | 0.0054 | 0.0022 | 0.0000 | 0.0000 |
+
+Per twin (band error, then limb profile error; rebound and undershoot are 0.0000 on every twin for R, so no twin is near its bar):
+
+| twin | A band | LT band | R band | A limb | LT limb | R limb |
+|---|---|---|---|---|---|---|
+| d024 | 2.414 | 1.752 | 1.236 | 0.0069 | 0.0057 | 0.0045 |
+| d025 | 2.161 | 1.624 | 1.230 | 0.0069 | 0.0054 | 0.0050 |
+| d026 | 2.131 | 1.504 | 1.239 | 0.0071 | 0.0053 | 0.0061 |
+| d027 | 1.987 | 1.647 | 1.197 | 0.0070 | 0.0057 | 0.0046 |
+| d028 | 2.047 | 1.623 | 1.158 | 0.0057 | 0.0049 | 0.0047 |
+| d029 | 2.079 | 2.036 | 1.647 | 0.0072 | 0.0076 | 0.0062 |
+| e002 | 3.485 | 2.995 | 2.973 | 0.0132 | 0.0095 | 0.0077 |
+| e005 | 2.976 | 2.576 | 2.382 | 0.0062 | 0.0063 | 0.0048 |
+| f002 | 2.870 | 2.235 | 2.049 | 0.0107 | 0.0080 | 0.0080 |
+| f005 | 3.183 | 2.664 | 2.477 | 0.0102 | 0.0082 | 0.0074 |
+| f008 | 2.424 | 1.858 | 1.730 | 0.0059 | 0.0052 | 0.0068 |
+| f011 | 3.350 | 2.961 | 2.813 | 0.0088 | 0.0082 | 0.0067 |
+| f014 | 3.198 | 2.831 | 2.729 | 0.0106 | 0.0087 | 0.0084 |
+| f017 | 2.384 | 1.835 | 1.855 | 0.0059 | 0.0051 | 0.0072 |
+
+**B1 holds.** Mean band error 1.908 against the default's 2.621 is 27.2 % lower (the bar is 24 %), and the refit is below the default on
+14 of the 14 twins. Against the shipped model (2.153) it is 11.4 % lower, below it on 13 of 14 (f017 is 1.855 against 1.835). It recovers 88
+% of what the truth's own gains give (T, 1.808). **The kill does not apply**: the pre-registered line was a mean under 18.2 % and this is 27.2 %.
+
+**B2 fails.** The limb error mean is 0.0063 against the bar of 0.0057 (the truth's own gains at the aperture target). It improves on the
+shipped model's 0.0067, the number it had to beat, and on the default's 0.0080, but misses the bar the truth's own gains set. Rebound (worst
+0.0000, at most 0.005) and undershoot (worst 0.0000, at most 0.002) hold on every twin. The shortfall sits on three twins where the refit's
+limb is worse than the shipped model's, f008 (0.0068 against 0.0052), f017 (0.0072 against 0.0051) and d026 (0.0061 against 0.0053); on f008
+and f017 it is also above the default's (0.0059). The outside error (0.0055, T's 0.0054) is no longer the problem, the inside is: 0.0125
+against T's 0.0110.
+
+**B3 fails.** The real EdgeHD master (`final-1011/out/jup-edgehd/master_2023-11-11-0244_2-MPO_auto.fits`, a 279 mm pupil 33 % obstructed as
+`--auto` read it), sharpened by this build with the default and with `--learned-gains`, each judged against the capture's own `_post` by
+`planetary judge` (read for the score only, never fitted to; `r10_gains.py b3`, `b3-read`; `i2112/b3`):
+
+| arm | C24 (mean correlation, bands 2 to 4) | band 2: correlation, gain | band 3: correlation, gain | band 4: correlation, gain |
+|---|---|---|---|---|
+| default | 0.9520 | 0.882, 0.569 | 0.985, 0.742 | 0.989, 0.848 |
+| refit | **0.9240** | 0.798, 0.563 | 0.981, 1.047 | 0.993, 1.041 |
+
+C24 0.9240 is 0.0280 below the default's 0.9520 (the bar: no lower), so B3 fails on C24. Band 2's gain is 0.563 against 0.569, 1.1 % below
+(at most 2 % allowed), which holds. The refit learned the gains on this master (glow 1.839, inside every colour's range) and they are far
+from the derived ones (red 2.78, 7.02, 0.13 for bands 2 to 4 against 10.44, -0.99, 1.83): band 2's correlation falls 0.084 while bands 3 and
+4 overshoot the post's energy (1.07 and 1.05 of it, the default's 0.75 and 0.86). A learned model fitted to the twins' truth does not agree
+with the owner's `_post` on the one real capture it was made for, which is what B3 exists to say.
+
+**Decision, by the keep rule.** B2 failed, so `PlanetaryGainsModels.cs` is restored to main's (the shipped model, byte for byte; `git diff
+main` on the file is empty, and the test that pins it is untouched). The L-GAINS-S rule text and the model's doc comment name no
+fitted-to target, so they are unchanged. The default is not changed. The refit stays only as the script (`r10_gains.py truths`, `train`,
+`score`, `check`, `b3`), the model JSON in scratch and the commit that wrote it in this branch's history. **No B4**: there is nothing to
+adopt, so no strip was rendered side by side; the two sharpened outputs the owner may still open are
+`D:/temp/tianwen-scratch/i2112/b3/default/master_2023-11-11-0244_2-MPO_auto_sharpened.png` and
+`D:/temp/tianwen-scratch/i2112/b3/refit/master_2023-11-11-0244_2-MPO_auto_sharpened_learned.png`. R10 stops at B: the option's model was
+NOT replaced.
+
+**What it does and does not say.** The aperture refit is a real gain over both the default and the shipped model on the synthetic twins
+(-27.2 % and -11.4 % band error), so the telescope-versus-aperture target was worth correcting, which step A already did for the shipped
+model. It is not enough to replace the shipped model, because the real capture does not agree (B3) and the limb inside the disc is
+0.0006 short of the truth's own gains (B2). The glow reading alone does not carry the aperture truth's gains as well as it carried the
+telescope truth's: what the refit gains over the shipped model is spent on the real master.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind

@@ -16,17 +16,17 @@ public static class PlanetaryGainsModels
     /// </summary>
     public static readonly PlanetaryGainsModel EdgeHd11Jupiter = new("the EdgeHD 11 Jupiter of 2023-11-11, 40 twins", [PlanetaryGainsModel.GlowReading],
     [
-        // Red: ridge strength 1, leave-one-out squared error 609.11 over the training twins.
+        // Red: ridge strength 1, leave-one-out squared error 291.48 over the training twins.
         new PlanetaryGainsModel.Colour(Mean: [2.1264036080921587], Spread: [0.23470630687429703], Low: [1.573940492930125], High: [2.6023346011554014],
-            Cutoff: 0.229, Weights: [[0.1193946393866178], [-1.489146268661229], [4.060372272405634], [-0.7786987800630563]],
-            Intercepts: [-0.10099999999999985, 0.9572499999999975, 11.995750000000008, -0.8245000000000013]),
-        // Green: ridge strength 1, leave-one-out squared error 1171.34 over the training twins.
+            Cutoff: 0.229, Weights: [[0.07252009593240068], [-1.015367658387255], [2.649323389318078], [-0.4228631122878871]],
+            Intercepts: [-0.04499999999999988, 0.7214999999999985, 6.875000000000006, 0.35174999999999923]),
+        // Green: ridge strength 1, leave-one-out squared error 545.93 over the training twins.
         new PlanetaryGainsModel.Colour(Mean: [2.422701398587191], Spread: [0.35650404759452514], Low: [1.8335957971359447], High: [3.2748506483636377],
-            Cutoff: 0.261, Weights: [[0.15383093261209227], [-2.0997091007875377], [5.878446119710329], [-1.1559047857782794]],
-            Intercepts: [-0.40725, 4.99375, 9.4765, -0.34250000000000025]),
-        // Blue: ridge strength 1, leave-one-out squared error 1194.78 over the training twins.
+            Cutoff: 0.261, Weights: [[0.07304610811985185], [-1.3910268259582275], [4.155871147012841], [-0.7381669235025878]],
+            Intercepts: [-0.15775000000000006, 2.5334999999999996, 6.306500000000002, 0.3834999999999998]),
+        // Blue: ridge strength 1, leave-one-out squared error 606.34 over the training twins.
         new PlanetaryGainsModel.Colour(Mean: [3.1449559112101704], Spread: [0.43380936016897714], Low: [2.463700642598963], High: [4.194979724597219],
-            Cutoff: 0.3035, Weights: [[0.26634708315509564], [-2.7136582925893302], [4.195313054658403], [-0.40840075446412877]],
-            Intercepts: [-0.3605, 3.4927499999999996, 10.7915, -0.32099999999999995]),
+            Cutoff: 0.3035, Weights: [[0.14775015815315967], [-1.6543378458734803], [3.0699280906920348], [-0.2348723037054464]],
+            Intercepts: [-0.11800000000000005, 1.40475, 7.7524999999999995, 0.36225]),
     ]);
 }
