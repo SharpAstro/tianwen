@@ -6574,8 +6574,10 @@ Logs, the runner and the reader: `D:/temp/tianwen-scratch/i1056/recheck-1111` on
 
 **The bars, set before any of it is run:**
 - **B1:** the refitted gains' mean at least 24 % below the default on the held twins, and every held twin below the default.
-- **B2:** the limb profile error's mean no higher than the truth's own gains' through the same build (0.0057, at the aperture target
-  step A's change made the default for given and learned gains; it read 0.0117 at the telescope target before it); rebound at most 0.005 of the disk and undershoot at most 0.002 on every twin (L-TARGET's bounds).
+- **B2 (amended in the step A result commit, before any step B score existed):** the limb profile error's mean no higher than the truth's own gains' through the same build (0.0057, at the aperture target
+  step A's change made the default for given and learned gains; it read 0.0117 at the telescope target before it). As first written
+  the bar was the default's 0.0080, to hold once step A is adopted. Against 0.0080 the refit's limb mean 0.0063 would hold B2 and it
+  would fail only B3; against the amended 0.0057 it fails B2 as well, which is the reading this section uses. Rebound at most 0.005 of the disk and undershoot at most 0.002 on every twin (L-TARGET's bounds).
 - **B3:** the real EdgeHD master against its `_post` (`planetary judge`): C24 no lower than the default's, and band 2's gain no more
   than 2 % below the default's.
 - **B4:** the owner's eye on the real master's strip, the default beside the refit.
@@ -6591,7 +6593,8 @@ truth takes 2 to 5 minutes.
 #### Step 0 read: the stack did not move (2026-11-12)
 
 `training/planetary/r10_gains.py step0` (glue only: every number is the CLI's) re-made held twin d024 from its plan row and seed, with a
-CLI built at HEAD (`dotnet build src/TianWen.Cli/TianWen.Cli.csproj -c Release`; the commit subject "R10 step 0: r10_gains.py, glue that
+CLI built at HEAD, which was 8dbf431a6 (the scratch `bin` folder and its `BUILT_FROM.txt`, now e4ca5bea4, were rebuilt later by step B)
+(`dotnet build src/TianWen.Cli/TianWen.Cli.csproj -c Release`; the commit subject "R10 step 0: r10_gains.py, glue that
 re-makes a held twin with today's build and scores it against its October master", which differs from main's "docs(plans): the training
 plans re-checked against the code, R10 pre-registered, and priority read from the Priority field (#2106, #2112) (#2108)" in no planetary
 file): `planetary degrade` of the real EdgeHD 11 Jupiter SER with OPAL's maps, 600 frames, then `planetary stack`, then both masters
@@ -6651,8 +6654,9 @@ cutoffs)` whatever the gains' source; it used to resolve with no cutoffs, hence 
 asked for by name is taken as asked, so `--target telescope` keeps the old behaviour. Pinned by `GainsGivenOrLearnedTakeTheAutomaticTargetToo`
 in the planetary sharpening tests.
 
-**The bar, met by the arm the change makes the default** (the 14 held twins, the same build, the same command, T and LT being the new
-defaults for B and L): the truth's own gains' mean limb error 0.0057 against the default's 0.0080; band error +0.4 % (T over B, the bar
+**The bar, met by the arm the change makes the default** (the 14 held twins; T and LT were measured with an explicit `--target aperture`
+on the pre-change build and equal the new default by construction, since the CLI passes `auto` straight through and `TargetFor` returns
+the aperture whenever the cutoffs are finite; step B's `--learned-gains` runs went through the changed path): the truth's own gains' mean limb error 0.0057 against the default's 0.0080; band error +0.4 % (T over B, the bar
 allows +2 %), and -31.0 % under the default; worst rebound 0.0000 (at most 0.005) and worst undershoot 0.0000 (at most 0.002) on every twin.
 The shipped learned model gains the same way (limb 0.0125 to 0.0067, band error +0.5 %), which no bar asked for and which is why a change
 to the rule, not an invocation, is the right shape.
