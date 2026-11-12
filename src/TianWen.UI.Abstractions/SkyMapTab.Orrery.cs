@@ -1340,13 +1340,16 @@ namespace TianWen.UI.Abstractions
         /// padded half an em each side as the dropdown builds it, and never narrower than the button it opened from.
         /// </summary>
         /// <remarks>The half em mirrors DIR.Lib's Layout.Builder.Dropdown rowPadding: a stopgap until Dropdown can size its list to
-        /// its rows itself (which would also retire OpenTimeMenu's eight ems).</remarks>
+        /// its rows itself (which would also retire OpenTimeMenu's eight ems). The widest row also gets the scrollbar's column:
+        /// from DIR.Lib 11.44 a scrolled stack arranges its rows beside the bar when the list does not fit above the strip, and
+        /// a row measured without that column was trimmed by it.</remarks>
         private float DropUpWidth<T>(RectF32 anchor, ImmutableArray<DropdownItem<T>>.Builder items, float fontSize)
         {
             var width = anchor.Width;
             foreach (var item in items)
             {
-                width = MathF.Max(width, StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f)));
+                var row = StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f));
+                width = MathF.Max(width, row + ListScrollController.ScrollBarBaseWidthPx);
             }
             return width;
         }
