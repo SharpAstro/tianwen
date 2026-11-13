@@ -429,7 +429,7 @@ namespace TianWen.UI.Abstractions
         {
             if (info.Aspect is not { } aspect)
             {
-                return "";
+                return info.Detail ?? "";
             }
             var diameter = aspect.AngularDiameterArcsec;
             var line = diameter >= 120 ? $"diam {diameter / 60:F1}'" : $"diam {diameter:F1}\"";

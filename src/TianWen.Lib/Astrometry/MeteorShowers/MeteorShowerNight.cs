@@ -100,6 +100,37 @@ public static class MeteorShowerNights
     }
 
     /// <summary>
+    /// One shower on the night of <paramref name="viewingUtc"/> at a site (sea level), through the same
+    /// <see cref="NightSummary"/> and <see cref="For"/> the night calendar uses: its expected rate and peak. Null when the site's
+    /// night cannot be worked out or the shower is not active that night. Heavy (a night window), so a caller asks once per click.
+    /// </summary>
+    public static MeteorShowerNight? ForShowerAt(MeteorShower shower, double latitude, double longitude, DateTimeOffset viewingUtc)
+    {
+        if (!Transform.TryGetUtcOffset(latitude, longitude, viewingUtc.UtcDateTime, out var offset))
+        {
+            return null;
+        }
+
+        var transform = new Transform(Devices.SystemTimeProvider.Instance)
+        {
+            SiteLatitude = latitude,
+            SiteLongitude = longitude,
+            SiteElevation = 0
+        };
+        var evening = DateOnly.FromDateTime(CoordinateUtils.AstronomicalEveningDate(viewingUtc.ToOffset(offset)));
+        var summary = NightSummary.Compute(transform, evening);
+        foreach (var night in For(latitude, longitude, summary))
+        {
+            if (night.Shower == shower)
+            {
+                return night;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Where <paramref name="shower"/>'s radiant is at <paramref name="time"/>: the table's, moved by the drift. The ONE answer
     /// the planner's pin, the atlas's search hit and the night's rate all read. Outside the activity window the drift is
     /// taken at the window's nearer end, and <see cref="MeteorShowerRadiant.Active"/> says so.

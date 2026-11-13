@@ -9,6 +9,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Astrometry.VSOP87;
 
 namespace TianWen.UI.Abstractions
@@ -729,6 +730,62 @@ namespace TianWen.UI.Abstractions
             }
             _cometCacheCount = count;
             return _cometCache.AsSpan(0, count);
+        }
+
+        /// <summary>
+        /// Whether a shower's radiant is drawn and clickable: the object layers' own gate (<see cref="Overlays.OverlayEngine.PassesLayerFilter"/>,
+        /// [O] and "only with photo", a shower having no picture), bypassed by a pin. The ONE rule the draw and the resolver ask.
+        /// </summary>
+        internal bool ShouldDrawShowerRadiant(bool isPinned)
+            => Overlays.OverlayEngine.PassesLayerFilter(ObjectType.MeteorShower, isPinned, hasPicture: false,
+                ShowObjectOverlay, ShowDarkNebulae, ShowOnlyObjectsWithPicture);
+
+        /// <summary>One meteor shower's radiant on the viewing night, J2000 hours / degrees.</summary>
+        public readonly record struct ShowerRadiantMarker(CatalogIndex Index, double RA, double Dec, string Name, string Code);
+
+        private long _showerNightKey = long.MinValue;
+        private ShowerRadiantMarker[] _showerCache = [];
+
+        /// <summary>
+        /// How many times <see cref="GetShowerRadiantsCached"/> has computed the active set. A hit and a miss return the same
+        /// markers, so only a counter shows the set is computed once per viewing night and never per frame.
+        /// </summary>
+        internal int ShowerCacheRebuilds { get; private set; }
+
+        /// <summary>
+        /// The radiants of the showers active on the night of <paramref name="viewingTime"/>, drift applied, computed once per
+        /// UTC day (a shower's window and its drift move by a fraction of a degree a day, far under a marker's width) and
+        /// shared by the draw and the click and hover resolver, so they cannot disagree.
+        /// </summary>
+        public ReadOnlySpan<ShowerRadiantMarker> GetShowerRadiantsCached(DateTimeOffset viewingTime)
+        {
+            var key = viewingTime.UtcDateTime.Ticks / TimeSpan.TicksPerDay;
+            if (key == _showerNightKey)
+            {
+                return _showerCache;
+            }
+
+            ShowerCacheRebuilds++;
+            _showerNightKey = key;
+            var sun = MeteorShowerCalendar.SunLongitude(viewingTime);
+            var builder = ImmutableArray.CreateBuilder<ShowerRadiantMarker>();
+            if (!double.IsNaN(sun))
+            {
+                foreach (var shower in MeteorShowerTable.All)
+                {
+                    if (!shower.IsActiveAt(sun))
+                    {
+                        continue;
+                    }
+
+                    var radiant = MeteorShowerNights.RadiantAt(shower, viewingTime);
+                    builder.Add(new ShowerRadiantMarker(MeteorShowerIdentity.IndexOf(shower), radiant.RaHours, radiant.DecDeg,
+                        shower.Name, shower.Code));
+                }
+            }
+
+            _showerCache = builder.ToArray();
+            return _showerCache;
         }
 
         /// <summary>Number of samples in a comet info-panel vmag sparkline.</summary>

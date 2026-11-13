@@ -422,6 +422,7 @@ namespace TianWen.UI.Abstractions
                 Sparkline: hasCurve,
                 Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb),
                 Disk: ObjectInfoPanel.DiskLine(in info),
+                Footnote: info.DetailNote,
                 // A solar-system body's disc (A4): the map's narrowest field shows few of them as more than a dot.
                 Disc: info.Aspect is not null,
                 // And where its texture came from, under it (#1567), once the texture has landed.

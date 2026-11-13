@@ -319,9 +319,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     internal static string ShowerLine(MeteorShowerNight night)
     {
         var name = night.Shower.Name;
-        var rate = double.IsNaN(night.ExpectedRate) ? "rate varies"
-            : night.MeanSinAltitude <= 0.0 ? "radiant not up in the dark"
-            : $"about {Math.Max(1, (int)Math.Round(night.ExpectedRate))} an hour here";
+        var rate = MeteorShowerText.Rate(night);
         if (night.IsPeakNight)
         {
             return $"{name} peak tonight, {rate}";

@@ -40,7 +40,10 @@ public readonly record struct SkyMapInfoPanelData(
     SkyFixedPoint FixedPoint = SkyFixedPoint.None,
     // A solar-system body's physical aspect at the viewing instant (its apparent diameter, phase, Saturn's
     // rings): the planet panel's disk row (ObjectInfoPanel.DiskLine). Null for everything else.
-    PlanetAspect? Aspect = null)
+    PlanetAspect? Aspect = null,
+    // A meteor shower's ZHR and the rate at the site (the panel's disk row), and its peak in site time (the footnote row).
+    string? Detail = null,
+    string? DetailNote = null)
 {
     /// <summary>
     /// Build a panel payload for a catalog object at the given site and viewing time.
