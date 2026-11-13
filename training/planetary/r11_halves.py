@@ -164,7 +164,7 @@ def read():
             line = f"{n:11s} band {b}: c {c[b]:.3f}  w {w(c[b]):.3f}"
             if b in r:
                 line += f"  sqrt(w) {math.sqrt(max(w(c[b]), 0)):.3f}  r {r[b]:.3f}"
-                if b <= 4:
+                if b <= 4 and n in TWINS:
                     xs.append(math.sqrt(max(w(c[b]), 0)))
                     ys.append(r[b])
             print(line)

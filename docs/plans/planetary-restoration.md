@@ -6924,7 +6924,7 @@ its truth and scored as step 2a's twin was.
 | kill: `none` band 2 under 0.92 | | 0.954 | not hit |
 | B2: the single rises sum to 0.5 to 1.5 times `none`'s | | 0.093 against 0.079, 1.18 times | holds, so the arms are ranked singly |
 | B2: a main term rises at least half of `none`'s (0.040) | | `nodefocus` 0.061; `nolocal` 0.031 | the defocus is the main term |
-| B3: an arm whose red band 2 truth gain reaches 3.3 | | the highest is d024's own 2.45 | none |
+| B3: an arm whose red band 2 truth gain reaches 3.3 | | the highest arm is `noscatter` at 2.25 (the baseline d024 reads 2.45) | none |
 
 - **The colour defocus is the twin's main blur, which the prediction had as the layer at the telescope.** Taking it out gives 77 % of
   the rise that taking everything out gives; the layer gives 39 %, just under the registered half. The prediction that the defocus moves
@@ -6934,9 +6934,13 @@ its truth and scored as step 2a's twin was.
   master's low edge (0.277) is made of; no arm reads an edge under the real one.
 - **A blur term taken out LOWERS red's band 2 truth gain** (2.45 to between 1.23 and 2.25), so B3's 3.3 is not reached by removing blur:
   step 2a's missing red gain is not a term this twin has too much of.
-- **With no blur at all the derived gains fall to 2.0 to 2.7**, far under the real master's 10 to 16; the twin with every term is the one
-  that matches them (8.39, 14.10, 14.23). The twin's total blur is therefore about right for this capture, and the question step 2b
-  leaves is how it is SPLIT: whether the real capture's blur is as much a colour defocus as the twin's.
+- **With no blur at all the derived gains fall to 2.0 to 2.7**, far under the real master's 10 to 16 (10.44, 13.63, 16.37); the defocus
+  and layer terms are what lift them toward that order of magnitude (the full twin reads 8.39, 14.10, 14.23). That is as far as the table goes:
+  the full twin is off the real gains by 2.05, 0.47, 2.14, and two terms that do nothing to band 2 sit nearer in red and blue (`noscatter` off by
+  0.65, 2.64, 0.00; `noair` by 1.21, 3.97, 1.19), removing the scatter alone moves blue by 2.14, the whole of the full twin's gap. The limb edge
+  reads against taking blur out (every arm is above the real 0.277, the full twin's 0.429 included), and step 2a's red truth gain missed
+  the registered 3.3. So the match is no finer than the shifts of arms called inert, and the open question is how much blur the twin
+  should carry and how it is SPLIT: whether the real capture's blur is as much a colour defocus as the twin's.
 - Nothing is adopted.
 
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
