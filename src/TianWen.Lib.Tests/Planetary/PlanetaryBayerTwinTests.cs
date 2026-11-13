@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using SharpAstro.Ser;
 using Shouldly;
@@ -139,6 +141,46 @@ public class PlanetaryBayerTwinTests
         // Blue sits 2 px below red, each colour where its own placement put it, whichever photosites it was read through.
         (by - ry).ShouldBe(2, 0.25);
         (bx - rx).ShouldBe(0, 0.25);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task TheColoursMadeSideBySideWriteEveryFrameOnceInOrderAndTheSameBytesTwice()
+    {
+        // The three colour passes run at once and a frame is written when its last colour lands: the writer still sees frame 0,
+        // 1, 2 ... once each, and a second run of the same seed writes the same mosaics, whichever pass finished a frame first.
+        const int count = 12;
+        var none = ImmutableArray.CreateRange(new double[count]);
+        var times = ImmutableArray.CreateRange(Enumerable.Range(0, count).Select(i => Night.AddMilliseconds(4 * i)));
+        var map = PlanetaryDegradeTests.BandedMap();
+        var centre = new DiskPlacement((Size / 2) - 0.3, (Size / 2) + 0.2, Radius, NorthAngleDeg: -80);
+        var red = new BayerColour(map, centre with { CenterY = centre.CenterY - 1 }, Options(610e-9, 12000));
+        var green = new BayerColour(map, centre, Options(535e-9, 20000));
+        var blue = new BayerColour(map, centre with { CenterY = centre.CenterY + 1 }, Options(460e-9, 7000));
+
+        async Task<(ushort[][] Frames, int[] Order)> RunAsync()
+        {
+            var frames = new ushort[count][];
+            var order = new List<int>();
+            await PlanetaryDegrade.MakeBayerAsync(CatalogIndex.Jupiter, times, red, green, blue, 0.49, none, none, [], Size, Size, 0, 0,
+                (index, samples) =>
+                {
+                    order.Add(index);
+                    frames[index] = [.. samples];
+                }, cancellationToken: TestContext.Current.CancellationToken);
+            return (frames, [.. order]);
+        }
+
+        var first = await RunAsync();
+        var second = await RunAsync();
+
+        first.Order.ShouldBe(Enumerable.Range(0, count));
+        second.Order.ShouldBe(Enumerable.Range(0, count));
+        for (var t = 0; t < count; t++)
+        {
+            first.Frames[t].AsSpan().SequenceEqual(second.Frames[t]).ShouldBeTrue($"frame {t} differs between two runs of one seed");
+        }
+        // The frames differ from one another, so an order the writer got wrong would show.
+        first.Frames[0].AsSpan().SequenceEqual(first.Frames[count - 1]).ShouldBeFalse();
     }
 
     [Fact]
