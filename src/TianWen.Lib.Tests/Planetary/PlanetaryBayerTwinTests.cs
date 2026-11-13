@@ -183,6 +183,92 @@ public class PlanetaryBayerTwinTests
         first.Frames[0].AsSpan().SequenceEqual(first.Frames[count - 1]).ShouldBeFalse();
     }
 
+    [Fact(Timeout = 300_000)]
+    public async Task AStreamedTwinOverSeveralBlocksIsTheThreePassesOneAfterAnother()
+    {
+        // 130 frames is three blocks (64, 64, 2): a pass finishes block 2 while another is still in block 1, and the drain releases
+        // frames mid-run. The streamed mosaics must be the bytes the old way made: each colour in full, then its photosites taken.
+        const int count = 130;
+        var none = ImmutableArray.CreateRange(new double[count]);
+        var times = ImmutableArray.CreateRange(Enumerable.Range(0, count).Select(i => Night.AddMilliseconds(4 * i)));
+        var map = PlanetaryDegradeTests.BandedMap();
+        var centre = new DiskPlacement((Size / 2) - 0.3, (Size / 2) + 0.2, Radius, NorthAngleDeg: -80);
+        var red = new BayerColour(map, centre with { CenterY = centre.CenterY - 1 }, Options(610e-9, 12000));
+        var green = new BayerColour(map, centre, Options(535e-9, 20000));
+        var blue = new BayerColour(map, centre with { CenterY = centre.CenterY + 1 }, Options(460e-9, 7000));
+        var ct = TestContext.Current.CancellationToken;
+
+        var streamed = new ushort[count][];
+        var order = new List<int>();
+        await PlanetaryDegrade.MakeBayerAsync(CatalogIndex.Jupiter, times, red, green, blue, 0.49, none, none, [], Size, Size, 0, 0,
+            (index, samples) =>
+            {
+                order.Add(index);
+                streamed[index] = [.. samples];
+            }, cancellationToken: ct);
+        order.ShouldBe(Enumerable.Range(0, count));
+
+        // The sequential reference: the one atmosphere's shared screen, as MakeBayerAsync draws it.
+        var spacings = new[] { red, green, blue }.Select(c => PlanetaryDegrade.PupilSpacingM(0.49, c.Options)).ToArray();
+        var screenSpacing = spacings.Min();
+        var screenSamples = green.Options.ScreenSamples;
+        foreach (var spacing in spacings)
+        {
+            screenSamples = Math.Max(screenSamples, PlanetaryDegrade.NextPowerOfTwo((int)Math.Ceiling(PlanetaryDegrade.PsfGrid * spacing / screenSpacing) + 2));
+        }
+        var sequential = new ushort[count][];
+        for (var t = 0; t < count; t++)
+        {
+            sequential[t] = new ushort[Size * Size];
+        }
+        foreach (var (colour, channels) in new[] { (red, new[] { CfaPlaneStream.Red }), (green, new[] { CfaPlaneStream.Green1, CfaPlaneStream.Green2 }), (blue, new[] { CfaPlaneStream.Blue }) })
+        {
+            var shared = colour with { Options = colour.Options with { ScreenSpacingM = screenSpacing, ScreenSamples = screenSamples } };
+            var phases = channels.Select(c => CfaPlaneStream.PhaseOf(c, 0, 0)).ToArray();
+            await PlanetaryDegrade.MakeAsync(shared.Map, CatalogIndex.Jupiter, times, shared.Placement, 0.49, none, none, [], Size, Size, shared.Options,
+                (index, samples) =>
+                {
+                    foreach (var (px, py) in phases)
+                    {
+                        for (var y = py; y < Size; y += 2)
+                        {
+                            for (var x = px; x < Size; x += 2)
+                            {
+                                sequential[index][(y * Size) + x] = samples[(y * Size) + x];
+                            }
+                        }
+                    }
+                }, cancellationToken: ct);
+        }
+
+        for (var t = 0; t < count; t++)
+        {
+            streamed[t].AsSpan().SequenceEqual(sequential[t]).ShouldBeTrue($"frame {t}: the streamed mosaic is not the sequential one");
+        }
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AFailingColourStopsItsSiblingsAndIsTheError()
+    {
+        // The write throws on frame 0 (first reached by whichever pass is first): the others are cancelled, not run to the end, and
+        // the caller sees the failure, not a sibling's cancellation.
+        const int count = 400;
+        var none = ImmutableArray.CreateRange(new double[count]);
+        var times = ImmutableArray.CreateRange(Enumerable.Range(0, count).Select(i => Night.AddMilliseconds(4 * i)));
+        var map = PlanetaryDegradeTests.BandedMap();
+        var centre = new DiskPlacement(Size / 2, Size / 2, Radius, 0);
+        var green = new BayerColour(map, centre, Options(535e-9, 20000));
+        var written = 0;
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() => PlanetaryDegrade.MakeBayerAsync(CatalogIndex.Jupiter, times, green, green, green, 0.49, none, none, [], Size, Size, 0, 0,
+            (_, _) =>
+            {
+                written++;
+                throw new InvalidOperationException("the writer failed");
+            }, cancellationToken: TestContext.Current.CancellationToken));
+        ex.Message.ShouldBe("the writer failed");
+        written.ShouldBe(1);
+    }
+
     [Fact]
     public async Task ColoursOfTwoAtmospheresAreRefused()
     {

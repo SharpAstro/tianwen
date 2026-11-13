@@ -38,7 +38,7 @@ internal sealed partial class PlanetaryGeometrySubCommands
         var localOuterScaleOpt = new Option<double>("--local-outer-scale") { Description = "The still layer's outer scale, m: about the tube's (not fitted).", DefaultValueFactory = _ => 0.25 };
         var localWindOpt = new Option<double>("--local-wind") { Description = "The still layer's drift across the pupil, m/s (not fitted; R2's calibrated twin had none).", DefaultValueFactory = _ => 0 };
         var trialFramesOpt = new Option<int>("--frames") { Description = "The frames each trial twin is made and measured over, the capture's first as many.", DefaultValueFactory = _ => 300 };
-        var confirmFramesOpt = new Option<int>("--confirm-frames") { Description = "The frames the best knobs are confirmed over (#1281: a twin met at 300 frames read 0.87 to 0.93 of the real edge width at 2,600); a colour twin's at most what it holds at once.", DefaultValueFactory = _ => 3000 };
+        var confirmFramesOpt = new Option<int>("--confirm-frames") { Description = "The frames the best knobs are confirmed over (#1281: a twin met at 300 frames read 0.87 to 0.93 of the real edge width at 2,600).", DefaultValueFactory = _ => 3000 };
         var trialsOpt = new Option<int>("--trials") { Description = "The most twins the search makes; 0 confirms --start as given, with no search.", DefaultValueFactory = _ => 40 };
         var startOpt = new Option<string?>("--start") { Description = "The search's start: r0 (cm), wind (m/s), the still layer's r0 (cm), the scatter's share and its core (arcsec), a comma list; R2's hand calibration of 2022-09-03 Red by default." };
         var startDefocusOpt = new Option<string>("--start-defocus") { Description = "A colour capture's start for each colour's static defocus, red, green and blue, nm RMS.", DefaultValueFactory = _ => "50,50,50" };
@@ -124,13 +124,6 @@ internal sealed partial class PlanetaryGeometrySubCommands
 
             var trialFrames = Math.Min(parseResult.GetValue(trialFramesOpt), whole.FrameCount);
             var confirmFrames = Math.Min(parseResult.GetValue(confirmFramesOpt), whole.FrameCount);
-            // A colour twin's frames sit in one array until the last colour is made (PlanetaryDegrade.MakeBayerAsync).
-            var holds = (int)Math.Min(int.MaxValue, (2L << 30) / ((long)reader.Width * reader.Height * 2));
-            if (colour && confirmFrames > holds)
-            {
-                consoleHost.WriteScrollable($"a colour twin of {reader.Width} x {reader.Height} holds {holds} frames at once: confirming over {holds}, not {confirmFrames}");
-                confirmFrames = holds;
-            }
             var (_, ox, oy) = reader.ColorId.ToSensorType();
             using var trialReal = new PlanetaryFrameWindow(whole, 0, trialFrames);
             if (trialReal.MidCapture is not { } mid)
