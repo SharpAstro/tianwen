@@ -6843,6 +6843,64 @@ The twins, sqrt(w) from the halves against r from the truth:
 real master's (their halves' w matched to the table above is the check, before any gain is fitted), bracketing its edge, halo and lattice;
 then a model that reads the capture's own measures and is refused outside its twins on every reading; then #1552's remaining items.
 
+#### Step 2a read: a twin of the capture's own length matches its noise and not its gains (2026-11-12)
+
+Twin d024 made over the whole capture (5,392 frames; `planetary degrade --no-measure --limb-frames 150`, the colour passes side by side
+and the frames written as they finish, which took a 600-frame twin from 950 s to 128 s with the same bytes), stacked at keep 0.5 as the
+real master is (2,696 frames), judged and scored as registered on #2116 (`r11_halves.py full`).
+
+| bar | registered | read | verdict |
+|---|---|---|---|
+| P1: band 2's w | at least 0.96 (real 0.990) | 0.992 (600 frames: 0.845) | holds |
+| P2: red's band 2 gain, the truth's own | at least 3.3 (600 frames: 1.66) | 2.45 | fails |
+| P2: band 3 lower in every colour | 11.18, 3.59, 9.02 at 600 frames | 10.12, 3.49, 6.14 | holds |
+| P2: band 1 higher in every colour | -0.14, -0.50, -0.62 at 600 frames | -0.15, -0.73, -1.04 | fails |
+| kill: P1 holds and red's band 2 under 2.5 | | 2.45 | **hit** |
+
+- **Twin length is not the explanation.** The noise went (band 2's w 0.845 to 0.992) and the agreement with the truth did not come (r 0.859
+  to 0.875; band 3's fell, 0.948 to 0.919). The halves agree with each other (sqrt(w) 0.996) far better than the master with its truth, so
+  what is left in band 2 is shared by both halves: blur.
+- **Red is the outlier.** Green's and blue's truth gains do lift band 2 (5.40 and 12.18); red's pupil cutoff is 0.230 cycles a pixel,
+  inside band 2.
+- **The derived gains moved toward the real capture's:** red's band 2 8.39 (the 600-frame twins' median 6.38, real 10.44), green 14.10
+  (real 13.63), blue 14.23 (real 16.37).
+- As registered, no full set of long twins is made; the twin's blur is looked at first.
+
+#### The real side, every capture: read (2026-11-13)
+
+A measurement with no bar, said on #2116 before it ran: the 15 Jupiter, Saturn and Mars sessions of the survey's manifest (1,669,875
+frames; the 3 Venus sessions left out), each one `planetary stack --session --halves --no-sharpen --keep 0.5` (`r11_restack.py`), its
+halves judged (`r11_restack_read.py`) and its limb edge and lattice read with no telescope named (`r11_restack_edge.py`). All 15 stacked,
+in 2 h 9 min on the 16-core desktop with the de-rotated walk in batches (#2119: the EdgeHD capture at keep 0.5 699.5 s to 144.4 s, the
+master and its halves the same bytes); the largest session, 540,651 frames, took 23 min.
+
+| session | kept | w band 1 | band 2 | band 3 | band 4 | edge at 0.1 / 0.3 | lattice, largest |
+|---|---|---|---|---|---|---|---|
+| Saturn 2022-10-09 (colour by PIPP) | 2,298 | 0.998 | 0.997 | 0.990 | 0.985 | 0.233 / 0.129 | 9.4e-5 |
+| Saturn 2026-10-07 11:34, 650 nm | 15,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.211 / 0.027 | mono |
+| Saturn 2026-10-07 11:36, 530 nm | 15,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.249 / 0.086 | mono |
+| Saturn 2026-10-07 11:39, 460 nm | 15,000 | 0.999 | 1.000 | 0.998 | 0.998 | 0.195 / 0.063 | mono |
+| Jupiter 2021-12-16 11:34 | 17,202 | 0.997 | 1.000 | 0.999 | 0.999 | 0.159 / 0.380 | 3.0e-3 |
+| Mars 2025-01-02 13:15 (640x480) | 20,000 | 0.987 | 1.000 | 0.998 | 0.994 | 0.054 / 0.052 | 4.7e-3 |
+| Saturn 2021-12-16 11:18 | 20,817 | 0.996 | 0.997 | 0.992 | 0.988 | 0.380 / 0.570 | 9.4e-3 |
+| Jupiter 2025-01-02 12:35 (640x480) | 30,000 | 0.971 | 0.998 | 1.000 | 1.000 | 0.109 / 0.033 | 1.6e-3 |
+| Mars 2025-01-02 13:06 | 30,000 | 0.501 | 0.869 | 0.940 | 0.975 | 0.037 / 0.107 | 4.4e-3 |
+| Saturn 2026-10-07 12:21, 650 nm | 35,000 | 0.999 | 1.000 | 0.998 | 0.998 | 0.213 / 0.159 | mono |
+| Saturn 2026-10-07 12:23, 530 nm | 35,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.217 / 0.112 | mono |
+| Saturn 2026-10-07 12:26, 460 nm | 35,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.172 / 0.129 | mono |
+| Jupiter 2022-10-09 10:42 | 73,516 | 0.999 | 1.000 | 1.000 | 0.997 | 0.301 / 0.010 | 2.7e-3 |
+| Jupiter 2024-12-15 12:33 | 220,779 | 0.940 | 0.986 | 0.996 | 0.993 | 0.386 / 0.022 | 2.5e-3 |
+| Jupiter 2022-09-29 11:36 | 270,326 | 0.999 | 1.000 | 0.999 | 0.996 | 0.277 / 0.097 | 3.3e-3 |
+
+- **Band 2 is repeatable detail on every real capture but one:** 0.986 to 1.000 on 14 sessions; the small Mars capture reads 0.869. The
+  full-length twin reads 0.992, so at the real keep the halves no longer tell a twin from a real capture.
+- **The 2-pixel lattice is in every Bayer capture stacked from its mosaic and in no twin:** 1.6e-3 to 9.4e-3 on nine sessions (the EdgeHD
+  master 4.95e-4), 9.4e-5 where PIPP had made the colour, against the twins' largest 1.3e-5. A band 1 share near 1 on those sessions is
+  therefore partly a pattern both halves share and is not read as detail.
+- **The real Jupiters' limb edge at 0.1 cycles a pixel sits at or under the twins' range** (0.31 to 0.54): 0.109, 0.159, 0.277, 0.301 and
+  0.386. The twins all model one telescope, so across captures this is loose.
+- Nothing is adopted. The twin's two measured gaps to the real captures are its blur (step 2a) and the lattice it does not carry.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
