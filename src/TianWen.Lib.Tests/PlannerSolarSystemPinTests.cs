@@ -283,8 +283,62 @@ namespace TianWen.Lib.Tests
             restored.Target.CatalogIndex.ShouldBe(CatalogIndex.Venus);
 
             // And it lists, so it can be removed.
-            PlannerActions.GetFilteredTargets(state);
+            var listed = PlannerActions.GetFilteredTargets(state);
             state.PinnedCount.ShouldBe(1);
+
+            // ... as what it is: the saved proposal carries no object type, and the row of a pin that is in neither
+            // tonight's list nor a search is made from the proposal alone, so an untyped restore listed it as "?".
+            restored.ObjectType.ShouldBe(ObjectType.Planet);
+            listed[0].ObjectType.ShouldBe(ObjectType.Planet);
+        }
+
+        // The case that was seen (2026-11-14): the Helix Nebula, pinned on an earlier night and restored on a morning it
+        // was in nobody's list, listed with "?" for its kind, while the list had said PN and pinning it again said PN.
+        [Fact]
+        public void ARestoredPinOffTonightsListKeepsItsObjectType()
+        {
+            CatalogUtils.TryGetCleanedUpCatalogName("NGC 7293", out var helix).ShouldBeTrue();
+            var db = Substitute.For<ICelestialObjectDB>();
+            db.TryLookupByIndex(helix, out Arg.Any<CelestialObject>())
+                .Returns(call =>
+                {
+                    call[1] = new CelestialObject(
+                        helix, ObjectType.PlanetaryNeb,
+                        22.494, -20.837, default, (Half)7.6, (Half)0, (Half)0,
+                        new HashSet<string>(["Helix Nebula"]));
+                    return true;
+                });
+
+            var state = new PlannerState
+            {
+                AstroDark = NightStart,
+                AstroTwilight = NightEnd,
+                SiteLatitude = -37.8,
+                SiteLongitude = 145.0,
+                ObjectDb = db,
+            };
+
+            var dto = new PlannerSessionDto(
+                Proposals:
+                [
+                    new ProposalDto(RA: 22.494, Dec: -20.837, Name: "Helix Nebula",
+                        CatalogIndex: (ulong)helix,
+                        Priority: ObservationPriority.Normal,
+                        SubExposureSeconds: null, ObservationTimeMinutes: null, MosaicGroupId: null),
+                ],
+                Sliders: [],
+                MinHeightAboveHorizon: 20,
+                MinRatingFilter: 0f,
+                SiteLatitude: -37.8,
+                SiteLongitude: 145.0);
+
+            PlannerPersistence.TryRestoreFromDto(state, dto, NullLogger.Instance).ShouldBeTrue();
+
+            state.Proposals.ShouldHaveSingleItem().ObjectType.ShouldBe(ObjectType.PlanetaryNeb);
+            var listed = PlannerActions.GetFilteredTargets(state);
+            state.PinnedCount.ShouldBe(1);
+            listed[0].ObjectType.ShouldBe(ObjectType.PlanetaryNeb);
+            listed[0].ObjectType.ToAbbreviation().ShouldNotBe(ObjectType.Unknown.ToAbbreviation());
         }
 
         // A comet pin stores a position, and a comet MOVES: a pin made last week points at empty sky,

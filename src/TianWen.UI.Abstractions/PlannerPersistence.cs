@@ -269,6 +269,7 @@ public static class PlannerPersistence
             {
                 restoredProposals.Add(new ProposedObservation(
                     target,
+                    RestoredObjectType(target, state),
                     Priority: p.Priority,
                     SubExposure: p.SubExposureSeconds.HasValue ? TimeSpan.FromSeconds(p.SubExposureSeconds.Value) : null,
                     ObservationTime: p.ObservationTimeMinutes.HasValue ? TimeSpan.FromMinutes(p.ObservationTimeMinutes.Value) : null,
@@ -316,6 +317,46 @@ public static class PlannerPersistence
 
         state.NeedsRedraw = true;
         return true;
+    }
+
+    /// <summary>
+    /// What kind of object a restored pin is. The saved proposal carries none, and a pin built without one is
+    /// <see cref="ObjectType.Unknown"/>: its row said "?" whenever the target was in neither tonight's list nor a search,
+    /// which is where a pinned row is made from the proposal alone (the Helix Nebula on a morning it had set, 2026-11-14;
+    /// pinning it again read "PN", since a fresh pin copies the scored row's type). Tonight's row first, then the
+    /// catalogue, then what the index itself says for a body the catalogue does not hold.
+    /// </summary>
+    private static ObjectType RestoredObjectType(Target target, PlannerState state)
+    {
+        if (target.CatalogIndex is not { } index)
+        {
+            return ObjectType.Unknown;
+        }
+
+        foreach (var scored in state.TonightsBest)
+        {
+            if (scored.Target.CatalogIndex == index && scored.ObjectType != ObjectType.Unknown)
+            {
+                return scored.ObjectType;
+            }
+        }
+
+        foreach (var scored in state.SearchResults)
+        {
+            if (scored.Target.CatalogIndex == index && scored.ObjectType != ObjectType.Unknown)
+            {
+                return scored.ObjectType;
+            }
+        }
+
+        if (state.ObjectDb is { } db && db.TryLookupByIndex(index, out var obj))
+        {
+            return obj.ObjectType;
+        }
+
+        return index.IsMeteorShower ? ObjectType.MeteorShower
+            : index.ToCatalog() is Catalog.Comet ? ObjectType.Comet
+            : ObjectType.Unknown;
     }
 
     private static Target? MatchTarget(
