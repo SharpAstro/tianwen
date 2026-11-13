@@ -5292,6 +5292,11 @@ The bars:
   gives M42's gain back. If it does, the read is that M42 needs the wide spread and the SMC's wing has to be mended another
   way.
 
+**R3t's Q1, read 2026-11-14: holds on both bars.** `channel_beta_share.py` over synth23's 8,521,465 unsaturated RGB
+stars in 123 sessions: **10.32 %** with blue at 1.6 times green's beta or more (bar 8 to 12 %) and **1.21 %** at 2.4
+times or more (bar 0.8 to 2.0 %). Per star, blue over green's beta reads 0.72, 1.01, 1.61 and 4.64 at the 10th, 50th,
+90th and 99th percentile. Seed 0's training started the same night on the SSD cache (4,840 cells, 19.5 GiB).
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
