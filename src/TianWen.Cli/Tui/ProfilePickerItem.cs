@@ -20,7 +20,7 @@ namespace TianWen.Cli.Tui
             // Cursor first, then active: the cursor can sit on a profile that is not the active one, and
             // which row you are about to switch TO is the more urgent fact of the two.
             var pen = context.Selected ? TuiRowPalette.Selected
-                : IsActive ? new RowPen(SgrColor.BrightGreen, SgrColor.Black)
+                : IsActive ? TuiRowPalette.Good
                 : TuiRowPalette.Body;
 
             return pen.Text($" {(IsActive ? "▶ " : "  ")}{Profile.DisplayName}");

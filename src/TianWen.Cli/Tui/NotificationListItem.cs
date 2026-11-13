@@ -23,9 +23,9 @@ namespace TianWen.Cli.Tui
             var ts = entry.When.ToOffset(siteTimeZone).ToString("HH:mm:ss");
             var (tag, severity) = entry.Severity switch
             {
-                NotificationSeverity.Error => ("ERR ", SgrColor.BrightRed),
-                NotificationSeverity.Warning => ("WARN", SgrColor.BrightYellow),
-                _ => ("INFO", SgrColor.BrightCyan),
+                NotificationSeverity.Error => ("ERR ", TuiRowPalette.Error.Foreground),
+                NotificationSeverity.Warning => ("WARN", TuiRowPalette.Warn.Foreground),
+                _ => ("INFO", TuiRowPalette.Info.Foreground),
             };
 
             // Cursor row: the whole row takes the blue selection background so the focused entry is

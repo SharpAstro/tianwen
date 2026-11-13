@@ -180,16 +180,16 @@ internal sealed class TuiEquipmentTab(
     /// </summary>
     private static readonly TextInputColors SiteFieldIdle = new TextInputColors
     {
-        Background = SgrColor.Black.ToRgba(),
-        Text = SgrColor.White.ToRgba(),
-        Placeholder = SgrColor.BrightBlack.ToRgba(),
+        Background = TuiRowPalette.Ground,
+        Text = TuiRowPalette.Body.Foreground,
+        Placeholder = TuiRowPalette.Dim.Foreground,
     };
 
     private static readonly TextInputColors SiteFieldFocused = new TextInputColors
     {
-        BackgroundActive = SgrColor.Blue.ToRgba(),
-        Text = SgrColor.BrightWhite.ToRgba(),
-        Selection = SgrColor.BrightBlack.ToRgba(),
+        BackgroundActive = TuiRowPalette.Selected.Background,
+        Text = TuiRowPalette.Selected.Foreground,
+        Selection = TuiRowPalette.SelectedQuiet.Background,
     };
 
     protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)

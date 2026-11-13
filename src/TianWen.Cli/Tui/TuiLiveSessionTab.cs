@@ -319,7 +319,7 @@ internal sealed class TuiLiveSessionTab(
             else if (!tel.CameraConnected)
             {
                 _rows.Add(new TextRow("  Camera: disconnected",
-                    new VtStyle(SgrColor.BrightRed, SgrColor.Black)));
+                    TuiRowPalette.Error.Style));
             }
             else
             {
@@ -336,7 +336,7 @@ internal sealed class TuiLiveSessionTab(
             else
             {
                 _rows.Add(new TextRow("  Focus: (no focuser)",
-                    new VtStyle(SgrColor.BrightBlack, SgrColor.Black)));
+                    TuiRowPalette.Dim.Style));
             }
 
             // Filter (only if filter wheel is connected)
@@ -388,7 +388,7 @@ internal sealed class TuiLiveSessionTab(
                         LiveState.SelectedPreviewOtaIndex = capturedIdx;
                         PostCapture(capturedIdx);
                     },
-                    ActionStyle: new VtStyle(SgrColor.BrightWhite, SgrColor.Green),
+                    ActionStyle: TuiRowPalette.ActionFill.Style,
                     ValueIsOverride: true));
             }
 
@@ -439,13 +439,13 @@ internal sealed class TuiLiveSessionTab(
                             LiveState.SelectedPreviewOtaIndex = capturedIdx;
                             bus.Post(new JogFocuserSignal(capturedIdx, -50));
                         },
-                        new VtStyle(SgrColor.White, SgrColor.Blue)));
+                        TuiRowPalette.Button.Style));
                     buttons.Add(new("J+50", _ =>
                         {
                             LiveState.SelectedPreviewOtaIndex = capturedIdx;
                             bus.Post(new JogFocuserSignal(capturedIdx, +50));
                         },
-                        new VtStyle(SgrColor.White, SgrColor.Blue)));
+                        TuiRowPalette.Button.Style));
                 }
                 if (hasImage)
                 {
@@ -454,13 +454,13 @@ internal sealed class TuiLiveSessionTab(
                             LiveState.SelectedPreviewOtaIndex = capturedIdx;
                             bus.Post(new SaveSnapshotSignal(capturedIdx));
                         },
-                        new VtStyle(SgrColor.BrightWhite, SgrColor.Magenta)));
+                        TuiRowPalette.Button.Style));
                     buttons.Add(new("Solve", _ =>
                         {
                             LiveState.SelectedPreviewOtaIndex = capturedIdx;
                             bus.Post(new PlateSolvePreviewSignal(capturedIdx));
                         },
-                        new VtStyle(SgrColor.BrightWhite, SgrColor.Cyan)));
+                        TuiRowPalette.Button.Style));
                 }
                 _rows.Add(new ActionRow(buttons));
             }
@@ -493,15 +493,15 @@ internal sealed class TuiLiveSessionTab(
 
         var (phaseLabel, phaseStyle) = LiveState.PolarPhase switch
         {
-            PolarAlignmentPhase.Idle => ("IDLE", new VtStyle(SgrColor.BrightBlack, SgrColor.Black)),
-            PolarAlignmentPhase.ProbingExposure => ("PROBING", new VtStyle(SgrColor.BrightWhite, SgrColor.Cyan)),
-            PolarAlignmentPhase.Rotating => ("ROTATING", new VtStyle(SgrColor.Black, SgrColor.BrightYellow)),
-            PolarAlignmentPhase.Frame2 => ("FRAME 2", new VtStyle(SgrColor.BrightWhite, SgrColor.Cyan)),
-            PolarAlignmentPhase.Refining => ("REFINING", new VtStyle(SgrColor.BrightWhite, SgrColor.Green)),
-            PolarAlignmentPhase.Aligned => ("ALIGNED \u2713", new VtStyle(SgrColor.Black, SgrColor.BrightGreen)),
-            PolarAlignmentPhase.RestoringMount => ("RESTORING", new VtStyle(SgrColor.Black, SgrColor.BrightYellow)),
-            PolarAlignmentPhase.Failed => ("FAILED", new VtStyle(SgrColor.BrightWhite, SgrColor.Red)),
-            _ => ("?", new VtStyle(SgrColor.White, SgrColor.Black)),
+            PolarAlignmentPhase.Idle => ("IDLE", TuiRowPalette.Dim.Style),
+            PolarAlignmentPhase.ProbingExposure => ("PROBING", TuiRowPalette.InfoFill.Style),
+            PolarAlignmentPhase.Rotating => ("ROTATING", TuiRowPalette.WarnFill.Style),
+            PolarAlignmentPhase.Frame2 => ("FRAME 2", TuiRowPalette.InfoFill.Style),
+            PolarAlignmentPhase.Refining => ("REFINING", TuiRowPalette.GoodFillQuiet.Style),
+            PolarAlignmentPhase.Aligned => ("ALIGNED \u2713", TuiRowPalette.GoodFill.Style),
+            PolarAlignmentPhase.RestoringMount => ("RESTORING", TuiRowPalette.WarnFill.Style),
+            PolarAlignmentPhase.Failed => ("FAILED", TuiRowPalette.ErrorFill.Style),
+            _ => ("?", TuiRowPalette.Body.Style),
         };
         _rows.Add(new TextRow($"  Phase: {phaseLabel}", phaseStyle));
 
@@ -522,10 +522,10 @@ internal sealed class TuiLiveSessionTab(
             var chordPredArcsec = phaseA.ChordAnglePredictedRad * 180.0 / Math.PI * 3600.0;
             var chordDiff = Math.Abs(chordObsArcsec - chordPredArcsec);
             var chordStyle = chordDiff < 5
-                ? new VtStyle(SgrColor.BrightGreen, SgrColor.Black)
+                ? TuiRowPalette.Good.Style
                 : chordDiff < 30
-                    ? new VtStyle(SgrColor.BrightYellow, SgrColor.Black)
-                    : new VtStyle(SgrColor.BrightRed, SgrColor.Black);
+                    ? TuiRowPalette.Warn.Style
+                    : TuiRowPalette.Error.Style;
             _rows.Add(new TextRow($"  Chord \u0394: {chordDiff:F1}\u2033", chordStyle));
         }
 
@@ -561,8 +561,8 @@ internal sealed class TuiLiveSessionTab(
                 $"  Settled: {(solve.IsSettled ? "[*]" : "[ ]")}    "
                 + $"Aligned: {(solve.IsAligned ? "[*]" : "[ ]")}",
                 solve.IsAligned && solve.IsSettled
-                    ? new VtStyle(SgrColor.BrightGreen, SgrColor.Black)
-                    : new VtStyle(SgrColor.White, SgrColor.Black)));
+                    ? TuiRowPalette.Good.Style
+                    : TuiRowPalette.Body.Style));
         }
 
         _rows.Add(new BlankRow());
@@ -577,12 +577,12 @@ internal sealed class TuiLiveSessionTab(
         if (canCancel)
         {
             buttons.Add(new("Cancel", _ => bus.Post(new CancelPolarAlignmentSignal()),
-                new VtStyle(SgrColor.BrightWhite, SgrColor.Red)));
+                TuiRowPalette.DangerFill.Style));
         }
         if (canDone)
         {
             buttons.Add(new("Done", _ => bus.Post(new DonePolarAlignmentSignal()),
-                new VtStyle(SgrColor.BrightWhite, SgrColor.Green)));
+                TuiRowPalette.ActionFill.Style));
         }
         if (buttons.Count > 0)
         {
@@ -612,9 +612,9 @@ internal sealed class TuiLiveSessionTab(
     private static VtStyle ErrorBarStyle(double arcmin)
     {
         var abs = Math.Abs(arcmin);
-        return abs < 1.0 ? new VtStyle(SgrColor.BrightGreen, SgrColor.Black)
-            : abs < 5.0 ? new VtStyle(SgrColor.BrightYellow, SgrColor.Black)
-            : new VtStyle(SgrColor.BrightRed, SgrColor.Black);
+        return abs < 1.0 ? TuiRowPalette.Good.Style
+            : abs < 5.0 ? TuiRowPalette.Warn.Style
+            : TuiRowPalette.Error.Style;
     }
 
     private void BuildCameraRows(ISessionTelemetry session)
@@ -706,7 +706,7 @@ internal sealed class TuiLiveSessionTab(
         if (LiveState.ActiveObservation is { Target: var target })
         {
             _rows.Add(new TextRow($"\u2192 {target.Name}",
-                new VtStyle(SgrColor.BrightYellow, SgrColor.Black)));
+                TuiRowPalette.Accent.Style));
         }
         _rows.Add(new BlankRow());
     }
@@ -733,11 +733,11 @@ internal sealed class TuiLiveSessionTab(
         if (log.Length == 0)
         {
             _rows.Add(new TextRow("No frames yet",
-                new VtStyle(SgrColor.BrightBlack, SgrColor.Black)));
+                TuiRowPalette.Dim.Style));
             return;
         }
         _rows.Add(new TextRow("Time  Target       Filter  HFD   \u2605",
-            new VtStyle(SgrColor.BrightBlack, SgrColor.Black)));
+            TuiRowPalette.Dim.Style));
         var startIdx = Math.Max(0, log.Length - 8);
         for (var i = startIdx; i < log.Length; i++)
         {
