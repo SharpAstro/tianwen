@@ -1927,6 +1927,20 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "LINEAR clipped-star profiles over 4 to 40 px and scaled with the star's amplitude. A rig the file lacks " +
                           "draws none, said once. Recorded per star in injections.jsonl (OuterHalo). Off by default.",
         };
+        var saturatedOwnShareOpt = new Option<bool>("--saturated-own-share")
+        {
+            Description = "--mode stars: draw each site saturated at the master's own share of saturated catalogue sites (a real " +
+                          "master's clipped stars count as sites and otherwise come back unsaturated), beside --saturated-fraction's " +
+                          "extra star. Off by default.",
+        };
+        var saturatedMeasuredOpt = new Option<bool>("--saturated-measured")
+        {
+            Description = "--mode stars: draw every saturated star as its master shows it: at the amplitude matching its own light 3 to 5 px " +
+                          "out (a clipped star's catalogued amplitude is a wing fit the clip inflates) with its own radial residual to 30 px " +
+                          "as its halo, on the round profile it was measured against and clipped only in the channels its own light says " +
+                          "it clipped. A measured star keeps that shape whatever the cell's other star options ask (--star-beta, " +
+                          "--star-beta-draw, --chromatic-width, --star-shapes, the wing clamp): they move the other stars. Off by default.",
+        };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
         {
             Description = "--mode stars: the weakest wing, as a factor of the master's own, that half the draws of a cell give one " +
@@ -1949,9 +1963,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var starBetaDrawOpt = new Option<string?>("--star-beta-draw")
         {
-            Description = "--mode stars: share,low,high: that share of the cells, in (0, 1], drawn with every star at one Moffat beta " +
+            Description = "--mode stars: share,low,high[,spread]: that share of the cells, in (0, 1], drawn with every star at one Moffat beta " +
                           "uniform in [low, high] (each in [1.1, 20]), on any plate (#1947, R3i: a heavy-winged star told by itself, not " +
-                          "by its session). From each draw's own stream, so the stars keep their places, brightness and colour; each " +
+                          "by its session). A spread in [1, 4] draws such a cell's red and blue betas each at a factor of its green's, " +
+                          "log-uniform in [1/spread, spread] (M42's blue sits at 2.64 times its green); 1 or none holds the channels at one. " +
+                          "From each draw's own stream, so the stars keep their places, brightness and colour; each " +
                           "star's beta is in injections.jsonl (Beta). Not with --star-beta, --channel-relations or --channel-wing-cut. " +
                           "Off by default.",
         };
@@ -1996,7 +2012,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2152,6 +2168,16 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--outer-halo draws the injected stars' halo; it needs --mode stars and an existing halo-profiles.json");
                 return 1;
             }
+            if (parseResult.GetValue(saturatedOwnShareOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--saturated-own-share draws injected stars; it needs --mode stars");
+                return 1;
+            }
+            if (parseResult.GetValue(saturatedMeasuredOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--saturated-measured draws injected stars; it needs --mode stars");
+                return 1;
+            }
             var channelWingCut = parseResult.GetValue(channelWingCutOpt);
             var chromaticWidth = parseResult.GetValue(chromaticWidthOpt);
             if (StarArmConflict(clampWingRelations, channelWingCut is not null, chromaticWidth is not null, relationSessions is not null) is { } armConflict)
@@ -2189,13 +2215,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(starBetaDrawOpt) is { } betaDrawText)
             {
                 var parts = betaDrawText.Split(',', StringSplitOptions.TrimEntries);
-                if (parts.Length != 3
+                var channelSpread = 1.0;
+                if (parts.Length is not (3 or 4)
                     || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var share)
                     || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var low)
                     || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var high)
-                    || !StarBetaDraw.IsDraw(share, low, high))
+                    || (parts.Length == 4 && !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out channelSpread))
+                    || !StarBetaDraw.IsDraw(share, low, high, channelSpread))
                 {
-                    consoleHost.WriteError($"--star-beta-draw takes share,low,high with a share in (0, 1] and betas low <= high in [1.1, 20], got '{betaDrawText}'");
+                    consoleHost.WriteError($"--star-beta-draw takes share,low,high[,spread] with a share in (0, 1], betas low <= high in [1.1, 20] and a channel spread in [1, 4], got '{betaDrawText}'");
                     return 1;
                 }
                 if (mode != DatasetDegradationExporter.DegradationMode.Stars)
@@ -2208,7 +2236,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     consoleHost.WriteError("--star-beta-draw and --star-beta, --channel-relations, --channel-wing-cut or --clamp-wing-relations are two arms; give one");
                     return 1;
                 }
-                starBetaDraw = new StarBetaDraw(share, low, high);
+                starBetaDraw = new StarBetaDraw(share, low, high, channelSpread);
             }
             var starBeta = parseResult.GetValue(starBetaOpt);
             if (starBeta is { } heldBeta)
@@ -2358,6 +2386,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ClampWingRelations: clampWingRelations,
                 OuterHaloPath: parseResult.GetValue(outerHaloOpt),
                 ChromaticWidthRatio: chromaticWidth,
+                SaturatedAtOwnShare: parseResult.GetValue(saturatedOwnShareOpt),
+                SaturatedMeasured: parseResult.GetValue(saturatedMeasuredOpt),
                 NoiseScale: noiseScale,
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,
