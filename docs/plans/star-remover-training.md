@@ -5016,7 +5016,9 @@ bright stars at about 93 %. The difference is the training data's.
 **Two causes, measured.**
 - **Too few saturated stars.** The masters carry 2.45 saturated stars per 256 px tile over the 136 training sessions, and
   synth18 drew 0.25, a tenth (`training/star-removal/saturated_per_tile.py`). The old injector added at most one per draw,
-  a quarter of the time.
+  a quarter of the time. Both numbers are the first counter's, which skipped two of the 138 sessions and counted the stars
+  centred in a drawn cell's margin (13 % more area, on the drawn side only; "R3r's Q1" below); they were not read again with
+  the fixed counter, and a tenth is the size of the gap either way.
 - **The wrong halo.** A saturated star's catalogued amplitude is a wing fit the clip inflates, and its halo does not scale
   with it: per amplitude, the faintest third of M42's saturated stars carry nine times the brightest third's light at 5 px.
   A per-amplitude table (`--bright-halos`) overshot and made the unsaturated bright stars less realistic, and was dropped.
@@ -5065,8 +5067,9 @@ pooled 20-100 ring left 18.6 % (2.3 / 3.5). R3q leaves faint and mid stars it us
 77-83 % (R3l 2-16 %). It reads as a test of that export, faults included.
 
 **R3r, pre-registered 2026-11-10.** R3q again on the fixed injector: synth21 = the recipe in
-`training/star-removal/export-synth.ps1` with `--saturated-own-share --saturated-measured`, its binary built from PR #2086's
-head (the commit is recorded in the export's folder), and R3l's training exactly: `training/denoise/run-r2.ps1 -Tag r3r
+`training/star-removal/export-synth.ps1` with `--saturated-own-share --saturated-measured`, its binary (`bh-bin6`) built at
+PR #2086's commit "docs(star-remover): R3q's read and R3r pre-registered, with the export, check 3 and the per-tile count in the
+repo (#2088)", and R3l's training exactly: `training/denoise/run-r2.ps1 -Tag r3r
 -Arms synth21 -SeedCount 1 -FirstSeed 0 -Patience 24 -Steps 480000 -CheckpointEvery 2000` (its flux loss off, as R3l's).
 Scored by `training/star-removal/score-arm.ps1` against R3l's baselines, `score_whole.py` over the held-out whole masters,
 and `real_star_check3.py --sessions` on both ring variants.
@@ -5275,7 +5278,8 @@ blue dig, so M42 needs a trained arm. A 3-minute probe of the trainer on the 107
 drew 3, `--star-beta-draw 0.3,1.3,6,2`, a held cell's red and blue betas each log-uniform in [1/2, 2] of its green's. The
 question: does a narrower spread keep R3s's gain on M42 and leave the SMC's wings as R3l does.
 - **The export:** synth23 = `export-synth.ps1 -Name synth23 -BetaDraw 0.3,1.3,6,2` with no `-Extra`, R3s's binary
-  (`bh-bin7`), into `D:/temp/tianwen-scratch/r3-train-synth23`.
+  (`bh-bin7`, built at "feat(training): --star-beta-draw takes a channel spread, drawing a held cell's red and blue betas apart
+  from green's"), into `D:/temp/tianwen-scratch/r3-train-synth23`.
 - **The training:** R3s's exactly, from the same frozen trainer copy, **one seed first**: seed 0 is trained and scored
   alone; seed 1 is trained only if seed 0 holds every guard below and its M42 band reads at least 40. The cache is prepared
   on the SSD (`E:/tianwen-scratch`), which changes where the bytes are read from and nothing else.

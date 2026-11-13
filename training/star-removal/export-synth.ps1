@@ -9,7 +9,9 @@
 #   --star-beta-draw 0.3,1.3,6   (-BetaDraw: R3s's export gives it a fourth value, the channel spread)
 # synth18 (R3l) is that line alone; synth20 (R3q) added --saturated-own-share --saturated-measured at "a measured saturated
 # star's amplitude floor stands on its own sky"; R3r's export adds the same two at the fixed injector (the plan's R3q/R3r
-# section). Record the binary's commit beside the export (-Bin's folder holds HEAD.txt when it was built for one).
+# section). -Extra is split on commas (see below), so it takes flags and no option whose value holds a comma; such an option
+# gets a parameter of its own, as -BetaDraw has. Record the binary's commit beside the export (-Bin's folder holds HEAD.txt when it was built for one): R3r's
+# synth21 used bh-bin6, R3s's synth22 and R3t's synth23 bh-bin7, their commits' subjects in the plan.
 #
 # Run DETACHED, with no window (from a PowerShell session: Start-Process pwsh -ArgumentList ... -NoNewWindow).
 #   pwsh -NoProfile -File export-synth.ps1 -Root D:/temp/tianwen-scratch/r3-train-synth21 -Name synth21 `

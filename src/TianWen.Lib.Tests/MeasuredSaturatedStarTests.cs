@@ -148,12 +148,16 @@ public class MeasuredSaturatedStarTests
     }
 
     private static FittedStar Row(float x, float y, bool saturated, params float[] amplitudes)
+        => Row(StarFitModel.Moffat, x, y, saturated, amplitudes);
+
+    private static FittedStar Row(StarFitModel model, float x, float y, bool saturated, params float[] amplitudes)
         => new FittedStar(x, y, 100, amplitudes[0], 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, saturated, false, float.NaN, float.NaN, false, float.NaN,
-            StarFitModel.Moffat, [.. amplitudes]);
+            model, [.. amplitudes]);
 
     // A two-channel master: one saturated star, clipped in its first channel (amplitude 5 under a ceiling of 0.9) and whole in
     // its second (amplitude 0.3), among unsaturated catalogue rows on a flat sky.
-    private static (InjectionPopulation Population, float[][] MasterPlanes) MeasuredPopulation()
+    private static (InjectionPopulation Population, float[][] MasterPlanes) MeasuredPopulation(StarFitModel saturatedModel = StarFitModel.Moffat, bool measured = true,
+        bool withLobe = false, bool lobes = false)
     {
         const int size = 256;
         var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
@@ -167,7 +171,12 @@ public class MeasuredSaturatedStarTests
                 catalogue.Add(Row(x, y, saturated: false, amplitude, amplitude));
             }
         }
-        catalogue.Add(Row((float)StarX, (float)StarY, saturated: true, 5f, 0.3f));
+        catalogue.Add(Row(saturatedModel, (float)StarX, (float)StarY, saturated: true, 5f, 0.3f));
+        if (withLobe)
+        {
+            // A second-pass row beside the star, inside LobeReachFwhm of it and fainter: a lobe that travels with its star.
+            catalogue.Add(Row((float)StarX + 3f, (float)StarY, saturated: false, 0.2f, 0.2f) with { SecondPass = true, Significance = 10 });
+        }
         float[][,] planes = [StarPlane(size, 5.0), StarPlane(size, 0.3)];
         static float[,] SkyPlane()
         {
@@ -183,7 +192,7 @@ public class MeasuredSaturatedStarTests
         }
         var master = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
         var starless = new Image([SkyPlane(), SkyPlane()], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
-        var population = InjectionPopulation.Build(catalogue.ToImmutable(), master, starless, 1.0, [(2.5, 3.0), (2.5, 3.0)], null, measuredSaturated: true);
+        var population = InjectionPopulation.Build(catalogue.ToImmutable(), master, starless, 1.0, [(2.5, 3.0), (2.5, 3.0)], null, lobes: lobes, measuredSaturated: measured);
         return (population, [Flat(planes[0]), Flat(planes[1])]);
     }
 
@@ -237,6 +246,108 @@ public class MeasuredSaturatedStarTests
                 drawn.ShouldBe(source, source * 0.2, $"channel {c} at {ring} px");
             }
         }
+    }
+
+    /// <summary>
+    /// The measured pool holds every subtracted saturated star, whatever the builder fitted it with: one fitted with its own
+    /// profile or as a pair is measured off its pixels and drawn, where the catalogued pool, which needs the field's Moffat,
+    /// never held it.
+    /// </summary>
+    [Theory]
+    [InlineData(StarFitModel.Profile)]
+    [InlineData(StarFitModel.Pair)]
+    public void ASaturatedStarFittedWithoutTheFieldsMoffatIsMeasuredAndDrawn(StarFitModel model)
+    {
+        const int size = 256;
+        MeasuredPopulation(model, measured: false).Population.SaturatedPool.ShouldBe(0, "the catalogued pool holds Moffat rows only");
+        var (population, _) = MeasuredPopulation(model);
+        population.SaturatedPool.ShouldBe(1);
+        var plan = population.Plan(0, 0, size, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(8));
+        plan.SaturatedFallback.ShouldBeFalse();
+        var saturated = plan.Stars.Single(static s => s.Saturated);
+        saturated.Amplitudes[0].ShouldBe(5.0, 5.0 * 0.15, "measured off its own light, not its catalogued amplitude");
+        saturated.Profiles.ShouldAllBe(static p => !p.Outer.IsNone);
+    }
+
+    /// <summary>
+    /// Such a star whose measurement fails (its stamp leaves the frame) has no catalogued entry to fall back on, and is left
+    /// out of the pool.
+    /// </summary>
+    [Fact]
+    public void ASaturatedStarFittedWithItsOwnProfileThatCannotBeMeasuredIsLeftOut()
+    {
+        const int size = 256;
+        var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
+        for (var i = 0; i < 10; i++)
+        {
+            catalogue.Add(Row(40 + (i * 20), 200, saturated: false, 0.1f));
+        }
+        catalogue.Add(Row(StarFitModel.Profile, 128, 20, saturated: true, 3f));
+        var masterPlane = new float[size, size];
+        var platePlane = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                masterPlane[y, x] = (float)Sky;
+                platePlane[y, x] = (float)Sky;
+            }
+        }
+        masterPlane[20, 128] = (float)Ceiling;
+        var master = new Image([masterPlane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var plate = new Image([platePlane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0)], null, measuredSaturated: true)
+            .SaturatedPool.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// A measured saturated star is drawn alone: its second-pass rows inside the lobe reach are neither carried nor drawn
+    /// (the measurement reads its light, lobes included, ring by ring).
+    /// </summary>
+    [Fact]
+    public void AMeasuredSaturatedStarCarriesNoLobesWhereTheyAreCarried()
+    {
+        const int size = 256;
+        var (withRow, _) = MeasuredPopulation(withLobe: true, lobes: true);
+        var (alone, _) = MeasuredPopulation(lobes: true);
+        withRow.SaturatedPool.ShouldBe(1);
+        withRow.CarriedLobes.ShouldBe(0, "the lobe row is claimed by its star, which is measured and carries none");
+        var plan = withRow.Plan(0, 0, size, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(8));
+        var reference = alone.Plan(0, 0, size, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(8));
+        plan.Stars.Length.ShouldBe(reference.Stars.Length, "the star is drawn alone");
+        plan.Stars.Single(static s => s.Saturated).Amplitudes[0].ShouldBe(5.0, 5.0 * 0.15);
+    }
+
+    /// <summary>
+    /// The catalogued fallback (a star the measurement cannot reach) keeps its lobes: it has no measured light to hold them.
+    /// </summary>
+    [Fact]
+    public void AStarDrawnFromItsCataloguedEntryKeepsItsLobes()
+    {
+        const int size = 256;
+        var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
+        for (var i = 0; i < 10; i++)
+        {
+            catalogue.Add(Row(40 + (i * 20), 200, saturated: false, 0.1f));
+        }
+        catalogue.Add(Row(128, 20, saturated: true, 3f));
+        catalogue.Add(Row(131, 20, saturated: false, 0.2f) with { SecondPass = true, Significance = 10 });
+        var masterPlane = new float[size, size];
+        var platePlane = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                masterPlane[y, x] = (float)Sky;
+                platePlane[y, x] = (float)Sky;
+            }
+        }
+        masterPlane[20, 128] = (float)Ceiling;
+        var master = new Image([masterPlane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var plate = new Image([platePlane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var population = InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0)], null, lobes: true, measuredSaturated: true);
+        population.SaturatedPool.ShouldBe(1);
+        population.CarriedLobes.ShouldBe(1);
     }
 
     [Fact]
