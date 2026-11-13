@@ -153,3 +153,20 @@ only a table and the Sun:
   do not.
 - A peak is also a row of the planner's events list (#1810), which reads this table and computation rather
   than keeping its own.
+
+### What shipped of E (2026-11-13, #2120)
+
+Everything above except the year mode's marks (#2061) and the events-list row (#1810).
+
+- **Table and peak:** `MeteorShowerTable`, `MeteorShower`, `MeteorShowerCalendar` (`SunLongitude`, `PeakInstant`, `PeakNear`).
+- **Identity:** `MeteorShowerIdentity` (a `CatalogIndex` in `Catalog.MeteorShower` per IAU number; the object DB holds none).
+- **The night routine:** `MeteorShowerNights.For` (active showers, radiants by drift, rate at the site), `RadiantAt`, and `ForShowerAt`
+  for one shower and a viewing instant, which the atlas's info panel asks so it says the calendar's own number.
+- **Search and pins:** `SkyMapSearchActions` and `PlannerActions`, pins re-placed per night.
+- **Night calendar:** the shower mark and tooltip lines (`NightCalendarPopover`), words from `MeteorShowerText`.
+- **Atlas radiant:** `SkyMapTab.DrawShowerRadiants` draws a ring with eight rays and the name for each active shower, from
+  `SkyMapState.GetShowerRadiantsCached` (computed once per UTC day, never per frame; `ShowerCacheRebuilds` is the test counter).
+  The draw and the click and hover resolver (`SkyMapSearchActions.TryResolveHit`, kind `Shower`) both ask
+  `SkyMapState.ShouldDrawShowerRadiant`, which is `OverlayEngine.PassesLayerFilter` for `ObjectType.MeteorShower`: the [O] layer
+  switches it off and a pin bypasses it. The info panel names the shower, its ZHR and tonight's rate at the site, and its peak in
+  site time. There is no Wikipedia link, since the bake verified none.

@@ -637,6 +637,18 @@ code). Story and numbers: `docs/plans/smart-framing.md`. All lzip I/O goes throu
 `OpenNgcCorrections` is the ONE place a wrong row is fixed, never the CSV; `tools/openngc-audit`
 verifies every name/identifier against SIMBAD by position.
 
+### Meteor showers (`TianWen.Lib.Astrometry.MeteorShowers`)
+
+The IMO working list as a static table, an EVENT and not an object. Design and what shipped: `docs/plans/yearly-planner.md`, section E. Rules that bite:
+
+- **A shower is NOT in `ICelestialObjectDB`**, as a comet is not. Each surface augments at its own layer (search, planner pins, the
+  atlas's `SkyMapState.GetShowerRadiantsCached`); a DB entry would be scored as an imaging target.
+- **A year's peak is the Sun reaching the peak's solar longitude** (`MeteorShowerCalendar.PeakNear`), never a stored date.
+- **Identity is the `CatalogIndex`** (`MeteorShowerIdentity`), never the pin's RA/Dec, which the drift moves every night.
+- **The atlas's draw and its click and hover ask ONE gate**, `SkyMapState.ShouldDrawShowerRadiant` (the object layers' own
+  `OverlayEngine.PassesLayerFilter`, a pin bypasses it), and the active set is computed once per UTC day: assert `ShowerCacheRebuilds`.
+- **The rate at the site is `MeteorShowerNights`'s** (calendar and atlas panel read the same words, `MeteorShowerText`).
+
 ### Night Calendar (one forecast, one verdict)
 
 The GUI status-bar date opens a month of NIGHTS (`NightCalendarPopover`, `NightCalendarActions`; pure
