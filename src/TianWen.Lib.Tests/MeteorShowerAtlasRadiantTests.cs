@@ -227,7 +227,7 @@ public sealed class MeteorShowerAtlasRadiantTests
             box.Y.ShouldBeLessThan(Size / 2f);
             (box.Y + box.Height).ShouldBeGreaterThan(Size / 2f, "the name is level with the radiant");
             // The box is wider than the name, and its far end can hold another object's ink (every deep-sky marker comes and
-            // goes with the overlay too), so the name is the run of inked columns from the box's left edge up to the first gap
+            // goes with the overlay too, and the capture hides the layer palette for the same reason), so the name is the run of inked columns from the box's left edge up to the first gap
             // wider than any between two letters.
             var top = (int)box.Y;
             var bottom = Math.Min(Size, (int)(box.Y + box.Height));
@@ -289,6 +289,8 @@ public sealed class MeteorShowerAtlasRadiantTests
         var planner = PlannerAt(db, night);
         LookAtPerseids(tab.State, night, fov: 20.0);
         tab.State.ShowObjectOverlay = overlay;
+        // The layer palette is chrome whose Objects rows change with the overlay, and at 1.5x the name's box reaches it.
+        tab.State.ShowLayerPalette = false;
         // The first pass would re-home the view to the pole; the capture looks at the radiant.
         tab.State.ViewDrivenExternally = true;
         tab.Render(planner, new RectF32(0, 0, Size, Size), new FakeTimeProviderWrapper(night));
