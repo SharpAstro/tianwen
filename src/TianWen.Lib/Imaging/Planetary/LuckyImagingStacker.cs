@@ -134,31 +134,24 @@ public sealed class LuckyImagingStacker
         float[][,] channelAccum, float[,] weightAccum, PlanetaryCoverage? coverage, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
         var (height, width) = (weightAccum.GetLength(0), weightAccum.GetLength(1));
-        var used = 0;
-        foreach (var index in InCaptureOrder(frames))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var weight = weightOf(index);
-            if (weight <= 0f)
+        // A batch of frames side by side (PlanetaryFrameBatches): each frame's shift and field made in a slot of its own, then
+        // folded in capture order, so the sum is a frame-by-frame walk's, bit for bit.
+        var weighted = Weighted(InCaptureOrder(frames), weightOf);
+        await PlanetaryFrameBatches.RunAsync(stream, weighted,
+            (frame, index, slot) =>
             {
-                continue;
-            }
-
-            var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
-            try
+                var shift = derotator.Shift(frame, index, slot);
+                var mesh = DisplacementMesh.Build(width, height, (float)shift.Dx, (float)shift.Dy, [], derotator.FieldFor(index, slot), options.MeshNodeSpacing, options.MeshInfluence);
+                return (Shift: shift, Mesh: mesh);
+            },
+            (frame, index, prepared) =>
             {
-                var shift = derotator.Shift(frame, index);
-                var mesh = DisplacementMesh.Build(width, height, (float)shift.Dx, (float)shift.Dy, [], derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence);
-                frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
-                coverage?.Add(shift.Dx, shift.Dy, frame.Width, frame.Height, weight);
-                used++;
-            }
-            finally
-            {
-                frame.Release();
-            }
-        }
-        return used;
+                var weight = weightOf(index);
+                frame.AccumulateByMeshInto(channelAccum, weightAccum, prepared.Mesh, weight, options.Interpolation);
+                coverage?.Add(prepared.Shift.Dx, prepared.Shift.Dy, frame.Width, frame.Height, weight);
+            },
+            cancellationToken).ConfigureAwait(false);
+        return weighted.Length;
     }
 
     // The frames a de-rotated stack visits, in capture order: the order its turned references are made in.
@@ -320,7 +313,20 @@ public sealed class LuckyImagingStacker
                 pointKeep.Decide();
                 order = [.. order.Where(index => ctx.ScoreByIndex[index] > 0f && pointKeep.Folds(index))];
             }
-            used = await WalkAsync(order, DerotatedMesh).ConfigureAwait(false);
+            // Folded as the common path folds, a batch side by side and then in capture order: the master is the walk's, bit for bit.
+            var folded = Weighted(order, index => ctx.ScoreByIndex[index]);
+            var slotMatchers = new AlignmentPointMatcher?[PlanetaryFrameBatches.MaxSlots];
+            await PlanetaryFrameBatches.RunAsync(stream, folded,
+                (frame, index, slot) =>
+                {
+                    var shift = derotator.Shift(frame, index, slot);
+                    var mesh = (slotMatchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index, slot),
+                        options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain, options.MeshRegularization);
+                    return (Mesh: mesh, Quality: options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null);
+                },
+                (frame, index, prepared) => Fold(frame, index, prepared.Mesh, prepared.Quality, ctx.ScoreByIndex[index]),
+                cancellationToken).ConfigureAwait(false);
+            used = folded.Length;
         }
         else if (tracks is not null)
         {
