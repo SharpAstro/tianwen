@@ -183,12 +183,13 @@ public class PlanetaryBayerTwinTests
         first.Frames[0].AsSpan().SequenceEqual(first.Frames[count - 1]).ShouldBeFalse();
     }
 
-    [Fact(Timeout = 300_000)]
+    [Fact(Timeout = 120_000)]
     public async Task AStreamedTwinOverSeveralBlocksIsTheThreePassesOneAfterAnother()
     {
-        // 130 frames is three blocks (64, 64, 2): a pass finishes block 2 while another is still in block 1, and the drain releases
-        // frames mid-run. The streamed mosaics must be the bytes the old way made: each colour in full, then its photosites taken.
-        const int count = 130;
+        // 70 frames is two blocks (64, 6): the drain releases frames mid-run. The streamed mosaics must be the bytes the old way
+        // made: each colour in full, then its photosites taken. The lead bound and the drain race are pinned, with no rendering,
+        // by BayerMosaicAssemblerTests.
+        const int count = 70;
         var none = ImmutableArray.CreateRange(new double[count]);
         var times = ImmutableArray.CreateRange(Enumerable.Range(0, count).Select(i => Night.AddMilliseconds(4 * i)));
         var map = PlanetaryDegradeTests.BandedMap();

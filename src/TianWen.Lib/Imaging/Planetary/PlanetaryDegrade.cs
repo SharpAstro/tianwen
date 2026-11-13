@@ -506,7 +506,7 @@ public static partial class PlanetaryDegrade
     /// the air sets, so their screens, tilts and warp are the same path difference seen at three wavelengths (the phase is
     /// scaled by 500 nm over the wavelength). A frame's mosaic is held only until its three colours have written it, then written
     /// in order, and no pass runs more than two blocks ahead of the slowest; the warp, achromatic, is reported from the green
-    /// pass. The three colours are made at once (#2116): each pass steps its own copy of the air, three quarters of its time on
+    /// pass, and the progress is the frames WRITTEN (every colour deposited), so it reads complete only when the capture is. The three colours are made at once (#2116): each pass steps its own copy of the air, three quarters of its time on
     /// one thread, and writes only its own photosites, so the capture is the same bytes as one colour after another made. A pass
     /// that fails cancels the other two.
     /// </summary>
@@ -543,45 +543,11 @@ public static partial class PlanetaryDegrade
 
         var n = times.Length;
         // A frame's mosaic is held from the first pass that reaches it until the last has written its photosites, and is then
-        // written out in order: the passes run at once and are held within MaxLead frames of each other, so a capture of any length
-        // holds a few blocks of frames, where one colour after another held every frame until the last colour was made.
-        var mosaic = new ushort[]?[n];
-        var owed = new int[n];
-        Array.Fill(owed, 3);
-        var (next, draining) = (0, 0);
-        // The frames every pass has finished, in order, by one thread at a time; a frame finished while another thread drains is
-        // taken by that thread's re-check after it lets go, so no finished frame waits for a later call.
-        void Drain()
-        {
-            while (true)
-            {
-                if (Interlocked.CompareExchange(ref draining, 1, 0) != 0)
-                {
-                    return;
-                }
-                try
-                {
-                    while (next < n && Volatile.Read(ref owed[next]) == 0)
-                    {
-                        write(next, mosaic[next] ?? throw new InvalidOperationException($"Frame {next} was made by no colour."));
-                        mosaic[next] = null;
-                        Volatile.Write(ref next, next + 1);
-                    }
-                }
-                finally
-                {
-                    Volatile.Write(ref draining, 0);
-                }
-                if (Volatile.Read(ref next) >= n || Volatile.Read(ref owed[Volatile.Read(ref next)]) != 0)
-                {
-                    return;
-                }
-            }
-        }
-        // The lead a pass may take over the slowest is bounded: a pass about to deposit a frame this far past the next one to be
-        // written waits for the others, so a capture of any length holds at most MaxLead mosaics beyond the slowest colour. The
-        // slowest pass never waits (its frame is within one block of the next to write), so the wait cannot deadlock.
+        // written out in order, so a capture of any length holds a few blocks of frames, where one colour after another held every
+        // frame until the last colour was made. The lead a pass may take over the slowest is bounded (BayerMosaicAssembler): a capture of any length holds at most
+        // MaxLead mosaics beyond the slowest colour.
         const int MaxLead = 2 * Block;
+        var assembler = new BayerMosaicAssembler(n, width * height, 3, MaxLead, write, written: progress is null ? null : progress.Report);
         using var faulted = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = faulted.Token;
         var passes = new (BayerColour Colour, int[] Channels)[]
@@ -595,8 +561,6 @@ public static partial class PlanetaryDegrade
         {
             var (colour, channels) = passes[p];
             var phases = Array.ConvertAll(channels, c => CfaPlaneStream.PhaseOf(c, bayerOffsetX, bayerOffsetY));
-            // The progress is green's alone: three passes reporting at once would count the capture three times over.
-            var passProgress = p == 1 ? progress : null;
             var passWarps = p == 1 ? warps : null;
             making[p] = Task.Run(async () =>
             {
@@ -605,31 +569,8 @@ public static partial class PlanetaryDegrade
                     return await MakeAsync(colour.Map, planet, times, colour.Placement, arcsecPerPixel, shiftX, shiftY, brightness, width, height, colour.Options,
                 (index, samples) =>
                 {
-                    if (index - Volatile.Read(ref next) >= MaxLead)
-                    {
-                        SpinWait.SpinUntil(() => index - Volatile.Read(ref next) < MaxLead || token.IsCancellationRequested);
-                        token.ThrowIfCancellationRequested();
-                    }
-                    var fresh = Volatile.Read(ref mosaic[index]) is null ? new ushort[width * height] : null;
-                    var frame = fresh is null
-                        ? mosaic[index] ?? throw new InvalidOperationException($"Frame {index} was written out before every colour reached it.")
-                        : Interlocked.CompareExchange(ref mosaic[index], fresh, null) ?? fresh;
-                    foreach (var (px, py) in phases)
-                    {
-                        for (var y = py; y < height; y += 2)
-                        {
-                            var row = y * width;
-                            for (var x = px; x < width; x += 2)
-                            {
-                                frame[row + x] = samples[row + x];
-                            }
-                        }
-                    }
-                    if (Interlocked.Decrement(ref owed[index]) == 0)
-                    {
-                        Drain();
-                    }
-                }, passProgress, passWarps, cancellationToken: token).ConfigureAwait(false);
+                    assembler.Deposit(index, samples, width, height, phases, token);
+                }, null, passWarps, cancellationToken: token).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -639,22 +580,12 @@ public static partial class PlanetaryDegrade
                 }
             }, token);
         }
-        ImmutableArray<SyntheticFrame>[] records;
-        try
+        // Task.WhenAll over a fault and its siblings' cancellations throws the fault itself, so the failed pass is the error.
+        var records = await Task.WhenAll(making).ConfigureAwait(false);
+        assembler.Drain();
+        if (assembler.Next != n)
         {
-            records = await Task.WhenAll(making).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested
-            && Array.Find(making, t => t.IsFaulted)?.Exception?.InnerException is { } root)
-        {
-            // The siblings' cancellation is the symptom: report the pass that failed.
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(root).Throw();
-            throw;
-        }
-        Drain();
-        if (next != n)
-        {
-            throw new InvalidOperationException($"Frame {next} was not made by every colour.");
+            throw new InvalidOperationException($"Frame {assembler.Next} was not made by every colour.");
         }
         return (records[0], records[1], records[2]);
     }
