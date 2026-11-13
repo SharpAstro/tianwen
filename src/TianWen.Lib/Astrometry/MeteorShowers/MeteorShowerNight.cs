@@ -14,8 +14,10 @@ namespace TianWen.Lib.Astrometry.MeteorShowers;
 /// <param name="MeanSinAltitude">The mean of the sine of the radiant's altitude over the dark window, with a radiant below the
 /// horizon counting zero. 0 when the radiant never clears the horizon while it is dark.</param>
 /// <param name="LimitingMagnitude">The limiting magnitude the rate was scaled to, 6.5 under a sky without the Moon.</param>
-/// <param name="ExpectedRate">The expected hourly rate for a visual observer: the ZHR, times <see cref="MeanSinAltitude"/>, times
-/// r to the power (limiting magnitude minus 6.5). NaN where the ZHR is variable.</param>
+/// <param name="ExpectedRate">The expected hourly rate for a visual observer AT THE PEAK'S STRENGTH: the ZHR, times
+/// <see cref="MeanSinAltitude"/>, times r to the power (limiting magnitude minus 6.5). NaN where the ZHR is variable. The table
+/// holds no activity profile (how fast a shower falls away from its maximum), so this is the night's own rate only on
+/// <see cref="IsPeakNight"/>; on any other night of the window it is an upper bound and must not be said as the rate.</param>
 /// <param name="Peak">The peak of this return, UTC (the one nearest the night).</param>
 /// <param name="PeakOffset">The night's middle minus the peak: negative before it, positive after.</param>
 public readonly record struct MeteorShowerNight(
@@ -33,6 +35,12 @@ public readonly record struct MeteorShowerNight(
     /// peak that falls in daylight at the site is not hidden, it is said as the nearest night's rate.
     /// </summary>
     public bool IsPeakNight => Peak is not null && Math.Abs(PeakOffset.TotalHours) <= 12.0;
+
+    /// <summary>
+    /// Whether this is the peak night of a shower worth looking up for: its expected rate at the site reaches
+    /// <see cref="MeteorShowerNights.MajorRateFloor"/>. False where the ZHR is variable.
+    /// </summary>
+    public bool IsMajorPeak => IsPeakNight && ExpectedRate >= MeteorShowerNights.MajorRateFloor;
 }
 
 /// <summary>
@@ -50,6 +58,19 @@ public static class MeteorShowerNights
     /// Moon up; not a fit to observations.
     /// </summary>
     public const double FullMoonMagnitudeLoss = 1.8;
+
+    /// <summary>
+    /// The expected hourly rate at the site from which a peak is a MAJOR one (<see cref="MeteorShowerNight.IsMajorPeak"/>).
+    /// A choice, not a measurement: ten an hour is about where a shower is noticed without being looked for.
+    /// </summary>
+    public const double MajorRateFloor = 10.0;
+
+    /// <summary>
+    /// The instant a NIGHT's showers are judged at: the middle of its dark window. The night calendar and the planner both
+    /// ask it, so a night the calendar marks for a shower is a night the planner lets it be pinned on.
+    /// </summary>
+    public static DateTimeOffset NightInstant(DateTimeOffset darkStart, DateTimeOffset darkEnd)
+        => darkEnd > darkStart ? darkStart + ((darkEnd - darkStart) / 2) : darkStart;
 
     /// <summary>
     /// The limiting magnitude under the Moon of <paramref name="night"/>: <see cref="ReferenceLimitingMagnitude"/> lowered by
@@ -71,7 +92,7 @@ public static class MeteorShowerNights
     /// </summary>
     public static ImmutableArray<MeteorShowerNight> For(double latitude, double longitude, in NightSummary night)
     {
-        var mid = night.DarkStart + (night.Dark / 2);
+        var mid = NightInstant(night.DarkStart, night.DarkEnd);
         var sun = MeteorShowerCalendar.SunLongitude(mid);
         if (double.IsNaN(sun))
         {

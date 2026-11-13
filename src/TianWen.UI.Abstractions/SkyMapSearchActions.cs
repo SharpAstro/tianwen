@@ -1433,7 +1433,8 @@ public static class SkyMapSearchActions
 
         // The rate at the site is the night calendar's own (MeteorShowerNights.ForShowerAt), so the two say the same number.
         var detail = MeteorShowerText.Zhr(shower);
-        if (radiant.Active && MeteorShowerNights.ForShowerAt(shower, siteLat, siteLon, viewingUtc) is { } tonight)
+        // Only on the peak night: off it the table gives an upper bound, not a rate (MeteorShowerNight.ExpectedRate).
+        if (radiant.Active && MeteorShowerNights.ForShowerAt(shower, siteLat, siteLon, viewingUtc) is { IsPeakNight: true } tonight)
         {
             detail += "   " + MeteorShowerText.Rate(tonight);
         }

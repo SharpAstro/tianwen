@@ -190,6 +190,51 @@ public class MeteorShowerSearchAndPinTests
     }
 
     [Fact]
+    public void MeteorShowerRestoredPinWhoseSavedPositionIsNotANumberComesBackAtTheRadiant()
+    {
+        // The repair branch of the restore: a plan saved with no position (as the object DB's NaN sentinel once gave a planet).
+        var dto = new PlannerSessionDto(
+            [new ProposalDto(double.NaN, double.NaN, Perseids.Name, (ulong)MeteorShowerIdentity.IndexOf(Perseids),
+                ObservationPriority.Normal, null, null, null)],
+            [], 0, 0f, Latitude, Longitude);
+
+        var restored = StateAt(PerseidNight);
+        PlannerPersistence.TryRestoreFromDto(restored, dto, NullLogger.Instance).ShouldBeTrue();
+
+        var pin = restored.Proposals.ShouldHaveSingleItem();
+        var radiant = MeteorShowerNights.RadiantAt(Perseids, PlannerActions.ShowerNightInstant(restored));
+        pin.Target.RA.ShouldBe(radiant.RaHours, 0.2, "the table's radiant, then re-placed for the planner's night");
+        pin.Target.Dec.ShouldBe(radiant.DecDeg, 1.0);
+        PlannerActions.GetFilteredTargets(restored).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void MeteorShowerPinIsJudgedAtTheNightsMiddleAsTheCalendarJudgesIt()
+    {
+        // A night whose dark window STARTS before the Perseids' window opens and whose middle is inside it: the calendar
+        // marks the shower active (mid-dark), so the planner must let it be pinned.
+        var opens = FirstInstantInside(Perseids);
+        var state = StateAt(opens.AddHours(-2));
+        MeteorShowerNights.RadiantAt(Perseids, state.AstroDark).Active.ShouldBeFalse("the window is not open at dusk");
+        MeteorShowerNights.RadiantAt(Perseids, PlannerActions.ShowerNightInstant(state)).Active.ShouldBeTrue();
+
+        PlannerActions.CanPin(state, ShowerTarget(opens.AddHours(1))).ShouldBeTrue();
+    }
+
+    /// <summary>The first whole hour of 2026 at which the shower's window is open, found by walking back from its peak.</summary>
+    private static DateTimeOffset FirstInstantInside(MeteorShower shower)
+    {
+        var t = MeteorShowerCalendar.PeakNear(shower, PerseidNight).ShouldNotBeNull();
+        t = new DateTimeOffset(t.Year, t.Month, t.Day, t.Hour, 0, 0, TimeSpan.Zero);
+        for (var i = 0; i < 24 * 120 && MeteorShowerNights.RadiantAt(shower, t.AddHours(-1)).Active; i++)
+        {
+            t = t.AddHours(-1);
+        }
+
+        return t;
+    }
+
+    [Fact]
     public void MeteorShowerRadiantAtSaysWhetherTheNightIsInsideTheWindow()
     {
         MeteorShowerNights.RadiantAt(Perseids, PerseidNight).Active.ShouldBeTrue();

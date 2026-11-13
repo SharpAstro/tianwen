@@ -27,13 +27,16 @@ public sealed class MeteorShowerAtlasRadiantTests
 
     private static MeteorShower Perseids => MeteorShowerTable.ByCode("PER").ShouldNotBeNull();
 
-    /// <summary>The Perseids' peak night of 2026, at 21h UT (the dark of the site).</summary>
+    /// <summary>
+    /// The Perseids' peak night of 2026, at 21h UT (the dark of the site): the EVENING whose night holds the peak, which for a
+    /// peak after midnight is the date before the peak's own.
+    /// </summary>
     private static DateTimeOffset PeakNight
     {
         get
         {
             var peak = MeteorShowerCalendar.PeakInstant(Perseids, 2026).ShouldNotBeNull();
-            return new DateTimeOffset(peak.UtcDateTime.Date.AddHours(21), TimeSpan.Zero);
+            return new DateTimeOffset(peak.UtcDateTime.AddHours(-12).Date.AddHours(21), TimeSpan.Zero);
         }
     }
 

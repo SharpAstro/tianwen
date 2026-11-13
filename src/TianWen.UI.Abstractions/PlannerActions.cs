@@ -354,14 +354,21 @@ public static class PlannerActions
     }
 
     /// <summary>
+    /// The instant the planner's night is judged at for a shower: the middle of its dark window, the night calendar's own
+    /// (<see cref="MeteorShowerNights.NightInstant"/>), so a night the calendar marks is a night the shower can be pinned on.
+    /// </summary>
+    internal static DateTimeOffset ShowerNightInstant(PlannerState state)
+        => MeteorShowerNights.NightInstant(state.AstroDark, state.AstroTwilight);
+
+    /// <summary>
     /// Whether <paramref name="target"/> may be pinned on the planner's night. Everything may, but a meteor shower: it is an
-    /// event, so it is pinnable only on a night inside its activity window (judged at <see cref="PlannerState.AstroDark"/>).
+    /// event, so it is pinnable only on a night inside its activity window (judged at <see cref="ShowerNightInstant"/>).
     /// </summary>
     public static bool CanPin(PlannerState state, Target target)
         => target.CatalogIndex is not { } idx
             || !idx.IsMeteorShower
             || (MeteorShowerIdentity.TryGet(idx, out var shower)
-                && MeteorShowerNights.RadiantAt(shower, state.AstroDark).Active);
+                && MeteorShowerNights.RadiantAt(shower, ShowerNightInstant(state)).Active);
 
     /// <summary>
     /// Re-places every pinned METEOR SHOWER at its radiant for the planner's night, from the table (the drift), the way
@@ -386,7 +393,7 @@ public static class PlannerActions
                 continue;
             }
 
-            var radiant = MeteorShowerNights.RadiantAt(shower, state.AstroDark);
+            var radiant = MeteorShowerNights.RadiantAt(shower, ShowerNightInstant(state));
             var ra = radiant.RaHours;
             var dec = radiant.DecDeg;
             var moved = double.IsNaN(proposal.Target.RA) || double.IsNaN(proposal.Target.Dec)
@@ -935,7 +942,7 @@ public static class PlannerActions
         // Meteor shower: not in objectDb either; placed at its radiant for the planner's night. Outside the activity
         // window there is no radiant to pin, so the search offers nothing (CanPin says the same for a pin).
         if (MeteorShowerIdentity.TryResolve(query, out var shower)
-            && MeteorShowerNights.RadiantAt(shower, state.AstroDark) is { Active: true } radiant)
+            && MeteorShowerNights.RadiantAt(shower, ShowerNightInstant(state)) is { Active: true } radiant)
         {
             var showerExisting = AddCometSearchResult(state, transform, MeteorShowerIdentity.IndexOf(shower), shower.Name,
                 radiant.RaHours, radiant.DecDeg, ObjectType.MeteorShower);
@@ -1002,7 +1009,7 @@ public static class PlannerActions
 
         // A meteor shower suggestion resolves from the table, at its radiant for the planner's night.
         if (MeteorShowerIdentity.TryResolve(suggestion, out var shower)
-            && MeteorShowerNights.RadiantAt(shower, state.AstroDark) is { Active: true } radiant)
+            && MeteorShowerNights.RadiantAt(shower, ShowerNightInstant(state)) is { Active: true } radiant)
         {
             var showerExisting = AddCometSearchResult(state, transform, MeteorShowerIdentity.IndexOf(shower), shower.Name,
                 radiant.RaHours, radiant.DecDeg, ObjectType.MeteorShower);

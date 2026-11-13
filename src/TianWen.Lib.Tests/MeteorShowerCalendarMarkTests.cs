@@ -60,7 +60,10 @@ public class MeteorShowerCalendarMarkTests
         var line = NightCalendarPopover<RgbaImage>.DetailLines(state, peak[0], data).Single(l => l.StartsWith("Perseids"));
         line.ShouldContain("peak tonight");
         line.ShouldContain("an hour here");
-        NightCalendarPopover<RgbaImage>.CellTooltip(peak[0], data).ShouldContain("Perseids peak tonight");
+        NightCalendarPopover<RgbaImage>.CellTooltip(peak[0], data).ShouldNotBeNull()
+            .ShouldStartWith("Perseids peak tonight", Case.Sensitive, "the peak leads the showers that are only active");
+        NightCalendarPopover<RgbaImage>.DetailLines(state, peak[0], data).First(l => l.Contains(" active") || l.Contains("peak tonight"))
+            .ShouldStartWith("Perseids");
     }
 
     [Fact]
@@ -108,10 +111,31 @@ public class MeteorShowerCalendarMarkTests
     public void ARateThatVariesSaysSoAndARadiantBelowTheHorizonSaysThat()
     {
         var shower = MeteorShowerTable.All[0];
-        var night = new MeteorShowerNight(shower, 0, 0, 0.5, 6.5, double.NaN, null, TimeSpan.Zero);
+        var peak = new DateTimeOffset(2026, 8, 12, 22, 0, 0, TimeSpan.Zero);
+        var night = new MeteorShowerNight(shower, 0, 0, 0.5, 6.5, double.NaN, peak, TimeSpan.Zero);
         NightCalendarPopover<RgbaImage>.ShowerLine(night).ShouldContain("rate varies");
         NightCalendarPopover<RgbaImage>.ShowerLine(night with { ExpectedRate = 10, MeanSinAltitude = 0 }).ShouldContain("radiant not up");
         NightCalendarPopover<RgbaImage>.ShowerLine(night with { ExpectedRate = 10 }).ShouldContain("about 10 an hour here");
+    }
+
+    [Fact]
+    public void ANightOffThePeakSaysHowFarThePeakIsAndNoRate()
+    {
+        // The table holds a shower's maximum, not how fast it falls away, so a rate off the peak would be the peak's.
+        var shower = MeteorShowerTable.All[0];
+        var peak = new DateTimeOffset(2026, 8, 12, 22, 0, 0, TimeSpan.Zero);
+        var before = new MeteorShowerNight(shower, 0, 0, 0.5, 6.5, 60, peak, TimeSpan.FromDays(-5));
+
+        before.IsPeakNight.ShouldBeFalse();
+        before.IsMajorPeak.ShouldBeFalse();
+        var line = NightCalendarPopover<RgbaImage>.ShowerLine(before);
+        line.ShouldBe($"{shower.Name} active, peak in 5 d");
+        NightCalendarPopover<RgbaImage>.ShowerLine(before with { PeakOffset = TimeSpan.FromDays(3) }).ShouldEndWith("peak 3 d ago");
+
+        var onIt = before with { PeakOffset = TimeSpan.FromHours(2) };
+        onIt.IsMajorPeak.ShouldBeTrue();
+        (onIt with { ExpectedRate = 4 }).IsMajorPeak.ShouldBeFalse("a peak under the floor is a minor one");
+        (onIt with { ExpectedRate = double.NaN }).IsMajorPeak.ShouldBeFalse();
     }
 
     [Theory]
@@ -126,32 +150,28 @@ public class MeteorShowerCalendarMarkTests
         {
             var state = MonthOf(new DateOnly(2026, 8, 1));
             var data = state.Calendar.Data;
-            var peakNight = NightOf(data, s => s.IsPeakNight);
-            var activeNight = data.Showers.Where(kv => kv.Value.Length > 0 && !kv.Value.Any(s => s.IsPeakNight)).Select(kv => kv.Key).First();
+            // A major peak (the Perseids) and a minor one (a peak under the floor): a ring around a dot, and a ring.
+            var peakNight = NightOf(data, s => s.IsMajorPeak);
+            var minorNight = data.Showers.Where(kv => kv.Value.Any(s => s.IsPeakNight) && !kv.Value.Any(s => s.IsMajorPeak)).Select(kv => kv.Key).First();
 
             var (pixels, popover, width, height) = Render(state, dpi);
             var palette = GuiTheme.Palette;
-            foreach (var night in new[] { peakNight, activeNight })
+            foreach (var night in new[] { peakNight, minorNight })
             {
                 var cell = CellRect(popover, night);
                 // The cell's own tint, from the left margin at mid height, which only the cell's fill occupies.
                 var fill = PixelAt(pixels, width, (int)(cell.X + (2f * dpi)), (int)(cell.Y + (cell.Height / 2f)));
                 Contrast(palette.BodyText, fill).ShouldBeGreaterThanOrEqualTo(3.0, $"{theme} {night}: the mark's ink against its cell");
 
-                var inkInTopRight = 0;
-                for (var y = (int)cell.Y; y < (int)(cell.Y + (cell.Height / 2f)); y++)
-                {
-                    for (var x = (int)(cell.X + (cell.Width / 2f)); x < (int)(cell.X + cell.Width); x++)
-                    {
-                        inkInTopRight += PixelAt(pixels, width, x, y) == palette.BodyText ? 1 : 0;
-                    }
-                }
-
-                inkInTopRight.ShouldBeGreaterThan(0, $"{theme} {night}: a mark is painted in the cell's top row");
+                // The mark's own rectangle, between the day number and the Moon: the Moon is lit in the same ink, so the
+                // cell's whole top row would count it.
+                InkCount(pixels, width, MarkBand(cell), palette.BodyText)
+                    .ShouldBeGreaterThan(0, $"{theme} {night}: a mark is painted between the day number and the Moon");
             }
 
-            var ink = (int night) => InkCount(pixels, width, CellRect(popover, night == 0 ? peakNight : activeNight), palette.BodyText);
-            ink(0).ShouldBeGreaterThan(ink(1), "the peak's solid dot carries more ink than the active ring: shape, not colour");
+            InkCount(pixels, width, MarkBand(CellRect(popover, peakNight)), palette.BodyText)
+                .ShouldBeGreaterThan(InkCount(pixels, width, MarkBand(CellRect(popover, minorNight)), palette.BodyText),
+                    "a major peak's solid dot carries more ink than a minor peak's ring: shape, not colour");
 
             Save($"shower_{theme}_{dpi:0.0}_wide", pixels, width, height);
         }
@@ -183,10 +203,38 @@ public class MeteorShowerCalendarMarkTests
         foreach (var night in all.Nights.Keys.Where(n => n.Month == 8))
         {
             var cell = CellRect(popover, night);
-            InkCount(pixels, width, new RectF32(cell.X + (cell.Width * 0.4f), cell.Y, cell.Width * 0.3f, cell.Height * 0.4f),
-                GuiTheme.Palette.BodyText).ShouldBe(0, $"{night}: nothing between the day number and the Moon");
+            InkCount(pixels, width, MarkBand(cell), GuiTheme.Palette.BodyText)
+                .ShouldBe(0, $"{night}: nothing between the day number and the Moon");
         }
     }
+
+    [Fact]
+    public void ANightAShowerIsOnlyActiveOnIsNamedInWordsAndCarriesNoMark()
+    {
+        GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        var state = MonthOf(new DateOnly(2026, 8, 1));
+        var data = state.Calendar.Data;
+        var offPeak = data.Showers.Where(kv => kv.Key.Month == 8 && kv.Value.Length > 0 && !kv.Value.Any(s => s.IsPeakNight))
+            .Select(kv => kv.Key).ToArray();
+        var marked = data.Showers.Count(kv => kv.Key.Month == 8 && kv.Value.Any(s => s.IsPeakNight));
+
+        offPeak.ShouldNotBeEmpty("most August nights have a shower active and none at its peak");
+        marked.ShouldBeGreaterThan(0);
+        marked.ShouldBeLessThan(8, "a mark on most nights of a month says nothing");
+
+        var (pixels, popover, width, _) = Render(state, 1f);
+        foreach (var night in offPeak)
+        {
+            InkCount(pixels, width, MarkBand(CellRect(popover, night)), GuiTheme.Palette.BodyText)
+                .ShouldBe(0, $"{night}: no mark for a shower that is only active");
+            var tooltip = NightCalendarPopover<RgbaImage>.CellTooltip(night, data).ShouldNotBeNull();
+            tooltip.ShouldNotContain("an hour");
+        }
+    }
+
+    /// <summary>The part of a cell's top row the shower mark is drawn in: right of the day number, left of the Moon.</summary>
+    private static RectF32 MarkBand(RectF32 cell)
+        => new(cell.X + (cell.Width * 0.4f), cell.Y, cell.Width * 0.3f, cell.Height * 0.4f);
 
     private static (byte[] Pixels, NightCalendarPopover<RgbaImage> Popover, int Width, int Height) Render(
         PlannerState state, float dpi, int windowWidth = 1000, int windowHeight = 700)
