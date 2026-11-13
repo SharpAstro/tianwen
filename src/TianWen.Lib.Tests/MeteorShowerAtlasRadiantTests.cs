@@ -232,6 +232,8 @@ public sealed class MeteorShowerAtlasRadiantTests
         var planner = PlannerAt(db, night);
         LookAtPerseids(tab.State, night, fov: 20.0);
         tab.State.ShowObjectOverlay = overlay;
+        // The first pass would re-home the view to the pole; the capture looks at the radiant.
+        tab.State.ViewDrivenExternally = true;
         tab.Render(planner, new RectF32(0, 0, Size, Size), new FakeTimeProviderWrapper(night));
         return ([.. renderer.Surface.Pixels], Perseids.Name);
     }
