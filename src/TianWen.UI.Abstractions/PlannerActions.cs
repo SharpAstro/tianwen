@@ -354,11 +354,11 @@ public static class PlannerActions
     }
 
     /// <summary>
-    /// The instant the planner's night is judged at for a shower: the middle of its dark window, the night calendar's own
-    /// (<see cref="MeteorShowerNights.NightInstant"/>), so a night the calendar marks is a night the shower can be pinned on.
+    /// The instant the planner's night is judged at for a shower: <see cref="MeteorShowerNights.NightInstant"/>, the night
+    /// calendar's and the atlas's own, so a night the calendar names a shower on is a night it can be pinned on.
     /// </summary>
     internal static DateTimeOffset ShowerNightInstant(PlannerState state)
-        => MeteorShowerNights.NightInstant(state.AstroDark, state.AstroTwilight);
+        => MeteorShowerNights.NightInstant(state.AstroDark, state.SiteLongitude);
 
     /// <summary>
     /// Whether <paramref name="target"/> may be pinned on the planner's night. Everything may, but a meteor shower: it is an

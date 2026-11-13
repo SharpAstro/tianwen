@@ -501,9 +501,11 @@ public static class SkyMapSearchActions
         // outside the activity window, where the radiant is the window's nearer end; the panel says it is not active.
         if (catIdx.IsMeteorShower && MeteorShowerIdentity.TryGet(catIdx, out var shower))
         {
-            var radiant = MeteorShowerNights.RadiantAt(shower, viewingUtc);
+            var showerNight = MeteorShowerNights.NightInstant(viewingUtc, siteLon);
+            var radiant = MeteorShowerNights.RadiantAt(shower, showerNight);
             SlewTo(skyMap, radiant.RaHours, radiant.DecDeg);
-            search.InfoPanel = MeteorShowerInfoPanel(shower, catIdx, radiant, siteLat, siteLon, viewingUtc, site);
+            search.InfoPanel = MeteorShowerInfoPanel(shower, catIdx, radiant, siteLat, siteLon, showerNight, site)
+                .WithLiveHorizontal(site);
             CloseSearch(search, focus);
             return true;
         }
@@ -708,8 +710,10 @@ public static class SkyMapSearchActions
                 return true;
 
             case SkyMapHitKind.Shower when MeteorShowerIdentity.TryGet(resolved.Index, out var shower):
+                var hitNight = MeteorShowerNights.NightInstant(viewingUtc, siteLon);
                 search.InfoPanel = MeteorShowerInfoPanel(shower, resolved.Index,
-                    MeteorShowerNights.RadiantAt(shower, viewingUtc), siteLat, siteLon, viewingUtc, site);
+                    MeteorShowerNights.RadiantAt(shower, hitNight), siteLat, siteLon, hitNight, site)
+                    .WithLiveHorizontal(site);
                 return true;
 
             case SkyMapHitKind.Planet:

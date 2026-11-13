@@ -66,11 +66,29 @@ public static class MeteorShowerNights
     public const double MajorRateFloor = 10.0;
 
     /// <summary>
-    /// The instant a NIGHT's showers are judged at: the middle of its dark window. The night calendar and the planner both
-    /// ask it, so a night the calendar marks for a shower is a night the planner lets it be pinned on.
+    /// The night an instant belongs to at a longitude, as a day number: the EVENING's date by local mean solar time (an
+    /// instant before solar noon belongs to the evening before). Every instant from one solar noon to the next has one key.
     /// </summary>
-    public static DateTimeOffset NightInstant(DateTimeOffset darkStart, DateTimeOffset darkEnd)
-        => darkEnd > darkStart ? darkStart + ((darkEnd - darkStart) / 2) : darkStart;
+    public static long NightKey(DateTimeOffset withinNight, double longitudeDeg)
+    {
+        var lon = double.IsFinite(longitudeDeg) ? longitudeDeg : 0.0;
+        var solarTicks = withinNight.UtcTicks + (long)(lon / 15.0 * TimeSpan.TicksPerHour) - (12 * TimeSpan.TicksPerHour);
+        return Math.DivRem(solarTicks, TimeSpan.TicksPerDay, out var rest) - (rest < 0 ? 1 : 0);
+    }
+
+    /// <summary>
+    /// The ONE instant a night's showers are judged at: local mean solar midnight of the night
+    /// <paramref name="withinNight"/> belongs to (<see cref="NightKey"/>), which is the middle of the dark window to within
+    /// the equation of time. The night calendar, the planner and the atlas all ask it, with nothing but the instant and the
+    /// longitude, so a night one of them names a shower on is a night the other two do: a shower's window opens and closes
+    /// at an hour of its own, and three instants of one night once straddled it.
+    /// </summary>
+    public static DateTimeOffset NightInstant(DateTimeOffset withinNight, double longitudeDeg)
+    {
+        var lon = double.IsFinite(longitudeDeg) ? longitudeDeg : 0.0;
+        var midnightUtcTicks = ((NightKey(withinNight, lon) + 1) * TimeSpan.TicksPerDay) - (long)(lon / 15.0 * TimeSpan.TicksPerHour);
+        return new DateTimeOffset(midnightUtcTicks, TimeSpan.Zero);
+    }
 
     /// <summary>
     /// The limiting magnitude under the Moon of <paramref name="night"/>: <see cref="ReferenceLimitingMagnitude"/> lowered by
@@ -88,11 +106,11 @@ public static class MeteorShowerNights
     /// <summary>
     /// The showers active on <paramref name="night"/> at the site (<paramref name="latitude"/>, <paramref name="longitude"/>,
     /// degrees, east positive), each with its radiant moved by the drift to that night and its expected hourly rate. A night
-    /// outside every activity window gives an empty array. Activity is judged at the middle of the dark window.
+    /// outside every activity window gives an empty array. Activity is judged at <see cref="NightInstant"/>.
     /// </summary>
     public static ImmutableArray<MeteorShowerNight> For(double latitude, double longitude, in NightSummary night)
     {
-        var mid = NightInstant(night.DarkStart, night.DarkEnd);
+        var mid = NightInstant(night.DarkStart, longitude);
         var sun = MeteorShowerCalendar.SunLongitude(mid);
         if (double.IsNaN(sun))
         {

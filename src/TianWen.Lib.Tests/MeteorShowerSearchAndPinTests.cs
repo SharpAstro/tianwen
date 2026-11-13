@@ -108,7 +108,7 @@ public class MeteorShowerSearchAndPinTests
         SkyMapSearchActions.CommitResult(search, skyMap, db, hit, new TextInputFocus(), Latitude, Longitude, PerseidNight, site)
             .ShouldBeTrue();
 
-        var radiant = MeteorShowerNights.RadiantAt(Perseids, PerseidNight);
+        var radiant = MeteorShowerNights.RadiantAt(Perseids, MeteorShowerNights.NightInstant(PerseidNight, Longitude));
         radiant.Active.ShouldBeTrue();
         var info = search.InfoPanel.ShouldNotBeNull();
         info.RA.ShouldBe(radiant.RaHours, 1e-9);
@@ -148,8 +148,10 @@ public class MeteorShowerSearchAndPinTests
         state.AstroDark = NextNight;
         PlannerActions.RecomputeHandoffSliders(state);
         state.Proposals.Length.ShouldBe(1);
-        state.Proposals[0].Target.RA.ShouldBe(second.RA, 1e-9);
-        state.Proposals[0].Target.Dec.ShouldBe(second.Dec, 1e-9);
+        var placed = MeteorShowerNights.RadiantAt(Perseids, PlannerActions.ShowerNightInstant(state));
+        state.Proposals[0].Target.RA.ShouldBe(placed.RaHours, 1e-9);
+        state.Proposals[0].Target.Dec.ShouldBe(placed.DecDeg, 1e-9);
+        state.Proposals[0].Target.RA.ShouldBeGreaterThan(first.RA, "the next night's radiant, not the one it was pinned at");
         PlannerActions.GetFilteredTargets(state).Count.ShouldBe(1);
 
         // Pinning it again is a no-op, and toggling by the other night's value removes the one pin.
@@ -209,16 +211,51 @@ public class MeteorShowerSearchAndPinTests
     }
 
     [Fact]
-    public void MeteorShowerPinIsJudgedAtTheNightsMiddleAsTheCalendarJudgesIt()
+    public void MeteorShowerNightIsJudgedAtOneInstantByTheCalendarThePlannerAndTheAtlas()
     {
-        // A night whose dark window STARTS before the Perseids' window opens and whose middle is inside it: the calendar
-        // marks the shower active (mid-dark), so the planner must let it be pinned.
+        // The nights around the hour the Perseids' window opens: whatever the calendar says of a night, the planner's pin
+        // and the atlas's radiant say the same, at dusk, in the small hours and at dawn alike.
         var opens = FirstInstantInside(Perseids);
-        var state = StateAt(opens.AddHours(-2));
-        MeteorShowerNights.RadiantAt(Perseids, state.AstroDark).Active.ShouldBeFalse("the window is not open at dusk");
-        MeteorShowerNights.RadiantAt(Perseids, PlannerActions.ShowerNightInstant(state)).Active.ShouldBeTrue();
+        var index = MeteorShowerIdentity.IndexOf(Perseids);
+        var target = ShowerTarget(opens.AddDays(10));
+        int named = 0, bare = 0;
+        for (var d = -3; d <= 3; d++)
+        {
+            var evening = DateOnly.FromDateTime(opens.UtcDateTime).AddDays(d);
+            var summary = NightSummary.Compute(TransformAt(new DateTimeOffset(evening.ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero)), evening);
+            var calendar = MeteorShowerNights.For(Latitude, Longitude, summary).Any(n => n.Shower == Perseids);
 
-        PlannerActions.CanPin(state, ShowerTarget(opens.AddHours(1))).ShouldBeTrue();
+            var state = StateAt(summary.DarkStart);
+            PlannerActions.CanPin(state, target).ShouldBe(calendar, $"{evening}: the planner's pin against the calendar");
+
+            var sky = new SkyMapState { ShowerSiteLongitudeDeg = Longitude };
+            foreach (var instant in new[] { summary.DarkStart, summary.DarkStart + (summary.Dark / 2), summary.DarkEnd })
+            {
+                sky.GetShowerRadiantsCached(instant).ToArray().Any(m => m.Index == index)
+                    .ShouldBe(calendar, $"{evening} at {instant:u}: the atlas's radiant against the calendar");
+            }
+
+            sky.ShowerCacheRebuilds.ShouldBe(1, "one night is one computation, whatever the hour");
+            _ = calendar ? named++ : bare++;
+        }
+
+        named.ShouldBeGreaterThan(0);
+        bare.ShouldBeGreaterThan(0, "the sweep crosses the window's opening");
+    }
+
+    [Fact]
+    public void MeteorShowerNightInstantIsSolarMidnightOfTheEveningTheInstantBelongsTo()
+    {
+        // 8 degrees east: solar midnight is 23:28 UT. From one solar noon to the next is one night.
+        var midnight = new DateTimeOffset(2026, 8, 12, 23, 28, 0, TimeSpan.Zero);
+        foreach (var within in new[] { midnight.AddHours(-11.9), midnight.AddHours(-3), midnight, midnight.AddHours(4), midnight.AddHours(11.9) })
+        {
+            MeteorShowerNights.NightInstant(within, 8.0).ShouldBe(midnight, TimeSpan.FromSeconds(1));
+        }
+
+        MeteorShowerNights.NightInstant(midnight.AddHours(12.1), 8.0).ShouldBe(midnight.AddDays(1), TimeSpan.FromSeconds(1));
+        MeteorShowerNights.NightKey(midnight.AddHours(12.1), 8.0).ShouldBe(MeteorShowerNights.NightKey(midnight, 8.0) + 1);
+        MeteorShowerNights.NightInstant(midnight, double.NaN).ShouldBe(new DateTimeOffset(2026, 8, 13, 0, 0, 0, TimeSpan.Zero));
     }
 
     /// <summary>The first whole hour of 2026 at which the shower's window is open, found by walking back from its peak.</summary>

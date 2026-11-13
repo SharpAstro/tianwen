@@ -61,9 +61,48 @@ public sealed class MeteorShowerAtlasRadiantTests
         PlanningDate = night,
     };
 
+    /// <summary>
+    /// The Perseids' radiant for the night an instant belongs to, as the atlas places it: at the night's one instant
+    /// (<see cref="MeteorShowerNights.NightInstant"/>), here for a state that was never drawn, whose longitude is 0.
+    /// </summary>
+    private static MeteorShowerRadiant NightRadiant(DateTimeOffset night)
+        => MeteorShowerNights.RadiantAt(Perseids, MeteorShowerNights.NightInstant(night, 0.0));
+
+    [Fact]
+    public void TheSelectedShowersPanelFollowsTheViewingNightAndIsBuiltOncePerNight()
+    {
+        var state = new SkyMapState();
+        var index = MeteorShowerIdentity.IndexOf(Perseids);
+        var night = PeakNight;
+        var site = SiteContext.Create(Latitude, Longitude, night);
+
+        var onThePeak = state.GetShowerPanelCached(Perseids, index, Latitude, Longitude, night, in site);
+        onThePeak.Name.ShouldBe("Perseids");
+        onThePeak.Detail.ShouldNotBeNull().ShouldContain("an hour here");
+        for (var hour = 1; hour <= 5; hour++)
+        {
+            state.GetShowerPanelCached(Perseids, index, Latitude, Longitude, night.AddHours(hour), in site).ShouldBe(onThePeak);
+        }
+
+        state.ShowerPanelRebuilds.ShouldBe(1, "a scrub through one night builds the panel once");
+
+        // Five nights on: still active, the radiant has drifted, and no rate is said off the peak.
+        var later = state.GetShowerPanelCached(Perseids, index, Latitude, Longitude, night.AddDays(5), in site);
+        state.ShowerPanelRebuilds.ShouldBe(2);
+        later.Name.ShouldBe("Perseids");
+        later.Detail.ShouldBe("ZHR 100");
+        later.RA.ShouldBeGreaterThan(onThePeak.RA);
+
+        // And in March the selection says the shower is not active, where it used to keep the peak night's words.
+        var march = state.GetShowerPanelCached(Perseids, index, Latitude, Longitude,
+            new DateTimeOffset(2026, 3, 20, 21, 0, 0, TimeSpan.Zero), in site);
+        march.Name.ShouldBe("Perseids (not active)");
+        march.Detail.ShouldBe("ZHR 100");
+    }
+
     private static void LookAtPerseids(SkyMapState state, DateTimeOffset night, double fov = 30.0)
     {
-        var radiant = MeteorShowerNights.RadiantAt(Perseids, night);
+        var radiant = NightRadiant(night);
         state.Mode = SkyMapMode.Equatorial;
         state.CenterRA = radiant.RaHours;
         state.CenterDec = radiant.DecDeg;
@@ -113,7 +152,7 @@ public sealed class MeteorShowerAtlasRadiantTests
         var night = PeakNight;
         var set = state.GetShowerRadiantsCached(night).ToArray();
         set.ShouldContain(m => m.Index == MeteorShowerIdentity.IndexOf(Perseids));
-        var radiant = MeteorShowerNights.RadiantAt(Perseids, night);
+        var radiant = NightRadiant(night);
         var perseid = set[Array.FindIndex(set, m => m.Code == "PER")];
         perseid.RA.ShouldBe(radiant.RaHours, 1e-9);
         perseid.Dec.ShouldBe(radiant.DecDeg, 1e-9);
@@ -130,7 +169,7 @@ public sealed class MeteorShowerAtlasRadiantTests
         var state = new SkyMapState();
         LookAtPerseids(state, night);
         state.CurrentViewMatrix = state.ComputeViewMatrix();
-        var radiant = MeteorShowerNights.RadiantAt(Perseids, night);
+        var radiant = NightRadiant(night);
         var (x, y) = Project(state, radiant.RaHours, radiant.DecDeg);
         var index = MeteorShowerIdentity.IndexOf(Perseids);
 
@@ -163,7 +202,7 @@ public sealed class MeteorShowerAtlasRadiantTests
         LookAtPerseids(state, night);
         state.ShowObjectOverlay = false;
         state.CurrentViewMatrix = state.ComputeViewMatrix();
-        var radiant = MeteorShowerNights.RadiantAt(Perseids, night);
+        var radiant = NightRadiant(night);
         var (x, y) = Project(state, radiant.RaHours, radiant.DecDeg);
         var index = MeteorShowerIdentity.IndexOf(Perseids);
 

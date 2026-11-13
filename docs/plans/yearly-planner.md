@@ -171,11 +171,16 @@ Everything above except the year mode's marks (#2061) and the events-list row (#
   away), so `MeteorShowerNight.ExpectedRate` on any other night is the peak's rate, an upper bound: the calendar and the atlas
   panel then say how far the peak is and no number. A rate for every night needs a profile per shower from a source (the IMO
   list gives none), which is open.
-- **A night is judged at ONE instant, the middle of its dark window** (`MeteorShowerNights.NightInstant`), by the calendar and
-  the planner (`PlannerActions.ShowerNightInstant`), so a night the calendar names a shower on is a night it can be pinned on.
-  The atlas judges at its viewing instant, since it draws an instant and has no night.
+- **A night is judged at ONE instant, local mean solar midnight** (`MeteorShowerNights.NightInstant`, from an instant and the
+  site's longitude alone; the middle of the dark window to within the equation of time), by the calendar, the planner
+  (`PlannerActions.ShowerNightInstant`) and the atlas, so a night one names a shower on is a night the others do. A window
+  opens at an hour of its own, and the three once asked at dusk, mid-dark and the viewing instant.
+- **The atlas's active set and a selected shower's panel are per NIGHT** (`MeteorShowerNights.NightKey`;
+  `SkyMapState.GetShowerPanelCached`, counted by `ShowerPanelRebuilds`): the set no longer flips at 0h UT in the middle of a
+  night, and a selection scrubbed to another date says that night's radiant, activity, rate and peak, where it kept the words
+  of the night it was clicked on.
 - **Atlas radiant:** `SkyMapTab.DrawShowerRadiants` draws a ring with eight rays and the name for each active shower, from
-  `SkyMapState.GetShowerRadiantsCached` (computed once per UTC day, never per frame; `ShowerCacheRebuilds` is the test counter).
+  `SkyMapState.GetShowerRadiantsCached` (computed once per night, never per frame; `ShowerCacheRebuilds` is the test counter).
   The draw and the click and hover resolver (`SkyMapSearchActions.TryResolveHit`, kind `Shower`) both ask
   `SkyMapState.ShouldDrawShowerRadiant`, which is `OverlayEngine.PassesLayerFilter` for `ObjectType.MeteorShower`: the [O] layer
   switches it off and a pin bypasses it. The info panel names the shower, its ZHR, on the peak night the rate at the site, and

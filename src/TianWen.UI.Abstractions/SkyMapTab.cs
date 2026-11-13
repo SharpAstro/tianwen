@@ -1156,6 +1156,7 @@ namespace TianWen.UI.Abstractions
             DateTimeOffset viewingTime, RectF32 rect, float fontSize, double ppr, float cx, float cy,
             SiteContext site, bool dimBelowHorizon, IReadOnlySet<CatalogIndex>? pinnedIndices)
         {
+            State.ShowerSiteLongitudeDeg = site.IsValid ? site.Longitude : 0.0;
             var radiants = State.GetShowerRadiantsCached(viewingTime);
             if (radiants.Length == 0)
             {
