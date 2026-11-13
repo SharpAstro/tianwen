@@ -3,6 +3,9 @@
   python r11_halves.py real          the real capture stacked with --auto --halves, its halves judged against each other
   python r11_halves.py twins [n ...] three held twins (d024, e002, f002 by default) re-made from their plan rows, stacked with
                                      --halves; the halves judged against each other and the full master against its truth (green)
+  python r11_halves.py full [n]      step 2a: one twin (d024 by default) made over the whole capture by the build in SCR/bin
+                                     (--no-measure, --limb-frames 150), stacked at --keep 0.5 with --halves, judged as the twins
+                                     are, and scored for the truth's own gains (r10_gains.SCORE)
   python r11_halves.py read          the table: each band's correlation c between the halves, w = 2c / (1 + c), the twins' r against the
                                      truth, and Spearman of sqrt(w) against r over the twins' bands 1 to 4 (the kill line, 0.8)
 
@@ -65,6 +68,27 @@ def twin(n):
     judge(f"{out}/master_{n}.fits", f"{out}/{n}.truth.g.fits", f"{out}/judge-truth.log")
 
 
+def full(n):
+    """The twin's plan row over the whole capture: no --frames, the real capture's statistics measured over every frame once."""
+    exe = f"{SCR}/bin/tianwen.exe"
+    out = f"{SCR}/full/{n}"
+    ser = f"{out}/{n}.ser"
+    args = r10.degrade_args(n)
+    cut = args.index("--frames")
+    args = args[:cut] + ["--real-statistics", f"{SCR}/stats/edgehd-full.statistics.json", "--seed", str(r10.plan_row(n)["seed"])]
+    if not r10.child([exe, "planetary", "degrade", r10.EDGE, *args, "--no-measure", "--limb-frames", "150", "-o", ser], f"{out}/degrade.log"):
+        raise SystemExit(f"{n}: degrade failed, see {out}/degrade.log")
+    if not r10.child([exe, "planetary", "stack", ser, "--truth", f"{out}/{n}.truth.fits", "--keep", "0.5", "--halves", "--no-sharpen",
+                      "-o", out], f"{out}/stack.log"):
+        raise SystemExit(f"{n}: stack failed, see {out}/stack.log")
+    if os.path.exists(ser):
+        os.remove(ser)
+    judge(*halves(out), f"{out}/judge-halves.log")
+    judge(f"{out}/master_{n}.fits", f"{out}/{n}.truth.g.fits", f"{out}/judge-truth.log")
+    if not r10.child([exe, "planetary", "sharpen", f"{out}/master_{n}.fits", "--truth", f"{out}/{n}.truth.fits", *r10.SCORE], f"{out}/score.log"):
+        raise SystemExit(f"{n}: score failed, see {out}/score.log")
+
+
 def bands(log):
     """band -> correlation, from a planetary judge log."""
     return {int(b): float(c) for b, c, _, _ in BAND.findall(open(log, encoding="utf-8").read())}
@@ -99,8 +123,8 @@ def spearman(x, y):
 def read():
     print("capture | band: c between the halves, w = 2c/(1+c)" + " | r against the truth (twins)")
     xs, ys = [], []
-    for n in ["real", "real-keep50", *TWINS]:
-        out = f"{SCR}/{n}" if n.startswith("real") else f"{SCR}/twins/{n}"
+    for n in ["real", "real-keep50", *TWINS, *[f"full/{t}" for t in TWINS]]:
+        out = f"{SCR}/{n}" if n.startswith("real") or n.startswith("full") else f"{SCR}/twins/{n}"
         if not os.path.exists(f"{out}/judge-halves.log"):
             print(f"{n}: not run")
             continue
@@ -126,6 +150,9 @@ if __name__ == "__main__":
     elif what == "twins":
         for name in sys.argv[2:] or TWINS:
             twin(name)
+    elif what == "full":
+        for name in sys.argv[2:] or ["d024"]:
+            full(name)
     elif what == "read":
         read()
     else:
