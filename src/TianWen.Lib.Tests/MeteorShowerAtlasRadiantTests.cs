@@ -316,7 +316,6 @@ public sealed class MeteorShowerAtlasRadiantTests
         }
     }
 
-    /// <summary>The capture's pixels and the box of the shower's registered name label, null when none was registered.</summary>
     /// <summary>
     /// Whether the ink painted at pixel <paramref name="i"/> added more blue than red: the CHANGE, not the pixel, since an
     /// anti-aliased edge of red ink blended over a bluish sky pixel can still read bluer than red with no blue added.
@@ -324,6 +323,7 @@ public sealed class MeteorShowerAtlasRadiantTests
     private static bool AddsBlue(byte[] with, byte[] without, int i)
         => with[i + 2] - without[i + 2] > Math.Max(0, with[i] - without[i]);
 
+    /// <summary>The capture's pixels and the box of the shower's registered name label, null when none was registered.</summary>
     private static (byte[] Pixels, RectF32? Label) Capture(ICelestialObjectDB db, DateTimeOffset night, float dpi, bool overlay)
     {
         using var renderer = new RgbaImageRenderer(Size, Size);

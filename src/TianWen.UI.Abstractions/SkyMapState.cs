@@ -744,7 +744,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>One meteor shower's radiant on the viewing night, J2000 hours / degrees.</summary>
         public readonly record struct ShowerRadiantMarker(CatalogIndex Index, double RA, double Dec, string Name, string Code);
 
-        private long _showerNightKey = long.MinValue;
+        private (long Night, double Longitude) _showerNightKey = (long.MinValue, double.NaN);
         private ShowerRadiantMarker[] _showerCache = [];
 
         /// <summary>
@@ -767,7 +767,10 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public ReadOnlySpan<ShowerRadiantMarker> GetShowerRadiantsCached(DateTimeOffset viewingTime)
         {
-            var key = MeteorShowerNights.NightKey(viewingTime, ShowerSiteLongitudeDeg);
+            // The longitude is in the key: the night is reckoned at it, so a site change is another night's question.
+            // A longitude that is not a number is reckoned as 0 (NightKey's own rule), and would never equal itself in a key.
+            var longitude = double.IsFinite(ShowerSiteLongitudeDeg) ? ShowerSiteLongitudeDeg : 0.0;
+            var key = (MeteorShowerNights.NightKey(viewingTime, longitude), longitude);
             if (key == _showerNightKey)
             {
                 return _showerCache;

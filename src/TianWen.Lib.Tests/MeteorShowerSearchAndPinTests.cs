@@ -243,6 +243,73 @@ public class MeteorShowerSearchAndPinTests
         bare.ShouldBeGreaterThan(0, "the sweep crosses the window's opening");
     }
 
+    [Theory]
+    [InlineData(10.0)]
+    [InlineData(151.2)]
+    [InlineData(0.0)]
+    [InlineData(-122.0)]
+    [InlineData(double.NaN)]
+    public void MeteorShowerPlannerWithASiteAndNoNightYetRefusesAPinFindsNothingAndDoesNotThrow(double longitude)
+    {
+        // The site is set before the planner has computed its first night: AstroDark is still default. East of Greenwich
+        // the night's midnight then falls before the first instant there is.
+        var state = new PlannerState
+        {
+            SiteLatitude = Latitude,
+            SiteLongitude = longitude,
+            MinHeightAboveHorizon = 0,
+            ObjectDb = EmptyDb(),
+        };
+        state.AstroDark.ShouldBe(default(DateTimeOffset));
+        var target = ShowerTarget(PerseidNight);
+
+        PlannerActions.CanPin(state, target).ShouldBeFalse();
+        PlannerActions.ToggleProposal(state, target);
+        state.Proposals.ShouldBeEmpty();
+
+        PlannerActions.SearchTargets(state, EmptyDb(), TransformAt(PerseidNight), "Perseids");
+        state.SearchResults.ShouldBeEmpty();
+
+        // A plan restored before the night is known already holds a shower pin: re-placing it must not throw.
+        state.Proposals = [new ProposedObservation(target, ObjectType.MeteorShower)];
+        Should.NotThrow(() => PlannerActions.RecomputeHandoffSliders(state));
+        state.Proposals.Length.ShouldBe(1, "the pin is kept, and stays removable");
+    }
+
+    [Theory]
+    [InlineData(10.0)]
+    [InlineData(180.0)]
+    [InlineData(-180.0)]
+    [InlineData(0.0)]
+    public void MeteorShowerNightInstantNeverThrowsAtTheEdgesOfTime(double longitude)
+    {
+        // A midnight no DateTimeOffset can hold is answered as the instant itself.
+        Should.NotThrow(() => MeteorShowerNights.NightInstant(default, longitude));
+        Should.NotThrow(() => MeteorShowerNights.NightInstant(DateTimeOffset.MinValue, longitude));
+        Should.NotThrow(() => MeteorShowerNights.NightInstant(DateTimeOffset.MaxValue, longitude));
+        Should.NotThrow(() => MeteorShowerNights.NightKey(DateTimeOffset.MaxValue, longitude));
+        MeteorShowerNights.RadiantAt(Perseids, MeteorShowerNights.NightInstant(default, longitude)).Active
+            .ShouldBeFalse("no shower is active at an instant that has no night");
+    }
+
+    [Fact]
+    public void MeteorShowerAtlasSetIsReckonedAgainWhenTheSiteMoves()
+    {
+        var sky = new SkyMapState { ShowerSiteLongitudeDeg = 8.0 };
+        sky.GetShowerRadiantsCached(PerseidNight).Length.ShouldBeGreaterThan(0);
+        sky.GetShowerRadiantsCached(PerseidNight.AddHours(1)).Length.ShouldBeGreaterThan(0);
+        sky.ShowerCacheRebuilds.ShouldBe(1);
+
+        sky.ShowerSiteLongitudeDeg = 151.2;
+        sky.GetShowerRadiantsCached(PerseidNight.AddHours(1)).Length.ShouldBeGreaterThan(0);
+        sky.ShowerCacheRebuilds.ShouldBe(2, "another longitude is another night's question, the instant being the same");
+
+        sky.ShowerSiteLongitudeDeg = double.NaN;
+        sky.GetShowerRadiantsCached(PerseidNight).Length.ShouldBeGreaterThan(0);
+        sky.GetShowerRadiantsCached(PerseidNight).Length.ShouldBeGreaterThan(0);
+        sky.ShowerCacheRebuilds.ShouldBe(3, "a longitude that is not a number is 0, and is still cached");
+    }
+
     [Fact]
     public void MeteorShowerNightInstantIsSolarMidnightOfTheEveningTheInstantBelongsTo()
     {

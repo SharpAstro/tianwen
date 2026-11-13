@@ -81,13 +81,20 @@ public static class MeteorShowerNights
     /// <paramref name="withinNight"/> belongs to (<see cref="NightKey"/>), which is the middle of the dark window to within
     /// the equation of time. The night calendar, the planner and the atlas all ask it, with nothing but the instant and the
     /// longitude, so a night one of them names a shower on is a night the other two do: a shower's window opens and closes
-    /// at an hour of its own, and three instants of one night once straddled it.
+    /// at an hour of its own, and three instants of one night once straddled it. Never throws: an instant whose midnight is
+    /// outside what a <see cref="DateTimeOffset"/> holds comes back unchanged.
     /// </summary>
     public static DateTimeOffset NightInstant(DateTimeOffset withinNight, double longitudeDeg)
     {
         var lon = double.IsFinite(longitudeDeg) ? longitudeDeg : 0.0;
         var midnightUtcTicks = ((NightKey(withinNight, lon) + 1) * TimeSpan.TicksPerDay) - (long)(lon / 15.0 * TimeSpan.TicksPerHour);
-        return new DateTimeOffset(midnightUtcTicks, TimeSpan.Zero);
+
+        // Total: an instant at the edge of time (the planner's AstroDark is default until its first night is computed) has a
+        // midnight no DateTimeOffset can hold. It is answered unchanged, and the Sun's longitude there is not a number, which
+        // every caller already reads as "no shower is active".
+        return midnightUtcTicks >= DateTimeOffset.MinValue.UtcTicks && midnightUtcTicks <= DateTimeOffset.MaxValue.UtcTicks
+            ? new DateTimeOffset(midnightUtcTicks, TimeSpan.Zero)
+            : withinNight;
     }
 
     /// <summary>
