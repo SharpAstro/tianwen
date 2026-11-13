@@ -504,8 +504,13 @@ public static partial class PlanetaryDegrade
     /// placements differ by the atmosphere's dispersion), and each photosite taken from its own colour's frame, the two greens
     /// from the green one. One atmosphere for all three: the colours must share <see cref="DegradeOptions.Seed"/> and everything
     /// the air sets, so their screens, tilts and warp are the same path difference seen at three wavelengths (the phase is
-    /// scaled by 500 nm over the wavelength). The frames are held until the last colour is made, then written in order; the warp,
-    /// achromatic, is reported from the green pass.
+    /// scaled by 500 nm over the wavelength). A frame's mosaic is held only until its three colours have written it, then written
+    /// in order, and no pass runs more than two blocks ahead of the slowest; the warp, achromatic, is reported from the green
+    /// pass, and the progress is the frames WRITTEN (every colour deposited), reported once a block of 64 and at the last frame as
+    /// <see cref="MakeAsync"/> reports it, so it reads complete only when the capture is. The three colours are made at once (#2116): each pass steps its own copy of the air, three quarters of its time on
+    /// one thread, and writes only its own photosites, so the capture is the same bytes as one colour after another made. A pass
+    /// that fails cancels the other two. The samples handed to <paramref name="write"/> are valid only during that call: the array
+    /// is used again for a later frame.
     /// </summary>
     /// <returns>Each colour's frames as <see cref="MakeAsync"/> records them.</returns>
     /// <remarks>The screens are drawn once, at the finest of the three pupils' spacings (<see cref="DegradeOptions.ScreenSpacingM"/>),
@@ -539,41 +544,52 @@ public static partial class PlanetaryDegrade
         BayerColour Shared(BayerColour colour) => colour with { Options = colour.Options with { ScreenSpacingM = screenSpacing, ScreenSamples = screenSamples } };
 
         var n = times.Length;
-        var mosaic = new ushort[]?[n];
+        // A frame's mosaic is held from the first pass that reaches it until the last has written its photosites, and is then
+        // written out in order, so a capture of any length holds a few blocks of frames, where one colour after another held every
+        // frame until the last colour was made. The lead a pass may take over the slowest is bounded (BayerMosaicAssembler): a capture of any length holds at most
+        // MaxLead mosaics beyond the slowest colour.
+        const int MaxLead = 2 * Block;
+        // Progress is reported as MakeAsync reports it, once a block and at the last frame, never once a frame.
+        Action<int>? written = progress is null ? null : done => { if (done % Block == 0 || done == n) { progress.Report(done); } };
+        var assembler = new BayerMosaicAssembler(n, width * height, 3, MaxLead, write, written);
+        using var faulted = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var token = faulted.Token;
         var passes = new (BayerColour Colour, int[] Channels)[]
         {
             (red, [CfaPlaneStream.Red]),
             (green, [CfaPlaneStream.Green1, CfaPlaneStream.Green2]),
             (blue, [CfaPlaneStream.Blue]),
         };
-        var records = new ImmutableArray<SyntheticFrame>[passes.Length];
+        var making = new Task<ImmutableArray<SyntheticFrame>>[passes.Length];
         for (var p = 0; p < passes.Length; p++)
         {
             var (colour, channels) = passes[p];
             var phases = Array.ConvertAll(channels, c => CfaPlaneStream.PhaseOf(c, bayerOffsetX, bayerOffsetY));
-            var passProgress = progress is null ? null : new PassProgress(progress, p, passes.Length, n);
-            records[p] = await MakeAsync(colour.Map, planet, times, colour.Placement, arcsecPerPixel, shiftX, shiftY, brightness, width, height, colour.Options,
+            var passWarps = p == 1 ? warps : null;
+            making[p] = Task.Run(async () =>
+            {
+                try
+                {
+                    return await MakeAsync(colour.Map, planet, times, colour.Placement, arcsecPerPixel, shiftX, shiftY, brightness, width, height, colour.Options,
                 (index, samples) =>
                 {
-                    var frame = mosaic[index] ??= new ushort[width * height];
-                    foreach (var (px, py) in phases)
-                    {
-                        for (var y = py; y < height; y += 2)
-                        {
-                            var row = y * width;
-                            for (var x = px; x < width; x += 2)
-                            {
-                                frame[row + x] = samples[row + x];
-                            }
-                        }
-                    }
-                }, passProgress, p == 1 ? warps : null, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    assembler.Deposit(index, samples, width, height, phases, token);
+                }, null, passWarps, cancellationToken: token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One pass failing stops its siblings at once, rather than leaving them to make and hold frames to the end.
+                    await faulted.CancelAsync().ConfigureAwait(false);
+                    throw;
+                }
+            }, token);
         }
-
-        for (var t = 0; t < n; t++)
+        // Task.WhenAll over a fault and its siblings' cancellations throws the fault itself, so the failed pass is the error.
+        var records = await Task.WhenAll(making).ConfigureAwait(false);
+        assembler.Drain();
+        if (assembler.Next != n)
         {
-            write(t, mosaic[t] ?? throw new InvalidOperationException($"Frame {t} was made by no colour."));
-            mosaic[t] = null;
+            throw new InvalidOperationException($"Frame {assembler.Next} was not made by every colour.");
         }
         return (records[0], records[1], records[2]);
     }
@@ -594,12 +610,6 @@ public static partial class PlanetaryDegrade
         var top = (screen[(y0 * n) + x0] * (1 - fx)) + (screen[(y0 * n) + x0 + 1] * fx);
         var bottom = (screen[((y0 + 1) * n) + x0] * (1 - fx)) + (screen[((y0 + 1) * n) + x0 + 1] * fx);
         return (top * (1 - fy)) + (bottom * fy);
-    }
-
-    // A pass's frames reported as the share of the whole three-colour make they are.
-    private sealed class PassProgress(IProgress<int> inner, int pass, int passes, int frames) : IProgress<int>
-    {
-        public void Report(int value) => inner.Report(((pass * frames) + value) / passes);
     }
 
     // The map at `aspect`, with its moons, on the fine grid, scaled so the disk's mean inside 0.8 radii is its level in electrons,
