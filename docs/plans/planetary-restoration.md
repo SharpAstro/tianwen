@@ -6901,6 +6901,44 @@ master and its halves the same bytes); the largest session, 540,651 frames, took
   0.386. The twins all model one telescope, so across captures this is loose.
 - Nothing is adopted. The twin's two measured gaps to the real captures are its blur (step 2a) and the lattice it does not carry.
 
+#### Step 2b read: the twin's blur is the colour defocus first, the layer at the telescope second (2026-11-14)
+
+Registered on #2116 before the run: twin d024 at its whole length made five more times, each with one term of its blur taken out
+(`r11_halves.py blur`): the layer at the telescope (`nolocal`), the per-colour defocus (`nodefocus`, `--bayer-defocus-nm 0,0,0`), the
+scatter (`noscatter`, `--scatter 0`), the free atmosphere (`noair`, `--r0 2000`), and all four (`none`). Each is stacked, judged against
+its truth and scored as step 2a's twin was.
+
+| arm | band 2 r | band 3 r | rise in band 2 | red's band 2 gain, the truth's own | derived band 2 gains r, g, b | edge at 0.1 |
+|---|---|---|---|---|---|---|
+| d024 (step 2a) | 0.875 | 0.919 | | 2.45 | 8.39, 14.10, 14.23 | 0.429 |
+| `none` | 0.954 | 0.984 | 0.079 | 1.23 | 2.04, 2.25, 2.70 | 0.926 |
+| `nodefocus` | 0.936 | 0.972 | 0.061 | 1.91 | 3.39, 3.76, 5.44 | 0.720 |
+| `nolocal` | 0.906 | 0.944 | 0.031 | 1.48 | 7.69, 6.35, 11.25 | 0.478 |
+| `noscatter` | 0.876 | 0.920 | 0.001 | 2.25 | 9.79, 10.99, 16.37 | 0.433 |
+| `noair` | 0.875 | 0.916 | 0.000 | 2.00 | 9.23, 9.66, 15.18 | 0.438 |
+| the real master | | | | | 10.44, 13.63, 16.37 | 0.277 |
+
+| bar | registered | read | verdict |
+|---|---|---|---|
+| B1: the floor with no blur | `none` band 2 at least 0.95, band 3 at least 0.97 | 0.954, 0.984 | holds |
+| kill: `none` band 2 under 0.92 | | 0.954 | not hit |
+| B2: the single rises sum to 0.5 to 1.5 times `none`'s | | 0.093 against 0.079, 1.18 times | holds, so the arms are ranked singly |
+| B2: a main term rises at least half of `none`'s (0.040) | | `nodefocus` 0.061; `nolocal` 0.031 | the defocus is the main term |
+| B3: an arm whose red band 2 truth gain reaches 3.3 | | the highest is d024's own 2.45 | none |
+
+- **The colour defocus is the twin's main blur, which the prediction had as the layer at the telescope.** Taking it out gives 77 % of
+  the rise that taking everything out gives; the layer gives 39 %, just under the registered half. The prediction that the defocus moves
+  red more than green was wrong too: green's truth gain fell 5.40 to 3.15 and red's 2.45 to 1.91.
+- **The free atmosphere and the scatter do nothing a stack at keep 0.5 can see** (band 2 within 0.001), as predicted. The scatter does not
+  move the limb edge either (0.429 to 0.433), so the twin's halo (0.032 with a 5 arcsec core) is too narrow to be what the real
+  master's low edge (0.277) is made of; no arm reads an edge under the real one.
+- **A blur term taken out LOWERS red's band 2 truth gain** (2.45 to between 1.23 and 2.25), so B3's 3.3 is not reached by removing blur:
+  step 2a's missing red gain is not a term this twin has too much of.
+- **With no blur at all the derived gains fall to 2.0 to 2.7**, far under the real master's 10 to 16; the twin with every term is the one
+  that matches them (8.39, 14.10, 14.23). The twin's total blur is therefore about right for this capture, and the question step 2b
+  leaves is how it is SPLIT: whether the real capture's blur is as much a colour defocus as the twin's.
+- Nothing is adopted.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
