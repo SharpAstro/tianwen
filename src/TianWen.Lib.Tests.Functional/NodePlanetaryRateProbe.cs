@@ -720,8 +720,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             RoiWidth: RoiWidth, RoiHeight: RoiHeight, BitDepth: BitDepth.Int8));
         // Dispatched now, so the start's tracked work exists before the drain is taken.
         gui.Bus.ProcessPending(gui.Tracker);
-        // A refused start is a notification, and the planner, with no mount and so no site transform here, posts its own:
-        // the capture running is the answer, the notifications since the post the words when it is not.
+        // A refused start is a notification: the capture running is the answer, the notifications since the post the words
+        // when it is not. The seeded profile has a site and no mount, so since #2113 this client's planner starts at connect
+        // (catalogue, tonight's best, weather) and its work shares the measured interval.
         // Bounded by the test's token alone: until the start's tracked work has finished and the capture either streams or is not
         // going at all (refused, or ended at once).
         var started = gui.Tracker.DrainAsync();
