@@ -223,11 +223,31 @@ public sealed class MeteorShowerAtlasRadiantTests
             box.X.ShouldBeGreaterThan(Size / 2f, "the name sits to the right of the radiant");
             box.Y.ShouldBeLessThan(Size / 2f);
             (box.Y + box.Height).ShouldBeGreaterThan(Size / 2f, "the name is level with the radiant");
+            // The box is wider than the name, and its far end can hold another object's ink (every deep-sky marker comes and
+            // goes with the overlay too), so the name is the run of inked columns from the box's left edge up to the first gap
+            // wider than any between two letters.
+            var top = (int)box.Y;
+            var bottom = Math.Min(Size, (int)(box.Y + box.Height));
+            var maxGap = (int)MathF.Ceiling(12f * dpi);
+            var nameEnd = (int)box.X;
+            for (int x = (int)box.X, gap = 0; x < Math.Min(Size, (int)(box.X + box.Width)) && gap <= maxGap; x++)
+            {
+                var inked = false;
+                for (var y = top; y < bottom && !inked; y++)
+                {
+                    var i = ((y * Size) + x) * 4;
+                    inked = withMark[i] != without[i] || withMark[i + 1] != without[i + 1] || withMark[i + 2] != without[i + 2];
+                }
+
+                gap = inked ? 0 : gap + 1;
+                nameEnd = inked ? x + 1 : nameEnd;
+            }
+
             var nameInk = 0;
             var nameBlue = 0;
-            for (var y = (int)box.Y; y < (int)(box.Y + box.Height); y++)
+            for (var y = top; y < bottom; y++)
             {
-                for (var x = (int)box.X; x < Math.Min(Size, (int)(box.X + box.Width)); x++)
+                for (var x = (int)box.X; x < nameEnd; x++)
                 {
                     var i = ((y * Size) + x) * 4;
                     if (withMark[i] != without[i] || withMark[i + 1] != without[i + 1] || withMark[i + 2] != without[i + 2])
