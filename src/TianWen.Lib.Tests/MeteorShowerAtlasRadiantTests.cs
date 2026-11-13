@@ -191,6 +191,9 @@ public sealed class MeteorShowerAtlasRadiantTests
             GuiTheme.Apply(theme, desktopIsDark: true);
             var (withMark, label) = Capture(db, night, dpi, overlay: true);
             var (without, noLabel) = Capture(db, night, dpi, overlay: false);
+            // Saved before any assertion: a failing capture is the one a person most needs to look at.
+            Save($"atlas-perseids-{theme}-dpi{dpi:0.0}", withMark);
+            Save($"atlas-perseids-{theme}-dpi{dpi:0.0}-overlay-off", without);
 
             // The box of the ring and its rays around the radiant (at the view's centre): the object overlay beside it draws
             // other things, so only what the radiant itself paints is judged.
@@ -264,7 +267,6 @@ public sealed class MeteorShowerAtlasRadiantTests
                 nameBlue.ShouldBe(0, "the name is not blue in Night");
             }
 
-            Save($"atlas-perseids-{theme}-dpi{dpi:0.0}", withMark);
         }
         finally
         {
