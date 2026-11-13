@@ -8,6 +8,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Astrometry.Lunar;
 using TianWen.Lib.Astrometry.VSOP87;
@@ -370,6 +371,59 @@ public static class PlannerActions
     /// </para>
     /// </summary>
     /// <summary>
+    /// Whether <paramref name="target"/> may be pinned on the planner's night. Everything may, but a meteor shower: it is an
+    /// event, so it is pinnable only on a night inside its activity window (judged at <see cref="PlannerState.AstroDark"/>).
+    /// </summary>
+    public static bool CanPin(PlannerState state, Target target)
+        => target.CatalogIndex is not { } idx
+            || !idx.IsMeteorShower
+            || (MeteorShowerIdentity.TryGet(idx, out var shower)
+                && MeteorShowerNights.RadiantAt(shower, state.AstroDark).Active);
+
+    /// <summary>
+    /// Re-places every pinned METEOR SHOWER at its radiant for the planner's night, from the table (the drift), the way
+    /// <see cref="RefreshCometProposalPositions"/> does a comet: a pin made one night is the same pin the next, and its stored
+    /// position is only what it was when pinned. A saved plan whose position is not a number is repaired the same way.
+    /// </summary>
+    internal static void RefreshMeteorShowerProposalPositions(PlannerState state)
+    {
+        if (state.Proposals.IsDefaultOrEmpty)
+        {
+            return;
+        }
+
+        var proposals = state.Proposals;
+        ImmutableArray<ProposedObservation>.Builder? updated = null;
+        for (var i = 0; i < proposals.Length; i++)
+        {
+            var proposal = proposals[i];
+            if (proposal.Target.CatalogIndex is not { } idx || !idx.IsMeteorShower
+                || !MeteorShowerIdentity.TryGet(idx, out var shower))
+            {
+                continue;
+            }
+
+            var radiant = MeteorShowerNights.RadiantAt(shower, state.AstroDark);
+            var ra = radiant.RaHours;
+            var dec = radiant.DecDeg;
+            var moved = double.IsNaN(proposal.Target.RA) || double.IsNaN(proposal.Target.Dec)
+                || Math.Max(Math.Abs(ra - proposal.Target.RA) * 15.0, Math.Abs(dec - proposal.Target.Dec)) >= CometPinRefreshDeg;
+            if (!moved)
+            {
+                continue;
+            }
+
+            updated ??= proposals.ToBuilder();
+            updated[i] = proposal with { Target = proposal.Target with { RA = ra, Dec = dec } };
+        }
+
+        if (updated is not null)
+        {
+            state.Proposals = updated.DrainToImmutable();
+        }
+    }
+
+    /// <summary>
     /// How far a comet must have moved before its pin is rewritten, in degrees. A pin is compared by
     /// OBJECT (<see cref="IsSameObject"/>) so rewriting the position is safe, but the proposal list is
     /// an <see cref="ImmutableArray{T}"/> that the render thread reads, so it is only replaced when
@@ -465,7 +519,7 @@ public static class PlannerActions
 
         // The cache is keyed by Target, so a solar-system body whose stored position differs from the
         // proposal's needs the same object-wise scan rather than a hash lookup.
-        if (proposal.Target.CatalogIndex is { } idx && idx.IsSolarSystemObject)
+        if (proposal.Target.CatalogIndex is { } idx && (idx.IsSolarSystemObject || idx.IsMeteorShower))
         {
             foreach (var (cached, scored) in state.ScoredTargets)
             {
@@ -692,6 +746,10 @@ public static class PlannerActions
         {
             list.Add(display);
         }
+        foreach (var shower in MeteorShowerTable.All)
+        {
+            list.Add(shower.Name);
+        }
         list.Sort(StringComparer.OrdinalIgnoreCase);
         return [.. list];
     }
@@ -874,6 +932,20 @@ public static class PlannerActions
             }
         }
 
+        // Meteor shower: not in objectDb either; placed at its radiant for the planner's night. Outside the activity
+        // window there is no radiant to pin, so the search offers nothing (CanPin says the same for a pin).
+        if (MeteorShowerIdentity.TryResolve(query, out var shower)
+            && MeteorShowerNights.RadiantAt(shower, state.AstroDark) is { Active: true } radiant)
+        {
+            var showerExisting = AddCometSearchResult(state, transform, MeteorShowerIdentity.IndexOf(shower), shower.Name,
+                radiant.RaHours, radiant.DecDeg, ObjectType.MeteorShower);
+            if (showerExisting >= 0)
+            {
+                state.NeedsRedraw = true;
+                return showerExisting;
+            }
+        }
+
         state.NeedsRedraw = true;
 
         // Return index of first search result in filtered list
@@ -921,6 +993,28 @@ public static class PlannerActions
             for (var i = 0; i < cometFiltered.Count; i++)
             {
                 if (cometFiltered[i].Target.Name.Equals(cometDisplay, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // A meteor shower suggestion resolves from the table, at its radiant for the planner's night.
+        if (MeteorShowerIdentity.TryResolve(suggestion, out var shower)
+            && MeteorShowerNights.RadiantAt(shower, state.AstroDark) is { Active: true } radiant)
+        {
+            var showerExisting = AddCometSearchResult(state, transform, MeteorShowerIdentity.IndexOf(shower), shower.Name,
+                radiant.RaHours, radiant.DecDeg, ObjectType.MeteorShower);
+            state.NeedsRedraw = true;
+            if (showerExisting >= 0)
+            {
+                return showerExisting;
+            }
+            var showerFiltered = GetFilteredTargets(state);
+            for (var i = 0; i < showerFiltered.Count; i++)
+            {
+                if (showerFiltered[i].Target.Name.Equals(shower.Name, StringComparison.OrdinalIgnoreCase))
                 {
                     return i;
                 }
@@ -1034,7 +1128,7 @@ public static class PlannerActions
     // appends it to SearchResults (returns -1 so the caller resolves the new result's index). Comets
     // carry no objectDb alias, so PopulateTargetAlias is skipped.
     private static int AddCometSearchResult(PlannerState state, Transform transform,
-        CatalogIndex index, string display, double ra, double dec)
+        CatalogIndex index, string display, double ra, double dec, ObjectType objectType = ObjectType.Comet)
     {
         for (var i = 0; i < state.TonightsBest.Length; i++)
         {
@@ -1055,7 +1149,7 @@ public static class PlannerActions
 
         var target = new Target(ra, dec, display, index);
         var scored = ObservationScheduler.ScoreTarget(target, transform,
-            state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, ObjectType.Comet);
+            state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, objectType);
 
         if (!state.AltitudeProfiles.ContainsKey(target))
         {
@@ -1287,7 +1381,7 @@ public static class PlannerActions
     /// </summary>
     public static bool IsSameObject(Target a, Target b)
         => a == b
-            || (a.CatalogIndex is { } ai && b.CatalogIndex is { } bi && ai == bi && ai.IsSolarSystemObject);
+            || (a.CatalogIndex is { } ai && b.CatalogIndex is { } bi && ai == bi && (ai.IsSolarSystemObject || ai.IsMeteorShower));
 
     public static void AddProposal(PlannerState state, int tonightsBestIndex, ObservationPriority priority = ObservationPriority.Normal)
     {
@@ -1302,6 +1396,11 @@ public static class PlannerActions
         // Don't add duplicates. Object-wise (see IsSameObject) so re-pinning a planet whose ephemeris
         // position has since moved is a no-op rather than a second pin for the same body.
         if (IsProposed(state.Proposals, target))
+        {
+            return;
+        }
+
+        if (!CanPin(state, target))
         {
             return;
         }
@@ -1345,6 +1444,11 @@ public static class PlannerActions
     public static void ToggleProposal(PlannerState state, Target target, ObservationPriority priority = ObservationPriority.Normal, bool followPinnedSelection = false)
     {
         var existingIndex = FindProposalIndex(state.Proposals, target);
+        if (existingIndex < 0 && !CanPin(state, target))
+        {
+            return;
+        }
+
         var justPinned = existingIndex < 0;
         if (existingIndex >= 0)
         {
@@ -1413,6 +1517,11 @@ public static class PlannerActions
             return;
         }
 
+        if (!CanPin(state, target))
+        {
+            return;
+        }
+
         if (transform is not null && !state.ScoredTargets.ContainsKey(target))
         {
             var scored = ObservationScheduler.ScoreTarget(target, transform,
@@ -1472,6 +1581,7 @@ public static class PlannerActions
         // runs on every proposal change and every recompute (bounded), while the row is drawn every
         // frame -- and the sky-map marker is separately live to the second already.
         RefreshCometProposalPositions(state);
+        RefreshMeteorShowerProposalPositions(state);
 
         // Shared post-proposal-change hook (called from every add/remove/toggle/commit/reorder path):
         // re-derive the smart framing groups here too, BEFORE the pinnedCount < 2 early return below --

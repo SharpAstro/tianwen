@@ -87,10 +87,7 @@ public static class MeteorShowerNights
                 continue;
             }
 
-            // Days from the peak, by the Sun's longitude (a day is about a degree), so the drift needs no calendar date.
-            var days = Wrap180(sun - shower.PeakLambda) * 365.2422 / 360.0;
-            var ra = MeteorShowerCalendar.Wrap360(shower.RadiantRaDeg + (shower.DriftRaDegPerDay * days));
-            var dec = Math.Clamp(shower.RadiantDecDeg + (shower.DriftDecDegPerDay * days), -90.0, 90.0);
+            var (ra, dec) = DriftedRadiant(shower, sun);
 
             var meanSin = MeanSinAltitude(latitude, longitude, ra, dec, night);
             var rate = shower.Zhr * meanSin * Math.Pow(shower.PopulationIndex, limiting - ReferenceLimitingMagnitude);
@@ -100,6 +97,40 @@ public static class MeteorShowerNights
         }
 
         return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// Where <paramref name="shower"/>'s radiant is at <paramref name="time"/>: the table's, moved by the drift. The ONE answer
+    /// the planner's pin, the atlas's search hit and the night's rate all read. Outside the activity window the drift is
+    /// taken at the window's nearer end, and <see cref="MeteorShowerRadiant.Active"/> says so.
+    /// </summary>
+    public static MeteorShowerRadiant RadiantAt(MeteorShower shower, DateTimeOffset time)
+    {
+        var sun = MeteorShowerCalendar.SunLongitude(time);
+        if (double.IsNaN(sun))
+        {
+            return new MeteorShowerRadiant(shower.RadiantRaDeg, shower.RadiantDecDeg, false);
+        }
+
+        var active = shower.IsActiveAt(sun);
+        if (!active)
+        {
+            var before = MeteorShowerCalendar.Wrap360(shower.ActivityStartLambda - sun);
+            var after = MeteorShowerCalendar.Wrap360(sun - shower.ActivityEndLambda);
+            sun = before < after ? shower.ActivityStartLambda : shower.ActivityEndLambda;
+        }
+
+        var (ra, dec) = DriftedRadiant(shower, sun);
+        return new MeteorShowerRadiant(ra, dec, active);
+    }
+
+    private static (double Ra, double Dec) DriftedRadiant(MeteorShower shower, double sun)
+    {
+        // Days from the peak, by the Sun's longitude (a day is about a degree), so the drift needs no calendar date.
+        var days = Wrap180(sun - shower.PeakLambda) * 365.2422 / 360.0;
+        var ra = MeteorShowerCalendar.Wrap360(shower.RadiantRaDeg + (shower.DriftRaDegPerDay * days));
+        var dec = Math.Clamp(shower.RadiantDecDeg + (shower.DriftDecDegPerDay * days), -90.0, 90.0);
+        return (ra, dec);
     }
 
     /// <summary>The mean of max(0, sin altitude) of a fixed (RA, Dec) over the night's dark window, sampled as the night calendar samples it.</summary>
