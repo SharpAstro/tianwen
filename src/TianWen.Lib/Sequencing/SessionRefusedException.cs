@@ -16,4 +16,10 @@ public sealed class SessionRefusedException(string userMessage) : ArgumentExcept
     /// </summary>
     public const string NoGuiderMessage =
         "This profile has no guider. A session needs one: choose a guider in Equipment (the built-in guider works with any guide camera).";
+
+    /// <summary>
+    /// A session points a mount. A profile with a site and no mount plans a night (#2113) and cannot run one.
+    /// </summary>
+    public const string NoMountMessage =
+        "This profile has no mount. A session needs one: choose a mount in Equipment.";
 }
