@@ -115,7 +115,8 @@ public static class MeteorShowerNights
         {
             SiteLatitude = latitude,
             SiteLongitude = longitude,
-            SiteElevation = 0
+            SiteElevation = 0,
+            DateTimeOffset = viewingUtc
         };
         var evening = DateOnly.FromDateTime(CoordinateUtils.AstronomicalEveningDate(viewingUtc.ToOffset(offset)));
         var summary = NightSummary.Compute(transform, evening);

@@ -192,18 +192,25 @@ public sealed class MeteorShowerAtlasRadiantTests
             var (withMark, text) = Capture(db, night, dpi, overlay: true);
             var (without, _) = Capture(db, night, dpi, overlay: false);
 
+            // The box of the ring and its rays around the radiant (at the view's centre): the object overlay beside it draws
+            // other things, so only what the radiant itself paints is judged.
+            var reach = (int)MathF.Ceiling(14f * dpi);
             var changed = 0;
             var blueDominant = 0;
-            for (var i = 0; i < withMark.Length; i += 4)
+            for (var y = (Size / 2) - reach; y <= (Size / 2) + reach; y++)
             {
-                if (withMark[i] != without[i] || withMark[i + 1] != without[i + 1] || withMark[i + 2] != without[i + 2])
+                for (var x = (Size / 2) - reach; x <= (Size / 2) + reach; x++)
                 {
-                    changed++;
-                    blueDominant += withMark[i + 2] > withMark[i] ? 1 : 0;
+                    var i = ((y * Size) + x) * 4;
+                    if (withMark[i] != without[i] || withMark[i + 1] != without[i + 1] || withMark[i + 2] != without[i + 2])
+                    {
+                        changed++;
+                        blueDominant += withMark[i + 2] > withMark[i] ? 1 : 0;
+                    }
                 }
             }
 
-            changed.ShouldBeGreaterThan(150, "the ring, its rays and the name are painted");
+            changed.ShouldBeGreaterThan(40, "the ring and its rays are painted");
             if (theme == UiThemeState.Night)
             {
                 blueDominant.ShouldBe(0, "nothing blue in Night");
