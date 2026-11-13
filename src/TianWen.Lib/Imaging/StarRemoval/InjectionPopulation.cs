@@ -354,7 +354,9 @@ public sealed class InjectionPopulation
                 // every channel is no saturated star to draw from its pixels, and is asked as before.
                 if (MeasureSaturated(planes, platePlanes, width, height, s.X, s.Y, scale, drawnProfiles, cores) is { } m && m.Clips.Any(double.IsFinite))
                 {
-                    measuredPool.Add(new PoolStar(m.Amplitudes, m.Clips, LobesOf(k), float.PositiveInfinity,
+                    // No lobes of its own: the rows that travel with it lie inside the radii its amplitude and halo were read over,
+                    // so their light is in both already, and drawn again it would count twice.
+                    measuredPool.Add(new PoolStar(m.Amplitudes, m.Clips, [], float.PositiveInfinity,
                         [.. drawnProfiles.Select((profile, c) => profile with { Outer = m.Halo[c] })]));
                 }
                 else if (InSaturatedPool(s, channels) && entry.Clips.Any(double.IsFinite) && entry.Clips.All(static v => v > 0))
@@ -484,8 +486,8 @@ public sealed class InjectionPopulation
     /// channel's, drawing nothing, so the plan's stars are the ones it makes without it; a <paramref name="starBeta"/> holds every
     /// star's Moffat exponent, the same way. With <paramref name="saturatedAtOwnShare"/> each site is drawn from the saturated pool
     /// at the master's own <see cref="SaturatedShare"/> (one more number from <paramref name="rng"/> per site, so a plan with it
-    /// is not the plan without it), beside <paramref name="saturatedFraction"/>'s extra star. A measured saturated star's lobes are drawn
-    /// as the cell's: its halo was read with its lobes in it.
+    /// is not the plan without it), beside <paramref name="saturatedFraction"/>'s extra star. A measured saturated star carries no lobes: its
+    /// amplitude and halo were read with their light in them.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
