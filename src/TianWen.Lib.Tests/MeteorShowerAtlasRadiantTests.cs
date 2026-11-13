@@ -226,7 +226,7 @@ public sealed class MeteorShowerAtlasRadiantTests
         LookAtPerseids(tab.State, night, fov: 20.0);
         tab.State.ShowObjectOverlay = overlay;
         tab.Render(planner, new RectF32(0, 0, Size, Size), new FakeTimeProviderWrapper(night));
-        return (renderer.Surface.Pixels.ToArray(), Perseids.Name);
+        return ([.. renderer.Surface.Pixels], Perseids.Name);
     }
 
     /// <summary>Written under the ORIGINAL temp (<c>TestRunTemp.Root</c>), which outlives the run folder, for a person to look at.</summary>
