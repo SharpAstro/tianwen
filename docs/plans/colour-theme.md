@@ -373,7 +373,7 @@ has settled in one consumer.
 
 ## Phases
 
-Tracked by #834, #835.
+Tracked by #834, #835, and C6 below by #2125 and #2126.
 
 | Phase | Work | Blocks |
 |---|---|---|
@@ -386,7 +386,55 @@ Tracked by #834, #835.
 | C4 | Non-hue reinforcement wherever meaning was carried by hue: cooling, flip countdown, severity fill-vs-outline. **Guide RA/Dec is out of scope** (user, 2026-08-08: stays as is). | |
 | C5 | Field-validate Night at the mount, especially the warn/error pair, and tune. | C1 to C4 |
 
-The site needs no change. `profile/README.md` needs no change.
+`profile/README.md` needs no change. The site was said here to need none either; C6c below is the change it came to need
+once the accent moved to the logo's orange.
+
+## C6. The brand orange is the colour of an action
+
+Raised by the owner on 2026-11-14, reviewing the surfaces after #2025 gave Light and Dark the logo's orange as their accent.
+What that left: the buttons that START something were still green, the TUI had no palette at all, and the org site's accent
+was still teal. One rule for all three: **the accent is the colour of the primary action, and green means a state that is
+good** (online, guiding well, a clear frame, a pinned target).
+
+tianwen does not take the desktop's accent colour (the last third of C3 as first written): the orange is the brand's, on
+purpose. An app with no brand of its own does take it: the PDF viewer (`SystemAccent` there) and pilot.
+
+### C6a. Primary actions take the accent, green stays status
+
+Tracked by #2125.
+
+- `GuiTheme.GoButtonBg` is the accent at FULL strength, and its label is `GuiTheme.GoButtonInk` (`InkOn` of the fill), never
+  a text role. A mid orange (the 55 % mix the green had) carries neither ink at 4.5:1 once hovered; the full accent carries
+  one in every state, and which one differs: the dark ink in Dark and Night, white in Light.
+- Solid where `PrimaryButtonBg` (the selected segment) is a mix, so "start" outranks "selected".
+- Connect All and Start Session, which were a solid `Success`, ask `GoButtonBg`.
+- A choice that is ON (the planetary panel's checks, the planner's rating filter) is a selection: `PrimaryButtonBg`.
+- Kept green, as states: the status dots, the guide scatter and crosshair, a light's grade, the altitude chart, a pinned
+  row and the atlas's Pin button, the session toggles' on and off pair.
+- Night's go buttons were the same 55 % mix (its `Success` falls back to the accent) under a `BodyText` label, about 1.8:1.
+  They are the solid accent under the measured ink now, which is the one change Night takes.
+
+### C6b. The TUI has a role palette
+
+Tracked by #2126. Each row picked a 16-colour name at its call site (green for an action in one row and a state in the
+next, 70 uses, no orange anywhere). `TuiRowPalette` (`src/TianWen.Cli/Tui/RowPen.cs`) states the roles now, as `GuiTheme`
+does, and `TuiPaletteSourceTests` fails on a terminal colour named anywhere else under the TUI's folders.
+
+- The accent is `GuiTheme.DarkPalette.Accent`. An action named in text is `Accent`; a button that starts something, and
+  an action row under the cursor, is `ActionFill` (the accent under `GuiTheme.InkOn` of it). Capture and Done were white
+  on green.
+- A terminal with sixteen colours gets the nearest of them, which `VtStyle` picks: the dark yellow (SGR 33) under black.
+  No pen carries a second value. A test rounds every pen both ways and fails where its two halves land on one colour.
+- Green is `Good`, a state: connected, aligned, the active profile, a pinned target (cyan before, green in the GUI),
+  progress. A connection in transit is `Warn`; it was the dark yellow that is the accent's 16-colour form now.
+- The jog, Save and Solve buttons, which were blue, magenta and cyan for no stated reason, are the neutral `Button`.
+
+Open: the selection bar stays white on blue and the headings cyan, and the TUI states black as its ground whatever the
+terminal's own. Whether those follow the GUI's Dark palette is a look at a real terminal, not done here.
+
+### C6c. The org site's accent is the logo's orange
+
+Tracked by SharpAstro/sharpastro.github.io#4, in that repository.
 
 ## What C0 and C1 actually landed (2026-08-07)
 

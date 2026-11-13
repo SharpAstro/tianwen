@@ -122,7 +122,7 @@ namespace TianWen.UI.Abstractions
                     _ => { state.Mode = LiveSessionMode.Preview; state.FlatStatusMessage = ""; state.NeedsRedraw = true; }),
                 Button("Start", "FlatsSetupStart", 1.6f,
                     canStart ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg,
-                    canStart ? BrightText : DimText,
+                    canStart ? GuiTheme.GoButtonInk : DimText,
                     _ =>
                     {
                         if (!canStart) { state.FlatStatusMessage = reason; state.NeedsRedraw = true; return; }

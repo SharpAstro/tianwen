@@ -284,7 +284,7 @@ namespace TianWen.UI.Abstractions
             var captureBtnColor = polarActive
                 ? GuiTheme.NeutralButtonBg
                 : GuiTheme.GoButtonBg;
-            var captureBtnText = polarActive ? DimText : BrightText;
+            var captureBtnText = polarActive ? DimText : GuiTheme.GoButtonInk;
             var captureBtn = Layout.Builder.Text("Capture", BaseFontSize * 0.85f, captureBtnText, TextAlign.Center, TextAlign.Center)
                 .WFixed(72f).HStar().Bg(captureBtnColor)
                 .Clickable(new HitResult.ButtonHit($"PreviewCapture{otaIndex}"), polarActive ? null : _ =>
@@ -349,7 +349,7 @@ namespace TianWen.UI.Abstractions
             if (hasImage)
             {
                 rows.Add(Layout.Builder.HStack(
-                        Layout.Builder.Text("Save", BaseFontSize * 0.85f, BrightText, TextAlign.Center, TextAlign.Center)
+                        Layout.Builder.Text("Save", BaseFontSize * 0.85f, GuiTheme.GoButtonInk, TextAlign.Center, TextAlign.Center)
                             .WStar().HStar().Bg(GuiTheme.GoButtonBg).BgHover(GuiTheme.Hover(GuiTheme.GoButtonBg))
                             .Clickable(new HitResult.ButtonHit($"PreviewSave{otaIndex}"), _ => PostSignal(new SaveSnapshotSignal(otaIndex))))
                     .RowH(BaseRowHeight * 0.9f));
@@ -526,7 +526,9 @@ namespace TianWen.UI.Abstractions
             statusText += double.IsNaN(ms.HourAngle) ? $"  Pier: {pierLabel}  HA: --" : $"  Pier: {pierLabel}  HA: {ms.HourAngle:F2}h";
 
             var jogLook = new MountJogControls.Look(BaseFontSize * 0.85f, BaseRowHeight, JogGap, GuiTheme.NeutralButtonBg,
-                DimText, BodyText, GuiTheme.InkOn(GuiTheme.NeutralButtonBg));
+                // The glyph on a NEUTRAL button is body text, never InkOn: on a dark neutral fill InkOn answers white, which
+                // is the one colour Night must not show (seen on the Home, Park and jog buttons, 2026-11-14).
+                DimText, BodyText, BodyText);
             var content = Layout.Builder.VStack([
                     Layout.Builder.HStack(
                             Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),

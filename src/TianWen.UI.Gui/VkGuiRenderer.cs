@@ -938,12 +938,12 @@ namespace TianWen.UI.Gui
                 {
                     // Connect All was the loudest literal left in the chrome: a fixed green that ignored
                     // the theme entirely and, in a dark-adaptation palette, became the brightest thing on
-                    // screen. Success is the role for it, and in a palette with no green to spend it
-                    // resolves to the accent instead of insisting on one. Disabled is a plain rule fill.
+                    // screen. It was the Success role until #2125 and is the go button's fill now, the accent:
+                    // connecting the rig is an action, and green is kept for a state. Disabled is a plain rule fill.
                     // Enabled is a FILLED chip, so its label is ink chosen from the fill, not a text role:
                     // DimText on the green Success fill measured about 1.4:1 and was effectively unreadable.
                     // Disabled is a plain rule fill, where the ordinary de-emphasised role is right.
-                    var caBg = ca.Enabled ? Palette.Success : Palette.Separator;
+                    var caBg = ca.Enabled ? TianWen.UI.Abstractions.GuiTheme.GoButtonBg : Palette.Separator;
                     var caLabelColor = ca.Enabled
                         ? TianWen.UI.Abstractions.GuiTheme.InkOn(caBg)
                         : Palette.DimText;

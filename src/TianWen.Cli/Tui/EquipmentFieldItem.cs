@@ -138,9 +138,9 @@ namespace TianWen.Cli.Tui
 
             if (ActionLabel is not null)
             {
-                // Bright when the cursor is on it, dim otherwise -- an action row is always green, so the
-                // usual white-on-blue selection bar would read as a different KIND of row.
-                var actionPen = new RowPen(context.Selected ? SgrColor.BrightGreen : SgrColor.Green, SgrColor.Black);
+                // An action row is always the accent, a fill when the cursor is on it -- the usual white-on-blue
+                // selection bar would read as a different KIND of row.
+                var actionPen = context.Selected ? TuiRowPalette.ActionFill : TuiRowPalette.Accent;
                 return actionPen.Text($"  {ActionLabel}");
             }
 
@@ -268,10 +268,10 @@ namespace TianWen.Cli.Tui
 
             var (on, off) = (IsPending, IsConnected) switch
             {
-                (true, true) => (SgrColor.BrightGreen, SgrColor.Yellow),   // disconnecting: Off is the target
-                (true, false) => (SgrColor.Yellow, SgrColor.BrightRed),    // connecting: On is the target
-                (false, true) => (SgrColor.BrightGreen, SgrColor.White),
-                (false, false) => (SgrColor.White, SgrColor.BrightRed),
+                (true, true) => (TuiRowPalette.Good.Foreground, TuiRowPalette.Warn.Foreground),   // disconnecting: Off is the target
+                (true, false) => (TuiRowPalette.Warn.Foreground, TuiRowPalette.Error.Foreground), // connecting: On is the target
+                (false, true) => (TuiRowPalette.Good.Foreground, TuiRowPalette.Body.Foreground),
+                (false, false) => (TuiRowPalette.Body.Foreground, TuiRowPalette.Error.Foreground),
             };
 
             var onText = IsPending && !IsConnected ? "..." : "On";

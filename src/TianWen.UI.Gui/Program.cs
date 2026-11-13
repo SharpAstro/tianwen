@@ -177,7 +177,7 @@ if (!string.Equals(Environment.GetEnvironmentVariable(GuiSingleInstanceEnvVar), 
 NativeLoaderDiagnostics.Install(logger);
 
 using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan window",
-    () => SdlVulkanWindow.Create("\U0001F52D TianWen", 1280, 900));
+    () => SdlVulkanWindow.Create("TianWen", 1280, 900));
 // The viewer's Open and Save dialogs are this window's (SdlVulkan.Renderer, over SDL's platform dialogs), bound now that
 // it exists; the services were built before it (HostFileDialogs).
 sp.GetRequiredService<HostFileDialogs>().Bind(new SdlFileDialogs(sdlWindow));
@@ -218,7 +218,7 @@ using var cts = new CancellationTokenSource();
 // handed to the planetary capture's Start, so quitting cancels the capture (and its token-polling loops).
 using var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 var tracker = new BackgroundTaskTracker();
-var lastWindowTitle = "\U0001F52D TianWen";
+var lastWindowTitle = "TianWen";
 
 // Stopping the rig when the user asks for it at a quit: the node's run through its own ending, then its devices
 // (RigShutdown says why the order matters). The node does it; this follows it.
@@ -630,14 +630,16 @@ loop.OnPostFrame = () =>
         }
     }
 
-    var (tabIcon, tabLabel) = guiRenderer.TabTitleChrome(appState.ActiveTab);
+    // Words only, no tab emoji: a window title is drawn by the desktop's own font, and one without colour emoji (a
+    // Raspberry Pi's, seen 2026-11-14) shows a missing-glyph box where "Home" should start.
+    var (_, tabLabel) = guiRenderer.TabTitleChrome(appState.ActiveTab);
     // The local rig is implied by the window itself, so only a remote rig names itself.
     var context = viewed.IsLocal
         ? viewedProfile
         : viewedProfile is { Length: > 0 } p ? $"{viewed.DisplayName} - {p}" : viewed.DisplayName;
     var newTitle = context is { Length: > 0 }
-        ? $"{tabIcon} {tabLabel} - {context}"
-        : $"{tabIcon} {tabLabel}";
+        ? $"{tabLabel} - {context}"
+        : tabLabel;
     if (ls.IsRunning)
     {
         newTitle = ls.ActiveObservation is { Target: var target }

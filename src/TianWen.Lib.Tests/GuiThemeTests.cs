@@ -214,6 +214,41 @@ namespace TianWen.Lib.Tests
         public void NightSuccessBorrowsTheAccentBecauseGreenIsUnavailable()
             => GuiTheme.NightPalette.Success.ShouldBe(GuiTheme.NightPalette.Accent);
 
+        // #2125: the button that starts something is the brand's accent, solid, so it outranks the selected segment's
+        // mix and is never the green of a state. Its label must hold while the pointer is on it too: the 55 % mix the
+        // green had, taken to the orange, falls under 4.5:1 once hovered, which is why the fill is the full accent.
+        [Theory]
+        [InlineData("Light")]
+        [InlineData("Dark")]
+        [InlineData("Night")]
+        public void TheGoButtonIsTheAccentAndCarriesItsLabelAtRestAndHovered(string state)
+        {
+            try
+            {
+                GuiTheme.Apply(ByState(state), desktopIsDark: state != "Light");
+
+                var fill = GuiTheme.GoButtonBg;
+                fill.ShouldBe(GuiTheme.Palette.Accent);
+                fill.ShouldNotBe(GuiTheme.PrimaryButtonBg);
+                if (state != "Night")
+                {
+                    fill.ShouldNotBe(GuiTheme.Palette.Success);
+                }
+
+                Contrast(GuiTheme.GoButtonInk, fill).ShouldBeGreaterThanOrEqualTo(4.5, $"{state}: at rest");
+                var hovered = GuiTheme.Hover(fill);
+                Contrast(GuiTheme.GoButtonInk, hovered).ShouldBeGreaterThanOrEqualTo(4.5, $"{state}: hovered");
+
+                // A control's edge against what it sits on: the top bar (Connect All) and a panel.
+                Contrast(fill, GuiTheme.Palette.HeaderBg).ShouldBeGreaterThanOrEqualTo(3.0, $"{state}: on the header");
+                Contrast(fill, GuiTheme.Palette.PanelBg).ShouldBeGreaterThanOrEqualTo(3.0, $"{state}: on a panel");
+            }
+            finally
+            {
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
+
         // C2c introduced DERIVED fills (Mix of two roles) for buttons, alt rows and the sky ramp. A
         // derived colour can land anywhere, so its label needs the same guarantee a stated role gets,
         // and only InkOn can give it: the mix moves with the theme, so no fixed ink can be right.

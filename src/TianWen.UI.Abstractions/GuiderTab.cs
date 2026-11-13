@@ -188,7 +188,7 @@ namespace TianWen.UI.Abstractions
 
             // The first button ends whichever is going on: a guiding run (the node then puts the loop back) or the loop itself.
             var stoppable = running || runGoing;
-            var button = Layout.Builder.Text(stoppable ? "Stop" : "Loop", BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
+            var button = Layout.Builder.Text(stoppable ? "Stop" : "Loop", BaseFontSize * 0.9f, stoppable ? BodyText : GuiTheme.GoButtonInk, TextAlign.Center, TextAlign.Center)
                 .WFixed(72f).HStar().Bg(stoppable ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg)
                 .BgHover(GuiTheme.Hover(stoppable ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg))
                 .Clickable(new HitResult.ButtonHit("GuideLoopToggle"), _ =>

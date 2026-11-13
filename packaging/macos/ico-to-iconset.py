@@ -2,7 +2,7 @@
 """Extract the largest PNG-compressed frame of a Windows .ico as a .png, with the stdlib only.
 
 Both app icons (src/TianWen.UI.FitsViewer/Resources/MilkyWay.ico, src/TianWen.UI.Gui/Resources/
-HelixNebula.ico) carry a 256x256 PNG frame beside four small BMP ones. That frame is the base of the
+TianWen.ico, baked by tools/bake-app-icon.py) carry a 256x256 PNG frame beside smaller ones. That frame is the base of the
 .iconset that iconutil turns into the bundle's AppIcon.icns; build-dmg.sh resamples it to the other
 sizes with sips on the runner. Stdlib only so the same file runs on the ubuntu validate step and on
 this machine, where Pillow is not a given.

@@ -76,7 +76,7 @@ describe_app() {
     gui)
       exe="tianwen-gui"
       display="TianWen"
-      icon="$repo/src/TianWen.UI.Gui/Resources/HelixNebula.ico"
+      icon="$repo/src/TianWen.UI.Gui/Resources/TianWen.ico"
       template="$here/tianwen-gui.Info.plist.in"
       ;;
     *) die "--app must be fits or gui (got '$1')" ;;
