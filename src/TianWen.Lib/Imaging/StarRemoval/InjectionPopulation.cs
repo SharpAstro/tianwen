@@ -103,6 +103,7 @@ public sealed class InjectionPopulation
     private LuminosityFunction? _luminosity;
     private PoolStar[] _faintColours = [];
     private ImmutableArray<OuterHalo> _outerHalo;
+    private double _saturatedShare;
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
@@ -126,8 +127,11 @@ public sealed class InjectionPopulation
     }
 
     /// <summary>A star the pool draws: its amplitudes, its clip levels (empty unless saturated) and the lobes that travel with
-    /// it (empty unless lobes are carried).</summary>
-    private sealed record PoolStar(ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips, ImmutableArray<Lobe> Lobes, float Significance);
+    /// it (empty unless lobes are carried). A measured saturated star (<see cref="MeasureSaturated"/>) also carries
+    /// <paramref name="OwnProfiles"/>, the profiles it was measured against with its own halo under each: it is drawn with
+    /// exactly those, since its halo is the residual against them and against no other profile.</summary>
+    private sealed record PoolStar(ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips, ImmutableArray<Lobe> Lobes, float Significance,
+        ImmutableArray<StarProfile> OwnProfiles = default);
 
     /// <summary>A second-pass row carried beside its star: its offset from the star's centre, and its amplitudes.</summary>
     private sealed record Lobe(double Dx, double Dy, ImmutableArray<double> Amplitudes);
@@ -151,6 +155,9 @@ public sealed class InjectionPopulation
 
     /// <summary>Saturated stars a saturated injection is drawn from (0 means the fallback clip).</summary>
     public int SaturatedPool => _saturated.Length;
+
+    /// <summary>The share of the counted sites the catalogue found saturated: how often a real star here is a clipped one.</summary>
+    public double SaturatedShare => _saturatedShare;
 
     /// <summary>The unsaturated pool's colours: each star's per-channel amplitudes on the master's unit scale.</summary>
     public IEnumerable<ImmutableArray<double>> Colours => _amplitudes.Select(static s => s.Amplitudes);
@@ -207,12 +214,20 @@ public sealed class InjectionPopulation
     /// function and draws extra stars under the catalogue's limit down to that significance; a catalogue too thin to fit is
     /// refused. <paramref name="wingEnvelope"/> (#1241, <see cref="WingRelationClamp"/>) holds every drawn star's channel wing
     /// relation to the one the real masters span, where the envelope has masters of this channel count; it draws on the
-    /// field profile.
+    /// field profile. The share of the counted sites that are saturated is recorded (<see cref="SaturatedShare"/>), which
+    /// <see cref="Plan"/> draws saturated stars at on request.
+    /// <paramref name="measuredSaturated"/> draws every saturated pool star as the master shows it (<see cref="MeasureSaturated"/>):
+    /// a clipped star's catalogued amplitude is a wing fit the clip inflates, and its halo does not scale with it (2026-11-07: per
+    /// amplitude, the faintest third of M42's saturated stars carry nine times the brightest third's light at 5 px), so the star is
+    /// drawn at the amplitude that matches its own light 3 to 5 px out, with its own radial residual past that as its halo, on
+    /// the round profile it was measured against, which nothing <see cref="Plan"/> is given moves, and clipped only in the
+    /// channels its own light says it clipped.
     /// </summary>
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
         StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null,
-        ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default)
+        ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default,
+        bool measuredSaturated = false)
     {
         if (!outerHalo.IsDefault && outerHalo.Length != master.ChannelCount)
         {
@@ -269,6 +284,8 @@ public sealed class InjectionPopulation
             .Where(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && !IsLobe(k))
             .Select(k => ((double)catalogue[k].X, (double)catalogue[k].Y))
             .ToArray();
+        var saturatedSites = Enumerable.Range(0, catalogue.Length)
+            .Count(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && catalogue[k].Saturated && !IsLobe(k));
         var amplitudes = Enumerable.Range(0, catalogue.Length)
             .Where(k => catalogue[k] is var s && Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0 && !IsLobe(k) && !Diverged(s, clip))
             .Select(k => new PoolStar([.. catalogue[k].ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)], [], LobesOf(k), catalogue[k].Significance))
@@ -296,6 +313,61 @@ public sealed class InjectionPopulation
             .Where(static t => t.Entry.Clips.Any(double.IsFinite) && t.Entry.Clips.All(static v => v > 0))
             .Select(static t => new PoolStar(t.Entry.Amplitudes, t.Entry.Clips, t.Lobes, float.PositiveInfinity))
             .ToArray();
+        if (measuredSaturated)
+        {
+            var drawnProfiles = Enumerable.Range(0, channels)
+                .Select(c => field is { } fp
+                    ? new StarProfile(StarProfileFamily.Field, fp.Channels[c].Fwhm, fp.Channels[c].Beta, 1.0, 0.0, fp.Channels[c].Table, fp.Channels[c].TableAlpha)
+                    : StarProfile.Round(StarProfileFamily.Moffat, psf[c].Fwhm, psf[c].Beta))
+                .ToArray();
+            // EVERY subtracted saturated star with an amplitude per channel, not only those the builder fitted with the field's
+            // Moffat: a measured star's amplitude and halo are read off its own pixels, so its fit does not matter, and the stars
+            // the builder could only fit with its own profile are often the brightest (63 % of M42's saturated stars, 21 % of HIP
+            // 80609's), which a Moffat-only pool never drew. One whose measurement fails is drawn as before if the Moffat pool
+            // would hold it, and left out otherwise.
+            var measuredPool = new List<PoolStar>();
+            foreach (var k in Enumerable.Range(0, catalogue.Length))
+            {
+                var s = catalogue[k];
+                if (s.Outcome != StarFitOutcome.Subtracted || !s.Saturated || IsLobe(k) || s.ChannelAmplitudes.Length != channels
+                    || !s.ChannelAmplitudes.All(float.IsFinite))
+                {
+                    continue;
+                }
+                var entry = SaturatedEntry(s, planes, platePlanes, width, height, scale);
+                // Each channel's core, its brightest pixel where it rose above the plate. Which of them the star CLIPPED is the
+                // measurement's to say (MeasureSaturated, ClippedWingExcess on the amplitude its own light matches): SaturatedEntry's
+                // test is on the catalogued wing-fit amplitude, and it reads a star the builder fitted with its own profile, whose
+                // amplitude is about its clip, as unclipped in every channel; taking every core as a level instead flat-tops the
+                // channels the star never clipped.
+                var cores = Enumerable.Range(0, channels).Select(c =>
+                {
+                    var core = CoreMax(planes[c], width, height, s.X, s.Y, 3.0) * scale;
+                    var floor = platePlanes[c][(Math.Clamp((int)Math.Round(s.Y), 0, height - 1) * width) + Math.Clamp((int)Math.Round(s.X), 0, width - 1)] * scale;
+                    return double.IsFinite(core) && double.IsFinite(floor) && core > floor ? core : double.PositiveInfinity;
+                }).ToImmutableArray();
+                if (!(cores.Any(double.IsFinite) && cores.All(static v => v > 0)))
+                {
+                    continue;
+                }
+                // Measured, and clipped in a channel by its own light: drawn as measured. One the measurement reads as unclipped in
+                // every channel is no saturated star to draw from its pixels, and is asked as before.
+                if (MeasureSaturated(planes, platePlanes, width, height, s.X, s.Y, scale, drawnProfiles, cores) is { } m && m.Clips.Any(double.IsFinite))
+                {
+                    // No lobes of its own: the rows that travel with it lie inside the radii its amplitude and halo were read over,
+                    // so their light is part of both. The ring medians carry only a share of a one-sided lobe's light (about a
+                    // third at the median lobe's distance in a Moffat model, and none of its one-sidedness), so this is neither
+                    // exact nor measured to be complete; drawing the lobes on top would count that share twice.
+                    measuredPool.Add(new PoolStar(m.Amplitudes, m.Clips, [], float.PositiveInfinity,
+                        [.. drawnProfiles.Select((profile, c) => profile with { Outer = m.Halo[c] })]));
+                }
+                else if (InSaturatedPool(s, channels) && entry.Clips.Any(double.IsFinite) && entry.Clips.All(static v => v > 0))
+                {
+                    measuredPool.Add(new PoolStar(entry.Amplitudes, entry.Clips, LobesOf(k), float.PositiveInfinity));
+                }
+            }
+            saturated = [.. measuredPool];
+        }
         var fallbackClips = Enumerable.Range(0, channels)
             .Select(c => FallbackClipFraction * planes[c].Where(float.IsFinite).DefaultIfEmpty(0f).Max() * scale)
             .ToImmutableArray();
@@ -362,7 +434,8 @@ public sealed class InjectionPopulation
         }
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo };
+            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo,
+            _saturatedShare = countedSites.Length > 0 ? saturatedSites / (double)countedSites.Length : 0.0 };
     }
 
     /// <summary>
@@ -413,12 +486,16 @@ public sealed class InjectionPopulation
     /// envelope on purpose, nor with a chromatic width, whose widths the clamp's per-channel light never sees.
     /// A <paramref name="chromaticWidth"/> sets every star's other channels' widths from its reference
     /// channel's, drawing nothing, so the plan's stars are the ones it makes without it; a <paramref name="starBeta"/> holds every
-    /// star's Moffat exponent, the same way.
+    /// star's Moffat exponent, the same way. With <paramref name="saturatedAtOwnShare"/> each site is drawn from the saturated pool
+    /// at the master's own <see cref="SaturatedShare"/> (one more number from <paramref name="rng"/> per site, so a plan with it
+    /// is not the plan without it), beside <paramref name="saturatedFraction"/>'s extra star. A measured saturated star carries no lobes: its
+    /// amplitude and halo were read over rings that hold part of their light (a median moves only a little for a one-sided
+    /// lobe, so the lobes' light is part of the measurement, not all of it, and their one-sidedness is not drawn).
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
         ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null, Random? faintRng = null,
-        ChromaticWidth? chromaticWidth = null, StarBeta? starBeta = null)
+        ChromaticWidth? chromaticWidth = null, StarBeta? starBeta = null, bool saturatedAtOwnShare = false)
     {
         ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
         string? relationFrom = null;
@@ -496,15 +573,20 @@ public sealed class InjectionPopulation
             {
                 profiles = starBeta.Apply(profiles);
             }
-            if (_wingClamp is null)
+            if (_wingClamp is not null)
             {
-                return profiles;
+                profiles = _wingClamp.Apply(profiles, out var moved, out var unreached);
+                wingClamped += moved ? 1 : 0;
+                wingUnreached += unreached ? 1 : 0;
             }
-            profiles = _wingClamp.Apply(profiles, out var moved, out var unreached);
-            wingClamped += moved ? 1 : 0;
-            wingUnreached += unreached ? 1 : 0;
             return profiles;
         }
+        // A saturated star's profiles: a measured one's own (the round profiles it was measured against, its halo under them),
+        // which nothing of the cell moves (its position's elongation, its shape's wing gains, a channel variation, a chromatic
+        // width, a held beta, the wing clamp): its halo is the residual against exactly those profiles, and under any other the
+        // star is no longer the one the master shows (a held beta of 1.5 drew its wings twice). Any other star's are the cell's.
+        ImmutableArray<StarProfile> SaturatedProfiles(PoolStar star, double x, double y)
+            => star.OwnProfiles.IsDefault ? Shaped(x, y, float.PositiveInfinity) : star.OwnProfiles;
 
         var x0 = Math.Max(0, cellX - margin);
         var y0 = Math.Max(0, cellY - margin);
@@ -529,11 +611,23 @@ public sealed class InjectionPopulation
             : (int)Math.Round(inCell * ((double)(x1 - x0) * (y1 - y0)) / ((double)size * size));
         var stars = ImmutableArray.CreateBuilder<InjectedStar>(requested + 1);
         var placed = 0;
+        var fallbackOwn = false;
         for (var i = 0; i < requested; i++)
         {
             var at = placement == InjectionPlacement.AtSite ? Jitter(regionSites[i], rng) : RandomPosition(x0, y0, x1, y1, rng);
             if (at is not { } p)
             {
+                continue;
+            }
+            // At its own share, a site is drawn as the master's saturated stars are (the catalogue's clipped stars count as sites,
+            // and without this every one of them came back unsaturated).
+            if (saturatedAtOwnShare && rng.NextDouble() < _saturatedShare)
+            {
+                var clipped = DrawSaturated(rng, out var ownFallback);
+                fallbackOwn |= ownFallback;
+                stars.Add(new InjectedStar(p.X, p.Y, clipped.Amplitudes, SaturatedProfiles(clipped, p.X, p.Y), Saturated: true, clipped.Clips));
+                AddLobes(stars, p, clipped.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity));
+                placed++;
                 continue;
             }
             var drawn = _amplitudes[rng.Next(_amplitudes.Length)];
@@ -542,7 +636,7 @@ public sealed class InjectionPopulation
             placed++;
         }
 
-        var fallback = false;
+        var fallback = fallbackOwn;
         if (saturatedFraction > 0 && rng.NextDouble() < saturatedFraction)
         {
             var at = placement == InjectionPlacement.AtSite
@@ -550,9 +644,11 @@ public sealed class InjectionPopulation
                 : RandomPosition(x0, y0, x1, y1, rng);
             if (at is { } p)
             {
-                var drawn = DrawSaturated(rng, out fallback);
+                // Either draw falling back makes the plan a fallback one: the extra star's answer never clears an own-share star's.
+                var drawn = DrawSaturated(rng, out var extraFallback);
+                fallback |= extraFallback;
                 // A saturated star is the brightest band's, however its source star was found.
-                stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, Shaped(p.X, p.Y, float.PositiveInfinity), Saturated: true, drawn.Clips));
+                stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, SaturatedProfiles(drawn, p.X, p.Y), Saturated: true, drawn.Clips));
                 AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity));
             }
         }
@@ -618,6 +714,164 @@ public sealed class InjectionPopulation
         var target = _fallbackClips.Max() * over;
         // Taken past the clip level, so in the brightest band, where Plan draws every saturated star's shape.
         return new PoolStar(colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray(), _fallbackClips, [], float.PositiveInfinity);
+    }
+
+    // A measured saturated star is drawn ROUND, on the round profile it was measured with (PoolStar.OwnProfiles): its halo is
+    // the residual against that profile (an azimuthal median), and an elongated profile under it lowers the ring's light by a
+    // tenth or more past 8 px (MeasuredSaturatedRenderProbe: HIP 80609's rendered stars kept 0.71 of their 12 px light).
+
+    /// <summary>How far out a measured saturated star's halo is read, its local sky's ring, and where its amplitude is matched, pixels.</summary>
+    public const int MeasuredHaloReachPx = 30, MeasuredSkyFromPx = 32, MeasuredSkyToPx = 36, MatchFromPx = 3, MatchToPx = 5;
+
+    /// <summary>A measured star's drawn peak is at least this many times its clip level, so it still clips as the real one did.</summary>
+    public const double MinPeakOverClip = 1.2;
+
+    /// <summary>
+    /// A saturated star as the master shows it: per channel, the azimuthal median of the master less its starless plate
+    /// (<paramref name="platePlanes"/>; null reads the master alone, a test's flat sky) and less what is left from
+    /// <see cref="MeasuredSkyFromPx"/> to <see cref="MeasuredSkyToPx"/> px, in 1 px rings to <see cref="MeasuredHaloReachPx"/> (the
+    /// plate takes out the nebula under the star, which a ring median alone carried into its halo and on to another plate,
+    /// #2086 review finding 3); the
+    /// amplitude at which <paramref name="drawn"/> (the profile the injector draws it with, peak 1) meets that light, the median
+    /// ratio from <see cref="MatchFromPx"/> to <see cref="MatchToPx"/> px; the channel's clip level, its core
+    /// (<paramref name="cores"/>, the brightest pixel there, positive infinity for none) where that amplitude's peak passes the
+    /// core's height above the sky by <see cref="ClippedWingExcess"/>, the one rule for a clipped channel, and positive infinity
+    /// where it does not (a channel the star never clipped keeps its own peak and takes no level); a clipped channel's amplitude
+    /// held to <see cref="MinPeakOverClip"/> times its clip above the sky; and
+    /// the rest of its light, ring by ring past 2 px (half at 2 px), as a fraction of that amplitude (<see cref="OuterHalo.Table"/>),
+    /// negative where the drawn profile is brighter than the star. Null where the stamp leaves the frame or holds a non-finite pixel,
+    /// or the match has no finite positive ratio; the star then keeps its catalogued amplitude and draws no halo of its own.
+    /// </summary>
+    internal static (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips, ImmutableArray<OuterHalo> Halo)? MeasureSaturated(
+        float[][] planes, float[][]? platePlanes, int width, int height, double cx, double cy, double scale, IReadOnlyList<StarProfile> drawn,
+        ImmutableArray<double> cores)
+    {
+        const int reach = MeasuredSkyToPx;
+        var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
+        if (ix - reach < 0 || iy - reach < 0 || ix + reach >= width || iy + reach >= height)
+        {
+            return null;
+        }
+        var channels = planes.Length;
+        const int rings = MeasuredHaloReachPx + 1;
+        var amplitudes = ImmutableArray.CreateBuilder<double>(channels);
+        var clips = ImmutableArray.CreateBuilder<double>(channels);
+        var halos = ImmutableArray.CreateBuilder<OuterHalo>(channels);
+        var bins = new List<float>[rings];
+        for (var k = 0; k < rings; k++)
+        {
+            bins[k] = [];
+        }
+        var sky = new List<float>();
+        var light = new double[rings];
+        var drawnRing = new double[rings];
+        var ratios = new List<float>(MatchToPx - MatchFromPx + 1);
+        for (var c = 0; c < channels; c++)
+        {
+            foreach (var bin in bins)
+            {
+                bin.Clear();
+            }
+            sky.Clear();
+            var plane = planes[c];
+            var platePlane = platePlanes?[c];
+            for (var y = iy - reach; y <= iy + reach; y++)
+            {
+                for (var x = ix - reach; x <= ix + reach; x++)
+                {
+                    var v = plane[(y * width) + x] - (platePlane is null ? 0f : platePlane[(y * width) + x]);
+                    if (!float.IsFinite(v))
+                    {
+                        return null;
+                    }
+                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                    if (r >= MeasuredSkyFromPx && r <= MeasuredSkyToPx)
+                    {
+                        sky.Add(v);
+                    }
+                    else if (r < rings - 0.5)
+                    {
+                        bins[(int)Math.Round(r)].Add(v);
+                    }
+                }
+            }
+            var skyLevel = MedianOf(sky);
+            for (var k = 0; k < rings; k++)
+            {
+                light[k] = bins[k].Count > 0 ? (MedianOf(bins[k]) - skyLevel) * scale : 0.0;
+            }
+            // The drawn profile read as the star was: the ring median of what the renderer draws per pixel (its quadrature),
+            // not the centre value at the ring's radius, which sits under a convex profile's pixel mean 3 to 5 px out and left
+            // every rendered star a tenth short of its own light past 8 px against its 5 px light.
+            foreach (var bin in bins)
+            {
+                bin.Clear();
+            }
+            for (var y = iy - MeasuredHaloReachPx; y <= iy + MeasuredHaloReachPx; y++)
+            {
+                for (var x = ix - MeasuredHaloReachPx; x <= ix + MeasuredHaloReachPx; x++)
+                {
+                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                    if (r < rings - 0.5)
+                    {
+                        bins[(int)Math.Round(r)].Add((float)drawn[c].PixelMean(x, y, cx, cy));
+                    }
+                }
+            }
+            for (var k = 0; k < rings; k++)
+            {
+                drawnRing[k] = bins[k].Count > 0 ? MedianOf(bins[k]) : drawn[c].UngainedAt(k);
+            }
+            ratios.Clear();
+            for (var k = MatchFromPx; k <= MatchToPx; k++)
+            {
+                var d = drawnRing[k];
+                if (d > 0 && double.IsFinite(light[k]))
+                {
+                    ratios.Add((float)(light[k] / d));
+                }
+            }
+            var amplitude = ratios.Count > 0 ? MedianOf(ratios) : double.NaN;
+            if (!(amplitude > 0))
+            {
+                return null;
+            }
+            // Held to the star's own peak ABOVE ITS SKY, never the absolute clip: the clip carries the sky, which on a bright
+            // sky dwarfs a star's 5 px light (Lobster: 0.04 against 0.0014), and an amplitude floored there is a drawn profile
+            // many times the star, cancelled by a halo table as negative, so the renderer's sub-pixel jitter on the big term
+            // came out as a third more 5 px light than the star had.
+            // Clipped where the matched profile's own centre pixel stands well above the core the master shows (the wings say the
+            // star was brighter than its top). A channel whose core is about the matched peak was never cut, and its core as a
+            // level would flatten it and every neighbour under the footprint (ClippedWingExcess), so it takes none and no floor.
+            // The core is the master's own value, so it stands on the plate under the star as well as on what is left at 32-36 px.
+            var under = platePlane is null ? skyLevel : skyLevel + platePlane[(iy * width) + ix];
+            var coreAboveSky = double.IsFinite(cores[c]) ? Math.Max(0.0, cores[c] - (under * scale)) : double.NaN;
+            var clippedHere = double.IsFinite(coreAboveSky) && amplitude * drawnRing[0] > ClippedWingExcess * coreAboveSky;
+            if (clippedHere)
+            {
+                amplitude = Math.Max(amplitude, MinPeakOverClip * coreAboveSky);
+            }
+            clips.Add(clippedHere ? cores[c] : double.PositiveInfinity);
+            var table = new float[rings];
+            for (var k = 2; k < rings; k++)
+            {
+                table[k] = (float)((light[k] - (amplitude * drawnRing[k])) / amplitude * (k == 2 ? 0.5 : 1.0));
+            }
+            amplitudes.Add(amplitude);
+            halos.Add(new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured saturated star"));
+        }
+        return (amplitudes.MoveToImmutable(), clips.MoveToImmutable(), halos.MoveToImmutable());
+
+        // Sorts in place: every list it is given is a scratch.
+        static double MedianOf(List<float> v)
+        {
+            if (v.Count == 0)
+            {
+                return double.NaN;
+            }
+            v.Sort();
+            return v.Count % 2 == 1 ? v[v.Count / 2] : 0.5 * (v[(v.Count / 2) - 1] + v[v.Count / 2]);
+        }
     }
 
     // A star's profiles at the draw's channel factors (R2s2), or as measured where there are none.

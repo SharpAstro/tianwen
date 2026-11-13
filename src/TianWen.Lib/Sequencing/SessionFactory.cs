@@ -86,10 +86,17 @@ internal class SessionFactory(
             throw new ArgumentException($"Profile {profileId} must contain at least one OTA", nameof(profileId));
         }
 
+        // A session points one mount, and a profile with none (a site-only profile plans a night since #2113) is refused
+        // here in words: the Mount wrapper's own refusal names a device called None.
+        if (!IsChosen(profileData.Mount) || DeviceFromUri(profileData.Mount) is NoneDevice)
+        {
+            throw new SessionRefusedException(SessionRefusedException.NoMountMessage);
+        }
+
         // A session always has a guider (#989), and a profile without one is refused here, the one point every
         // start goes through, before any wrapper is built: the Guider wrapper used to throw on a NoneDevice with
         // a message naming a blank device.
-        var guiderDevice = HasGuider(profileData.Guider) ? DeviceFromUri(profileData.Guider) : null;
+        var guiderDevice = IsChosen(profileData.Guider) ? DeviceFromUri(profileData.Guider) : null;
         if (guiderDevice is null or NoneDevice)
         {
             throw new SessionRefusedException(SessionRefusedException.NoGuiderMessage);
@@ -162,7 +169,7 @@ internal class SessionFactory(
 
         // Absent (a profile file missing the slot deserialises it as null) or NoneDevice under any scheme,
         // Guider://NoneDevice/none as much as none://NoneDevice/None.
-        static bool HasGuider([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] Uri? uri)
+        static bool IsChosen([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] Uri? uri)
             => uri is not null && !uri.Host.Equals(nameof(NoneDevice), StringComparison.OrdinalIgnoreCase);
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)

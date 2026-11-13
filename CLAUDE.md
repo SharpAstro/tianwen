@@ -1232,6 +1232,10 @@ included); design + phasing: `docs/plans/colour-theme.md`.
   `DimText` is chrome only. Derive new colours from the palette, never a literal.
 - **Judge Night at night**: anchor the clock with `TIANWEN_NOW` before concluding a Night colour is
   wrong.
+- **The accent is the colour of an ACTION, green of a state that is good** (#2125): a button that starts something is
+  `GuiTheme.GoButtonBg` (the accent, solid) under `GuiTheme.GoButtonInk`, never a `Success` fill nor a text role as its
+  label; a choice that is on is `PrimaryButtonBg`. tianwen never takes the desktop's accent: the orange is the brand's.
+  **A TUI row asks `TuiRowPalette` for a role and never names an `SgrColor`** (#2126, `TuiPaletteSourceTests`).
 
 98 raw colour literals remain of an original 317, all categorical or two-trace series by design.
 

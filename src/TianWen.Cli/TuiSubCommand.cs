@@ -389,7 +389,8 @@ internal class TuiSubCommand(
                         _ => ""
                     };
                     var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
-                    var title = $"\U0001F52D {profileName} \u2014 {tabName}";
+                    // Words only: a terminal's title is drawn by the desktop's font, which may hold no emoji (see the GUI's title).
+                    var title = $"{tabName} - {profileName}";
                     if (title != lastTitle)
                     {
                         lastTitle = title;

@@ -503,6 +503,27 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         refused.Message.ShouldStartWith("This profile has no guider.");
     }
 
+    /// <summary>
+    /// A profile with a site and no mount plans a night (#2113); starting a session on it is refused in words naming the
+    /// fix, before the guider is asked about, never as a device called None with no driver.
+    /// </summary>
+    [Theory]
+    [InlineData("Mount://NoneDevice/none")]
+    [InlineData("none://NoneDevice/None#None")]
+    public void AProfileWithNoMountIsRefusedInWords(string mountUri)
+    {
+        var profileData = new ProfileData(
+            Mount: new Uri(mountUri),
+            Guider: new Uri("none://NoneDevice/None#None"),
+            OTAs: [new OTAData("Test Scope", 1000, CreateCameraDevice().DeviceUri, null, null, null, null, null)]);
+        var (factory, _) = CreateFactory(profileData);
+
+        var refused = Should.Throw<SessionRefusedException>(() =>
+            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, [CreateDefaultObservation()]));
+
+        refused.Message.ShouldBe(SessionRefusedException.NoMountMessage);
+    }
+
     [Fact]
     public void GivenProfileWithApertureAndOpticalDesignWhenCreatedThenOTAHasValues()
     {

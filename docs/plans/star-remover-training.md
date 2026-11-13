@@ -5002,6 +5002,312 @@ share. R3k digs between R2w s1 and R3i or less, with P1's medians between R3i's 
 (0.15 / 0.3 / 0.5) monotone in both dig and P1 says the dose is the lever; a non-monotone one says a single seed cannot read it,
 and the next step is seeds, not shares.
 
+#### R3q and R3r: saturated stars as the masters show them (2026-11-10)
+
+Tracked as #2088 (PR #2086). The owner's direction, 2026-11-07: "we need synthetic more aligned to real", toward realistic
+bright stars.
+
+**The gap.** Real-star check 3 (`training/star-removal/real_star_check3.py`) scores R3l on the val masters' own stars,
+with a reference ring sized per star, a plane fitted on the output's ring, per-channel noise and neighbours masked. On the
+truth twin it reads a perfect output 97-99 % clean and agrees with the truth 92-97 %. R3l s0 / s1 read HIP 80609's
+saturated stars at 63.6 / 68.2 % clean and M42's 100-1000 sigma stars at 27.2 / 39.0 %, where the twin reads synthetic
+bright stars at about 93 %. The difference is the training data's.
+
+**Two causes, measured.**
+- **Too few saturated stars.** The masters carry 2.45 saturated stars per 256 px tile over the 136 training sessions, and
+  synth18 drew 0.25, a tenth (`training/star-removal/saturated_per_tile.py`). The old injector added at most one per draw,
+  a quarter of the time. Both numbers are the first counter's, which skipped two of the 138 sessions and counted the stars
+  centred in a drawn cell's margin (13 % more area, on the drawn side only; "R3r's Q1" below); they were not read again with
+  the fixed counter, and a tenth is the size of the gap either way.
+- **The wrong halo.** A saturated star's catalogued amplitude is a wing fit the clip inflates, and its halo does not scale
+  with it: per amplitude, the faintest third of M42's saturated stars carry nine times the brightest third's light at 5 px.
+  A per-amplitude table (`--bright-halos`) overshot and made the unsaturated bright stars less realistic, and was dropped.
+
+**The options** (`dataset degrade --mode stars`, both off by default):
+- `--saturated-own-share` draws each site saturated at the master's own share of saturated catalogue sites.
+- `--saturated-measured` draws every saturated star the plate builder subtracted as the master shows it
+  (`InjectionPopulation.MeasureSaturated`). It is read off the master less its plate, at the amplitude matching its own
+  light 3 to 5 px out, with its own ring residual to 30 px as its halo. It is clipped only in the channels its light says it
+  clipped, and drawn on the round profile it was measured against, whatever the cell draws for its other stars.
+
+**The PR #2086 review** found three faults in the first version, all fixed before R3r: the halo was laid under the
+cell's shaped profile (a drawn beta of 1.3 to 6 on 30 % of cells counted its wings twice); every channel was clipped at its
+core, flat-topping channels that never clipped; and the halo was read off the master less a ring median, so the nebula
+under a star became its halo.
+
+**The probe** (`MeasuredSaturatedRenderProbe`, on demand) plans 1,500 saturated stars per val master with the training
+recipe's beta draw, renders each alone and reads its absolute light in ring medians against the master's own saturated
+stars, master less plate. At the fixed injector:
+
+| master | 5 px | 8 px | 12 px | measured channels kept clipped |
+|---|---|---|---|---|
+| Lobster | 1.13 | 0.95 | 0.97 | 89 % |
+| HIP 80609 | 0.97 | 1.04 | 1.00 | 93 % |
+| M42 | 1.09 | 1.05 | 0.95 | 84 % |
+| SMC (22 real stars) | 0.93 | 0.93 | 0.88 | 94 % |
+
+Stars that fall back to the catalogued entry carry about half the measured stars' light; on SMC they are 15 % of the drawn
+saturated stars.
+
+**R3q, read 2026-11-10: killed.** synth20 = synth18's export with the two options, at the injector BEFORE the review's
+fixes; R3l's recipe, seed 0. Without the options its binary reproduced synth18 byte for byte (160 of 160 injection rows,
+40 of 40 tiles compared), and the first chunk drew 1.18x the masters' saturated stars per tile. Against R3l s0 / s1:
+
+| bar | R3q | R3l s0 / s1 | verdict |
+|---|---|---|---|
+| HIP 80609 saturated >= 80 | 81.8 (input ring 36.4) | 63.6 / 68.2 | no evidence: n = 22, the ring variants disagree by 45 points |
+| M42 100-1000 sigma >= 50 | 29.4 | 27.2 / 39.0 | missed |
+| Lobster saturated within 3 of s0 | 94.8 | 100 / 94.8 | missed |
+| truth tiles 20-100 >= 72, 100-1000 >= 54 | 66.9, 47.9 | 73.3, 54.5 | missed |
+| Andromeda dug <= 47 | 31.7 | 44.8 / 45.3 | held, better |
+| Tarantula dark flat >= 69 | 68.4 | 70.3 / 74.4 | missed by 0.6 |
+
+Not barred, a regression: SMC's 20-100 sigma stars 45.2 % clean (94.9 / 89.8) and 100-1000 sigma 32.2 % (96.6 / 84.7),
+pooled 20-100 ring left 18.6 % (2.3 / 3.5). R3q leaves faint and mid stars it used to take. The M31 nucleus was kept at
+77-83 % (R3l 2-16 %). It reads as a test of that export, faults included.
+
+**R3r, pre-registered 2026-11-10.** R3q again on the fixed injector: synth21 = the recipe in
+`training/star-removal/export-synth.ps1` with `--saturated-own-share --saturated-measured`, its binary (`bh-bin6`) built at
+PR #2086's commit "docs(star-remover): R3q's read and R3r pre-registered, with the export, check 3 and the per-tile count in the
+repo (#2088)", and R3l's training exactly: `training/denoise/run-r2.ps1 -Tag r3r
+-Arms synth21 -SeedCount 1 -FirstSeed 0 -Patience 24 -Steps 480000 -CheckpointEvery 2000` (its flux loss off, as R3l's).
+Scored by `training/star-removal/score-arm.ps1` against R3l's baselines, `score_whole.py` over the held-out whole masters,
+and `real_star_check3.py --sessions` on both ring variants.
+- **Q1, the export, before training:** saturated stars per tile within 25 % of the masters', pooled over the 138 sessions
+  and per session at the median.
+- **Q2, check 3 against R3l s0 / s1:** HIP 80609 saturated at least 80 on BOTH ring variants (R3q passed one and failed
+  the other); M42 100-1000 sigma at least 50; Lobster every band within 3 points of s0; and, from R3q's regression, SMC's
+  20-100 and 100-1000 sigma bands not below R3l s1 by more than 5 points.
+- **Q3, truth tiles (on-random):** 20-100 sigma at least 72, 100-1000 at least 54.
+- **Q4, whole masters:** Andromeda dark dug at most 47, Tarantula dark flat at least 69.
+- **Kill:** Q1 fails; or SMC's regression returns (the faults were not its cause); or HIP's saturated stars do not gain 8
+  points over R3l's mean (66) on both rings while Q3 holds.
+- **Prediction:** Q1 holds; HIP gains; SMC's regression goes, since its saturated stars drew a doubled wing on a third of
+  cells and nebula as halo; M42's 100-1000 sigma band gains little, those stars being mostly unsaturated, which this arm
+  does not touch. If M42 is the only miss, the next arm is the unsaturated bright class measured the same way.
+
+**R3r's Q1, read 2026-11-11: holds, once the counter counted the tile.** As first run, `saturated_per_tile.py` read 1.27
+pooled (1.31 per session at the median) and R3r was briefly stopped as killed. The counter was wrong in two ways:
+- **It counted the margin.** A cell is drawn with about 8 px of margin about it, and a row lists the stars centred there
+  too, which is 13 % more area than the tile.
+- **It matched session ids as raw text.** It skipped the two sessions whose ids the writer escapes (a '+' as `+`).
+
+Counting only stars centred inside the tile, over all 138 sessions, Q1 reads **1.12 pooled and 1.15 at the median**,
+inside the bar, which did not move. What is left of the excess is mostly the recipe's own `--saturated-fraction` 0.25
+extra star, which R3l drew too. The rest is the frame's saturated share applied to steered cells that hold a lower share
+than the frame: 1.15 in the same cells. Training was never interrupted, and Q2 to Q4 are read as pre-registered.
+
+**R3r, read 2026-11-11: fails its bars.** Trained to step 174,500 (best held-out 6.95e-6 at 150,500, converged after
+the last halving). Against R3l s0 / s1, check 3 on its own ring and on the input's ring:
+
+| bar | R3r own / input ring | R3l s0 / s1 own (input ring) | verdict |
+|---|---|---|---|
+| Q2 HIP 80609 saturated >= 80 on both | 72.7 / 54.5 | 63.6 / 68.2 (63.6 / 63.6) | missed |
+| Q2 M42 100-1000 sigma >= 50 | 43.4 / 40.4 | 27.2 / 39.0 | missed, though the best yet |
+| Q2 Lobster every band within 3 of s0 | saturated 94.8 / 84.5 | 100 / 94.8 (94.8 / 94.8) | missed: 3 of 58 stars, and 10 points on the input ring |
+| Q2 SMC 20-100, 100-1000 not 5 below s1 | 97.7, 86.4 / 98.3, 93.2 | s1 89.8, 84.7 | held: the regression is gone |
+| Q3 truth tiles 20-100 >= 72, 100-1000 >= 54 | 72.6, 52.8 | 73.3, 54.5 | 100-1000 missed by 1.2 |
+| Q4 Andromeda dark dug <= 47 | 44.2 | 44.8 / 45.3 | held |
+| Q4 Tarantula dark flat >= 69 | 68.7 | 70.3 / 74.4 | missed by 0.3 |
+
+The kill on HIP fires: its saturated stars gain 6.7 points over R3l's mean on the own ring and lose 11.5 on the input's,
+where the bar was 8 on both. The predictions on SMC (gone) and M42 (little gain) held; the one on HIP did not.
+
+**What moved instead is the dig.** More saturated stars in training made the model take MORE light from saturated stars,
+not less: check 3's pooled saturated "ring dug" is 54.5 % own and 63.5 % input ring (R3l 21 to 30 % and 56 to 57 %), and on
+the truth tiles saturated stars are 53.6 % clean and 35.1 % dug (R3l s0 60.8 % and 24.2 %). The 100-1000 sigma band's
+dug share on the truth tiles rose 1.4 points with it. The M31 nucleus was kept at 36 to 38 % (R3l 2 to 16 %, R3q 77 to
+83 %). The first hypothesis, that the measured halo is drawn larger or brighter than the masters' stars hold, was then
+measured and is wrong:
+- **The dig is in the core, not the halo.** Per channel, output less reference in sigma, median over saturated stars:
+  within 4.5 px R3r reads -0.92 / -1.19 / -0.75 on the real masters (reference: the input's 19-22 px plane), against R3l s0's
+  -0.78 / -1.04 / -0.51 and SXT's -0.86 / -0.88 / -0.34; at 6-12 px the three agree within 0.1. On the truth tiles
+  (reference: the truth) R3r reads 0.00 / -0.19 / -0.19 in the core against R3l s0's -0.01 / -0.20 / -0.11, the halo
+  -0.02 to -0.04 for both. So R3r takes a fifth of a sigma more under a saturated core, most in blue.
+- **The plates are not dug under the saturated stars the measurement reads.** Over 1,914 subtracted saturated stars in 24
+  training plates (2026-10-12 bake), the plate's core within 4.5 px stands +0.09 / +0.15 / +0.05 sigma over its 19-22 px
+  ring, 6-12 px +0.04 / +0.05 / +0.03: a measured star carries slightly less light than the master, not more.
+
+Neither explains a core dig, which is under a clipped plateau, where the output can only guess the sky. What the saturated
+cells teach about the sky under a clipped core is the next thing to read, in the injector's code before any measurement.
+Read: nothing there biases it. A plateau clips at the larger of the star's level and the plate (`StarInjection.RenderStacked`)
+and the target is the plate, so a clipped core teaches only what the input shows. And R3l's own two seeds differ by 0.3 to
+0.5 sigma in HIP's saturated cores, more than R3r's shift, so one seed cannot say the dig is the data's.
+
+**R3r seed 1, pre-registered 2026-11-11.** R3r exactly, `-FirstSeed 1`, scored the same way.
+- **Seed noise:** s1's pooled saturated ring dug (own ring) at most 35 % (R3l 21 to 30 %). Then s0's dig was the seed, and
+  R3r's bars are read again on the two seeds' mean.
+- **The data's:** s1's saturated ring dug at least 45 %. Then R3r stays killed, and the next place to look is the measured
+  stars' unclipped channels (a blue core drawn on the round profile from its 3-5 px light), measured before any arm.
+- Between the two, R3r stays killed and the dig is called unresolved.
+
+**R3r seed 1, read 2026-11-11: the dig was the seed's; on the two seeds' mean R3r still fails.** Trained to step 217,500
+(best held-out 6.61e-6 at 193,500, converged after the last halving). Its pooled saturated ring dug is **13.6 %** on its
+own ring (s0 54.5 %, R3l 21.1 / 30.0 %), so the seed-noise branch holds, and R3r's bars are read on the mean of s0 and s1:
+
+| bar | s0 / s1 own (input ring) | two-seed mean own / input | R3l s0 / s1 own | verdict |
+|---|---|---|---|---|
+| Q2 HIP 80609 saturated >= 80 on both | 72.7 / 90.9 (54.5 / 72.7) | 81.8 / 63.6 | 63.6 / 68.2 | missed on the input ring |
+| Q2 M42 100-1000 sigma >= 50 | 43.4 / 26.5 (40.4 / 22.8) | 35.0 / 31.6 | 27.2 / 39.0 | missed |
+| Q2 Lobster every band within 3 of R3l s0 | saturated 94.8 / 100 (84.5 / 93.1) | 97.4 / 88.8 | 100 / 94.8 | missed on the input ring |
+| Q2 SMC 20-100, 100-1000 not 5 below R3l s1 | 97.7, 86.4 / 97.2, 89.8 | 97.5, 88.1 | s1 89.8, 84.7 | held |
+| Q3 truth tiles 20-100 >= 72, 100-1000 >= 54 | 72.6, 52.8 / 72.5, 53.4 | 72.6, 53.1 | 73.3, 54.5 / 73.2, 58.2 | 100-1000 missed by 0.9 |
+| Q4 Andromeda dark dug <= 47 | 44.2 / 31.4 | 37.8 | 44.8 / 45.3 | held |
+| Q4 Tarantula dark flat >= 69 | 68.7 / 76.3 | 72.5 | 70.3 / 74.4 | held |
+
+The HIP kill fires on the mean too: its saturated stars gain 15.8 points over R3l's mean on the own ring and none on the
+input ring (63.6 against R3l's 63.6). So R3r stays killed, now for misses that do not depend on one seed: M42's bright
+stars, HIP and Lobster's saturated stars on the input ring, and the truth tiles' 100-1000 sigma band.
+
+**What the two seeds say about the instrument.** One seed against the other moved the pooled saturated dig by 41 points,
+HIP's saturated clean share by 18 (n = 22) and M42's 100-1000 sigma band by 17 (n = 136); R3l's seeds moved them 9, 5 and
+12. On the truth twin (check 3's `--twin`) the four models' saturated stars read 85 to 89 % truly clean with no order
+between the arms. A single-seed difference in the saturated or M42 rows of check 3 is therefore not evidence, and an arm
+that is to move them needs two seeds before it is read. The rows with many stars (Lobster, HIP below saturation, the truth
+tiles' bands, the whole masters) moved by 1 to 8 points between seeds. The M31 nucleus was kept at -4 / +17 / +27 % (s0
+36 to 38 %, R3l 2 to 16 %).
+
+Both seeds trained from the frozen run copy R3l used (`run-r2.ps1` and `n2n_smoke.py` as of "feat(training):
+--oversample-sessions draws a listed set of sessions' cells more often (#1947)"), which is the repo's trainer less the
+later `--flux-loss` option that R3r runs with off; its log's commit field is blank because that copy is outside the repo.
+
+#### M42's bright stars: the channels' wings, outside the training range (2026-11-11)
+
+M42's 100-1000 sigma stars are the one miss every arm shares (R3l, R3q, R3r), and in check 3 they fail as DUG (52 to 78 %,
+SXT 7 %), on M42 alone: HIP, Lobster and SMC read about 99 % clean in that band. Measured on the real val tiles, output
+less the input's 19-22 px plane, per channel, median over the band's unsaturated stars (226 on M42):
+- **The dig is blue, at 2 to 3 px.** Blue reads -2.7 and -1.7 sigma at 2 and 3 px for R3r s0 and R3l s0 alike, where SXT
+  reads -0.5 and 0.0; at 6 to 12 px every model agrees with SXT within 0.1. It is the core's shape, not the halo or the
+  nebula under it.
+- **No colour plane is offset** (centroids within 0.1 px of green on M42; the SMC's red, 0.26 px off, is the filter's).
+- **M42's channels differ in their wings.** Its field PSF fits beta 3.06 / 1.72 / 4.54 (R / G / B): heavy green wings,
+  compact blue, a blue-over-green beta ratio of **2.64**, which the real stars bear out (at 2 px green holds 0.23 of its peak,
+  blue 0.16). The sessions that pass sit at 0.8 to 1.5 (HIP 80609 0.94 to 1.12, Lobster 0.78 to 1.46, SMC 0.94 to 1.11).
+- **Training holds almost none of it.** synth21's drawn stars have a blue-over-green beta of 1.00 at the median and 1.35 at
+  the 90th percentile; 1.2 % reach 2.4, and 5 of its 123 sessions reach 2 at the median. `--star-beta-draw` itself draws
+  every channel of a held cell at ONE beta, so 30 % of the cells teach a ratio of exactly 1.
+
+Measured by `training/star-removal/bright_channel_profile.py` and `channel_offset.py`.
+
+So the model learned that blue's wing follows green's, and on M42 it takes a green-shaped wing out of a compact blue star.
+The deploy point is outside the training range, the case `--star-beta-draw` was built for in one dimension and not in the
+channels' relation. Every arm that widened star shapes took M31's nucleus (R2l, R2m, R2s, R2s2, R2v), so the arm that
+draws the channels' betas apart is read against the nucleus guard as well as M42.
+
+**R3s, pre-registered 2026-11-11.** One change from R3l: `--star-beta-draw 0.3,1.3,6,3`, whose fourth value draws a held
+cell's red and blue betas each at a factor of its green's, log-uniform in [1/3, 3] (`StarBetaDraw.ChannelSpread`). The cells
+the draw holds, their green beta and every other number are the draw R3l made: on one ASI533MC session's control export, 20
+of 24 rows and their tiles were byte-identical and the 4 held rows differed only in red and blue beta.
+- **The export:** synth22 = `training/star-removal/export-synth.ps1 -Name synth22 -BetaDraw 0.3,1.3,6,3` with no `-Extra`,
+  its binary built at "feat(training): --star-beta-draw takes a channel spread, drawing a held cell's red and blue betas
+  apart from green's" (the export's folder holds HEAD.txt), into `D:/temp/tianwen-scratch/r3-train-synth22`.
+- **The training:** R3l's exactly, both seeds, from the same frozen trainer copy R3l and R3r ran (`run-r2.ps1 -Tag r3s
+  -Arms synth22 -SeedCount 2 -FirstSeed 0 -Patience 24 -Steps 480000 -CheckpointEvery 2000`), so R3l s0 / s1 are the
+  baseline with nothing else different.
+- **Scored** by `score-arm.ps1`, `score_whole.py`, `real_star_check3.py --sessions` on both rings and
+  `bright_channel_profile.py`, every bar on the two seeds' mean against R3l's.
+
+The bars:
+- **Q1, the export, before training:** 3 to 5.5 % of synth22's unsaturated stars drawn with blue at 2.4 times green's beta
+  or more (`channel_beta_share.py`; synth21 1.2 %, all of it from the 70 % of cells the draw does not hold, so about 1.2 %
+  plus 0.3 x 10 % = 4.2 % expected).
+- **Q2, M42:** its 100-1000 sigma stars at least 50 % clean on the own ring (R3l 27.2 / 39.0, mean 33.1); its blue at 2 to
+  3 px within 0.7 sigma of SXT's in `bright_channel_profile.py` (R3l s0 -2.7 / -1.7 against SXT -0.5 / 0.0).
+- **Guards:** HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below R3l's mean on the own ring;
+  truth tiles 20-100 at least 72 and 100-1000 at least 54; Andromeda dark dug at most 47 and Tarantula dark flat at least 69;
+  the M31 nucleus at 0-6 px under 40 % in every channel on both seeds (R3l +1 to +14 %, R3r 17 to 38 %, the arms that
+  took it 70 to 80 %).
+- **Kill:** Q1 fails; or M42 under 40 on the mean; or a guard fails.
+- **Prediction:** M42's blue dig falls toward SXT's and its band clears 50; the other sessions, whose channels' betas sit
+  at 0.8 to 1.5, do not move beyond their seed spread; the saturated rows are not read (one seed's spread there is 18 to 41
+  points). The nucleus is the risk.
+
+**R3s, read 2026-11-12: killed by two guards; M42's band clears its bar and the nucleus is kept.** Both seeds trained to
+convergence (s0 step 224,000, best held-out 6.61e-6 at 212,000; s1 best 6.64e-6 at 197,500). Every bar on the two seeds' mean:
+
+| bar | R3s s0 / s1 | R3s mean | R3l s0 / s1 (mean) | verdict |
+|---|---|---|---|---|
+| Q1 blue at 2.4 times green's beta, 3 to 5.5 % of stars | | 4.12 % | synth21 1.2 % | held |
+| Q2 M42 100-1000 sigma clean, own ring, >= 50 | 58.1 / 52.9 | 55.5 | 27.2 / 39.0 (33.1) | held |
+| Q2 M42 blue at 2 and 3 px within 0.7 sigma of SXT's (-0.47, -0.03) | -2.31, -1.10 / -2.26, -1.14 | -2.29, -1.12 | -2.68, -1.70 / -2.99, -1.79 | missed, by 1.8 and 1.1 |
+| guard HIP 80609 20-100, 100-1000, within 3 of R3l | 99.7, 98.4 / 99.9, 98.2 | 99.8, 98.3 | 99.8, 97.4 | held |
+| guard Lobster 20-100, 100-1000 | 99.8, 99.4 / 99.8, 99.6 | 99.8, 99.5 | 99.8, 99.6 | held |
+| guard SMC 20-100, 100-1000 | 83.6, 88.1 / 79.1, 83.1 | 81.4, 85.6 | 92.4, 90.7 | **failed, 11.0 and 5.1 below** |
+| guard truth tiles 20-100 >= 72, 100-1000 >= 54 | 71.5, 53.2 / 72.6, 55.0 | 72.1, 54.1 | 73.3, 56.4 | held, by 0.1 |
+| guard Andromeda dark dug <= 47 | 25.9 / 24.7 | 25.3 | 44.8 / 45.3 | held |
+| guard Tarantula dark flat >= 69 | 69.3 / 65.1 | 67.2 | 70.3 / 74.4 | **failed** |
+| guard M31 nucleus under 40 % in every channel, both seeds | -1.1, 2.3, 2.2 / 0.6, 1.9, 1.3 % | | +1 to +14 % | held |
+
+- **The kill fires on the guards:** the SMC's stars at 20-100 and 100-1000 sigma, and Tarantula's dark sky. M42 is not
+  under 40, and Q1 held.
+- **The SMC fails as stars LEFT, not dug** (dug 0.0 and 0.0 to 1.7 %): its 20-100 sigma stars read 83.6 / 79.1 % clean where
+  R3l's read 94.9 / 89.8. R3l's own seeds differ by 5 points there and by 12 at 100-1000 sigma (n = 59), so the 100-1000 row's
+  5.1 is inside one seed's spread and the 20-100 row's 11.0 is not. The SMC is the dual-band session whose red sits 0.26 px
+  off green by its filter; a model taught that the channels' wings may differ leaves more of such a star.
+- **The prediction, in three parts.** M42's band clears 50, as predicted. Its blue dig falls toward SXT's at 3 px (-1.75 to
+  -1.12) and barely at 2 px (-2.84 to -2.29), short of the bar: the channels' betas drawn apart are part of M42's dig, not
+  all of it. "The other sessions do not move beyond their seed spread" failed on the SMC. The nucleus, the stated risk, was
+  kept better than R3l kept it.
+- **Two gains outside the bars:** Andromeda's dark sky is dug on 25.3 % where R3l dug 45.1, and M42's bright stars are dug on
+  39.0 % (both seeds) where R3l dug 58 to 71. On the input ring M42 reads 48.5 / 47.1 (R3l 19.9 / 33.8).
+- The saturated rows are not read, as registered.
+
+Read from `C:/temp/e2/check3-r3s-own.txt`, `check3-r3s-input-ring.txt`, `bright-channel-r3s.txt`, `whole-r3s_synth22_s*.log`,
+`q1-r3s.txt` and `r2-eval/<model>/on-random/starless-eval-v5.json` on DE1. Not adopted; what follows is the owner's to choose.
+
+**The four models averaged, read after the fact (2026-11-13): every guard holds, both M42 bars are missed.** The saved
+outputs of R3l s0 / s1 and R3s s0 / s1 averaged (`ens_mix4`; the whole masters through `score_whole.py --model` with the four
+graphs). Not pre-registered, so it adopts nothing:
+
+| bar | R3l mean | R3s mean | the four averaged |
+|---|---|---|---|
+| M42 100-1000 sigma clean, own ring, >= 50 | 33.1 | 55.5 | 47.1 |
+| M42 blue at 2 and 3 px within 0.7 sigma of SXT's (-0.47, -0.03) | -2.68, -1.70 (s0) | -2.29, -1.12 | -2.53, -1.41 |
+| SMC 20-100, 100-1000, within 3 of R3l | 92.4, 90.7 | 81.4, 85.6 | 93.2, 93.2 |
+| truth tiles 20-100 >= 72, 100-1000 >= 54 | 73.3, 56.4 | 72.1, 54.1 | 74.8, 60.0 |
+| Andromeda dark dug <= 47 | 45.1 | 25.3 | 36.2 |
+| Tarantula dark flat >= 69 | 72.4 | 67.2 | 72.3 |
+| M31 nucleus under 40 % in every channel | up to 15.8 % | up to 2.3 % | up to 7.8 % |
+
+The SMC's miss in R3s is its GREEN wing left at 2 to 4 px (R3s +0.2 to +0.55 sigma where SXT reads -0.7 to -0.8; R3l already
+leaves part of it), read by `bright_channel_profile.py` on the 20-100 sigma band. Averaging mends the guards and not M42's
+blue dig, so M42 needs a trained arm. A 3-minute probe of the trainer on the 1070 (2026-11-13): 52.5 tiles a second at about
+92 % GPU with the cache in memory, the rate of R3s's own run, so the card is the limit; read cold off the USB disk it was 18.
+
+**R3t, pre-registered 2026-11-13 (the owner agreed the same day).** One change from R3s: the channel spread 2 where R3s
+drew 3, `--star-beta-draw 0.3,1.3,6,2`, a held cell's red and blue betas each log-uniform in [1/2, 2] of its green's. The
+question: does a narrower spread keep R3s's gain on M42 and leave the SMC's wings as R3l does.
+- **The export:** synth23 = `export-synth.ps1 -Name synth23 -BetaDraw 0.3,1.3,6,2` with no `-Extra`, R3s's binary
+  (`bh-bin7`, built at "feat(training): --star-beta-draw takes a channel spread, drawing a held cell's red and blue betas apart
+  from green's"), into `D:/temp/tianwen-scratch/r3-train-synth23`.
+- **The training:** R3s's exactly, from the same frozen trainer copy, **one seed first**: seed 0 is trained and scored
+  alone; seed 1 is trained only if seed 0 holds every guard below and its M42 band reads at least 40. The cache is prepared
+  on the SSD (`E:/tianwen-scratch`), which changes where the bytes are read from and nothing else.
+- **Scored** as R3s was (`score-arm.ps1`, `score_whole.py`, `real_star_check3.py --sessions` on both rings,
+  `bright_channel_profile.py`). With one seed the bars are read on seed 0 against R3l's mean and R3l's own seed spread is
+  said beside every row; with two, on the mean.
+
+The bars:
+- **Q1, the export, before training:** blue at 1.6 times green's beta or more on 8 to 12 % of synth23's unsaturated stars
+  (synth21, with no spread, 5.67 %, measured 2026-11-13; a held cell adds about 16 % of its stars), and at 2.4 times or
+  more on 0.8 to 2.0 % (synth21 1.2 %; a spread of 2 draws nothing past 2).
+- **Q2, M42:** as R3s's: its 100-1000 sigma stars at least 50 % clean on the own ring; its blue at 2 to 3 px within 0.7
+  sigma of SXT's.
+- **Guards:** as R3s's, every one: HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below
+  R3l's mean on the own ring; truth tiles at least 72 and 54; Andromeda dark dug at most 47 and Tarantula dark flat at
+  least 69; the M31 nucleus under 40 % in every channel.
+- **Kill:** Q1 fails; or M42 under 40; or a guard fails. Tarantula's dark flat moves 4 points between R3l's and R3s's own
+  seeds, so a seed 0 that fails on that row ALONE by under 4 points trains seed 1 and is read on the mean.
+- **Prediction:** the SMC's two rows return to within 3 of R3l's. M42 lands between R3l's 33 and R3s's 55, and whether it
+  clears 50 is the open part: M42's blue beta is 2.64 times its green's, outside a spread of 2, so the risk is that the arm
+  gives M42's gain back. If it does, the read is that M42 needs the wide spread and the SMC's wing has to be mended another
+  way.
+
+**R3t's Q1, read 2026-11-14: holds on both bars.** `channel_beta_share.py` over synth23's 8,521,465 unsaturated RGB
+stars in 123 sessions: **10.32 %** with blue at 1.6 times green's beta or more (bar 8 to 12 %) and **1.21 %** at 2.4
+times or more (bar 0.8 to 2.0 %). Per star, blue over green's beta reads 0.72, 1.01, 1.61 and 4.64 at the 10th, 50th,
+90th and 99th percentile. Seed 0's training started the same night on the SSD cache (4,840 cells, 19.5 GiB).
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure

@@ -34,8 +34,8 @@ namespace TianWen.Cli.Plan
             var pen = (Row.IsSelected, Row.IsPinned) switch
             {
                 (true, true) => TuiRowPalette.Selected,
-                (true, false) => new RowPen(SgrColor.BrightWhite, SgrColor.BrightBlack),
-                (false, true) => new RowPen(SgrColor.BrightCyan, SgrColor.Black),
+                (true, false) => TuiRowPalette.SelectedQuiet,
+                (false, true) => TuiRowPalette.Good, // pinned: the green of a pinned row in the GUI planner
                 _ => TuiRowPalette.Body,
             };
 

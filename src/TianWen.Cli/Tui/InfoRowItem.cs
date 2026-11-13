@@ -54,7 +54,7 @@ namespace TianWen.Cli.Tui
     {
         public override Layout.Node BuildRow(in RowContext context)
         {
-            var pen = IsSelected ? TuiRowPalette.Selected : new RowPen(SgrColor.BrightCyan, SgrColor.Black);
+            var pen = IsSelected ? TuiRowPalette.Selected : TuiRowPalette.Info;
             var marker = IsSelected ? "▸" : " "; // Black right-pointing small triangle
             var row = pen.Text($"{marker} {Text}");
 
@@ -109,7 +109,7 @@ namespace TianWen.Cli.Tui
             {
                 var actionPen = ActionStyle is { } style
                     ? new RowPen(style)
-                    : new RowPen(SgrColor.BrightWhite, SgrColor.Green);
+                    : TuiRowPalette.ActionFill;
                 cells.Add(body.Gap(2));
                 cells.Add(actionPen.Cell($"[{ActionLabel}]", ActionLabel.Length + 2)
                     .Clickable(new HitResult.ButtonHit($"Stepper:{Label}:action"), OnAction));
@@ -133,7 +133,7 @@ namespace TianWen.Cli.Tui
             var frac = TotalSec > 0 ? Math.Clamp(ElapsedSec / TotalSec, 0.0, 1.0) : 0.0;
             var filled = (int)(frac * BarWidth);
             var bar = new string('█', filled) + new string('░', BarWidth - filled);
-            return new RowPen(SgrColor.BrightGreen, SgrColor.Black)
+            return TuiRowPalette.Good
                 .Text($"{Label}: {bar} {ElapsedSec:F0}/{TotalSec:F0}s");
         }
     }

@@ -333,8 +333,8 @@ public static partial class DatasetDegradationExporter
                 {
                     throw new ArgumentException("a star beta draw and a held star beta, channel relations or a wing cut are two arms; give one", nameof(options));
                 }
-                logger?.LogInformation("[degrade] star beta draw: {Share:P0} of the cells at one beta in [{Low}, {High}], on any plate",
-                    betaDraw.Share, betaDraw.Low, betaDraw.High);
+                logger?.LogInformation("[degrade] star beta draw: {Share:P0} of the cells at one beta in [{Low}, {High}], on any plate, red and blue within {Spread}x of green",
+                    betaDraw.Share, betaDraw.Low, betaDraw.High, betaDraw.ChannelSpread);
             }
             if (options.NoiseScale is { } noiseScale)
             {
@@ -587,7 +587,12 @@ public static partial class DatasetDegradationExporter
                         $"from {b.MinSignificance:F0}: {string.Join(" / ", b.Channels.Select(static c => c.WingGain.ToString("F2", CultureInfo.InvariantCulture)))}"))));
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
-                options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger));
+                options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger),
+                measuredSaturated: options.SaturatedMeasured);
+            if (options.SaturatedAtOwnShare)
+            {
+                logger?.LogInformation("[degrade] {Session}: saturated at its own share, {Share:P1} of its sites", sessionId, population.SaturatedShare);
+            }
             if (stars.WingEnvelope is not null && !population.ClampsWingRelations)
             {
                 logger?.LogWarning("[degrade] {Session}: the star-shapes file has no readable {Channels}-channel master, so its stars' wing relation is not clamped",
@@ -875,7 +880,8 @@ public static partial class DatasetDegradationExporter
             variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut,
             population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372),
             options.ChromaticWidthRatio is { } ratio ? new ChromaticWidth(ratio) : null,
-            options.StarBeta is { } beta ? new StarBeta(beta) : options.StarBetaDraw?.DrawCell(new Random(seed ^ 0x51ed270b)));
+            options.StarBeta is { } beta ? new StarBeta(beta) : options.StarBetaDraw?.DrawCell(new Random(seed ^ 0x51ed270b)),
+            options.SaturatedAtOwnShare);
 
         // The plate's cell, the cell carried at more noise (NoisedPlateCell), or on R2d's synthetic background the cell's own
         // noisy planes (SyntheticCell).
@@ -1031,7 +1037,7 @@ public static partial class DatasetDegradationExporter
                 s.Lobe,
                 s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null,
                 s.Faint,
-                s.Profiles.Any(static p => !p.Outer.IsNone) ? [.. s.Profiles.Select(p => new OuterHaloRow(cell.Camera, p.Outer.Fraction, p.Outer.AlphaPx, p.Outer.Beta))] : null))],
+                s.Profiles.Any(static p => !p.Outer.IsNone) ? [.. s.Profiles.Select(p => new OuterHaloRow(p.Outer.Source ?? cell.Camera, p.Outer.Fraction, p.Outer.AlphaPx, p.Outer.Beta))] : null))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))],
             RelationFrom: plan.RelationFrom,

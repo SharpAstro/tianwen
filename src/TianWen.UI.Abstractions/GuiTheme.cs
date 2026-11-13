@@ -316,8 +316,17 @@ namespace TianWen.UI.Abstractions
         /// <summary>The selected segment or the emphasised-but-not-committing action.</summary>
         public static RGBAColor32 PrimaryButtonBg => Mix(Palette.PanelBg, Palette.Accent, 0.55f);
 
-        /// <summary>The button that starts the thing: Start, Done, Confirm.</summary>
-        public static RGBAColor32 GoButtonBg => Mix(Palette.PanelBg, Palette.Success, 0.55f);
+        /// <summary>
+        /// The button that starts the thing: Start, Done, Confirm, Connect All. The accent at full strength (#2125): the
+        /// brand's orange is the colour of the primary action, and green is left meaning a STATE that is good (online,
+        /// guiding well, a clear frame). Solid where <see cref="PrimaryButtonBg"/> is a mix, so "start" outranks "selected".
+        /// Its label is <see cref="GoButtonInk"/>, never a text role: a mid orange carries neither ink well, the full
+        /// accent carries one of them in every state, and which one differs by state.
+        /// </summary>
+        public static RGBAColor32 GoButtonBg => Palette.Accent;
+
+        /// <summary>The label on a <see cref="GoButtonBg"/> fill, measured (<see cref="InkOn"/>).</summary>
+        public static RGBAColor32 GoButtonInk => InkOn(GoButtonBg);
 
         /// <summary>An action that interrupts something in flight, or a reversible-but-costly choice.</summary>
         public static RGBAColor32 CautionButtonBg => Mix(Palette.PanelBg, Palette.Warn, 0.55f);

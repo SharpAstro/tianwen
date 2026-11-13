@@ -297,11 +297,13 @@ namespace TianWen.UI.Abstractions
         private void RenderSessionPrompt(RectF32 contentRect, SessionPromptEventArgs prompt)
         {
             // A prompt that gates a PHYSICAL act ("switch the panel on", "cap the scope") gets an extra warning row
-            // and loses its neutral green Continue. Answering one asserts that somebody did something at the rig --
+            // and loses its ordinary go-coloured Continue. Answering one asserts that somebody did something at the rig --
             // if nobody did, the session proceeds on a false premise, and for flats it only survives because the
             // exposure solver fails the metering. A dark-frame prompt would have no such backstop. So the UI must not
-            // present Continue as the obvious default: amber, not green, since green reads as "the safe, expected
-            // choice", exactly the wrong signal for a claim the person clicking may not be in a position to make.
+            // present Continue as the obvious default: the warning's colour, not the go button's, since the go colour
+            // reads as "the safe, expected choice", exactly the wrong signal for a claim the person clicking may not be
+            // in a position to make. The go button is the accent since #2125, an orange beside this amber, so the
+            // caution line above the buttons carries the difference as well as the hue.
             var warning = PhysicalPresenceWarning(prompt);
             var continueBg = warning is null ? GuiTheme.GoButtonBg : GuiTheme.Palette.Warn;
 
@@ -310,7 +312,7 @@ namespace TianWen.UI.Abstractions
                 warning is null ? null : (warning, StatusSlewing),
                 QuestionButton(prompt.CancelLabel, GuiTheme.NeutralButtonBg, BodyText, "SessionPromptCancel",
                     () => PostSignal(new RespondSessionPromptSignal(false))),
-                QuestionButton(prompt.ContinueLabel, continueBg, BrightText, "SessionPromptContinue",
+                QuestionButton(prompt.ContinueLabel, continueBg, GuiTheme.InkOn(continueBg), "SessionPromptContinue",
                     () => PostSignal(new RespondSessionPromptSignal(true))));
         }
 
@@ -325,7 +327,7 @@ namespace TianWen.UI.Abstractions
             RenderQuestionCard(contentRect, "QuitBackdrop", dialog.Title, dialog.Message, (dialog.KeyHint, BodyText),
                 QuestionButton(QuitDialog.LabelOf(dialog.Other), otherBg, BrightText, "QuitOther",
                     () => PostSignal(new AnswerQuitSignal(dialog.Other))),
-                QuestionButton(QuitDialog.LabelOf(dialog.Default), GuiTheme.GoButtonBg, BrightText, "QuitDefault",
+                QuestionButton(QuitDialog.LabelOf(dialog.Default), GuiTheme.GoButtonBg, GuiTheme.GoButtonInk, "QuitDefault",
                     () => PostSignal(new AnswerQuitSignal(dialog.Default))));
         }
 

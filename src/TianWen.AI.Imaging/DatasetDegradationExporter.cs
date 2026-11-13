@@ -445,6 +445,16 @@ namespace TianWen.AI.Imaging
         /// their places, brightness and colour. Off, every export is what it was. Not with
         /// <paramref name="ChannelWingCut"/>, which departs from the envelope on purpose, nor with
         /// <paramref name="ChromaticWidthRatio"/>, whose widths the clamp's per-channel light never sees.</param>
+        /// <param name="SaturatedAtOwnShare">Stars mode: each site is drawn saturated at the master's own share of saturated sites
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.SaturatedShare"/>), beside <paramref name="SaturatedFraction"/>'s
+        /// extra star; one more random number per site, so the draw differs from one without it.</param>
+        /// <param name="SaturatedMeasured">Stars mode: every saturated star is drawn as its master shows it
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.MeasureSaturated"/>): at the amplitude matching its own light
+        /// 3 to 5 px out, with its own radial residual to 30 px as its halo, in place of the catalogued wing-fit amplitude the clip
+        /// inflates, on the round profile it was measured against (no option that shapes the cell's stars moves a measured one, since
+        /// its halo is the residual against that profile alone) and clipped only in the channels its own light says it clipped.
+        /// Each such star's <c>OuterHalo</c> rows record only that it was a measured saturated star (their numbers are zero); its
+        /// halo table is not written. Draws no random number.</param>
         /// <param name="OuterHaloPath">Stars mode (#1870): a <c>halo-profiles.json</c> (training/star-removal/domain/halo_profile.py); every
         /// injected star is drawn with a second, wide, faint Moffat under its profile
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>), fitted in C# per rig (the master's camera) to that file's LINEAR
@@ -552,6 +562,8 @@ namespace TianWen.AI.Imaging
             bool ClampWingRelations = false,
             string? OuterHaloPath = null,
             double? ChromaticWidthRatio = null,
+            bool SaturatedAtOwnShare = false,
+            bool SaturatedMeasured = false,
             double? NoiseScale = null,
             double? StarBeta = null,
             TianWen.Lib.Imaging.StarRemoval.StarBetaDraw? StarBetaDraw = null,

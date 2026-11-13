@@ -53,13 +53,16 @@ public sealed class PlanetaryControlPanel
     private static RGBAColor32 DimText => GuiTheme.Palette.DimText;
     private static RGBAColor32 StartBg => GuiTheme.GoButtonBg;
     private static RGBAColor32 StopBg => GuiTheme.DangerButtonBg;
-    private static RGBAColor32 ButtonText => GuiTheme.InkOn(StartBg);
+    // The ink of a mark on a NEUTRAL button (a step, a jog): body text, never InkOn, which answers white on a dark neutral
+    // fill and so breaks Night. A filled button asks GuiTheme.InkOn of its own fill.
+    private static RGBAColor32 ButtonText => GuiTheme.Palette.BodyText;
     private static RGBAColor32 SectionText => GuiTheme.Palette.DimText;
     private static RGBAColor32 Divider => GuiTheme.Palette.Separator;
     private static RGBAColor32 MovingText => GuiTheme.Palette.Warn;
     private static RGBAColor32 StepBtnBg => GuiTheme.NeutralButtonBg;
     private static RGBAColor32 JogBg => GuiTheme.NeutralButtonBg;
-    private static RGBAColor32 CheckOnBg => GuiTheme.GoButtonBg;
+    // A choice that is ON is a selection, not an action: the selected segment's fill, where the go button's is the action's (#2125).
+    private static RGBAColor32 CheckOnBg => GuiTheme.PrimaryButtonBg;
 
     // Capture settings, edited by the steppers and posted on Start.
     private static readonly double[] ExposurePresetsMs = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
@@ -203,7 +206,7 @@ public sealed class PlanetaryControlPanel
 
         // --- Capture section ---
         var captureFill = capturing ? StopBg : StartBg;
-        var startStop = Layout.Builder.Text(capturing ? "Stop" : "Start", PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
+        var startStop = Layout.Builder.Text(capturing ? "Stop" : "Start", PanelFontSize, GuiTheme.InkOn(captureFill), TextAlign.Center, TextAlign.Center)
             .Bg(captureFill).BgHover(GuiTheme.Hover(captureFill)).RowH(BaseRowHeight)
             .Clickable(new HitResult.ButtonHit("PlanetaryCaptureToggle"), _ =>
             {
@@ -629,7 +632,7 @@ public sealed class PlanetaryControlPanel
 
     // A labelled button of the panel's: its fill lit under the pointer, a press runs the action.
     private static Layout.Node PanelButton(string label, string id, RGBAColor32 fill, Action onClick)
-        => Layout.Builder.Text(label, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
+        => Layout.Builder.Text(label, PanelFontSize, GuiTheme.InkOn(fill), TextAlign.Center, TextAlign.Center)
             .Bg(fill).BgHover(GuiTheme.Hover(fill))
             .Clickable(new HitResult.ButtonHit(id), _ => onClick());
 

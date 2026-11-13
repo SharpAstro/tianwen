@@ -42,6 +42,12 @@ namespace TianWen.Cli.Tui
         /// </summary>
         public RowPen WithForeground(SgrColor foreground) => this with { Foreground = foreground.ToRgba() };
 
+        /// <inheritdoc cref="WithForeground(SgrColor)"/>
+        public RowPen WithForeground(RGBAColor32 foreground) => this with { Foreground = foreground };
+
+        /// <summary>This pen as the style a text or button row takes.</summary>
+        public VtStyle Style => new VtStyle(Foreground, Background);
+
         /// <summary>A width-filling, one-row-high text leaf in this pen: a whole row, or a Star column of one.</summary>
         public Layout.Node Text(string text, TextAlign hAlign = TextAlign.Near)
             => Layout.Builder.Text(text, TuiRowPalette.CellFontSize, Foreground, hAlign).RowH(1).Bg(Background);
@@ -65,6 +71,13 @@ namespace TianWen.Cli.Tui
     /// The pens the TUI's list rows share. Six row types independently spelled out
     /// "selected is bright white on blue"; a tree states a colour per LEAF rather than per row, so the
     /// number of places that pair could be typed differently went up, not down.
+    /// <para>
+    /// <b>It is the TUI's ONE statement of what a colour means</b> (#2126), as <c>GuiTheme</c> is the GUI's: a row asks a
+    /// role here and never names an <see cref="SgrColor"/> itself (<c>TuiPaletteSourceTests</c> fails on one). The rule is
+    /// the GUI's: the accent, the logo's orange, is the colour of an ACTION, and green is a state that is good. A terminal
+    /// with 24-bit colour shows the orange itself; one with sixteen takes the nearest of them, the dark yellow (SGR 33),
+    /// which <c>VtStyle</c> picks, so no pen here needs a second value.
+    /// </para>
     /// </summary>
     internal static class TuiRowPalette
     {
@@ -90,6 +103,51 @@ namespace TianWen.Cli.Tui
 
         /// <summary>A stepper's <c>[-]</c> / <c>[+]</c> affordance.</summary>
         public static RowPen Button { get; } = new RowPen(SgrColor.White, SgrColor.BrightBlack);
+
+        /// <summary>What every pen here sits on: the TUI states black, never the terminal's own background.</summary>
+        public static RGBAColor32 Ground { get; } = SgrColor.Black.ToRgba();
+
+        /// <summary>The accent: <c>GuiTheme</c>'s Dark accent, the logo's orange.</summary>
+        public static RGBAColor32 AccentColour { get; } = TianWen.UI.Abstractions.GuiTheme.DarkPalette.Accent;
+
+        /// <summary>An action named in text, or the thing the run is on now: the accent on the ground.</summary>
+        public static RowPen Accent { get; } = new RowPen(AccentColour, Ground);
+
+        /// <summary>A button that starts something, or an action row under the cursor: the accent as a fill, under the ink measured for it.</summary>
+        public static RowPen ActionFill { get; } = new RowPen(TianWen.UI.Abstractions.GuiTheme.InkOn(AccentColour), AccentColour);
+
+        /// <summary>A button that ends or cancels something.</summary>
+        public static RowPen DangerFill { get; } = new RowPen(SgrColor.BrightWhite, SgrColor.Red);
+
+        /// <summary>A state that is good: connected, aligned, on target, the active profile, a pinned target, progress made.</summary>
+        public static RowPen Good { get; } = new RowPen(SgrColor.BrightGreen, SgrColor.Black);
+
+        /// <summary><see cref="Good"/> as a badge.</summary>
+        public static RowPen GoodFill { get; } = new RowPen(SgrColor.Black, SgrColor.BrightGreen);
+
+        /// <summary>A badge for work that is going well and not finished.</summary>
+        public static RowPen GoodFillQuiet { get; } = new RowPen(SgrColor.BrightWhite, SgrColor.Green);
+
+        /// <summary>Informational: a heading, an info tag.</summary>
+        public static RowPen Info { get; } = new RowPen(SgrColor.BrightCyan, SgrColor.Black);
+
+        /// <summary><see cref="Info"/> as a badge: a step under way.</summary>
+        public static RowPen InfoFill { get; } = new RowPen(SgrColor.BrightWhite, SgrColor.Cyan);
+
+        /// <summary>A warning, a marginal reading, or something in transit.</summary>
+        public static RowPen Warn { get; } = new RowPen(SgrColor.BrightYellow, SgrColor.Black);
+
+        /// <summary><see cref="Warn"/> as a badge: the mount is moving.</summary>
+        public static RowPen WarnFill { get; } = new RowPen(SgrColor.Black, SgrColor.BrightYellow);
+
+        /// <summary>An error, a bad reading, a thing that is off or missing.</summary>
+        public static RowPen Error { get; } = new RowPen(SgrColor.BrightRed, SgrColor.Black);
+
+        /// <summary><see cref="Error"/> as a badge.</summary>
+        public static RowPen ErrorFill { get; } = new RowPen(SgrColor.BrightWhite, SgrColor.Red);
+
+        /// <summary>The cursor on a row that is not the pinned one: grey, where <see cref="Selected"/> is blue.</summary>
+        public static RowPen SelectedQuiet { get; } = new RowPen(SgrColor.BrightWhite, SgrColor.BrightBlack);
 
         /// <summary><see cref="Selected"/> when the cursor is on the row, <see cref="Body"/> otherwise.</summary>
         public static RowPen ForRow(bool selected) => selected ? Selected : Body;

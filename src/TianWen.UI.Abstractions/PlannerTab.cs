@@ -71,7 +71,7 @@ namespace TianWen.UI.Abstractions
         private static RGBAColor32 DetailsInfoText          => GuiTheme.Palette.DimText;
         private static RGBAColor32 SeparatorColor           => GuiTheme.Palette.Separator;
         private static RGBAColor32 FilterBtnBg              => GuiTheme.Palette.Separator;
-        private static RGBAColor32 ActiveFilterBg           => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Success, 0.45f);
+        private static RGBAColor32 ActiveFilterBg           => GuiTheme.PrimaryButtonBg; // a filter that is ON is a selection (#2125)
         private static RGBAColor32 FilterBtnText            => GuiTheme.Palette.BodyText;
         private static RGBAColor32 DropdownBg               => GuiTheme.Palette.PanelBg;
         private static RGBAColor32 DropdownSelBg            => GuiTheme.Palette.Selection;

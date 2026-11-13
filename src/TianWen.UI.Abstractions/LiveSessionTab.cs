@@ -185,9 +185,9 @@ namespace TianWen.UI.Abstractions
         // design units -- the layout engine scales the [-]/[+] button width and glyph font by dpiScale.
         // The disabled colours are unused (the preview steppers are always enabled) but the style record
         // requires them. Button bg matches the former local stepBg.
-        private static readonly FormRowLayout.StepperStyle PreviewStepperStyle = new(
-            new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff), BodyText,
-            new RGBAColor32(0x33, 0x33, 0x33, 0xff), DimText,
+        private static FormRowLayout.StepperStyle PreviewStepperStyle => new(
+            GuiTheme.NeutralButtonBg, BodyText,
+            GuiTheme.NeutralButtonBg, DimText,
             BaseFontSize * 0.85f, 28f);
 
         /// <summary>Render the complete live session tab.</summary>
