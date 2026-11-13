@@ -799,6 +799,9 @@ namespace TianWen.UI.Gui
 
             FillRect(0, 0, w, sbh, StatusBarBg);
 
+            // Unknown until this frame's bar has arranged it: a frame that draws no clock leaves none to repaint alone.
+            ClockRect = null;
+
             if (string.IsNullOrEmpty(FontPath))
             {
                 return;
@@ -962,14 +965,17 @@ namespace TianWen.UI.Gui
                     connectAll = Layout.Builder.HStack(caButton, Layout.Builder.Spacer().WFixed(gapDu * 2f)).WAuto().HStar();
                 }
             }
-            var clockNode = Layout.Builder.Text(clockText, BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center)
+            // Measured from the widest it can be, so its box does not change with the digits: the clock is repainted
+            // ALONE on a tick (#2130), which is only sound while its rectangle holds still, and a box that followed the
+            // digits also moved Connect All beside it by a pixel or two every second.
+            var clockNode = Layout.Builder.Text(clockText, BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockWidthSample)
                 .WAuto().HStar();
             var rightZone = Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), connectAll, clockNode)
                 .WStar().HStar();
 
             // Arrange + paint the bar over the content area (right of the sidebar gutter, small right margin).
             var bar = Layout.Builder.HStack(leftZone, centreZone, rightZone);
-            RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh), drawFill: (fill, rect) =>
+            var arrangedBar = RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh), drawFill: (fill, rect) =>
             {
                 // The status message's warning mark: a keyed baked-icon Fill (SeverityMarks), centred in its slot.
                 if (SeverityMarks.TryPlace(fill.Key, rect, out var mask, out var sq, out var ink))
@@ -977,7 +983,27 @@ namespace TianWen.UI.Gui
                     DrawCoverageMask(mask, sq.X, sq.Y, sq.Width, ink);
                 }
             });
+
+            // Where the engine put the clock, for the frame that repaints it alone: its own box, as arranged (the bar's
+            // fill, painted first, is clipped to the same region, so it is repainted under it).
+            foreach (var arranged in arrangedBar)
+            {
+                if (ReferenceEquals(arranged.Node, clockNode))
+                {
+                    ClockRect = new RectF32(arranged.Bounds.X, arranged.Bounds.Y, arranged.Bounds.Width, arranged.Bounds.Height);
+                    break;
+                }
+            }
         }
+
+        /// <summary>No clock text is wider: a capital W or M and two of the widest lower-case letters bound every day and month name.</summary>
+        private const string ClockWidthSample = "Wmm 30 Mmm 00:00:00";
+
+        /// <summary>
+        /// The clock's rectangle as the last frame painted it, in the surface's pixels; null when the bar was not drawn.
+        /// What a frame owed to the clock's tick alone repaints (<see cref="GuiFrameReasons"/>).
+        /// </summary>
+        internal RectF32? ClockRect { get; private set; }
 
         // Truncate with ellipsis so the string fits within maxWidth at the given font size.
         // Binary-search the longest prefix that, with the ellipsis appended, still fits.

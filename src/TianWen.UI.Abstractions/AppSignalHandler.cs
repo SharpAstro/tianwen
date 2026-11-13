@@ -403,7 +403,7 @@ namespace TianWen.UI.Abstractions
         private void PollNodeDevices()
         {
             MaybeReconnectLocalNode();
-            if (_appState.LocalNode is { DevicesRefreshDue: true } local)
+            if (_appState.LocalNode is { } local)
             {
                 RefreshDevicesOf(local, LocalNodeName);
             }
@@ -415,22 +415,28 @@ namespace TianWen.UI.Abstractions
             }
             foreach (var (_, connection) in _rigs.Connections)
             {
-                if (ReferenceEquals(connection.Context, view) && connection.DevicesRefreshDue)
+                if (ReferenceEquals(connection.Context, view))
                 {
                     RefreshDevicesOf(connection, connection.Binding.Alias);
                 }
             }
         }
 
-        private void RefreshDevicesOf(NodeConnection connection, string name) =>
-            RunTracked("RefreshNodeDevices", $"Could not read the devices of {name}",
-                async ct =>
-                {
-                    if (await connection.MaybeRefreshDevicesAsync(ct).ConfigureAwait(false))
-                    {
-                        _appState.NeedsRedraw = true;
-                    }
-                });
+        // The read is the connection's own task, pumped here, and asks for a frame only when it CHANGED what is shown
+        // (NodeConnection.PumpDevicesRead). As a tracked task that flagged whenever it read, it cost three redraw requests
+        // and one full frame every two seconds on a rig where nothing moved (#2130).
+        private void RefreshDevicesOf(NodeConnection connection, string name)
+        {
+            if (connection.PumpDevicesRead(_cts.Token, out var failure))
+            {
+                _appState.NeedsRedraw = true;
+            }
+            if (failure is not null)
+            {
+                _logger.LogWarning(failure, "Could not read the devices of {Name}", name);
+                Notify(NotificationSeverity.Error, $"Could not read the devices of {name}: {failure.Message}");
+            }
+        }
 
         /// <summary>
         /// The per-frame state mirroring of every view: the rig list and the Home board, each node's profile and devices (the
