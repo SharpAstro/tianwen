@@ -291,30 +291,19 @@ tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions { Loc
 
 
 // --- Main event loop via SdlEventLoop ---
-// Time's own frames (#2130): the tab's time-driven content at its own interval, and the clock's tick, which repaints the
-// clock alone. Two timers on purpose: nothing but the clock may lean on the clock's tick.
-var _lastTimeDrivenFrameTimestamp = timeProvider.GetTimestamp();
-var _lastClockTickTimestamp = timeProvider.GetTimestamp();
-var frameReasons = new GuiFrameReasons();
-// Whether the frame in flight repaints the clock alone: decided as the frame begins, read after it.
-var frameIsClockOnly = false;
-// When the one SETTLING frame is due, 0 for none. The flags are cleared after the frame that drew them, so a change a
-// background thread flags WHILE that frame is being drawn is cleared unseen. The once-a-second repaint used to bring
-// it to the screen within the second; that repaint is gone, so a full frame with a cause is followed by one more a
-// second later, and that one by none. Idle costs nothing: no cause, no settling frame.
-long _settlingFrameDueTimestamp = 0;
+// WHETHER a frame is owed and WHAT it repaints is GuiFrameScheduler's (#2130): the clock, the tab's time-driven
+// content, a change and a pointer move are four causes with nothing shared, and only this wiring is left here.
+var frames = new GuiFrameScheduler(timeProvider.GetTimestamp(), timeProvider.TimestampFrequency);
 // Which repaint path each frame took. Counted because a partial frame is identical on screen to a full one, so no
 // capture can tell them apart: the DEBUG inspector's state reports both.
 long fullFrames = 0;
 long partialFrames = 0;
-// TIANWEN_FRAME_LOG=1 writes those counts and the tab on show to the log every five seconds: the evidence for a
-// measurement on a machine no inspector reaches (a software renderer in WSL, a Raspberry Pi).
+// TIANWEN_FRAME_LOG=1 writes those counts, the tab on show and each cause's count to the log every five seconds: the
+// evidence for a measurement on a machine no inspector reaches (a software renderer in WSL, a Raspberry Pi).
 var frameLog = Environment.GetEnvironmentVariable("TIANWEN_FRAME_LOG") == "1";
 var _lastFrameLogTimestamp = timeProvider.GetTimestamp();
 long _lastLoggedFull = 0;
 long _lastLoggedPartial = 0;
-// app flag, planner flag, sky flag, a view context's flag, a focused field, a tooltip, the loop's own, time, the clock.
-var frameCauses = new int[9];
 // The shutdown drain's redraw tick (see CheckNeedsRedraw): 0 so its first check draws at once.
 long _lastShutdownRedrawTimestamp = 0;
 long _lastSlowFrameLogTimestamp = 0;
@@ -484,18 +473,16 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         if (frameLog && timeProvider.GetElapsedTime(_lastFrameLogTimestamp, timeProvider.GetTimestamp()) >= TimeSpan.FromSeconds(5))
         {
             _lastFrameLogTimestamp = timeProvider.GetTimestamp();
+            var causes = frames.Causes;
+            frames.Causes = default;
             logger.LogInformation(
-                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes app={App} planner={Planner} sky={Sky} context={Context} field={Field} tooltip={Tooltip} loop={Loop} time={Time} clock={Clock}",
+                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock}",
                 appState.ActiveTab, fullFrames - _lastLoggedFull, partialFrames - _lastLoggedPartial,
-                frameCauses[0], frameCauses[1], frameCauses[2], frameCauses[3], frameCauses[4], frameCauses[5], frameCauses[6], frameCauses[7], frameCauses[8]);
-            Array.Clear(frameCauses);
+                causes.Changed, causes.Loop, causes.PointerMove, causes.Time, causes.Settling, causes.Clock);
             _lastLoggedFull = fullFrames;
             _lastLoggedPartial = partialFrames;
         }
 
-        // TIME. Three things used to ride one "redraw everything once a second" rule, and are apart now (#2130,
-        // GuiFrameReasons): the clock, which repaints its own rectangle; the tab's time-driven content, at the interval
-        // GuiTimeCadence states for it; and a change, below, which asks through its redraw flag.
         var now = timeProvider.GetTimestamp();
         // A run's faster cadence follows the LOCAL run even when it is off screen (its progress and notifications still
         // surface at 2 Hz while a remote context is displayed), and the viewed context's own.
@@ -509,16 +496,6 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         {
             previewCapturing |= capturing;
         }
-        var cadence = GuiTimeCadence.Interval(appState.ActiveTab, runGoingOn, previewCapturing,
-            slewInFlight: guiRenderer.SkyMapState.ActiveSlewTarget is not null);
-        var timeDriven = timeProvider.GetElapsedTime(_lastTimeDrivenFrameTimestamp, now) >= cadence;
-
-        var clockTicked = timeProvider.GetElapsedTime(_lastClockTickTimestamp, now) >= GuiTimeCadence.Second;
-        if (clockTicked)
-        {
-            _lastClockTickTimestamp = now;
-        }
-
         // Live-session / planner state changes (progress callbacks fired from
         // the thread pool, etc.) push their redraw flag here -- treat them as
         // first-class triggers so per-rung polar status updates surface within
@@ -542,70 +519,32 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             // A tooltip's hover delay runs out while the pointer RESTS, which nothing else notices.
             || handlers.TooltipNeedsFrame;
 
-        if (frameLog && (timeDriven || changed || clockTicked || eventLoop is not { RedrawPending: false }))
-        {
-            // Each cause of a frame, counted: what the five-second line reports beside the frames themselves.
-            if (appState.NeedsRedraw) { frameCauses[0]++; }
-            if (plannerState.NeedsRedraw) { frameCauses[1]++; }
-            if (guiRenderer.SkyMapState.NeedsRedraw) { frameCauses[2]++; }
-            if (guiRenderer.ViewContexts.AnyNeedsRedraw) { frameCauses[3]++; }
-            if (appState.ActiveTextInput is { IsActive: true }) { frameCauses[4]++; }
-            if (handlers.TooltipNeedsFrame) { frameCauses[5]++; }
-            if (eventLoop is not { RedrawPending: false }) { frameCauses[6]++; }
-            if (timeDriven) { frameCauses[7]++; }
-            if (clockTicked) { frameCauses[8]++; }
-        }
-
-        // WHY the frame is owed decides what it repaints. The loop asks this after dispatching the iteration's events, so
-        // a frame it armed itself (input a handler took, an expose, a resize, a restore, a frame held back) shows as
-        // RedrawPending: a cause this check cannot name, so a full repaint.
-        var caused = timeDriven || changed || eventLoop is not { RedrawPending: false };
-        var settling = !caused && _settlingFrameDueTimestamp != 0 && now >= _settlingFrameDueTimestamp;
-        if (caused)
-        {
-            // Armed by a frame with a cause, and by nothing else: the settling frame does not ask for another.
-            _settlingFrameDueTimestamp = now + (long)(GuiTimeCadence.Second.TotalSeconds * timeProvider.TimestampFrequency);
-        }
-        else if (settling)
-        {
-            _settlingFrameDueTimestamp = 0;
-        }
-        if (caused || settling)
-        {
-            frameReasons.Full();
-        }
-        if (timeDriven || changed)
-        {
-            // A full frame draws everything time-driven, whatever asked for it.
-            _lastTimeDrivenFrameTimestamp = now;
-        }
-        if (clockTicked)
-        {
-            frameReasons.ClockTick();
-        }
-        return timeDriven || changed || settling || clockTicked;
+        // The loop asks this after dispatching the iteration's events, so a frame it armed itself (input a handler took,
+        // an expose, a resize, a frame held back) shows as RedrawPending.
+        return frames.Check(now, new GuiFrameInputs(
+            appState.ActiveTab, runGoingOn, previewCapturing,
+            SlewInFlight: guiRenderer.SkyMapState.ActiveSlewTarget is not null,
+            Changed: changed,
+            RedrawPending: eventLoop is not { RedrawPending: false },
+            PendingForPointerMoveAlone: eventLoop is { RedrawPendingForPointerMoveAlone: true },
+            PointerMoveChanged: handlers.TakePointerMoveChanged()));
     },
 
-    // Committed to a frame: say what it repaints. The clock's rectangle alone when the clock's tick is the only cause
-    // since the last frame, on a tab where that is sound, and the bar was drawn; everything otherwise.
+    // Committed to a frame: say what it repaints. The flags are PEEKED here, never consumed: a narrowed frame takes no
+    // part in their life, and they are cleared after a full frame only (OnPostFrame), as they always were.
     OnBeforeFrame = () =>
     {
-        var clockOnly = frameReasons.TakeIsClockOnly();
-        // PEEKED, never consumed: a clock frame takes no part in the redraw flags' life. One that a background writer
-        // set since the check makes this frame a full one; the flags are cleared after a FULL frame only (OnPostFrame),
-        // as they always were, so what a clock frame did not paint is still asked for.
         var flagged = appState.NeedsRedraw || plannerState.NeedsRedraw || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw;
-        frameIsClockOnly = clockOnly && !flagged && !appState.ShuttingDown
-            && GuiTimeCadence.ClockMayRepaintAlone(appState.ActiveTab)
-            && guiRenderer.ClockRect is { Width: > 0f };
-        if (frameIsClockOnly && guiRenderer.ClockRect is { } clock)
-        {
-            renderer.AddFrameDamage(clock.X, clock.Y, clock.Width, clock.Height);
-        }
-        else
+        var narrowed = frames.BeginFrame(flagged, appState.ShuttingDown, appState.ActiveTab, guiRenderer.ClockRect);
+        if (narrowed.Count == 0)
         {
             renderer.MarkFullFrameDamage();
+            return;
+        }
+        foreach (var rect in narrowed)
+        {
+            renderer.AddFrameDamage(rect.X, rect.Y, rect.Width, rect.Height);
         }
     },
 
@@ -701,8 +640,8 @@ loop.OnPostFrame = () =>
         return;
     }
 
-    // A frame that repainted the clock alone drew nothing a flag asked for, so it clears none (#2130).
-    if (!frameIsClockOnly)
+    // A narrowed frame drew nothing a flag asked for, so it clears none (#2130).
+    if (!frames.FrameIsNarrow)
     {
         if (!appState.ShuttingDown && !signalSetRedraw)
         {

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using DIR.Lib;
 
 namespace TianWen.UI.Abstractions;
 
@@ -32,12 +34,46 @@ public sealed class GuiFrameReasons
     // A window's first frame has no previous frame to keep.
     private bool _full = true;
     private bool _clock;
+    private readonly List<RectF32> _narrowed = [];
 
-    /// <summary>Something other than the clock asked for the pending frame, or nobody can say what did.</summary>
+    /// <summary>Something asked for the pending frame that cannot say what it changed, or nobody can say what did.</summary>
     public void Full() => _full = true;
 
-    /// <summary>The clock's second turned over.</summary>
+    /// <summary>The clock's second turned over: the clock's own rectangle, which the frame's host knows.</summary>
     public void ClockTick() => _clock = true;
+
+    /// <summary>
+    /// A cause that knows the whole extent of what it changed, in the surface's pixels: a chart's crosshair moving under
+    /// the pointer. Call ONLY where that extent is known; an empty rectangle is no change and is dropped.
+    /// </summary>
+    public void Narrow(RectF32 changed)
+    {
+        if (changed.Width > 0f && changed.Height > 0f)
+        {
+            _narrowed.Add(changed);
+        }
+    }
+
+    /// <summary>
+    /// Takes the verdict for the frame about to be drawn and starts over for the next. True when every cause since the last
+    /// frame said what it changed: <paramref name="clock"/> then says whether the clock's rectangle is one of them, and the
+    /// rest are added to <paramref name="into"/>. False when the frame must be repainted in full, which is also the answer
+    /// for a frame with no stated cause at all.
+    /// </summary>
+    public bool TryTakeNarrow(List<RectF32> into, out bool clock)
+    {
+        var narrow = !_full && (_clock || _narrowed.Count > 0);
+        clock = narrow && _clock;
+        if (narrow)
+        {
+            into.AddRange(_narrowed);
+        }
+
+        _full = false;
+        _clock = false;
+        _narrowed.Clear();
+        return narrow;
+    }
 
     /// <summary>
     /// Takes the verdict for the frame about to be drawn and starts over for the next: true when the clock's tick is the
@@ -45,9 +81,10 @@ public sealed class GuiFrameReasons
     /// </summary>
     public bool TakeIsClockOnly()
     {
-        var clockOnly = _clock && !_full;
+        var clockOnly = _clock && !_full && _narrowed.Count == 0;
         _full = false;
         _clock = false;
+        _narrowed.Clear();
         return clockOnly;
     }
 }
@@ -109,4 +146,7 @@ public static class GuiTimeCadence
     /// </summary>
     public static bool ClockMayRepaintAlone(GuiTab tab)
         => tab is GuiTab.Home or GuiTab.Equipment or GuiTab.Planner or GuiTab.Session or GuiTab.Notifications;
+
+    /// <summary>Whether ANY frame may be narrowed on this tab: the same question as <see cref="ClockMayRepaintAlone"/>.</summary>
+    public static bool MayNarrow(GuiTab tab) => ClockMayRepaintAlone(tab);
 }

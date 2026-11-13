@@ -215,7 +215,49 @@ namespace TianWen.UI.Abstractions
         // No divider branch: a drag is a DragCapture the region armed, and the router delivers every move
         // to it without this path seeing them at all. What is left is the tab's (hover, drag-pan, scrollbar).
         private bool HandleMissedMove(InputEvent.MouseMove move)
-            => _chrome.ActiveTab?.HandleInput(move) ?? false;
+        {
+            var tab = _chrome.ActiveTab;
+            var handled = tab?.HandleInput(move) ?? false;
+            if (handled)
+            {
+                // What the move changed, when the tab can say: the frame it asks for may then repaint that alone
+                // (GuiFrameScheduler). A tab that took the move and says nothing gets a full frame, as always.
+                if (tab is IPointerMoveChange stated && stated.TakePointerMoveChanged() is { } changed)
+                {
+                    _pointerMoveChanged = _pointerMoveChanged is { } held ? Union(held, changed) : changed;
+                }
+                else
+                {
+                    _pointerMoveUnstated = true;
+                }
+            }
+
+            return handled;
+        }
+
+        private RectF32? _pointerMoveChanged;
+        private bool _pointerMoveUnstated;
+
+        /// <summary>
+        /// What the pointer moves a tab took since the last call changed on screen, for the host's redraw check; null when
+        /// none was taken, or when one was taken by a tab that did not say (the frame is then a full one).
+        /// </summary>
+        public RectF32? TakePointerMoveChanged()
+        {
+            var changed = _pointerMoveUnstated ? null : _pointerMoveChanged;
+            _pointerMoveChanged = null;
+            _pointerMoveUnstated = false;
+            return changed;
+        }
+
+        private static RectF32 Union(RectF32 a, RectF32 b)
+        {
+            var x0 = MathF.Min(a.X, b.X);
+            var y0 = MathF.Min(a.Y, b.Y);
+            var x1 = MathF.Max(a.X + a.Width, b.X + b.Width);
+            var y1 = MathF.Max(a.Y + a.Height, b.Y + b.Height);
+            return new RectF32(x0, y0, x1 - x0, y1 - y0);
+        }
 
         private bool HandleMissedRelease(InputEvent.MouseUp up)
         {
