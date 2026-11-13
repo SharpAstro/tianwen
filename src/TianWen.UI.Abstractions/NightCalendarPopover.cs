@@ -238,18 +238,26 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         var known = _painted.Nights.TryGetValue(night, out var summary);
         var verdict = known ? NightVerdict.For(summary) : (NightVerdict?)null;
 
-        var fill = verdict is { } v ? CellTint(v) : GuiTheme.Mix(palette.PanelBg, palette.Separator, 0.35f);
+        var fill = CellFill(night);
         var dayColour = night == tonight ? palette.Accent : inMonth ? palette.BodyText : palette.DimText;
 
-        var top = Layout.Builder.HStack(
-                Layout.Builder.Text(night.Day.ToString(CultureInfo.CurrentCulture), FontSize, dayColour,
-                    TextAlign.Near, TextAlign.Center, widthSample: "00").WAuto().HStar(),
-                Layout.Builder.Spacer().WStar(),
-                ShowerMark(night),
-                known
-                    ? Layout.Builder.Fill(MoonSize, MoonSize, MoonKeyPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
-                        .WFixed(MoonSize).HFixed(MoonSize).CrossCenter()
-                    : Layout.Builder.Spacer().WFixed(MoonSize))
+        // The mark joins the row only on a night with a shower, so every other cell keeps its old geometry.
+        var topChildren = new List<Layout.Node>(4)
+        {
+            Layout.Builder.Text(night.Day.ToString(CultureInfo.CurrentCulture), FontSize, dayColour,
+                TextAlign.Near, TextAlign.Center, widthSample: "00").WAuto().HStar(),
+            Layout.Builder.Spacer().WStar(),
+        };
+        if (ShowerMark(night) is { } mark)
+        {
+            topChildren.Add(mark);
+        }
+
+        topChildren.Add(known
+            ? Layout.Builder.Fill(MoonSize, MoonSize, MoonKeyPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+                .WFixed(MoonSize).HFixed(MoonSize).CrossCenter()
+            : Layout.Builder.Spacer().WFixed(MoonSize));
+        var top = Layout.Builder.HStack([.. topChildren])
             .WithGap(3f)
             .WStar();
 
@@ -294,11 +302,11 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     /// The shower mark of a night: a ring for a night a shower is active, a ring around a solid dot for the night of a peak.
     /// Shape carries the difference, never colour, and nothing is reserved when the night holds no shower.
     /// </summary>
-    private Layout.Node ShowerMark(DateOnly night)
+    private Layout.Node? ShowerMark(DateOnly night)
     {
         if (!_painted.Showers.TryGetValue(night, out var showers) || showers.IsDefaultOrEmpty)
         {
-            return Layout.Builder.Spacer().WFixed(0f);
+            return null;
         }
 
         var kind = showers.Any(s => s.IsPeakNight) ? "peak" : "active";
