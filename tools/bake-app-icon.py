@@ -18,10 +18,11 @@ import os
 import struct
 import sys
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 SIZES = [256, 64, 48, 32, 24, 16]
-SUPER = 4            # the rim's mask is drawn this many times larger, then reduced: Pillow's shapes are not antialiased
+FEATHER = float(os.environ.get("ICON_FEATHER", "0.05"))   # of the radius: the limb fades to nothing over this much,
+                     # so the disc blends into whatever taskbar it sits on and has no cut edge (the owner, 2026-11-14)
 GROUND = 16          # a pixel brighter than this (of 255) is the Moon, not the black ground
 INSET = 0.012        # of the radius, the rim is taken inside the measured edge: the limb is not an exact circle, and
                      # a rim on the edge itself left a dark fringe along one side on a light ground
@@ -40,11 +41,20 @@ def moon(source):
     cx, cy, radius = disc_of(image)
     radius *= 1.0 - INSET
 
-    mask = Image.new("L", (image.width * SUPER, image.height * SUPER), 0)
-    ImageDraw.Draw(mask).ellipse(
-        [(cx - radius) * SUPER, (cy - radius) * SUPER, (cx + radius) * SUPER, (cy + radius) * SUPER], fill=255)
+    # Opaque inside, fading smoothly (a smoothstep) to nothing at the rim.
+    inner = radius * (1.0 - FEATHER)
+    span = max(radius - inner, 1e-6)
+    mask = Image.new("L", image.size, 0)
+    alpha = mask.load()
+    for y in range(image.height):
+        dy = y + 0.5 - cy
+        for x in range(image.width):
+            dx = x + 0.5 - cx
+            t = (radius - (dx * dx + dy * dy) ** 0.5) / span
+            t = 0.0 if t <= 0.0 else 1.0 if t >= 1.0 else t * t * (3.0 - 2.0 * t)
+            alpha[x, y] = round(255 * t)
     cut = image.convert("RGBA")
-    cut.putalpha(mask.resize(image.size, Image.LANCZOS))
+    cut.putalpha(mask)
 
     half = radius / (1.0 - 2.0 * MARGIN)
     box = [round(cx - half), round(cy - half), round(cx + half), round(cy + half)]
