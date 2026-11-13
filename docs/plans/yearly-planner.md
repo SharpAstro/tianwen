@@ -1,11 +1,11 @@
 # Best time to observe: the atlas's night curve and a yearly planner (plan)
 
-**Status: A DONE (#2059), B to D NOT STARTED. Written 2026-11-07**, raised by the user: "in the atlas, do we already show the best
+**Status: A DONE (#2059), B to E NOT STARTED. Written 2026-11-07**, raised by the user: "in the atlas, do we already show the best
 observability time?", then "the planner might need two modes, a yearly planner, that would tell you, M31 can
 best be observed in September etc.", and "the atlas info box should just maybe mark the area under the height
 graph that is good for observing (same criteria as the planner) and maybe show a total (plus the score)".
 
-Milestone: `yearly-planner` (#2059 to #2062). Companions: [night-calendar](night-calendar.md) (which night of a month),
+Milestone: `yearly-planner` (#2059 to #2062, #2120). Companions: [night-calendar](night-calendar.md) (which night of a month),
 [moon-avoidance](moon-avoidance.md) (the moon term in the score), [skymap-time-scrub](skymap-time-scrub.md)
 (the atlas's viewing time), [in-app-sky-atlas](in-app-sky-atlas.md).
 
@@ -119,3 +119,37 @@ A plan saved for a later night should be findable from tonight:
 - Nights further ahead than the forecast or the current season (say 60 days) stay in the collapsed list only.
 - The fallback that carries the most recent earlier plan forward is kept; it is what stops pins vanishing at
   the evening rollover.
+
+## E. Meteor showers
+
+Tracked by #2120. Raised by the user on 2026-11-13: "I realised we don't have meteor showers".
+
+A shower is a yearly event with a date and a radiant, and nothing in the app knows one. It needs no detector,
+only a table and the Sun:
+
+- **The table** is static data in `TianWen.Lib`, the IMO working list's showers (about 30 to 40): the radiant's
+  RA and Dec at the peak and its daily drift, the solar longitude of the peak, the activity window, the ZHR,
+  the population index and the speed.
+- **A year's peak is the instant the Sun reaches the peak's solar longitude**, from the VSOP87 Sun, never a
+  stored date: a date drifts against the calendar by the leap cycle, the longitude does not.
+- **The expected rate at the site is per night**: the ZHR scaled by the radiant's altitude over the night's
+  dark window and by the limiting magnitude under that night's Moon, which the night calendar already places
+  ([night-calendar](night-calendar.md)). A peak that falls in daylight at the site is said as the nearest
+  night's rate, not hidden.
+- **Where it shows**: the year mode (C) marks each month's peaks with the expected rate; the night calendar
+  marks a night a shower peaks or is active on; the atlas draws the radiant of an active shower, moved by its
+  drift for the viewing night.
+- **A shower is NOT in `ICelestialObjectDB`**, as a comet is not: it is an event, absent outside its activity
+  window, and a DB entry would be scored by the planner as an imaging target and annotated on photographs.
+  Each surface asks the one routine ("the showers active on this night, each radiant, its rate here").
+- **Search finds a shower by name in the same change**, the way it finds a comet: one more source merged into
+  the sorted auto-complete list (`PlannerActions.BuildAutoCompleteList`, `SkyMapSearchActions.BuildSearchIndex`),
+  resolved to the radiant for the viewing night. In the atlas a hit centres the radiant.
+- **A shower can be pinned, as a comet can**, on a night it is active. Its identity is a `CatalogIndex` of its
+  own catalogue (as `Catalog.Comet` is), matched by index through `PlannerActions.IsSameObject`, never by the
+  pin's RA/Dec, since the radiant drifts: a pin is re-placed per night from the table, the way a pinned
+  comet's position is re-resolved. The index gives identity only; the object DB still holds no shower.
+- The year mode's marks wait for C (#2061); the table, the search, the night calendar and the atlas radiant
+  do not.
+- A peak is also a row of the planner's events list (#1810), which reads this table and computation rather
+  than keeping its own.
