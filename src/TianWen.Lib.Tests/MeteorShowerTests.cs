@@ -53,7 +53,7 @@ public class MeteorShowerPeakTests
 
         // Same longitude, one year on: about six hours later in the leap cycle, never the same clock time.
         (gem2027 - gem2026).TotalDays.ShouldBeInRange(365.0, 366.0);
-        (gem2027 - gem2026).TotalDays.ShouldNotBe(365.0, 0.1);
+        Math.Abs((gem2027 - gem2026).TotalDays - 365.0).ShouldBeGreaterThan(0.1);
     }
 
     [Fact]
