@@ -191,7 +191,7 @@ public class MeteorShowerCalendarMarkTests
     private static (byte[] Pixels, NightCalendarPopover<RgbaImage> Popover, int Width, int Height) Render(
         PlannerState state, float dpi, int windowWidth = 1000, int windowHeight = 700)
     {
-        var renderer = new RgbaImageRenderer(windowWidth, windowHeight);
+        var renderer = new RgbaImageRenderer((uint)windowWidth, (uint)windowHeight);
         var popover = new NightCalendarPopover<RgbaImage>(renderer) { DpiScale = dpi, FontPath = FontResolver.ResolveSystemFont() };
         state.Calendar.Popover.Open();
         var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero));
