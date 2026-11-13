@@ -25,7 +25,8 @@ namespace TianWen.Lib.Tests
     /// from the RETAINED master must be the bytes P0 wrote from the in-memory one, or a "degraded pair"
     /// is two different frames rather than one frame plus a degradation.
     /// </summary>
-    [Collection("Imaging")]
+    // Not in the "Imaging" collection, which runs its classes one at a time for no reason but grouping: this class is
+    // among its longest and shares no state with the rest, so it runs beside them (#2054).
     public class DatasetDegradationExporterTests(ITestOutputHelper output) : IDisposable
     {
         private const int W = 384;

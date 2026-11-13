@@ -114,7 +114,8 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// The start of one frame of <see cref="Render"/>, for a host whose per-frame resources are counted per frame: the web's planet
-        /// bodies, which give each draw of a body within a frame its own block (<see cref="PlanetBodyInstances{TBuffer}"/>).
+        /// bodies, which give each draw of a body within a frame its own block (<see cref="PlanetBodyInstances{TBuffer}"/>), and its
+        /// sprites and pictures, which give each draw its own quad (<see cref="FrameDrawBuffers{TBuffer}"/>).
         /// </summary>
         protected virtual void OnFrameStarting()
         {
@@ -371,6 +372,11 @@ namespace TianWen.UI.Abstractions
                 DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedComets);
             }
             CometLabelMs += LayerElapsed(ref layerMark);
+
+            // Radiants of the meteor showers active on the viewing night: an event, never in the object DB, drawn through the
+            // object layers' own gate ([O], "only with photo", a pin bypasses both), the same SkyMapState.ShouldDrawShowerRadiant
+            // the click and hover resolver asks.
+            DrawShowerRadiants(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedIndices);
 
             // Always render the object overlay pass, when [O] is off, only pinned
             // planner targets are drawn (the user's planned observations should always
@@ -1132,6 +1138,75 @@ namespace TianWen.UI.Abstractions
                 _planetLabels[planetIdx] = label;
             }
             return label;
+        }
+
+        // A radiant is warm amber on the atlas's dark sky; Night takes the palette's accent (red, never blue) for the mark and
+        // the body text for the name, which is what Night reads from.
+        private static readonly RGBAColor32 ShowerColor      = new(0xFF, 0xB8, 0x5C, 0xFF);
+        private static readonly RGBAColor32 ShowerLabelColor = new(0xFF, 0xD8, 0xA0, 0xFF);
+
+        private readonly Dictionary<CatalogIndex, MarkerLabelEntry> _showerLabels = [];
+
+        /// <summary>
+        /// Draws the radiant of every shower active on the viewing night: a ring with eight rays (the way meteors fan out of
+        /// it) and its name, the label clickable at the radiant like a planet's. The set comes from
+        /// <see cref="SkyMapState.GetShowerRadiantsCached"/>, computed once per night.
+        /// </summary>
+        private void DrawShowerRadiants(
+            DateTimeOffset viewingTime, RectF32 rect, float fontSize, double ppr, float cx, float cy,
+            SiteContext site, bool dimBelowHorizon, IReadOnlySet<CatalogIndex>? pinnedIndices)
+        {
+            State.ShowerSiteLongitudeDeg = site.IsValid ? site.Longitude : 0.0;
+            var radiants = State.GetShowerRadiantsCached(viewingTime);
+            if (radiants.Length == 0)
+            {
+                return;
+            }
+
+            var night = GuiTheme.State == UiThemeState.Night;
+            var markColor = night ? GuiTheme.Palette.Accent : ShowerColor;
+            var nameColor = night ? GuiTheme.Palette.BodyText : ShowerLabelColor;
+            var dpiScale = DpiScale;
+            var ring = 5f * dpiScale;
+            var rayInner = 7f * dpiScale;
+            var rayOuter = 12f * dpiScale;
+
+            foreach (var radiant in radiants)
+            {
+                var isPinned = pinnedIndices is not null && pinnedIndices.Contains(radiant.Index);
+                if (!State.ShouldDrawShowerRadiant(isPinned))
+                {
+                    continue;
+                }
+
+                if (!SkyMapProjection.ProjectWithMatrix(radiant.RA, radiant.Dec, State.CurrentViewMatrix, ppr, cx, cy, out var sx, out var sy)
+                    || sx < rect.X || sx >= rect.X + rect.Width
+                    || sy < rect.Y || sy >= rect.Y + rect.Height)
+                {
+                    continue;
+                }
+
+                var below = dimBelowHorizon && !site.IsAboveHorizon(radiant.RA, radiant.Dec);
+                var mark = DimmedIf(markColor, below);
+                DrawCircle(sx, sy, ring, mark, 1.5f);
+                for (var i = 0; i < 8; i++)
+                {
+                    var (sin, cos) = MathF.SinCos(i * MathF.PI / 4f);
+                    DrawLine(sx + cos * rayInner, sy + sin * rayInner, sx + cos * rayOuter, sy + sin * rayOuter, mark);
+                }
+
+                if (!_showerLabels.TryGetValue(radiant.Index, out var entry))
+                {
+                    entry = new MarkerLabelEntry(radiant.Name, "SkyMapShowerLabel:", this);
+                    _showerLabels[radiant.Index] = entry;
+                }
+
+                DrawText(radiant.Name.AsSpan(), FontPath, sx + rayOuter + 3f * dpiScale, sy - fontSize, 190f * dpiScale, fontSize * 1.2f,
+                    fontSize, DimmedIf(nameColor, below), TextAlign.Near, TextAlign.Center);
+                entry.ScreenX = sx;
+                entry.ScreenY = sy;
+                RegisterLabel(sx + rayOuter + 3f * dpiScale, sy - fontSize, 190f * dpiScale, fontSize * 1.2f, entry.Hit, entry.OnClick);
+            }
         }
 
         private static readonly RGBAColor32 CometColor      = new(0x88, 0xEE, 0xCC, 0xFF);

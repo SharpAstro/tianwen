@@ -27,9 +27,13 @@ public static class GuideStatistics
     /// subs of the night report the cleanest numbers.</para>
     ///
     /// <para><b>Null is a real answer and is not the same as zero.</b> An unguided rig, a sub shorter than
-    /// one guide exposure, and a ring buffer that has already discarded the window all produce no samples;
+    /// one guide exposure, and a window the supplied samples no longer reach all produce no samples;
     /// stamping <c>GUIDERMS = 0</c> for any of them would claim perfect guiding. Absence of the card means
     /// "not known", which is what <see cref="ImageMeta.Guiding"/> being null encodes.</para>
+    ///
+    /// <para><b>Samples are taken in time order.</b> A sample whose timestamp is not after the last one counted
+    /// is ignored (the per-exposure tally's rule, so a correction seen twice counts once). A chronological
+    /// snapshot, which is what the telemetry ring yields, is unaffected.</para>
     ///
     /// <para>Sample count is returned so a consumer can tell a two-sample RMS from a hundred-sample one;
     /// see <see cref="GuidingStats.SampleCount"/>.</para>
@@ -44,54 +48,14 @@ public static class GuideStatistics
             return null;
         }
 
-        var exposureEnd = exposureStart + exposureDuration;
-        var sumSqRa = 0.0;
-        var sumSqDec = 0.0;
-        var peakSq = 0.0;
-        var n = 0;
+        // One arithmetic for the ring-based and the per-exposure paths: the tally (#2100).
+        var tally = new ExposureGuideTally(exposureStart, exposureDuration);
 
         foreach (var sample in samples)
         {
-            if (sample.Timestamp < exposureStart || sample.Timestamp > exposureEnd)
-            {
-                continue;
-            }
-
-            // A non-finite error is a guider that failed to measure, not an error of zero; counting it
-            // would poison the whole frame's RMS with a NaN that every downstream comparison then reads
-            // as false.
-            if (!double.IsFinite(sample.RaError) || !double.IsFinite(sample.DecError))
-            {
-                continue;
-            }
-
-            var raSq = sample.RaError * sample.RaError;
-            var decSq = sample.DecError * sample.DecError;
-            sumSqRa += raSq;
-            sumSqDec += decSq;
-
-            var radialSq = raSq + decSq;
-            if (radialSq > peakSq)
-            {
-                peakSq = radialSq;
-            }
-
-            n++;
+            tally = tally.Add(sample);
         }
 
-        if (n == 0)
-        {
-            return null;
-        }
-
-        var rmsRa = Math.Sqrt(sumSqRa / n);
-        var rmsDec = Math.Sqrt(sumSqDec / n);
-
-        return new GuidingStats(
-            RmsTotal: (float)Math.Sqrt(rmsRa * rmsRa + rmsDec * rmsDec),
-            RmsRa: (float)rmsRa,
-            RmsDec: (float)rmsDec,
-            Peak: (float)Math.Sqrt(peakSq),
-            SampleCount: n);
+        return tally.ToStats();
     }
 }

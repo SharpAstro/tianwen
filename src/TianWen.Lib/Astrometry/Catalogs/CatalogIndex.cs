@@ -398,6 +398,13 @@ public static class CatalogIndexEx
         /// given their own catalog they would be added here.
         /// </summary>
         public bool IsSolarSystemObject => catalogIndex.ToCatalog() is Catalog.Pl or Catalog.Comet;
+
+        /// <summary>
+        /// True for a meteor shower (the <see cref="Catalog.MeteorShower"/> catalog). A shower is not a body: its radiant
+        /// is a table position moved by the drift, so it is NOT <see cref="IsSolarSystemObject"/> (that gate sends a hit to
+        /// the planet and comet ephemeris paths), but it is matched by index like one, never by RA/Dec.
+        /// </summary>
+        public bool IsMeteorShower => catalogIndex.ToCatalog() is Catalog.MeteorShower;
     }
 
     /// <summary>

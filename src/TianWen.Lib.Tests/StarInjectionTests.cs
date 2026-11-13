@@ -16,7 +16,8 @@ namespace TianWen.Lib.Tests;
 /// renderer that puts it into a plate (a saturated one as a stack of clipped subs), and the population that decides where
 /// a cell's stars go and how bright they are.
 /// </summary>
-[Collection("Imaging")]
+// Not in the "Imaging" collection, which runs its classes one at a time for no reason but grouping: this class is
+// among its longest and shares no state with the rest, so it runs beside them (#2054).
 public class StarInjectionTests(ITestOutputHelper output)
 {
     [Theory]

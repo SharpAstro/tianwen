@@ -9,6 +9,8 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
+using TianWen.Lib.Astrometry.MeteorShowers;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Astrometry.VSOP87;
 
 namespace TianWen.UI.Abstractions
@@ -729,6 +731,102 @@ namespace TianWen.UI.Abstractions
             }
             _cometCacheCount = count;
             return _cometCache.AsSpan(0, count);
+        }
+
+        /// <summary>
+        /// Whether a shower's radiant is drawn and clickable: the object layers' own gate (<see cref="Overlays.OverlayEngine.PassesLayerFilter"/>,
+        /// [O] and "only with photo", a shower having no picture), bypassed by a pin. The ONE rule the draw and the resolver ask.
+        /// </summary>
+        internal bool ShouldDrawShowerRadiant(bool isPinned)
+            => Overlays.OverlayEngine.PassesLayerFilter(ObjectType.MeteorShower, isPinned, hasPicture: false,
+                ShowObjectOverlay, ShowDarkNebulae, ShowOnlyObjectsWithPicture);
+
+        /// <summary>One meteor shower's radiant on the viewing night, J2000 hours / degrees.</summary>
+        public readonly record struct ShowerRadiantMarker(CatalogIndex Index, double RA, double Dec, string Name, string Code);
+
+        private (long Night, double Longitude) _showerNightKey = (long.MinValue, double.NaN);
+        private ShowerRadiantMarker[] _showerCache = [];
+
+        /// <summary>
+        /// How many times <see cref="GetShowerRadiantsCached"/> has computed the active set. A hit and a miss return the same
+        /// markers, so only a counter shows the set is computed once per viewing night and never per frame.
+        /// </summary>
+        internal int ShowerCacheRebuilds { get; private set; }
+
+        /// <summary>
+        /// The site longitude the showers' night is reckoned at, degrees east: set by the tab from the site it draws with.
+        /// The draw and the click and hover resolver read the one cache below, so they cannot disagree about the night.
+        /// </summary>
+        public double ShowerSiteLongitudeDeg { get; set; }
+
+        /// <summary>
+        /// The radiants of the showers active on the NIGHT <paramref name="viewingTime"/> belongs to, drift applied, judged
+        /// at <see cref="MeteorShowerNights.NightInstant"/> (the night calendar's and the planner's instant) and computed once
+        /// per night, never per frame: scrubbing through a night changes nothing, and the set never flips at 0h UT in the
+        /// middle of one. Shared by the draw and the click and hover resolver.
+        /// </summary>
+        public ReadOnlySpan<ShowerRadiantMarker> GetShowerRadiantsCached(DateTimeOffset viewingTime)
+        {
+            // The longitude is in the key: the night is reckoned at it, so a site change is another night's question.
+            // A longitude that is not a number is reckoned as 0 (NightKey's own rule), and would never equal itself in a key.
+            var longitude = double.IsFinite(ShowerSiteLongitudeDeg) ? ShowerSiteLongitudeDeg : 0.0;
+            var key = (MeteorShowerNights.NightKey(viewingTime, longitude), longitude);
+            if (key == _showerNightKey)
+            {
+                return _showerCache;
+            }
+
+            ShowerCacheRebuilds++;
+            _showerNightKey = key;
+            var instant = MeteorShowerNights.NightInstant(viewingTime, ShowerSiteLongitudeDeg);
+            var sun = MeteorShowerCalendar.SunLongitude(instant);
+            var builder = ImmutableArray.CreateBuilder<ShowerRadiantMarker>();
+            if (!double.IsNaN(sun))
+            {
+                foreach (var shower in MeteorShowerTable.All)
+                {
+                    if (!shower.IsActiveAt(sun))
+                    {
+                        continue;
+                    }
+
+                    var radiant = MeteorShowerNights.RadiantAt(shower, instant);
+                    builder.Add(new ShowerRadiantMarker(MeteorShowerIdentity.IndexOf(shower), radiant.RaHours, radiant.DecDeg,
+                        shower.Name, shower.Code));
+                }
+            }
+
+            _showerCache = builder.ToArray();
+            return _showerCache;
+        }
+
+        private (CatalogIndex Index, long Night, double Latitude, double Longitude)? _showerPanelKey;
+        private SkyMapInfoPanelData _showerPanel;
+
+        /// <summary>How many times <see cref="GetShowerPanelCached"/> has built a panel: once per shower, night and site.</summary>
+        internal int ShowerPanelRebuilds { get; private set; }
+
+        /// <summary>
+        /// The info panel of the SELECTED shower for the night <paramref name="viewingTime"/> belongs to: its radiant, whether
+        /// it is active, its rate and its peak. Built once per night (a night window is heavy) and kept while the night, the
+        /// shower and the site stay, so a time or date scrub moves it with the map without a rebuild per frame. The caller
+        /// refreshes the altitude and azimuth, which swing through the night.
+        /// </summary>
+        internal SkyMapInfoPanelData GetShowerPanelCached(
+            MeteorShower shower, CatalogIndex index, double siteLat, double siteLon, DateTimeOffset viewingTime, in SiteContext site)
+        {
+            var key = (index, MeteorShowerNights.NightKey(viewingTime, siteLon), siteLat, siteLon);
+            if (_showerPanelKey == key)
+            {
+                return _showerPanel;
+            }
+
+            ShowerPanelRebuilds++;
+            _showerPanelKey = key;
+            var instant = MeteorShowerNights.NightInstant(viewingTime, siteLon);
+            _showerPanel = SkyMapSearchActions.MeteorShowerInfoPanel(shower, index, MeteorShowerNights.RadiantAt(shower, instant),
+                siteLat, siteLon, instant, in site);
+            return _showerPanel;
         }
 
         /// <summary>Number of samples in a comet info-panel vmag sparkline.</summary>

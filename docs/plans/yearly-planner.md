@@ -1,11 +1,11 @@
 # Best time to observe: the atlas's night curve and a yearly planner (plan)
 
-**Status: A DONE (#2059), B to D NOT STARTED. Written 2026-11-07**, raised by the user: "in the atlas, do we already show the best
+**Status: A DONE (#2059), B to E NOT STARTED. Written 2026-11-07**, raised by the user: "in the atlas, do we already show the best
 observability time?", then "the planner might need two modes, a yearly planner, that would tell you, M31 can
 best be observed in September etc.", and "the atlas info box should just maybe mark the area under the height
 graph that is good for observing (same criteria as the planner) and maybe show a total (plus the score)".
 
-Milestone: `yearly-planner` (#2059 to #2062). Companions: [night-calendar](night-calendar.md) (which night of a month),
+Milestone: `yearly-planner` (#2059 to #2062, #2120). Companions: [night-calendar](night-calendar.md) (which night of a month),
 [moon-avoidance](moon-avoidance.md) (the moon term in the score), [skymap-time-scrub](skymap-time-scrub.md)
 (the atlas's viewing time), [in-app-sky-atlas](in-app-sky-atlas.md).
 
@@ -119,3 +119,69 @@ A plan saved for a later night should be findable from tonight:
 - Nights further ahead than the forecast or the current season (say 60 days) stay in the collapsed list only.
 - The fallback that carries the most recent earlier plan forward is kept; it is what stops pins vanishing at
   the evening rollover.
+
+## E. Meteor showers
+
+Tracked by #2120. Raised by the user on 2026-11-13: "I realised we don't have meteor showers".
+
+A shower is a yearly event with a date and a radiant, and nothing in the app knows one. It needs no detector,
+only a table and the Sun:
+
+- **The table** is static data in `TianWen.Lib`, the IMO working list's showers (about 30 to 40): the radiant's
+  RA and Dec at the peak and its daily drift, the solar longitude of the peak, the activity window, the ZHR,
+  the population index and the speed.
+- **A year's peak is the instant the Sun reaches the peak's solar longitude**, from the VSOP87 Sun, never a
+  stored date: a date drifts against the calendar by the leap cycle, the longitude does not.
+- **The expected rate at the site is per night**: the ZHR scaled by the radiant's altitude over the night's
+  dark window and by the limiting magnitude under that night's Moon, which the night calendar already places
+  ([night-calendar](night-calendar.md)). A peak that falls in daylight at the site is said as the nearest
+  night's rate, not hidden.
+- **Where it shows**: the year mode (C) marks each month's peaks with the expected rate; the night calendar
+  marks a night a shower peaks or is active on; the atlas draws the radiant of an active shower, moved by its
+  drift for the viewing night.
+- **A shower is NOT in `ICelestialObjectDB`**, as a comet is not: it is an event, absent outside its activity
+  window, and a DB entry would be scored by the planner as an imaging target and annotated on photographs.
+  Each surface asks the one routine ("the showers active on this night, each radiant, its rate here").
+- **Search finds a shower by name in the same change**, the way it finds a comet: one more source merged into
+  the sorted auto-complete list (`PlannerActions.BuildAutoCompleteList`, `SkyMapSearchActions.BuildSearchIndex`),
+  resolved to the radiant for the viewing night. In the atlas a hit centres the radiant.
+- **A shower can be pinned, as a comet can**, on a night it is active. Its identity is a `CatalogIndex` of its
+  own catalogue (as `Catalog.Comet` is), matched by index through `PlannerActions.IsSameObject`, never by the
+  pin's RA/Dec, since the radiant drifts: a pin is re-placed per night from the table, the way a pinned
+  comet's position is re-resolved. The index gives identity only; the object DB still holds no shower.
+- The year mode's marks wait for C (#2061); the table, the search, the night calendar and the atlas radiant
+  do not.
+- A peak is also a row of the planner's events list (#1810), which reads this table and computation rather
+  than keeping its own.
+
+### What shipped of E (2026-11-13, #2120)
+
+Everything above except the year mode's marks (#2061) and the events-list row (#1810).
+
+- **Table and peak:** `MeteorShowerTable`, `MeteorShower`, `MeteorShowerCalendar` (`SunLongitude`, `PeakInstant`, `PeakNear`).
+- **Identity:** `MeteorShowerIdentity` (a `CatalogIndex` in `Catalog.MeteorShower` per IAU number; the object DB holds none).
+- **The night routine:** `MeteorShowerNights.For` (active showers, radiants by drift, rate at the site), `RadiantAt`, and `ForShowerAt`
+  for one shower and a viewing instant, which the atlas's info panel asks so it says the calendar's own number.
+- **Search and pins:** `SkyMapSearchActions` and `PlannerActions`, pins re-placed per night.
+- **Night calendar:** the shower mark and tooltip lines (`NightCalendarPopover`), words from `MeteorShowerText`. **Only a peak
+  night is marked** (a ring around a dot where the rate at the site reaches `MeteorShowerNights.MajorRateFloor`, ten an hour, a
+  ring under it): a mark on every active night covered 41 of 42 cells in August and said nothing. An active night is named in
+  the cell's tooltip and the detail strip.
+- **A rate is said on the peak night only.** The table holds each shower's maximum and no activity profile (how fast it falls
+  away), so `MeteorShowerNight.ExpectedRate` on any other night is the peak's rate, an upper bound: the calendar and the atlas
+  panel then say how far the peak is and no number. A rate for every night needs a profile per shower from a source (the IMO
+  list gives none), which is open.
+- **A night is judged at ONE instant, local mean solar midnight** (`MeteorShowerNights.NightInstant`, from an instant and the
+  site's longitude alone; the middle of the dark window to within the equation of time), by the calendar, the planner
+  (`PlannerActions.ShowerNightInstant`) and the atlas, so a night one names a shower on is a night the others do. A window
+  opens at an hour of its own, and the three once asked at dusk, mid-dark and the viewing instant.
+- **The atlas's active set and a selected shower's panel are per NIGHT** (`MeteorShowerNights.NightKey`;
+  `SkyMapState.GetShowerPanelCached`, counted by `ShowerPanelRebuilds`): the set no longer flips at 0h UT in the middle of a
+  night, and a selection scrubbed to another date says that night's radiant, activity, rate and peak, where it kept the words
+  of the night it was clicked on.
+- **Atlas radiant:** `SkyMapTab.DrawShowerRadiants` draws a ring with eight rays and the name for each active shower, from
+  `SkyMapState.GetShowerRadiantsCached` (computed once per night, never per frame; `ShowerCacheRebuilds` is the test counter).
+  The draw and the click and hover resolver (`SkyMapSearchActions.TryResolveHit`, kind `Shower`) both ask
+  `SkyMapState.ShouldDrawShowerRadiant`, which is `OverlayEngine.PassesLayerFilter` for `ObjectType.MeteorShower`: the [O] layer
+  switches it off and a pin bypasses it. The info panel names the shower, its ZHR, on the peak night the rate at the site, and
+  its peak in site time. There is no Wikipedia link, since the bake verified none.

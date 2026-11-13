@@ -444,7 +444,9 @@ public class NightCalendarTests(ITestOutputHelper output)
         var data = state.Calendar.Data;
         NightCalendarActions.HasPins(data, NightCalendarActions.PinsKey(state), month).ShouldBeTrue("the empty set is recorded");
         data.Pins.ShouldBeEmpty();
-        NightCalendarPopover<RgbaImage>.DetailLines(state, Tonight, data, pinsCurrent: true).Count.ShouldBe(3);
+        // Three lines of the sky, one per active shower, and nothing for pins.
+        var showers = data.Showers.TryGetValue(Tonight, out var tonightShowers) ? tonightShowers.Length : 0;
+        NightCalendarPopover<RgbaImage>.DetailLines(state, Tonight, data, pinsCurrent: true).Count.ShouldBe(3 + showers);
     }
 
     [Fact]

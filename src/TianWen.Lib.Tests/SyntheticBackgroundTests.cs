@@ -199,7 +199,9 @@ public sealed class SyntheticBackgroundTests
     /// <summary>
     /// Asked by area, a cut holds <see cref="SyntheticBackground.KnotsPerCell"/> knots per
     /// <see cref="SyntheticBackground.KnotCellPx"/> px cell of its area; asked per cut, as the exporter asks, every cut holds
-    /// the same number whatever its size (a synthetic cluster scene's 1,453 px tile held three).
+    /// the same number whatever its size (a synthetic cluster scene's 1,453 px tile held three). The knots are drawn as
+    /// <see cref="SyntheticBackground.Cell"/> draws them, onto planes of zeros: the count is all this reads, and drawing each
+    /// cut's texture too took 33 to 46 s of a CI runner for it (#2054).
     /// </summary>
     [Fact]
     public void ByAreaACutHoldsKnotsPerExportCellOfItsArea()
@@ -211,8 +213,12 @@ public sealed class SyntheticBackgroundTests
             const int draws = 120;
             for (var draw = 0; draw < draws; draw++)
             {
-                background.Cell(0, 0, size, [Noise], new Random(500 + draw), out var knots, knotsByArea: byArea);
-                total += knots.Length;
+                var planes = new float[background.Channels][];
+                for (var c = 0; c < planes.Length; c++)
+                {
+                    planes[c] = new float[size * size];
+                }
+                total += background.DrawKnots(planes, 0, 0, size, [Noise], new Random(500 + draw), byArea).Length;
             }
             return (double)total / draws;
         }

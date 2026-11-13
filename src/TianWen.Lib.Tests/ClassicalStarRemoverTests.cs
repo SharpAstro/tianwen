@@ -18,7 +18,8 @@ namespace TianWen.Lib.Tests;
 /// compared with the field before the stars were added, noise included, so what is measured is the subtraction's own
 /// error and nothing else.
 /// </summary>
-[Collection("Imaging")]
+// Not in the "Imaging" collection, which runs its classes one at a time for no reason but grouping: this class is
+// among its longest and shares no state with the rest, so it runs beside them (#2054).
 public class ClassicalStarRemoverTests(ITestOutputHelper output)
 {
     private const int Size = 1024;
@@ -159,14 +160,30 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         (0.1193095930, 0.2339569673), (0.3306046932, 0.1803807865), (0.4662347571, 0.0856622462),
     };
 
+    // The integral is taken only where it differs from one sample at the pixel's centre by more than a thousandth of the
+    // noise. A pixel's mean differs from its centre value by about a 24th of the profile's Laplacian, which for a Moffat
+    // is bounded by 4 beta (beta + 2) / alpha^2 (1 + r^2 / alpha^2)^-(beta + 1); with four times that as margin, the
+    // field is the fully integrated one to 0.001 sigma, while the 36 samples a pixel are spent on a core some 20 px
+    // across instead of a window out to the hundredth of the noise (370 px for a saturated star). Integrating the whole
+    // window was most of this class's time on CI: about 6 s a field, and nearly every test builds one.
     private static void Render(float[] plane, double cx, double cy, double peak, double alpha, double beta)
     {
         var reach = alpha * Math.Sqrt(Math.Pow(peak / (0.01 * Sigma), 1.0 / beta) - 1.0);
         var r = (int)Math.Ceiling(reach);
+        // Sample once where 4 * peak * beta (beta + 2) / (6 alpha^2) * (1 + u)^-(beta + 1) < 0.001 sigma, u = r^2 / alpha^2.
+        var core = Math.Pow(4.0 * peak * beta * (beta + 2.0) / (6.0 * alpha * alpha) / (0.001 * Sigma), 1.0 / (beta + 1.0));
+        var coreR2 = Math.Max(0.0, core - 1.0) * alpha * alpha;
         for (var y = Math.Max(0, (int)cy - r); y <= Math.Min(Size - 1, (int)cy + r); y++)
         {
             for (var x = Math.Max(0, (int)cx - r); x <= Math.Min(Size - 1, (int)cx + r); x++)
             {
+                var (dx, dy) = (x - cx, y - cy);
+                var d2 = dx * dx + dy * dy;
+                if (d2 > coreR2)
+                {
+                    plane[y * Size + x] += (float)(peak * Math.Pow(1.0 + d2 / (alpha * alpha), -beta));
+                    continue;
+                }
                 var sum = 0.0;
                 foreach (var (ny, wy) in Gl6)
                 {

@@ -3509,7 +3509,8 @@ Whether a night's own twin can supply them is #1369 (the AUTO mode's step 0, `pl
 `PlanetarySharpenTarget.Auto`, the default, took the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel, and since
 L-NYQ wherever every cutoff is known (resolved once by `PlanetarySharpening.TargetFor`, the target taken in `PlanetarySharpenResult.Target`), so
 `planetary stack`, `planetary sharpen` (`--target auto`), the viewer's Full view and the live view's Derive all take it. Gains given or
-learned (#817, #1552) were fitted toward the telescope and keep it. Two experiments, rules set before each ran
+learned (#817, #1552) took the telescope they were fitted toward until R10 step A (#2112), and take this default now (their limb error
+0.0125 to 0.0067 on the 14 held twins, below the default's 0.0080, the band error moving 0.5 %). Two experiments, rules set before each ran
 (`training/planetary/r9-rules.md`), found the aperture target the best arm wherever the sampling resolves the optics:
 
 | Finely sampled EdgeHD Jupiter twins | Detail, bands 1 to 4 | Limb, inside + outside | Light past the limb |
@@ -6042,8 +6043,10 @@ binary may be run as a reference, as torchmfbd was.
 #### The oversampled twin (#1281)
 
 - **What it is.** The 2023-11-11 EdgeHD 11 + ASI678MC Jupiter (f/14, cutoffs 0.229, 0.264 and 0.304 cycles a pixel), made through its
-  own pupil (`planetary degrade --aperture-mm 280 --obstruction 0.375`) at 2,600 frames, the most a colour twin of 640 x 640 holds (its
-  frames sit in one array of at most 2 GiB). Eleven trials at 300 frames met the real capture's limb motion and each colour's
+  own pupil (`planetary degrade --aperture-mm 280 --obstruction 0.375`) at 2,600 frames, the most a colour twin of 640 x 640 held then (its
+  frames sat in one array of at most 2 GiB; since #2124 a colour twin's frames are written as its three colours finish them, so it has
+  no such cap, `--no-measure` makes the capture and its truths and stops before the three measurements of the twin, and
+  `--limb-frames` sets how many single frames the real capture's limb is fitted on). Eleven trials at 300 frames met the real capture's limb motion and each colour's
   single-frame blur within 10 %, which took a still layer of 3.6 cm at a 0.12 m outer scale and a static defocus a colour
   (`--bayer-defocus-nm 99,78,83`): red's single frames read 1.37 times as blurred as green's, which no air shared by the colours gives.
 - **Read on the cutoff low-pass, two seeds** (`planetary sharpen --finish none,cutoff` against the truth, bands 1 to 4): red -11.5 and
@@ -6534,6 +6537,370 @@ found, more than N on every colour twin (3 to 19 %).
   second place a model could pay: #1549, not run here.
 - **Frame quality:** R4's oracle bound stands (1.4 %); nothing here reads it afresh.
 
+### R10: the learned gains at today's target (pre-registered 2026-11-11)
+
+Tracked by #2112. Follows R9 (#1056) and #1552.
+
+**The re-check that opened it (2026-11-11).** The 14 held EdgeHD 11 Jupiter twins (L-GAINS-S's), their October masters sharpened by
+today's build and scored against the truth carried to the aperture (`--score-against aperture`; band error 1 to 4, mean of r, g, b):
+
+| arm | mean | against the default |
+|---|---|---|
+| the stack | 3.119 | |
+| the default (derived gains, the aperture target, Hann) | 2.621 | |
+| `--learned-gains` (the model of 2026-10-14) | 2.143 | -18.2 %, below the default on 14 of 14 |
+| `--learned-gains --finish deconvolve` (20 steps) | 2.288 | -12.7 %, on 12 of 14 |
+| the truth's own gains through the sharpening (the ceiling) | 1.801 | -31.3 %, on 14 of 14 |
+
+- **The aperture target closed part of R9's gap, not all of it.** L-GAINS-D read the derived gains at twice the truth's error (the
+  ceiling 50.6 % below, against the telescope truth); today's default leaves 31.3 %.
+- **The shipped model aims at the old target.** It was fitted before the default moved to the aperture (#1632, #1661, #1668), to the
+  gains the TELESCOPE truth asks: on twin d000 its red gains are -0.13, 1.85, 3.92, 0.82, the telescope truth's own -0.12, 1.85, 3.80,
+  0.89, where the aperture truth asks -0.22, 2.52, 7.28, 0.16. It still takes 18.2 % off.
+- **The limb's cost comes with the gains, not with the learning.** The limb profile error is 0.0080 for the default, 0.0125 for the
+  learned gains and 0.0117 for the truth's own. The worst rebound over every arm is 0.0001.
+- **The deconvolution after the learned gains now costs** (2.288 against 2.143), where on 2026-10-15 it gained (2.093 against 2.479).
+  The truth it is read against changed with the taper, so the two days are not one comparison.
+
+Logs, the runner and the reader: `D:/temp/tianwen-scratch/i1056/recheck-1111` on DE1. The binary was built at "feat(training):
+--star-beta-draw takes a channel spread", which differs from main in no planetary file.
+
+**The steps, each read before the next:**
+0. **The instrument.** One held twin re-stacked by today's build against its October master. If the stack's defaults moved it, every
+   twin is re-stacked first.
+1. **A, the limb.** Where the truth's own gains' limb profile error comes from (inside or outside the limb, the trough, by band), and
+   whether a change to the limb handling brings it to the default's without raising the band error by more than 2 %.
+2. **B, the refit.** L-GAINS-S's ridge (`training/planetary/l_gains_s_model_cs.py`: the glow to the truth's own gains, one a colour) on
+   the 40 training twins against today's aperture truth, read on the 14 held.
+3. **C, beyond one capture**, only if B holds: twins at a Saturn's sampling (#1552's unfinished step).
+
+**The bars, set before any of it is run:**
+- **B1:** the refitted gains' mean at least 24 % below the default on the held twins, and every held twin below the default.
+- **B2 (amended in the step A result commit, before any step B score existed):** the limb profile error's mean no higher than the truth's own gains' through the same build (0.0057, at the aperture target
+  step A's change made the default for given and learned gains; it read 0.0117 at the telescope target before it). As first written
+  the bar was the default's 0.0080, to hold once step A is adopted. Against 0.0080 the refit's limb mean 0.0063 would hold B2 and it
+  would fail only B3; against the amended 0.0057 it fails B2 as well, which is the reading this section uses. Rebound at most 0.005 of the disk and undershoot at most 0.002 on every twin (L-TARGET's bounds).
+- **B3:** the real EdgeHD master against its `_post` (`planetary judge`): C24 no lower than the default's, and band 2's gain no more
+  than 2 % below the default's.
+- **B4:** the owner's eye on the real master's strip, the default beside the refit.
+- **Kill:** B1's mean under the shipped model's 18.2 %. Then the target is not what holds the learned gains back, and R10 stops.
+- It becomes the default only if every bar holds and the owner says so. Otherwise the refit replaces the option's model, or nothing
+  changes.
+
+**What it needs.** The 54 twins (masters and truths) are in `D:/temp/tianwen-scratch/i1056/deploy` on DE1 and not in the repo; their
+plans are (`training/planetary/r9_deploy_twins_plan.json`, `l_gains_s_warped_twins_plan.json`, `l_gains_s_blurred_twins_plan.json`, the
+three maker scripts reading them from there, 2026-11-12), so the twins can be made again. CPU only: a twin scored against the aperture
+truth takes 2 to 5 minutes.
+
+#### Step 0 read: the stack did not move (2026-11-12)
+
+`training/planetary/r10_gains.py step0` (glue only: every number is the CLI's) re-made held twin d024 from its plan row and seed, with a
+CLI built at HEAD, which was 8dbf431a6 (the scratch `bin` folder and its `BUILT_FROM.txt`, now e4ca5bea4, were rebuilt later by step B)
+(`dotnet build src/TianWen.Cli/TianWen.Cli.csproj -c Release`; the commit subject "R10 step 0: r10_gains.py, glue that
+re-makes a held twin with today's build and scores it against its October master", which differs from main's "docs(plans): the training
+plans re-checked against the code, R10 pre-registered, and priority read from the Priority field (#2106, #2112) (#2108)" in no planetary
+file): `planetary degrade` of the real EdgeHD 11 Jupiter SER with OPAL's maps, 600 frames, then `planetary stack`, then both masters
+through `planetary sharpen --score-against aperture` against the ONE October truth, so only the master differs.
+
+- **The master is bit-identical.** All 3 x 640 x 640 values equal the October master's: 0.00 % of pixels differ, maximum difference 0.
+  The three truths the new run drew are bit-identical to October's too, so the degrade, the stack and the render all stand as they were.
+- **So the scores are identical, to the third decimal:** the stack's band error 2.891 (3.098, 2.535, 3.039 in r, g, b) and the default
+  arm's 2.414 (2.247, 2.273, 2.721), the limb profile error 0.0284, 0.0251, 0.0321 for the stack and 0.0043, 0.0096, 0.0067 for the
+  default, the rebound 0.0000. The change is +0.00 % against R9's seed spread of 2.1 % (#817 A2, A3).
+- **The October masters stand, and every later step reads them** (`D:/temp/tianwen-scratch/i1056/deploy`). No twin was re-stacked.
+  The evidence is one twin, d024 (a deploy twin; the warped e and blurred f families differ only in the degrade's `--warp-rms` and
+  `--static-blur`, and were not re-made), a bit-identical master being a stronger result than a score inside the noise.
+- Scratch on DE1: the CLI `D:/temp/tianwen-scratch/i2112/bin` (the commit it was built from in `BUILT_FROM.txt` beside it), the
+  re-made twin and the two scoring logs `D:/temp/tianwen-scratch/i2112/step0/d024`, the reading `step0/d024/step0.txt`.
+- Note the bands here (default 2.414 on d024) are one twin's, not the 14's mean of 2.621 above.
+
+#### Step A read: where the truth's own gains lose on the limb (2026-11-12)
+
+`training/planetary/r10_gains.py limb` scored the 14 held twins' October masters through the CLI built at HEAD, `--score-against
+aperture`, three arms, and `limb-read` tabulates the logs (`D:/temp/tianwen-scratch/i2112/limb/<twin>-<arm>.log`; each number is the CLI's,
+the mean of r, g, b, then of the 14). **A** is the default. **B** is the truth's own gains (`--gains`, the three channels' own, read off
+A's log) and nothing else, as the re-check ran them. **T** is B with `--target aperture`. The limb profile error is split inside and
+outside the limb within 6 px (`PlanetaryMetrics.LimbReachPx`).
+
+| arm | band error | by band 1 to 4 | limb | inside | outside | worst trough | worst rebound | worst undershoot |
+|---|---|---|---|---|---|---|---|---|
+| A, the default | 2.621 | 1.182, 0.719, 0.459, 0.260 | 0.0080 | 0.0203 | 0.0079 | 0.0016 | 0.0001 | 0.0001 |
+| B, the truth's own gains | 1.801 (-31.3 %) | 0.735, 0.579, 0.348, 0.139 | 0.0117 | 0.0169 | 0.0324 | 0.0000 | 0.0000 | 0.0000 |
+| T, B at the aperture target | 1.808 (-31.0 %) | 0.737, 0.581, 0.350, 0.140 | 0.0057 | 0.0110 | 0.0054 | 0.0022 | 0.0000 | 0.0000 |
+| L, the shipped learned model (`--learned-gains`) | 2.143 (-18.2 %) | 0.778, 0.668, 0.469, 0.228 | 0.0125 | 0.0230 | 0.0338 | 0.0000 | 0.0000 | 0.0000 |
+| LT, L at the aperture target | 2.153 (-17.8 %) | 0.783, 0.674, 0.470, 0.225 | 0.0067 | 0.0170 | 0.0070 | 0.0012 | 0.0000 | 0.0000 |
+
+- **The truth's own gains' limb excess is OUTSIDE the limb, and it is the target.** B is better than the default inside (0.0169 against
+  0.0203) and four times worse outside (0.0324 against 0.0079, on every one of the 14 twins, 0.0304 to 0.0364). The band errors differ by
+  band, B below A in all four. Nothing is wrong inside the limb and there is no trough or rebound to read: B's worst of each is 0.0000.
+- **Why:** `--gains` (and a learned model) restores toward the telescope target whatever `--target` is left at (`restoreToward` in
+  `PlanetarySharpening.Sharpen`: given gains were fitted toward the telescope, #817, #1552), so the planet's model drawn outside the limb to
+  the frame's edge is the telescope's, a pupil-only model, while the truth the score reads is carried to the aperture. The truth's own gains
+  are the aperture truth's, so they belong with the aperture target; the sky just outside the limb is then drawn one diffraction too soft.
+  T is that single change and nothing else.
+- **T clears the adoption bar with no change to the code.** Mean limb error 0.0057 against the bar of 0.0080, below the default's on
+  14 of the 14 twins (the highest are f005 0.0086, f002 0.0081 and f014 0.0081, against the default's 0.0102, 0.0107 and 0.0106), band error
+  +0.4 % over B and -31.0 % under the default (the bar allows +2 %), worst rebound 0.0000 (at most 0.005), worst undershoot 0.0000 (at most
+  0.002). The outside error falls most on the twins where the default's is largest (e002 0.0266 to 0.0155, f002 0.0231 to 0.0152, f014 0.0220
+  to 0.0151). The worst trough is 0.0022 (the default's 0.0016), on d028; no bar reads it.
+- **The shipped learned model has the same excess and the same cure.** L's limb error 0.0125 is 0.0338 outside (0.0079 for the default);
+  LT, the same model at the aperture target, reads 0.0067 (0.0070 outside), below the default's 0.0080 and below L on 14 of the 14 twins, band error +0.5 % over L (2.143 to 2.153; the bar allows +2 %), worst rebound and undershoot
+  0.0000, worst trough 0.0012. The model was fitted toward the telescope truth and loses nothing by being applied toward the aperture:
+  what the target moves is the model drawn outside the limb, not the gains.
+
+#### Step A result: adopted, the automatic target for given and learned gains (2026-11-12)
+
+**The change.** Given (`--gains`) and learned (`--learned-gains`) gains take `PlanetarySharpenTarget.Auto` as derived gains do, the
+aperture wherever every channel's cutoff is known (`restoreToward` in `PlanetarySharpening.Sharpen` is `TargetFor(options.Target,
+cutoffs)` whatever the gains' source; it used to resolve with no cutoffs, hence the telescope, for given and learned gains). A target
+asked for by name is taken as asked, so `--target telescope` keeps the old behaviour. Pinned by `GainsGivenOrLearnedTakeTheAutomaticTargetToo`
+in the planetary sharpening tests.
+
+**The bar, met by the arm the change makes the default** (the 14 held twins; T and LT were measured with an explicit `--target aperture`
+on the pre-change build and equal the new default by construction, since the CLI passes `auto` straight through and `TargetFor` returns
+the aperture whenever the cutoffs are finite; step B's `--learned-gains` runs went through the changed path): the truth's own gains' mean limb error 0.0057 against the default's 0.0080; band error +0.4 % (T over B, the bar
+allows +2 %), and -31.0 % under the default; worst rebound 0.0000 (at most 0.005) and worst undershoot 0.0000 (at most 0.002) on every twin.
+The shipped learned model gains the same way (limb 0.0125 to 0.0067, band error +0.5 %), which no bar asked for and which is why a change
+to the rule, not an invocation, is the right shape.
+
+**Which B2 limb bar applies from here on: the truth's own gains' limb error at the aperture target, 0.0057 through this build** (T). B
+refits the gains against the aperture truth and measures them through the default invocation, which now restores toward the aperture, so
+the bar is T's 0.0057 and never B's 0.0117 (that arm is the telescope target, `--target telescope`), nor the default's 0.0080 (the old
+fallback; the refit has to beat the better of the two). The shipped learned model's 0.0067 through the same build is the number the
+refit has to improve on. Rebound at most 0.005 and undershoot at most 0.002 on every twin stand.
+
+**Not changed:** the derived gains, `TargetFor`, the aperture taper and the limb fix; the options' help text and the learned model
+(its coefficients were fitted toward the telescope and are applied as shipped). The default arm A is unchanged by the rule (it never took
+given gains).
+
+#### Step B result: B1 holds, B2 and B3 fail, the refit is NOT kept (2026-11-12)
+
+**What was fitted.** `r10_gains.py truths` ran the default arm with `--score-against aperture` on the 40 training twins (24 d, 4 e, 12 f;
+16 warped or blurred), and read each twin's truth's own gains at the aperture from the log (`D:/temp/tianwen-scratch/i2112/truths/<twin>.log`,
+2 decimals, as L-GAINS-S read the telescope's). `r10_gains.py train` then fitted `l_gains_s.fit`, imported and unchanged (the glow reading,
+the ridge per colour, the strength by leave-one-out over the same ladder), with only those gains replacing the telescope truth's. Strength 1
+in all three colours, leave-one-out squared error 609.11, 1171.34 and 1194.78 (the telescope-truth fit's 291.48, 545.93 and 606.34; the
+two targets are different gains, so the errors say nothing about which fit is better). The model is
+`D:/temp/tianwen-scratch/i2112/gains-r10-model.json`. `l_gains_s_model_cs.py` wrote it into `PlanetaryGainsModels.cs` (the commit "R10 step
+B: PlanetaryGainsModels.cs written by l_gains_s_model_cs.py from the ridge fitted to the aperture truth's own gains (on trial until B1 and B2
+are read)"), the CLI was built at it (`D:/temp/tianwen-scratch/i2112/bin`, `BUILT_FROM.txt`), and `score` ran `--learned-gains` on the 14 held
+twins against the aperture truth (`i2112/refit/<twin>.log`). `check` read the built CLI's gains against the script's arithmetic on every
+held twin: the worst band differs by 0.005, inside the 2 decimals the log prints. (The check ran on the scoring logs, so the build was
+confirmed by the same run that scored, not before it.) Two held twins fall outside the training twins' glow range and take the derived gains
+for one channel, as the model's rule says (d029's blue, glow 2.459 under 2.464; f014's red, 2.725 over 2.602).
+
+| arm | band error | by band 1 to 4 | limb | inside | outside | worst trough | worst rebound | worst undershoot |
+|---|---|---|---|---|---|---|---|---|
+| A, the default | 2.621 | 1.182, 0.719, 0.459, 0.260 | 0.0080 | 0.0203 | 0.0079 | 0.0016 | 0.0001 | 0.0001 |
+| LT, the shipped learned model | 2.153 (-17.8 %) | 0.783, 0.674, 0.470, 0.225 | 0.0067 | 0.0170 | 0.0070 | 0.0012 | 0.0000 | 0.0000 |
+| R, the refit | **1.908 (-27.2 %)** | 0.756, 0.598, 0.379, 0.176 | **0.0063** | 0.0125 | 0.0055 | 0.0024 | 0.0000 | 0.0000 |
+| T, the truth's own gains (the ceiling) | 1.808 (-31.0 %) | 0.737, 0.581, 0.350, 0.140 | 0.0057 | 0.0110 | 0.0054 | 0.0022 | 0.0000 | 0.0000 |
+
+Per twin (band error, then limb profile error; rebound and undershoot are 0.0000 on every twin for R, so no twin is near its bar):
+
+| twin | A band | LT band | R band | A limb | LT limb | R limb |
+|---|---|---|---|---|---|---|
+| d024 | 2.414 | 1.752 | 1.236 | 0.0069 | 0.0057 | 0.0045 |
+| d025 | 2.161 | 1.624 | 1.230 | 0.0069 | 0.0054 | 0.0050 |
+| d026 | 2.131 | 1.504 | 1.239 | 0.0071 | 0.0053 | 0.0061 |
+| d027 | 1.987 | 1.647 | 1.197 | 0.0070 | 0.0057 | 0.0046 |
+| d028 | 2.047 | 1.623 | 1.158 | 0.0057 | 0.0049 | 0.0047 |
+| d029 | 2.079 | 2.036 | 1.647 | 0.0072 | 0.0076 | 0.0062 |
+| e002 | 3.485 | 2.995 | 2.973 | 0.0132 | 0.0095 | 0.0077 |
+| e005 | 2.976 | 2.576 | 2.382 | 0.0062 | 0.0063 | 0.0048 |
+| f002 | 2.870 | 2.235 | 2.049 | 0.0107 | 0.0080 | 0.0080 |
+| f005 | 3.183 | 2.664 | 2.477 | 0.0102 | 0.0082 | 0.0074 |
+| f008 | 2.424 | 1.858 | 1.730 | 0.0059 | 0.0052 | 0.0068 |
+| f011 | 3.350 | 2.961 | 2.813 | 0.0088 | 0.0082 | 0.0067 |
+| f014 | 3.198 | 2.831 | 2.729 | 0.0106 | 0.0087 | 0.0084 |
+| f017 | 2.384 | 1.835 | 1.855 | 0.0059 | 0.0051 | 0.0072 |
+
+**B1 holds.** Mean band error 1.908 against the default's 2.621 is 27.2 % lower (the bar is 24 %), and the refit is below the default on
+14 of the 14 twins. Against the shipped model (2.153) it is 11.4 % lower, below it on 13 of 14 (f017 is 1.855 against 1.835). It recovers 88
+% of what the truth's own gains give (T, 1.808). **The kill does not apply**: the pre-registered line was a mean under 18.2 % and this is 27.2 %.
+
+**B2 fails.** The limb error mean is 0.0063 against the bar of 0.0057 (the truth's own gains at the aperture target). It improves on the
+shipped model's 0.0067, the number it had to beat, and on the default's 0.0080, but misses the bar the truth's own gains set. Rebound (worst
+0.0000, at most 0.005) and undershoot (worst 0.0000, at most 0.002) hold on every twin. The shortfall sits on three twins where the refit's
+limb is worse than the shipped model's, f008 (0.0068 against 0.0052), f017 (0.0072 against 0.0051) and d026 (0.0061 against 0.0053); on f008
+and f017 it is also above the default's (0.0059). The outside error (0.0055, T's 0.0054) is no longer the problem, the inside is: 0.0125
+against T's 0.0110.
+
+**B3 fails.** The real EdgeHD master (`final-1011/out/jup-edgehd/master_2023-11-11-0244_2-MPO_auto.fits`, a 279 mm pupil 33 % obstructed as
+`--auto` read it), sharpened by this build with the default and with `--learned-gains`, each judged against the capture's own `_post` by
+`planetary judge` (read for the score only, never fitted to; `r10_gains.py b3`, `b3-read`; `i2112/b3`):
+
+| arm | C24 (mean correlation, bands 2 to 4) | band 2: correlation, gain | band 3: correlation, gain | band 4: correlation, gain |
+|---|---|---|---|---|
+| default | 0.9520 | 0.882, 0.569 | 0.985, 0.742 | 0.989, 0.848 |
+| refit | **0.9240** | 0.798, 0.563 | 0.981, 1.047 | 0.993, 1.041 |
+
+C24 0.9240 is 0.0280 below the default's 0.9520 (the bar: no lower), so B3 fails on C24. Band 2's gain is 0.563 against 0.569, 1.1 % below
+(at most 2 % allowed), which holds. The refit learned the gains on this master (glow 1.839, inside every colour's range) and they are far
+from the derived ones (red 2.78, 7.02, 0.13 for bands 2 to 4 against 10.44, -0.99, 1.83): band 2's correlation falls 0.084 while bands 3 and
+4 overshoot the post's energy (1.07 and 1.05 of it, the default's 0.75 and 0.86). A learned model fitted to the twins' truth does not agree
+with the owner's `_post` on the one real capture it was made for, which is what B3 exists to say.
+
+**Decision, by the keep rule.** B2 failed, so `PlanetaryGainsModels.cs` is restored to main's (the shipped model, byte for byte; `git diff
+main` on the file is empty, and the test that pins it is untouched). The L-GAINS-S rule text and the model's doc comment name no
+fitted-to target, so they are unchanged. The default is not changed. The refit stays only as the script (`r10_gains.py truths`, `train`,
+`score`, `check`, `b3`), the model JSON in scratch and the commit that wrote it in this branch's history. **No B4**: there is nothing to
+adopt, so no strip was rendered side by side; the two sharpened outputs the owner may still open are
+`D:/temp/tianwen-scratch/i2112/b3/default/master_2023-11-11-0244_2-MPO_auto_sharpened.png` and
+`D:/temp/tianwen-scratch/i2112/b3/refit/master_2023-11-11-0244_2-MPO_auto_sharpened_learned.png`. R10 stops at B: the option's model was
+NOT replaced.
+
+**What it does and does not say.** The aperture refit is a real gain over both the default and the shipped model on the synthetic twins
+(-27.2 % and -11.4 % band error), so the telescope-versus-aperture target was worth correcting, which step A already did for the shipped
+model. It is not enough to replace the shipped model, because the real capture does not agree (B3) and the limb inside the disc is
+0.0006 short of the truth's own gains (B2). The glow reading alone does not carry the aperture truth's gains as well as it carried the
+telescope truth's: what the refit gains over the shipped model is spent on the real master.
+
+#### Step C: not run (2026-11-12)
+
+The pre-registered rule made C conditional on B ("only if B holds"). B1 held but B2 and B3 failed, so the refit was not kept, and a
+Saturn-sampling twin family would only have tested whether a model that already disagrees with the one real capture it was fitted for
+carries to a second one. No Saturn twin was made or scored, no C bars were written, and `PlanetaryGainsModels.cs` is main's.
+
+**What R10 concluded:**
+- The default's target was part of the cost, and step A fixed it as a rule: given and learned gains take the automatic (aperture)
+  target, which cut the shipped learned model's limb error from 0.0125 to 0.0067 (band error +0.5 %), pinned by
+  `GainsGivenOrLearnedTakeTheAutomaticTargetToo`.
+- The shipped learned model's -18.2 % on the 14 held twins stands, and the aperture refit's -27.2 % is real on the synthetic twins, but
+  the real EdgeHD master's `_post` is the judge of whether a model deploys (G5/B3), and the refit loses there (C24 0.9240 against the
+  default's 0.9520). The model option stays as shipped; nothing becomes the default.
+- The October masters still stand (step 0: bit-identical re-stack of d024).
+
+**What is left for #1552** (its list of what would make a gain model deployable stands unchanged, none of it done by R10): twins whose
+air brackets the real master's own measured blur at the capture's own length; the limb's trough under a stronger band 3 (a term in the
+fit or a floor); every other capture with a `_post`, the two Saturns included, fitted to its own twin first. A step C would start from
+the Saturn captures' own twins (`planetary twin`), and from a fit that agrees with the real master's `_post` on EdgeHD first, since the
+aperture refit shows that agreement is the part the glow reading does not carry.
+
+### R11: why learned gains lose on the real capture (pre-registered 2026-11-12, #2116)
+
+**The question.** R10's refit beat the default on the held twins and lost on the real EdgeHD master, where the owner's eye read it as more
+contrast and less fine detail. Read from R10's logs afterwards (red, bands 1 to 4):
+
+| gains | band 1 | band 2 | band 3 | band 4 |
+|---|---|---|---|---|
+| the 40 training twins, the truth's own (median) | -0.10 | 1.02 | 11.74 | -0.64 |
+| the 40 training twins, derived (median) | 1.00 | 6.38 | 4.17 | 0.94 |
+| the real master, derived | 1.00 | 10.44 | -0.99 | 1.83 |
+| the real master, R10's refit | -0.25 | 2.78 | 7.02 | 0.13 |
+
+On every twin the truth puts the lift in band 3 and almost none in band 2; the refit learned that and gave it to the real master, where the
+default lifts band 2. The real master is outside the twins in measures the model does not read: the limb's edge at 0.1 cycles a pixel
+0.277 (the twins' 0.31 to 0.54), a halo of 0.50 over 370 px (the twins' median 0.33 over 20 px), a 2-pixel lattice of 4.95e-4 (the twins'
+largest 1.3e-5). Its glow, the model's one reading, is inside the range. So either the twins lack band 2 detail the real capture holds, or
+the default and the `_post` (made from the same frames) both lift noise there. Step 1 decides which. The bars, the kill line and the
+prediction are in #2116, written before any of it ran.
+
+#### Step 1 read: band 2 of the real stack is detail, and the twins' is half noise (2026-11-12)
+
+**Method.** `planetary stack --halves` folds the kept frames into two halves alternately by rank; `planetary judge <halfA> <halfB>` reads
+each a trous band's correlation between them inside 0.9 radii, c. A band's share of repeatable detail in the full stack is w = 2c / (1 + c).
+Nothing is sharpened and no `_post` is read. Three held twins, one a family, were re-made from their plan rows and stacked the same way,
+and each full master judged against its truth (green), r. Glue: `training/planetary/r11_halves.py` (`real`, `real 0.5`, `twins`, `read`);
+the build is R10's; scratch `D:/temp/tianwen-scratch/i2116`.
+
+**One change from the registration, made before any number was seen:** `--auto` refuses `--halves`, so the real capture is the plain stack
+at the measured defaults, the command the twins take. The plain stack keeps the best 10 % (539 of 5,392 frames) where `--auto` kept half
+for the 2026-10-11 master, so the real capture was stacked both ways.
+
+| capture | frames stacked | band 1 w | band 2 w | band 3 w | band 4 w |
+|---|---|---|---|---|---|
+| real, keep 10 % | 539 | 0.628 | 0.962 | 0.998 | 1.000 |
+| real, keep 50 % (the 2026-10-11 master's) | 2,696 | 0.885 | **0.990** | 0.999 | 1.000 |
+| twin d024 | 60 | 0.146 | 0.845 | 0.992 | 0.999 |
+| twin e002 (warped) | 60 | 0.024 | 0.488 | 0.943 | 0.988 |
+| twin f002 (blurred) | 60 | 0.035 | 0.649 | 0.986 | 0.999 |
+
+The twins, sqrt(w) from the halves against r from the truth:
+
+| twin | band 1 | band 2 | band 3 | band 4 |
+|---|---|---|---|---|
+| d024 | 0.383, 0.282 | 0.919, 0.859 | 0.996, 0.948 | 0.999, 0.974 |
+| e002 | 0.154, 0.038 | 0.699, 0.345 | 0.971, 0.679 | 0.994, 0.880 |
+| f002 | 0.188, 0.092 | 0.805, 0.590 | 0.993, 0.847 | 0.999, 0.941 |
+
+- **V, the kill line, holds: Spearman 0.967 over the twelve twin bands (the bar 0.8).** The bar as registered is mostly the bands' own order,
+  which any measure ranks; the stricter reading it also passes is that WITHIN each band the three twins rank by w as they rank by r (bands 1,
+  2 and 3 alike: d024, f002, e002).
+- **The read: the real capture's band 2 is repeatable detail**, w 0.990 at the master's own keep and 0.962 at the best tenth, both over the
+  0.8 line. By the registration the twins are what is wrong, and R11 makes twins first.
+- **The prediction holds, its reason does not.** Band 2's w is over 0.8, above every twin's (0.845, 0.488, 0.649) and 0.33 above their
+  mean (0.661; the bar 0.1). The reason given was nine times the frames; a twin's master holds 60 frames (the best tenth of 600) against the
+  real master's 2,696, which is 45 times.
+- **What the twins taught the model.** On a 60-frame twin band 2 is 49 to 85 % detail and band 1 2 to 15 %, so the truth's own gains leave
+  band 2 almost alone and take band 1 out, and lift band 3, which is clean. That is right for those stacks and wrong for a stack whose band
+  2 is 99 % detail. The loss was not at fault; the twins stand for a capture forty-five times shorter than the one they were drawn about.
+- **What it does not say.** sqrt(w) is above r on every twin band, most on the warped twin (band 2: 0.699 against 0.345): a blur or a warp
+  both halves share is detail to this measure. So w 0.990 says the real band 2 is not noise; it does not say the default's gain of 10.44
+  on it is the right one, and band 1 is not read (the 2-pixel lattice repeats across halves).
+
+**What follows** (bars to be set in #2116 before each runs): twins at the capture's own length and keep, so their noise per band is the
+real master's (their halves' w matched to the table above is the check, before any gain is fitted), bracketing its edge, halo and lattice;
+then a model that reads the capture's own measures and is refused outside its twins on every reading; then #1552's remaining items.
+
+#### Step 2a read: a twin of the capture's own length matches its noise and not its gains (2026-11-12)
+
+Twin d024 made over the whole capture (5,392 frames; `planetary degrade --no-measure --limb-frames 150`, the colour passes side by side
+and the frames written as they finish, which took a 600-frame twin from 950 s to 128 s with the same bytes), stacked at keep 0.5 as the
+real master is (2,696 frames), judged and scored as registered on #2116 (`r11_halves.py full`).
+
+| bar | registered | read | verdict |
+|---|---|---|---|
+| P1: band 2's w | at least 0.96 (real 0.990) | 0.992 (600 frames: 0.845) | holds |
+| P2: red's band 2 gain, the truth's own | at least 3.3 (600 frames: 1.66) | 2.45 | fails |
+| P2: band 3 lower in every colour | 11.18, 3.59, 9.02 at 600 frames | 10.12, 3.49, 6.14 | holds |
+| P2: band 1 higher in every colour | -0.14, -0.50, -0.62 at 600 frames | -0.15, -0.73, -1.04 | fails |
+| kill: P1 holds and red's band 2 under 2.5 | | 2.45 | **hit** |
+
+- **Twin length is not the explanation.** The noise went (band 2's w 0.845 to 0.992) and the agreement with the truth did not come (r 0.859
+  to 0.875; band 3's fell, 0.948 to 0.919). The halves agree with each other (sqrt(w) 0.996) far better than the master with its truth, so
+  what is left in band 2 is shared by both halves: blur.
+- **Red is the outlier.** Green's and blue's truth gains do lift band 2 (5.40 and 12.18); red's pupil cutoff is 0.230 cycles a pixel,
+  inside band 2.
+- **The derived gains moved toward the real capture's:** red's band 2 8.39 (the 600-frame twins' median 6.38, real 10.44), green 14.10
+  (real 13.63), blue 14.23 (real 16.37).
+- As registered, no full set of long twins is made; the twin's blur is looked at first.
+
+#### The real side, every capture: read (2026-11-13)
+
+A measurement with no bar, said on #2116 before it ran: the 15 Jupiter, Saturn and Mars sessions of the survey's manifest (1,669,875
+frames; the 3 Venus sessions left out), each one `planetary stack --session --halves --no-sharpen --keep 0.5` (`r11_restack.py`), its
+halves judged (`r11_restack_read.py`) and its limb edge and lattice read with no telescope named (`r11_restack_edge.py`). All 15 stacked,
+in 2 h 9 min on the 16-core desktop with the de-rotated walk in batches (#2119: the EdgeHD capture at keep 0.5 699.5 s to 144.4 s, the
+master and its halves the same bytes); the largest session, 540,651 frames, took 23 min.
+
+| session | kept | w band 1 | band 2 | band 3 | band 4 | edge at 0.1 / 0.3 | lattice, largest |
+|---|---|---|---|---|---|---|---|
+| Saturn 2022-10-09 (colour by PIPP) | 2,298 | 0.998 | 0.997 | 0.990 | 0.985 | 0.233 / 0.129 | 9.4e-5 |
+| Saturn 2026-10-07 11:34, 650 nm | 15,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.211 / 0.027 | mono |
+| Saturn 2026-10-07 11:36, 530 nm | 15,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.249 / 0.086 | mono |
+| Saturn 2026-10-07 11:39, 460 nm | 15,000 | 0.999 | 1.000 | 0.998 | 0.998 | 0.195 / 0.063 | mono |
+| Jupiter 2021-12-16 11:34 | 17,202 | 0.997 | 1.000 | 0.999 | 0.999 | 0.159 / 0.380 | 3.0e-3 |
+| Mars 2025-01-02 13:15 (640x480) | 20,000 | 0.987 | 1.000 | 0.998 | 0.994 | 0.054 / 0.052 | 4.7e-3 |
+| Saturn 2021-12-16 11:18 | 20,817 | 0.996 | 0.997 | 0.992 | 0.988 | 0.380 / 0.570 | 9.4e-3 |
+| Jupiter 2025-01-02 12:35 (640x480) | 30,000 | 0.971 | 0.998 | 1.000 | 1.000 | 0.109 / 0.033 | 1.6e-3 |
+| Mars 2025-01-02 13:06 | 30,000 | 0.501 | 0.869 | 0.940 | 0.975 | 0.037 / 0.107 | 4.4e-3 |
+| Saturn 2026-10-07 12:21, 650 nm | 35,000 | 0.999 | 1.000 | 0.998 | 0.998 | 0.213 / 0.159 | mono |
+| Saturn 2026-10-07 12:23, 530 nm | 35,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.217 / 0.112 | mono |
+| Saturn 2026-10-07 12:26, 460 nm | 35,000 | 0.999 | 1.000 | 0.999 | 0.998 | 0.172 / 0.129 | mono |
+| Jupiter 2022-10-09 10:42 | 73,516 | 0.999 | 1.000 | 1.000 | 0.997 | 0.301 / 0.010 | 2.7e-3 |
+| Jupiter 2024-12-15 12:33 | 220,779 | 0.940 | 0.986 | 0.996 | 0.993 | 0.386 / 0.022 | 2.5e-3 |
+| Jupiter 2022-09-29 11:36 | 270,326 | 0.999 | 1.000 | 0.999 | 0.996 | 0.277 / 0.097 | 3.3e-3 |
+
+- **Band 2 is repeatable detail on every real capture but one:** 0.986 to 1.000 on 14 sessions; the small Mars capture reads 0.869. The
+  full-length twin reads 0.992, so at the real keep the halves no longer tell a twin from a real capture.
+- **The 2-pixel lattice is in every Bayer capture stacked from its mosaic and in no twin:** 1.6e-3 to 9.4e-3 on nine sessions (the EdgeHD
+  master 4.95e-4), 9.4e-5 where PIPP had made the colour, against the twins' largest 1.3e-5. A band 1 share near 1 on those sessions is
+  therefore partly a pattern both halves share and is not read as detail.
+- **The real Jupiters' limb edge at 0.1 cycles a pixel sits at or under the twins' range** (0.31 to 0.54): 0.109, 0.159, 0.277, 0.301 and
+  0.386. The twins all model one telescope, so across captures this is loose.
+- Nothing is adopted. The twin's two measured gaps to the real captures are its blur (step 2a) and the lattice it does not carry.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
@@ -7009,7 +7376,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     `--score-against aperture`), **band-limited by a Hann taper that ends at the lesser of the cutoff and the grid's Nyquist,
     never a Tukey, whose own edge response overshot 7.9 % and rang past Saturn's limb** (`PlanetaryApertureTaper`,
     `PlanetaryFinishing.GridNyquist`, `--aperture-taper`,
-    #1661); gains given or learned keep the telescope they were fitted toward. **Read a gain set by its FILTER** (`PlanetaryWaveletGains.Transfer`). The
+    #1661); gains given or learned take that default too (R10 step A, #2112; they kept the telescope they were fitted toward before, whose model
+    drawn outside the limb left the edge's halo; `--target telescope` still asks for it). **Read a gain set by its FILTER** (`PlanetaryWaveletGains.Transfer`). The
     panel's `PlanetaryStrength` is never saved.
   - **Learned gains are an OPTION, applied only inside what their twins covered** (`--learned-gains`,
     `PlanetaryGainsModels`, `PlanetaryGainsModel.Predict`, #1552): every reading inside the twins' range and the

@@ -64,16 +64,12 @@ internal sealed class StallWatch : IDisposable
     /// <summary>
     /// Writes one line to the test's output. A test that outran its timeout is abandoned by xunit with its body still running,
     /// and its output is closed under it: the next write throws "There is no currently active test", on THIS thread, which
-    /// ends the whole test host (iterations of j4184 lost 5 of 13 tests to it). xunit offers no way to ask whether the output is
-    /// open, so the one exception it throws is the answer, and the watch has nothing left to say it to.
+    /// ends the whole test host (iterations of j4184 lost 5 of 13 tests to it). <see cref="TestOutputLine"/> takes that answer, and a
+    /// line it could not write stops the watch, which has nothing left to say it to.
     /// </summary>
     private void Write(ITestOutputHelper output, string line)
     {
-        try
-        {
-            output.WriteLine($"{DateTime.Now:HH:mm:ss.fff} warn [StallWatch] {line}");
-        }
-        catch (InvalidOperationException)
+        if (!TestOutputLine.Write(output, $"{DateTime.Now:HH:mm:ss.fff} warn [StallWatch] {line}"))
         {
             _stop.Set();
         }

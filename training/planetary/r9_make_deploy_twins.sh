@@ -5,10 +5,11 @@ T=D:/temp/tianwen-scratch/i1056/bin/tianwen.exe
 EDGE="D:/Astro-Dataset/planetary/Jupiter-1100 EdgeHD + ASI678MC-f14-DS/2023-11-11-0244_2-MPO.ser"
 O=D:/Astro-Dataset/planetary/opal
 D=D:/temp/tianwen-scratch/i1056/deploy
+PLAN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -W)/r9_deploy_twins_plan.json"  # the plan lives in the repo, next to this script
 one() {
   [ -f "$D/deploy.stop" ] && return 0
   local i=$1
-  local row=$(python -c "import json; r=json.load(open('$D/plan.json'))[$i]; print(r['epoch'], r['r0'], r['wind'], r['local'], r['scatter'], ','.join(map(str, r['defocus'])), r['seed'])")
+  local row=$(python -c "import json; r=json.load(open('$PLAN'))[$i]; print(r['epoch'], r['r0'], r['wind'], r['local'], r['scatter'], ','.join(map(str, r['defocus'])), r['seed'])")
   read epoch r0 wind local scatter defocus seed <<< "$row"
   local n=$(printf "d%03d" $i); local d="$D/$n"; mkdir -p "$d"
   [ -f "$d/derived/master_${n}_sharpened.fits" ] && return 0
@@ -24,6 +25,6 @@ one() {
   rm -f "$d/$n.ser"
   echo "$n done" >> "$D/deploy.done"
 }
-export -f one; export T EDGE O D
+export -f one; export T EDGE O D PLAN
 seq 0 29 | xargs -P ${1:-1} -I{} bash -c 'one {}'
 echo "all deploy twins" >> "$D/deploy.done"

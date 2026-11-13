@@ -22,6 +22,7 @@ internal sealed class HighResolutionTimer : ITimer
     private readonly ITimer _coarse;
     private CancellationTokenSource? _pending;
     private int _disposed;
+    private int _armedWith = (int)HighResolutionWait.WaitPrimitive.NotApplicable;
 
     public HighResolutionTimer(TimeProvider inner, TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
@@ -45,18 +46,29 @@ internal sealed class HighResolutionTimer : ITimer
             _coarse.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             var armed = new CancellationTokenSource();
             CancelPending(armed);
-            _ = FireAsync(dueTime, armed);
+            var (wait, primitive) = HighResolutionWait.Arm(dueTime, armed.Token);
+            Volatile.Write(ref _armedWith, (int)primitive);
+            _ = FireAsync(wait, armed);
             return true;
         }
 
+        Volatile.Write(ref _armedWith, (int)HighResolutionWait.WaitPrimitive.NotApplicable);
         return _coarse.Change(dueTime, period);
     }
 
-    /// <summary>Fires the callback once <paramref name="dueTime"/> has passed, unless <paramref name="armed"/> was superseded first.</summary>
-    private async Task FireAsync(TimeSpan dueTime, CancellationTokenSource armed)
+    /// <summary>
+    /// Which primitive the latest <see cref="Change"/> armed: <see cref="HighResolutionWait.WaitPrimitive.HighResolution"/> for a
+    /// one-shot within <see cref="HighResolutionWait.PreciseUpTo"/>, <see cref="HighResolutionWait.WaitPrimitive.NotApplicable"/>
+    /// for one handed to the inner provider's timer (a periodic or a long one, or a disarm). A test reads it to pin WHICH timer a
+    /// due time gets without measuring how long it took (#2031); nothing in production reads it.
+    /// </summary>
+    internal HighResolutionWait.WaitPrimitive ArmedWith => (HighResolutionWait.WaitPrimitive)Volatile.Read(ref _armedWith);
+
+    /// <summary>Fires the callback once <paramref name="wait"/> has ended, unless <paramref name="armed"/> was superseded first.</summary>
+    private async Task FireAsync(Task wait, CancellationTokenSource armed)
     {
         // A superseded one-shot ends its wait cancelled; the slot, not the exception, says whether this one still fires.
-        await HighResolutionWait.DelayAsync(dueTime, armed.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        await wait.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
         // Only the one-shot still armed fires; taking it out of the slot is what makes it fire once.
         if (Interlocked.CompareExchange(ref _pending, null, armed) == armed)

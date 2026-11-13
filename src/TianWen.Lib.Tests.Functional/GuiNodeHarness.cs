@@ -291,7 +291,7 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         var sent = new ConcurrentQueue<string>();
         var http = new HttpClient(new RecordingNode(sent)) { BaseAddress = new Uri("http://rig.local:1888/") };
         var clock = SystemTimeProvider.Instance;
-        var mirror = new RemoteSessionMirror(new TianWenNodeClient(http),
+        var mirror = new RemoteSessionMirror(NodeTestClients.ClientOf(http),
             new TianWenEventStream(http.BaseAddress, clock, NullLogger.Instance), clock, NullLogger.Instance);
         _mirrors.Add(mirror);
         Contexts.Active.LiveSession.ActiveSession = mirror;

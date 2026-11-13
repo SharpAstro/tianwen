@@ -38,19 +38,29 @@ public class ExternalPlateSolverProcessTests
     [Fact(Timeout = 60_000)]
     public async Task ACancelledSolveKillsTheToolAndRethrows()
     {
-        var solver = new StandInToolSolver(hang: true, SystemTimeProvider.Instance);
+        // Every line the tool prints and every stage, live: on windows-latest this test once ran to its 60 s timeout having printed
+        // nothing (run 42885521250, #2054), which left no way to tell a tool that never started from one that never printed or a
+        // cancel that never ended it.
+        var log = TestContext.Current.TestOutputHelper;
+        var solver = new StandInToolSolver(hang: true, SystemTimeProvider.Instance, log: log);
         var ct = TestContext.Current.CancellationToken;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var fits = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".fits");
 
         // Cancelled once the tool has started its inner process and printed its id (#1315), never after a fixed time, which a cold
-        // pwsh on a loaded machine could outlast: the cancel then killed the tool before the id came, and the test read none. A tool
-        // that never prints fails at the test's timeout.
+        // pwsh on a loaded machine could outlast: the cancel then killed the tool before the id came, and the test read none. A solve
+        // that ends before the id comes is the failure at once, with its own exception, rather than a wait out to the timeout.
         var solve = solver.SolveFileAsync(fits, cancellationToken: cts.Token);
-        await solver.InnerPidPrinted.WaitAsync(ct);
+        if (await Task.WhenAny(solver.InnerPidPrinted, solve).WaitAsync(ct) == solve)
+        {
+            await solve;
+            throw new ShouldAssertException("the solve ended before its tool printed the inner process's id");
+        }
+        solver.Stage("inner process id read; cancelling");
         await cts.CancelAsync();
 
         await Should.ThrowAsync<OperationCanceledException>(() => solve);
+        solver.Stage("the solve rethrew the cancellation");
         await ShouldAllExitAsync(solver);
     }
 
@@ -122,8 +132,19 @@ public class ExternalPlateSolverProcessTests
     /// A solver whose "tool" is a shell that starts a second process and prints its id: one that never
     /// exits (<paramref name="hang"/>) or one that exits 0 at once.
     /// </summary>
-    private sealed class StandInToolSolver(bool hang, ITimeProvider clock, TimeSpan? probeBound = null) : ExternalProcessPlateSolverBase(clock)
+    private sealed class StandInToolSolver(bool hang, ITimeProvider clock, TimeSpan? probeBound = null, ITestOutputHelper? log = null)
+        : ExternalProcessPlateSolverBase(clock)
     {
+        // Measures only, for the log: how long each stage took from the solver's creation. Nothing waits on it.
+        private readonly Stopwatch _since = Stopwatch.StartNew();
+
+        /// <summary>Writes a stage to the test's output, with the seconds since the solver was made.</summary>
+        public void Stage(string what)
+        {
+            // The tool's output reader can raise a line after the test ended, on its own thread.
+            TestOutputLine.Write(log, $"+{_since.Elapsed.TotalSeconds:0.000} s {what}");
+        }
+
         // The probe's bound on the hanging stand-in: long enough for it to print its inner process's id first, since pwsh's cold start
         // alone passed 5 s under a loaded full suite (2026-10-03). Still well inside the tests' 60 s, so a tool left running fails them.
         // The cancel test waits for the id itself rather than for a time (#1315).
@@ -159,15 +180,19 @@ public class ExternalPlateSolverProcessTests
 
         protected override Process? StartRedirectedProcess(string proc, string arguments, PlatformID? executionPlatform = default)
         {
+            // On Windows the inner process is started through .NET, not Start-Process: a cmdlet is found by module auto-loading,
+            // which reads the module analysis cache of every module on PSModulePath (a hosted runner carries the Az modules), and
+            // the stand-in's first command is the one place a cold cache would show. [Process]::Start needs no module, and with no
+            // redirection of its own the child writes to the tool's own redirected output, as Start-Process -NoNewWindow did.
             var startInfo = OperatingSystem.IsWindows()
                 ? new ProcessStartInfo("pwsh")
                 {
                     ArgumentList =
                     {
-                        "-NoProfile", "-Command",
+                        "-NoProfile", "-NonInteractive", "-Command",
                         hang
-                            ? "$c = Start-Process ping -ArgumentList '-n','120','127.0.0.1' -NoNewWindow -PassThru; [Console]::Out.WriteLine($c.Id); [Console]::Out.Flush(); $c.WaitForExit()"
-                            : "$c = Start-Process cmd -ArgumentList '/c','exit 0' -NoNewWindow -PassThru; [Console]::Out.WriteLine($c.Id); $c.WaitForExit(); exit 0",
+                            ? "$c = [System.Diagnostics.Process]::Start('ping', '-n 120 127.0.0.1'); [Console]::Out.WriteLine($c.Id); [Console]::Out.Flush(); $c.WaitForExit()"
+                            : "$c = [System.Diagnostics.Process]::Start('cmd', '/c exit 0'); [Console]::Out.WriteLine($c.Id); $c.WaitForExit(); exit 0",
                     },
                 }
                 : new ProcessStartInfo("/bin/sh")
@@ -179,16 +204,29 @@ public class ExternalPlateSolverProcessTests
             startInfo.RedirectStandardOutput = true;
             startInfo.RedirectStandardError = true;
 
+            Stage($"starting {startInfo.FileName}");
             var process = Process.Start(startInfo);
             if (process is not null)
             {
                 StartedPid = process.Id;
+                Stage($"the tool runs as {process.Id}");
                 // Subscribed before the base calls BeginOutputReadLine, so the first line is not missed.
                 process.OutputDataReceived += (_, e) =>
                 {
+                    if (e.Data is { } line)
+                    {
+                        Stage($"tool: {line}");
+                    }
                     if (int.TryParse(e.Data?.Trim(), out var pid))
                     {
                         _innerPid.TrySetResult(pid);
+                    }
+                };
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data is { } line)
+                    {
+                        Stage($"tool, stderr: {line}");
                     }
                 };
             }

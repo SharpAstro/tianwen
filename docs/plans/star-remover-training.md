@@ -1,5 +1,12 @@
 # Star-remover training (P4): the inject-and-remove bootstrap
 
+**Status, 2026-11-11: rounds 1 to 3 run (R2a to R3s, section 6), and NO model ships.** R2p was chosen on
+2026-10-20 ([Shipping R2p](#shipping-r2p-tianwens-own-star-remover-2026-10-20), #1702, still open) and held
+before shipping by the dig it leaves under bright stars on a smooth background, which is what round 2 and round 3
+are about. `image remove-stars --model` runs weights a caller names, none are in `src/TianWen.AI.Imaging/models/`,
+and RC-Astro stays the registered `IStarRemover`. The status below is the one written on 2026-10-03, kept as the
+record.
+
 **Status: R0 BUILT (2026-10-03), the first of the model plans in priority (the owner, 2026-10-02: #902 is
 `priority:high`, above the gradient plan's de-vignetting model). The classical plate builder and its report
 run on the ten held-out masters with holes below their null on every one ([R0 results](#r0-results-2026-10-03));
@@ -6263,7 +6270,9 @@ source's (`AKeptStarUnderAnInjectedOneStillHasItsWingsLeftOutOfTheLoss`); only t
 
 ## 7. Phasing
 
-Tracked by #902.
+Tracked by #902. State 2026-11-11: P4.0 and P4.1 are done (2026-10-03). The arms run since (R2a to R3s in
+section 6) took their names from the rounds, not from this table's R2 to R5. P4.4, a shipped opt-in v1, is #1702
+and is open.
 
 | Phase | Deliverable | Exit |
 |---|---|---|

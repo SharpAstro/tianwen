@@ -67,7 +67,7 @@ public class NodeKeeperProcessTests
         var node = await kept.WaitForNodeAsync(static _ => true, ct);
         using var nodeProcess = Process.GetProcessById(node.ProcessId);
 
-        using var http = TianWen.RemoteClient.NodeTransport.OverSocket(kept.SocketPath).CreateHttpClient();
+        using var http = NodeTestClients.Create(TianWen.RemoteClient.NodeTransport.OverSocket(kept.SocketPath));
         (await NodeHarness.EnvelopeStatusAsync(http.PostAsync("api/v1/node/shutdown", null, ct), ct)).ShouldBe(202);
 
         // The keeper ends with Stopped only when its node did: the node's exit code, which a process this test did not

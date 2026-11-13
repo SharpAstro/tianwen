@@ -4,7 +4,7 @@
 
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
 
-    <SharpAstroCodecsVersion>3.24.*</SharpAstroCodecsVersion>
+    <SharpAstroCodecsVersion>3.34.*</SharpAstroCodecsVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" />
@@ -20,7 +20,7 @@
     <PackageVersion Include="Lzip.Lib" Version="1.1.*" />
     <PackageVersion Include="Serial.Lib" Version="1.2.*" />
 
-    <PackageVersion Include="LAN.Lib" Version="2.3.*" />
+    <PackageVersion Include="LAN.Lib" Version="2.5.*" />
     <!-- The per-user node's socket location, lock and Kestrel hosting, lifted out of TianWen.Hosting (SharpAstro/Node.Lib). -->
     <PackageVersion Include="Node.Lib" Version="1.2.*" />
     <PackageVersion Include="Node.Lib.Hosting" Version="1.2.*" />
@@ -37,9 +37,9 @@
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
 
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.CrashDump" Version="2.4.1" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.HangDump" Version="2.4.1" />
-    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.1" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.CrashDump" Version="2.5.2" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.HangDump" Version="2.5.2" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.2" />
     <PackageVersion Include="System.IO.Hashing" Version="10.0.12" />
     <PackageVersion Include="System.Numerics.Tensors" Version="10.0.12" />
 
@@ -57,12 +57,12 @@
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
-    <PackageVersion Include="xunit.v3" Version="4.0.1" />
+    <PackageVersion Include="xunit.v3" Version="4.0.3" />
 
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
 
-    <PackageVersion Include="DIR.Lib" Version="11.40.*" />
-    <PackageVersion Include="DIR.Lib.Debug" Version="11.40.*" />
+    <PackageVersion Include="DIR.Lib" Version="11.57.*" />
+    <PackageVersion Include="DIR.Lib.Debug" Version="11.57.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
@@ -82,8 +82,8 @@
     <PackageVersion Include="Console.Lib" Version="5.12.*" />
     <PackageVersion Include="Console.Lib.Debug" Version="5.12.*" />
 
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.76.*" />
-    <PackageVersion Include="SdlVulkan.Renderer.Debug" Version="7.76.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.86.*" />
+    <PackageVersion Include="SdlVulkan.Renderer.Debug" Version="7.86.*" />
     <!-- tools/BakeShaders only. Here rather than inline because this file now covers tools/ as well as
          src/, which is the whole point: a version the sweep cannot see is a version that drifts. -->
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />

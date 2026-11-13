@@ -84,6 +84,8 @@ internal partial record Session(
     private volatile string? _guiderState;
     private volatile SettleProgress? _guiderSettleProgress;
     private volatile bool _ditherPending;
+    /// <summary>One open per-exposure guide tally per OTA (#2100); null while no window is open.</summary>
+    private ExposureGuideTally?[] _exposureTallies = [];
     private TimeSpan _guideExposure;
     private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
     private readonly ConcurrentQueue<PlateSolveRecord> _plateSolveHistory = [];
@@ -778,8 +780,86 @@ internal partial record Session(
 
         var isDither = Interlocked.Exchange(ref _ditherPending, false);
         var isSettling = _guiderState is "Settling";
-        AppendGuideErrorSample(new GuideErrorSample(
+        RecordGuideSample(new GuideErrorSample(
             e.FrameTime, raErr, decErr, e.RaCorrectionMs, e.DecCorrectionMs, isDither, isSettling));
+    }
+
+    /// <summary>
+    /// The recording body of <see cref="OnGuideCorrection"/>: appends to the graph's ring AND folds the
+    /// sample into every open per-exposure tally, so a light's cards cover all of its corrections however
+    /// short the ring is (#2100). Internal so a test can feed samples without a guider.
+    /// </summary>
+    internal void RecordGuideSample(GuideErrorSample sample)
+    {
+        AppendGuideErrorSample(sample);
+
+        // Lock-free: the slot array is replaced whole only at the top of a run; each slot is swapped with a
+        // CAS loop because the imaging loop (opening a window) and this guider thread (adding) both write it,
+        // and the tally is immutable so a lost race just retries on the winner's value.
+        var slots = Volatile.Read(ref _exposureTallies);
+        for (var i = 0; i < slots.Length; i++)
+        {
+            while (Volatile.Read(ref slots[i]) is { } current)
+            {
+                var next = current.Add(sample);
+                if (ReferenceEquals(next, current) || ReferenceEquals(Interlocked.CompareExchange(ref slots[i], next, current), current))
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Opens OTA <paramref name="otaIndex"/>'s tally over [<paramref name="start"/>, start + duration],
+    /// seeded from the ring's samples already inside the window. A sample both seeded and delivered later
+    /// is counted once (the tally ignores a timestamp not after its last).
+    /// </summary>
+    internal void OpenExposureGuideWindow(int otaIndex, DateTimeOffset start, TimeSpan duration)
+    {
+        var slots = Volatile.Read(ref _exposureTallies);
+        if (otaIndex < 0 || otaIndex >= Setup.Telescopes.Length)
+        {
+            return;
+        }
+
+        if (slots.Length != Setup.Telescopes.Length)
+        {
+            // A path that never went through AllocateObservableState (a test seam): size the slots once, by CAS.
+            Interlocked.CompareExchange(ref _exposureTallies, new ExposureGuideTally?[Setup.Telescopes.Length], slots);
+            slots = Volatile.Read(ref _exposureTallies);
+        }
+
+        var tally = new ExposureGuideTally(start, duration);
+        foreach (var sample in GuideSamples)
+        {
+            tally = tally.Add(sample);
+        }
+
+        // A new exposure replaces whatever the slot held, so this is an unconditional swap, not a CAS loop.
+        // A sample recorded between the snapshot above and the swap is folded in again below (idempotent
+        // through the last-included rule).
+        Interlocked.Exchange(ref slots[otaIndex], tally);
+
+        // A sample recorded between the ring snapshot and the publish reached no open slot: fold it in now.
+        foreach (var sample in GuideSamples)
+        {
+            while (Volatile.Read(ref slots[otaIndex]) is { } current)
+            {
+                var next = current.Add(sample);
+                if (ReferenceEquals(next, current) || ReferenceEquals(Interlocked.CompareExchange(ref slots[otaIndex], next, current), current))
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>The guide cards of OTA <paramref name="otaIndex"/>'s open exposure, or null (no window, or no sample).</summary>
+    internal GuidingStats? ExposureGuideStats(int otaIndex)
+    {
+        var slots = Volatile.Read(ref _exposureTallies);
+        return otaIndex >= 0 && otaIndex < slots.Length ? Volatile.Read(ref slots[otaIndex])?.ToStats() : null;
     }
 
     /// <summary>
@@ -819,6 +899,7 @@ internal partial record Session(
         _viewerChannels = new Imaging.Channel[]?[Setup.Telescopes.Length];
         _lastFrameMetrics = new FrameMetrics[Setup.Telescopes.Length];
         _frameMetricsHistory = CreateFrameMetricsHistory(Setup.Telescopes.Length);
+        _exposureTallies = new ExposureGuideTally?[Setup.Telescopes.Length];
     }
 
     /// <summary>

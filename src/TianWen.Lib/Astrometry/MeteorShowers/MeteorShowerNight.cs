@@ -1,0 +1,234 @@
+using System;
+using System.Collections.Immutable;
+using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Sequencing;
+
+namespace TianWen.Lib.Astrometry.MeteorShowers;
+
+/// <summary>
+/// One shower on one night at a site: where its radiant is that night and what rate to expect (docs/plans/yearly-planner.md, E).
+/// </summary>
+/// <param name="Shower">The shower.</param>
+/// <param name="RadiantRaDeg">The radiant's right ascension that night: the table's, moved by the drift, degrees.</param>
+/// <param name="RadiantDecDeg">The radiant's declination that night, degrees.</param>
+/// <param name="MeanSinAltitude">The mean of the sine of the radiant's altitude over the dark window, with a radiant below the
+/// horizon counting zero. 0 when the radiant never clears the horizon while it is dark.</param>
+/// <param name="LimitingMagnitude">The limiting magnitude the rate was scaled to, 6.5 under a sky without the Moon.</param>
+/// <param name="ExpectedRate">The expected hourly rate for a visual observer AT THE PEAK'S STRENGTH: the ZHR, times
+/// <see cref="MeanSinAltitude"/>, times r to the power (limiting magnitude minus 6.5). NaN where the ZHR is variable. The table
+/// holds no activity profile (how fast a shower falls away from its maximum), so this is the night's own rate only on
+/// <see cref="IsPeakNight"/>; on any other night of the window it is an upper bound and must not be said as the rate.</param>
+/// <param name="Peak">The peak of this return, UTC (the one nearest the night).</param>
+/// <param name="PeakOffset">The night's middle minus the peak: negative before it, positive after.</param>
+public readonly record struct MeteorShowerNight(
+    MeteorShower Shower,
+    double RadiantRaDeg,
+    double RadiantDecDeg,
+    double MeanSinAltitude,
+    double LimitingMagnitude,
+    double ExpectedRate,
+    DateTimeOffset? Peak,
+    TimeSpan PeakOffset)
+{
+    /// <summary>
+    /// Whether this is the night of the peak, or the nearest one to it: the peak is within half a day of the night's middle. A
+    /// peak that falls in daylight at the site is not hidden, it is said as the nearest night's rate.
+    /// </summary>
+    public bool IsPeakNight => Peak is not null && Math.Abs(PeakOffset.TotalHours) <= 12.0;
+
+    /// <summary>
+    /// Whether this is the peak night of a shower worth looking up for: its expected rate at the site reaches
+    /// <see cref="MeteorShowerNights.MajorRateFloor"/>. False where the ZHR is variable.
+    /// </summary>
+    public bool IsMajorPeak => IsPeakNight && ExpectedRate >= MeteorShowerNights.MajorRateFloor;
+}
+
+/// <summary>
+/// The showers active on a night at a site: the ONE routine every surface asks (the planner, the night calendar, the atlas).
+/// It reuses <see cref="NightSummary"/>, so the dark window and the Moon are the night calendar's and nothing is computed twice.
+/// </summary>
+public static class MeteorShowerNights
+{
+    /// <summary>The limiting magnitude of a dark sky with no Moon, the reference of the ZHR.</summary>
+    public const double ReferenceLimitingMagnitude = 6.5;
+
+    /// <summary>
+    /// How much a Moon that is full and up all night lowers the limiting magnitude. A working figure (a full Moon costs a
+    /// visual observer one to two magnitudes), scaled by the illuminated fraction and by the share of the dark window with the
+    /// Moon up; not a fit to observations.
+    /// </summary>
+    public const double FullMoonMagnitudeLoss = 1.8;
+
+    /// <summary>
+    /// The expected hourly rate at the site from which a peak is a MAJOR one (<see cref="MeteorShowerNight.IsMajorPeak"/>).
+    /// A choice, not a measurement: ten an hour is about where a shower is noticed without being looked for.
+    /// </summary>
+    public const double MajorRateFloor = 10.0;
+
+    /// <summary>
+    /// The night an instant belongs to at a longitude, as a day number: the EVENING's date by local mean solar time (an
+    /// instant before solar noon belongs to the evening before). Every instant from one solar noon to the next has one key.
+    /// </summary>
+    public static long NightKey(DateTimeOffset withinNight, double longitudeDeg)
+    {
+        var lon = double.IsFinite(longitudeDeg) ? longitudeDeg : 0.0;
+        var solarTicks = withinNight.UtcTicks + (long)(lon / 15.0 * TimeSpan.TicksPerHour) - (12 * TimeSpan.TicksPerHour);
+        return Math.DivRem(solarTicks, TimeSpan.TicksPerDay, out var rest) - (rest < 0 ? 1 : 0);
+    }
+
+    /// <summary>
+    /// The ONE instant a night's showers are judged at: local mean solar midnight of the night
+    /// <paramref name="withinNight"/> belongs to (<see cref="NightKey"/>), which is the middle of the dark window to within
+    /// the equation of time. The night calendar, the planner and the atlas all ask it, with nothing but the instant and the
+    /// longitude, so a night one of them names a shower on is a night the other two do: a shower's window opens and closes
+    /// at an hour of its own, and three instants of one night once straddled it. Never throws: an instant whose midnight is
+    /// outside what a <see cref="DateTimeOffset"/> holds comes back unchanged.
+    /// </summary>
+    public static DateTimeOffset NightInstant(DateTimeOffset withinNight, double longitudeDeg)
+    {
+        var lon = double.IsFinite(longitudeDeg) ? longitudeDeg : 0.0;
+        var midnightUtcTicks = ((NightKey(withinNight, lon) + 1) * TimeSpan.TicksPerDay) - (long)(lon / 15.0 * TimeSpan.TicksPerHour);
+
+        // Total: an instant at the edge of time (the planner's AstroDark is default until its first night is computed) has a
+        // midnight no DateTimeOffset can hold. It is answered unchanged, and the Sun's longitude there is not a number, which
+        // every caller already reads as "no shower is active".
+        return midnightUtcTicks >= DateTimeOffset.MinValue.UtcTicks && midnightUtcTicks <= DateTimeOffset.MaxValue.UtcTicks
+            ? new DateTimeOffset(midnightUtcTicks, TimeSpan.Zero)
+            : withinNight;
+    }
+
+    /// <summary>
+    /// The limiting magnitude under the Moon of <paramref name="night"/>: <see cref="ReferenceLimitingMagnitude"/> lowered by
+    /// <see cref="FullMoonMagnitudeLoss"/> times the illuminated fraction times the share of the dark window the Moon is up.
+    /// </summary>
+    public static double LimitingMagnitude(in NightSummary night)
+    {
+        var dark = night.Dark;
+        var moonUp = dark > TimeSpan.Zero
+            ? Math.Clamp(1.0 - (night.MoonFreeDark / dark), 0.0, 1.0)
+            : 0.0;
+        return ReferenceLimitingMagnitude - (FullMoonMagnitudeLoss * Math.Clamp(night.MoonIllumination, 0.0, 1.0) * moonUp);
+    }
+
+    /// <summary>
+    /// The showers active on <paramref name="night"/> at the site (<paramref name="latitude"/>, <paramref name="longitude"/>,
+    /// degrees, east positive), each with its radiant moved by the drift to that night and its expected hourly rate. A night
+    /// outside every activity window gives an empty array. Activity is judged at <see cref="NightInstant"/>.
+    /// </summary>
+    public static ImmutableArray<MeteorShowerNight> For(double latitude, double longitude, in NightSummary night)
+    {
+        var mid = NightInstant(night.DarkStart, longitude);
+        var sun = MeteorShowerCalendar.SunLongitude(mid);
+        if (double.IsNaN(sun))
+        {
+            return [];
+        }
+
+        var limiting = LimitingMagnitude(night);
+        var builder = ImmutableArray.CreateBuilder<MeteorShowerNight>();
+        foreach (var shower in MeteorShowerTable.All)
+        {
+            if (!shower.IsActiveAt(sun))
+            {
+                continue;
+            }
+
+            var (ra, dec) = DriftedRadiant(shower, sun);
+
+            var meanSin = MeanSinAltitude(latitude, longitude, ra, dec, night);
+            var rate = shower.Zhr * meanSin * Math.Pow(shower.PopulationIndex, limiting - ReferenceLimitingMagnitude);
+            var peak = MeteorShowerCalendar.PeakNear(shower, mid);
+            builder.Add(new MeteorShowerNight(shower, ra, dec, meanSin, limiting, rate, peak,
+                peak is { } p ? mid - p : TimeSpan.Zero));
+        }
+
+        return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// One shower on the night of <paramref name="viewingUtc"/> at a site (sea level), through the same
+    /// <see cref="NightSummary"/> and <see cref="For"/> the night calendar uses: its expected rate and peak. Null when the site's
+    /// night cannot be worked out or the shower is not active that night. Heavy (a night window), so a caller asks once per click.
+    /// </summary>
+    public static MeteorShowerNight? ForShowerAt(MeteorShower shower, double latitude, double longitude, DateTimeOffset viewingUtc)
+    {
+        if (!Transform.TryGetUtcOffset(latitude, longitude, viewingUtc.UtcDateTime, out var offset))
+        {
+            return null;
+        }
+
+        var transform = new Transform(Devices.SystemTimeProvider.Instance)
+        {
+            SiteLatitude = latitude,
+            SiteLongitude = longitude,
+            SiteElevation = 0,
+            DateTimeOffset = viewingUtc
+        };
+        var evening = DateOnly.FromDateTime(CoordinateUtils.AstronomicalEveningDate(viewingUtc.ToOffset(offset)));
+        var summary = NightSummary.Compute(transform, evening);
+        foreach (var night in For(latitude, longitude, summary))
+        {
+            if (night.Shower == shower)
+            {
+                return night;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Where <paramref name="shower"/>'s radiant is at <paramref name="time"/>: the table's, moved by the drift. The ONE answer
+    /// the planner's pin, the atlas's search hit and the night's rate all read. Outside the activity window the drift is
+    /// taken at the window's nearer end, and <see cref="MeteorShowerRadiant.Active"/> says so.
+    /// </summary>
+    public static MeteorShowerRadiant RadiantAt(MeteorShower shower, DateTimeOffset time)
+    {
+        var sun = MeteorShowerCalendar.SunLongitude(time);
+        if (double.IsNaN(sun))
+        {
+            return new MeteorShowerRadiant(shower.RadiantRaDeg, shower.RadiantDecDeg, false);
+        }
+
+        var active = shower.IsActiveAt(sun);
+        if (!active)
+        {
+            var before = MeteorShowerCalendar.Wrap360(shower.ActivityStartLambda - sun);
+            var after = MeteorShowerCalendar.Wrap360(sun - shower.ActivityEndLambda);
+            sun = before < after ? shower.ActivityStartLambda : shower.ActivityEndLambda;
+        }
+
+        var (ra, dec) = DriftedRadiant(shower, sun);
+        return new MeteorShowerRadiant(ra, dec, active);
+    }
+
+    private static (double Ra, double Dec) DriftedRadiant(MeteorShower shower, double sun)
+    {
+        // Days from the peak, by the Sun's longitude (a day is about a degree), so the drift needs no calendar date.
+        var days = Wrap180(sun - shower.PeakLambda) * 365.2422 / 360.0;
+        var ra = MeteorShowerCalendar.Wrap360(shower.RadiantRaDeg + (shower.DriftRaDegPerDay * days));
+        var dec = Math.Clamp(shower.RadiantDecDeg + (shower.DriftDecDegPerDay * days), -90.0, 90.0);
+        return (ra, dec);
+    }
+
+    /// <summary>The mean of max(0, sin altitude) of a fixed (RA, Dec) over the night's dark window, sampled as the night calendar samples it.</summary>
+    private static double MeanSinAltitude(double latitude, double longitude, double raDeg, double decDeg, in NightSummary night)
+    {
+        var end = night.DarkEnd;
+        var sum = 0.0;
+        var count = 0;
+        for (var t = night.DarkStart; t < end; t += NightSummary.Step)
+        {
+            var slice = end - t < NightSummary.Step ? end - t : NightSummary.Step;
+            var sample = t + (slice / 2);
+            var hourAngle = SiteContext.ComputeLST(sample.ToUniversalTime(), longitude) - (raDeg / 15.0);
+            var altitude = SiteContext.AltitudeDegrees(latitude, hourAngle, decDeg);
+            sum += Math.Max(0.0, Math.Sin(altitude * Math.PI / 180.0));
+            count++;
+        }
+
+        return count > 0 ? sum / count : 0.0;
+    }
+
+    private static double Wrap180(double degrees) => MeteorShowerCalendar.Wrap360(degrees + 180.0) - 180.0;
+}

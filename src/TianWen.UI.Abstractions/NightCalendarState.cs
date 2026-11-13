@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
 
@@ -56,7 +57,8 @@ public sealed class NightCalendarState
     /// drops them otherwise: a month built from a forecast that has since been replaced is not this forecast's.
     /// </summary>
     /// <returns>Whether they were added.</returns>
-    internal bool TryAddNights(long generation, IEnumerable<KeyValuePair<DateOnly, NightSummary>> nights)
+    internal bool TryAddNights(long generation, IEnumerable<KeyValuePair<DateOnly, NightSummary>> nights,
+        IEnumerable<KeyValuePair<DateOnly, ImmutableArray<MeteorShowerNight>>>? showers = null)
     {
         while (true)
         {
@@ -67,6 +69,11 @@ public sealed class NightCalendarState
             }
 
             var next = current with { Nights = current.Nights.SetItems(nights) };
+            if (showers is not null)
+            {
+                next = next with { Showers = current.Showers.SetItems(showers) };
+            }
+
             if (ReferenceEquals(Interlocked.CompareExchange(ref _data, next, current), current))
             {
                 return true;
@@ -123,6 +130,14 @@ public sealed record NightCalendarData(
     /// <summary>Nothing built yet.</summary>
     public static readonly NightCalendarData Empty = new NightCalendarData(0, null, default, default, null,
         ImmutableDictionary<DateOnly, NightSummary>.Empty);
+
+    /// <summary>
+    /// The meteor showers active on each night summarised, by evening date (docs/plans/yearly-planner.md, E). It travels
+    /// WITH the night's own data and is never part of <see cref="NightVerdict"/>: a shower does not make a night good or bad
+    /// for imaging. A night with no shower is absent or an empty array.
+    /// </summary>
+    public ImmutableDictionary<DateOnly, ImmutableArray<MeteorShowerNight>> Showers { get; init; }
+        = ImmutableDictionary<DateOnly, ImmutableArray<MeteorShowerNight>>.Empty;
 
     /// <summary>The pin set <see cref="Pins"/> was computed for, or null before any was.</summary>
     public NightPinsKey? PinsKey { get; init; }

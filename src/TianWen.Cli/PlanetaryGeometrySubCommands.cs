@@ -361,6 +361,8 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
         var whitenedOpt = new Option<bool>("--whitened-correlation") { Description = "The statistics register frames and points by phase correlation, as R2's hand calibration did, not by a plain cross-correlation (the default since #1394: whitening hands an 8-bit frame's peak to its noise, R5)." };
         var qualityOpt = QualityOption();
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames, measured and made (a quicker trial)." };
+        var noMeasureOpt = new Option<bool>("--no-measure") { Description = "Make the synthetic capture and its truths and stop: it is not measured or compared with the real one (#2116: measuring a twin took three quarters of making it, and a set made from one calibrated recipe reads the comparison of none). planetary seeing measures any capture on its own." };
+        var limbFramesOpt = new Option<int?>("--limb-frames") { Description = "The statistics fit the limb on about this many single frames, spread evenly over the capture (#2116). By default every fourth frame, which grows with the capture's length." };
         var bayerMapsOpt = new Option<string?>("--bayer-maps") { Description = "A colour capture's three maps, red, green and blue, a comma list (R5a; OPAL's F631N, F502N and F395N)." };
         var bayerWavelengthsOpt = new Option<string>("--bayer-wavelengths") { Description = "The camera's red, green and blue effective wavelengths, nm.", DefaultValueFactory = _ => "610,535,460" };
         var truthUpsampleOpt = new Option<string?>("--truth-upsample") { Description = "A colour twin's truths rendered at these scales too, a comma list (1.5 for a Bayer drizzle at 1.5x; R5a), each .truth.<colour>.x<scale>.fits." };
@@ -388,7 +390,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, staticBlurOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, whitenedOpt, qualityOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, bayerDefocusOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, staticBlurOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, whitenedOpt, qualityOpt, framesOpt, noMeasureOpt, limbFramesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, bayerDefocusOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -471,6 +473,16 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                 WhitenedCorrelation = parseResult.GetValue(whitenedOpt),
                 QualityEstimator = ParseQuality(parseResult.GetValue(qualityOpt)),
             };
+            if (parseResult.GetValue(limbFramesOpt) is { } limbFrames)
+            {
+                if (limbFrames < 1)
+                {
+                    consoleHost.WriteError("--limb-frames takes one frame or more");
+                    return 1;
+                }
+                measure = measure with { LimbStride = Math.Max(1, (frames + limbFrames - 1) / limbFrames) };
+            }
+            var measureTwin = !parseResult.GetValue(noMeasureOpt);
             // A real capture measured once serves every synthetic one compared with it; a colour capture's photosite colours are
             // each measured, and cached, on their own.
             var statisticsPath = parseResult.GetValue(realStatisticsOpt);
@@ -638,6 +650,11 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                 moons: options.MoonsAt(planet, referenceTime), rings: options.Rings);
             WriteTruth(Path.ChangeExtension(output, ".truth.fits"), truthImage, reader.Width, reader.Height, reference, options, referenceTime, mapPath);
             WriteRecord(Path.ChangeExtension(output, ".frames.csv"), made);
+            if (!measureTwin)
+            {
+                consoleHost.WriteScrollable($"{Path.GetFileName(output)}: made and not measured (--no-measure)");
+                return 0;
+            }
 
             consoleHost.WriteScrollable($"measuring {Path.GetFileName(output)}");
             using var synthetic = SerFrameStream.Open(output);
@@ -687,12 +704,6 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                 if (wavelengths.Length != 3 || ks.Length != 3 || defocus.Length != 3)
                 {
                     consoleHost.WriteError("--bayer-wavelengths, --bayer-k and --bayer-defocus-nm take three numbers each, red, green and blue");
-                    return 1;
-                }
-                // The colours are held until the last is made: a synthetic capture this size is made in parts.
-                if ((long)times.Length * reader.Width * reader.Height * 2 > 2L << 30)
-                {
-                    consoleHost.WriteError($"{times.Length} frames of {reader.Width} x {reader.Height} are more than a colour twin holds at once: pass --frames");
                     return 1;
                 }
                 var (_, ox, oy) = reader.ColorId.ToSensorType();
@@ -783,6 +794,11 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                     }
                 }
                 WriteRecord(Path.ChangeExtension(output, ".frames.csv"), madeColours.Green);
+                if (!measureTwin)
+                {
+                    consoleHost.WriteScrollable($"{Path.GetFileName(output)}: made and not measured (--no-measure)");
+                    return 0;
+                }
 
                 // Each colour of the twin measured as its real one was.
                 using var colourTwin = SerFrameStream.Open(output);

@@ -42,6 +42,9 @@ public enum Catalog : ulong
     LDN = 'L' << 14 | 'D' << 7 | 'N', // Lynds Catalog of Dark Nebulae
     Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
+    // Meteor showers by IAU shower number (created by author, from the IMO working list): an EVENT with a drifting
+    // radiant, never in ICelestialObjectDB. The index is the three-digit IAU number ("MSh007" is the Perseids).
+    MeteorShower = 'M' << 14 | 'S' << 7 | 'h',
     MWSC = 'M' << 21 | 'W' << 14 | 'S' << 7 | 'C', // Milky Way Star Clusters Catalog
     NGC = 'N',
     Pl = 'P' << 7 | 'l', // Major planets, their moons and Sol (created by author)
@@ -81,6 +84,7 @@ public static class CatalogEx
             Catalog.Melotte when format is CanonicalFormat.Normal => "Mel",
             Catalog.Messier when format is CanonicalFormat.Normal => "M",
             Catalog.HAT_P => "HAT-P",
+            Catalog.MeteorShower => "MSh",
             Catalog.Sharpless when format is CanonicalFormat.Normal => "Sh2",
             Catalog.TwoMass => "2MASS",
             Catalog.TwoMassX => "2MASX",
@@ -120,6 +124,7 @@ public static class CatalogEx
             Catalog.LDN => 5,
             Catalog.Melotte => 5,
             Catalog.Messier => 3,
+            Catalog.MeteorShower => 3,
             Catalog.MWSC => 4,
             Catalog.Pl => 5,
             Catalog.PGC => 6,

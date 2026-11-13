@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **The backlog is GitHub issues, not a file** (since 2026-09-24, when `TODO.md` and `docs/todo/*.md` were
 migrated, 345 open items). Labels: `area:astrometry` / `drivers` / `guider` / `imaging` / `infra` /
 `sequencing` / `ui`; `bench` (only a real device or night can answer it); `needs-triage` (the old inbox);
-`priority:high` / `priority:next`; `from-todo` marks the migration. **Close an item through the PR that
+priority is the organisation's **Priority issue field** (Urgent, High, Medium, Low), never a label (the `priority:*` labels went 2026-11-11); `from-todo` marks the migration. **Close an item through the PR that
 does it** (`Closes #n`), so it cannot drift from the code, which is the whole reason for the move: the
 same task used to be kept in `TODO.md`, an area file, a plan and a tracking issue, and a PR landing
 updated at most one of them. **Never write a new open `- [ ]` into `TODO.md` or `docs/todo/`**; open an
@@ -224,6 +224,10 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   from several threads for wall-clock time measures the runner, and on a shared 4-core runner its loops held the thread
   pool and stalled the whole test process into the hang dump (#1385). Its loops take threads of their own
   (`TaskCreationOptions.LongRunning`), never pool workers. A deterministic test of a known interleaving runs on CI as any other.
+- **A wall-clock latency bar is opt-in, and never widened** (#2031): it skips unless `TIANWEN_TIMING_TESTS=1` (`TimingTestGate`,
+  never on CI), is `[Trait("Category", "Timing")]` and its class is in the non-parallel `TimingCollection`, so it measures alone.
+  What the code DOES (the primitive `HighResolutionWait.Arm` chose, the order of a pulse's events) is pinned in the normal suite
+  (`HighResolutionWaitTests`, `DALCameraPulseTests`).
 - **A test that takes 30 s or more on a CI runner is `[Trait("Category", "Heavy")]`** (the owner, 2026-10-10): the PR legs
   filter it out (`dotnet.yml`) and `heavy-tests.yml` runs it nightly against main and on dispatch; a local `dotnet test`
   runs everything. Tag by MEASUREMENT on a green x64 leg (its log prints each test's time), never by guess: 28 such tests
@@ -300,7 +304,7 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
   `tianwen-gui`/`tianwen-server` started straight from `.claude\jobs\<id>\tmp\…` left a firewall prompt (and a rule) per
   folder on this machine. Only a run that tests the LAN itself sets it to 0.
 - **A Debug app is found by the sidecar's `list_instances`, never by a port read off a log.** The `.mcp.json` pins
-  (`SdlVulkan.Renderer.Inspector` 7.76, `Console.Lib.Inspector` 5.12) read DIR.Lib's per-user inspector registry
+  (`SdlVulkan.Renderer.Inspector` 7.86, `Console.Lib.Inspector` 5.12) read DIR.Lib's per-user inspector registry
   (`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers with no socket but its
   loopback command server) and then multicast, which finds an app below 11.21. **A Debug build has an
   inspector from the sibling SOURCES in a normal checkout, and in a worktree or plane (no siblings found) from the
@@ -632,6 +636,23 @@ code). Story and numbers: `docs/plans/smart-framing.md`. All lzip I/O goes throu
 **OpenNGC data-quality audit: `docs/plans/smart-framing.md`** ("OpenNGC data-quality audit" section).
 `OpenNgcCorrections` is the ONE place a wrong row is fixed, never the CSV; `tools/openngc-audit`
 verifies every name/identifier against SIMBAD by position.
+
+### Meteor showers (`TianWen.Lib.Astrometry.MeteorShowers`)
+
+The IMO working list as a static table, an EVENT and not an object. Design and what shipped: `docs/plans/yearly-planner.md`, section E. Rules that bite:
+
+- **A shower is NOT in `ICelestialObjectDB`**, as a comet is not. Each surface augments at its own layer (search, planner pins, the
+  atlas's `SkyMapState.GetShowerRadiantsCached`); a DB entry would be scored as an imaging target.
+- **A year's peak is the Sun reaching the peak's solar longitude** (`MeteorShowerCalendar.PeakNear`), never a stored date.
+- **Identity is the `CatalogIndex`** (`MeteorShowerIdentity`), never the pin's RA/Dec, which the drift moves every night.
+- **The atlas's draw and its click and hover ask ONE gate**, `SkyMapState.ShouldDrawShowerRadiant` (the object layers' own
+  `OverlayEngine.PassesLayerFilter`, a pin bypasses it), and the active set is computed once per night: assert `ShowerCacheRebuilds`.
+- **The rate at the site is `MeteorShowerNights`'s** (calendar and atlas panel read the same words, `MeteorShowerText`), **and
+  it is said on the PEAK night only**: the table holds no activity profile, so `ExpectedRate` off the peak is the peak's, an
+  upper bound. The calendar marks peak nights alone (`IsMajorPeak` for the dot), never every active night.
+- **A night is judged at ONE instant, `MeteorShowerNights.NightInstant`** (local solar midnight, from an instant and the site's
+  longitude), by the calendar, the planner and the atlas: a new surface asks it, never its own dusk or viewing instant. The atlas's
+  set and a selected shower's panel are per night (`NightKey`, `SkyMapState.GetShowerPanelCached`).
 
 ### Night Calendar (one forecast, one verdict)
 
@@ -1296,7 +1317,7 @@ one read path is a bug in the other** (two copies once read an `EXPOSURE`-only f
 - **`ImageMeta.PixelSizeX` is the unbinned PHOTOSITE, the `XPIXSZ` card INCLUDES binning**: the one parse divides by
   `XBINNING`, the one writer multiplies back, nothing else converts; test on a bin-2 frame.
 - **A light carries the guiding quality of ITS OWN exposure** (`ImageMeta.Guiding`;
-  `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`): `GuideStatistics.OverExposure` over `Session.GuideSamples`,
+  `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`): the per-exposure `ExposureGuideTally` (opened per OTA at its exposure's start, fed from every guide correction, #2100), never the 300-sample `Session.GuideSamples` ring,
   **never a rolling session average**; **a sample is one guide CORRECTION** (`IGuider.GuideCorrectionEvent`),
   **never a poll of `GetStatsAsync`** (#821); null is not zero. Stamped via `ICameraDriver.GuideStats`.
 

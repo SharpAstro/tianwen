@@ -486,10 +486,11 @@ bin-2 calibration frames TianWen had written were retagged (`_provenance/CORRECT
 ## A light carries the guiding quality of its own exposure
 
 `ImageMeta.Guiding` (`GuidingStats`) is written as `GUIDERMS` / `GUIRMSRA` / `GUIRMSDE` / `GUIDEPK` /
-`GUIDEN`, all arcsec. `GuideStatistics.OverExposure` reduces `Session.GuideSamples` over
-`[ExposureStartTime, +ExposureDuration]` and never a rolling session average: that answers "how is the
-rig doing tonight", a different question, and is actively misleading stamped on a sub taken during the
-other hour. Three rules: settling/dither samples inside the window are INCLUDED (a live guiding
+`GUIDEN`, all arcsec. The session keeps one `ExposureGuideTally` per OTA, opened when that OTA's exposure
+starts and fed every guide correction (#2100). It reduces the corrections over
+`[ExposureStartTime, +ExposureDuration]`. It never reads the 300-sample telemetry ring, which belongs to the
+graph, and it is never a rolling session average: that answers "how is the rig doing tonight", a different
+question, and is actively misleading stamped on a sub taken during the other hour. Three rules: settling/dither samples inside the window are INCLUDED (a live guiding
 display excludes them because a dither is a commanded move, but if the guider had not settled while
 the shutter was open the sub IS smeared, and filtering makes the worst frames report the cleanest
 numbers); null is not zero, so an unguided rig writes NO cards rather than `GUIDERMS = 0`, which would
@@ -599,8 +600,9 @@ first HDU that carries an image, and **every reader of an image file uses them**
 ### A FITS header becomes an `ImageMeta` in exactly ONE place: the guiding cards
 
 - **A light carries the guiding quality of ITS OWN exposure** (`ImageMeta.Guiding`;
-  `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`, arcsec, ours alone): `GuideStatistics.OverExposure`
-  reduces `Session.GuideSamples` over the exposure window, **never a rolling session average**; **a sample is
+  `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`, arcsec, ours alone): the per-exposure `ExposureGuideTally`
+  (#2100: every correction of the exposure, not the Guider tab's 300-sample ring; `GuideStatistics.OverExposure` shares its arithmetic)
+  reduces the corrections over the exposure window, **never a rolling session average**; **a sample is
   one guide CORRECTION** (`IGuider.GuideCorrectionEvent`, stamped with the guide frame's time, every driver
   raises it), **never a poll of `GetStatsAsync`** (#821), so `GUIDEN` counts guide frames; null is
   not zero (an unguided rig writes NO cards, an unmeasured correction appends nothing); `GUIDEPK` catches the single gust RMS hides. Stamped via

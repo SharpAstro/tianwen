@@ -708,25 +708,29 @@ public class LightGradingTests
     }
 
     /// <summary>
-    /// 100,000 frames in one group (one a minute) build their baselines in one pass, plateau test included: the bound is the
-    /// test's timeout, so a scan of the group per frame cannot creep back. The plateau test's two side windows scanned over the
-    /// whole group are about 20 billion comparisons (n squared, twice): with that scan put back the test timed out at 20 s,
-    /// while the binary search passes in under a second (both measured on the desktop), so the bound fails the scan and
-    /// passes the search with a wide margin on a slower runner too.
+    /// A large group (20,000 frames, one a minute) builds its baselines without scanning the group per frame, plateau test
+    /// included. The bound is a COUNT of the frames the plateau test's two side windows looked at, never a time: each window
+    /// is two hours wide, so a binary search reads about 121 frames and 15 probes per window, under 300 a frame, while a scan
+    /// of the group reads 40,000 a frame. The bound used to be the test's 20 s timeout over 100,000 frames, which a loaded
+    /// arm runner ran out of with the binary search in place (a failed check on #2099).
     /// </summary>
-    [Fact(Timeout = 20_000)]
-    public async Task ALargeGroupBuildsItsBaselinesInTime()
+    [Fact]
+    public void ALargeGroupBuildsItsBaselinesWithoutScanningTheGroupPerFrame()
     {
+        const int count = 20_000;
         var night = new DateOnly(2026, 7, 6);
         var start = new DateTimeOffset(2026, 7, 6, 10, 0, 0, TimeSpan.Zero);
-        var frames = Enumerable.Range(0, 100_000)
+        var frames = Enumerable.Range(0, count)
             .Select(i => ($"f{i}", Run("T", 1000f, 1f, night, start.AddMinutes(i))))
             .ToArray();
         var grades = Grades(frames);
 
-        var local = await Task.Run(() => LightGrading.LocalPatchiness(grades, frames[50_000].Item2), TestContext.Current.CancellationToken);
+        var local = LightGrading.LocalPatchiness(grades, frames[count / 2].Item2);
 
         local.ShouldBe(1f, 0.01f);
+        var read = LightGrading.SideWindowFramesRead(grades);
+        read.ShouldBeGreaterThan(count, "the plateau test's side windows were read, so the bound below is not passing on nothing");
+        read.ShouldBeLessThan(400L * count, "a side window reads its own frames, not the group's");
     }
 
     [Fact]

@@ -66,7 +66,7 @@ public class LocalNodeLauncherTests : IDisposable
     /// <summary>Stops a node a test started, over its socket, and waits until it no longer answers.</summary>
     private static async Task StopAsync(string socketPath)
     {
-        using var http = NodeTransport.OverSocket(socketPath).CreateHttpClient();
+        using var http = NodeTestClients.Create(NodeTransport.OverSocket(socketPath));
         try
         {
             using var answer = await http.PostAsync("api/v1/node/shutdown", content: null);
@@ -76,7 +76,7 @@ public class LocalNodeLauncherTests : IDisposable
             return;
         }
 
-        var client = new TianWenNodeClient(http);
+        var client = NodeTestClients.ClientOf(http);
         for (var i = 0; i < 300 && (await client.GetNodeAsync(CancellationToken.None)).IsSuccess; i++)
         {
             await Task.Delay(100);
@@ -355,7 +355,8 @@ public class LocalNodeLauncherTests : IDisposable
         node.Outcome.ShouldBe(LocalNodeOutcome.BusyWithAnotherWire);
         old.ShutdownRequests.ShouldBe(0);
         node.Transport.ShouldNotBeNull("the client can still watch it");
-        (await new TianWenNodeClient(node.Transport.CreateHttpClient()).GetNodeAsync(ct)).Value.ShouldNotBeNull().NodeId.ShouldBe("impostor");
+        using var http = NodeTestClients.Create(node.Transport);
+        (await NodeTestClients.ClientOf(http).GetNodeAsync(ct)).Value.ShouldNotBeNull().NodeId.ShouldBe("impostor");
     }
 
     [Fact(Timeout = 60_000)]

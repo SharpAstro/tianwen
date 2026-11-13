@@ -139,7 +139,7 @@ calls `SessionTestHelper.CreateSessionAsync` belongs in that collection and want
 `[Fact(Timeout = ...)]`** -- a wedged run hangs instead of failing, which costs a five-minute
 timeout and a multi-GB dump instead of one red test, and the bound is what made this nameable.
 
-On CI the same artifacts are uploaded as `test-blame-<leg>`. The dump is large (4.8 GB
+On CI the same artifacts are uploaded as `test-blame-<runner>-<shard>`. The dump is large (4.8 GB
 uncompressed in one case); the sequence log beside it is ~2 MB and is usually all you need,
 so download the artifact ZIP and extract just that rather than letting `gh run download`
 expand the dumps.

@@ -348,8 +348,16 @@ internal sealed class FakeCmosState(string serial)
         return pulse.Task;
     }
 
+    /// <summary>
+    /// Called as the ST-4 line is switched, in the order the driver switches it: <c>true</c> for on, <c>false</c> for off, with the
+    /// direction. It runs on the thread that switched the line, before the pulse's task completes. A test of the ORDER of a
+    /// pulse's events (<c>DALCameraPulseTests</c>) logs from it.
+    /// </summary>
+    public Action<GuideDirection, bool>? OnPulseLine { get; set; }
+
     public CMOSErrorCode PulseOn(GuideDirection direction)
     {
+        OnPulseLine?.Invoke(direction, true);
         Volatile.Write(ref _pulseOnAt, System.Diagnostics.Stopwatch.GetTimestamp());
         return CMOSErrorCode.Success;
     }
@@ -357,6 +365,7 @@ internal sealed class FakeCmosState(string serial)
     public CMOSErrorCode PulseOff(GuideDirection direction)
     {
         var length = System.Diagnostics.Stopwatch.GetElapsedTime(Volatile.Read(ref _pulseOnAt));
+        OnPulseLine?.Invoke(direction, false);
         Interlocked.Exchange(ref _pulse, null)?.TrySetResult(length);
         return CMOSErrorCode.Success;
     }

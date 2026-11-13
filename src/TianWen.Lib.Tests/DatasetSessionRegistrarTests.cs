@@ -23,7 +23,8 @@ namespace TianWen.Lib.Tests
     /// too). The load-bearing dataset invariant is that every warped sub shares the master's
     /// exact pixel grid, that is what makes cell (i, j) of any two subs an N2N pair.
     /// </summary>
-    [Collection("Imaging")]
+    // Not in the "Imaging" collection, which runs its classes one at a time for no reason but grouping: this class is
+    // among its longest and shares no state with the rest, so it runs beside them (#2054).
     public class DatasetSessionRegistrarTests(ITestOutputHelper output) : IDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "sessreg-" + Guid.NewGuid().ToString("N")[..8]);

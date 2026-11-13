@@ -21,7 +21,7 @@ namespace TianWen.Lib.Tests;
 /// a Save writes what is on show. The master is <c>PlanetarySharpeningTests</c>' noisy Jupiter stack, written with a header that names
 /// the planet and the instant, as <c>planetary stack</c> writes one.
 /// </summary>
-[Collection("Viewer")]
+[Collection(ViewerPlanetaryCollection.Name)]
 public class ViewerPlanetaryMasterTests
 {
     private static readonly TimeSpan Exposure = TimeSpan.FromSeconds(60);
@@ -32,7 +32,7 @@ public class ViewerPlanetaryMasterTests
     public async Task APlanetaryMasterGetsTheSharpeningSectionsAndADeepSkyFrameDoesNot(float dpi)
     {
         // Rule 4: the section shows for a planetary master (OBJECT names a planet) and never for a deep-sky frame.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
 
         await e2e.OpenAsync(e2e.WriteColourFits("m42.fits"), ct);
@@ -60,7 +60,7 @@ public class ViewerPlanetaryMasterTests
     {
         // Rules 2 and 7 on a master: one Derive seeds the dials and puts the layer on show, its planet from the header; a stop after it
         // switches the dials in the frame it is pressed, with no derivation run.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenMasterAsync(e2e, ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
@@ -97,7 +97,7 @@ public class ViewerPlanetaryMasterTests
         // derivation at that strength), to within 1e-4 of the disk's level, inside the limb and outside it. Measured 1.2e-6 inside and
         // 5e-10 outside at every stop when it was written: the dials take the derivation's own gains, and the limb is drawn as the batch
         // draws it (#1201).
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var path = await OpenMasterAsync(e2e, ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
@@ -138,7 +138,7 @@ public class ViewerPlanetaryMasterTests
     {
         // Rule 6: a Save writes the master on show, the layer's while its sharpening is on and the file as it is once it is off. Before,
         // a Save always wrote the document under the layer (and, in a SER's stacked view, nothing at all).
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenMasterAsync(e2e, ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
@@ -170,7 +170,7 @@ public class ViewerPlanetaryMasterTests
         // Rule 1 on a colour master: each channel at each stop equals the batch's (colours moved onto green, sharpened per channel, then
         // balanced, as planetary stack writes it) to within 1e-4 of that channel's disk level. With the first channel's gains on every
         // channel, green read 3.0e-3 and blue 5.5e-3 inside the limb: each derives its own, through its own diffraction.
-        await using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.StartBesideOthers(dpi);
         var ct = TestContext.Current.CancellationToken;
         var meta = new ImageMeta("e2e", PlanetarySharpeningTests.Night - (Exposure / 2), Exposure, FrameType.Light, "",
             0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN) with { ObjectName = "Jupiter" };

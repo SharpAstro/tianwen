@@ -32,7 +32,14 @@ internal sealed class SystemTimeProvider(TimeProvider? inner = null) : ITimeProv
             : _inner.CreateTimer(callback, state, dueTime, period);
 
     public ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
-        => new ValueTask(HighResolutionWait.DelayAsync(duration, cancellationToken));
+        => new ValueTask(ArmSleep(duration, cancellationToken).Wait);
+
+    /// <summary>
+    /// What <see cref="SleepAsync"/> waits on, with the primitive it armed: the one routine behind it, so a test that pins
+    /// which primitive a duration gets pins the real wait without timing it (#2031).
+    /// </summary>
+    internal static (Task Wait, HighResolutionWait.WaitPrimitive Primitive) ArmSleep(TimeSpan duration, CancellationToken cancellationToken)
+        => HighResolutionWait.Arm(duration, cancellationToken);
 
     public TimeProvider System => _inner;
 }

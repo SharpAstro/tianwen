@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -174,6 +175,15 @@ namespace TianWen.UI.Abstractions
                                 db, planet, siteLat, siteLon, viewingTime, in site);
                         }
                     }
+                }
+                else if (info.Index is { } showerIdx && showerIdx.IsMeteorShower
+                    && MeteorShowerIdentity.TryGet(showerIdx, out var selectedShower))
+                {
+                    // A shower's radiant drifts, its window opens and closes and its peak comes and goes: a selection made
+                    // on one night must say the VIEWING night's answer. Built once per night (SkyMapState.GetShowerPanelCached),
+                    // then only the altitude and azimuth are refreshed per frame.
+                    info = State.GetShowerPanelCached(selectedShower, showerIdx, siteLat, siteLon, viewingTime, in site)
+                        .WithLiveHorizontal(site);
                 }
                 else
                 {
@@ -422,6 +432,7 @@ namespace TianWen.UI.Abstractions
                 Sparkline: hasCurve,
                 Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb),
                 Disk: ObjectInfoPanel.DiskLine(in info),
+                Footnote: info.DetailNote,
                 // A solar-system body's disc (A4): the map's narrowest field shows few of them as more than a dot.
                 Disc: info.Aspect is not null,
                 // And where its texture came from, under it (#1567), once the texture has landed.
