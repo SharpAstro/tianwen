@@ -509,7 +509,8 @@ public static partial class PlanetaryDegrade
     /// pass, and the progress is the frames WRITTEN (every colour deposited), reported once a block of 64 and at the last frame as
     /// <see cref="MakeAsync"/> reports it, so it reads complete only when the capture is. The three colours are made at once (#2116): each pass steps its own copy of the air, three quarters of its time on
     /// one thread, and writes only its own photosites, so the capture is the same bytes as one colour after another made. A pass
-    /// that fails cancels the other two.
+    /// that fails cancels the other two. The samples handed to <paramref name="write"/> are valid only during that call: the array
+    /// is used again for a later frame.
     /// </summary>
     /// <returns>Each colour's frames as <see cref="MakeAsync"/> records them.</returns>
     /// <remarks>The screens are drawn once, at the finest of the three pupils' spacings (<see cref="DegradeOptions.ScreenSpacingM"/>),

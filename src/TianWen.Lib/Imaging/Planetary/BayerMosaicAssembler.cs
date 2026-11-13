@@ -18,6 +18,21 @@ internal sealed class BayerMosaicAssembler(int frames, int pixels, int passes, i
     private int _next;
     private int _draining;
 
+    // A written frame's array is used again for a later frame (a capture of 5,392 frames otherwise allocates as many arrays of
+    // the frame's size, each on the large object heap), so the samples handed to write are valid only during that call. A
+    // reused array is cleared: a frame takes only the photosites its passes deposit.
+    private readonly System.Collections.Concurrent.ConcurrentBag<ushort[]> _spare = [];
+
+    private ushort[] Rent()
+    {
+        if (_spare.TryTake(out var spare))
+        {
+            Array.Clear(spare);
+            return spare;
+        }
+        return new ushort[pixels];
+    }
+
     private static int[] CreateOwed(int frames, int passes)
     {
         var owed = new int[frames];
@@ -47,10 +62,15 @@ internal sealed class BayerMosaicAssembler(int frames, int pixels, int passes, i
             gate.Wait(cancellationToken);
         }
         cancellationToken.ThrowIfCancellationRequested();
-        var fresh = Volatile.Read(ref _mosaic[index]) is null ? new ushort[pixels] : null;
+        var fresh = Volatile.Read(ref _mosaic[index]) is null ? Rent() : null;
         var frame = fresh is null
             ? _mosaic[index] ?? throw new InvalidOperationException($"Frame {index} was written out before every colour reached it.")
             : Interlocked.CompareExchange(ref _mosaic[index], fresh, null) ?? fresh;
+        if (fresh is not null && !ReferenceEquals(frame, fresh))
+        {
+            // Another pass placed its array first: this one goes back, unused.
+            _spare.Add(fresh);
+        }
         foreach (var (px, py) in phases)
         {
             for (var y = py; y < height; y += 2)
@@ -85,8 +105,10 @@ internal sealed class BayerMosaicAssembler(int frames, int pixels, int passes, i
             {
                 while (_next < frames && Volatile.Read(ref _owed[_next]) == 0)
                 {
-                    write(_next, _mosaic[_next] ?? throw new InvalidOperationException($"Frame {_next} was made by no colour."));
+                    var frame = _mosaic[_next] ?? throw new InvalidOperationException($"Frame {_next} was made by no colour.");
+                    write(_next, frame);
                     _mosaic[_next] = null;
+                    _spare.Add(frame);
                     Volatile.Write(ref _next, _next + 1);
                     advanced = true;
                     written?.Invoke(_next);
