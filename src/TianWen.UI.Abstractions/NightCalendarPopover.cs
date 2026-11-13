@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Linq;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices.Weather;
@@ -43,6 +45,9 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     private const int MaxPinLines = 3;
     private const string MoonKeyPrefix = "moon:";
     private const string PinsKeyPrefix = "pins:";
+    private const string ShowerKeyPrefix = "shower:";
+    private const float ShowerMarkSize = 9f;
+    private const int MaxShowerLines = 3;
     private const string NightActionPrefix = "Night:";
 
     private readonly List<(DateOnly Night, RectF32 Rect)> _cells = new List<(DateOnly, RectF32)>(NightCalendarActions.GridDays);
@@ -240,10 +245,12 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
                 Layout.Builder.Text(night.Day.ToString(CultureInfo.CurrentCulture), FontSize, dayColour,
                     TextAlign.Near, TextAlign.Center, widthSample: "00").WAuto().HStar(),
                 Layout.Builder.Spacer().WStar(),
+                ShowerMark(night),
                 known
                     ? Layout.Builder.Fill(MoonSize, MoonSize, MoonKeyPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
                         .WFixed(MoonSize).HFixed(MoonSize).CrossCenter()
                     : Layout.Builder.Spacer().WFixed(MoonSize))
+            .WithGap(3f)
             .WStar();
 
         var word = verdict is { } w
@@ -269,13 +276,61 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         var ring = night == state.Calendar.Cursor ? palette.BodyText
             : night == planned ? palette.Accent
             : (RGBAColor32?)null;
-        return Layout.Builder.VStack(inner)
+        var cell = Layout.Builder.VStack(inner)
             .Pad(ring is null ? 0f : 2f)
             .Bg(ring ?? fill)
-            .WFixed(CellW).HStar()
+            .WFixed(CellW).HStar();
+        if (CellTooltip(night, _painted) is { } tooltip)
+        {
+            cell = cell.WithTooltip(tooltip);
+        }
+
+        return cell
             .Clickable(new HitResult.ButtonHit(NightActionPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
                 _ => NightCalendarActions.PickNight(state, night, timeProvider, skyMap));
     }
+
+    /// <summary>
+    /// The shower mark of a night: a ring for a night a shower is active, a ring around a solid dot for the night of a peak.
+    /// Shape carries the difference, never colour, and nothing is reserved when the night holds no shower.
+    /// </summary>
+    private Layout.Node ShowerMark(DateOnly night)
+    {
+        if (!_painted.Showers.TryGetValue(night, out var showers) || showers.IsDefaultOrEmpty)
+        {
+            return Layout.Builder.Spacer().WFixed(0f);
+        }
+
+        var kind = showers.Any(s => s.IsPeakNight) ? "peak" : "active";
+        return Layout.Builder.Fill(ShowerMarkSize, ShowerMarkSize,
+                ShowerKeyPrefix + kind + ":" + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+            .WFixed(ShowerMarkSize).HFixed(ShowerMarkSize).CrossCenter();
+    }
+
+    /// <summary>One shower of a night in words: its name, whether it peaks, and the rate expected at the site.</summary>
+    internal static string ShowerLine(MeteorShowerNight night)
+    {
+        var name = night.Shower.Name;
+        var rate = double.IsNaN(night.ExpectedRate) ? "rate varies"
+            : night.MeanSinAltitude <= 0.0 ? "radiant not up in the dark"
+            : $"about {Math.Max(1, (int)Math.Round(night.ExpectedRate))} an hour here";
+        if (night.IsPeakNight)
+        {
+            return $"{name} peak tonight, {rate}";
+        }
+
+        var days = Math.Abs(night.PeakOffset.TotalDays);
+        var when = night.Peak is null ? ""
+            : night.PeakOffset < TimeSpan.Zero ? $", peak in {days:0} d"
+            : $", peak {days:0} d ago";
+        return $"{name} active, {rate}{when}";
+    }
+
+    /// <summary>The cell's tooltip for a night with showers, else null: every shower on its own line.</summary>
+    internal static string? CellTooltip(DateOnly night, NightCalendarData data)
+        => data.Showers.TryGetValue(night, out var showers) && !showers.IsDefaultOrEmpty
+            ? string.Join('\n', showers.Select(ShowerLine))
+            : null;
 
     /// <summary>The verdict's tint, from the palette: green, amber and red for a forecast, none for the Moon alone.</summary>
     private static RGBAColor32 CellTint(NightVerdict verdict)
@@ -354,6 +409,19 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
             lines.Add("Beyond the forecast: the Moon alone");
         }
 
+        if (data.Showers.TryGetValue(night, out var showers) && !showers.IsDefaultOrEmpty)
+        {
+            for (var i = 0; i < Math.Min(showers.Length, MaxShowerLines); i++)
+            {
+                lines.Add(ShowerLine(showers[i]));
+            }
+
+            if (showers.Length > MaxShowerLines)
+            {
+                lines.Add($"+{showers.Length - MaxShowerLines} more showers active");
+            }
+        }
+
         if (pinsCurrent && data.PinsKey is { } key && data.Pins.TryGetValue(night, out var pins))
         {
             AddPinLines(lines, pins, key.MinAltitude, tz);
@@ -394,6 +462,12 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
 
     private void DrawFill(Layout.Content.Fill fill, RectF32 rect)
     {
+        if (fill.Key is { } showerKey && showerKey.StartsWith(ShowerKeyPrefix, StringComparison.Ordinal))
+        {
+            DrawShowerMark(showerKey, rect);
+            return;
+        }
+
         if (fill.Key is { } pinsKey && pinsKey.StartsWith(PinsKeyPrefix, StringComparison.Ordinal))
         {
             DrawPinStrip(pinsKey, rect);
@@ -412,6 +486,40 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         DrawMoonPhase(rect, summary.MoonIllumination, litOnRight: _southern ? !summary.MoonWaxing : summary.MoonWaxing,
             lit: palette.BodyText, dark: GuiTheme.Mix(palette.PanelBg, palette.BodyText, 0.18f));
     }
+
+    /// <summary>
+    /// A ring (active) or a ring around a solid dot (peak), in the body text: the palette's most legible ink on the panel the
+    /// cell tints are mixed into, so it holds 3:1 against the cell in every theme, Night included.
+    /// </summary>
+    private void DrawShowerMark(string key, RectF32 rect)
+    {
+        var rest = key.AsSpan(ShowerKeyPrefix.Length);
+        var peak = rest.StartsWith("peak:", StringComparison.Ordinal);
+        if (!DateOnly.TryParseExact(rest[(rest.IndexOf(':') + 1)..], "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var night))
+        {
+            return;
+        }
+
+        var palette = GuiTheme.Palette;
+        var d = MathF.Min(rect.Width, rect.Height);
+        var x = rect.X + ((rect.Width - d) / 2f);
+        var y = rect.Y + ((rect.Height - d) / 2f);
+        var ring = MathF.Max(1.5f, d * 0.16f);
+        FillEllipse(x, y, d, d, palette.BodyText);
+        FillEllipse(x + ring, y + ring, d - (2f * ring), d - (2f * ring), CellFill(night));
+        if (peak)
+        {
+            var dot = d * 0.4f;
+            FillEllipse(x + ((d - dot) / 2f), y + ((d - dot) / 2f), dot, dot, palette.BodyText);
+        }
+    }
+
+    /// <summary>The tint a night's cell is filled with, as <see cref="BuildCell"/> chose it.</summary>
+    private RGBAColor32 CellFill(DateOnly night)
+        => _painted.Nights.TryGetValue(night, out var summary)
+            ? CellTint(NightVerdict.For(summary))
+            : GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Separator, 0.35f);
 
     /// <summary>
     /// The pinned pointings' night, dusk to dawn: a faint track the width of the dark window, and over it every slice
