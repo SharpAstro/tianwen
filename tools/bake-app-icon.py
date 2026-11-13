@@ -1,8 +1,8 @@
 """Bakes the GUI's application icon, src/TianWen.UI.Gui/Resources/TianWen.ico, from the SharpAstro moon.
 
 The moon is the organisation's picture on GitHub (github.com/SharpAstro): a photograph of the eclipsed Moon on a black
-ground. The source kept beside the icon, Resources/SharpAstroMoon.png, is that picture as GitHub serves it (460 px, the
-largest it gives). An icon wants the disc alone, so the black ground is made transparent here: the disc is found by
+ground. The source kept beside the icon, Resources/SharpAstroMoon.png, is the owner's original of it (900 px, the lunar
+eclipse of 2022-11-08). An icon wants the disc alone, so the black ground is made transparent here: the disc is found by
 its own edge, everything outside it is cut away with a soft rim, and the disc is cropped to fill the frame.
 
     python tools/bake-app-icon.py            # writes the .ico
@@ -23,7 +23,8 @@ from PIL import Image, ImageDraw
 SIZES = [256, 64, 48, 32, 24, 16]
 SUPER = 4            # the rim's mask is drawn this many times larger, then reduced: Pillow's shapes are not antialiased
 GROUND = 16          # a pixel brighter than this (of 255) is the Moon, not the black ground
-INSET = 1.5          # source pixels the rim is taken inside the measured edge, so no black fringe is left
+INSET = 0.012        # of the radius, the rim is taken inside the measured edge: the limb is not an exact circle, and
+                     # a rim on the edge itself left a dark fringe along one side on a light ground
 MARGIN = 0.02        # of the frame, left clear around the disc
 
 
@@ -37,7 +38,7 @@ def disc_of(image):
 def moon(source):
     image = Image.open(source).convert("RGB")
     cx, cy, radius = disc_of(image)
-    radius -= INSET
+    radius *= 1.0 - INSET
 
     mask = Image.new("L", (image.width * SUPER, image.height * SUPER), 0)
     ImageDraw.Draw(mask).ellipse(
