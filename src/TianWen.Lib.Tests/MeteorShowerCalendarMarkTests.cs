@@ -6,6 +6,7 @@ using DIR.Lib;
 using Shouldly;
 using SharpAstro.Png;
 using TianWen.Lib.Astrometry.MeteorShowers;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
