@@ -291,8 +291,8 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
 
         // Button colors
-        private static RGBAColor32 StartBtnBg      => GuiTheme.Palette.Success;
-        private static RGBAColor32 StartBtnText    => GuiTheme.InkOn(GuiTheme.Palette.Success);
+        private static RGBAColor32 StartBtnBg      => GuiTheme.GoButtonBg;
+        private static RGBAColor32 StartBtnText    => GuiTheme.GoButtonInk;
         private static RGBAColor32 DisabledBtnBg   => GuiTheme.Palette.Separator;
         private static RGBAColor32 DisabledBtnText => GuiTheme.Palette.DimText;
 

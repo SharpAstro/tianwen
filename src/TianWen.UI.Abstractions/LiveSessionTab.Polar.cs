@@ -141,7 +141,7 @@ namespace TianWen.UI.Abstractions
             if (canCancel) cancelBtn = cancelBtn.BgHover(GuiTheme.Hover(cancelBg));
 
             var doneFill = canDone ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg;
-            var doneBtn = Layout.Builder.Text("Done", BaseFontSize * 0.9f, canDone ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
+            var doneBtn = Layout.Builder.Text("Done", BaseFontSize * 0.9f, canDone ? GuiTheme.GoButtonInk : DimText, TextAlign.Center, TextAlign.Center)
                 .WStar().HStar().Bg(doneFill)
                 .Clickable(new HitResult.ButtonHit("PolarDone"), _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); });
             if (canDone) doneBtn = doneBtn.BgHover(GuiTheme.Hover(doneFill));
@@ -245,7 +245,7 @@ namespace TianWen.UI.Abstractions
                 }));
 
             var startFill = canStart ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg;
-            var startBtn = Layout.Builder.Text("Start", BaseFontSize, canStart ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
+            var startBtn = Layout.Builder.Text("Start", BaseFontSize, canStart ? GuiTheme.GoButtonInk : DimText, TextAlign.Center, TextAlign.Center)
                 .RowH(BaseRowHeight * 1.6f).Bg(startFill)
                 .Clickable(new HitResult.ButtonHit("PolarSetupStart"), _ =>
                 {

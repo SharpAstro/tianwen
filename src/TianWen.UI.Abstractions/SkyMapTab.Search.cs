@@ -63,7 +63,9 @@ namespace TianWen.UI.Abstractions
                     GotoBg: GuiTheme.PrimaryButtonBg,
                     DisabledBg: GuiTheme.NeutralButtonBg,
                     ViewBg: GuiTheme.PrimaryButtonBg,
-                    PinBg: GuiTheme.GoButtonBg,
+                    // Pinned is a STATE, and its colour in the planner is the green of a pinned row: the button that makes it so
+                    // keeps that green, where the go button took the accent (#2125).
+                    PinBg: GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Success, 0.55f),
                     UnpinBg: GuiTheme.DangerButtonBg,
                     Link: GuiTheme.Palette.Accent)
                 : new ObjectInfoPanel.PanelPalette(

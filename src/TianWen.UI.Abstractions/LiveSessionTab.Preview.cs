@@ -284,7 +284,7 @@ namespace TianWen.UI.Abstractions
             var captureBtnColor = polarActive
                 ? GuiTheme.NeutralButtonBg
                 : GuiTheme.GoButtonBg;
-            var captureBtnText = polarActive ? DimText : BrightText;
+            var captureBtnText = polarActive ? DimText : GuiTheme.GoButtonInk;
             var captureBtn = Layout.Builder.Text("Capture", BaseFontSize * 0.85f, captureBtnText, TextAlign.Center, TextAlign.Center)
                 .WFixed(72f).HStar().Bg(captureBtnColor)
                 .Clickable(new HitResult.ButtonHit($"PreviewCapture{otaIndex}"), polarActive ? null : _ =>
@@ -349,7 +349,7 @@ namespace TianWen.UI.Abstractions
             if (hasImage)
             {
                 rows.Add(Layout.Builder.HStack(
-                        Layout.Builder.Text("Save", BaseFontSize * 0.85f, BrightText, TextAlign.Center, TextAlign.Center)
+                        Layout.Builder.Text("Save", BaseFontSize * 0.85f, GuiTheme.GoButtonInk, TextAlign.Center, TextAlign.Center)
                             .WStar().HStar().Bg(GuiTheme.GoButtonBg).BgHover(GuiTheme.Hover(GuiTheme.GoButtonBg))
                             .Clickable(new HitResult.ButtonHit($"PreviewSave{otaIndex}"), _ => PostSignal(new SaveSnapshotSignal(otaIndex))))
                     .RowH(BaseRowHeight * 0.9f));
