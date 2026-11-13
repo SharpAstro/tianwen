@@ -355,7 +355,9 @@ public sealed class InjectionPopulation
                 if (MeasureSaturated(planes, platePlanes, width, height, s.X, s.Y, scale, drawnProfiles, cores) is { } m && m.Clips.Any(double.IsFinite))
                 {
                     // No lobes of its own: the rows that travel with it lie inside the radii its amplitude and halo were read over,
-                    // so their light is in both already, and drawn again it would count twice.
+                    // so their light is part of both. The ring medians carry only a share of a one-sided lobe's light (about a
+                    // third at the median lobe's distance in a Moffat model, and none of its one-sidedness), so this is neither
+                    // exact nor measured to be complete; drawing the lobes on top would count that share twice.
                     measuredPool.Add(new PoolStar(m.Amplitudes, m.Clips, [], float.PositiveInfinity,
                         [.. drawnProfiles.Select((profile, c) => profile with { Outer = m.Halo[c] })]));
                 }
@@ -487,7 +489,8 @@ public sealed class InjectionPopulation
     /// star's Moffat exponent, the same way. With <paramref name="saturatedAtOwnShare"/> each site is drawn from the saturated pool
     /// at the master's own <see cref="SaturatedShare"/> (one more number from <paramref name="rng"/> per site, so a plan with it
     /// is not the plan without it), beside <paramref name="saturatedFraction"/>'s extra star. A measured saturated star carries no lobes: its
-    /// amplitude and halo were read with their light in them.
+    /// amplitude and halo were read over rings that hold part of their light (a median moves only a little for a one-sided
+    /// lobe, so the lobes' light is part of the measurement, not all of it, and their one-sidedness is not drawn).
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
