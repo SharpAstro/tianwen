@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Stat;
@@ -66,6 +67,14 @@ internal sealed class FrameDerotator
     private readonly bool _whiten;
     private Image? _template;
     private (long Step, GlobalAligner Aligner)? _aligner;
+    // A batch's frames are registered side by side (PlanetaryFrameBatches): the turned reference's aligner is made once a step
+    // and shared, and each slot correlates on a twin of it and fills a field of its own, so no scratch crosses threads.
+    private readonly ConcurrentDictionary<long, Lazy<GlobalAligner>> _aligners = new ConcurrentDictionary<long, Lazy<GlobalAligner>>();
+    private readonly (long Step, GlobalAligner Aligner)?[] _twins = new (long Step, GlobalAligner Aligner)?[PlanetaryFrameBatches.MaxSlots];
+    private readonly DerotationField?[] _fields = new DerotationField?[PlanetaryFrameBatches.MaxSlots];
+    // The steps' aligners kept at most, and how far from the step in hand one is kept: a tile's spectrum is megabytes.
+    private const int AlignersKept = 16;
+    private const int StepsKept = 8;
 
     private FrameDerotator(IPlanetaryFrameStream stream, CatalogIndex planet, PlanetAspect epoch, DiskPlacement placement, double minnaertK,
         int width, int height, double stepSeconds, int alignTileSize, bool whiten)
@@ -164,6 +173,8 @@ internal sealed class FrameDerotator
         ArgumentNullException.ThrowIfNull(template);
         _template?.Release();
         (_template, _aligner) = (template, null);
+        _aligners.Clear();
+        Array.Clear(_twins);
     }
 
     /// <summary>
@@ -176,13 +187,59 @@ internal sealed class FrameDerotator
         var step = (long)Math.Round((TimeOf(index) - Epoch.Utc).TotalSeconds / _stepSeconds);
         if (_aligner is not { } current || current.Step != step)
         {
-            var at = PhysicalEphemeris.Compute(_planet, Epoch.Utc + TimeSpan.FromSeconds(step * _stepSeconds));
-            var turned = PlanetaryDerotation.Resample(template, new DerotationTarget(at, Placement, template.Width, template.Height, MinnaertK).FieldFrom(Epoch, Placement));
-            current = (step, LuckyImagingStacker.AlignerFor(turned, PlanetaryDisk.BoundingBox(turned), _alignTileSize, _whiten));
-            turned.Release();
+            current = (step, AlignerAt(template, step));
             _aligner = current;
         }
         return current.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+    }
+
+    /// <summary>
+    /// <see cref="Shift(Image, int)"/> for a frame prepared in <paramref name="slot"/> of a batch (below
+    /// <see cref="PlanetaryFrameBatches.MaxSlots"/>, one thread's at a time): the same shift to the bit, measured on a twin of the
+    /// step's aligner that is the slot's own.
+    /// </summary>
+    public PhaseCorrelation.Shift Shift(Image frame, int index, int slot)
+    {
+        var template = Template;
+        var step = (long)Math.Round((TimeOf(index) - Epoch.Utc).TotalSeconds / _stepSeconds);
+        if (_twins[slot] is not { } twin || twin.Step != step)
+        {
+            var shared = _aligners.GetOrAdd(step, s => new Lazy<GlobalAligner>(() => AlignerAt(template, s))).Value;
+            if (_aligners.Count > AlignersKept)
+            {
+                foreach (var kept in _aligners.Keys)
+                {
+                    if (Math.Abs(kept - step) > StepsKept)
+                    {
+                        _aligners.TryRemove(kept, out _);
+                    }
+                }
+            }
+            twin = (step, shared.Twin());
+            _twins[slot] = twin;
+        }
+        return twin.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+    }
+
+    // The aligner on the reference turned to step `step`'s instant.
+    private GlobalAligner AlignerAt(Image template, long step)
+    {
+        var at = PhysicalEphemeris.Compute(_planet, Epoch.Utc + TimeSpan.FromSeconds(step * _stepSeconds));
+        var turned = PlanetaryDerotation.Resample(template, new DerotationTarget(at, Placement, template.Width, template.Height, MinnaertK).FieldFrom(Epoch, Placement));
+        var aligner = LuckyImagingStacker.AlignerFor(turned, PlanetaryDisk.BoundingBox(turned), _alignTileSize, _whiten);
+        turned.Release();
+        return aligner;
+    }
+
+    /// <summary>
+    /// <see cref="FieldFor(int)"/> for a frame prepared in <paramref name="slot"/> of a batch: the slot's own field, which holds
+    /// until the slot prepares its next frame, so a batch's meshes keep theirs until they are folded.
+    /// </summary>
+    public DerotationField FieldFor(int index, int slot)
+    {
+        var field = _fields[slot] ??= new DerotationField(_field.Width, _field.Height);
+        _toEpoch.FillFrom(AspectOf(index), Placement, field);
+        return field;
     }
 
     /// <summary>
