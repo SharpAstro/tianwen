@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
 
@@ -369,17 +370,21 @@ public static class NightCalendarActions
         var data = calendar.Data;
         var hours = data.Forecast?.Hours;
         var built = new List<KeyValuePair<DateOnly, NightSummary>>(GridDays);
+        var showers = new List<KeyValuePair<DateOnly, ImmutableArray<MeteorShowerNight>>>(GridDays);
         foreach (var night in MonthGrid(month, FirstDayOfWeek))
         {
             if (!data.Nights.ContainsKey(night))
             {
-                built.Add(new KeyValuePair<DateOnly, NightSummary>(night, NightSummary.Compute(transform, night, hours)));
+                var summary = NightSummary.Compute(transform, night, hours);
+                built.Add(new KeyValuePair<DateOnly, NightSummary>(night, summary));
+                showers.Add(new KeyValuePair<DateOnly, ImmutableArray<MeteorShowerNight>>(night,
+                    MeteorShowerNights.For(transform.SiteLatitude, transform.SiteLongitude, summary)));
             }
         }
 
         if (built.Count > 0)
         {
-            calendar.TryAddNights(generation, built);
+            calendar.TryAddNights(generation, built, showers);
         }
     }
 

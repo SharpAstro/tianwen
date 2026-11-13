@@ -62,6 +62,7 @@ public enum ObjectType : ulong
     LowMassStar = 'L' << 14 | 'M' << 7 | '*',
     Planet = 'P' << 7 | 'l',
     Comet = 'C' << 14 | 'o' << 7 | 'm', // created by author (Simbad has no solar-system types), like Planet
+    MeteorShower = 'M' << 14 | 'S' << 7 | 'h', // a shower's radiant, created by author; never in the object DB
     PostAGBStar = 'p' << 14 | 'A' << 7 | '*',
     RVTauVStar = 'R' << 14 | 'V' << 7 | '*',
     VariableStar = 'V' << 7 | '*',

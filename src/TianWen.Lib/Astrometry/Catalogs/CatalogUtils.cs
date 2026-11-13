@@ -525,6 +525,7 @@ public static partial class CatalogUtils
                 'e' when noSpaces.Length > 2 && noSpaces[2] == 'l' => ("Mel000", Catalog.Melotte),
                 'e' or 'E' when noSpaces.Length > 6 && noSpaces.AsSpan(0, 7).Equals("Messier", StringComparison.OrdinalIgnoreCase) => ("M00*", Catalog.Messier),
                 'W' => ("MWSC0000", Catalog.MWSC),
+                'S' when noSpaces.Length > 3 && noSpaces[2] == 'h' => ("MSh000", Catalog.MeteorShower),
                 _ when secondIsDigit => ("M00*", Catalog.Messier),
                 _ => ("", 0)
             },

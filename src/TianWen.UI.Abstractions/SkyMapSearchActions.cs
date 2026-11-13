@@ -7,6 +7,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions.Overlays;
@@ -109,6 +110,13 @@ public static class SkyMapSearchActions
             }
         }
         search.CometAliases = aliases.DrainToImmutable();
+
+        // Meteor showers are events in a static table, not in the DB: their names go in the index and resolve through
+        // MeteorShowerIdentity (a real catalogue entry of the same spelling still wins, as for a comet).
+        foreach (var shower in MeteorShowerTable.All)
+        {
+            entries.Add(shower.Name);
+        }
 
         entries.Sort(StringComparer.OrdinalIgnoreCase);
         return [.. entries];
@@ -270,6 +278,16 @@ public static class SkyMapSearchActions
                     ObjType: obj.ObjectType,
                     VMag: (float)obj.V_Mag));
             }
+            else if (MeteorShowerIdentity.TryResolve(entry, out var showerHit) && !search.CometEntries.ContainsKey(entry))
+            {
+                var showerIndex = MeteorShowerIdentity.IndexOf(showerHit);
+                if (!seenIndices.Add(showerIndex)) continue;
+                results.Add(new SkyMapSearchResult(
+                    Display: showerHit.Name,
+                    Index: showerIndex,
+                    ObjType: ObjectType.MeteorShower,
+                    VMag: float.NaN));
+            }
             else if (search.CometEntries.TryGetValue(entry, out var cometEntry))
             {
                 if (!seenIndices.Add(cometEntry.Index)) continue;
@@ -329,6 +347,15 @@ public static class SkyMapSearchActions
         {
             return CommitResult(search, skyMap, db,
                 new SkyMapSearchResult(trimmed, obj.Index, obj.ObjectType, (float)obj.V_Mag),
+                focus, siteLat, siteLon, viewingUtc, site, comets);
+        }
+
+        // After the catalogue, as in the search list: a real catalogue entry of the same spelling wins over a shower's name or
+        // IAU code (several codes are also constellation abbreviations).
+        if (MeteorShowerIdentity.TryResolve(trimmed, out var showerToken))
+        {
+            return CommitResult(search, skyMap, db,
+                new SkyMapSearchResult(showerToken.Name, MeteorShowerIdentity.IndexOf(showerToken), ObjectType.MeteorShower, float.NaN),
                 focus, siteLat, siteLon, viewingUtc, site, comets);
         }
 
@@ -470,6 +497,19 @@ public static class SkyMapSearchActions
     {
         if (result.Index is not { } catIdx) return false;
 
+        // Meteor shower: the radiant for the viewing night, from the table (it is not in the object DB). Centred even
+        // outside the activity window, where the radiant is the window's nearer end; the panel says it is not active.
+        if (catIdx.IsMeteorShower && MeteorShowerIdentity.TryGet(catIdx, out var shower))
+        {
+            var showerNight = MeteorShowerNights.NightInstant(viewingUtc, siteLon);
+            var radiant = MeteorShowerNights.RadiantAt(shower, showerNight);
+            SlewTo(skyMap, radiant.RaHours, radiant.DecDeg);
+            search.InfoPanel = MeteorShowerInfoPanel(shower, catIdx, radiant, siteLat, siteLon, showerNight, site)
+                .WithLiveHorizontal(site);
+            CloseSearch(search, focus);
+            return true;
+        }
+
         // Comet: resolve the LIVE ephemeris position + magnitude (it is not in the object DB), slew there,
         // and build the comet info panel (the sparkline is drawn from the state cache in the panel).
         if (catIdx.ToCatalog() == Catalog.Comet && comets is not null)
@@ -610,6 +650,7 @@ public static class SkyMapSearchActions
         Catalog,
         Planet,
         Comet,
+        Shower,
     }
 
     /// <summary>
@@ -666,6 +707,13 @@ public static class SkyMapSearchActions
                 search.InfoPanel = CometInfoPanel(
                     comets, resolved.Index, resolved.RA, resolved.Dec, (float)resolved.VMag,
                     siteLat, siteLon, viewingUtc, site);
+                return true;
+
+            case SkyMapHitKind.Shower when MeteorShowerIdentity.TryGet(resolved.Index, out var shower):
+                var hitNight = MeteorShowerNights.NightInstant(viewingUtc, siteLon);
+                search.InfoPanel = MeteorShowerInfoPanel(shower, resolved.Index,
+                    MeteorShowerNights.RadiantAt(shower, hitNight), siteLat, siteLon, hitNight, site)
+                    .WithLiveHorizontal(site);
                 return true;
 
             case SkyMapHitKind.Planet:
@@ -1143,10 +1191,41 @@ public static class SkyMapSearchActions
             }
         }
 
+        // Meteor shower radiants (an event, never in the object DB): same hit test, over the viewing night's cached set and
+        // admitting exactly the radiants the renderer DRAWS (SkyMapState.ShouldDrawShowerRadiant).
+        var bestShowerDistSq = double.MaxValue;
+        SkyMapState.ShowerRadiantMarker? bestShower = null;
+        foreach (var m in skyMap.GetShowerRadiantsCached(viewingUtc))
+        {
+            var isPinned = pinnedCatalogIndices is not null && pinnedCatalogIndices.Contains(m.Index);
+            if (!skyMap.ShouldDrawShowerRadiant(isPinned)) continue;
+            if (!SkyMapProjection.ProjectWithMatrix(m.RA, m.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
+                    out var sx, out var sy))
+            {
+                continue;
+            }
+            var dx = sx - clickScreenX;
+            var dy = sy - clickScreenY;
+            var distSq = dx * dx + dy * dy;
+            if (distSq <= ClickToleranceScreenPx * ClickToleranceScreenPx && distSq < bestShowerDistSq)
+            {
+                bestShowerDistSq = distSq;
+                bestShower = m;
+            }
+        }
+
         // Resolve the nearest hit across catalog objects, planets, and comets. A planet / comet wins on a
         // tie so a prominent moving body under a faint field star is preferred (matches its own dot being
         // exactly what the user clicked).
         var catalogDistSq = bestIdx is null ? double.MaxValue : bestDistSq;
+
+        if (bestShower is { } sh && bestShowerDistSq <= catalogDistSq && bestShowerDistSq <= bestPlanetDistSq
+            && bestShowerDistSq <= bestCometDistSq)
+        {
+            resolved = new ResolvedHit(
+                SkyMapHitKind.Shower, sh.Index, sh.RA, sh.Dec, ClickToleranceScreenPx, double.NaN);
+            return true;
+        }
 
         if (bestComet is { } cm && bestCometDistSq <= catalogDistSq && bestCometDistSq <= bestPlanetDistSq && comets is not null)
         {
@@ -1339,6 +1418,39 @@ public static class SkyMapSearchActions
                 Canonical = canonical,
                 ObjType = ObjectType.Comet,
                 VMag = (float)mag,
+                Constellation = constellation,
+                Index = idx,
+            };
+    }
+
+    /// <summary>
+    /// Builds an info panel for a meteor shower: its radiant for the viewing night, the
+    /// <see cref="ObjectType.MeteorShower"/> tag and the constellation the radiant is in. A shower outside its activity
+    /// window says so in its title, since there is no radiant to watch that night.
+    /// </summary>
+    internal static SkyMapInfoPanelData MeteorShowerInfoPanel(
+        MeteorShower shower, CatalogIndex idx, MeteorShowerRadiant radiant,
+        double siteLat, double siteLon, DateTimeOffset viewingUtc, in SiteContext site)
+    {
+        var constellation = ConstellationBoundary.TryFindConstellation(radiant.RaHours, radiant.DecDeg, out var c) ? c : default;
+        var name = radiant.Active ? shower.Name : shower.Name + " (not active)";
+
+        // The rate at the site is the night calendar's own (MeteorShowerNights.ForShowerAt), so the two say the same number.
+        var detail = MeteorShowerText.Zhr(shower);
+        // Only on the peak night: off it the table gives an upper bound, not a rate (MeteorShowerNight.ExpectedRate).
+        if (radiant.Active && MeteorShowerNights.ForShowerAt(shower, siteLat, siteLon, viewingUtc) is { IsPeakNight: true } tonight)
+        {
+            detail += "   " + MeteorShowerText.Rate(tonight);
+        }
+
+        return SkyMapInfoPanelData.FromPosition(name, radiant.RaHours, radiant.DecDeg, siteLat, siteLon, viewingUtc, site)
+            with
+            {
+                Detail = detail,
+                DetailNote = MeteorShowerText.Peak(shower, viewingUtc, siteLat, siteLon),
+                Canonical = shower.Code,
+                ObjType = ObjectType.MeteorShower,
+                VMag = float.NaN,
                 Constellation = constellation,
                 Index = idx,
             };

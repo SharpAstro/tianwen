@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.MeteorShowers;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.IO;
@@ -375,6 +376,19 @@ public static class PlannerPersistence
         if (proposal.CatalogIndex is { } savedIdx && ((CatalogIndex)savedIdx).IsSolarSystemObject)
         {
             return new Target(proposal.RA, proposal.Dec, proposal.Name, (CatalogIndex)savedIdx);
+        }
+
+        // A meteor shower is an event, never in the DB either. Its saved position is whatever the radiant was on the night
+        // it was pinned; a position that is not a number is replaced by the table's radiant, and the planner re-places it per
+        // night (PlannerActions.RefreshMeteorShowerProposalPositions).
+        if (proposal.CatalogIndex is { } showerIdx && ((CatalogIndex)showerIdx).IsMeteorShower
+            && MeteorShowerIdentity.TryGet((CatalogIndex)showerIdx, out var shower))
+        {
+            var finite = !double.IsNaN(proposal.RA) && !double.IsNaN(proposal.Dec);
+            return new Target(
+                finite ? proposal.RA : shower.RadiantRaDeg / 15.0,
+                finite ? proposal.Dec : shower.RadiantDecDeg,
+                proposal.Name, (CatalogIndex)showerIdx);
         }
 
         return null;

@@ -153,3 +153,35 @@ only a table and the Sun:
   do not.
 - A peak is also a row of the planner's events list (#1810), which reads this table and computation rather
   than keeping its own.
+
+### What shipped of E (2026-11-13, #2120)
+
+Everything above except the year mode's marks (#2061) and the events-list row (#1810).
+
+- **Table and peak:** `MeteorShowerTable`, `MeteorShower`, `MeteorShowerCalendar` (`SunLongitude`, `PeakInstant`, `PeakNear`).
+- **Identity:** `MeteorShowerIdentity` (a `CatalogIndex` in `Catalog.MeteorShower` per IAU number; the object DB holds none).
+- **The night routine:** `MeteorShowerNights.For` (active showers, radiants by drift, rate at the site), `RadiantAt`, and `ForShowerAt`
+  for one shower and a viewing instant, which the atlas's info panel asks so it says the calendar's own number.
+- **Search and pins:** `SkyMapSearchActions` and `PlannerActions`, pins re-placed per night.
+- **Night calendar:** the shower mark and tooltip lines (`NightCalendarPopover`), words from `MeteorShowerText`. **Only a peak
+  night is marked** (a ring around a dot where the rate at the site reaches `MeteorShowerNights.MajorRateFloor`, ten an hour, a
+  ring under it): a mark on every active night covered 41 of 42 cells in August and said nothing. An active night is named in
+  the cell's tooltip and the detail strip.
+- **A rate is said on the peak night only.** The table holds each shower's maximum and no activity profile (how fast it falls
+  away), so `MeteorShowerNight.ExpectedRate` on any other night is the peak's rate, an upper bound: the calendar and the atlas
+  panel then say how far the peak is and no number. A rate for every night needs a profile per shower from a source (the IMO
+  list gives none), which is open.
+- **A night is judged at ONE instant, local mean solar midnight** (`MeteorShowerNights.NightInstant`, from an instant and the
+  site's longitude alone; the middle of the dark window to within the equation of time), by the calendar, the planner
+  (`PlannerActions.ShowerNightInstant`) and the atlas, so a night one names a shower on is a night the others do. A window
+  opens at an hour of its own, and the three once asked at dusk, mid-dark and the viewing instant.
+- **The atlas's active set and a selected shower's panel are per NIGHT** (`MeteorShowerNights.NightKey`;
+  `SkyMapState.GetShowerPanelCached`, counted by `ShowerPanelRebuilds`): the set no longer flips at 0h UT in the middle of a
+  night, and a selection scrubbed to another date says that night's radiant, activity, rate and peak, where it kept the words
+  of the night it was clicked on.
+- **Atlas radiant:** `SkyMapTab.DrawShowerRadiants` draws a ring with eight rays and the name for each active shower, from
+  `SkyMapState.GetShowerRadiantsCached` (computed once per night, never per frame; `ShowerCacheRebuilds` is the test counter).
+  The draw and the click and hover resolver (`SkyMapSearchActions.TryResolveHit`, kind `Shower`) both ask
+  `SkyMapState.ShouldDrawShowerRadiant`, which is `OverlayEngine.PassesLayerFilter` for `ObjectType.MeteorShower`: the [O] layer
+  switches it off and a pin bypasses it. The info panel names the shower, its ZHR, on the peak night the rate at the site, and
+  its peak in site time. There is no Wikipedia link, since the bake verified none.
