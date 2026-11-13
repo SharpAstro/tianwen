@@ -66,7 +66,7 @@ public static class MeteorShowerTable
     public static ImmutableArray<MeteorShower> All { get; } =
     [
         new("QUA", 10, "Quadrantids", 276.1, 292.4, 283.15, 230, 49, 0.6, -0.2, 41, 2.1, 80),
-        new("GUM", 404, "alpha Ursae Minorids", 289.4, 302.6, 298, 228, 67, 0.8, -0.4, 31, 3.0, 3),
+        new("GUM", 404, "gamma Ursae Minorids", 289.4, 302.6, 298, 228, 67, 0.8, -0.4, 31, 3.0, 3),
         new("ACE", 102, "alpha Centaurids", 310.7, 332.0, 319.4, 211, -58, 1.2, -0.3, 58, 2.0, 6),
         new("LYR", 6, "April Lyrids", 23.7, 40.3, 32.32, 271, 34, 1.1, 0.0, 49, 2.1, 18),
         new("PPU", 137, "pi Puppids", 24.7, 38.3, 33.5, 110, -45, 0.5, -0.1, 18, 2.0, double.NaN),

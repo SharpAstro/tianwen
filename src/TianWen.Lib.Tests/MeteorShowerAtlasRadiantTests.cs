@@ -189,8 +189,8 @@ public sealed class MeteorShowerAtlasRadiantTests
         try
         {
             GuiTheme.Apply(theme, desktopIsDark: true);
-            var (withMark, text) = Capture(db, night, dpi, overlay: true);
-            var (without, _) = Capture(db, night, dpi, overlay: false);
+            var (withMark, label) = Capture(db, night, dpi, overlay: true);
+            var (without, noLabel) = Capture(db, night, dpi, overlay: false);
 
             // The box of the ring and its rays around the radiant (at the view's centre): the object overlay beside it draws
             // other things, so only what the radiant itself paints is judged.
@@ -216,7 +216,34 @@ public sealed class MeteorShowerAtlasRadiantTests
                 blueDominant.ShouldBe(0, "nothing blue in Night");
             }
 
-            text.ShouldBe("Perseids");
+            // The name: the tab registers the shower's label to the right of the radiant and paints text ink inside it, which
+            // the capture without the overlay does not have.
+            noLabel.ShouldBeNull("the object layers switch the name off with the mark");
+            var box = label.ShouldNotBeNull("the shower's name is drawn and clickable");
+            box.X.ShouldBeGreaterThan(Size / 2f, "the name sits to the right of the radiant");
+            box.Y.ShouldBeLessThan(Size / 2f);
+            (box.Y + box.Height).ShouldBeGreaterThan(Size / 2f, "the name is level with the radiant");
+            var nameInk = 0;
+            var nameBlue = 0;
+            for (var y = (int)box.Y; y < (int)(box.Y + box.Height); y++)
+            {
+                for (var x = (int)box.X; x < Math.Min(Size, (int)(box.X + box.Width)); x++)
+                {
+                    var i = ((y * Size) + x) * 4;
+                    if (withMark[i] != without[i] || withMark[i + 1] != without[i + 1] || withMark[i + 2] != without[i + 2])
+                    {
+                        nameInk++;
+                        nameBlue += withMark[i + 2] > withMark[i] ? 1 : 0;
+                    }
+                }
+            }
+
+            nameInk.ShouldBeGreaterThan((int)(30 * dpi), "the name's glyphs are painted in its box");
+            if (theme == UiThemeState.Night)
+            {
+                nameBlue.ShouldBe(0, "the name is not blue in Night");
+            }
+
             Save($"atlas-perseids-{theme}-dpi{dpi:0.0}", withMark);
         }
         finally
@@ -225,7 +252,8 @@ public sealed class MeteorShowerAtlasRadiantTests
         }
     }
 
-    private static (byte[] Pixels, string Label) Capture(ICelestialObjectDB db, DateTimeOffset night, float dpi, bool overlay)
+    /// <summary>The capture's pixels and the box of the shower's registered name label, null when none was registered.</summary>
+    private static (byte[] Pixels, RectF32? Label) Capture(ICelestialObjectDB db, DateTimeOffset night, float dpi, bool overlay)
     {
         using var renderer = new RgbaImageRenderer(Size, Size);
         var tab = new RadiantTestSkyMapTab(renderer) { DpiScale = dpi, FontPath = FontResolver.ResolveSystemFont() };
@@ -235,13 +263,23 @@ public sealed class MeteorShowerAtlasRadiantTests
         // The first pass would re-home the view to the pole; the capture looks at the radiant.
         tab.State.ViewDrivenExternally = true;
         tab.Render(planner, new RectF32(0, 0, Size, Size), new FakeTimeProviderWrapper(night));
-        return ([.. renderer.Surface.Pixels], Perseids.Name);
+        RectF32? label = null;
+        foreach (var region in tab.GetRegisteredRegions())
+        {
+            if (region.Result is HitResult.ButtonHit { Action: "SkyMapShowerLabel:Perseids" })
+            {
+                label.ShouldBeNull("one label per shower");
+                label = new RectF32(region.X, region.Y, region.Width, region.Height);
+            }
+        }
+
+        return ([.. renderer.Surface.Pixels], label);
     }
 
-    /// <summary>Written under the ORIGINAL temp (<c>TestRunTemp.Root</c>), which outlives the run folder, for a person to look at.</summary>
+    /// <summary>Written to the test's own output folder, deleted when the test ends unless <c>TIANWEN_KEEP_TEST_OUTPUT=1</c> keeps it for a person to look at.</summary>
     private static void Save(string name, byte[] pixels)
     {
-        var dir = Directory.CreateDirectory(Path.Combine(TestRunTemp.Root, "MeteorShowerAtlas")).FullName;
+        var dir = SharedTestData.CreateTempTestOutputDir("MeteorShowerAtlas");
         File.WriteAllBytes(Path.Combine(dir, name + ".png"), PngWriter.Encode(pixels, Size, Size));
     }
 }

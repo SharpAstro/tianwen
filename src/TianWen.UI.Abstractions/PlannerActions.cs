@@ -354,23 +354,6 @@ public static class PlannerActions
     }
 
     /// <summary>
-    /// Resolves the <see cref="ScoredTarget"/> to draw for a pinned proposal, preferring (in order)
-    /// tonight's ranked list, the search results, and the per-target score cache -- all matched by
-    /// <see cref="IsSameObject"/>, so a pinned planet re-binds to tonight's freshly-computed position
-    /// and score instead of orphaning.
-    /// <para>
-    /// <b>Never returns "not found".</b> The pinned rows are the only unpin affordance in the UI (the
-    /// row's [-] button and the keyboard toggle both act on the row), so a proposal that resolves to
-    /// nothing and is dropped from the list is a pin the user can neither see nor remove -- it just
-    /// keeps being re-saved and re-scheduled. Two ways in were found together: a full recompute
-    /// rebuilds <see cref="PlannerState.ScoredTargets"/> from tonight's list alone, dropping the
-    /// entries for anything the scheduler does not sweep (planets are only ever added by search or a
-    /// sky-map pin), and a restore can rebuild a solar-system target from the object DB's NaN
-    /// coordinate sentinel. So when nothing resolves we synthesize a row from the proposal itself:
-    /// the object is visible, reports no altitude, and -- the point -- is removable.
-    /// </para>
-    /// </summary>
-    /// <summary>
     /// Whether <paramref name="target"/> may be pinned on the planner's night. Everything may, but a meteor shower: it is an
     /// event, so it is pinnable only on a night inside its activity window (judged at <see cref="PlannerState.AstroDark"/>).
     /// </summary>
@@ -496,6 +479,23 @@ public static class PlannerActions
         }
     }
 
+    /// <summary>
+    /// Resolves the <see cref="ScoredTarget"/> to draw for a pinned proposal, preferring (in order)
+    /// tonight's ranked list, the search results, and the per-target score cache -- all matched by
+    /// <see cref="IsSameObject"/>, so a pinned planet re-binds to tonight's freshly-computed position
+    /// and score instead of orphaning.
+    /// <para>
+    /// <b>Never returns "not found".</b> The pinned rows are the only unpin affordance in the UI (the
+    /// row's [-] button and the keyboard toggle both act on the row), so a proposal that resolves to
+    /// nothing and is dropped from the list is a pin the user can neither see nor remove -- it just
+    /// keeps being re-saved and re-scheduled. Two ways in were found together: a full recompute
+    /// rebuilds <see cref="PlannerState.ScoredTargets"/> from tonight's list alone, dropping the
+    /// entries for anything the scheduler does not sweep (planets are only ever added by search or a
+    /// sky-map pin), and a restore can rebuild a solar-system target from the object DB's NaN
+    /// coordinate sentinel. So when nothing resolves we synthesize a row from the proposal itself:
+    /// the object is visible, reports no altitude, and -- the point -- is removable.
+    /// </para>
+    /// </summary>
     private static ScoredTarget ResolveProposalScore(
         PlannerState state,
         ProposedObservation proposal,

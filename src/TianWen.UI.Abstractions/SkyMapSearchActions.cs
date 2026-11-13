@@ -343,17 +343,19 @@ public static class SkyMapSearchActions
                 focus, siteLat, siteLon, viewingUtc, site, comets);
         }
 
-        if (MeteorShowerIdentity.TryResolve(trimmed, out var showerToken))
-        {
-            return CommitResult(search, skyMap, db,
-                new SkyMapSearchResult(showerToken.Name, MeteorShowerIdentity.IndexOf(showerToken), ObjectType.MeteorShower, float.NaN),
-                focus, siteLat, siteLon, viewingUtc, site, comets);
-        }
-
         if (TryResolveToObject(db, trimmed, out var obj))
         {
             return CommitResult(search, skyMap, db,
                 new SkyMapSearchResult(trimmed, obj.Index, obj.ObjectType, (float)obj.V_Mag),
+                focus, siteLat, siteLon, viewingUtc, site, comets);
+        }
+
+        // After the catalogue, as in the search list: a real catalogue entry of the same spelling wins over a shower's name or
+        // IAU code (several codes are also constellation abbreviations).
+        if (MeteorShowerIdentity.TryResolve(trimmed, out var showerToken))
+        {
+            return CommitResult(search, skyMap, db,
+                new SkyMapSearchResult(showerToken.Name, MeteorShowerIdentity.IndexOf(showerToken), ObjectType.MeteorShower, float.NaN),
                 focus, siteLat, siteLon, viewingUtc, site, comets);
         }
 

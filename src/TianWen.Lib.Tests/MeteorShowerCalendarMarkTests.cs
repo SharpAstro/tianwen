@@ -243,10 +243,10 @@ public class MeteorShowerCalendarMarkTests
         return (0.2126 * L(c.Red)) + (0.7152 * L(c.Green)) + (0.0722 * L(c.Blue));
     }
 
-    /// <summary>Written under the ORIGINAL temp (<c>TestRunTemp.Root</c>), which outlives the run folder, for a person to look at.</summary>
+    /// <summary>Written to the test's own output folder, deleted when the test ends unless <c>TIANWEN_KEEP_TEST_OUTPUT=1</c> keeps it for a person to look at.</summary>
     private static void Save(string name, byte[] pixels, int width, int height)
     {
-        var dir = Directory.CreateDirectory(Path.Combine(TestRunTemp.Root, "MeteorShowerCalendar")).FullName;
+        var dir = SharedTestData.CreateTempTestOutputDir("MeteorShowerCalendar");
         File.WriteAllBytes(Path.Combine(dir, name + ".png"), PngWriter.Encode(pixels, width, height));
     }
 }
