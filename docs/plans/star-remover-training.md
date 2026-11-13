@@ -5245,6 +5245,53 @@ convergence (s0 step 224,000, best held-out 6.61e-6 at 212,000; s1 best 6.64e-6 
 Read from `C:/temp/e2/check3-r3s-own.txt`, `check3-r3s-input-ring.txt`, `bright-channel-r3s.txt`, `whole-r3s_synth22_s*.log`,
 `q1-r3s.txt` and `r2-eval/<model>/on-random/starless-eval-v5.json` on DE1. Not adopted; what follows is the owner's to choose.
 
+**The four models averaged, read after the fact (2026-11-13): every guard holds, both M42 bars are missed.** The saved
+outputs of R3l s0 / s1 and R3s s0 / s1 averaged (`ens_mix4`; the whole masters through `score_whole.py --model` with the four
+graphs). Not pre-registered, so it adopts nothing:
+
+| bar | R3l mean | R3s mean | the four averaged |
+|---|---|---|---|
+| M42 100-1000 sigma clean, own ring, >= 50 | 33.1 | 55.5 | 47.1 |
+| M42 blue at 2 and 3 px within 0.7 sigma of SXT's (-0.47, -0.03) | -2.68, -1.70 (s0) | -2.29, -1.12 | -2.53, -1.41 |
+| SMC 20-100, 100-1000, within 3 of R3l | 92.4, 90.7 | 81.4, 85.6 | 93.2, 93.2 |
+| truth tiles 20-100 >= 72, 100-1000 >= 54 | 73.3, 56.4 | 72.1, 54.1 | 74.8, 60.0 |
+| Andromeda dark dug <= 47 | 45.1 | 25.3 | 36.2 |
+| Tarantula dark flat >= 69 | 72.4 | 67.2 | 72.3 |
+| M31 nucleus under 40 % in every channel | up to 15.8 % | up to 2.3 % | up to 7.8 % |
+
+The SMC's miss in R3s is its GREEN wing left at 2 to 4 px (R3s +0.2 to +0.55 sigma where SXT reads -0.7 to -0.8; R3l already
+leaves part of it), read by `bright_channel_profile.py` on the 20-100 sigma band. Averaging mends the guards and not M42's
+blue dig, so M42 needs a trained arm. A 3-minute probe of the trainer on the 1070 (2026-11-13): 52.5 tiles a second at about
+92 % GPU with the cache in memory, the rate of R3s's own run, so the card is the limit; read cold off the USB disk it was 18.
+
+**R3t, pre-registered 2026-11-13 (the owner agreed the same day).** One change from R3s: the channel spread 2 where R3s
+drew 3, `--star-beta-draw 0.3,1.3,6,2`, a held cell's red and blue betas each log-uniform in [1/2, 2] of its green's. The
+question: does a narrower spread keep R3s's gain on M42 and leave the SMC's wings as R3l does.
+- **The export:** synth23 = `export-synth.ps1 -Name synth23 -BetaDraw 0.3,1.3,6,2` with no `-Extra`, R3s's binary
+  (`bh-bin7`), into `D:/temp/tianwen-scratch/r3-train-synth23`.
+- **The training:** R3s's exactly, from the same frozen trainer copy, **one seed first**: seed 0 is trained and scored
+  alone; seed 1 is trained only if seed 0 holds every guard below and its M42 band reads at least 40. The cache is prepared
+  on the SSD (`E:/tianwen-scratch`), which changes where the bytes are read from and nothing else.
+- **Scored** as R3s was (`score-arm.ps1`, `score_whole.py`, `real_star_check3.py --sessions` on both rings,
+  `bright_channel_profile.py`). With one seed the bars are read on seed 0 against R3l's mean and R3l's own seed spread is
+  said beside every row; with two, on the mean.
+
+The bars:
+- **Q1, the export, before training:** blue at 1.6 times green's beta or more on 8 to 12 % of synth23's unsaturated stars
+  (synth21, with no spread, 5.67 %, measured 2026-11-13; a held cell adds about 16 % of its stars), and at 2.4 times or
+  more on 0.8 to 2.0 % (synth21 1.2 %; a spread of 2 draws nothing past 2).
+- **Q2, M42:** as R3s's: its 100-1000 sigma stars at least 50 % clean on the own ring; its blue at 2 to 3 px within 0.7
+  sigma of SXT's.
+- **Guards:** as R3s's, every one: HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below
+  R3l's mean on the own ring; truth tiles at least 72 and 54; Andromeda dark dug at most 47 and Tarantula dark flat at
+  least 69; the M31 nucleus under 40 % in every channel.
+- **Kill:** Q1 fails; or M42 under 40; or a guard fails. Tarantula's dark flat moves 4 points between R3l's and R3s's own
+  seeds, so a seed 0 that fails on that row ALONE by under 4 points trains seed 1 and is read on the mean.
+- **Prediction:** the SMC's two rows return to within 3 of R3l's. M42 lands between R3l's 33 and R3s's 55, and whether it
+  clears 50 is the open part: M42's blue beta is 2.64 times its green's, outside a spread of 2, so the risk is that the arm
+  gives M42's gain back. If it does, the read is that M42 needs the wide spread and the SMC's wing has to be mended another
+  way.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
