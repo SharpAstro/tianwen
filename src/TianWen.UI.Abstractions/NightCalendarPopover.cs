@@ -238,7 +238,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         var known = _painted.Nights.TryGetValue(night, out var summary);
         var verdict = known ? NightVerdict.For(summary) : (NightVerdict?)null;
 
-        var fill = CellFill(night);
+        var fill = verdict is { } v ? CellTint(v) : GuiTheme.Mix(palette.PanelBg, palette.Separator, 0.35f);
         var dayColour = night == tonight ? palette.Accent : inMonth ? palette.BodyText : palette.DimText;
 
         // The mark joins the row only on a night with a shower, so every other cell keeps its old geometry.
@@ -495,37 +495,24 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
 
     /// <summary>
     /// A ring (active) or a ring around a solid dot (peak), in the body text: the palette's most legible ink on the panel the
-    /// cell tints are mixed into, so it holds 3:1 against the cell in every theme, Night included.
+    /// cell tints are mixed into, so it holds 3:1 against the cell in every theme, Night included. The ring is STROKED, so
+    /// whatever the cell shows behind it (its tint, the hover tint, the planned-night ring) shows through its middle.
     /// </summary>
     private void DrawShowerMark(string key, RectF32 rect)
     {
-        var rest = key.AsSpan(ShowerKeyPrefix.Length);
-        var peak = rest.StartsWith("peak:", StringComparison.Ordinal);
-        if (!DateOnly.TryParseExact(rest[(rest.IndexOf(':') + 1)..], "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                DateTimeStyles.None, out var night))
-        {
-            return;
-        }
-
+        var peak = key.AsSpan(ShowerKeyPrefix.Length).StartsWith("peak:", StringComparison.Ordinal);
         var palette = GuiTheme.Palette;
         var d = MathF.Min(rect.Width, rect.Height);
-        var x = rect.X + ((rect.Width - d) / 2f);
-        var y = rect.Y + ((rect.Height - d) / 2f);
+        var cx = rect.X + (rect.Width / 2f);
+        var cy = rect.Y + (rect.Height / 2f);
         var ring = MathF.Max(1.5f, d * 0.16f);
-        FillEllipse(x, y, d, d, palette.BodyText);
-        FillEllipse(x + ring, y + ring, d - (2f * ring), d - (2f * ring), CellFill(night));
+        DrawCircle(cx, cy, (d / 2f) - (ring / 2f), palette.BodyText, ring);
         if (peak)
         {
             var dot = d * 0.4f;
-            FillEllipse(x + ((d - dot) / 2f), y + ((d - dot) / 2f), dot, dot, palette.BodyText);
+            FillEllipse(cx - (dot / 2f), cy - (dot / 2f), dot, dot, palette.BodyText);
         }
     }
-
-    /// <summary>The tint a night's cell is filled with, as <see cref="BuildCell"/> chose it.</summary>
-    private RGBAColor32 CellFill(DateOnly night)
-        => _painted.Nights.TryGetValue(night, out var summary)
-            ? CellTint(NightVerdict.For(summary))
-            : GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Separator, 0.35f);
 
     /// <summary>
     /// The pinned pointings' night, dusk to dawn: a faint track the width of the dark window, and over it every slice

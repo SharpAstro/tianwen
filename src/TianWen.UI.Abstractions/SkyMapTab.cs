@@ -1200,11 +1200,11 @@ namespace TianWen.UI.Abstractions
                     _showerLabels[radiant.Index] = entry;
                 }
 
-                DrawText(radiant.Name.AsSpan(), FontPath, sx + rayOuter + 3f * dpiScale, sy - fontSize, 190, fontSize * 1.2f,
+                DrawText(radiant.Name.AsSpan(), FontPath, sx + rayOuter + 3f * dpiScale, sy - fontSize, 190f * dpiScale, fontSize * 1.2f,
                     fontSize, DimmedIf(nameColor, below), TextAlign.Near, TextAlign.Center);
                 entry.ScreenX = sx;
                 entry.ScreenY = sy;
-                RegisterLabel(sx + rayOuter + 3f * dpiScale, sy - fontSize, 190, fontSize * 1.2f, entry.Hit, entry.OnClick);
+                RegisterLabel(sx + rayOuter + 3f * dpiScale, sy - fontSize, 190f * dpiScale, fontSize * 1.2f, entry.Hit, entry.OnClick);
             }
         }
 
