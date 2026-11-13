@@ -175,7 +175,7 @@ public class MeasuredSaturatedStarTests
         if (withLobe)
         {
             // A second-pass row beside the star, inside LobeReachFwhm of it and fainter: a lobe that travels with its star.
-            catalogue.Add(Row((float)StarX + 3f, (float)StarY, saturated: false, 0.2f, 0.2f) with { SecondPass = true });
+            catalogue.Add(Row((float)StarX + 3f, (float)StarY, saturated: false, 0.2f, 0.2f) with { SecondPass = true, Significance = 10 });
         }
         float[][,] planes = [StarPlane(size, 5.0), StarPlane(size, 0.3)];
         static float[,] SkyPlane()
@@ -331,7 +331,7 @@ public class MeasuredSaturatedStarTests
             catalogue.Add(Row(40 + (i * 20), 200, saturated: false, 0.1f));
         }
         catalogue.Add(Row(128, 20, saturated: true, 3f));
-        catalogue.Add(Row(131, 20, saturated: false, 0.2f) with { SecondPass = true });
+        catalogue.Add(Row(131, 20, saturated: false, 0.2f) with { SecondPass = true, Significance = 10 });
         var masterPlane = new float[size, size];
         var platePlane = new float[size, size];
         for (var y = 0; y < size; y++)
