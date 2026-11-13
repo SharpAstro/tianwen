@@ -506,7 +506,8 @@ public static partial class PlanetaryDegrade
     /// the air sets, so their screens, tilts and warp are the same path difference seen at three wavelengths (the phase is
     /// scaled by 500 nm over the wavelength). A frame's mosaic is held only until its three colours have written it, then written
     /// in order, and no pass runs more than two blocks ahead of the slowest; the warp, achromatic, is reported from the green
-    /// pass, and the progress is the frames WRITTEN (every colour deposited), so it reads complete only when the capture is. The three colours are made at once (#2116): each pass steps its own copy of the air, three quarters of its time on
+    /// pass, and the progress is the frames WRITTEN (every colour deposited), reported once a block of 64 and at the last frame as
+    /// <see cref="MakeAsync"/> reports it, so it reads complete only when the capture is. The three colours are made at once (#2116): each pass steps its own copy of the air, three quarters of its time on
     /// one thread, and writes only its own photosites, so the capture is the same bytes as one colour after another made. A pass
     /// that fails cancels the other two.
     /// </summary>
@@ -547,7 +548,9 @@ public static partial class PlanetaryDegrade
         // frame until the last colour was made. The lead a pass may take over the slowest is bounded (BayerMosaicAssembler): a capture of any length holds at most
         // MaxLead mosaics beyond the slowest colour.
         const int MaxLead = 2 * Block;
-        var assembler = new BayerMosaicAssembler(n, width * height, 3, MaxLead, write, written: progress is null ? null : progress.Report);
+        // Progress is reported as MakeAsync reports it, once a block and at the last frame, never once a frame.
+        Action<int>? written = progress is null ? null : done => { if (done % Block == 0 || done == n) { progress.Report(done); } };
+        var assembler = new BayerMosaicAssembler(n, width * height, 3, MaxLead, write, written);
         using var faulted = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = faulted.Token;
         var passes = new (BayerColour Colour, int[] Channels)[]

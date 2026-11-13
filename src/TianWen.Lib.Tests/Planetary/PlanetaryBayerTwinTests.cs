@@ -201,13 +201,16 @@ public class PlanetaryBayerTwinTests
 
         var streamed = new ushort[count][];
         var order = new List<int>();
+        var reported = new ReportsInline();
         await PlanetaryDegrade.MakeBayerAsync(CatalogIndex.Jupiter, times, red, green, blue, 0.49, none, none, [], Size, Size, 0, 0,
             (index, samples) =>
             {
                 order.Add(index);
                 streamed[index] = [.. samples];
-            }, cancellationToken: ct);
+            }, reported, cancellationToken: ct);
         order.ShouldBe(Enumerable.Range(0, count));
+        // Progress is the frames written, once a block and at the last frame, as MakeAsync reports it: never once a frame.
+        reported.Seen.ShouldBe([64, count]);
 
         // The sequential reference: the one atmosphere's shared screen, as MakeBayerAsync draws it.
         var spacings = new[] { red, green, blue }.Select(c => PlanetaryDegrade.PupilSpacingM(0.49, c.Options)).ToArray();
@@ -246,6 +249,14 @@ public class PlanetaryBayerTwinTests
         {
             streamed[t].AsSpan().SequenceEqual(sequential[t]).ShouldBeTrue($"frame {t}: the streamed mosaic is not the sequential one");
         }
+    }
+
+    // Progress<T> posts to the pool; this one records on the reporting thread, which the writer holds one at a time.
+    private sealed class ReportsInline : IProgress<int>
+    {
+        public List<int> Seen { get; } = [];
+
+        public void Report(int value) => Seen.Add(value);
     }
 
     [Fact(Timeout = 120_000)]

@@ -94,7 +94,8 @@ internal sealed class BayerMosaicAssembler(int frames, int pixels, int passes, i
             }
             finally
             {
-                Volatile.Write(ref _draining, 0);
+                // A full fence, so the re-check below cannot read a count older than a depositor's failed attempt to drain.
+                Interlocked.Exchange(ref _draining, 0);
                 if (advanced)
                 {
                     Interlocked.Exchange(ref _gate, new ManualResetEventSlim(false)).Set();

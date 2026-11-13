@@ -6043,8 +6043,10 @@ binary may be run as a reference, as torchmfbd was.
 #### The oversampled twin (#1281)
 
 - **What it is.** The 2023-11-11 EdgeHD 11 + ASI678MC Jupiter (f/14, cutoffs 0.229, 0.264 and 0.304 cycles a pixel), made through its
-  own pupil (`planetary degrade --aperture-mm 280 --obstruction 0.375`) at 2,600 frames, the most a colour twin of 640 x 640 holds (its
-  frames sit in one array of at most 2 GiB). Eleven trials at 300 frames met the real capture's limb motion and each colour's
+  own pupil (`planetary degrade --aperture-mm 280 --obstruction 0.375`) at 2,600 frames, the most a colour twin of 640 x 640 held then (its
+  frames sat in one array of at most 2 GiB; since #2124 a colour twin's frames are written as its three colours finish them, so it has
+  no such cap, `--no-measure` makes the capture and its truths and stops before the three measurements of the twin, and
+  `--limb-frames` sets how many single frames the real capture's limb is fitted on). Eleven trials at 300 frames met the real capture's limb motion and each colour's
   single-frame blur within 10 %, which took a still layer of 3.6 cm at a 0.12 m outer scale and a static defocus a colour
   (`--bayer-defocus-nm 99,78,83`): red's single frames read 1.37 times as blurred as green's, which no air shared by the colours gives.
 - **Read on the cutoff low-pass, two seeds** (`planetary sharpen --finish none,cutoff` against the truth, bands 1 to 4): red -11.5 and
