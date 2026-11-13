@@ -53,8 +53,9 @@ public sealed class PlanetaryControlPanel
     private static RGBAColor32 DimText => GuiTheme.Palette.DimText;
     private static RGBAColor32 StartBg => GuiTheme.GoButtonBg;
     private static RGBAColor32 StopBg => GuiTheme.DangerButtonBg;
-    // The ink of a mark on a NEUTRAL button (a step, a jog). A filled button asks GuiTheme.InkOn of its own fill.
-    private static RGBAColor32 ButtonText => GuiTheme.InkOn(GuiTheme.NeutralButtonBg);
+    // The ink of a mark on a NEUTRAL button (a step, a jog): body text, never InkOn, which answers white on a dark neutral
+    // fill and so breaks Night. A filled button asks GuiTheme.InkOn of its own fill.
+    private static RGBAColor32 ButtonText => GuiTheme.Palette.BodyText;
     private static RGBAColor32 SectionText => GuiTheme.Palette.DimText;
     private static RGBAColor32 Divider => GuiTheme.Palette.Separator;
     private static RGBAColor32 MovingText => GuiTheme.Palette.Warn;

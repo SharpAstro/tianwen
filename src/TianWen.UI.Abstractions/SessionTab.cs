@@ -298,8 +298,9 @@ namespace TianWen.UI.Abstractions
 
         // Shared stepper button styling for this tab (design-unit [-]/[+] look), passed to
         // FormRowLayout.StepperControl so the config + camera steppers share one definition.
-        // Declared after the colours above so the static field initializer reads them initialized.
-        private static readonly FormRowLayout.StepperStyle SessionStepperStyle = new(
+        // Computed, never a static readonly field: a field initialised FROM the palette keeps the palette of the moment
+        // the class loaded, so F12 turned the window red and left this tab's whole form in Dark (found 2026-11-14).
+        private static FormRowLayout.StepperStyle SessionStepperStyle => new(
             StepperBg, BodyText, DisabledBtnBg, DimText, BaseFontSize, BaseStepperBtnW);
 
         // Design-unit toggle / cycle button widths (the config form's two non-stepper control kinds).
@@ -308,8 +309,8 @@ namespace TianWen.UI.Abstractions
 
         // Bundles every colour + design-unit metric the config form needs into one value so
         // SessionConfigLayout.Build reads them from a single place (mirrors EquipmentPanelStyle).
-        // Declared after the colours + SessionStepperStyle above so the field initializers see them set.
-        private static readonly SessionConfigStyle ConfigStyle = new(
+        // Computed for the reason SessionStepperStyle is.
+        private static SessionConfigStyle ConfigStyle => new(
             Stepper: SessionStepperStyle,
             HeaderBg: HeaderBg, HeaderText: HeaderText,
             BodyText: BodyText, DimText: DimText,
