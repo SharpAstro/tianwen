@@ -5436,8 +5436,8 @@ reason one behaviour for a star's wings cannot serve M42 and the SMC together.
   R3u). SXT's weights file is 66.5 MB (about 16 M weights) and StarNet2's 131.5 MB (about 33 M); ours is the smallest by a
   factor of 20. R2nc, the same network on synth4 (2026-10-20), gained on faint stars and not on bright ones, so a gain here is
   not assumed.
-- **The training:** the frozen trainer copy (`C:/temp/e2/r3h-run`), synth22's prepared cache copied to the SSD, **one seed
-  first**: seed 1 is trained only if seed 0 holds every guard and its M42 band reads at least 50. A probe on the 1070
+- **The training:** the frozen trainer copy (`C:/temp/e2/r3h-run`), synth22's prepared cache where R3s trained on it
+  (`D:/temp/tianwen-scratch/r2-synth22`), **one seed first**: seed 1 is trained only if seed 0 holds every guard and its M42 band reads at least 50. A probe on the 1070
   (2026-11-15) read 35.7 tiles a second against the small model's 52.5, about 14 hours at R3s's step count.
 - **Scored** as R3u was, from the frozen copy `C:/temp/e2/r3u-src`, with R3s's two seeds and R3l's as the columns beside it.
 
