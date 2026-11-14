@@ -9,6 +9,7 @@
   python r11_halves.py blur [arm ...] step 2b: the full-length d024 with one term of its blur taken out (nolocal, nodefocus,
                                      noscatter, noair) or all four (none), each stacked, judged and scored as `full` is
                                      step 2c: halo25, halo50, the scatter at 0.25 or 0.5 of the light with a 38 arcsec core
+                                     step 2d: blur10, blur15, blur20, a static blur of 1, 1.5 or 2 px on every frame
   python r11_halves.py read          the table: each band's correlation c between the halves, w = 2c / (1 + c), the twins' r against the
                                      truth, and Spearman of sqrt(w) against r over the twins' bands 1 to 4 (the kill line, 0.8)
 
@@ -93,12 +94,15 @@ def without(args, arm):
     if arm in HALOS:  # step 2c: the scatter as wide as the real master's fitted halo (370 px is 38 arcsec), at two strengths
         put(a, "--scatter", HALOS[arm])
         put(a, "--scatter-core", "38")
+    if arm in BLURS:  # step 2d: a Gaussian every frame passes before readout, the stand-in for what a stack loses at its limb
+        a += ["--static-blur", BLURS[arm]]
     return a
 
 
 HALOS = {"halo25": "0.25", "halo50": "0.5"}
 STEP_2B = ["nolocal", "nodefocus", "noscatter", "noair", "none"]
-ARMS = [*STEP_2B, *HALOS]
+BLURS = {"blur10": "1", "blur15": "1.5", "blur20": "2"}
+ARMS = [*STEP_2B, *HALOS, *BLURS]
 
 
 def full(n, arm=None):
@@ -190,7 +194,7 @@ if __name__ == "__main__":
         for name in sys.argv[2:] or ["d024"]:
             full(name)
     elif what == "blur":
-        for arm in sys.argv[2:] or STEP_2B:  # with no arm named, step 2b's five; step 2c's two are named
+        for arm in sys.argv[2:] or STEP_2B:  # with no arm named, step 2b's five; step 2c's and 2d's are named
             if arm not in ARMS:
                 raise SystemExit(f"{arm}: not one of {ARMS}")
             full("d024", arm)
