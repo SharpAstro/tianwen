@@ -6901,12 +6901,12 @@ master and its halves the same bytes); the largest session, 540,651 frames, took
   0.386. The twins all model one telescope, so across captures this is loose.
 - Nothing is adopted. The twin's two measured gaps to the real captures are its blur (step 2a) and the lattice it does not carry.
 
-#### Step 2b read: the twin's blur is the colour defocus first, the layer at the telescope second (2026-11-14)
+#### Step 2b read: in green the twin's blur is the colour defocus first, the layer at the telescope second (2026-11-14)
 
 Registered on #2116 before the run: twin d024 at its whole length made five more times, each with one term of its blur taken out
 (`r11_halves.py blur`): the layer at the telescope (`nolocal`), the per-colour defocus (`nodefocus`, `--bayer-defocus-nm 0,0,0`), the
 scatter (`noscatter`, `--scatter 0`), the free atmosphere (`noair`, `--r0 2000`), and all four (`none`). Each is stacked, judged against
-its truth and scored as step 2a's twin was.
+its GREEN truth (the band correlations below are green's) and scored as step 2a's twin was.
 
 | arm | band 2 r | band 3 r | rise in band 2 | red's band 2 gain, the truth's own | derived band 2 gains r, g, b | edge at 0.1 |
 |---|---|---|---|---|---|---|
@@ -6926,12 +6926,14 @@ its truth and scored as step 2a's twin was.
 | B2: a main term rises at least half of `none`'s (0.040) | | `nodefocus` 0.061; `nolocal` 0.031 | the defocus is the main term |
 | B3: an arm whose red band 2 truth gain reaches 3.3 | | the highest arm is `noscatter` at 2.25 (the baseline d024 reads 2.45) | none |
 
-- **The colour defocus is the twin's main blur, which the prediction had as the layer at the telescope.** Taking it out gives 77 % of
-  the rise that taking everything out gives; the layer gives 39 %, just under the registered half. The prediction that the defocus moves
+- **In green the colour defocus is the twin's main blur, which the prediction had as the layer at the telescope.** Taking it out gives
+  77 % of the rise that taking everything out gives; the layer gives 39 %, just under the registered half. Red is mixed: its truth gain
+  falls more with the layer out (2.45 to 1.48) than the defocus (to 1.91), its derived gain more with the defocus out (8.39 to 3.39)
+  than the layer (to 7.69). The prediction that the defocus moves
   red more than green was wrong too: green's truth gain fell 5.40 to 3.15 and red's 2.45 to 1.91.
 - **The free atmosphere and the scatter do nothing a stack at keep 0.5 can see** (band 2 within 0.001), as predicted. The scatter does not
-  move the limb edge either (0.429 to 0.433), so the twin's halo (0.032 with a 5 arcsec core) is too narrow to be what the real
-  master's low edge (0.277) is made of; no arm reads an edge under the real one.
+  move the limb edge either (0.429 to 0.433), so the twin's scatter term (0.032 with a 5 arcsec core) is too WEAK to be what the real
+  master's low edge (0.277) is made of; its width was not varied. No arm reads an edge under the real one.
 - **A blur term taken out LOWERS red's band 2 truth gain** (2.45 to between 1.23 and 2.25), so B3's 3.3 is not reached by removing blur:
   step 2a's missing red gain is not a term this twin has too much of.
 - **With no blur at all the derived gains fall to 2.0 to 2.7**, far under the real master's 10 to 16 (10.44, 13.63, 16.37); the defocus
