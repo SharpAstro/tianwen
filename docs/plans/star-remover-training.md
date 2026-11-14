@@ -5378,8 +5378,8 @@ The bars:
   the read is that the channel spread is not the lever for the SMC at any setting and this line stops.
 
 **R3u, read 2026-11-15: killed on seed 0 by the SMC's two rows, the truth tiles and Tarantula; M42's band clears its bar; the
-channel spread line stops.** Q1 held (2,420 cells from each cache; 40 cells read back equal to their named source and, on the
-48 of 80 records where the two sources differ, unequal to the other). Seed 0
+channel spread line stops.** Q1 held (2,420 cells from each cache; 40 cells read back equal to their named source in both of a
+cell's arrays, `tiles.f16` and `sigma.f16`, and, on the 48 of those 80 arrays where the two sources differ, unequal to the other). Seed 0
 converged at step 224,000 (best held-out 6.85e-6 at 212,000, on its own held-out cells, which differ from R3s's and R3t's
 by their draws, so the three objectives are not compared). Every bar on seed 0:
 
@@ -5405,16 +5405,17 @@ by their draws, so the three objectives are not compared). Every bar on seed 0:
   against SXT's -0.48, -0.42, -0.63; green -0.52, +0.23, -0.05 against -0.89, -0.85, -0.79. Every spread setting digs the
   SMC's blue wing (R3s -0.56, -0.75, -0.97 and -0.79, -0.76, -0.71; R3t -0.95, -1.04, -0.97) and R3l does not (-0.39, -0.30,
   -0.10 and -0.56, -0.51, -0.24).
-- **The truth tiles fail on both rows; like for like, only the 100-1000 row stands apart.** R3s held on its two-seed mean
-  (72.1, 54.1) and its seed 0 alone read 71.5 and 53.2, under both bars; R3t's seed 0 read 72.0 and 54.4. Against seed 0s
-  R3u's 20-100 row (71.0) is 0.5 under R3s's, and its 100-1000 row (49.9) is 3.3 under R3s's, 4.5 under R3t's and 4.6 under
-  R3l's lower seed (R3l's seeds read 54.5 and 58.2, a spread of 3.7). The gaps to R3t and to R3l are past that spread; the gap
-  to R3s's seed 0 is inside it.
+- **The truth tiles fail on both rows, by little beside the other arms' seed 0s and by more beside R3l.** R3s held on its
+  two-seed mean (72.1, 54.1) and its seed 0 alone read 71.5 and 53.2, under both bars; R3t's seed 0 read 72.0 and 54.4; R3l's
+  seeds read 73.3 and 73.2 at 20-100 sigma and 54.5 and 58.2 at 100-1000. R3u's 20-100 row (71.0) is 0.5 under R3s's seed 0,
+  1.0 under R3t's and 2.2 under R3l's lower seed, whose seeds differ there by 0.1. Its 100-1000 row (49.9) is 3.3 under R3s's
+  seed 0, 4.5 under R3t's and 4.6 under R3l's lower seed, whose seeds differ there by 3.7: past that spread against R3t and
+  R3l, inside it against R3s.
 - **The prediction's three read clauses held; its fourth was not read.** M42's band landed between R3t's and R3s's and clears
   50 (53.7); its blue dig is missed again, at the spread of 3's own size (-2.47, -1.10 against R3s's -2.29, -1.12); the SMC,
   the stated risk, failed a third time. The share of stars with blue at 2.4 times green's beta (predicted near 2.7 %) was
-  registered as not measured on the mix and has not been measured since. Outside the prediction: the truth tiles' 100-1000 row
-  and Tarantula failed too, so the mix did not keep the spread of 2's guards, it kept the spread of 3's losses.
+  registered as not measured on the mix and has not been measured since. Outside the prediction, which said nothing of either:
+  the truth tiles failed on both rows and Tarantula failed too, so the mix did not keep the spread of 2's guards, it kept the spread of 3's losses.
 - **Outside the bars:** Andromeda's dark sky is dug on 29.5 %; M42's 100-1000 sigma stars are dug on 44.1 % (R3l 70.6 / 58.1,
   R3s 39.0, R3t 51.5). The saturated rows are not read, as registered.
 - **The line stops, as registered:** three settings of the channel spread (3, 2, and the two mixed) each clear or nearly clear
