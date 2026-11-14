@@ -40,8 +40,11 @@ def verify(out, n):
 def main():
     if "--verify" in sys.argv:
         verify(sys.argv[sys.argv.index("--verify") + 1], int(sys.argv[sys.argv.index("--cells") + 1]) if "--cells" in sys.argv else 40)
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    seed = int(sys.argv[sys.argv.index("--seed") + 1]) if "--seed" in sys.argv else 0
+    args, seed = sys.argv[1:], 0
+    if "--seed" in args:
+        i = args.index("--seed")
+        seed = int(args[i + 1])
+        del args[i:i + 2]
     if len(args) != 3:
         raise SystemExit(__doc__)
     a, b, out = args
