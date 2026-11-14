@@ -92,15 +92,13 @@ def without(args, arm):
         put(a, "--r0", "2000")  # 70 apertures: the free air leaves the pupil flat
     if arm in HALOS:  # step 2c: the scatter as wide as the real master's fitted halo (370 px is 38 arcsec), at two strengths
         put(a, "--scatter", HALOS[arm])
-        if "--scatter-core" in a:
-            put(a, "--scatter-core", "38")
-        else:
-            a += ["--scatter-core", "38"]
+        put(a, "--scatter-core", "38")
     return a
 
 
 HALOS = {"halo25": "0.25", "halo50": "0.5"}
-ARMS = ["nolocal", "nodefocus", "noscatter", "noair", "none", *HALOS]
+STEP_2B = ["nolocal", "nodefocus", "noscatter", "noair", "none"]
+ARMS = [*STEP_2B, *HALOS]
 
 
 def full(n, arm=None):
@@ -192,7 +190,7 @@ if __name__ == "__main__":
         for name in sys.argv[2:] or ["d024"]:
             full(name)
     elif what == "blur":
-        for arm in sys.argv[2:] or ARMS:
+        for arm in sys.argv[2:] or STEP_2B:  # with no arm named, step 2b's five; step 2c's two are named
             if arm not in ARMS:
                 raise SystemExit(f"{arm}: not one of {ARMS}")
             full("d024", arm)
