@@ -1,6 +1,7 @@
 """A training cache whose every cell is taken whole from one of two prepared caches, at even odds (R3u, 2026-11-14).
 
     python -I mix_caches.py <cache a> <cache b> <out> [--seed 0]
+    python -I mix_caches.py --verify <out> [--cells 40]    Q1: the mix read back against its named sources; exit 1 on a miss
 
 The two caches must be prepared from exports that differ only in a draw (the same cells in the same order, the same
 star tables and noise-plane flags); R3u's are synth22 (channel spread 3) and synth23 (spread 2). A cell's tiles and noise
@@ -15,7 +16,30 @@ SHARED = ["meta.json", "stars.json", "stars.npy", "empty.npy", "sigma_has.npy"]
 BLOCK = 64  # cells a write
 
 
+def verify(out, n):
+    m = json.load(open(f"{out}/mix.json"))
+    cells = json.load(open(f"{out}/meta.json"))["cells"]
+    from_b = set(m["from_b"])
+    ok = len(from_b) == cells // 2
+    print(f"{len(from_b)} of {cells} cells from {m['b']}, {cells - len(from_b)} from {m['a']}: {'held' if ok else 'MISSED'}")
+    differ = 0
+    for i in np.random.default_rng(1).choice(cells, n, replace=False):
+        for f in ["tiles.f16", "sigma.f16"]:
+            per = os.path.getsize(f"{out}/{f}") // cells
+            got, own, other = (np.fromfile(f"{r}/{f}", "u1", per, offset=int(i) * per)
+                               for r in (out, m["b"] if int(i) in from_b else m["a"], m["a"] if int(i) in from_b else m["b"]))
+            same_other = np.array_equal(own, other)
+            differ += not same_other
+            if not np.array_equal(got, own) or (not same_other and np.array_equal(got, other)):
+                ok = False
+                print(f"cell {i} {f}: MISSED, not its named source's bytes")
+    print(f"{n} cells read back, the two sources differing on {differ} of {2 * n} records: {'held' if ok else 'MISSED'}")
+    raise SystemExit(0 if ok else 1)
+
+
 def main():
+    if "--verify" in sys.argv:
+        verify(sys.argv[sys.argv.index("--verify") + 1], int(sys.argv[sys.argv.index("--cells") + 1]) if "--cells" in sys.argv else 40)
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     seed = int(sys.argv[sys.argv.index("--seed") + 1]) if "--seed" in sys.argv else 0
     if len(args) != 3:
