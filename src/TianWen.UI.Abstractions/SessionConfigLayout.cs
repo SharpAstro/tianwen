@@ -69,8 +69,6 @@ namespace TianWen.UI.Abstractions
         /// the builder stays unit-testable; the host wires them to mutate <c>SessionConfiguration</c> +
         /// request a redraw. When <paramref name="running"/> is true the controls keep their hit surface
         /// but drop their handlers (dimmed / inert), matching the rest of the tabs.
-        /// <paramref name="caveats"/> false leaves the caveat beside a value out: the tree a host measures to
-        /// learn how wide the form's rows are, which a caveat coming and going must not change.
         /// </summary>
         public static Layout.Node Build(
             ImmutableArray<ConfigGroup> groups,
@@ -82,8 +80,7 @@ namespace TianWen.UI.Abstractions
             Func<int, Action<InputModifier>?>? onSelectField = null,
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onDecrement = null,
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onIncrement = null,
-            ProfileData? profile = null,
-            bool caveats = true)
+            ProfileData? profile = null)
         {
             var btnW = style.Stepper.ButtonDesignW;
             var children = ImmutableArray.CreateBuilder<Layout.Node>();
@@ -102,7 +99,7 @@ namespace TianWen.UI.Abstractions
                     // Alternating background resets per group (matches the old fi % 2 walk).
                     var rowBg = isSelected ? style.SelectedRowBg : (fi % 2 == 0 ? style.RowBg : style.RowAltBg);
                     children.Add(FieldRow(field, idx, rowBg, config, valueWidth, btnW, running, style,
-                        onSelectField, onDecrement, onIncrement, profile, caveats));
+                        onSelectField, onDecrement, onIncrement, profile));
                 }
 
                 // Small gap between groups (mirrors the old cursor += padding * 0.5 step).
@@ -134,7 +131,7 @@ namespace TianWen.UI.Abstractions
             Func<int, Action<InputModifier>?>? onSelectField,
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onDecrement,
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onIncrement,
-            ProfileData? profile, bool caveats)
+            ProfileData? profile)
         {
             // pad + label = the select-clickable region. Height = Star so the whole-row-height hit matches
             // the old RegisterClickable(rect.X, cursor, labelW + padding, itemH) exactly -- the control
@@ -149,7 +146,7 @@ namespace TianWen.UI.Abstractions
 
             // A caveat is a fact about the rig overriding this preference (see ConfigFieldDescriptor.Caveat);
             // it sits beside the value in the warning colour and takes the row's remaining width.
-            var row = caveats && field.Caveat?.Invoke(config, profile) is { } caveat
+            var row = field.Caveat?.Invoke(config, profile) is { } caveat
                 ? Layout.Builder.HStack(selectCell, control,
                     Layout.Builder.Text($"  \u26A0 {caveat}", style.FontSize * 0.85f, style.WarnText).Stretch())
                 : Layout.Builder.HStack(selectCell, control);

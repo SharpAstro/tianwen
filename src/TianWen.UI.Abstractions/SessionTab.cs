@@ -132,10 +132,14 @@ namespace TianWen.UI.Abstractions
             // the panel what is left up to its full width, and where even the panel's least does not fit beside the
             // form the two are stacked, the form above. Sizes here are device px, so the trees are arranged at
             // DesignScale.One -- one design unit is one device px.
+            // A caveat beside a value is a star, which adds nothing to the measure, so it coming and going does not
+            // move the split.
             CollectStepperValues();
+            _stepperValueW = MeasureValueColumnWidth(
+                _stepperValueScratch, FontPath, BaseFontSize,
+                minWidth: BaseValueW, maxWidth: float.MaxValue, horizontalPadding: BasePadding);
             var formNeed = MeasureLayout(
-                BuildConfigTree(StepperValueWidth(float.MaxValue), caveats: false),
-                new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width;
+                BuildConfigTree(), new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width;
             var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
             var sideBySide = Layout.Builder.HStack(
                 Layout.Builder.Fill(key: ConfigFillKey).WStar(1f, min: formNeed).HStar(),
@@ -145,15 +149,8 @@ namespace TianWen.UI.Abstractions
                 // star and a floored one in the same pass, and a panel weighted to fill first overflowed the tab.
                 Layout.Builder.Fill(key: ObsFillKey)
                     .WStar(1f, min: BaseObsPanelLeastWidth * dpiScale, max: BaseObsPanelWidth * dpiScale).HStar());
-            // The two at their least, as the engine measures that row (a star's floor is not part of its measure).
-            var atTheirLeast = Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WFixed(formNeed),
-                    rule.WFixed(BaseSeparatorW * dpiScale),
-                    Layout.Builder.Spacer().WFixed(BaseObsPanelLeastWidth * dpiScale))
-                .WAuto();
-            var fitsSideBySide = Layout.Engine.Measure(
-                atTheirLeast, new Layout.Size<float>(float.MaxValue, contentRect.Height),
-                MeasureContext(scale: DesignScale.One)).Width <= contentRect.Width;
+            // The two at their least (a star's floor is not part of the engine's measure of the row, so it is asked here).
+            var fitsSideBySide = formNeed + (BaseSeparatorW + BaseObsPanelLeastWidth) * dpiScale <= contentRect.Width;
             var frame = RenderLayout(
                 fitsSideBySide
                     ? sideBySide
@@ -696,32 +693,27 @@ namespace TianWen.UI.Abstractions
             State.FieldCount = totalFields;
         }
 
-        /// <summary>The stepper value column's width in design units, the widest collected value up to <paramref name="maxWidth"/>.</summary>
-        private float StepperValueWidth(float maxWidth) => MeasureValueColumnWidth(
-            _stepperValueScratch, FontPath, BaseFontSize,
-            minWidth: BaseValueW, maxWidth: maxWidth, horizontalPadding: BasePadding);
+        /// <summary>
+        /// The stepper value column's width in design units: the widest collected value, measured once a frame by
+        /// <see cref="Render"/>, so the form is arranged with the column it was measured with.
+        /// </summary>
+        private float _stepperValueW = BaseValueW;
 
-        private Layout.Node BuildConfigTree(float valueWidth, bool caveats) => SessionConfigLayout.Build(
+        private Layout.Node BuildConfigTree() => SessionConfigLayout.Build(
             SessionConfigGroups.Groups, State.Configuration, State.SelectedFieldIndex, State.IsSessionRunning,
-            valueWidth, ConfigStyle,
+            _stepperValueW, ConfigStyle,
             onSelectField: idx => _ => { State.SelectedFieldIndex = idx; State.NeedsRedraw = true; },
             onDecrement: field => _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
             onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
-            profile: State.ActiveProfileData,
-            caveats: caveats);
+            profile: State.ActiveProfileData);
 
         private void RenderConfigForm(
             RectF32 rect)
         {
             var dpiScale = DpiScale;
-            var fontPath = FontPath;
             RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), rect);
 
             var groups = SessionConfigGroups.Groups;
-
-            // The stepper values were collected by Render, which measured the form before placing it.
-            var availDesignW = rect.Width / dpiScale;
-            var valueWidth = StepperValueWidth(availDesignW - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f);
 
             // --- Field Y positions (scaled px, relative to scroll origin) + total content height -----
             // Derived arithmetically from the fixed row structure (header + N items + group gap, per
@@ -753,7 +745,7 @@ namespace TianWen.UI.Abstractions
             State.ConfigScrollOffset = _configScroll.AtomOffset;
 
             // --- One tree for the whole form; scroll via the root-bounds Y offset, clipped to the panel ---
-            var tree = BuildConfigTree(valueWidth, caveats: true);
+            var tree = BuildConfigTree();
 
             var contentTop = rect.Y - _configScroll.Offset * ScrollLineHeight;
             var arranged = ArrangeLayout(tree, new RectF32(rect.X, contentTop, rect.Width, _totalConfigHeight));
