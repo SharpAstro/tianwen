@@ -53,6 +53,31 @@ public sealed record DeviceStateDto
     /// <summary>A finite reading, or null for the NaN a device gives as "not known".</summary>
     internal static double? Known(double value) => double.IsFinite(value) ? value : null;
 
+    /// <summary>
+    /// The state as it is COMPARED, by the node deciding whether to push it and by a client deciding whether a read changed
+    /// what it shows: everything but when it was read, which moves on every read, with each sensor reading at the
+    /// resolution a reader is shown it (a tenth of a degree, a whole percent of cooler power). A thermometer's last digits
+    /// differ on every read, so compared in full, every device carrying one differed on every read. The served reading
+    /// keeps its full precision; only the comparison rounds. Bytes, never the record's own equality: a record compares its
+    /// arrays (a camera's gain modes, a wheel's slots) by reference, so two reads of one unchanged device were never equal.
+    /// </summary>
+    public byte[] ShownBytes() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(this with
+    {
+        ReadUtc = null,
+        Camera = Camera is { } camera
+            ? camera with
+            {
+                CcdTemperatureC = Shown(camera.CcdTemperatureC, 1),
+                HeatsinkTemperatureC = Shown(camera.HeatsinkTemperatureC, 1),
+                CoolerPowerPercent = Shown(camera.CoolerPowerPercent, 0),
+                WarmUpTargetC = Shown(camera.WarmUpTargetC, 1),
+            }
+            : null,
+        Focuser = Focuser is { } focuser ? focuser with { TemperatureC = Shown(focuser.TemperatureC, 1) } : null,
+    }, HostingJsonContext.Default.DeviceStateDto);
+
+    private static double? Shown(double? value, int digits) => value is { } v ? Math.Round(v, digits) : null;
+
     /// <summary>The key a <c>DEVICE-STATE</c> event carries the device's state under.</summary>
     public const string EventKey = "Device";
 

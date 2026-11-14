@@ -464,8 +464,9 @@ public abstract class NodeConnection : IAsyncDisposable
     private int _laidOutWhileRunning = -1;
 
     /// <summary>
-    /// Whether two readings of the node's devices show the same thing: every device present in both and equal but for the
-    /// time it was read at, which moves with every read and is not shown.
+    /// Whether two readings of the node's devices show the same thing: every device present in both and the same as the
+    /// node itself compares it before a push (<see cref="DeviceStateDto.ShownBytes"/>: not the time it was read at, each
+    /// sensor at the resolution it is shown, arrays by content).
     /// </summary>
     internal static bool SameReadings(ImmutableDictionary<string, DeviceStateDto> held, ImmutableDictionary<string, DeviceStateDto> read)
     {
@@ -476,7 +477,7 @@ public abstract class NodeConnection : IAsyncDisposable
 
         foreach (var (key, device) in read)
         {
-            if (!held.TryGetValue(key, out var was) || (was with { ReadUtc = null }) != (device with { ReadUtc = null }))
+            if (!held.TryGetValue(key, out var was) || !was.ShownBytes().AsSpan().SequenceEqual(device.ShownBytes()))
             {
                 return false;
             }

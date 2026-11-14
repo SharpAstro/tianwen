@@ -286,28 +286,8 @@ internal sealed class DeviceStatePoller(
         }
     }
 
-    /// <summary>
-    /// The state as a push compares it: everything but when it was read, which moves on every read, with each sensor
-    /// reading at the resolution a reader is shown it (a tenth of a degree, a whole percent of cooler power). A
-    /// thermometer's last digits differ on every read, so compared in full, every device carrying one was pushed on every
-    /// read. The served reading keeps its full precision; only the decision to push rounds.
-    /// </summary>
-    internal static byte[] CompareBytes(DeviceStateDto state) => JsonSerializer.SerializeToUtf8Bytes(state with
-    {
-        ReadUtc = null,
-        Camera = state.Camera is { } camera
-            ? camera with
-            {
-                CcdTemperatureC = Shown(camera.CcdTemperatureC, 1),
-                HeatsinkTemperatureC = Shown(camera.HeatsinkTemperatureC, 1),
-                CoolerPowerPercent = Shown(camera.CoolerPowerPercent, 0),
-                WarmUpTargetC = Shown(camera.WarmUpTargetC, 1),
-            }
-            : null,
-        Focuser = state.Focuser is { } focuser ? focuser with { TemperatureC = Shown(focuser.TemperatureC, 1) } : null,
-    }, HostingJsonContext.Default.DeviceStateDto);
-
-    private static double? Shown(double? value, int digits) => value is { } v ? Math.Round(v, digits) : null;
+    /// <summary>The state as a push compares it: <see cref="DeviceStateDto.ShownBytes"/>, the one rule a client's read asks too.</summary>
+    internal static byte[] CompareBytes(DeviceStateDto state) => state.ShownBytes();
 
     /// <summary>Reads the active profile's site again once <see cref="SiteRefresh"/> has passed: a small file, but a disk read.</summary>
     private async Task RefreshSiteAsync(CancellationToken cancellationToken)
