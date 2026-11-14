@@ -7002,6 +7002,43 @@ halo50`), stacked at keep 0.5, judged against the green truth and scored as step
   real master's in band 2 only (9.31 against 10.44); band 3 moved away (3.92 against -0.99).
 - Nothing is adopted.
 
+#### Step 2d read: a blur common to every frame, up to 2 px, does not make the real master's soft limb either (2026-11-14)
+
+Registered on #2116 before the run: the full-length d024 three more times with a Gaussian every frame passes before readout
+(`--static-blur` 1, 1.5 and 2 px: `blur10`, `blur15`, `blur20`), stacked at keep 0.5, judged and scored as step 2b's arms.
+Dispersion within a colour was set aside in the registration by arithmetic (a smear about 0.6 px long, which passes 0.994 at
+0.1 cycles a pixel).
+
+| | red's limb edge at 0.1 | fitted core, halo | band 2 r against the green truth | band 2 between the halves | red's band 2 truth gain | red's derived gains, bands 2 and 3 |
+|---|---|---|---|---|---|---|
+| d024 (step 2a) | 0.429 | 4.81 px, 0.32 of 18.4 px | 0.875 | 0.985 | 2.45 | 8.39, 3.27 |
+| `blur10` | 0.404 | 4.95 px, 0.32 of 18.5 px | 0.844 | 0.983 | 4.16 | 8.26, 3.37 |
+| `blur15` | 0.384 | 5.13 px, 0.31 of 18.8 px | 0.797 | 0.980 | 6.30 | 8.63, 3.26 |
+| `blur20` | 0.367 | 5.33 px, 0.31 of 19.0 px | 0.763 | 0.979 | 8.28 | 7.93, 3.66 |
+| the real master | 0.277 | 5.79 px, 0.50 of 370 px (the fit's bounds) | | 0.981 | | 10.44, -0.99 |
+
+- **D1 fails:** no arm reads an edge inside 0.20 to 0.35; the lowest, `blur20`, reads 0.367. The edge is monotonic in the blur.
+  The registered kill line (all three at 0.38 or more) is missed by 0.013 on `blur20` alone, so the bars left a gap between 0.35
+  and 0.38 and the verdict is said as it is: the bar is failed, the kill line is not hit to the letter.
+- **D2 is not read**, since no arm passed D1. Its registration also named the wrong figure: 13.63 is GREEN's derived band 2
+  gain of the real master; red's band 3 is -0.99. Red's derived gains barely move with the blur (band 2 7.93 to 8.63 against
+  10.44) and band 3 stays positive where the real master's is negative.
+- **The prediction was wrong by a wide margin** (0.35, 0.28 and 0.20 predicted; 0.404, 0.384 and 0.367 read). It multiplied the
+  edge by the Gaussian's own transfer, as if the twin's limb were sharp. The limb's core is already 4.81 px, and the blur adds
+  to it in quadrature: 4.91, 5.04 and 5.21 px expected, 4.95, 5.13 and 5.33 read. By the same sum the real core of 5.79 px would
+  take a blur near 3.2 px, which was not run.
+- **The shape is not a wider core.** The blur widens the fitted core and leaves the halo where it was (0.31 of 19 px); the real
+  fit holds its halo at both bounds, a limb that falls slower than a core and a narrow halo allow. A Gaussian common to every
+  frame does not make that shape at any of the three sizes.
+- **The blur costs agreement with the truth and not between the halves:** band 2 against the green truth falls from 0.875 to
+  0.763 at 2 px while the halves stay at 0.979 to 0.983, where the real master's read 0.981. The halves therefore cannot tell
+  how much such a blur the real capture carries.
+- **It is the first term that RAISES red's band 2 truth gain** (2.45 to 4.16, 6.30 and 8.28): step 2a's P2 asked for at least
+  3.3 and step 2b found that taking a blur term out only lowers it. By interpolation a blur of about half a pixel would read
+  3.3; that was not run and is not a calibration.
+- Nothing is adopted. Of the terms no twin carries, the one left is a registration that is weaker along the equator (R7): a
+  smear with a direction, which a round Gaussian does not stand in for.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
