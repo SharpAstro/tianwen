@@ -7009,7 +7009,7 @@ Registered on #2116 before the run: the full-length d024 three more times with a
 Dispersion within a colour was set aside in the registration by arithmetic (a smear about 0.6 px long, which passes 0.994 at
 0.1 cycles a pixel).
 
-| | red's limb edge at 0.1 | fitted core, halo | band 2 r against the green truth | band 2 between the halves | red's band 2 truth gain | red's derived gains, bands 2 and 3 |
+| | red's limb edge at 0.1 | fitted core, halo | band 2 r against the green truth | band 2 c between the halves | red's band 2 truth gain | red's derived gains, bands 2 and 3 |
 |---|---|---|---|---|---|---|
 | d024 (step 2a) | 0.429 | 4.81 px, 0.32 of 18.4 px | 0.875 | 0.985 | 2.45 | 8.39, 3.27 |
 | `blur10` | 0.404 | 4.95 px, 0.32 of 18.5 px | 0.844 | 0.983 | 4.16 | 8.26, 3.37 |
@@ -7017,6 +7017,8 @@ Dispersion within a colour was set aside in the registration by arithmetic (a sm
 | `blur20` | 0.367 | 5.33 px, 0.31 of 19.0 px | 0.763 | 0.979 | 8.28 | 7.93, 3.66 |
 | the real master | 0.277 | 5.79 px, 0.50 of 370 px (the fit's bounds) | | 0.981 | | 10.44, -0.99 |
 
+- Band 2's w between the halves, which steps 1 and 2a report, is 0.992 for d024 and 0.990 for the real master; the column above
+  is c (`judge-halves.log`), so 0.981 is not in conflict with 0.990.
 - **D1 fails:** no arm reads an edge inside 0.20 to 0.35; the lowest, `blur20`, reads 0.367. The edge is monotonic in the blur.
   The registered kill line (all three at 0.38 or more) is missed by 0.013 on `blur20` alone, so the bars left a gap between 0.35
   and 0.38 and the verdict is said as it is: the bar is failed, the kill line is not hit to the letter.
@@ -7024,20 +7026,34 @@ Dispersion within a colour was set aside in the registration by arithmetic (a sm
   gain of the real master; red's band 3 is -0.99. Red's derived gains barely move with the blur (band 2 7.93 to 8.63 against
   10.44) and band 3 stays positive where the real master's is negative.
 - **The prediction was wrong by a wide margin** (0.35, 0.28 and 0.20 predicted; 0.404, 0.384 and 0.367 read). It multiplied the
-  edge by the Gaussian's own transfer, as if the twin's limb were sharp. The limb's core is already 4.81 px, and the blur adds
-  to it in quadrature: 4.91, 5.04 and 5.21 px expected, 4.95, 5.13 and 5.33 read. By the same sum the real core of 5.79 px would
-  take a blur near 3.2 px, which was not run.
-- **The shape is not a wider core.** The blur widens the fitted core and leaves the halo where it was (0.31 of 19 px); the real
-  fit holds its halo at both bounds, a limb that falls slower than a core and a narrow halo allow. A Gaussian common to every
-  frame does not make that shape at any of the three sizes.
+  edge by the Gaussian's own transfer (0.45 at 2 px), which the plan already knew to be wrong: `training/planetary/r9-rules.md`,
+  "2026-10-14, the finding that ends the edge reading as the model's input", gives the edge's response to a Gaussian as about
+  exp(-0.09 sigma^2) on a master (2 px in the frames, x0.81). The edge is read against a fitted sharp model
+  (`PlanetaryFinestBand.StackEdge`), so the cause is not settled here; the quadrature sum below explains the core's growth
+  (4.91, 5.04 and 5.21 px expected, 4.95, 5.13 and 5.33 read) and says nothing of why the edge falls only to x0.94 of d024's at
+  1 px where a Gaussian transfer gives x0.82. **A 3.2 px arm is not worth running:** the same finding shows the edge at 0.1
+  stops tracking blur (twins blurred to 4.3 to 4.5 px read red 0.366, 0.386, 0.370, no lower than at 1.3 px; it "stops tracking
+  blur at about 0.33 / 0.35 / 0.31, and the real master reads below that"), so no blur reaches 0.277. The 3.2 px sum is a
+  free-radius figure only (next bullet).
+- **The shape verdict is not drawn, because the fit is bimodal** (`r9-rules.md`: core and halo are "not readings a model can
+  lean on"). The real row above (5.79 px, 0.50 of 370 px) is the FREE-radius mode (radius 240.12). The arms' fits sit at radius
+  239.10 px, the held mode; with the radius held at the ephemeris's (`--plate-scale 0.1032`) the real master reads core 4.77 px,
+  halo 0.24 of 19.9 px. Like for like the real core is already under all three arms (4.95, 5.13, 5.33) and beside unblurred
+  d024's 4.81 with 0.32 of 18.4, so the blur widening the core and leaving the halo (0.31 of 19 px) is not shown to
+  miss the real shape, and the 3.2 px sum has no solution in the held mode (sqrt(4.77^2 - 4.81^2)).
 - **The blur costs agreement with the truth and not between the halves:** band 2 against the green truth falls from 0.875 to
   0.763 at 2 px while the halves stay at 0.979 to 0.983, where the real master's read 0.981. The halves therefore cannot tell
   how much such a blur the real capture carries.
-- **It is the first term that RAISES red's band 2 truth gain** (2.45 to 4.16, 6.30 and 8.28): step 2a's P2 asked for at least
+- **The static blur is the first term to raise red's band 2 truth gain by a lot** (2.45 to 4.16, 6.30 and 8.28; step 2c's
+  `halo50` read 2.71, a rise of 0.26) **and the first to pass the registered 3.3**: step 2a's P2 asked for at least
   3.3 and step 2b found that taking a blur term out only lowers it. By interpolation a blur of about half a pixel would read
   3.3; that was not run and is not a calibration.
-- Nothing is adopted. Of the terms no twin carries, the one left is a registration that is weaker along the equator (R7): a
-  smear with a direction, which a round Gaussian does not stand in for.
+- Nothing is adopted. Of the terms no twin carries, two remain. One is a registration that is weaker along the equator (R7): a
+  smear with a direction, which a round Gaussian does not stand in for. The other is the documented standing explanation of
+  the low 0.277 (#1561; the R10 "Why the real master lay outside every twin" bullet, the learned-gains rule, `r9-rules.md`
+  436 to 443): real Jupiter's limb falls faster than the Minnaert law the twins are rendered with and the limb fit models, and
+  the edge reading takes that for blur. #1561 is not set aside by this step; if it holds, no blur arm can reach D1, and #2116's
+  next step must test it (a twin rendered with a steeper limb law) beside R7.
 
 #### The real master sharpened both ways, looked at with the owner; R11 parked (2026-11-14)
 
@@ -7069,13 +7085,16 @@ The real EdgeHD master of step 1 (`real-keep50`, keep 0.5, unsharpened) and the 
 - **On the twin, against its truth,** the learned gains take the green error over bands 1 to 4 from 2.143 as stacked to 1.640.
   The derived gains' figure from this run (4.485) was scored against the truth through the pupil while they aim at the aperture,
   so it is not a comparison; L-GAINS-S and R10 above hold the matched ones.
-- **Why the picture and the score disagree:** the learned gains are fitted to the truth's error on twins, and a twin's limb is
-  sharper than the real master's (steps 2b to 2d), so what they learn is the sharpening a twin wants. They beat the derived gains
-  on that score and not to the eye on the real master. That gap is what R11 was after, and it is still open.
+- **Why the picture and the score disagree:** the learned gains are fitted to the truth's error on twins, and by the edge
+  reading a twin's limb is sharper than the real master's (0.37 to 0.43 against 0.277). Either the real capture carries a blur
+  the twins lack, or real Jupiter's limb falls faster than the Minnaert law the twins are rendered with and the edge reading
+  takes that for blur (#1561). Both leave the learned gains fitted to something the real master is not; they beat the derived
+  gains on the twins' score and not to the eye on the real master. That gap is what R11 was after, and it is still open.
 - **Parked by the owner on 2026-11-14.** Where R11 stands: the real band 2 is repeatable detail (step 1); the twin's blur in green
-  is the colour defocus first and the layer at the telescope second (2b); a wide halo (2c) and a blur common to every frame up
-  to 2 px (2d) do not make the real master's soft limb; a registration weaker along the equator is untested. To pick it up:
-  register that step on #2116 first. The sheets are on DE1: `D:/temp/tianwen-scratch/i2116/blur/r11-step2b-arms.png`,
+  is the colour defocus first and the layer at the telescope second (2b); a wide halo (2c) and a blur common to every frame
+  (2d) do not bring the twin's edge to the real master's, and step 2d's read above says why no blur can. Two terms are
+  untested: a registration weaker along the equator (R7) and a limb law steeper than Minnaert (#1561). To pick it up: register
+  a step that tests them on #2116 first. The sheets are on DE1: `D:/temp/tianwen-scratch/i2116/blur/r11-step2b-arms.png`,
   `r11-step2d-arms.png` and `sharp/r11-real-sharpened.png`; the sharpened masters and logs under `sharp/`.
 
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
