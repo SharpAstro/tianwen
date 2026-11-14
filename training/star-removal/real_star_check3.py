@@ -21,15 +21,20 @@ Glue only; judge outputs (sxt) are judges, never targets.
 
     python -I real-star-check3.py [--twin] [--sessions] [model ...]
 """
-import csv, json, sys
+import csv, json, os, sys
 from collections import defaultdict
 import numpy as np
 from astropy.io import fits
 from scipy.ndimage import median_filter
 
-REALX = "C:/temp/tianwen-scratch/r2-real-val"; TWINX = "C:/temp/tianwen-scratch/f2-random-master"
-EVAL = "C:/temp/tianwen-scratch/f2-eval-master"; SXT = "C:/temp/tianwen-scratch/sxt-real-val"
-PLATES = "D:/Astro-Dataset/2026-10-12-full/starless/plates"
+# Where the inputs live: TIANWEN_SR_SCRATCH (the scratch root) and TIANWEN_SR_PLATES (the bake's starless plates),
+# each defaulting to DE1's folder. Read from the environment because these scripts run with python -I.
+SCRATCH = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
+PLATES = os.environ.get("TIANWEN_SR_PLATES", "D:/Astro-Dataset/2026-10-12-full/starless/plates")
+# The 2026-09-29 bake's plates, which hold the sessions the later bake dropped.
+PLATES_OLD = os.environ.get("TIANWEN_SR_PLATES_OLD", "D:/Astro-Dataset/2026-09-29-full/starless/plates")
+REALX = f"{SCRATCH}/r2-real-val"; TWINX = f"{SCRATCH}/f2-random-master"
+EVAL = f"{SCRATCH}/f2-eval-master"; SXT = f"{SCRATCH}/sxt-real-val"
 SIZE, CH, RIM, W = 256, 3, 16, 22
 OWN = "--input-ring" not in sys.argv
 # The plane is fitted on the OUTPUT's ring by default. The twin read (2026-11-07): on the INPUT's ring a bright star's faint
@@ -105,7 +110,7 @@ def lin_sigma(sid):
     """The session's linear sky noise, the median of its plate catalogue's sigma column (the 2026-09-29 bake the twin
     was exported from), so a twin star's band is read as a real star's is."""
     if sid not in _ls:
-        p = f"D:/Astro-Dataset/2026-09-29-full/starless/plates/{sid.replace('/', '_').replace('|', '_')}_plate.stars.csv"
+        p = f"{PLATES_OLD}/{sid.replace('/', '_').replace('|', '_')}_plate.stars.csv"
         _ls[sid] = float(np.nanmedian([float(r["sigma"]) for r in csv.DictReader(open(p, encoding="utf-8"))]))
     return _ls[sid]
 

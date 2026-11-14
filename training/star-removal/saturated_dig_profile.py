@@ -2,15 +2,18 @@
 Real val: reference = plane fitted on the INPUT's 19-22 px ring (far from the star), so a removed halo reads 0 and a dig < 0.
 Truth (on-random): reference = the truth plate, exact.
 """
-import csv, json, sys
+import csv, json, os, sys
 from collections import defaultdict
 import numpy as np
 from astropy.io import fits
 from scipy.ndimage import median_filter
 
-REALX = "C:/temp/tianwen-scratch/r2-real-val"; TWINX = "C:/temp/tianwen-scratch/f2-random-master"
-EVAL = "C:/temp/tianwen-scratch/f2-eval-master"; SXT = "C:/temp/tianwen-scratch/sxt-real-val"
-PLATES = "D:/Astro-Dataset/2026-10-12-full/starless/plates"
+# Where the inputs live: TIANWEN_SR_SCRATCH (the scratch root) and TIANWEN_SR_PLATES (the bake's starless plates),
+# each defaulting to DE1's folder. Read from the environment because these scripts run with python -I.
+SCRATCH = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
+PLATES = os.environ.get("TIANWEN_SR_PLATES", "D:/Astro-Dataset/2026-10-12-full/starless/plates")
+REALX = f"{SCRATCH}/r2-real-val"; TWINX = f"{SCRATCH}/f2-random-master"
+EVAL = f"{SCRATCH}/f2-eval-master"; SXT = f"{SCRATCH}/sxt-real-val"
 SIZE, CH, W = 256, 3, 22
 yy, xx = np.mgrid[-W:W + 1, -W:W + 1]; rr = np.hypot(xx, yy)
 FAR = (rr >= 19) & (rr <= 22)

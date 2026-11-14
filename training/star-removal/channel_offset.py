@@ -1,10 +1,14 @@
 """Channel centroid offsets and widths (2026-11-11, plan: "M42's bright stars: the channels' wings"). Usage: python -I channel_offset.py
 Per channel, the centroid offset from green (px) and the second-moment width ratio to green, of real-val stars at
 100-1000 sigma unsaturated, from the input tile less its 8-11 px ring median; median and spread per session."""
-import csv, json
+import csv, json, os
 from collections import defaultdict
 import numpy as np
-REALX = "C:/temp/tianwen-scratch/r2-real-val"; PLATES = "D:/Astro-Dataset/2026-10-12-full/starless/plates"
+# Where the inputs live: TIANWEN_SR_SCRATCH (the scratch root) and TIANWEN_SR_PLATES (the bake's starless plates),
+# each defaulting to DE1's folder. Read from the environment because these scripts run with python -I.
+SCRATCH = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
+PLATES = os.environ.get("TIANWEN_SR_PLATES", "D:/Astro-Dataset/2026-10-12-full/starless/plates")
+REALX = f"{SCRATCH}/r2-real-val"
 SIZE, CH, W = 256, 3, 11
 yy, xx = np.mgrid[-W:W + 1, -W:W + 1]; rr = np.hypot(xx, yy); RING = (rr >= 8) & (rr <= 11); IN = rr <= 4
 def read(p): return np.fromfile(p, "<f2").reshape(CH, SIZE, SIZE).astype(np.float32)
