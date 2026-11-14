@@ -391,7 +391,7 @@ public static class AltitudeChartRenderer
             var row = zi % 2;
             var labelY = row == 0 ? labelRow0Y : labelRow1Y;
             var cx = (x1 + x2) / 2;
-            var inkW = (int)MathF.Ceiling(renderer.MeasureText(label.AsSpan(), fontFamily, fs).Width);
+            var inkW = InkWidth(renderer, label, fontFamily, fs);
             var left = cx - inkW / 2;
             if (left < rowRight[row] + labelGap)
             {
@@ -440,15 +440,36 @@ public static class AltitudeChartRenderer
             tStart.Year, tStart.Month, tStart.Day,
             tStart.Hour + 1, 0, 0, tStart.Offset);
 
+        // Every hour has its grid line; a label only where there is room for one. On a narrow chart an hour is
+        // narrower than "00:00" and the labels ran into each other (found by WireframeSweepTests), so every second,
+        // third, fourth or sixth hour is named instead, counted from local midnight so the named hours are round.
+        var hourFontSize = FontSize(h, 10, dpiScale);
+        var hourPitch = timeToX(firstHour.AddHours(1)) - timeToX(firstHour);
+        var hourLabelW = fontFamily.Length > 0 ? InkWidth(renderer, "00:00", fontFamily, hourFontSize) + Px(6, dpiScale) : 0;
+        var labelEvery = 1;
+        foreach (var every in (ReadOnlySpan<int>)[1, 2, 3, 4, 6, 12])
+        {
+            labelEvery = every;
+            if (hourPitch * every >= hourLabelW)
+            {
+                break;
+            }
+        }
+
         for (var t = firstHour; t < tEnd; t = t.AddHours(1))
         {
             var x = timeToX(t);
             DrawVLine(renderer, x, plotY, plotY + plotH, GridColor);
 
-            var labelRect = MakeRect(x - Px(24, dpiScale), plotY + plotH + 2, Px(48, dpiScale), Px(16, dpiScale));
             // Axis is "Local Time": label hour ticks in the site timezone, never the
             // machine TZ (a bare ToString would render the stored UTC offset).
-            renderer.DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontFamily, FontSize(h, 10, dpiScale), TextColor,
+            var local = t.ToOffset(state.SiteTimeZone);
+            if (local.Hour % labelEvery != 0)
+            {
+                continue;
+            }
+            var labelRect = MakeRect(x - Px(24, dpiScale), plotY + plotH + 2, Px(48, dpiScale), Px(16, dpiScale));
+            renderer.DrawText(local.ToString("HH:mm"), fontFamily, hourFontSize, TextColor,
                 labelRect, TextAlign.Center, TextAlign.Near);
         }
 
@@ -1721,6 +1742,14 @@ public static class AltitudeChartRenderer
 
     /// <summary>Scales a design-unit constant to device pixels.</summary>
     private static int Px(float design, float dpiScale) => (int)MathF.Round(design * dpiScale);
+
+    /// <summary>
+    /// How wide a label's ink is, for the two places the chart drops a label that would run into its neighbour: the
+    /// twilight zones' names and the hours along the axis. Both are placed by the night, not by a layout, so the
+    /// engine has no node for the budget.
+    /// </summary>
+    private static int InkWidth<TSurface>(Renderer<TSurface> renderer, string label, string fontFamily, float fontSize)
+        => (int)MathF.Ceiling(renderer.MeasureText(label.AsSpan(), fontFamily, fontSize).Width);
 
     /// <summary>Scales a nominal font size proportionally to the renderer height, never under the physical floor.</summary>
     private static float FontSize(int rendererH, float nominalAt800, float dpiScale)

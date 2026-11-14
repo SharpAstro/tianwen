@@ -26,6 +26,12 @@ namespace TianWen.UI.Abstractions
         private const float BaseSeparatorW    = 1f;
         private const float BaseObsPanelWidth = 440f;
 
+        /// <summary>The least the right panel is given beside the form; with less room than this for it, the tab stacks.</summary>
+        private const float BaseObsPanelLeastWidth = 320f;
+
+        /// <summary>The share of the tab's height the form takes when the two halves are stacked.</summary>
+        private const float StackedFormShare = 0.45f;
+
         // Keyed Fill leaves routing the regions the Dock trees carve out to their imperative painters:
         // the two top-level panes, and the right panel's own three bands.
         private const string ConfigFillKey      = "config";
@@ -119,18 +125,42 @@ namespace TianWen.UI.Abstractions
             // the mount safety limit); the form is built deeper in, where the profile is not in scope.
             State.ActiveProfileData = appState.ActiveProfile?.Data;
 
-            // Right panel (camera settings + observation list) and the vertical rule docked right, the
-            // config form filling the rest. A Dock tree of keyed Fill leaves rather than the older
-            // PixelLayout cursor: the engine docks through the very same DockLayout that cursor wrapped,
-            // so the rects are identical, and the separator is a real node that paints from the tree
-            // instead of a rect handed to a second RenderLayout. Sizes here are already device px, so the
-            // tree is arranged at DesignScale.One -- one design unit is one device px.
-            var obsPanelW = BaseObsPanelWidth * dpiScale;
+            // The config form on the left, a rule, and the right panel (camera settings + observation list). The
+            // panel used to take a fixed width and the form the rest, so in a window narrower than the two together
+            // the form's steppers ran off its edge and its labels were cut (1000 px at 150% was enough; found by
+            // WireframeSweepTests). The form is now given at least what the engine measures its widest row to need,
+            // the panel what is left up to its full width, and where even the panel's least does not fit beside the
+            // form the two are stacked, the form above. Sizes here are device px, so the trees are arranged at
+            // DesignScale.One -- one design unit is one device px.
+            CollectStepperValues();
+            var formNeed = MeasureLayout(
+                BuildConfigTree(StepperValueWidth(float.MaxValue), caveats: false),
+                new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width;
+            var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
+            var sideBySide = Layout.Builder.HStack(
+                Layout.Builder.Fill(key: ConfigFillKey).WStar(1f, min: formNeed).HStar(),
+                rule.WFixed(BaseSeparatorW * dpiScale).HStar(),
+                // Equal shares between the form's floor and the panel's ceiling. The two bounds cannot both bind (the
+                // ceiling binds in a wide tab, the floor in a narrow one), which matters: the engine freezes a capped
+                // star and a floored one in the same pass, and a panel weighted to fill first overflowed the tab.
+                Layout.Builder.Fill(key: ObsFillKey)
+                    .WStar(1f, min: BaseObsPanelLeastWidth * dpiScale, max: BaseObsPanelWidth * dpiScale).HStar());
+            // The two at their least, as the engine measures that row (a star's floor is not part of its measure).
+            var atTheirLeast = Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WFixed(formNeed),
+                    rule.WFixed(BaseSeparatorW * dpiScale),
+                    Layout.Builder.Spacer().WFixed(BaseObsPanelLeastWidth * dpiScale))
+                .WAuto();
+            var fitsSideBySide = Layout.Engine.Measure(
+                atTheirLeast, new Layout.Size<float>(float.MaxValue, contentRect.Height),
+                MeasureContext(scale: DesignScale.One)).Width <= contentRect.Width;
             var frame = RenderLayout(
-                Layout.Builder.Dock(
-                    Layout.Builder.Fill(key: ConfigFillKey),
-                    Layout.Builder.Right(Layout.Builder.Fill(key: ObsFillKey), obsPanelW),
-                    Layout.Builder.Right(Layout.Builder.Spacer().Bg(SeparatorColor), BaseSeparatorW * dpiScale)),
+                fitsSideBySide
+                    ? sideBySide
+                    : Layout.Builder.VStack(
+                        Layout.Builder.Fill(key: ConfigFillKey).WStar().HStar(StackedFormShare),
+                        rule.HFixed(BaseSeparatorW * dpiScale).WStar(),
+                        Layout.Builder.Fill(key: ObsFillKey).WStar().HStar(1f - StackedFormShare)),
                 contentRect, scale: DesignScale.One);
 
             var obsRect = ArrangedFills.RectOf(frame, ObsFillKey);
@@ -637,21 +667,15 @@ namespace TianWen.UI.Abstractions
         // Configuration form panel (left side, scrollable)
         // -----------------------------------------------------------------------
 
-        private void RenderConfigForm(
-            RectF32 rect)
+        // --- Shared stepper value column (design units) ---------------------------------------
+        // Size the [-] value [+] cell to the widest current stepper value (e.g. "Auto (3min)") so
+        // long strings neither clip nor collide with the buttons, while every stepper aligns in one
+        // column. Measured in DESIGN units (BaseFontSize + design min/max) so it slots straight into
+        // the design-unit tree below -- the single RenderLayout(dpiScale) scales the whole form at
+        // once. MeasureValueColumnWidth returns the minimum when no font is available (headless tests).
+        private void CollectStepperValues()
         {
-            var dpiScale = DpiScale;
-            var fontPath = FontPath;
-            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), rect);
-
             var groups = SessionConfigGroups.Groups;
-
-            // --- Shared stepper value column (design units) ---------------------------------------
-            // Size the [-] value [+] cell to the widest current stepper value (e.g. "Auto (3min)") so
-            // long strings neither clip nor collide with the buttons, while every stepper aligns in one
-            // column. Measured in DESIGN units (BaseFontSize + design min/max) so it slots straight into
-            // the design-unit tree below -- the single RenderLayout(dpiScale) scales the whole form at
-            // once. MeasureValueColumnWidth returns the minimum when no font is available (headless tests).
             _stepperValueScratch.Clear();
             var totalFields = 0;
             for (var gi = 0; gi < groups.Length; gi++)
@@ -670,13 +694,34 @@ namespace TianWen.UI.Abstractions
             }
 
             State.FieldCount = totalFields;
+        }
 
+        /// <summary>The stepper value column's width in design units, the widest collected value up to <paramref name="maxWidth"/>.</summary>
+        private float StepperValueWidth(float maxWidth) => MeasureValueColumnWidth(
+            _stepperValueScratch, FontPath, BaseFontSize,
+            minWidth: BaseValueW, maxWidth: maxWidth, horizontalPadding: BasePadding);
+
+        private Layout.Node BuildConfigTree(float valueWidth, bool caveats) => SessionConfigLayout.Build(
+            SessionConfigGroups.Groups, State.Configuration, State.SelectedFieldIndex, State.IsSessionRunning,
+            valueWidth, ConfigStyle,
+            onSelectField: idx => _ => { State.SelectedFieldIndex = idx; State.NeedsRedraw = true; },
+            onDecrement: field => _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
+            onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
+            profile: State.ActiveProfileData,
+            caveats: caveats);
+
+        private void RenderConfigForm(
+            RectF32 rect)
+        {
+            var dpiScale = DpiScale;
+            var fontPath = FontPath;
+            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), rect);
+
+            var groups = SessionConfigGroups.Groups;
+
+            // The stepper values were collected by Render, which measured the form before placing it.
             var availDesignW = rect.Width / dpiScale;
-            var valueWidth = MeasureValueColumnWidth(
-                _stepperValueScratch, fontPath, BaseFontSize,
-                minWidth: BaseValueW,
-                maxWidth: availDesignW - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f,
-                horizontalPadding: BasePadding);
+            var valueWidth = StepperValueWidth(availDesignW - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f);
 
             // --- Field Y positions (scaled px, relative to scroll origin) + total content height -----
             // Derived arithmetically from the fixed row structure (header + N items + group gap, per
@@ -708,13 +753,7 @@ namespace TianWen.UI.Abstractions
             State.ConfigScrollOffset = _configScroll.AtomOffset;
 
             // --- One tree for the whole form; scroll via the root-bounds Y offset, clipped to the panel ---
-            var tree = SessionConfigLayout.Build(
-                groups, State.Configuration, State.SelectedFieldIndex, State.IsSessionRunning,
-                valueWidth, ConfigStyle,
-                onSelectField: idx => _ => { State.SelectedFieldIndex = idx; State.NeedsRedraw = true; },
-                onDecrement: field => _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
-                onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
-                profile: State.ActiveProfileData);
+            var tree = BuildConfigTree(valueWidth, caveats: true);
 
             var contentTop = rect.Y - _configScroll.Offset * ScrollLineHeight;
             var arranged = ArrangeLayout(tree, new RectF32(rect.X, contentTop, rect.Width, _totalConfigHeight));

@@ -33,6 +33,7 @@ public class ChromeMeasuresThroughTheEngineTests
     {
         // The altitude chart's twilight labels: each is centred on a zone of whatever width the night has, and one
         // that would start inside its row's previous label is dropped, an overlap budget the engine has no node for.
+        // The hours along the axis are thinned on the same measure (one helper, InkWidth) where the chart is narrow.
         ["AltitudeChartRenderer.cs"] = 1,
         ["EquipmentTab.DeviceList.cs"] = 3,
         ["EquipmentTab.ProfilePanel.cs"] = 2,

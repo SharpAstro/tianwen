@@ -35,7 +35,7 @@ namespace TianWen.Lib.Tests
         /// <summary>A planner state with two selectable targets so the chart, list rows, and details
         /// panel all have real content to paint. <paramref name="firstIndex"/> optionally gives the first
         /// target a catalog index (so the details name line becomes a Wikipedia link).</summary>
-        private static PlannerState BuildState(CatalogIndex? firstIndex = null, ICelestialObjectDB? db = null)
+        internal static PlannerState BuildState(CatalogIndex? firstIndex = null, ICelestialObjectDB? db = null)
         {
             var state = new PlannerState
             {
