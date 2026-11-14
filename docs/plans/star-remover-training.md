@@ -5405,7 +5405,7 @@ by their draws, so the three objectives are not compared). Every bar on seed 0:
   against SXT's -0.48, -0.42, -0.63; green -0.52, +0.23, -0.05 against -0.89, -0.85, -0.79. Every spread setting digs the
   SMC's blue wing (R3s -0.56, -0.75, -0.97 and -0.79, -0.76, -0.71; R3t -0.95, -1.04, -0.97) and R3l does not (-0.39, -0.30,
   -0.10 and -0.56, -0.51, -0.24).
-- **The truth tiles fail on both rows, by little beside the other arms' seed 0s and by more beside R3l.** R3s held on its
+- **The truth tiles fail on both rows; the gaps to each comparator are below.** R3s held on its
   two-seed mean (72.1, 54.1) and its seed 0 alone read 71.5 and 53.2, under both bars; R3t's seed 0 read 72.0 and 54.4; R3l's
   seeds read 73.3 and 73.2 at 20-100 sigma and 54.5 and 58.2 at 100-1000. R3u's 20-100 row (71.0) is 0.5 under R3s's seed 0,
   1.0 under R3t's and 2.2 under R3l's lower seed, whose seeds differ there by 0.1. Its 100-1000 row (49.9) is 3.3 under R3s's
