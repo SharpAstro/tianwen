@@ -5308,6 +5308,40 @@ stars in 123 sessions: **10.32 %** with blue at 1.6 times green's beta or more (
 times or more (bar 0.8 to 2.0 %). Per star, blue over green's beta reads 0.72, 1.01, 1.61 and 4.64 at the 10th, 50th,
 90th and 99th percentile. Seed 0's training started the same night on the SSD cache (4,840 cells, 19.5 GiB).
 
+**R3t, read 2026-11-14: killed by the SMC's 100-1000 sigma guard on seed 0; M42 gives most of R3s's gain back.** Seed 0
+trained to convergence (stopped at step 244,000, best held-out 6.49e-6 at 232,000). One seed, so every bar is read on seed 0
+against R3l's mean, R3l's own seeds beside it:
+
+| bar | R3t s0 | R3l s0 / s1 (mean) | R3s mean | verdict |
+|---|---|---|---|---|
+| Q1 blue at 1.6 and 2.4 times green's beta | 10.32 %, 1.21 % | | | held |
+| Q2 M42 100-1000 sigma clean, own ring, >= 50 | 47.1 | 27.2 / 39.0 (33.1) | 55.5 | missed, by 2.9 (not under 40) |
+| Q2 M42 blue at 2 and 3 px within 0.7 sigma of SXT's (-0.47, -0.03) | -2.88, -1.68 | -2.68, -1.70 / -2.99, -1.79 | -2.29, -1.12 | missed, by 2.4 and 1.7 |
+| guard HIP 80609 20-100, 100-1000, within 3 of R3l | 99.7, 99.5 | 99.7, 97.7 / 99.9, 97.1 (99.8, 97.4) | 99.8, 98.3 | held |
+| guard Lobster 20-100, 100-1000 | 99.8, 99.6 | 99.8, 99.5 / 99.8, 99.6 (99.8, 99.6) | 99.8, 99.5 | held |
+| guard SMC 20-100, 100-1000 | 94.9, 83.1 | 94.9, 96.6 / 89.8, 84.7 (92.4, 90.7) | 81.4, 85.6 | 20-100 held; **100-1000 failed, 7.6 below** |
+| guard truth tiles 20-100 >= 72, 100-1000 >= 54 | 72.0, 54.4 | (73.3, 56.4) | 72.1, 54.1 | held, at the bar |
+| guard Andromeda dark dug <= 47 | 34.7 | 44.8 / 45.3 | 25.3 | held |
+| guard Tarantula dark flat >= 69 | 72.1 | 70.3 / 74.4 | 67.2 | held |
+| guard M31 nucleus under 40 % in every channel | 3.9, -0.1, 3.0 % | +1 to +14 % | up to 2.3 % | held |
+
+- **The kill fires on one row, the SMC's 100-1000 sigma stars** (n = 59): 83.1 % clean against R3l's mean 90.7. R3l's own seeds
+  read 96.6 and 84.7 there, so seed 0 sits 1.6 under R3l's lower seed; the registration reads it against the mean, and its
+  one exception is Tarantula's row, so the arm is killed and seed 1 is not trained. Unlike R3s, whose SMC stars were LEFT, these
+  are DUG (13.6 %, 8 stars; R3l 0.0 on both seeds).
+- **The prediction held in its shape.** The SMC's 20-100 row returned to R3l's (94.9; R3s 81.4), and so did Tarantula's dark sky
+  (72.1; R3s 67.2). M42 landed between R3l's 33 and R3s's 55, at 47.1, short of 50, and its blue dig at 2 and 3 px is R3l's again
+  (-2.88, -1.68): the stated risk. M42's blue beta is 2.64 times its green's, outside a spread of 2, so M42's gain needs the wide
+  spread and the SMC's wing has to be mended another way.
+- **Outside the bars:** Andromeda's dark sky is dug on 34.7 % (R3l 45.1, R3s 25.3); M42's 100-1000 sigma stars are dug on 51.5 %
+  (R3l 70.6 / 58.1, R3s 39.0).
+- The saturated rows are not read, as registered.
+
+Read from `C:/temp/e2/check3-r3t-s0-own.txt`, `bright-channel-r3t-s0.txt`, `f2-whole-master/w-r3t_synth23_s0/row.txt`,
+`f2-reports-master/m31-nucleus-r3t_synth23_s0.txt` and `f2-logs-master/score-r3t_synth23_s0/eval-on-random.log` on DE1. Check 3
+and the channel profile were run by hand from the main checkout with the chain's own arguments, after the chain's copies failed
+on a script folder that had gone. Not adopted; what follows is the owner's to choose.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
