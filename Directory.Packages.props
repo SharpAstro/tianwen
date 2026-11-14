@@ -82,8 +82,8 @@
     <PackageVersion Include="Console.Lib" Version="5.12.*" />
     <PackageVersion Include="Console.Lib.Debug" Version="5.12.*" />
 
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.89.*" />
-    <PackageVersion Include="SdlVulkan.Renderer.Debug" Version="7.89.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.90.*" />
+    <PackageVersion Include="SdlVulkan.Renderer.Debug" Version="7.90.*" />
     <!-- tools/BakeShaders only. Here rather than inline because this file now covers tools/ as well as
          src/, which is the whole point: a version the sweep cannot see is a version that drifts. -->
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
