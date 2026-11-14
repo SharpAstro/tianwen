@@ -360,6 +360,66 @@ public class SkyMapHoverAndPictureTests
         tab.State.NeedsRedraw.ShouldBeTrue();
     }
 
+    // Zoomed out, nearly every resolve of a moving pointer lands on another star, and each change repainted the whole
+    // map: 40 percent of the GPU for one ellipse moving (#2130). In a host that repaints what a move states, a changed
+    // answer raises no redraw flag (a flag is a whole frame) and states the wash it puts on and the one it takes off.
+    [Fact]
+    public void AChangedAnswerStatesTheWashItChangesInsteadOfAskingForTheWholeMap()
+    {
+        using var renderer = new RgbaImageRenderer(200, 200);
+        var (tab, plannerState, time, rect) = NewNebulaCentredTab(renderer);
+        tab.HostRepaintsStatedMoves = true;
+        tab.Render(plannerState, rect, time);
+        tab.State.NeedsRedraw = false;
+        byte[] unwashed = [.. renderer.Surface.Pixels];
+
+        // Onto the nebula: its wash goes on, around the pointer.
+        tab.HandleInput(new InputEvent.MouseMove(100f, 100f));
+        tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index);
+        tab.State.NeedsRedraw.ShouldBeFalse("a flag would repaint the whole map");
+        var on = tab.TakePointerMoveChanged().ShouldNotBeNull();
+        on.X.ShouldBeLessThan(100f);
+        on.Y.ShouldBeLessThan(100f);
+        (on.X + on.Width).ShouldBeGreaterThan(100f);
+        (on.Y + on.Height).ShouldBeGreaterThan(100f);
+        on.Width.ShouldBeLessThan(200f, "the wash, not the map");
+        tab.TakePointerMoveChanged().ShouldBeNull("taken once");
+
+        // Painted, then off it onto bare sky: the same wash has to come off.
+        tab.Render(plannerState, rect, time);
+        tab.State.NeedsRedraw = false;
+
+        // The stated rectangle is the whole of what the wash painted (the nebula's own ellipse): a pixel that changed
+        // outside it would be left behind by a frame that repaints the rectangle alone.
+        var washed = renderer.Surface.Pixels;
+        var changedPixels = 0;
+        for (var i = 0; i < unwashed.Length; i += 4)
+        {
+            if (unwashed[i] == washed[i] && unwashed[i + 1] == washed[i + 1] && unwashed[i + 2] == washed[i + 2])
+            {
+                continue;
+            }
+
+            changedPixels++;
+            var px = i / 4 % 200;
+            var py = i / 4 / 200;
+            (px >= on.X && px < on.X + on.Width && py >= on.Y && py < on.Y + on.Height)
+                .ShouldBeTrue($"the wash changed pixel ({px}, {py}), outside the stated {on}");
+        }
+        changedPixels.ShouldBeGreaterThan(0, "the wash was painted");
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(5f, 5f));
+        tab.State.HoverTarget.ShouldBeNull();
+        tab.State.NeedsRedraw.ShouldBeFalse();
+        tab.TakePointerMoveChanged().ShouldBe(on);
+
+        // Across bare sky: no answer changed, so nothing is stated.
+        tab.Render(plannerState, rect, time);
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        tab.HandleInput(new InputEvent.MouseMove(15f, 5f));
+        tab.TakePointerMoveChanged().ShouldBeNull();
+    }
+
     // The cost this pins: every pointer move used to repaint the whole atlas at display rate, even
     // when the answer was the one already on screen, which held the Adreno X1-85 at up to 70 percent
     // for a hover that changed nothing (2026-09-23). The resolves still RUN -- the count proves it --

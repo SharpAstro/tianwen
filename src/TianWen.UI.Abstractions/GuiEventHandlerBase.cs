@@ -225,15 +225,15 @@ namespace TianWen.UI.Abstractions
         {
             var tab = _chrome.ActiveTab;
             var handled = tab?.HandleInput(move) ?? false;
-            if (handled)
+            // What the move changed, when the tab can say: the frame it asks for may then repaint that alone
+            // (GuiFrameScheduler). A tab that took the move and says nothing gets a full frame, as always. Asked of a
+            // move the tab did NOT take as well: the atlas's hover never takes one (a hover is noticed on the way
+            // past), and a changed highlight is still a change on screen, which then owes a frame like a taken move.
+            if (tab is IPointerMoveChange stated && stated.TakePointerMoveChanged() is { } changed)
             {
-                // What the move changed, when the tab can say: the frame it asks for may then repaint that alone
-                // (GuiFrameScheduler). A tab that took the move and says nothing gets a full frame, as always.
-                if (tab is IPointerMoveChange stated && stated.TakePointerMoveChanged() is { } changed)
-                {
-                    _pointerMoveChanged = _pointerMoveChanged is { } held ? Union(held, changed) : changed;
-                    _moveStated = true;
-                }
+                _pointerMoveChanged = _pointerMoveChanged is { } held ? Union(held, changed) : changed;
+                _moveStated = true;
+                return true;
             }
 
             return handled;

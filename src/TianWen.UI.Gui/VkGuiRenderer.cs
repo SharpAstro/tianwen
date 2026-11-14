@@ -283,6 +283,9 @@ namespace TianWen.UI.Gui
         /// <inheritdoc/>
         public SkyMapState SkyMapState => _skyMapTab.State;
 
+        /// <summary>The atlas hover's counts so far (resolves, and resolves that asked for a frame), for the frame log.</summary>
+        public (int Resolves, int FrameRequests) SkyMapHoverCounts => (_skyMapTab.HoverResolves, _skyMapTab.HoverFrameRequests);
+
         /// <summary>Where the atlas info panel's pictures come from; see <see cref="VkSkyMapTab.PictureStore"/>.</summary>
         public IObjectPictureStore? ObjectPictureStore
         {
@@ -488,6 +491,7 @@ namespace TianWen.UI.Gui
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             _skyMapTab = new VkSkyMapTab(renderer)
             {
+                HostRepaintsStatedMoves = true,
                 Bus = bus,
                 Logger = logger,
             };
@@ -601,6 +605,8 @@ namespace TianWen.UI.Gui
             _plannerTab.CaretPhase = caretPhase;
             _sessionTab.CaretPhase = caretPhase;
             _skyMapTab.CaretPhase = caretPhase;
+            // A frame that repaints part of the window draws the sky of the frame before it (SkyMapTab.HoldViewingTime).
+            _skyMapTab.HoldViewingTime = _renderer.LastFrameWasPartial;
             _liveSessionTab.CaretPhase = caretPhase;
             _guiderTab.CaretPhase = caretPhase;
             _planetaryTab.CaretPhase = caretPhase;
@@ -851,31 +857,33 @@ namespace TianWen.UI.Gui
             // which is one place instead of several. It was also the copy that said the least -- the
             // Equipment tab has a Profile picker, and the Home board labels every rig with the profile it
             // runs, so a third grey copy beside the notification text was noise competing with the message.
-            Layout.Node statusNode;
-            if (appState.StatusMessage is { Length: > 0 } msg)
+            // Shown while the bar has room for it and hidden where it has not (see the fit below): the Notifications
+            // tab keeps every message.
+            var statusMessage = appState.StatusMessage is { Length: > 0 } msg ? msg : null;
+            // The warning mark (#2025) leads the message, so a status message is told from an accented control by
+            // form as well as colour. StatusMessage carries no severity, and the message has always been drawn in
+            // Warn, so it is treated as a Warning here.
+            var markDu = BaseFontSize * 0.85f;
+            Layout.Node StatusZone(bool shown, bool measuring)
             {
-                // Truncation needs a target width (intrinsic to ellipsising); the status cell is the left
-                // third, since each of the three zones takes a third of the content area.
-                var contentW = w - (SidebarWidth + 6f) - 4f;
-                var msgCellW = Math.Max(contentW / 3f, 40f);
-                // The warning mark (#2025) leads the message, so a status message is told from an accented control by
-                // form as well as colour. StatusMessage carries no severity, and the message has always been drawn in
-                // Warn, so it is treated as a Warning here. The mark and its gap come off the cell BEFORE the message is
-                // truncated, so a long message still ends in an ellipsis rather than being clipped by the mark.
-                var markDu = BaseFontSize * 0.85f;
-                // The lead's footprint is SeverityMarks.LeadWidth, read once for the node AND the budget.
-                var displayMsg = TruncateToFit(msg, Math.Max(msgCellW - SeverityMarks.LeadWidth(markDu, gapDu) * DpiScale, 40f), FontSize * 0.85f);
-                statusNode = Layout.Builder.HStack(
-                        SeverityMarks.Lead(NotificationSeverity.Warning, markDu, gapDu),
-                        Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, Palette.Warn, TextAlign.Near, TextAlign.Center)
-                            .WStar().HStar())
-                    .WStar().HStar();
+                if (statusMessage is null || !shown)
+                {
+                    return measuring ? Layout.Builder.Spacer().WFixed(0f) : Layout.Builder.Spacer().WStar();
+                }
+
+                var mark = SeverityMarks.Lead(NotificationSeverity.Warning, markDu, gapDu);
+
+                // The message takes what its zone has left after the mark and ends in an ellipsis where that is short:
+                // the engine trims the run to the width it arranged. The whole message is on hover. Measured, it is the
+                // least a message is worth showing at, since a run trimmed to a letter or two says nothing.
+                var text = measuring
+                    ? Layout.Builder.Text("", BaseFontSize * 0.85f, Palette.Warn, TextAlign.Near, TextAlign.Center, widthSample: StatusLeastSample)
+                        .WAuto().HStar()
+                    : Layout.Builder.Text(statusMessage, BaseFontSize * 0.85f, Palette.Warn, TextAlign.Near, TextAlign.Center)
+                        .WStar().HStar();
+                var zone = Layout.Builder.HStack(mark, text).HStar();
+                return measuring ? zone.WAuto() : zone.WStar().WithTooltip(statusMessage);
             }
-            else
-            {
-                statusNode = Layout.Builder.Spacer().WStar();
-            }
-            var leftZone = Layout.Builder.HStack(statusNode).WStar().HStar();
 
             // CENTRE: [<] date [>] verdict, centred via flanking star spacers. Arrows hidden during a session.
             // The label opens the night calendar (whose Tonight button is what the label's old reset-on-click
@@ -907,25 +915,26 @@ namespace TianWen.UI.Gui
                         TextAlign.Center, TextAlign.Center)
                     .WAuto().HStar();
             }
-            Layout.Node dateGroup;
+            Layout.Node? prev = null;
+            Layout.Node? next = null;
             if (!sessionRunning)
             {
-                var prev = FormRowLayout.StepMark("◀", BaseFontSize * 0.9f, StatusText)
+                prev = FormRowLayout.StepMark("◀", BaseFontSize * 0.9f, StatusText)
                     .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg).BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(arrowBg))
                     .Clickable(new HitResult.ButtonHit("DatePrev"),
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1, _skyMapTab.State); });
-                var next = FormRowLayout.StepMark("▶", BaseFontSize * 0.9f, StatusText)
+                next = FormRowLayout.StepMark("▶", BaseFontSize * 0.9f, StatusText)
                     .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg).BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(arrowBg))
                     .Clickable(new HitResult.ButtonHit("DateNext"),
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, _skyMapTab.State); });
-                dateGroup = Layout.Builder.HStack(prev, dateLabel, next, verdictNode).WAuto().HStar().WithGap(gapDu);
             }
-            else
+            Layout.Node DateGroup(bool arrows, bool verdict)
             {
-                dateGroup = Layout.Builder.HStack(dateLabel, verdictNode).WAuto().HStar().WithGap(gapDu);
+                var shownVerdict = verdict ? verdictNode : Layout.Builder.Spacer().WFixed(0f);
+                return arrows && prev is not null && next is not null
+                    ? Layout.Builder.HStack(prev, dateLabel, next, shownVerdict).WAuto().HStar().WithGap(gapDu)
+                    : Layout.Builder.HStack(dateLabel, shownVerdict).WAuto().HStar().WithGap(gapDu);
             }
-            var centreZone = Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), dateGroup, Layout.Builder.Spacer().WStar())
-                .WStar().HStar();
 
             // RIGHT: [Connect All] + wall clock, right-aligned via a leading star spacer. Connect All is
             // globally reachable on every tab; visible whenever the active profile has assigned devices and
@@ -969,15 +978,62 @@ namespace TianWen.UI.Gui
             }
             // Measured from the widest it can be, so its box does not change with the digits: the clock is repainted
             // ALONE on a tick (#2130), which is only sound while its rectangle holds still, and a box that followed the
-            // digits also moved Connect All beside it by a pixel or two every second.
-            var clockNode = Layout.Builder.Text(clockText, BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockWidthSample)
+            // digits also moved Connect All beside it by a pixel or two every second. The time alone where the bar has no
+            // room for the day beside it.
+            var clockWithDay = Layout.Builder.Text(clockText, BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockWidthSample)
                 .WAuto().HStar();
-            var rightZone = Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), connectAll, clockNode)
-                .WStar().HStar();
+            var clockTimeAlone = Layout.Builder.Text(now.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+                    BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center, widthSample: ClockTimeWidthSample)
+                .WAuto().HStar();
 
-            // Arrange + paint the bar over the content area (right of the sidebar gutter, small right margin).
-            var bar = Layout.Builder.HStack(leftZone, centreZone, rightZone);
-            var arrangedBar = RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh), drawFill: (fill, rect) =>
+            // The bar over the content area (right of the sidebar gutter, small right margin). Three equal zones while
+            // each holds what sits in it, which centres the date on the content below. A narrower window (half a screen
+            // and less) has no room for that, and the zones drew over each other. There the bar gives things up, least
+            // needed first, until what is left fits: the status message (the owner, 2026-11-14: it can be hidden where
+            // there is no room), the day beside the time, the day arrows (the calendar the label opens still changes the
+            // night) and the night's verdict. Every step is decided on the engine's measurement of the row, never a width
+            // written here.
+            var barRect = new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh);
+            var available = new Layout.Size<float>(barRect.Width, barRect.Height);
+            var groupGap = Layout.Builder.Spacer().WFixed(gapDu * 2f);
+            ReadOnlySpan<(bool Status, bool Day, bool Arrows, bool Verdict)> fits =
+            [
+                (true, true, true, true),
+                (false, true, true, true),
+                (false, false, true, true),
+                (false, false, false, true),
+                (false, false, false, false),
+            ];
+            var fit = fits[^1];
+            foreach (var candidate in fits)
+            {
+                var row = Layout.Builder.HStack(
+                        StatusZone(candidate.Status, measuring: true),
+                        DateGroup(candidate.Arrows, candidate.Verdict),
+                        groupGap,
+                        connectAll,
+                        candidate.Day ? clockWithDay : clockTimeAlone)
+                    .WAuto().HStar();
+                if (MeasureLayout(row, available).Width <= barRect.Width)
+                {
+                    fit = candidate;
+                    break;
+                }
+            }
+
+            var clockNode = fit.Day ? clockWithDay : clockTimeAlone;
+            var dateGroup = DateGroup(fit.Arrows, fit.Verdict);
+            var rightGroup = Layout.Builder.HStack(connectAll, clockNode).WAuto().HStar();
+            var widestGroup = MathF.Max(MeasureLayout(dateGroup, available).Width, MeasureLayout(rightGroup, available).Width);
+            var bar = fit.Status && widestGroup <= barRect.Width / 3f
+                ? Layout.Builder.HStack(
+                    Layout.Builder.HStack(StatusZone(shown: true, measuring: false)).WStar().HStar(),
+                    Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), dateGroup, Layout.Builder.Spacer().WStar()).WStar().HStar(),
+                    Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), rightGroup).WStar().HStar())
+                : Layout.Builder.HStack(
+                    Layout.Builder.HStack(StatusZone(fit.Status, measuring: false)).WStar().HStar(),
+                    dateGroup, groupGap, rightGroup);
+            var arrangedBar = RenderLayout(bar, barRect, drawFill: (fill, rect) =>
             {
                 // The status message's warning mark: a keyed baked-icon Fill (SeverityMarks), centred in its slot.
                 if (SeverityMarks.TryPlace(fill.Key, rect, out var mask, out var sq, out var ink))
@@ -1001,33 +1057,17 @@ namespace TianWen.UI.Gui
         /// <summary>No clock text is wider: a capital W or M and two of the widest lower-case letters bound every day and month name.</summary>
         private const string ClockWidthSample = "Wmm 30 Mmm 00:00:00";
 
+        /// <summary>The clock's box where the bar has room for the time alone.</summary>
+        private const string ClockTimeWidthSample = "00:00:00";
+
+        /// <summary>The least of a status message worth showing: with less room than this for it, the bar hides it.</summary>
+        private const string StatusLeastSample = "Found 32 devices";
+
         /// <summary>
         /// The clock's rectangle as the last frame painted it, in the surface's pixels; null when the bar was not drawn.
         /// What a frame owed to the clock's tick alone repaints (<see cref="GuiFrameReasons"/>).
         /// </summary>
         internal RectF32? ClockRect { get; private set; }
-
-        // Truncate with ellipsis so the string fits within maxWidth at the given font size.
-        // Binary-search the longest prefix that, with the ellipsis appended, still fits.
-        private string TruncateToFit(string text, float maxWidth, float fontSize)
-        {
-            if (string.IsNullOrEmpty(FontPath)) return text;
-            var (fullWidth, _) = _renderer.MeasureText(text.AsSpan(), FontPath, fontSize);
-            if (fullWidth <= maxWidth) return text;
-
-            const string Ellipsis = "\u2026";
-            var lo = 0;
-            var hi = text.Length;
-            while (lo < hi)
-            {
-                var mid = (lo + hi + 1) / 2;
-                var candidate = string.Concat(text.AsSpan(0, mid), Ellipsis);
-                var (cw, _) = _renderer.MeasureText(candidate.AsSpan(), FontPath, fontSize);
-                if (cw <= maxWidth) lo = mid;
-                else hi = mid - 1;
-            }
-            return lo == 0 ? Ellipsis : string.Concat(text.AsSpan(0, lo), Ellipsis);
-        }
 
         // -----------------------------------------------------------------------
         // Content area dispatch

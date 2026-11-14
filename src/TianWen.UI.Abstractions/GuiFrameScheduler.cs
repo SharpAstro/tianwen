@@ -177,7 +177,13 @@ public sealed class GuiFrameScheduler
         _unstatedMove = false;
         _trailingMoveDue = 0;
         var narrow = _reasons.TryTakeNarrow(_narrowed, out var clock)
-            && !flagged && !shuttingDown && GuiTimeCadence.MayNarrow(tab);
+            && !shuttingDown && GuiTimeCadence.MayNarrow(tab);
+        if (narrow && flagged)
+        {
+            // Every cause said what it changed, and a flag was set since the check: the frame is full after all.
+            Causes.Flagged++;
+            narrow = false;
+        }
         if (narrow && clock)
         {
             if (clockRect is { Width: > 0f, Height: > 0f } rect)
@@ -239,4 +245,7 @@ public struct FrameCauseCounts
 
     /// <summary>The clock's second.</summary>
     public int Clock;
+
+    /// <summary>Frames that could have been narrowed and were drawn in full for a redraw flag set since the check.</summary>
+    public int Flagged;
 }

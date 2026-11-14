@@ -304,6 +304,12 @@ var frameLog = Environment.GetEnvironmentVariable("TIANWEN_FRAME_LOG") == "1";
 var _lastFrameLogTimestamp = timeProvider.GetTimestamp();
 long _lastLoggedFull = 0;
 long _lastLoggedPartial = 0;
+// For the same log line: the frames that found each redraw flag set as they began, and those the loop owed for a cause
+// of its own. A frame can count under several.
+int _lastHoverResolves = 0, _lastHoverRequests = 0;
+int flagApp = 0, flagPlanner = 0, flagSky = 0, flagContexts = 0, framesLoopOwed = 0, framesLoopOwedForMoves = 0;
+// What the loop owed at the check before the frame: it clears its own flag before OnBeforeFrame runs.
+bool loopOwedAtCheck = false, loopOwedForMovesAtCheck = false;
 // The shutdown drain's redraw tick (see CheckNeedsRedraw): 0 so its first check draws at once.
 long _lastShutdownRedrawTimestamp = 0;
 long _lastSlowFrameLogTimestamp = 0;
@@ -476,9 +482,13 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             var causes = frames.Causes;
             frames.Causes = default;
             logger.LogInformation(
-                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock}",
+                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock} flagged={Flagged}; frames with flag app={App} planner={Planner} sky={Sky} contexts={Contexts}, owed by the loop {LoopOwed} (for moves alone {MovesAlone}); atlas hover resolves={HoverResolves} asked for a frame={HoverRequests}",
                 appState.ActiveTab, fullFrames - _lastLoggedFull, partialFrames - _lastLoggedPartial,
-                causes.Changed, causes.Loop, causes.PointerMove, causes.Time, causes.Settling, causes.Clock);
+                causes.Changed, causes.Loop, causes.PointerMove, causes.Time, causes.Settling, causes.Clock, causes.Flagged,
+                flagApp, flagPlanner, flagSky, flagContexts, framesLoopOwed, framesLoopOwedForMoves,
+                guiRenderer.SkyMapHoverCounts.Resolves - _lastHoverResolves, guiRenderer.SkyMapHoverCounts.FrameRequests - _lastHoverRequests);
+            (_lastHoverResolves, _lastHoverRequests) = guiRenderer.SkyMapHoverCounts;
+            flagApp = flagPlanner = flagSky = flagContexts = framesLoopOwed = framesLoopOwedForMoves = 0;
             _lastLoggedFull = fullFrames;
             _lastLoggedPartial = partialFrames;
         }
@@ -522,6 +532,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // The loop asks this after dispatching the iteration's events, so a frame it armed itself (input a handler took,
         // an expose, a resize, a frame held back) shows as RedrawPending.
         var moveChanged = handlers.TakePointerMoveChanged(out var moveUnstated);
+        loopOwedAtCheck = eventLoop is { RedrawPending: true };
+        loopOwedForMovesAtCheck = eventLoop is { RedrawPendingForPointerMoveAlone: true };
         return frames.Check(now, new GuiFrameInputs(
             appState.ActiveTab, runGoingOn, previewCapturing,
             SlewInFlight: guiRenderer.SkyMapState.ActiveSlewTarget is not null,
@@ -538,6 +550,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     {
         var flagged = appState.NeedsRedraw || plannerState.NeedsRedraw || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw;
+        if (frameLog)
+        {
+            if (appState.NeedsRedraw) { flagApp++; }
+            if (plannerState.NeedsRedraw) { flagPlanner++; }
+            if (guiRenderer.SkyMapState.NeedsRedraw) { flagSky++; }
+            if (guiRenderer.ViewContexts.AnyNeedsRedraw) { flagContexts++; }
+            if (loopOwedAtCheck) { framesLoopOwed++; }
+            if (loopOwedForMovesAtCheck) { framesLoopOwedForMoves++; }
+        }
         var narrowed = frames.BeginFrame(flagged, appState.ShuttingDown, appState.ActiveTab, guiRenderer.ClockRect);
         if (narrowed.Count == 0)
         {
@@ -642,8 +663,12 @@ loop.OnPostFrame = () =>
         return;
     }
 
-    // A narrowed frame drew nothing a flag asked for, so it clears none (#2130).
-    if (!frames.FrameIsNarrow)
+    // A frame that repainted part of the window drew nothing a flag asked for, so it clears none (#2130). Asked of what
+    // the renderer DID, never of what the scheduler meant: a swapchain image that missed a full frame is repainted whole
+    // whatever damage was declared, and such a frame drew everything. Left uncleared, a flag raised while it was drawn
+    // (the atlas levels its roll in the draw) bought a second full frame, which put every other image a full frame
+    // behind again, so on the Sky Map no narrowed frame was ever drawn as one.
+    if (!renderer.LastFrameWasPartial)
     {
         if (!appState.ShuttingDown && !signalSetRedraw)
         {

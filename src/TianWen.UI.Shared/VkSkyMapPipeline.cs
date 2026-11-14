@@ -540,7 +540,9 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         var api = _ctx.DeviceApi;
 
-        // Set viewport and scissor for the sky map area
+        // The viewport of the sky map area. The SCISSOR is the caller's (VkSkyMapTab clips to the map rect through the
+        // renderer's clip stack), so these draws stay inside the frame's damaged region and any enclosing clip: a
+        // scissor set here drew the whole map on a frame that was to repaint one rectangle (#2130).
         VkViewport viewport = new()
         {
             x = offsetX,
@@ -550,13 +552,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             minDepth = 0f,
             maxDepth = 1f
         };
-        VkRect2D scissor = new()
-        {
-            offset = new VkOffset2D((int)offsetX, (int)offsetY),
-            extent = new VkExtent2D((uint)viewportWidth, (uint)viewportHeight)
-        };
         api.vkCmdSetViewport(cmd, 0, 1, &viewport);
-        api.vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         // Bind the current frame's UBO descriptor set (shared by all sub-pipelines).
         // _currentUboFrame was set by the most recent UpdateUbo call.
@@ -825,10 +821,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             width = viewportWidth, height = viewportHeight,
             minDepth = 0f, maxDepth = 1f
         };
-        VkRect2D scissor = new(new VkOffset2D((int)offsetX, (int)offsetY),
-            new VkExtent2D((uint)viewportWidth, (uint)viewportHeight));
+        // The scissor is the caller's, as in Draw.
         api.vkCmdSetViewport(cmd, 0, 1, &vp);
-        api.vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         _ctx.BeginGpuSection("skymap.overlays");
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _overlayEllipsePipeline);

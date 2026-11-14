@@ -19,7 +19,7 @@ namespace TianWen.UI.Abstractions
     /// is delegated to <see cref="RenderSkyMap"/> which the Vulkan subclass overrides
     /// to cache as a GPU texture. Text labels and overlays are drawn natively on top.
     /// </summary>
-    public partial class SkyMapTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    public partial class SkyMapTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), IPointerMoveChange
     {
         private static readonly RGBAColor32 InfoPanelBg   = new(0x10, 0x10, 0x1C, 0xE0);
         private static readonly RGBAColor32 InfoText      = new(0xCC, 0xCC, 0xCC, 0xFF);
@@ -207,6 +207,7 @@ namespace TianWen.UI.Abstractions
             _contentX = contentRect.X;
             _contentY = contentRect.Y;
             State.LastContentRect = contentRect;
+            State.BeginDraw();
             var siteLat = plannerState.SiteLatitude;
             var siteLon = plannerState.SiteLongitude;
             var viewingTime = ResolveViewingTime(plannerState, timeProvider);
@@ -221,6 +222,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private DateTimeOffset ResolveViewingTime(PlannerState plannerState, ITimeProvider timeProvider)
         {
+            // A frame that repaints one rectangle draws the instant the rest of the map was drawn at, or the rectangle
+            // would show a sky up to a second later than the map around it: several pixels of drift at a deep zoom.
+            if (HoldViewingTime && _lastViewingTime != default)
+            {
+                return _lastViewingTime;
+            }
+
             var viewingTime = ResolveBaseTime(plannerState, timeProvider) + State.TimeOffset;
             _lastViewingTime = viewingTime;
             return viewingTime;
@@ -1424,27 +1432,78 @@ namespace TianWen.UI.Abstractions
             // The view's frame is the switch at the strip's left (BuildModeSwitch), in words; [P] stays in the readout
             // whatever the palette is doing, since the frame is the map's MODE, not one of its layers, so it is not in
             // the table the panel renders.
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [P] view{layerHints}{levelHint}";
+            var position = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0";
+            // What the readout says with less and less room, least needed first: the key hints (the palette and F1 say
+            // them), the limiting magnitude, the position, the field, and then nothing.
+            ReadOnlySpan<string> readouts =
+            [
+                $"{position}    {fovText}    {magText}    [P] view{layerHints}{levelHint}",
+                $"{position}    {fovText}    {magText}",
+                $"{position}    {fovText}",
+                fovText,
+                "",
+            ];
 
             // The time on the right, blue when time-shifted, inside its controls (SkyMapTab.TimeControls): the
             // steps the arrow keys take either side of it, a press on the time for the night's landmarks, and
             // Now while scrubbed. The info text takes what they leave, so the two can no longer overlap.
             var timeColor = isTimeShifted ? TimeShiftColor : InfoText;
+            var stripFont = fontSize * 0.85f;
+            var stripRect = new RectF32(rect.X + 8, stripY, rect.Width - 16, stripH);
+            var modeSwitch = BuildModeSwitch(stripFont, dpiScale);
+            var afterSwitch = Layout.Builder.Spacer().WFixed(8f * dpiScale);
+
+            // The readout is packed from the left and the time controls from the right, and a row packed from both ends
+            // draws over itself once the window is narrower than the two together (it did, from about 1100 px). So the
+            // strip gives things up until what is left fits, on the engine's measurement of the row: the readout a part
+            // at a time, then the steps either side of the time down to the hour, then those. The time is measured at the
+            // width its button keeps for a scrubbed date, which is what the button takes of the room when it can.
+            ReadOnlySpan<(int Readout, int Steps)> fits =
+            [
+                (0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (4, 1), (4, 0),
+            ];
+            var fit = fits[^1];
+            foreach (var candidate in fits)
+            {
+                var row = Layout.Builder.HStack(
+                        modeSwitch,
+                        afterSwitch,
+                        Layout.Builder.Text(readouts[candidate.Readout], stripFont, trim: TextTrim.None).WAuto(),
+                        TimeControlsGroup(BuildTimeControls(TimeTextWidthSample, timeColor, stripFont, dpiScale, stepsPerSide: candidate.Steps), dpiScale)
+                            .WAuto())
+                    .WAuto();
+                var needed = Layout.Engine.Measure(
+                    row, new Layout.Size<float>(float.MaxValue, stripH), MeasureContext(scale: DesignScale.One)).Width;
+                if (needed <= stripRect.Width)
+                {
+                    fit = candidate;
+                    break;
+                }
+            }
+
+            var info = readouts[fit.Readout];
             var arranged = RenderLayout(
                 Layout.Builder.HStack(
-                    BuildModeSwitch(fontSize * 0.85f, dpiScale),
-                    Layout.Builder.Spacer().WFixed(8f * dpiScale),
+                    modeSwitch,
+                    afterSwitch,
                     Layout.Builder.Fill(key: InfoStripTextKey).WStar(),
-                    TimeControlsGroup(BuildTimeControls(timeText, timeColor, fontSize * 0.85f, dpiScale), dpiScale)),
-                new RectF32(rect.X + 8, stripY, rect.Width - 16, stripH),
+                    TimeControlsGroup(BuildTimeControls(timeText, timeColor, stripFont, dpiScale, stepsPerSide: fit.Steps), dpiScale)),
+                stripRect,
                 // Device pixels, like the rest of the strip.
                 scale: DesignScale.One);
             RememberTimeButton(arranged);
 
+            // Clipped to its own slot besides: a readout a digit wider than the one measured ends at the controls, never
+            // over them.
             var infoRect = ArrangedFills.RectOf(arranged, InfoStripTextKey);
-            DrawText(info.AsSpan(), fontPath,
-                infoRect.X, stripY, infoRect.Width, stripH,
-                fontSize * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
+            if (info.Length > 0 && infoRect.Width > 0f)
+            {
+                PushClip(infoRect.X, stripY, infoRect.Width, stripH);
+                DrawText(info.AsSpan(), fontPath,
+                    infoRect.X, stripY, infoRect.Width, stripH,
+                    stripFont, InfoText, TextAlign.Near, TextAlign.Center);
+                PopClip();
+            }
         }
 
         private const string InfoStripTextKey = "skymap-info-text";

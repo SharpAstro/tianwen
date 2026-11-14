@@ -139,13 +139,13 @@ public static class GuiTimeCadence
     }
 
     /// <summary>
-    /// Whether a frame owed to the clock alone may repaint the clock's rectangle alone on this tab. Not where the sky map's
-    /// own pipeline draws (the Sky Map; the Live Session and the Guider, whose viewer can lay the sky behind a frame): it
-    /// sets its own scissor and viewport, so it would draw outside a narrowed render area. Those tabs keep a full frame for
-    /// the tick until the pipeline is bounded by the frame's region.
+    /// Whether a frame owed to the clock alone may repaint the clock's rectangle alone on this tab. The Sky Map may since
+    /// its pipeline's draws are clipped through the renderer's clip stack, which the frame's region bounds (it used to set
+    /// a scissor of its own and would have drawn outside a narrowed render area). The Live Session and the Guider, whose
+    /// viewer can lay the sky behind a frame, keep a full frame for the tick until a narrowed frame has been looked at there.
     /// </summary>
     public static bool ClockMayRepaintAlone(GuiTab tab)
-        => tab is GuiTab.Home or GuiTab.Equipment or GuiTab.Planner or GuiTab.Session or GuiTab.Notifications;
+        => tab is GuiTab.Home or GuiTab.Equipment or GuiTab.Planner or GuiTab.Session or GuiTab.Notifications or GuiTab.SkyMap;
 
     /// <summary>Whether ANY frame may be narrowed on this tab: the same question as <see cref="ClockMayRepaintAlone"/>.</summary>
     public static bool MayNarrow(GuiTab tab) => ClockMayRepaintAlone(tab);

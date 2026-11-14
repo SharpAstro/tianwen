@@ -101,17 +101,18 @@ public class GuiFrameReasonsTests
         GuiTimeCadence.Interval(GuiTab.LiveSession, runGoingOn: false, previewCapturing: true, slewInFlight: true).ShouldBe(GuiTimeCadence.Progress);
     }
 
-    // Where the sky map's own pipeline can draw, a narrowed frame is not sound yet: it sets its own scissor.
+    // The Sky Map may since its pipeline draws through the renderer's clip stack (#2130). The viewer tabs, which can lay
+    // the sky behind a frame, wait until a narrowed frame has been looked at there.
     [Theory]
     [InlineData(GuiTab.Home, true)]
     [InlineData(GuiTab.Equipment, true)]
     [InlineData(GuiTab.Planner, true)]
     [InlineData(GuiTab.Session, true)]
     [InlineData(GuiTab.Notifications, true)]
-    [InlineData(GuiTab.SkyMap, false)]
+    [InlineData(GuiTab.SkyMap, true)]
     [InlineData(GuiTab.LiveSession, false)]
     [InlineData(GuiTab.Guider, false)]
-    public void TheClockRepaintsAloneOnlyWhereNothingDrawsWithItsOwnScissor(GuiTab tab, bool alone)
+    public void TheClockRepaintsAloneOnlyWhereANarrowedFrameIsKnownSound(GuiTab tab, bool alone)
         => GuiTimeCadence.ClockMayRepaintAlone(tab).ShouldBe(alone);
 
     /// <summary>A window that has drawn its first frame.</summary>

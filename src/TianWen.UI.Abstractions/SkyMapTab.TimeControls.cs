@@ -117,8 +117,10 @@ public partial class SkyMapTab<TSurface>
     /// </summary>
     /// <remarks>The fill and ink are the sky strip's own unless the caller states its own: the orrery's come from the palette, so
     /// Night spends no blue there.</remarks>
+    /// <param name="stepsPerSide">How many of the steps either side of the time are shown: all three, the hour alone (1), or
+    /// none (0), for a strip too narrow for them. The arrow keys take every step whatever is shown.</param>
     private ImmutableArray<Layout.Node> BuildTimeControls(string timeText, RGBAColor32 timeColor, float fontSize, float dpiScale,
-        RGBAColor32? fillColour = null, RGBAColor32? inkColour = null)
+        RGBAColor32? fillColour = null, RGBAColor32? inkColour = null, int stepsPerSide = 3)
     {
         var fill = fillColour ?? InfoPanelBg;
         var ink = inkColour ?? InfoText;
@@ -143,7 +145,7 @@ public partial class SkyMapTab<TSurface>
                 .Clickable(new HitResult.ButtonHit("SkyTimeNow"), _ => ResetTimeOffset()));
         }
 
-        foreach (var step in BackSteps)
+        foreach (var step in ShownSteps(BackSteps, stepsPerSide))
         {
             children.Add(Step(step));
         }
@@ -164,13 +166,22 @@ public partial class SkyMapTab<TSurface>
             .Bg(fill).BgHover(GuiTheme.Hover(fill))
             .Clickable(new HitResult.ButtonHit(TimeMenuAction), _ => OpenTimeMenu(_timeButtonRect, fontSize)));
 
-        foreach (var step in ForwardSteps)
+        foreach (var step in ShownSteps(ForwardSteps, stepsPerSide))
         {
             children.Add(Step(step));
         }
 
         return children.ToImmutable();
     }
+
+    /// <summary>The steps of one side a strip shows: all of them, the hour alone (the middle one), or none.</summary>
+    private static ReadOnlySpan<(string Label, TimeSpan Delta)> ShownSteps(ImmutableArray<(string Label, TimeSpan Delta)> steps, int perSide)
+        => perSide switch
+        {
+            <= 0 => [],
+            1 => steps.AsSpan(1, 1),
+            _ => steps.AsSpan(),
+        };
 
     /// <summary>The narrowest the time button gives way to under pressure, in ems of its font: the date's year and month.</summary>
     internal const float TimeLabelMinEm = 4f;
