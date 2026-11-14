@@ -5308,7 +5308,7 @@ stars in 123 sessions: **10.32 %** with blue at 1.6 times green's beta or more (
 times or more (bar 0.8 to 2.0 %). Per star, blue over green's beta reads 0.72, 1.01, 1.61 and 4.64 at the 10th, 50th,
 90th and 99th percentile. Seed 0's training started the same night on the SSD cache (4,840 cells, 19.5 GiB).
 
-**R3t, read 2026-11-14: killed by the SMC's 100-1000 sigma guard on seed 0; M42 gives most of R3s's gain back.** Seed 0
+**R3t, read 2026-11-14: killed by the SMC's 100-1000 sigma guard on seed 0; M42's band keeps most of R3s's gain, its blue dig is given back.** Seed 0
 trained to convergence (stopped at step 244,000, best held-out 6.49e-6 at 232,000). One seed, so every bar is read on seed 0
 against R3l's mean, R3l's own seeds beside it:
 
@@ -5329,16 +5329,22 @@ against R3l's mean, R3l's own seeds beside it:
   read 96.6 and 84.7 there, so seed 0 sits 1.6 under R3l's lower seed; the registration reads it against the mean, and its
   one exception is Tarantula's row, so the arm is killed and seed 1 is not trained. Unlike R3s, whose SMC stars were LEFT, these
   are DUG (13.6 %, 8 stars; R3l 0.0 on both seeds).
-- **The prediction held in its shape.** The SMC's 20-100 row returned to R3l's (94.9; R3s 81.4), and so did Tarantula's dark sky
-  (72.1; R3s 67.2). M42 landed between R3l's 33 and R3s's 55, at 47.1, short of 50, and its blue dig at 2 and 3 px is R3l's again
-  (-2.88, -1.68): the stated risk. M42's blue beta is 2.64 times its green's, outside a spread of 2, so M42's gain needs the wide
-  spread and the SMC's wing has to be mended another way.
+- **The prediction held in part.** It said the SMC's two rows return to within 3 of R3l's mean: the 20-100 row did (94.9; R3s
+  81.4) and the 100-1000 row did not (83.1 against 90.7, the row that kills the arm). Tarantula's dark sky returned too (72.1;
+  R3s 67.2). M42 landed between R3l's 33 and R3s's 55, at 47.1, short of 50: its band keeps 14.0 of R3s's 22.4 points and its dug
+  share about half (64.4, 39.0, 51.5), while its blue dig at 2 and 3 px is R3l's again (-2.88, -1.68), the stated risk.
+- **The SMC's wing is not mended, it moved from green left to blue dug** (`bright-channel-r3t-s0.txt`): at 2 to 4 px R3t's blue
+  reads -0.95, -1.04, -0.97 sigma where SXT reads -0.43, -0.44, -0.43 and R3l -0.39, -0.30, -0.10 (s0) and -0.56, -0.51, -0.24
+  (s1). That, and not the n = 59 row alone, is why the SMC needs another fix. M42's blue beta is 2.64 times its green's, outside a
+  spread of 2, which fits M42 needing the wide spread; that is read off one seed, and 47.1 sits 5.8 under R3s's lower seed, inside
+  the 5 to 12 point seed spread this row has shown.
 - **Outside the bars:** Andromeda's dark sky is dug on 34.7 % (R3l 45.1, R3s 25.3); M42's 100-1000 sigma stars are dug on 51.5 %
   (R3l 70.6 / 58.1, R3s 39.0).
 - The saturated rows are not read, as registered.
 
-Read from `C:/temp/e2/check3-r3t-s0-own.txt`, `bright-channel-r3t-s0.txt`, `f2-whole-master/w-r3t_synth23_s0/row.txt`,
-`f2-reports-master/m31-nucleus-r3t_synth23_s0.txt` and `f2-logs-master/score-r3t_synth23_s0/eval-on-random.log` on DE1. Check 3
+Read on DE1 from `C:/temp/e2/check3-r3t-s0-own.txt` and `bright-channel-r3t-s0.txt`, and under `C:/temp/tianwen-scratch` from
+`f2-whole-master/w-r3t_synth23_s0/row.txt`, `f2-reports-master/m31-nucleus-r3t_synth23_s0.txt` and
+`f2-logs-master/score-r3t_synth23_s0/eval-on-random.log`. Check 3
 and the channel profile were run by hand from the main checkout with the chain's own arguments, after the chain's copies failed
 on a script folder that had gone. Not adopted; what follows is the owner's to choose.
 
