@@ -5348,35 +5348,6 @@ Read on DE1 from `C:/temp/e2/check3-r3t-s0-own.txt` and `bright-channel-r3t-s0.t
 and the channel profile were run by hand from the main checkout with the chain's own arguments, after the chain's copies failed
 on a script folder that had gone. Not adopted; what follows is the owner's to choose.
 
-**R3u, pre-registered 2026-11-14 (the owner chose "mixed" the same day).** One change from R3s and R3t: the channel spread is
-3 for half the training set and 2 for the other half. The question: does a model that sees both spreads keep M42's band as
-the spread of 3 did and the SMC's and Tarantula's guards as the spread of 2 did.
-- **The training set, made with no new export:** `synth24` = `mix_caches.py` over the prepared caches of synth22 (spread 3)
-  and synth23 (spread 2), seed 0. The two hold the same 4,840 cells in the same order (their `meta.json`, star tables and
-  noise-plane flags are identical, and the tiles of the slots that hold no draw are identical); each cell's tiles and noise
-  planes are copied whole from one of the two, exactly half the cells from each, the 320 held-out cells among them. Every
-  cell of the mix is therefore a cell an export made, and a held cell's red and blue betas are log-uniform in [1/3, 3] of its
-  green's in half the cells and in [1/2, 2] in the other half.
-- **The training:** R3s's exactly, from the same frozen trainer copy (`C:/temp/e2/r3h-run`), on the SSD, **one seed first**
-  as R3t: seed 1 is trained only if seed 0 holds every guard below and its M42 band reads at least 40.
-- **Scored** as R3t was, from a frozen copy of `training/star-removal` outside the checkout and its worktrees.
-
-The bars:
-- **Q1, the mix, before training:** `mix.json` names 2,420 cells from each cache, and 40 cells drawn at random read back
-  byte for byte equal to their named source and, where the two sources differ, unequal to the other.
-- **Q2, M42:** as R3s's and R3t's: its 100-1000 sigma stars at least 50 % clean on the own ring; its blue at 2 to 3 px within
-  0.7 sigma of SXT's.
-- **Guards:** as R3t's, every one: HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below R3l's
-  mean on the own ring; truth tiles at least 72 and 54; Andromeda dark dug at most 47 and Tarantula dark flat at least 69;
-  the M31 nucleus under 40 % in every channel.
-- **Kill:** Q1 fails; or M42 under 40; or a guard fails. As for R3t, a seed 0 that fails on Tarantula's row ALONE by under
-  4 points trains seed 1 and is read on the mean.
-- **Prediction:** the share of stars with blue at 2.4 times green's beta or more sits near 2.7 % (the mean of R3s's 4.12 and
-  R3t's 1.21; not measured on the mix). M42's band lands between R3t's 47.1 and R3s's 55.5 and whether it clears 50 is open.
-  M42's blue dig is missed again, since the spread of 3 alone missed it by 1.8 and 1.1 sigma. The risk is the SMC: R3s left
-  its green wing and R3t dug its blue one, so a mix may do a part of each and fail the 100-1000 row a third time, and then
-  the read is that the channel spread is not the lever for the SMC at any setting and this line stops.
-
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
