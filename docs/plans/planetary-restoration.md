@@ -6966,21 +6966,23 @@ halo50`), stacked at keep 0.5, judged against the green truth and scored as step
 - **Half the light scattered over 38 arcsec moves the edge by 0.036**, a quarter by 0.007. The prediction (near 0.21 to 0.26 and 0.32,
   the contrast falling by the scattered share) was wrong. The scattered light does reach the stack, as a smooth bell outside the
   limb; the limb fit's halo widens a little with it (18.4 to 20.7 and 28.0 px) and its share does not move (0.31 to 0.32).
-- **The real master holds LESS light outside its limb than a twin with no scatter at all.** The green plane's median in rings at 1.1
-  to 1.2, 1.3 to 1.4 and 1.4 to 1.5 radii (R 239.04 px), as a share of the median inside half a radius:
+- **The real master holds about as much light just outside its limb as the twin, and far less than either arm.** The green plane's
+  median in rings at 1.1 to 1.2, 1.3 to 1.4 and 1.4 to 1.5 radii (R 239.04 px), above the master's own level past 1.6 radii (the
+  masters do not share a zero: the real one is sky-subtracted, the twins keep a floor), as a share of the median inside half a radius:
 
-  | master | 1.1 to 1.2 R | 1.3 to 1.4 R | 1.4 to 1.5 R |
-  |---|---|---|---|
-  | the real master (keep 0.5) | 0.35 % | 0.14 % | 0.09 % |
-  | `noscatter` (step 2b) | 0.55 % | 0.43 % | 0.43 % |
-  | d024 (step 2a) | 0.86 % | 0.59 % | 0.55 % |
-  | `halo25` | 5.33 % | 4.52 % | 4.18 % |
-  | `halo50` | 13.12 % | 11.20 % | 10.30 % |
+  | master | its level past 1.6 R | 1.1 to 1.2 R | 1.3 to 1.4 R | 1.4 to 1.5 R |
+  |---|---|---|---|---|
+  | the real master (keep 0.5) | 0.01 % | 0.34 % | 0.13 % | 0.08 % |
+  | `noscatter` (step 2b) | 0.43 % | 0.12 % | 0.00 % | 0.00 % |
+  | d024 (step 2a) | 0.50 % | 0.36 % | 0.09 % | 0.05 % |
+  | `halo25` | 3.45 % | 1.86 % | 1.05 % | 0.71 % |
+  | `halo50` | 8.38 % | 4.67 % | 2.76 % | 1.87 % |
 
-  So the two arms put 15 to 114 times the real master's light out there, and whatever lowers the real edge is not light beyond the
-  limb. The real fit's "0.50 of 370 px" is the limb fit's two bounds (`PlanetaryLimbFit.HaloFraction` keeps the share under 0.5,
-  `HaloRatio` the width at most 64 cores, and 370 / 64 is 5.8 px): a stand-in for a limb that falls slower than the model allows,
-  never a measure of scattered light. R11's opening table read it as one; this step's question came from that reading.
+  The two arms hold 5 to 23 times the real master's light in those rings (more, counted from the sky: their level past 1.6 radii
+  is itself scattered light), and that much light does not make its soft limb. The real fit's "0.50 of 370 px" is the limb fit's
+  two bounds (`PlanetaryLimbFit.HaloFraction` keeps the share under 0.5, `HaloRatio` the width at most 64 cores; the real master's
+  core reads 5.79 px): a stand-in for a limb that falls slower than the model allows, never a measure of scattered light. R11's
+  opening table read it as one; this step's question came from that reading.
 - The mapping of the limb fit's halo onto the twin maker's scatter was loose, as the registration said, and a pass would only have
   shown the mechanism able to make the edge. What makes the real edge low is still not known; the terms no twin carries are the
   atmosphere's dispersion within a colour and a registration that is weaker along the equator (R7).
