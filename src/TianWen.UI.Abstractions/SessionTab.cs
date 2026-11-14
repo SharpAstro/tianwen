@@ -135,28 +135,36 @@ namespace TianWen.UI.Abstractions
             // A caveat beside a value is a star, which adds nothing to the measure, so it coming and going does not
             // move the split.
             CollectStepperValues();
+            // The value column is bounded by the whole tab, so even stacked (where the form has the tab's width) a
+            // long value cannot push a row's steppers past its edge.
             _stepperValueW = MeasureValueColumnWidth(
                 _stepperValueScratch, FontPath, BaseFontSize,
-                minWidth: BaseValueW, maxWidth: float.MaxValue, horizontalPadding: BasePadding);
+                minWidth: BaseValueW,
+                maxWidth: contentRect.Width / dpiScale - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f,
+                horizontalPadding: BasePadding);
             var formNeed = MeasureLayout(
                 BuildConfigTree(), new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width;
+            // Each floor is stated once: the side-by-side tree declares them and the fit test below reads the same
+            // values (a star's floor is not part of the engine's measure of the row, so the test cannot ask it).
+            var ruleW = BaseSeparatorW * dpiScale;
+            var panelLeast = BaseObsPanelLeastWidth * dpiScale;
             var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
             var sideBySide = Layout.Builder.HStack(
                 Layout.Builder.Fill(key: ConfigFillKey).WStar(1f, min: formNeed).HStar(),
-                rule.WFixed(BaseSeparatorW * dpiScale).HStar(),
+                rule.WFixed(ruleW).HStar(),
                 // Equal shares between the form's floor and the panel's ceiling. The two bounds cannot both bind (the
                 // ceiling binds in a wide tab, the floor in a narrow one), which matters: the engine freezes a capped
                 // star and a floored one in the same pass, and a panel weighted to fill first overflowed the tab.
                 Layout.Builder.Fill(key: ObsFillKey)
-                    .WStar(1f, min: BaseObsPanelLeastWidth * dpiScale, max: BaseObsPanelWidth * dpiScale).HStar());
-            // The two at their least (a star's floor is not part of the engine's measure of the row, so it is asked here).
-            var fitsSideBySide = formNeed + (BaseSeparatorW + BaseObsPanelLeastWidth) * dpiScale <= contentRect.Width;
+                    .WStar(1f, min: panelLeast, max: BaseObsPanelWidth * dpiScale).HStar());
+            // The three at their least.
+            var fitsSideBySide = formNeed + ruleW + panelLeast <= contentRect.Width;
             var frame = RenderLayout(
                 fitsSideBySide
                     ? sideBySide
                     : Layout.Builder.VStack(
                         Layout.Builder.Fill(key: ConfigFillKey).WStar().HStar(StackedFormShare),
-                        rule.HFixed(BaseSeparatorW * dpiScale).WStar(),
+                        rule.HFixed(ruleW).WStar(),
                         Layout.Builder.Fill(key: ObsFillKey).WStar().HStar(1f - StackedFormShare)),
                 contentRect, scale: DesignScale.One);
 
