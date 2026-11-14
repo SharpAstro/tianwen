@@ -17,7 +17,7 @@ namespace TianWen.UI.Abstractions
     /// windows) stacks chart / compact details / list vertically instead. All three regions paint
     /// with opaque backgrounds into rects sourced from the same arranged tree hit-testing uses.
     /// </summary>
-    public class PlannerTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    public class PlannerTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), IPointerMoveChange
     {
         /// <summary>Where a picture host reports a load it could not finish; set by the host like the atlas's.</summary>
         public ILogger? Logger { get; set; }
@@ -836,7 +836,7 @@ namespace TianWen.UI.Abstractions
                         if (_state is not null) _state.NeedsRedraw = true;
                         return true;
                     }
-                    return _chartRect.Contains(mx, my);
+                    return NoteFollowerMove(mx, my);
 
                 // Release: end a drag, or select the tapped row (tap-on-release).
                 case InputEvent.MouseUp(_, _, MouseButton.Left):
@@ -848,6 +848,85 @@ namespace TianWen.UI.Abstractions
                 default:
                     return false;
             }
+        }
+
+        // What the last move made the chart's hover draw: the follower's extent (null while it draws none), and whether
+        // the pointer was on the weather band, whose tooltip the layout engine places.
+        private RectF32? _followerDrawn;
+        private bool _onWeatherBand;
+        private RectF32? _followerChanged;
+        private bool _followerUnstated;
+
+        /// <summary>
+        /// A pointer move over the chart, or off it: says whether what the chart's hover draws changed (a frame is owed)
+        /// and records the extent of the change, so that frame repaints it alone (<see cref="IPointerMoveChange"/>, #2130).
+        /// The chart is a cached texture and the follower an overlay on it, so a move changes two strips: where the
+        /// follower was and where it is, each <see cref="AltitudeChartRenderer.FollowerRect"/>, the rectangle the painter
+        /// itself clips to. The whole window used to be repainted for it, thirty times a second while hovering. The
+        /// weather band's tooltip is placed by the layout engine, so a move on or off the band states nothing and its
+        /// frame is a full one.
+        /// </summary>
+        private bool NoteFollowerMove(float x, float y)
+        {
+            var chart = _chartRect;
+            RectF32? now = null;
+            var onBand = false;
+            if (_state is { } state && chart.Contains(x, y))
+            {
+                // The chart's area as RenderChart hands it to the painter.
+                var (areaX, areaY, areaW, areaH) = ((int)chart.X, (int)chart.Y, (int)chart.Width, (int)chart.Height);
+                if (AltitudeChartRenderer.FollowerRect(state, (x, y), areaX, areaY, areaW, areaH, DpiScale) is { } drawn)
+                {
+                    now = new RectF32(drawn.UpperLeft.X, drawn.UpperLeft.Y, drawn.Width, drawn.Height);
+                }
+                onBand = AltitudeChartRenderer.IsOnWeatherBand(state, (x, y), areaX, areaY, areaW, areaH, DpiScale);
+            }
+
+            var was = _followerDrawn;
+            var wasOnBand = _onWeatherBand;
+            _followerDrawn = now;
+            _onWeatherBand = onBand;
+            if (onBand || wasOnBand)
+            {
+                _followerUnstated = true;
+                return true;
+            }
+            if (was is null && now is null)
+            {
+                // Over the chart's margins, or off it with nothing left behind: the move changed nothing.
+                return false;
+            }
+
+            // Leaving the plot is a change too: the follower has to go. It used to stay drawn until some other frame.
+            _followerChanged = Union(_followerChanged, Union(was, now));
+            return true;
+        }
+
+        private static RectF32? Union(RectF32? a, RectF32? b)
+        {
+            if (a is not { } ra)
+            {
+                return b;
+            }
+            if (b is not { } rb)
+            {
+                return a;
+            }
+
+            var x0 = MathF.Min(ra.X, rb.X);
+            var y0 = MathF.Min(ra.Y, rb.Y);
+            var x1 = MathF.Max(ra.X + ra.Width, rb.X + rb.Width);
+            var y1 = MathF.Max(ra.Y + ra.Height, rb.Y + rb.Height);
+            return new RectF32(x0, y0, x1 - x0, y1 - y0);
+        }
+
+        /// <inheritdoc/>
+        public RectF32? TakePointerMoveChanged()
+        {
+            var changed = _followerUnstated ? null : _followerChanged;
+            _followerChanged = null;
+            _followerUnstated = false;
+            return changed;
         }
 
         private bool ForwardTargetListInput(InputEvent evt)

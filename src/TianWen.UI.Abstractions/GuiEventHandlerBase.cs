@@ -153,7 +153,14 @@ namespace TianWen.UI.Abstractions
             }
 
             var before = _appState.ActiveTab;
+            _moveStated = false;
             var consumed = _router.Handle(evt);
+            if (consumed && evt is InputEvent.MouseMove && !_moveStated)
+            {
+                // Taken by something that did not say what it changed (a region's hover, a drag, a tab that only answers
+                // "handled"): the frame it asks for is a full one.
+                _pointerMoveUnstated = true;
+            }
             if (_appState.ActiveTab != before)
             {
                 ApplyTabPolicy(_appState.ActiveTab);
@@ -215,7 +222,50 @@ namespace TianWen.UI.Abstractions
         // No divider branch: a drag is a DragCapture the region armed, and the router delivers every move
         // to it without this path seeing them at all. What is left is the tab's (hover, drag-pan, scrollbar).
         private bool HandleMissedMove(InputEvent.MouseMove move)
-            => _chrome.ActiveTab?.HandleInput(move) ?? false;
+        {
+            var tab = _chrome.ActiveTab;
+            var handled = tab?.HandleInput(move) ?? false;
+            // What the move changed, when the tab can say: the frame it asks for may then repaint that alone
+            // (GuiFrameScheduler). A tab that took the move and says nothing gets a full frame, as always. Asked of a
+            // move the tab did NOT take as well: the atlas's hover never takes one (a hover is noticed on the way
+            // past), and a changed highlight is still a change on screen, which then owes a frame like a taken move.
+            if (tab is IPointerMoveChange stated && stated.TakePointerMoveChanged() is { } changed)
+            {
+                _pointerMoveChanged = _pointerMoveChanged is { } held ? Union(held, changed) : changed;
+                _moveStated = true;
+                return true;
+            }
+
+            return handled;
+        }
+
+        private RectF32? _pointerMoveChanged;
+        private bool _pointerMoveUnstated;
+        // Whether the move being routed was taken by a tab that said what it changed.
+        private bool _moveStated;
+
+        /// <summary>
+        /// What the pointer moves taken since the last call changed on screen, for the host's redraw check: the extent the
+        /// tabs that took them stated (null when none did), and whether any was taken by something that did not say, which
+        /// makes the next frame a full one.
+        /// </summary>
+        public RectF32? TakePointerMoveChanged(out bool unstated)
+        {
+            var changed = _pointerMoveChanged;
+            unstated = _pointerMoveUnstated;
+            _pointerMoveChanged = null;
+            _pointerMoveUnstated = false;
+            return changed;
+        }
+
+        private static RectF32 Union(RectF32 a, RectF32 b)
+        {
+            var x0 = MathF.Min(a.X, b.X);
+            var y0 = MathF.Min(a.Y, b.Y);
+            var x1 = MathF.Max(a.X + a.Width, b.X + b.Width);
+            var y1 = MathF.Max(a.Y + a.Height, b.Y + b.Height);
+            return new RectF32(x0, y0, x1 - x0, y1 - y0);
+        }
 
         private bool HandleMissedRelease(InputEvent.MouseUp up)
         {

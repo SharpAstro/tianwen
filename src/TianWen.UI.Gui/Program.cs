@@ -291,7 +291,25 @@ tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions { Loc
 
 
 // --- Main event loop via SdlEventLoop ---
-var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();
+// WHETHER a frame is owed and WHAT it repaints is GuiFrameScheduler's (#2130): the clock, the tab's time-driven
+// content, a change and a pointer move are four causes with nothing shared, and only this wiring is left here.
+var frames = new GuiFrameScheduler(timeProvider.GetTimestamp(), timeProvider.TimestampFrequency);
+// Which repaint path each frame took. Counted because a partial frame is identical on screen to a full one, so no
+// capture can tell them apart: the DEBUG inspector's state reports both.
+long fullFrames = 0;
+long partialFrames = 0;
+// TIANWEN_FRAME_LOG=1 writes those counts, the tab on show and each cause's count to the log every five seconds: the
+// evidence for a measurement on a machine no inspector reaches (a software renderer in WSL, a Raspberry Pi).
+var frameLog = Environment.GetEnvironmentVariable("TIANWEN_FRAME_LOG") == "1";
+var _lastFrameLogTimestamp = timeProvider.GetTimestamp();
+long _lastLoggedFull = 0;
+long _lastLoggedPartial = 0;
+// For the same log line: the frames that found each redraw flag set as they began, and those the loop owed for a cause
+// of its own. A frame can count under several.
+int _lastHoverResolves = 0, _lastHoverRequests = 0;
+int flagApp = 0, flagPlanner = 0, flagSky = 0, flagContexts = 0, framesLoopOwed = 0, framesLoopOwedForMoves = 0;
+// What the loop owed at the check before the frame: it clears its own flag before OnBeforeFrame runs.
+bool loopOwedAtCheck = false, loopOwedForMovesAtCheck = false;
 // The shutdown drain's redraw tick (see CheckNeedsRedraw): 0 so its first check draws at once.
 long _lastShutdownRedrawTimestamp = 0;
 long _lastSlowFrameLogTimestamp = 0;
@@ -302,6 +320,8 @@ long _lastSlowFrameLogTimestamp = 0;
 var canvasBackground = new RGBAColor32(0x12, 0x12, 0x18, 0xff);
 guiRenderer.CanvasBackground = canvasBackground;
 
+// The loop, for the hooks in its own initialiser, which cannot name it; null only until the line after it is built.
+SdlEventLoop? eventLoop = null;
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
     BackgroundColor = canvasBackground,
@@ -456,31 +476,36 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             return false;
         }
 
-        // The status-bar wall clock (HH:mm:ss) is shown on EVERY tab, so we need at
-        // least a 1 Hz redraw on all tabs to make it tick. This used to be gated to the
-        // Live Session / Guider / Sky Map tabs, which is exactly why the clock on the
-        // Planner (and other tabs) only updated when an input event happened to force a
-        // frame. 500ms while a session OR a polar-alignment routine is running (progress
-        // bars, per-rung "Probing 200ms (3/8)" status, axis-error needles, locked-exposure
-        // indicator); 1s otherwise (clock tick + sky-map LST advance).
+        if (frameLog && timeProvider.GetElapsedTime(_lastFrameLogTimestamp, timeProvider.GetTimestamp()) >= TimeSpan.FromSeconds(5))
         {
-            var now = timeProvider.GetTimestamp();
-            // The faster cadence is driven by the LOCAL run even when it is off screen: its progress
-            // bars, per-rung status and notifications still have to surface at 2 Hz while a remote
-            // context is displayed. (A remote session's own cadence follows once a mirror exists.)
-            var liveState = guiRenderer.ViewContexts.Local.LiveSession;
-            var inPolarRoutine = liveState.Mode == LiveSessionMode.PolarAlign
-                && liveState.PolarPhase != PolarAlignmentPhase.Idle;
-            var interval = liveState.IsRunning || inPolarRoutine
-                ? TimeSpan.FromMilliseconds(500)
-                : TimeSpan.FromSeconds(1);
-            if (timeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= interval)
-            {
-                _lastSessionRedrawTimestamp = now;
-                return true;
-            }
+            _lastFrameLogTimestamp = timeProvider.GetTimestamp();
+            var causes = frames.Causes;
+            frames.Causes = default;
+            logger.LogInformation(
+                "Frames in 5 s on {ActiveTab}: {Full} full, {Partial} partial; causes changed={Changed} loop={Loop} move={Move} time={Time} settling={Settling} clock={Clock} flagged={Flagged}; frames with flag app={App} planner={Planner} sky={Sky} contexts={Contexts}, owed by the loop {LoopOwed} (for moves alone {MovesAlone}); atlas hover resolves={HoverResolves} asked for a frame={HoverRequests}",
+                appState.ActiveTab, fullFrames - _lastLoggedFull, partialFrames - _lastLoggedPartial,
+                causes.Changed, causes.Loop, causes.PointerMove, causes.Time, causes.Settling, causes.Clock, causes.Flagged,
+                flagApp, flagPlanner, flagSky, flagContexts, framesLoopOwed, framesLoopOwedForMoves,
+                guiRenderer.SkyMapHoverCounts.Resolves - _lastHoverResolves, guiRenderer.SkyMapHoverCounts.FrameRequests - _lastHoverRequests);
+            (_lastHoverResolves, _lastHoverRequests) = guiRenderer.SkyMapHoverCounts;
+            flagApp = flagPlanner = flagSky = flagContexts = framesLoopOwed = framesLoopOwedForMoves = 0;
+            _lastLoggedFull = fullFrames;
+            _lastLoggedPartial = partialFrames;
         }
 
+        var now = timeProvider.GetTimestamp();
+        // A run's faster cadence follows the LOCAL run even when it is off screen (its progress and notifications still
+        // surface at 2 Hz while a remote context is displayed), and the viewed context's own.
+        var localLive = guiRenderer.ViewContexts.Local.LiveSession;
+        var viewedLive = guiRenderer.ViewContexts.Active.LiveSession;
+        var runGoingOn = localLive.IsRunning || viewedLive.IsRunning
+            || (localLive.Mode == LiveSessionMode.PolarAlign && localLive.PolarPhase != PolarAlignmentPhase.Idle)
+            || (viewedLive.Mode == LiveSessionMode.PolarAlign && viewedLive.PolarPhase != PolarAlignmentPhase.Idle);
+        var previewCapturing = false;
+        foreach (var capturing in viewedLive.PreviewCapturing)
+        {
+            previewCapturing |= capturing;
+        }
         // Live-session / planner state changes (progress callbacks fired from
         // the thread pool, etc.) push their redraw flag here -- treat them as
         // first-class triggers so per-rung polar status updates surface within
@@ -489,7 +514,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // undrawn until the next frame; force that follow-up frame so the chart doesn't
         // lag one selection behind. Gated to the Planner tab so it can't spin a redraw
         // loop while another tab is active (the flag clears once RenderChart draws it).
-        return appState.NeedsRedraw || plannerState.NeedsRedraw
+        var changed = appState.NeedsRedraw || plannerState.NeedsRedraw
             || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw
             || (appState.ActiveTab == GuiTab.Planner && guiRenderer.PlannerChartPendingDraw)
@@ -503,6 +528,47 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                 && CaretBlink.PhaseAt(timeProvider.GetTimestamp(), timeProvider.TimestampFrequency) != guiRenderer.PaintedCaretPhase)
             // A tooltip's hover delay runs out while the pointer RESTS, which nothing else notices.
             || handlers.TooltipNeedsFrame;
+
+        // The loop asks this after dispatching the iteration's events, so a frame it armed itself (input a handler took,
+        // an expose, a resize, a frame held back) shows as RedrawPending.
+        var moveChanged = handlers.TakePointerMoveChanged(out var moveUnstated);
+        loopOwedAtCheck = eventLoop is { RedrawPending: true };
+        loopOwedForMovesAtCheck = eventLoop is { RedrawPendingForPointerMoveAlone: true };
+        return frames.Check(now, new GuiFrameInputs(
+            appState.ActiveTab, runGoingOn, previewCapturing,
+            SlewInFlight: guiRenderer.SkyMapState.ActiveSlewTarget is not null,
+            Changed: changed,
+            RedrawPending: eventLoop is not { RedrawPending: false },
+            PendingForPointerMoveAlone: eventLoop is { RedrawPendingForPointerMoveAlone: true },
+            PointerMoveChanged: moveChanged,
+            PointerMoveUnstated: moveUnstated));
+    },
+
+    // Committed to a frame: say what it repaints. The flags are PEEKED here, never consumed: a narrowed frame takes no
+    // part in their life, and they are cleared after a full frame only (OnPostFrame), as they always were.
+    OnBeforeFrame = () =>
+    {
+        var flagged = appState.NeedsRedraw || plannerState.NeedsRedraw || guiRenderer.SkyMapState.NeedsRedraw
+            || guiRenderer.ViewContexts.AnyNeedsRedraw;
+        if (frameLog)
+        {
+            if (appState.NeedsRedraw) { flagApp++; }
+            if (plannerState.NeedsRedraw) { flagPlanner++; }
+            if (guiRenderer.SkyMapState.NeedsRedraw) { flagSky++; }
+            if (guiRenderer.ViewContexts.AnyNeedsRedraw) { flagContexts++; }
+            if (loopOwedAtCheck) { framesLoopOwed++; }
+            if (loopOwedForMovesAtCheck) { framesLoopOwedForMoves++; }
+        }
+        var narrowed = frames.BeginFrame(flagged, appState.ShuttingDown, appState.ActiveTab, guiRenderer.ClockRect);
+        if (narrowed.Count == 0)
+        {
+            renderer.MarkFullFrameDamage();
+            return;
+        }
+        foreach (var rect in narrowed)
+        {
+            renderer.AddFrameDamage(rect.X, rect.Y, rect.Width, rect.Height);
+        }
     },
 
     OnRender = () =>
@@ -515,6 +581,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // in a field on a tab nobody can see. Counting is the opt-in DIR.Lib documents for exactly this,
         // and it is one line rather than a rule the tab ring would otherwise have to special-case.
         guiRenderer.Ui.FrameId++;
+        if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
 
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
@@ -557,6 +624,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     },
 
 };
+eventLoop = loop;
 
 // A quit (the window's close button, Esc twice): the shared rule, AppQuit.
 void RequestQuit() => appQuit.Request();
@@ -595,21 +663,29 @@ loop.OnPostFrame = () =>
         return;
     }
 
-    if (!appState.ShuttingDown && !signalSetRedraw)
+    // A frame that repainted part of the window drew nothing a flag asked for, so it clears none (#2130). Asked of what
+    // the renderer DID, never of what the scheduler meant: a swapchain image that missed a full frame is repainted whole
+    // whatever damage was declared, and such a frame drew everything. Left uncleared, a flag raised while it was drawn
+    // (the atlas levels its roll in the draw) bought a second full frame, which put every other image a full frame
+    // behind again, so on the Sky Map no narrowed frame was ever drawn as one.
+    if (!renderer.LastFrameWasPartial)
     {
-        appState.NeedsRedraw = false;
-        // Signals processed during OnPostFrame (e.g. SkyMapClickSelectSignal)
-        // mutate SkyMapState but the current frame already ran. Only clear the
-        // flag when no signal fired this post-frame so the mutation drives the
-        // next render.
-        guiRenderer.SkyMapState.NeedsRedraw = false;
-        // Same contract for the live-session flag: the polar progress callback
-        // (running on a thread-pool continuation) sets this from outside the
-        // frame, so we have to consume it once we've actually rendered, or it
-        // would re-trigger the redraw loop on every iteration.
-        guiRenderer.ViewContexts.ClearNeedsRedraw();
+        if (!appState.ShuttingDown && !signalSetRedraw)
+        {
+            appState.NeedsRedraw = false;
+            // Signals processed during OnPostFrame (e.g. SkyMapClickSelectSignal)
+            // mutate SkyMapState but the current frame already ran. Only clear the
+            // flag when no signal fired this post-frame so the mutation drives the
+            // next render.
+            guiRenderer.SkyMapState.NeedsRedraw = false;
+            // Same contract for the live-session flag: the polar progress callback
+            // (running on a thread-pool continuation) sets this from outside the
+            // frame, so we have to consume it once we've actually rendered, or it
+            // would re-trigger the redraw loop on every iteration.
+            guiRenderer.ViewContexts.ClearNeedsRedraw();
+        }
+        plannerState.NeedsRedraw = false;
     }
-    plannerState.NeedsRedraw = false;
 
     // Update window title (only when changed). The title names what you are LOOKING at: the active
     // tab's icon + name exactly as the sidebar draws them (TabTitleChrome, so the Live Session glyph
@@ -743,6 +819,8 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         var contexts = guiRenderer.ViewContexts;
         var ls = contexts.Active.LiveSession;
         s.Set("activeTab", appState.ActiveTab.ToString());
+        s.Set("fullFrames", fullFrames);
+        s.Set("partialFrames", partialFrames);
         // Which context the tabs are rendering, and whether this node's own session is running
         // underneath it -- the two facts an agent needs to interpret every field below.
         s.Set("viewContext", contexts.Active.DisplayName);

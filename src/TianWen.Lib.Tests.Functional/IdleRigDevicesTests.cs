@@ -130,6 +130,58 @@ public class IdleRigDevicesTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// An idle rig's periodic read asks for no frame once it has read what the node holds (#2130): the read answers that
+    /// nothing changed. It used to answer "changed" for every read, and then for every read of a rig with a filter wheel or
+    /// a camera, whose slot names and gain modes are arrays a record compares by reference, so an idle rig redrew its whole
+    /// window every two seconds. A wheel alone here: its reading holds two arrays and nothing that drifts.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AnIdleRigsReadAsksForNoFrameOnceItHasReadItsDevices()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(output, ct);
+        var camera = new FakeDevice(DeviceType.Camera, 1);
+        var filterWheel = new FakeDevice(DeviceType.FilterWheel, 1);
+        var profile = new Profile(Guid.NewGuid(), "Idle rig", new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri,
+            [new OTAData("Main", 800, camera.DeviceUri, null, null, filterWheel.DeviceUri, null, null)],
+            SiteLatitude: 48.2, SiteLongitude: 16.3));
+        await profile.SaveAsync(node.External, ct);
+        await node.Node.SetActiveProfileAsync(profile.ProfileId, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+        await hub.ConnectAsync(filterWheel, ct);
+
+        var binding = new RemoteRigBinding
+        {
+            BindingId = Guid.NewGuid(),
+            NodeId = "idle-rig-quiet-test",
+            Alias = "Idle rig",
+            LastAddress = node.Transport.BaseAddress.ToString(),
+        };
+        var contexts = new ViewContexts();
+        await using var rig = RemoteRigConnection.TryConnect(binding, contexts, peers: null, grants: null, SystemTimeProvider.Instance, NullLogger.Instance, ct)
+            .ShouldNotBeNull();
+        (await rig.MaybeRefreshProfileAsync(ct)).ShouldBeTrue();
+        await NodeWait.UntilAsync("the rig's view to read its wheel", async token =>
+        {
+            await rig.RefreshDevicesNowAsync(token);
+            var otas = rig.Context.LiveSession.PreviewOTATelemetry;
+            return (otas.Length == 1 && otas[0].FilterWheelConnected && rig.Device(filterWheel.DeviceUri)?.FilterWheel?.Slots is { Length: > 0 },
+                $"{rig.Devices.Count} device(s)");
+        }, ct);
+
+        // The node has read the wheel and nothing moves: a read finds what the view already shows.
+        await NodeWait.UntilAsync("a read of the unchanged rig to find nothing new", async token =>
+        {
+            var changed = await rig.RefreshDevicesNowAsync(token);
+            return (!changed, "the read answered that it changed what the view shows");
+        }, ct);
+        for (var i = 0; i < 3; i++)
+        {
+            (await rig.RefreshDevicesNowAsync(ct)).ShouldBeFalse("nothing changed between two reads of an idle rig");
+        }
+    }
+
+    /// <summary>
     /// A view learns what its node holds from the node's pushes alone (P6): a device the node connects reaches the
     /// connection's device model as <c>DEVICE-STATE</c> arrives, with no read asked for, and so does its disconnect. Every
     /// per-frame question the view asks of a device answers from that model, never with a request.

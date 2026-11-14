@@ -417,7 +417,69 @@ namespace TianWen.UI.Abstractions
         public TimeSpan TimeOffset { get; set; }
 
         /// <summary>True when viewport changed and the cached texture must be re-rendered.</summary>
-        public bool NeedsRedraw { get; set; } = true;
+        public bool NeedsRedraw
+        {
+            get => _needsRedraw;
+            set
+            {
+                if (value)
+                {
+                    // Raised from another thread while a frame is being drawn: a load that finished (a planet's
+                    // texture, a picture, the star build). That frame may have drawn the object already, without it.
+                    if (_frameThread != 0 && Environment.CurrentManagedThreadId != _frameThread)
+                    {
+                        _raisedBehindFrame = true;
+                    }
+
+                    _needsRedraw = true;
+                    return;
+                }
+
+                // The host's clear after a frame. What was raised behind that frame is not what it drew, so it stays
+                // for the next one. Cleared with the rest, it waited for the next frame anything asked for: up to a
+                // second on a still map, and under a moving pointer the frames that repaint the highlight's rectangle
+                // alone then drew the loaded picture inside that rectangle on some swapchain images and not on
+                // others, which flickered (the first click on a planet, 2026-11-14, #2130).
+                _frameThread = 0;
+                if (_raisedBehindFrame)
+                {
+                    _raisedBehindFrame = false;
+                    return;
+                }
+
+                _needsRedraw = false;
+            }
+        }
+
+        // Benign races, all three: a raise that lands on either side of a write costs one frame more or is drawn by the
+        // frame in progress, and nothing here guards memory.
+        private volatile bool _needsRedraw = true;
+        private volatile bool _raisedBehindFrame;
+        private volatile int _frameThread;
+
+        /// <summary>
+        /// Asks for the frame AFTER the one being drawn, from inside its draw: a texture uploaded in this frame is drawable
+        /// in the next (a planet's sprite or body, an object's picture). Plain <see cref="NeedsRedraw"/> cannot carry
+        /// that, since the host clears it once this frame is done, and the texture then waited for whatever frame came
+        /// next: a whole one before #2130, and since then often one that repaints the highlight's rectangle alone, which
+        /// drew the new texture inside that rectangle on some swapchain images and not on others (the Sun flickered on
+        /// its first click, 2026-11-14). Not for a standing reason to draw: each call buys one frame.
+        /// </summary>
+        public void RequestFollowingFrame()
+        {
+            _raisedBehindFrame = _frameThread != 0;
+            _needsRedraw = true;
+        }
+
+        /// <summary>
+        /// Called as a frame starts to draw this map, on the thread that draws it: what was raised before now is this
+        /// frame's to draw, and what another thread raises from here until the host's clear is the next one's.
+        /// </summary>
+        public void BeginDraw()
+        {
+            _raisedBehindFrame = false;
+            _frameThread = Environment.CurrentManagedThreadId;
+        }
 
         /// <summary>
         /// A STANDING reason to draw every frame, which no frame consumes: the orrery playing (its clock runs on the wall clock).

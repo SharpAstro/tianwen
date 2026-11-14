@@ -119,14 +119,49 @@ namespace TianWen.UI.Abstractions
         /// that lands on the same object draws the identical frame, so nothing in the pixels separates
         /// "resolved once and reused" from "resolved on every move".
         /// </summary>
-        internal int HoverResolves { get; private set; }
+        public int HoverResolves { get; private set; }
 
         /// <summary>
-        /// How many resolves asked for a frame, i.e. changed the answer. The observable for "a hover
+        /// How many resolves changed the answer, each of which asks for a frame unless it changes nothing on screen
+        /// (onto an object whose wash is withheld, from bare sky). The observable for "a hover
         /// that changes nothing costs nothing": <see cref="SkyMapState.NeedsRedraw"/> cannot answer it,
         /// because a render sets that flag for reasons of its own (a zoom does).
         /// </summary>
-        internal int HoverFrameRequests { get; private set; }
+        public int HoverFrameRequests { get; private set; }
+
+        /// <summary>
+        /// Whether the host repaints the rectangle a pointer move STATES and nothing else
+        /// (<see cref="IPointerMoveChange"/>, #2130). The GUI does. A changed hover answer then states the extent of
+        /// the wash it takes off and the one it puts on, and the frame repaints that alone. Elsewhere it raises
+        /// <see cref="SkyMapState.NeedsRedraw"/>, as it always did, and the whole map is drawn again.
+        /// </summary>
+        /// <remarks>
+        /// Zoomed out, nearly every point of the map is within the pick tolerance of a drawn star, so a moving
+        /// pointer changes the answer at almost every resolve: 205 of 212 in five seconds at a 135 degree field,
+        /// each a repaint of the whole map, which held the Adreno X1-85 at 40 percent (2026-11-14).
+        /// </remarks>
+        public bool HostRepaintsStatedMoves { get; set; }
+
+        /// <summary>
+        /// Set by the host for a frame that repaints part of the window: the map is drawn at the instant of the
+        /// last frame, so what is repainted agrees with what is kept around it.
+        /// </summary>
+        public bool HoldViewingTime { get; set; }
+
+        // Where the last frame painted the wash, or null when it painted none: what a changed answer has to repaint
+        // to take it off.
+        private RectF32? _hoverDrawnBounds;
+
+        // The extent of the hover changes no frame has drawn yet, for the host to take.
+        private RectF32? _hoverChanged;
+
+        /// <inheritdoc/>
+        public RectF32? TakePointerMoveChanged()
+        {
+            var changed = _hoverChanged;
+            _hoverChanged = null;
+            return changed;
+        }
 
         /// <summary>
         /// Resolves what the pointer is over and, when the answer CHANGED, asks for the frame that
@@ -210,16 +245,92 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            ShowHover(resolved, State.FieldOfViewDeg, _lastViewingTime, screenX, screenY);
+            ShowHover(resolved, State.FieldOfViewDeg, _lastViewingTime, screenX, screenY, duringDraw: retestForMovedView);
         }
 
         /// <summary>Puts a changed answer on screen, and asks for the frame that shows it.</summary>
-        private void ShowHover(SkyMapHoverTarget? target, double fov, DateTimeOffset viewTime, float screenX, float screenY)
+        /// <param name="duringDraw">The draw's own re-test of a moved view: the frame being drawn has its region
+        /// already, so the change asks for a whole one.</param>
+        private void ShowHover(SkyMapHoverTarget? target, double fov, DateTimeOffset viewTime, float screenX, float screenY,
+            bool duringDraw = false)
         {
             SetDisplayedHover(target, fov, viewTime, screenX, screenY);
             HoverFrameRequests++;
             _hoverFramePending = true;
+            if (!duringDraw && HostRepaintsStatedMoves)
+            {
+                StateHoverChange(target, screenX, screenY);
+                return;
+            }
+
             State.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Records what a changed answer changes on screen: the wash the last frame painted and the one the next
+        /// will, which is all a hover draws. When neither exists (onto an object whose wash is withheld, from bare
+        /// sky) the screen stays as it is, and no frame is owed.
+        /// </summary>
+        private void StateHoverChange(SkyMapHoverTarget? target, float screenX, float screenY)
+        {
+            RectF32? next = null;
+            if (target is { } hover && !float.IsNaN(screenX))
+            {
+                var rect = State.LastContentRect;
+                var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, State.FieldOfViewDeg);
+                if (TryPlaceWash(in hover, screenX, screenY, rect, ppr,
+                        rect.X + (rect.Width * 0.5f), rect.Y + (rect.Height * 0.5f), out var wash))
+                {
+                    next = wash.Bounds(rect);
+                }
+            }
+
+            var changed = (_hoverDrawnBounds, next) switch
+            {
+                ({ } was, { } now) => Union(was, now),
+                ({ } was, null) => was,
+                (null, { } now) => now,
+                _ => null as RectF32?,
+            };
+            if (changed is not { } extent)
+            {
+                // Nothing to paint, so no paint will come to re-open the resolve budget.
+                _hoverFramePending = false;
+                return;
+            }
+
+            _hoverChanged = _hoverChanged is { } held ? Union(held, extent) : extent;
+        }
+
+        private static RectF32 Union(RectF32 a, RectF32 b)
+        {
+            var x0 = MathF.Min(a.X, b.X);
+            var y0 = MathF.Min(a.Y, b.Y);
+            var x1 = MathF.Max(a.X + a.Width, b.X + b.Width);
+            var y1 = MathF.Max(a.Y + a.Height, b.Y + b.Height);
+            return new RectF32(x0, y0, x1 - x0, y1 - y0);
+        }
+
+        /// <summary>
+        /// What the wash paints: the object's own ellipse (<see cref="Shaped"/>), or a circle of <see cref="Radius"/>.
+        /// Placed ONCE, by <see cref="TryPlaceWash"/>, for the paint and for the extent a changed answer repaints.
+        /// </summary>
+        private readonly record struct HoverWash(
+            float X, float Y, bool Shaped, (float X, float Y) SemiAxisU, (float X, float Y) SemiAxisV, float Radius)
+        {
+            /// <summary>The wash's extent inside <paramref name="contentRect"/>, with room for its soft edge; null
+            /// when none of it is inside.</summary>
+            public RectF32? Bounds(RectF32 contentRect)
+            {
+                const float Edge = 2f;
+                var halfW = Shaped ? MathF.Sqrt((SemiAxisU.X * SemiAxisU.X) + (SemiAxisV.X * SemiAxisV.X)) : Radius;
+                var halfH = Shaped ? MathF.Sqrt((SemiAxisU.Y * SemiAxisU.Y) + (SemiAxisV.Y * SemiAxisV.Y)) : Radius;
+                var x0 = MathF.Max(MathF.Floor(X - halfW - Edge), contentRect.X);
+                var y0 = MathF.Max(MathF.Floor(Y - halfH - Edge), contentRect.Y);
+                var x1 = MathF.Min(MathF.Ceiling(X + halfW + Edge), contentRect.X + contentRect.Width);
+                var y1 = MathF.Min(MathF.Ceiling(Y + halfH + Edge), contentRect.Y + contentRect.Height);
+                return x1 > x0 && y1 > y0 ? new RectF32(x0, y0, x1 - x0, y1 - y0) : null;
+            }
         }
 
         private void SetDisplayedHover(SkyMapHoverTarget? target, double fov, DateTimeOffset viewTime, float screenX, float screenY)
@@ -264,6 +375,7 @@ namespace TianWen.UI.Abstractions
             // Released FIRST, before every early return: this runs once per frame whether or not
             // there is anything to draw, and it is what re-opens the one-resolve-per-frame budget.
             _hoverFramePending = false;
+            _hoverDrawnBounds = null;
 
             if (State.HoverTarget is not { } hover)
             {
@@ -318,6 +430,35 @@ namespace TianWen.UI.Abstractions
                 hover = retested;
             }
 
+            if (!TryPlaceWash(in hover, sx, sy, contentRect, pixelsPerRadian, cx, cy, out var wash))
+            {
+                return;
+            }
+
+            _hoverDrawnBounds = wash.Bounds(contentRect);
+            if (wash.Shaped)
+            {
+                Renderer.FillEllipse((wash.X, wash.Y), wash.SemiAxisU, wash.SemiAxisV, OverlayEngine.HoverSpotColor);
+                return;
+            }
+
+            Renderer.FillEllipse(
+                new RectInt(
+                    new PointInt((int)MathF.Ceiling(wash.X + wash.Radius), (int)MathF.Ceiling(wash.Y + wash.Radius)),
+                    new PointInt((int)MathF.Floor(wash.X - wash.Radius), (int)MathF.Floor(wash.Y - wash.Radius))),
+                OverlayEngine.HoverSpotColor);
+        }
+
+        /// <summary>
+        /// Where and how large the wash for <paramref name="hover"/> is, given where the object projected
+        /// (<paramref name="sx"/>, <paramref name="sy"/>). False when no wash is painted for it: off the map, or an
+        /// object that fills the view.
+        /// </summary>
+        private bool TryPlaceWash(in SkyMapHoverTarget hover, float sx, float sy, RectF32 contentRect,
+            double pixelsPerRadian, float cx, float cy, out HoverWash wash)
+        {
+            wash = default;
+
             // The wash takes the object's own SHAPE where it has one: the ellipse the selection ring
             // and the [O] overlay draw for it, from the same solver, filled. A spot of the hit radius
             // over M31 read as a mark ON the galaxy rather than the galaxy lit, and it was clamped to
@@ -335,7 +476,7 @@ namespace TianWen.UI.Abstractions
                 if (sx < contentRect.X - reach || sx >= contentRect.X + contentRect.Width + reach
                     || sy < contentRect.Y - reach || sy >= contentRect.Y + contentRect.Height + reach)
                 {
-                    return;
+                    return false;
                 }
 
                 // An object that FILLS the view is the view, not something in it: zoomed into the LMC
@@ -349,11 +490,11 @@ namespace TianWen.UI.Abstractions
                     MathF.Sqrt((semiAxisV.X * semiAxisV.X) + (semiAxisV.Y * semiAxisV.Y)));
                 if (semiMinor >= MathF.Min(contentRect.Width, contentRect.Height) * 0.5f)
                 {
-                    return;
+                    return false;
                 }
 
-                Renderer.FillEllipse((sx, sy), semiAxisU, semiAxisV, OverlayEngine.HoverSpotColor);
-                return;
+                wash = new HoverWash(sx, sy, Shaped: true, semiAxisU, semiAxisV, Radius: 0f);
+                return true;
             }
 
             // Culled with a MARGIN, not at the rect edge. An object is resolved by its shape radius,
@@ -367,7 +508,7 @@ namespace TianWen.UI.Abstractions
             if (sx < contentRect.X - margin || sx >= contentRect.X + contentRect.Width + margin
                 || sy < contentRect.Y - margin || sy >= contentRect.Y + contentRect.Height + margin)
             {
-                return;
+                return false;
             }
 
             var radius = Math.Clamp(
@@ -375,11 +516,8 @@ namespace TianWen.UI.Abstractions
                 OverlayEngine.HoverSpotMinRadiusPx * dpiScale,
                 OverlayEngine.HoverSpotMaxRadiusPx * dpiScale);
 
-            Renderer.FillEllipse(
-                new RectInt(
-                    new PointInt((int)MathF.Ceiling(sx + radius), (int)MathF.Ceiling(sy + radius)),
-                    new PointInt((int)MathF.Floor(sx - radius), (int)MathF.Floor(sy - radius))),
-                OverlayEngine.HoverSpotColor);
+            wash = new HoverWash(sx, sy, Shaped: false, default, default, radius);
+            return true;
         }
     }
 }

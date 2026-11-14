@@ -175,10 +175,11 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
                     (int)chartRect.X, (int)chartRect.Y, chartW, chartH, DpiScale);
 
             DrawTimeOverlay(chartCurrentTime, tStart, tEnd, plotX, plotY, plotW, plotH);
-            DrawMouseFollower(mousePos, state, tStart, tEnd, plotX, plotY, plotW, plotH, chartH);
-            // The weather band's hover, shared with every host that draws the chart (the web's included).
+            // The follower and the weather band's hover, shared with every host that draws the chart (the web's included).
             if (mousePos is { } mouse)
             {
+                AltitudeChartRenderer.DrawFollower(_renderer, state, FontPath, mouse,
+                    (int)chartRect.X, (int)chartRect.Y, chartW, chartH, DpiScale);
                 AltitudeChartRenderer.DrawWeatherTooltip(_renderer, state, FontPath, mouse,
                     (int)chartRect.X, (int)chartRect.Y, chartW, chartH, DpiScale);
             }
@@ -208,34 +209,6 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
                 new RectInt(new PointInt(nowX + 1, plotY + plotH), new PointInt(nowX, plotY)),
                 TianWen.UI.Abstractions.GuiTheme.SkyInk(120));
         }
-    }
-
-    private void DrawMouseFollower((float, float)? mousePos, PlannerState state,
-        DateTimeOffset tStart, DateTimeOffset tEnd,
-        int plotX, int plotY, int plotW, int plotH,
-        int chartH)
-    {
-        if (mousePos is not var (mx, my) || mx < plotX || mx > plotX + plotW
-            || my < plotY || my > plotY + plotH)
-        {
-            return;
-        }
-
-        var fontPath = FontPath;
-
-        // Vertical line
-        _renderer.FillRectangle(
-            new RectInt(new PointInt((int)mx + 1, plotY + plotH), new PointInt((int)mx, plotY)),
-            TianWen.UI.Abstractions.GuiTheme.SkyInk(50));
-
-        // Time label near top of chart
-        var mouseTime = AltitudeChartRenderer.XToTime(mx, tStart, tEnd, plotX, plotW);
-        var mouseLabel = mouseTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
-        var fontSize = Math.Max(6f, 10f * chartH / 800f);
-        _renderer.DrawText(mouseLabel, fontPath, fontSize,
-            TianWen.UI.Abstractions.GuiTheme.SkyInk(160),
-            new RectInt(new PointInt((int)mx + 20, plotY + 16), new PointInt((int)mx - 20, plotY + 2)),
-            TextAlign.Center, TextAlign.Near);
     }
 
     private VkObjectPictures? _pictures;

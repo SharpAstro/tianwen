@@ -43,7 +43,6 @@ public class ChromeMeasuresThroughTheEngineTests
         ["ImageRendererBase.cs"] = 3,
         ["SkyMapTab.ObjectOverlay.cs"] = 1,
         ["SkyMapTab.cs"] = 1,
-        ["VkGuiRenderer.cs"] = 2,
         ["VkSkyMapTab.cs"] = 4,
     };
 

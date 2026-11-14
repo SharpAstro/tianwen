@@ -249,15 +249,23 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // which puts a photograph between them) gets the imagery here and the lines from
         // RenderSkyMapLines below, reusing the ring-buffer writes above: same frame, same offsets,
         // so the geometry is built once however many passes read it.
-        _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
-            milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo, phase);
+        PushClip(contentRect.X, contentRect.Y, mapW, mapH);
+        try
+        {
+            _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
+                milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo, phase);
+        }
+        finally
+        {
+            PopClip();
+        }
 
         _deferredGeometry = phase is SkyMapDrawPhase.Backdrop
             ? new DeferredGeometry(mapW, mapH, milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo)
             : null;
 
-        // Restore the full-window viewport/scissor for text overlay rendering
-        // (the pipeline sets a clipped viewport/scissor for the sky map area)
+        // Restore the full-window viewport for text overlay rendering
+        // (the pipeline sets a viewport for the sky map area)
         RestoreFullTarget(renderer.CurrentCommandBuffer);
     }
 
@@ -273,7 +281,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     public static (uint Width, uint Height) FullTargetExtent(uint swapchainWidth, uint swapchainHeight, uint rendererWidth, uint rendererHeight)
         => swapchainWidth > 0 && swapchainHeight > 0 ? (swapchainWidth, swapchainHeight) : (rendererWidth, rendererHeight);
 
-    // The viewport and scissor of the whole target (FullTargetExtent), after a sky pass clipped them to the map rect.
+    // The viewport of the whole target (FullTargetExtent), after a sky pass set the map rect's. The scissor is not
+    // touched: it is the renderer's clip stack's, which the pass pushed the map rect onto and popped again, so what is
+    // in force afterwards is the enclosing clip inside the frame's damaged region, never the whole window.
     private void RestoreFullTarget(Vortice.Vulkan.VkCommandBuffer cmd)
     {
         var ctx = renderer.Context;
@@ -285,9 +295,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             width = width, height = height,
             minDepth = 0f, maxDepth = 1f
         };
-        Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, width, height);
         api.vkCmdSetViewport(cmd, 0, 1, &fullVp);
-        api.vkCmdSetScissor(cmd, 0, fullScissor);
     }
 
     /// <summary>What the line pass needs from the backdrop pass: the map rect it was drawn into and
@@ -312,9 +320,17 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         _deferredGeometry = null;
 
         var cmd = renderer.CurrentCommandBuffer;
-        _pipeline.Draw(cmd, State, g.MapWidth, g.MapHeight, contentRect.X, contentRect.Y,
-            g.MilkyWayAlpha, g.Horizon, g.Meridian, g.AltAzGrid, g.FovOutlines,
-            SkyMapDrawPhase.Lines);
+        PushClip(contentRect.X, contentRect.Y, g.MapWidth, g.MapHeight);
+        try
+        {
+            _pipeline.Draw(cmd, State, g.MapWidth, g.MapHeight, contentRect.X, contentRect.Y,
+                g.MilkyWayAlpha, g.Horizon, g.Meridian, g.AltAzGrid, g.FovOutlines,
+                SkyMapDrawPhase.Lines);
+        }
+        finally
+        {
+            PopClip();
+        }
 
         // The pipeline clips its viewport to the map rect; everything drawn after this is in window
         // coordinates, exactly as at the end of the backdrop pass.
@@ -535,12 +551,20 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             if (instByteOffset != uint.MaxValue)
             {
                 var instanceCount = (uint)(_overlayEllipseInstances.Count / OverlayEllipseInstances.FloatsPerInstance);
-                pipeline.DrawOverlayEllipses(
-                    renderer.CurrentCommandBuffer,
-                    contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-                    ctx.VertexBuffer, instByteOffset, instanceCount);
+                PushClip(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height);
+                try
+                {
+                    pipeline.DrawOverlayEllipses(
+                        renderer.CurrentCommandBuffer,
+                        contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
+                        ctx.VertexBuffer, instByteOffset, instanceCount);
+                }
+                finally
+                {
+                    PopClip();
+                }
 
-                // Restore full-window viewport/scissor so subsequent text labels (which
+                // Restore the full-window viewport so subsequent text labels (which
                 // use window-absolute coords via Renderer.DrawText) render correctly.
                 RestoreFullTarget(renderer.CurrentCommandBuffer);
             }
@@ -1302,7 +1326,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
     protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
     {
-        _pictures ??= new VkObjectPictures(renderer.Context, () => State.NeedsRedraw = true, Logger) { Store = _pictureStore };
+        _pictures ??= new VkObjectPictures(renderer.Context, State.RequestFollowingFrame, Logger) { Store = _pictureStore };
         _pictures.Draw(renderer, image, rect);
     }
 
@@ -1319,7 +1343,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
     protected override bool DrawPlanetSprite(PlanetSprite sprite, float x, float y, float radiusPx)
     {
-        _planetSpriteTextures ??= new VkPlanetSprites(renderer.Context, () => State.NeedsRedraw = true);
+        _planetSpriteTextures ??= new VkPlanetSprites(renderer.Context, State.RequestFollowingFrame);
         return _planetSpriteTextures.Draw(renderer, sprite, x, y, radiusPx);
     }
 
@@ -1333,7 +1357,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     protected override bool DrawPlanetBody(in PlanetView view, float x, float y, float radiusPx, PlanetColourMap? map, int textureVersion,
         RGBAColor32 flat, RGBAColor32? nightTint)
     {
-        _planetBodies ??= new VkPlanetBodies(renderer.Context, () => State.NeedsRedraw = true);
+        _planetBodies ??= new VkPlanetBodies(renderer.Context, State.RequestFollowingFrame);
         return _planetBodies.Draw(renderer, view, x, y, radiusPx, map, textureVersion, flat, nightTint);
     }
 

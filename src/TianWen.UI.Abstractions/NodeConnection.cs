@@ -212,6 +212,9 @@ public abstract class NodeConnection : IAsyncDisposable
     private void LayOutIdleDevices()
     {
         var view = Context.LiveSession;
+        // What this layout was made from, beside the devices: a read that finds all three unchanged lays nothing out.
+        Volatile.Write(ref _laidOutProfile, ProfileOnView);
+        Volatile.Write(ref _laidOutWhileRunning, view.IsRunning ? 1 : 0);
         if (ProfileOnView?.Data is { } profile)
         {
             Mirror.IdleOtaCount = profile.OTAs.Length;
@@ -385,8 +388,10 @@ public abstract class NodeConnection : IAsyncDisposable
     /// Reads every device the node holds (<see cref="Devices"/>, the authoritative read the pushes between are hints to) and
     /// lays the view's idle panels out from them (P5b part 9, <see cref="RigDevices"/>): the OTA panels and the mount an idle
     /// Live Session lays out, and the mount its sky map draws. For the host to call while the view needs them, at most every
-    /// <see cref="DevicesRefreshInterval"/> and never concurrently with itself. Returns <see langword="true"/> when it read, so
-    /// the caller redraws.
+    /// <see cref="DevicesRefreshInterval"/> and never concurrently with itself. Returns <see langword="true"/> when what it
+    /// read CHANGES what the view shows, so the caller redraws: a read that finds every device as it was held, under the
+    /// profile and the run state the panels were last laid out for, lays nothing out and asks for no frame. It used to
+    /// answer true for every read, and an idle rig redrew its whole window every two seconds for nothing (#2130).
     /// </summary>
     public async Task<bool> MaybeRefreshDevicesAsync(CancellationToken cancellationToken)
     {
@@ -414,7 +419,16 @@ public abstract class NodeConnection : IAsyncDisposable
                 return false;
             }
             Volatile.Write(ref _unansweredDeviceReads, 0);
-            Volatile.Write(ref _devices, Keyed(devices));
+            var read = Keyed(devices);
+            var unchanged = SameReadings(Volatile.Read(ref _devices), read)
+                && ReferenceEquals(Volatile.Read(ref _laidOutProfile), ProfileOnView)
+                && Volatile.Read(ref _laidOutWhileRunning) == (Context.LiveSession.IsRunning ? 1 : 0);
+            // The newest reading is held either way: its read time is what a telemetry sampler keys on.
+            Volatile.Write(ref _devices, read);
+            if (unchanged)
+            {
+                return false;
+            }
             LayOutIdleDevices();
             return true;
         }
@@ -443,6 +457,68 @@ public abstract class NodeConnection : IAsyncDisposable
     {
         Volatile.Write(ref _profileCheckedUtcTicks, 0);
         return MaybeRefreshProfileAsync(cancellationToken);
+    }
+
+    // What the idle panels were last laid out for. -1: never laid out, so the first read always is.
+    private Profile? _laidOutProfile;
+    private int _laidOutWhileRunning = -1;
+
+    /// <summary>
+    /// Whether two readings of the node's devices show the same thing: every device present in both and the same as the
+    /// node itself compares it before a push (<see cref="DeviceStateDto.ShownBytes"/>: not the time it was read at, each
+    /// sensor at the resolution it is shown, arrays by content).
+    /// </summary>
+    internal static bool SameReadings(ImmutableDictionary<string, DeviceStateDto> held, ImmutableDictionary<string, DeviceStateDto> read)
+    {
+        if (held.Count != read.Count)
+        {
+            return false;
+        }
+
+        foreach (var (key, device) in read)
+        {
+            if (!held.TryGetValue(key, out var was) || !was.ShownBytes().AsSpan().SequenceEqual(device.ShownBytes()))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // RENDER THREAD ONLY: the periodic read in flight, handed back through its own task (the lock-free hand-off of
+    // CLAUDE.md's Concurrency section). Never a tracked task: a tracked task's completion asks for a frame whatever it
+    // found, which was one full redraw per read on an idle rig.
+    private Task<bool>? _devicesRead;
+
+    /// <summary>
+    /// The periodic device read, pumped once per frame poll from the render thread: collects a read that has finished and
+    /// starts one when <see cref="DevicesRefreshDue"/>. True when a finished read changed what the view shows;
+    /// <paramref name="failure"/> is what a read threw, a cancellation excepted.
+    /// </summary>
+    public bool PumpDevicesRead(CancellationToken cancellationToken, out Exception? failure)
+    {
+        failure = null;
+        var changed = false;
+        if (_devicesRead is { IsCompleted: true } done)
+        {
+            _devicesRead = null;
+            if (done.IsCompletedSuccessfully)
+            {
+                changed = done.Result;
+            }
+            else if (done.IsFaulted && !cancellationToken.IsCancellationRequested)
+            {
+                failure = done.Exception?.GetBaseException();
+            }
+        }
+
+        if (_devicesRead is null && DevicesRefreshDue)
+        {
+            _devicesRead = Task.Run(() => MaybeRefreshDevicesAsync(cancellationToken), cancellationToken);
+        }
+
+        return changed;
     }
 
     private static ImmutableDictionary<string, DeviceStateDto> Keyed(IEnumerable<DeviceStateDto> devices)
