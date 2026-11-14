@@ -5377,6 +5377,45 @@ The bars:
   its green wing and R3t dug its blue one, so a mix may do a part of each and fail the 100-1000 row a third time, and then
   the read is that the channel spread is not the lever for the SMC at any setting and this line stops.
 
+**R3u, read 2026-11-15: killed on seed 0 by the SMC's two rows, the truth tiles and Tarantula; M42's band clears its bar; the
+channel spread line stops.** Q1 held (2,420 cells from each cache; 40 cells read back equal to their named source). Seed 0
+converged at step 224,000 (best held-out 6.85e-6 at 212,000, on its own held-out cells, which differ from R3s's and R3t's
+by their draws, so the three objectives are not compared). Every bar on seed 0:
+
+| bar | R3u s0 | R3l s0 / s1 (mean) | R3s mean | R3t s0 | verdict |
+|---|---|---|---|---|---|
+| Q2 M42 100-1000 sigma clean, own ring, >= 50 | 53.7 | 27.2 / 39.0 (33.1) | 55.5 | 47.1 | held |
+| Q2 M42 blue at 2 and 3 px within 0.7 sigma of SXT's (-0.47, -0.03) | -2.47, -1.10 | -2.68, -1.70 / -2.99, -1.79 | -2.29, -1.12 | -2.88, -1.68 | missed, by 2.0 and 1.1 |
+| guard HIP 80609 20-100, 100-1000, within 3 of R3l | 99.7, 98.0 | (99.8, 97.4) | 99.8, 98.3 | 99.7, 99.5 | held |
+| guard Lobster 20-100, 100-1000 | 99.8, 99.4 | (99.8, 99.6) | 99.8, 99.5 | 99.8, 99.6 | held |
+| guard SMC 20-100, 100-1000 | 87.6, 76.3 | 94.9, 96.6 / 89.8, 84.7 (92.4, 90.7) | 81.4, 85.6 | 94.9, 83.1 | **failed, 4.8 and 14.4 below** |
+| guard truth tiles 20-100 >= 72, 100-1000 >= 54 | 71.0, 49.9 | (73.3, 56.4) | 72.1, 54.1 | 72.0, 54.4 | **failed, by 1.0 and 4.1** |
+| guard Andromeda dark dug <= 47 | 29.5 | (45.1) | 25.3 | 34.7 | held |
+| guard Tarantula dark flat >= 69 | 65.0 | 70.3 / 74.4 | 67.2 | 72.1 | **failed, by 4.0** |
+| guard M31 nucleus under 40 % in every channel | -6.8, 3.1, 2.7 % | +1 to +14 % | up to 2.3 % | 3.9, -0.1, 3.0 % | held |
+
+- **The kill fires on three guards at once**, so Tarantula's row is not alone and seed 1 is not trained (its 4.0 is also not
+  under the 4 points the rule allowed).
+- **The SMC fails as stars left, as under the spread of 3:** dug 0.0 % at 20-100 sigma and 3.4 % at 100-1000 (n = 59, where
+  R3l's own seeds differ by 12 points; 76.3 is 8.4 under R3l's lower seed). The 20-100 row's 4.8 sits at R3l's own seed spread
+  of 5.
+- **The truth tiles fail for the first time in this line** (71.0 and 49.9; R3s and R3t each held at the bar). The mix is the
+  first of the three arms to lose on the synthetic stars it was trained on.
+- **The prediction held in three parts and missed in one.** M42's band landed between R3t's and R3s's and clears 50 (53.7);
+  its blue dig is missed again, at the spread of 3's own size (-2.47, -1.10 against R3s's -2.29, -1.12); the SMC, the stated
+  risk, failed a third time. Not predicted: the truth tiles and Tarantula failing too, so the mix did not keep the spread of
+  2's guards, it kept the spread of 3's losses.
+- **Outside the bars:** Andromeda's dark sky is dug on 29.5 %; M42's 100-1000 sigma stars are dug on 44.1 % (R3l 70.6 / 58.1,
+  R3s 39.0, R3t 51.5). The saturated rows are not read, as registered.
+- **The line stops, as registered:** three settings of the channel spread (3, 2, and the two mixed) each clear or nearly clear
+  M42's band and each fail the SMC. The channel spread moves M42 and is not the lever for the SMC; M42's blue dig is not
+  mended by it at any setting.
+
+Read on DE1 from `C:/temp/e2/check3-r3u-s0-own.txt`, `bright-channel-r3u-s0.txt` and `q1-r3u.txt`, and under
+`C:/temp/tianwen-scratch` from `f2-whole-master/w-r3u_synth24_s0/row.txt`, `f2-reports-master/m31-nucleus-r3u_synth24_s0.txt`
+and `f2-logs-master/score-r3u_synth24_s0/eval-on-random.log`; the weights are `E:/tianwen-scratch/r2-synth24/r3u_synth24_s0.pt`.
+Not adopted; what follows is the owner's to choose.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
