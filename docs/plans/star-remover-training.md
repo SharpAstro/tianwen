@@ -5428,6 +5428,34 @@ convergence), and under
 and `f2-logs-master/score-r3u_synth24_s0/eval-on-random.log`; the weights are `E:/tianwen-scratch/r2-synth24/r3u_synth24_s0.pt`.
 Not adopted; what follows is the owner's to choose.
 
+**R3v, pre-registered 2026-11-15 (the owner chose a new idea the same day and named the judges' size).** One change from R3s:
+the model. R3s's data (synth22, the channel spread 3) and recipe exactly, on R2nc's four-level U-Net (`--levels 4 --max-ch
+256`, 6.86 M weights against 0.81 M, with `--clip-grad 8`, which trained R2nc cleanly). The question: is the small model the
+reason one behaviour for a star's wings cannot serve M42 and the SMC together.
+- **Why this and not another setting:** three settings of the channel spread each moved M42 and each failed the SMC (R3s, R3t,
+  R3u). SXT's weights file is 66.5 MB (about 16 M weights) and StarNet2's 131.5 MB (about 33 M); ours is the smallest by a
+  factor of 20. R2nc, the same network on synth4 (2026-10-20), gained on faint stars and not on bright ones, so a gain here is
+  not assumed.
+- **The training:** the frozen trainer copy (`C:/temp/e2/r3h-run`), synth22's prepared cache where R3s trained on it
+  (`D:/temp/tianwen-scratch/r2-synth22`), **one seed first**: seed 1 is trained only if seed 0 holds every guard and its M42 band reads at least 50. A probe on the 1070
+  (2026-11-15) read 35.7 tiles a second against the small model's 52.5, about 14 hours at R3s's step count.
+- **Scored** as R3u was, from the frozen copy `C:/temp/e2/r3u-src`, with R3s's two seeds and R3l's as the columns beside it.
+
+The bars, read on seed 0 against R3s's two seeds (the same data, the small model):
+- **Q2, M42:** its 100-1000 sigma stars at least 50 % clean on the own ring (R3s 58.1 / 52.9); its blue at 2 to 3 px within
+  0.7 sigma of SXT's (-0.47, -0.03; R3s -2.29, -1.12).
+- **Guards:** as R3s's, every one: HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below R3l's
+  mean on the own ring (the SMC 92.4 and 90.7; R3s 81.4 and 85.6); truth tiles at least 72 and 54; Andromeda dark dug at most
+  47 and Tarantula dark flat at least 69 (R3s 69.3 / 65.1); the M31 nucleus under 40 % in every channel.
+- **Kill:** M42 under 50; or a guard fails. As before, a seed 0 that fails on Tarantula's row ALONE by under 4 points trains
+  seed 1 and is read on the mean.
+- **What a kill means:** if the SMC's 20-100 row stays more than 3 under R3l's with seven times the weights, capacity at this
+  size is not what holds the two fields apart, and the next candidate is the owner's second idea of the same day: more than
+  one model, chosen per image by a measurement of its stars.
+- **Prediction:** the truth tiles rise (more weights fit the synthetic stars better; R2nc's did). M42's band holds at R3s's
+  level, 50 to 60. The SMC is the open part and the point of the arm: I put it at even odds that its 20-100 row comes within
+  3 of R3l's. M42's blue dig is missed again; nothing in a larger model addresses it.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
