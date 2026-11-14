@@ -5408,7 +5408,8 @@ by their draws, so the three objectives are not compared). Every bar on seed 0:
 - **The truth tiles fail on both rows; like for like, only the 100-1000 row stands apart.** R3s held on its two-seed mean
   (72.1, 54.1) and its seed 0 alone read 71.5 and 53.2, under both bars; R3t's seed 0 read 72.0 and 54.4. Against seed 0s
   R3u's 20-100 row (71.0) is 0.5 under R3s's, and its 100-1000 row (49.9) is 3.3 under R3s's, 4.5 under R3t's and 4.6 under
-  R3l's lower seed (54.5 and 58.2), past R3l's own spread of 3.7.
+  R3l's lower seed (R3l's seeds read 54.5 and 58.2, a spread of 3.7). The gaps to R3t and to R3l are past that spread; the gap
+  to R3s's seed 0 is inside it.
 - **The prediction's three read clauses held; its fourth was not read.** M42's band landed between R3t's and R3s's and clears
   50 (53.7); its blue dig is missed again, at the spread of 3's own size (-2.47, -1.10 against R3s's -2.29, -1.12); the SMC,
   the stated risk, failed a third time. The share of stars with blue at 2.4 times green's beta (predicted near 2.7 %) was
