@@ -6945,6 +6945,63 @@ its GREEN truth (the band correlations below are green's) and scored as step 2a'
   should carry and how it is SPLIT: whether the real capture's blur is as much a colour defocus as the twin's.
 - Nothing is adopted.
 
+#### Step 2c read: a scatter as wide as the real master's halo does not make its soft limb (2026-11-14)
+
+Registered on #2116 before the run: twin d024 at its whole length twice more, every other term as in step 2a, the scatter given a
+core of 38 arcsec (370 px, the width of the real master's fitted halo) at 0.25 and 0.5 of the light (`r11_halves.py blur halo25
+halo50`), stacked at keep 0.5, judged against the green truth and scored as step 2b's arms.
+
+| arm | edge at 0.1 | fitted halo | band 2 r | red's band 2 gain, the truth's own | red's derived band 2, band 3 gains |
+|---|---|---|---|---|---|
+| d024 (step 2a), 0.032 with a 5 arcsec core | 0.429 | 0.32 of 18.4 px | 0.875 | 2.45 | 8.39, 3.27 |
+| `halo25` | 0.422 | 0.31 of 20.7 px | 0.871 | 2.42 | 8.92, 3.31 |
+| `halo50` | 0.393 | 0.32 of 28.0 px | 0.862 | 2.71 | 9.31, 3.92 |
+| the real master | 0.277 | 0.50 of 370 px | | | 10.44, -0.99 |
+
+| bar | registered | read | verdict |
+|---|---|---|---|
+| C1: `halo50`'s edge at 0.1 cycles a pixel | 0.20 to 0.35 (the real 0.277) | 0.393 | fails |
+| kill: `halo50` at 0.38 or more | | 0.393 | **hit** |
+
+- **Half the light scattered over 38 arcsec moves the edge by 0.036**, a quarter by 0.007. The prediction (near 0.21 to 0.26 and 0.32,
+  the contrast falling by the scattered share) was wrong. The scattered light does reach the stack, as a smooth bell outside the
+  limb; the limb fit's halo widens a little with it (18.4 to 20.7 and 28.0 px) and its share does not move (0.31 to 0.32).
+- **The real master holds as much light outside its limb as d024 and more than a twin with no scatter at all, once each master's own
+  sky floor is taken out.** The green plane's median in rings at 1.1 to 1.2, 1.3 to 1.4 and 1.4 to 1.5 radii (R 239.04 px), as a
+  share of the median inside half a radius. The raw shares are NOT comparable across masters: they do not share a zero. The real
+  master is sky-subtracted (its far corner, r of 1.6 R or more, sits at 0.01 % of its inner median, its minimum is -0.00036),
+  while `noscatter`'s far corner sits at 0.43 % and d024's at 0.50 %, so `noscatter`'s flat 0.43 / 0.43 is its floor, not light
+  beyond the limb. Raw:
+
+  | master | 1.1 to 1.2 R | 1.3 to 1.4 R | 1.4 to 1.5 R |
+  |---|---|---|---|
+  | the real master (keep 0.5) | 0.35 % | 0.14 % | 0.09 % |
+  | `noscatter` (step 2b) | 0.55 % | 0.43 % | 0.43 % |
+  | d024 (step 2a) | 0.86 % | 0.59 % | 0.55 % |
+  | `halo25` | 5.33 % | 4.52 % | 4.18 % |
+  | `halo50` | 13.12 % | 11.20 % | 10.30 % |
+
+  Above each master's own far-corner level (the same rings, as reproduced from the masters in review of this PR):
+
+  | master | 1.1 to 1.2 R | 1.3 to 1.4 R | 1.4 to 1.5 R |
+  |---|---|---|---|
+  | the real master | 0.34 % | 0.13 % | 0.08 % |
+  | `noscatter` | 0.12 % | 0.00 % | 0.00 % |
+  | d024 | 0.36 % | 0.09 % | 0.05 % |
+  | `halo25` | 1.86 % | 1.06 % | 0.71 % |
+  | `halo50` | 4.67 % | 2.76 % | 1.87 % |
+
+  So the two arms put about 5 to 23 times the real master's light out there (`halo25` 5 to 9, `halo50` 14 to 23), and whatever
+  lowers the real edge is not light beyond the limb. The real fit's "0.50 of 370 px" is the limb fit's two bounds (`PlanetaryLimbFit.HaloFraction` keeps the share under 0.5,
+  `HaloRatio` the width at most 64 cores, and 370 / 64 is 5.8 px): a stand-in for a limb that falls slower than the model allows,
+  never a measure of scattered light. R11's opening table read it as one; this step's question came from that reading.
+- The mapping of the limb fit's halo onto the twin maker's scatter was loose, as the registration said, and a pass would only have
+  shown the mechanism able to make the edge. What makes the real edge low is still not known; the terms no twin carries are the
+  atmosphere's dispersion within a colour and a registration that is weaker along the equator (R7).
+- Band 2's agreement with the truth fell 0.013 with `halo50`, past the 0.01 predicted, and red's derived gains moved toward the
+  real master's in band 2 only (9.31 against 10.44); band 3 moved away (3.92 against -0.99).
+- Nothing is adopted.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
