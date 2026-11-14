@@ -8,6 +8,7 @@
                                      are, and scored for the truth's own gains (r10_gains.SCORE)
   python r11_halves.py blur [arm ...] step 2b: the full-length d024 with one term of its blur taken out (nolocal, nodefocus,
                                      noscatter, noair) or all four (none), each stacked, judged and scored as `full` is
+                                     step 2c: halo25, halo50, the scatter at 0.25 or 0.5 of the light with a 38 arcsec core
   python r11_halves.py read          the table: each band's correlation c between the halves, w = 2c / (1 + c), the twins' r against the
                                      truth, and Spearman of sqrt(w) against r over the twins' bands 1 to 4 (the kill line, 0.8)
 
@@ -71,7 +72,7 @@ def twin(n):
 
 
 def without(args, arm):
-    """Step 2b: the twin's arguments with one term of its blur taken out (or all four, `none`)."""
+    """Step 2b: the twin's arguments with one term of its blur taken out (or all four, `none`); step 2c: with a wide scatter."""
     def drop(a, *names):
         for name in names:
             i = a.index(name)
@@ -89,10 +90,17 @@ def without(args, arm):
         put(a, "--scatter", "0")
     if arm in ("noair", "none"):
         put(a, "--r0", "2000")  # 70 apertures: the free air leaves the pupil flat
+    if arm in HALOS:  # step 2c: the scatter as wide as the real master's fitted halo (370 px is 38 arcsec), at two strengths
+        put(a, "--scatter", HALOS[arm])
+        if "--scatter-core" in a:
+            put(a, "--scatter-core", "38")
+        else:
+            a += ["--scatter-core", "38"]
     return a
 
 
-ARMS = ["nolocal", "nodefocus", "noscatter", "noair", "none"]
+HALOS = {"halo25": "0.25", "halo50": "0.5"}
+ARMS = ["nolocal", "nodefocus", "noscatter", "noair", "none", *HALOS]
 
 
 def full(n, arm=None):
