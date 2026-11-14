@@ -1,13 +1,16 @@
 """Bright-star channel profiles (2026-11-11, plan: "M42's bright stars: the channels' wings"). Usage: python -I bright_channel_profile.py <model> ...
 Radial median of (output - input's 19-22 px plane)/sigma, per channel and luminance, for real-val stars of 100-1000 sigma,
 unsaturated, per session. Also the INPUT less the plane (the star + nebula) and SXT, so a dig can be told from nebula taken."""
-import csv, json, sys
+import csv, json, os, sys
 from collections import defaultdict
 import numpy as np
 from astropy.io import fits
 from scipy.ndimage import median_filter
-REALX = "C:/temp/tianwen-scratch/r2-real-val"; EVAL = "C:/temp/tianwen-scratch/f2-eval-master"; SXT = "C:/temp/tianwen-scratch/sxt-real-val"
-PLATES = "D:/Astro-Dataset/2026-10-12-full/starless/plates"
+# Where the inputs live: TIANWEN_SR_SCRATCH (the scratch root) and TIANWEN_SR_PLATES (the bake's starless plates),
+# each defaulting to DE1's folder. Read from the environment because these scripts run with python -I.
+SCRATCH = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
+PLATES = os.environ.get("TIANWEN_SR_PLATES", "D:/Astro-Dataset/2026-10-12-full/starless/plates")
+REALX = f"{SCRATCH}/r2-real-val"; EVAL = f"{SCRATCH}/f2-eval-master"; SXT = f"{SCRATCH}/sxt-real-val"
 SIZE, CH, W = 256, 3, 22
 yy, xx = np.mgrid[-W:W + 1, -W:W + 1]; rr = np.hypot(xx, yy); FAR = (rr >= 19) & (rr <= 22)
 RADII = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18]
