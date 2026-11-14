@@ -259,15 +259,9 @@ public static class AltitudeChartRenderer
         }
 
         // --- Mouse follower (vertical line with time label near 90° mark) ---
-        if (mouseScreenPosition is var (mx, my) && mx >= plotX && mx <= plotX + plotW
-            && my >= plotY && my <= plotY + plotH)
+        if (mouseScreenPosition is { } follower)
         {
-            DrawVLine(renderer, (int)mx, plotY, plotY + plotH, SkyInkAlpha(50));
-            var mouseTime = XToTime(mx, tStart, tEnd, plotX, plotW);
-            var mouseLabel = mouseTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
-            var mouseLabelRect = MakeRect((int)mx - Px(20, dpiScale), plotY + 2, Px(40, dpiScale), Px(14, dpiScale));
-            renderer.DrawText(mouseLabel, fontFamily, FontSize(h, 10, dpiScale), SkyInkAlpha(160),
-                mouseLabelRect, TextAlign.Center, TextAlign.Near);
+            DrawFollower(renderer, state, fontFamily, follower, areaX, areaY, areaW, areaH, dpiScale);
         }
 
         // --- Legend (sorted by score, highest first) ---
@@ -687,6 +681,70 @@ public static class AltitudeChartRenderer
     }
 
     /// <summary>
+    /// Everything <see cref="DrawFollower"/> paints with the pointer at <paramref name="mouse"/>, or null where it paints
+    /// nothing (the pointer is off the plot). The ONE statement of the follower's extent: the painter clips to it, so
+    /// nothing it draws can lie outside, and a host that repaints only what a pointer move changed (the GUI, #2130)
+    /// repaints this for where the pointer was and where it is.
+    /// </summary>
+    public static RectInt? FollowerRect(
+        PlannerState state, (float X, float Y) mouse, int areaX, int areaY, int areaW, int areaH, float dpiScale = 1f)
+    {
+        if (state.AstroDark == default)
+        {
+            return null;
+        }
+
+        var (_, _, plotX, plotY, plotW, plotH) = GetChartPlotLayout(state, areaX, areaY, areaW, areaH, dpiScale);
+        var (mx, my) = mouse;
+        if (mx < plotX || mx > plotX + plotW || my < plotY || my > plotY + plotH)
+        {
+            return null;
+        }
+
+        // Room for the time label each side of the line: five characters at the label's own size.
+        var half = Math.Max(Px(FollowerLabelHalfDesign, dpiScale), (int)MathF.Ceiling(FontSize(areaH, FollowerLabelFont, dpiScale) * 2f));
+        var left = Math.Max(areaX, (int)mx - half);
+        var right = Math.Min(areaX + areaW, (int)mx + half + 1);
+        return MakeRect(left, plotY, right - left, plotH);
+    }
+
+    private const float FollowerLabelHalfDesign = 20f;
+    private const float FollowerLabelFont = 10f;
+
+    /// <summary>
+    /// The pointer's follower: a vertical line down the plot with the time under the pointer at its top. One painter for
+    /// every host; it draws inside <see cref="FollowerRect"/> and nowhere else.
+    /// </summary>
+    public static void DrawFollower<TSurface>(
+        Renderer<TSurface> renderer, PlannerState state, string fontFamily,
+        (float X, float Y) mouse, int areaX, int areaY, int areaW, int areaH, float dpiScale = 1f)
+    {
+        if (FollowerRect(state, mouse, areaX, areaY, areaW, areaH, dpiScale) is not { } extent)
+        {
+            return;
+        }
+
+        var (tStart, tEnd, plotX, plotY, plotW, plotH) = GetChartPlotLayout(state, areaX, areaY, areaW, areaH, dpiScale);
+        var mx = mouse.X;
+        renderer.PushClip(extent);
+        DrawVLine(renderer, (int)mx, plotY, plotY + plotH, SkyInkAlpha(50));
+        var label = XToTime(mx, tStart, tEnd, plotX, plotW).ToOffset(state.SiteTimeZone).ToString("HH:mm");
+        var labelRect = MakeRect(extent.UpperLeft.X, plotY + 2, (int)extent.Width, Px(14, dpiScale));
+        renderer.DrawText(label, fontFamily, FontSize(areaH, FollowerLabelFont, dpiScale), SkyInkAlpha(160),
+            labelRect, TextAlign.Center, TextAlign.Near);
+        renderer.PopClip();
+    }
+
+    /// <summary>
+    /// Whether the pointer is on the weather band, where <see cref="DrawWeatherTooltip"/> draws: the one test the painter
+    /// and a host asking what a pointer move changed both use.
+    /// </summary>
+    public static bool IsOnWeatherBand(
+        PlannerState state, (float X, float Y) mouse, int areaX, int areaY, int areaW, int areaH, float dpiScale = 1f)
+        => GetWeatherBandLayout(state, areaX, areaY, areaW, areaH, dpiScale) is var (bandX, bandY, bandW, bandH)
+            && mouse.X >= bandX && mouse.X <= bandX + bandW && mouse.Y >= bandY && mouse.Y <= bandY + bandH;
+
+    /// <summary>
     /// Returns the hover-able weather band rectangle (icon row + humidity row) in the same pixel
     /// space as the plot, or null when there is no forecast / no twilight data.
     /// <see cref="DrawWeatherTooltip"/> uses it to hit-test the hovered hour and place its box; X/Width match the plot
@@ -1071,7 +1129,7 @@ public static class AltitudeChartRenderer
         var (bandX, bandY, bandW, bandH) = band;
 
         // Only while the pointer is on the band.
-        if (mx < bandX || mx > bandX + bandW || my < bandY || my > bandY + bandH)
+        if (!IsOnWeatherBand(state, mouse, areaX, areaY, areaW, areaH, dpiScale))
         {
             return null;
         }

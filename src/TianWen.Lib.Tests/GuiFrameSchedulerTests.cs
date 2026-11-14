@@ -209,9 +209,56 @@ public class GuiFrameSchedulerTests
             RedrawPending = true,
             PendingForPointerMoveAlone = moveAlone,
             PointerMoveChanged = stated ? Crosshair : null,
+            PointerMoveUnstated = !stated,
             Changed = changed,
         };
         frames.Check(1_600, move).ShouldBeTrue();
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBeEmpty();
+    }
+
+    // The loop draws moves at most thirty times a second and drops the ones between. What a dropped move changed is
+    // drawn anyway, a thirtieth of a second on, or the follower would rest where the pointer was.
+    [Fact]
+    public void AMoveTheLoopDidNotArmIsDrawnAnyway()
+    {
+        var frames = Drawn(GuiTab.Planner);
+        Run(frames, 10, 1_500, GuiTab.Planner);
+
+        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair }).ShouldBeFalse("the loop armed nothing");
+        frames.Check(1_620, Idle(GuiTab.Planner)).ShouldBeFalse();
+        frames.Check(1_640, Idle(GuiTab.Planner)).ShouldBeTrue("a thirtieth of a second after the move");
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBe([Crosshair]);
+
+        frames.Check(1_700, Idle(GuiTab.Planner)).ShouldBeFalse("drawn once");
+    }
+
+    [Fact]
+    public void WhatAnUnarmedMoveChangedIsKeptForTheNextFrame()
+    {
+        var frames = Drawn(GuiTab.Planner);
+        Run(frames, 10, 1_500, GuiTab.Planner);
+        var second = new RectF32(470f, 100f, 60f, 500f);
+
+        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveChanged = Crosshair }).ShouldBeFalse();
+        var armed = Idle(GuiTab.Planner) with { RedrawPending = true, PendingForPointerMoveAlone = true, PointerMoveChanged = second };
+        frames.Check(1_610, armed).ShouldBeTrue();
+
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBe([Crosshair, second]);
+        frames.Check(1_650, Idle(GuiTab.Planner)).ShouldBeFalse("nothing is left to trail");
+    }
+
+    // A move something took without saying what it changed (a hover highlight) beside one that said: the frame is full,
+    // whichever came first.
+    [Fact]
+    public void AnUnstatedMoveBesideAStatedOneIsAFullFrame()
+    {
+        var frames = Drawn(GuiTab.Planner);
+        Run(frames, 10, 1_500, GuiTab.Planner);
+
+        frames.Check(1_600, Idle(GuiTab.Planner) with { PointerMoveUnstated = true }).ShouldBeFalse();
+        var armed = Idle(GuiTab.Planner) with { RedrawPending = true, PendingForPointerMoveAlone = true, PointerMoveChanged = Crosshair };
+        frames.Check(1_610, armed).ShouldBeTrue();
+
         frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Planner, Clock).ShouldBeEmpty();
     }
 

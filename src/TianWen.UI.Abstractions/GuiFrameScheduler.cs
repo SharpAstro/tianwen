@@ -15,8 +15,11 @@ namespace TianWen.UI.Abstractions;
 /// (<c>SdlWindowView.RedrawPending</c>): input a handler took, an expose, a resize, a frame held back.</param>
 /// <param name="PendingForPointerMoveAlone">That frame is owed to pointer moves alone
 /// (<c>SdlWindowView.RedrawPendingForPointerMoveAlone</c>).</param>
-/// <param name="PointerMoveChanged">What those moves changed, when the widget that took them can say; null when it
-/// cannot, or when something else took a move too.</param>
+/// <param name="PointerMoveChanged">What the pointer moves taken since the last check changed, when the widget that took
+/// them said; null when none said. Given whether or not the loop armed a frame for them: the loop draws moves at most
+/// thirty times a second and drops the ones between, and what a dropped move changed is still owed a repaint.</param>
+/// <param name="PointerMoveUnstated">A pointer move was taken since the last check by something that did not say what it
+/// changed (a tab that only answers "handled", a region's hover): the next frame is a full one.</param>
 public readonly record struct GuiFrameInputs(
     GuiTab Tab,
     bool RunGoingOn,
@@ -25,7 +28,8 @@ public readonly record struct GuiFrameInputs(
     bool Changed,
     bool RedrawPending,
     bool PendingForPointerMoveAlone,
-    RectF32? PointerMoveChanged);
+    RectF32? PointerMoveChanged,
+    bool PointerMoveUnstated = false);
 
 /// <summary>
 /// WHETHER the GUI owes its window a frame, and WHAT that frame repaints (#2130): the whole of the decision that used to
@@ -57,6 +61,17 @@ public sealed class GuiFrameScheduler
     private long _lastClockTick;
     // When the one settling frame is due; 0 for none.
     private long _settlingFrameDue;
+    // Since the last frame: a move said what it changed, and a move was taken that did not.
+    private bool _statedMove;
+    private bool _unstatedMove;
+    // When a stated move the loop did not arm a frame for is drawn anyway; 0 for none.
+    private long _trailingMoveDue;
+
+    /// <summary>
+    /// The rate at which a stated move the loop dropped is drawn anyway: the loop's own rate for pointer moves, so the
+    /// last move of a gesture is on screen a thirtieth of a second after it, where it used to wait for some other frame.
+    /// </summary>
+    public const int TrailingMoveRate = 30;
 
     /// <param name="now">The clock's timestamp at start (<c>ITimeProvider.GetTimestamp</c>).</param>
     /// <param name="ticksPerSecond">Its frequency.</param>
@@ -85,10 +100,30 @@ public sealed class GuiFrameScheduler
             _lastClockTick = now;
         }
 
-        // A frame the loop owes for pointer moves alone, whose widget said what they changed, is the one loop-raised cause
-        // that can be narrowed. Every other one is a cause this check cannot name.
-        var narrowedMove = inputs is { RedrawPending: true, PendingForPointerMoveAlone: true, PointerMoveChanged: not null };
+        // What the moves changed is kept until a frame draws it, armed or not.
+        if (inputs.PointerMoveChanged is { } moved)
+        {
+            _reasons.Narrow(moved);
+            _statedMove = true;
+        }
+        if (inputs.PointerMoveUnstated)
+        {
+            _reasons.Full();
+            _unstatedMove = true;
+        }
+
+        // A frame the loop owes for pointer moves alone, every one of which said what it changed, is the one loop-raised
+        // cause that can be narrowed. Every other one is a cause this check cannot name.
+        var narrowedMove = inputs is { RedrawPending: true, PendingForPointerMoveAlone: true } && _statedMove && !_unstatedMove;
         var loopsOwn = inputs.RedrawPending && !narrowedMove;
+
+        // A stated move the loop armed no frame for (it throttles them): drawn at the trailing rate, so the follower
+        // never rests where the pointer was.
+        if (_statedMove && !inputs.RedrawPending && _trailingMoveDue == 0)
+        {
+            _trailingMoveDue = now + _ticksPerSecond / TrailingMoveRate;
+        }
+        var trailingMove = !inputs.RedrawPending && _trailingMoveDue != 0 && now >= _trailingMoveDue;
 
         var caused = timeDriven || inputs.Changed || loopsOwn;
         var settling = !caused && _settlingFrameDue != 0 && now >= _settlingFrameDue;
@@ -111,10 +146,6 @@ public sealed class GuiFrameScheduler
             // A full frame draws everything time-driven, whatever asked for it.
             _lastTimeDrivenFrame = now;
         }
-        if (narrowedMove && inputs.PointerMoveChanged is { } moved)
-        {
-            _reasons.Narrow(moved);
-        }
         if (clockTicked)
         {
             _reasons.ClockTick();
@@ -123,11 +154,11 @@ public sealed class GuiFrameScheduler
         if (timeDriven) { Causes.Time++; }
         if (inputs.Changed) { Causes.Changed++; }
         if (loopsOwn) { Causes.Loop++; }
-        if (narrowedMove) { Causes.PointerMove++; }
+        if (narrowedMove || trailingMove) { Causes.PointerMove++; }
         if (settling) { Causes.Settling++; }
         if (clockTicked) { Causes.Clock++; }
 
-        return caused || settling || narrowedMove || clockTicked;
+        return caused || settling || narrowedMove || trailingMove || clockTicked;
     }
 
     /// <summary>
@@ -142,6 +173,9 @@ public sealed class GuiFrameScheduler
     public IReadOnlyList<RectF32> BeginFrame(bool flagged, bool shuttingDown, GuiTab tab, RectF32? clockRect)
     {
         _narrowed.Clear();
+        _statedMove = false;
+        _unstatedMove = false;
+        _trailingMoveDue = 0;
         var narrow = _reasons.TryTakeNarrow(_narrowed, out var clock)
             && !flagged && !shuttingDown && GuiTimeCadence.MayNarrow(tab);
         if (narrow && clock)

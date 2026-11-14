@@ -521,13 +521,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         // The loop asks this after dispatching the iteration's events, so a frame it armed itself (input a handler took,
         // an expose, a resize, a frame held back) shows as RedrawPending.
+        var moveChanged = handlers.TakePointerMoveChanged(out var moveUnstated);
         return frames.Check(now, new GuiFrameInputs(
             appState.ActiveTab, runGoingOn, previewCapturing,
             SlewInFlight: guiRenderer.SkyMapState.ActiveSlewTarget is not null,
             Changed: changed,
             RedrawPending: eventLoop is not { RedrawPending: false },
             PendingForPointerMoveAlone: eventLoop is { RedrawPendingForPointerMoveAlone: true },
-            PointerMoveChanged: handlers.TakePointerMoveChanged()));
+            PointerMoveChanged: moveChanged,
+            PointerMoveUnstated: moveUnstated));
     },
 
     // Committed to a frame: say what it repaints. The flags are PEEKED here, never consumed: a narrowed frame takes no

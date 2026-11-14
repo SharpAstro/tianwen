@@ -808,7 +808,9 @@ namespace TianWen.UI.Gui
             }
 
             var now = timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
-            var clockText = now.ToString("ddd d MMM HH:mm:ss");
+            // Invariant names: the clock's box is sized from an English sample (ClockWidthSample), and that box is what a
+            // clock frame repaints, so a locale's longer day or month name would be cut or left stale outside it.
+            var clockText = now.ToString("ddd d MMM HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
             var sessionRunning = LocalLiveSession.IsRunning;
             SessionState.IsSessionRunning = sessionRunning;
 

@@ -153,7 +153,14 @@ namespace TianWen.UI.Abstractions
             }
 
             var before = _appState.ActiveTab;
+            _moveStated = false;
             var consumed = _router.Handle(evt);
+            if (consumed && evt is InputEvent.MouseMove && !_moveStated)
+            {
+                // Taken by something that did not say what it changed (a region's hover, a drag, a tab that only answers
+                // "handled"): the frame it asks for is a full one.
+                _pointerMoveUnstated = true;
+            }
             if (_appState.ActiveTab != before)
             {
                 ApplyTabPolicy(_appState.ActiveTab);
@@ -225,10 +232,7 @@ namespace TianWen.UI.Abstractions
                 if (tab is IPointerMoveChange stated && stated.TakePointerMoveChanged() is { } changed)
                 {
                     _pointerMoveChanged = _pointerMoveChanged is { } held ? Union(held, changed) : changed;
-                }
-                else
-                {
-                    _pointerMoveUnstated = true;
+                    _moveStated = true;
                 }
             }
 
@@ -237,14 +241,18 @@ namespace TianWen.UI.Abstractions
 
         private RectF32? _pointerMoveChanged;
         private bool _pointerMoveUnstated;
+        // Whether the move being routed was taken by a tab that said what it changed.
+        private bool _moveStated;
 
         /// <summary>
-        /// What the pointer moves a tab took since the last call changed on screen, for the host's redraw check; null when
-        /// none was taken, or when one was taken by a tab that did not say (the frame is then a full one).
+        /// What the pointer moves taken since the last call changed on screen, for the host's redraw check: the extent the
+        /// tabs that took them stated (null when none did), and whether any was taken by something that did not say, which
+        /// makes the next frame a full one.
         /// </summary>
-        public RectF32? TakePointerMoveChanged()
+        public RectF32? TakePointerMoveChanged(out bool unstated)
         {
-            var changed = _pointerMoveUnstated ? null : _pointerMoveChanged;
+            var changed = _pointerMoveChanged;
+            unstated = _pointerMoveUnstated;
             _pointerMoveChanged = null;
             _pointerMoveUnstated = false;
             return changed;
