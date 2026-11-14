@@ -7039,6 +7039,45 @@ Dispersion within a colour was set aside in the registration by arithmetic (a sm
 - Nothing is adopted. Of the terms no twin carries, the one left is a registration that is weaker along the equator (R7): a
   smear with a direction, which a round Gaussian does not stand in for.
 
+#### The real master sharpened both ways, looked at with the owner; R11 parked (2026-11-14)
+
+Not registered, so it adopts nothing. The owner asked to see what the gains learned on the Hubble twins do to a real frame.
+The real EdgeHD master of step 1 (`real-keep50`, keep 0.5, unsharpened) and the full-length twin d024 were each sharpened by
+`planetary sharpen` (280 mm, 37.5 % obstructed, 610, 535 and 460 nm) with the derived gains, the default, and with
+`--learned-gains`; the real master lies inside the learned model on all three channels.
+
+| | red's gains, finest first | green's | blue's |
+|---|---|---|---|
+| derived | 1.00, 10.93, -0.88, 1.99 | 1.00, 13.10, -0.74, 1.25 | 1.00, 17.34, -2.76, 1.37 |
+| learned | -0.16, 2.31, 2.73, 1.01 | -0.24, 4.03, 1.83, 1.18 | -0.25, 2.85, 5.06, 0.57 |
+
+- **To the eye the derived gains are the better picture**, the owner's judgement and the session's: more of the festoons, the
+  ovals and the belts' texture, the limb a little darkened on one side; the learned gains give a clean, softer disk with no
+  ring. The derived gains stay the default, as they were.
+- **The real master's two halves, each sharpened by the same gains and judged against each other** (`planetary judge`, the
+  correlation inside 0.9 radii):
+
+  | band | as stacked | derived | learned |
+  |---|---|---|---|
+  | 1 (finest) | 0.794 | 0.676 | 0.934 |
+  | 2 | 0.981 | 0.909 | 0.984 |
+  | 3 | 0.999 | 0.995 | 0.998 |
+
+  So most of what the derived gains bring out in band 2 repeats between the halves (0.909, which is 0.952 for the whole
+  master by 2c / (1 + c)), and it costs repeatability against the stack's 0.981; the learned gains do not cost any. This reads
+  noise, not truth: a real capture has none.
+- **On the twin, against its truth,** the learned gains take the green error over bands 1 to 4 from 2.143 as stacked to 1.640.
+  The derived gains' figure from this run (4.485) was scored against the truth through the pupil while they aim at the aperture,
+  so it is not a comparison; L-GAINS-S and R10 above hold the matched ones.
+- **Why the picture and the score disagree:** the learned gains are fitted to the truth's error on twins, and a twin's limb is
+  sharper than the real master's (steps 2b to 2d), so what they learn is the sharpening a twin wants. They beat the derived gains
+  on that score and not to the eye on the real master. That gap is what R11 was after, and it is still open.
+- **Parked by the owner on 2026-11-14.** Where R11 stands: the real band 2 is repeatable detail (step 1); the twin's blur in green
+  is the colour defocus first and the layer at the telescope second (2b); a wide halo (2c) and a blur common to every frame up
+  to 2 px (2d) do not make the real master's soft limb; a registration weaker along the equator is untested. To pick it up:
+  register that step on #2116 first. The sheets are on DE1: `D:/temp/tianwen-scratch/i2116/blur/r11-step2b-arms.png`,
+  `r11-step2d-arms.png` and `sharp/r11-real-sharpened.png`; the sharpened masters and logs under `sharp/`.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text it carried, with the measurements behind
