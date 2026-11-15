@@ -5521,7 +5521,8 @@ and `f2-logs-master/score-r3v_synth22_s0/eval-on-random.log`; the weights are `D
 
 **A classical post-step fills the digs, with no training (explored 2026-11-15 and 16, NOT pre-registered; #2088).** The
 owner asked the same evening for star removal to be explored from several angles. R3v's seed 0 loses to SXT almost only
-by DIGGING (ring dug 13.6 % at 100-1000 sigma, 25.4 % at 1000 and over, 26.0 % saturated, against SXT's 2.2, 0.0, 3.6), so
+by DIGGING (ring dug, by star count, 4.7 % at 100-1000 sigma, 12.2 % at 1000 and over, 16.8 % saturated, against SXT's 0.7, 0.0, 2.1; the
+session-weighted figures first written here, 13.6, 25.4, 26.0 against 2.2, 0.0, 3.6, overstate it), so
 the first angle is a step after the model and not another arm:
 - **The step** (`training/star-removal/dig_floor.py` on tiles, `whole_floor.py` on whole linear masters): where the model
   took a star (input less output, smoothed 1 px, over 1.5 sigma in any channel, grown 2 px), the sky under it is read from
@@ -5538,7 +5539,7 @@ the first angle is a step after the model and not another arm:
 
 | R3v seed 0 | as trained | + floor | + floor2 | SXT |
 |---|---|---|---|---|
-| real stars clean, 20-100 sigma (pooled) | 97.5 | 98.0 | 97.7 | 98.0 |
+| real stars clean, 20-100 sigma (this and the next six rows SESSION-WEIGHTED, four sessions equally; by count is the table further down) | 97.5 | 98.0 | 97.7 | 98.0 |
 | 100-1000 sigma | 85.7 | 98.0 | 97.8 | 96.6 |
 | 1000 sigma and over | 74.2 | 97.4 | 97.4 | 95.1 |
 | saturated | 45.0 | 63.8 | 58.4 | 82.8 |
@@ -5592,7 +5593,10 @@ the first angle is a step after the model and not another arm:
   floor2 and bounds it by the model's own removal at that pixel (input less output, smoothed 1 px, the largest within
   2 px): a lift is at most twice it, and what still stands above the sky is lowered by at most a twentieth of it. The cap
   on the lift was tried at 0.5, 2 and 4 on the twin (rms 1.28, 0.99, 1.00) and on that sheet; 2 was taken. So floor3 is
-  tuned on seed 0 twice over.
+  tuned on seed 0 twice over. The cap on lowering, 0.05, was fixed once with no sweep, and with the M31 nucleus and the
+  saturated sheet in view: it was picked to reach a saturated core's residue (the removal there is hundreds of sigma)
+  and spare the nucleus. So the nucleus bar passing on seed 0 (green 5.1 to 6.0, 0.9 against 1) is by construction, and
+  only seed 1 is a read of it.
 
 | R3v seed 0 | as trained | + floor2 | + floor3 | SXT |
 |---|---|---|---|---|
@@ -5642,7 +5646,7 @@ the first angle is a step after the model and not another arm:
 - **With the step, earlier arms that were killed for digging read alike on stars, and the halo tells them apart
   (2026-11-16, seed 0 of each, floor3).** Three arms of the drawn-wings and channel-spread lines, all the small model:
 
-| seed 0 + floor3 | real stars clean 100-1000 / 1000+ / saturated | Andromeda dark flat | Tarantula dark flat | nucleus R / G / B % | Andromeda halo, median / p90 / over | Tarantula halo |
+| seed 0 + floor3 | real stars clean 100-1000 / 1000+ / saturated, SESSION-WEIGHTED (by count: the line under the by-count table) | Andromeda dark flat | Tarantula dark flat | nucleus R / G / B % | Andromeda halo, median / p90 / over | Tarantula halo |
 |---|---|---|---|---|---|---|
 | R3v (four-level, synth22) | 98.6 / 100.0 / 88.4 | 97.6 | 93.9 | -1.0 / 6.0 / 1.6 | 599 / 1550 / 89 % | 1121 / 1726 / 92 % |
 | R3j (drawn wings, the dose up, synth16) | 98.2 / 99.6 / 90.2 | 97.5 | 93.0 | -0.4 / -1.2 / 4.5 | 416 / 1336 / 82 % | 395 / 785 / 54 % |
@@ -5667,14 +5671,16 @@ the first angle is a step after the model and not another arm:
     least 95 at 100-1000 sigma and at 1000 and over AND at least 3 points above seed 1 as trained on each (added
     2026-11-16 before any seed 1 score, on the review's finding that seed 0 as trained already reads 94.9 by count at
     100-1000, so 95 alone could hold with no step; seed 0 reads +4.5 and +12.8);
-  - M42's 100-1000 clean row is at least 85;
-  - the SMC 20-100 and 100-1000 clean rows (the rows with n of 5 or more) are not lowered by more than 1 point against
+  - M42's 100-1000 clean row is at least 85 (the "Orion M42" line under 100-1000 that `real_star_check3.py --sessions`
+    prints, with its n);
+  - the SMC 20-100 and 100-1000 clean rows (the "SMC" lines of the same `--sessions` print; the rows with n of 5 or more) are not lowered by more than 1 point against
     seed 1 as trained; the 1000-and-over and saturated SMC rows, n=1, are reported only;
-  - the M31 nucleus moves by under 1 point in every channel;
+  - the M31 nucleus moves by under 1 point in every channel, read from the nucleus field of the whole-master `row.txt`
+    (as trained, and after `whole_floor.py <w-tag> floor3` scored by `score_whole.py` with `--plates`);
   - the twin's rms error under the mask falls by at least a third, as `twin_err.py <seed 1 model> <seed 1 model>+floor3`
     prints it in its "rms in mask" column: one twin tile in four (i % 4), the mask taken from the as-trained model
     (seed 0 reads 1.920 to 0.989).
-  The whole-master rows are not criteria but are reported, the glow rows with their direction (lower is better; a glow bar
+  The other whole-master rows (dark flats, crowded, glow) are not criteria but are reported, the glow rows with their direction (lower is better; a glow bar
   written here for a few hours on 2026-11-16 read the measure backwards and is withdrawn, before any seed 1 score). If the criteria hold, the step is proposed to the owner for the product; if not,
   it was fitted to seed 0. Any change to these bars after seed 1 is scored is post hoc.
 
