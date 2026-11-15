@@ -17,7 +17,8 @@ namespace TianWen.Lib.Tests;
 [Collection("UI")]
 public class GuiWindowChromeTests
 {
-    private const uint SurfaceH = 600;
+    // Tall enough for every rail cell at DPI 1.5: the last cell (Notifications) is not registered once it falls off the window.
+    private const uint SurfaceH = 1000;
 
     public static TheoryData<uint, float> Windows => new()
     {
