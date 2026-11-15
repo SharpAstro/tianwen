@@ -31,12 +31,39 @@
 
   <!-- The browser draws the sky and plans a night. It calibrates no image's colour and runs no simulated camera, so
        the two groups of TianWen.Lib's embedded data it never reads are trimmed out of its download (#2155; the groups
-       are in TianWen.Lib's ILLink.Substitutions.xml). Sky and Stars stay: the atlas reads the first and picks its
-       Tycho-2 tiles with the second. -->
+       are in TianWen.Lib's ILLink.Substitutions.xml). Stars stays embedded: the atlas picks its Tycho-2 tiles with its region bounds, and the
+       cross-reference snapshot is checked against the rest. -->
   <ItemGroup>
     <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.Imaging" Value="false" Trim="true" />
     <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.FakeDevices" Value="false" Trim="true" />
+    <!-- The sky's own catalogues are switched off in the assembly too, and served as plain files beside the app
+         (StageSkyDataFiles below, read through HttpDataFiles in Program.cs): a new build of the code then leaves
+         them in a visitor's cache instead of sending them again inside TianWen.Lib (#2161). -->
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.Sky" Value="false" Trim="true" />
   </ItemGroup>
+
+  <!-- What the trimmer takes out of TianWen.Lib for the Sky switch is put in the published wwwroot/data, with an
+       index.txt naming each file. The list is READ from TianWen.Lib's ILLink.Substitutions.xml, the one place a
+       file is given its group, so the folder cannot fall behind it. The files are the library's own build
+       outputs and inputs (Astrometry/Catalogs), copied as they are. After Publish and not through the static
+       web assets pipeline: the generated .gs.gz do not exist when this project is evaluated on a clean tree,
+       and they are compressed already. A build that is run and not published (dotnet run, the E2E fixture) is
+       not trimmed, embeds everything and has no such folder, which HttpDataFiles reads as "carries nothing". -->
+  <Target Name="StageSkyDataFiles" AfterTargets="Publish">
+    <XmlPeek XmlInputPath="$(MSBuildThisFileDirectory)..\TianWen.Lib\ILLink.Substitutions.xml"
+             Query="/linker/assembly[@feature='TianWen.Lib.EmbeddedData.Sky']/resource/@name">
+      <Output TaskParameter="Result" ItemName="_SkyResource" />
+    </XmlPeek>
+    <ItemGroup>
+      <_SkyDataFile Include="@(_SkyResource)">
+        <DataFileName>$([System.String]::Copy('%(Identity)').Replace('TianWen.Lib.Astrometry.Catalogs.', ''))</DataFileName>
+      </_SkyDataFile>
+    </ItemGroup>
+    <Error Condition="'@(_SkyDataFile)' == ''" Text="No Sky group found in TianWen.Lib's ILLink.Substitutions.xml: the web app would publish with no catalogue at all." />
+    <Copy SourceFiles="@(_SkyDataFile->'$(MSBuildThisFileDirectory)..\TianWen.Lib\Astrometry\Catalogs\%(DataFileName)')"
+          DestinationFolder="$(PublishDir)wwwroot\data" />
+    <WriteLinesToFile File="$(PublishDir)wwwroot\data\index.txt" Lines="@(_SkyDataFile->'%(DataFileName)')" Overwrite="true" />
+  </Target>
 
   <!-- The planets' offline texture atlas, served beside the page (Planner.razor's LoadPlanetAtlasAsync); one file, kept in
        TianWen.UI.Abstractions where the desktop hosts copy it from. -->
