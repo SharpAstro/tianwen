@@ -27,7 +27,7 @@ namespace TianWen.Lib.Tests
         /// </summary>
         private static readonly DateTimeOffset Now = new DateTimeOffset(2026, 7, 29, 22, 0, 0, TimeSpan.Zero);
 
-        private static RigCard Card(
+        internal static RigCard Card(
             string title, bool running = false, RigCardPrompt? prompt = null, RigDeviceLink? devices = null,
             RigCardProgress? progress = null, RigCardCooling? cooling = null, double? hfd = null,
             DateTimeOffset? flipUtc = null, RigCardNote? note = null) =>
