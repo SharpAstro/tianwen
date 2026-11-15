@@ -182,7 +182,7 @@ public class EquipmentTabState
     public TextInputState ApertureInput { get; } = new() { Placeholder = "Aperture (mm)" };
 
     // Guider focal length editing
-    public TextInputState GuiderFocalLengthInput { get; } = new() { Placeholder = "Guide scope FL (mm)" };
+    public TextInputState GuiderFocalLengthInput { get; } = new() { Placeholder = "mm" };
 
     // The blind solve's key (nova.astrometry.net): per user and kept by the node, so this field is only ever written, never
     // filled from the store; it shows a mask as it is typed.

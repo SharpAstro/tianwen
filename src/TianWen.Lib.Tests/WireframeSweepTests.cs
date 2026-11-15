@@ -31,8 +31,14 @@ namespace TianWen.Lib.Tests;
 /// <remarks>
 /// Set <c>TIANWEN_WIREFRAME_PICTURES</c> to a folder to have every frame painted and saved there as a PNG.
 /// The window's top bar and sidebar are swept too, as <see cref="GuiWindowChrome{TSurface}"/> over the whole window
-/// (the content widths plus the sidebar) in the states that stress them (#2139). What the sweep cannot see: anything a
-/// GPU pipeline draws, and any state the scenarios below do not put on screen.
+/// (the content widths plus the sidebar) in the states that stress them, among them the night calendar open under the
+/// top bar (#2139). The Sky Map is swept with its search window open, its layer palette up and an object selected
+/// (the info panel), the Planner with its suggestion dropdown open, and the Equipment and Live Session tabs on a rig
+/// of vendor-length device names. The map's own text is judged only where the overlay engine placed it with collision
+/// avoidance (<c>SkyMapTab.PlacedMapLabels</c>); the best-effort placer the CPU map uses overlaps by design and stays
+/// out, see <c>SkyChromeOnly</c>. What the sweep cannot see: anything a GPU pipeline draws (the GPU atlas's labels
+/// included), and any state the scenarios below do not put on screen. The sweep is written up in
+/// docs/architecture/widgets-and-controls.md, "The wireframe sweep".
 /// The Notifications tab and the FITS viewer's chrome (toolbar, info strip and panel, file list, status bar, and the Tone,
 /// Enhance and White Balance popovers open in turn) are swept too (#2139), the viewer as the no-op <c>SweepViewer</c> on
 /// the wireframe renderer. The image quad and the histogram quad are GPU-drawn and unseen here, as are the planetary
