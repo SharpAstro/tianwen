@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
