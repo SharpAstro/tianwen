@@ -5454,19 +5454,24 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
 - **Kill:** M42 under 40 on seed 0, as for R3t and R3u (R3s's was on its two-seed mean; 50 is the Q2 bar, not the kill, and
   this row has shown a seed spread of 5 to 12 points); or a guard fails.
 - **When seed 1 trains:** when seed 0 is not killed (every guard held and M42 at 40 or more, whether or not it clears 50);
-  or when it is killed on Tarantula's row ALONE by under 4 points; or on the SMC's rows ALONE with each inside R3l's own
-  seed spread under the bar, the 20-100 row at 84.3 or more (92.4 less 3 less 5.1) and the 100-1000 row at 75.8 or more
-  (90.7 less 3 less 11.9). The two seeds are then read on the mean. Any other kill ends the arm on seed 0.
-- **What a kill means:** on a two-seed mean whose SMC 20-100 row stays more than 3 under R3l's with 8.5 times the weights,
-  capacity at this size is not shown to be what holds the two fields apart. On a kill that ends the arm on seed 0 (M42 under
-  40, another guard, or the SMC past its bound) nothing is concluded about capacity from one seed. In both cases the line
-  waits for the owner; the owner's second idea of the same day (more than one model, chosen per image by a measurement of its
+  or when it is killed on Tarantula's row ALONE by under 4 points; or on the SMC's rows ALONE with each no more than 3 under
+  R3l's LOWER seed, the 20-100 row at 86.8 or more (89.8 less 3) and the 100-1000 row at 81.7 or more (84.7 less 3), which
+  is how R3t's and R3u's reads compared this row (R3u's 76.3 is outside it). Any other kill ends the arm on seed 0.
+- **With two seeds, every bar is judged on their mean:** Q2 and each guard as written above, and the arm is killed on the
+  mean by M42 under 40 or by any guard, whatever seed 0 read alone.
+- **What a kill means:** on a two-seed mean whose SMC rows, either one, stay more than 3 under R3l's with 8.5 times the
+  weights, capacity at this size is not shown to be what holds the two fields apart. A mean killed by another guard with the
+  SMC's rows held says the larger model keeps the SMC and loses elsewhere, which is read as it falls. On a kill that ends the
+  arm on seed 0 (M42 under 40, another guard, or the SMC past its bound) nothing is concluded about capacity from one seed.
+  In every case the line waits for the owner; the owner's second idea of the same day (more than one model, chosen per image by a measurement of its
   stars) is the candidate named, and it is not started unasked.
 - **Amended 2026-11-15, before any score of R3v exists** (seed 0 was at step 55,600 of its training): the first registration
-  killed on M42 under 50, said "seven times the weights", drew the capacity conclusion from one seed of the SMC, and trained
-  seed 1 "only if seed 0 holds every guard and its M42 band reads at least 50", which contradicted the Tarantula exception.
-  The reviews of that text showed each at odds with the plan's own seed spreads; the lines above are the corrected ones, the
-  SMC exception's bound and the positive rule for seed 1 among them.
+  had four defects, each named for what it was. Two were at odds with the plan's own seed spreads: it killed on M42 under
+  50, and it drew the capacity conclusion from one seed of the SMC. One was arithmetic: "seven times the weights" for 6.86 M
+  against 0.81 M. One was an internal contradiction: seed 1 trained "only if seed 0 holds every guard and its M42 band reads
+  at least 50", against the Tarantula exception beside it. The lines above are the corrected ones; the reviews of the
+  correction added the positive rule for seed 1, the SMC exception's bound (first set at R3l's mean less its full seed range,
+  84.3 and 75.8, then tightened to R3l's lower seed less 3) and the rule that two seeds are judged on their mean.
 - **Prediction:** the truth tiles rise (more weights fit the synthetic stars better; R2nc's did). M42's band holds at R3s's
   level, 50 to 60. The SMC is the open part and the point of the arm: I put it at even odds that its 20-100 row comes within
   3 of R3l's. M42's blue dig is missed again; nothing in a larger model addresses it.
