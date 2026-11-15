@@ -1,5 +1,7 @@
 """Twin truth error of a model's output against the plate, in the draw's noise sigma: over the pixels the post-step's mask
-covers (taken from the base model) and outside them. python -I twin_err.py <base> <model...>"""
+covers (taken from the base model) and outside them. python -I twin_err.py <base> [<model>...]
+The first model is the base (it defines the mask) and is scored too. Only one tile in four is scored (i % 4), so the rms,
+outside and mean figures are a quarter sample; the TRUE clean twin rows of real_star_check3.py use every tile."""
 import json, os, sys
 import numpy as np
 from scipy.ndimage import gaussian_filter, binary_dilation, median_filter
