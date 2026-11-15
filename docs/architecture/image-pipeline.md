@@ -689,3 +689,17 @@ overscan areas and RECORDS them, as `ImageMeta.DataSection` / `BiasSection` writ
 but keeps the whole raster. Those sections are 1-based and inclusive, the same trap as CRPIX, so
 `FitsSection` is the ONE place the convention is converted. Design, phasing and the measurements:
 `docs/plans/sensor-active-area.md`.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Image Mutability: Almost-Immutable with In-Place Escape Hatches (from CLAUDE.md)
+
+- **A file-backed eviction is its own state and a read of it THROWS** (#368; `TryEvictForReload`, `PlanesNeedReload`): a
+  float master over `EnhanceRevertPolicy`'s budget drops its planes after load, and every pixel consumer awaits
+  `AstroImageDocument.EnsurePlanesAsync` off the render thread first, never a disk read in a getter. A new reader of
+  `UnstretchedImage` pixels owes that await; `docs/plans/viewer-memory-footprint.md`, "The reload-backed release".
+- **A plane is `float[,]` and stays one; what changes is how a LOOP reads it** (span-per-row), and a speed-up is
+  per-MACHINE: never quote one without naming the box.

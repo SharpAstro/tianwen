@@ -370,3 +370,32 @@ Tracked by #878.
 - **The summary has no licence.** A credit line needs Commons `extmetadata`.
 - **Do not bake pixels.** Licences differ per file and the images change upstream; the table carries the
   pointer and the credit, the client fetches the picture.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### A Wikipedia link is the article the bake VERIFIED, never one built from a designation (from CLAUDE.md)
+
+`ICelestialObjectDB.TryGetArticle` reads `object_articles.gs.gz` (`tools/bake-object-imagery`): an
+article is in it only because its Wikidata position agrees with ours, and it carries the lead image's
+file name and credit, never pixels. **An object the bake did not verify gets NO link**, which is the
+point: the designation guess it replaced 404'd or linked a same-named page silently. The bake keys main
+catalogue entries and the lookup follows cross-indices (`M 92` reaches `NGC 6341`'s article), so a test
+of that path must use an index that is not itself a key (M 42 is one). Re-bake by hand and commit; the
+table is binary, so the bake's stdout report is the review. Measurements and the image rules (no SVG, no
+charts, no unlicensed file): this document.
+
+**What leaves the app is a LINK, and a link only works where the host's router has `OpenUrl` wired.** The
+object panel's Wikipedia and Sky atlas are underlined accent-coloured `LinkHit`s on their own row
+(`ObjectInfoPanel.BuildLinkRow`), never buttons; the web host draws each as a real anchor. On the desktop
+the router consumes a press on ANY region and opens a `LinkHit` only through `InputRouter.OpenUrl`:
+`StandaloneViewerHost` had no subscriber, so every link in `tianwen-fits` took the hand pointer and
+opened nothing while the same panel worked in the GUI. A new host owes that one line
+(`APressOnThePanelsAtlasLinkOpensThePageOnce`). **A layout button lights through `.BgHover(GuiTheme.Hover(fill))`**,
+one rule, only when a press would act, and **a host routes the press, the move AND the release through its
+router**: a slider's press arms its drag there and only the router feeds it the moves, so a host routing
+presses alone left every popover dial click-only (`APopoverDialFollowsADragAcrossItsTrack`). The router
+also decides when a hover needs a frame; `StandaloneViewerHost` makes those frames full-surface, since the
+viewer narrows a move's damage to the pixel readout.

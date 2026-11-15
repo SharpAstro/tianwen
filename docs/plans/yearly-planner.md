@@ -185,3 +185,17 @@ Everything above except the year mode's marks (#2061) and the events-list row (#
   `SkyMapState.ShouldDrawShowerRadiant`, which is `OverlayEngine.PassesLayerFilter` for `ObjectType.MeteorShower`: the [O] layer
   switches it off and a pin bypasses it. The info panel names the shower, its ZHR, on the peak night the rate at the site, and
   its peak in site time. There is no Wikipedia link, since the bake verified none.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Meteor showers (`TianWen.Lib.Astrometry.MeteorShowers`) (from CLAUDE.md)
+
+The IMO working list as a static table, an EVENT and not an object. Design and what shipped: this document, section E. Rules that bite:
+
+- **A year's peak is the Sun reaching the peak's solar longitude** (`MeteorShowerCalendar.PeakNear`), never a stored date.
+- **The rate at the site is `MeteorShowerNights`'s** (calendar and atlas panel read the same words, `MeteorShowerText`), **and
+  it is said on the PEAK night only**: the table holds no activity profile, so `ExpectedRate` off the peak is the peak's, an
+  upper bound. The calendar marks peak nights alone (`IsMajorPeak` for the dot), never every active night.

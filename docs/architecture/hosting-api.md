@@ -1140,3 +1140,20 @@ USB.Lib U3 (#1755), and the warnings with it.
    Control is asked through `LanInvites`; managing who may is socket-or-grant, and prompts and the quit
    question count only clients that may command. Plain HTTP still: `docs/architecture/hosting-api.md`,
    "Who may command the node over TCP".
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Hosting API (`TianWen.Hosting` + `TianWen.Server`) (from CLAUDE.md)
+
+**The node keeps the computer awake while it holds hardware** (#1957, `NodeKeepsAwake`): a connected device, a lease, a
+run or a running job (`NodeHoldsHardware`, shared with `NodeIdleExit`) holds an `IPowerRequest`, the display free to
+sleep. **Windows takes a power request object, never `SetThreadExecutionState`** (per thread, and a service's
+continuation hops threads). #1673 reuses the seam. `docs/plans/hardware-in-the-server.md`, "Spawn and lifetime".
+
+**A node a client started exits a minute after nothing uses it** (`NodeIdleExit`, `--idle-exit`; a test whose clients do not
+beat gives its node a long one, `KeptNode`). **Time the computer slept is not idle time**, and a window whose node stops
+answering finds or starts it again (`MaybeReconnectLocalNode`). **A client replaces an idle, unattended node of another
+BUILD, not only another wire** (`IsAnotherBuild`). **AOT is verified by `dotnet publish -r <rid>`, not `dotnet build`.**

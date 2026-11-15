@@ -1471,3 +1471,30 @@ by 2.4 deg -- `RA`/`DEC` gave 11-13 hits of 160 against a threshold of 24 (chanc
 to ASTAP, and widening the search radius to 8 deg did not help because coverage was never the problem;
 `OBJCTRA`/`OBJCTDEC` locked at 104/160 and passed the acceptance gate 116/120. TianWen writes both
 keywords from the same `ImageMeta.TargetRA/TargetDec`, so the order is invisible on our own files.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Plate Solving (from CLAUDE.md)
+
+`IPlateSolverFactory` selects in priority order: `CatalogPlateSolver` (built-in, ~6 matched stars),
+`AstapPlateSolver` (wraps `astap_cli`, ~44 stars), `AstrometryNetPlateSolver` (wraps `solve-field`,
+slower fallback). Every measurement, the dataset rationale and the quad-seed/parity-cache design:
+this document. Rules that bite:
+
+- **A header hint comes from `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre**
+  (`RA`/`DEC` is what the mount reported). `WCS.FromHeader` and `Image.Fits.ParseTargetCoords` must
+  read CRVAL -> OBJCTRA/OBJCTDEC -> RA/DEC in that order and must not diverge.
+- **A remembered parity (`SolveHintCache`) is a hypothesis BUDGET, never a skip**, keyed on
+  `(Telescope, Instrument, RowOrder, Bin)` -- the LIGHT PATH, since an OAG guide camera is the opposite
+  parity to the main camera on the same rig.
+- **A ctor with a non-generic `ILogger` parameter silently gets `null` from DI.** Take `ILogger<TSelf>`
+  or register with a factory lambda: `docs/architecture/dependency-injection.md`.
+- **An external tool never outlives the call that started it** (`BoundedProcess.WaitForExitOrKillAsync`, ONE rule
+  for the plate solvers and the planetary corpus's 7-Zip: the probe and a path translation are bounded by `ProbeTimeout`,
+  a solve by the caller's token, and either way the whole process tree is killed). `PlateSolverFactory` awaits EVERY solver's probe before solving, so an
+  unbounded `wsl solve-field -h` against a wedged WSL blocked all plate solving, the built-in solver
+  included, and every process that probed stranded its `wsl.exe` pair (2,444 of them on 2026-09-27; an
+  orphan also holds its caller's output pipe). `tools/restart-wsl.ps1` clears a wedged service.

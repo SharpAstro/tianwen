@@ -189,3 +189,22 @@ maximised.
   same five-line comment asserting restore was harmless, and both were wrong; it was also untestable
   there, observable only by maximising a real window and double-clicking a real file. Behind the
   interface it is three tests over a fake, and the maximised one fails against the shipped behaviour.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Desktop Shell: File Types, the Single-Instance Hand-off, and the MSIX Store Lane (from CLAUDE.md)
+
+`tianwen-fits` ships to the Microsoft Store as **Astro Photo Viewer**, which is what makes file
+associations worth having and what makes every double-click a fresh AOT process unless the file is
+handed to the window already open. Layering, the two CI lanes, the activation bug that shipped and
+both MSIX traps: this document; packaging: `packaging/windows/msix/`;
+thumbnails: `docs/plans/explorer-thumbnails.md`. Rules that bite:
+
+- **Explorer thumbnails run in the shell's surrogate and get a STREAM.** `Initialize` reads NOTHING
+  and `WTSCF_FAST` answers `WTS_E_FASTEXTRACTIONNOTSUPPORTED`, because a read HYDRATES a cloud
+  placeholder -- buffering there would download a whole OneDrive folder just to answer "do thumbnails
+  exist". Inside a OneDrive sync root the handler is never even asked (one whole-root
+  `ThumbnailProvider` under `SyncRootManager` answers for every extension): `docs/known-limitations.md`.

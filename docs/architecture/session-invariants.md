@@ -122,3 +122,83 @@ history at that rate. **The field must be smooth**: a block keeps its gain acros
 neighbour's over 8 px either side of the edge. A hard step there was found as faint "stars" on a starless overcast frame,
 and the built-in guider re-acquired one every frame where it should have failed acquisition
 (`FakeCameraMountCouplingTests.GivenCloudWhenGuidingRestartsWithReusedCalibrationThenAcquisitionFailsLoudly` hung).
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Session (from CLAUDE.md)
+
+- **A mount that cannot goto (`MountPointsWithoutGoto`: the SkyGuider Pro) is pointed by ONE routine,
+  `PointWithoutGotoAsync`** (`Session.SlewLess.cs`): RA by its own motor, timed and never trusted, Dec by the operator in a
+  wait the session ends itself once a solve finds the target. Every slew the session makes asks first, so a new one owes the
+  same question. `docs/plans/slew-less-mount.md`.
+- **A goto or Home never unparks a mount** (the owner, 2026-10-30): on a parked mount it is REFUSED, naming the Unpark step
+  (`MountGoto.IsParkedAsync`), since unattended unparking moves hardware nobody may be watching (a tiny dome). Unpark is the
+  operator's own command. **A run is the one exception, behind `SessionConfiguration.UnparkMount` (on by default, as N.I.N.A.
+  unparks on a sequence start)**: initialisation only CHECKS (and fails at once when the run may not unpark), and
+  `Session.UnparkForRunAsync` unparks at the run's first move, after the wait for dark or before the dusk sky flats, never
+  during the evening wait. **Going home is ONE routine, `DeviceOperations.GoHomeAsync`** (the Home button and a goto to the
+  site's pole): it asks NO software horizon limit (home is not an observing position, and near the equator the pole sits under
+  any limit) and stops tracking on arrival, where an ordinary goto starts it.
+- **Whether a flip HAPPENED is read off the IMAGE wherever the pointing state is `Computed`** (LX200 base, SGP):
+  `WCS.RotationDeg` against the recentre's own solve, `MeridianFlipVerification.FromSolves`, `Inconclusive` falls
+  back to the mount. `FakeMountDriver`'s tube state only MOTION changes (**a sync must not touch it**).
+  `docs/plans/meridian-flip-verification.md`.
+- **Focus-drift refocus is a TREND** (`FocusDriftDetector.EstimateTrendHfd` over the last
+  `SessionConfiguration.FocusDriftSampleSize` comparable frames, `FrameMetrics.IsComparableTo`, against
+  `FocusDriftThreshold`): **the LSQ divisor is the INCLUDED-sample count**; **the window is cleared on a drift
+  refocus and on target change**; **one baseline per ACQUISITION SETTING** (`AcquisitionSetting`, #820). Assert
+  through `Session.DriftRefocusCount`. `docs/plans/focus-tolerance.md`.
+- **A light judged CLOUD as it lands is a suspicion the session acts on, never a reject** (#1977, `LiveCloudJudge`, the
+  viewer grade's own `LightGrading.Verdict`, with the rig's clear nights; on by `SessionConfiguration.DetectCloudWhileImaging`):
+  written `MAYBE_CLOUD_`, no drift refocus, no focus-history sample, and while the OTA's latest light is cloud a flip runs no
+  plate solve (`FlipEvidence.Inconclusive`, the mount believed); a clear light resumes all of it, and every verdict lands
+  through ONE method, `Session.RecordLatestLightCloud`. Cloud past `CloudWaitTimeout` (15 min) takes the
+  condition-deterioration path, so a sudden cloud-over now images on for up to 15 minutes instead of pausing at once.
+  In full: this document, "Cloud while imaging".
+
+**Mount safety limits are NOT the meridian flip.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`, pure) is
+the mechanical bound, where the TUBE meets the pier or the ground; a flip is a *scheduling* choice. Derivations,
+the GSServer sweep, live verification: `docs/plans/mount-safety-limits.md`, `docs/plans/gss-parity-audit.md`.
+What bites:
+
+- **`IMountDriver.GetAxisAngleAsync` (MECHANICAL, SkyWatcher only) WINS when present** (`MountLimitVerdict.Basis`).
+  **Only a MEASURED pointing state, or one the SESSION verified, may drive it** (`MountLimits.TrustedPointingState`;
+  `Session._verifiedPointingState`; `MountLimitWatcher` keeps the two-argument form).
+- **Warn and act are a threshold plus a non-negative EXTRA**; **`alreadyActed` is a latch that downgrades to
+  `Warn`, never clears**.
+- **The meridian limit is in MINUTES and is the ULTIMATE CLAMP on the flip** (inside `MeridianFlipDecision`);
+  never derive the limit from the flip.
+- **Config lives on `ProfileData.MountLimits`**, never `SessionConfiguration`; **enforcement is in
+  `PollDeviceStatesAsync`** and routes to `ImageLoopNextAction.LimitReached`, NOT `DeviceUnrecoverable`;
+  **parking is opt-in for both limits**.
+- **A mount that stops tracking unasked is a LIMIT EVENT, not a fault** (`Session.DetectDriverEnforcedStop`;
+  `_raPulseOnStoppedAxis`).
+- **Test traps:** `default(PointingState)` is `Normal`, SILENT for the meridian test, so place the mount by SYNC;
+  **a run's site is `Session.Site`** (#798, `MountSiteExtensions`): a NaN altitude switches the HORIZON test off.
+- **The verdict is telemetry** to the Home card's Flip column, on CLASS transitions only.
+- **`MountLimitWatcher` (`Sequencing/`) is the enforcement half with no session running**: each 5 s it matches a
+  connected mount against every discovered profile's `Mount` and skips one a session leases; a `BackgroundService`
+  in `tianwen-server` only, since P6 (#936).
+
+**A guide pulse is TWO methods, and picking the wrong one is silent.** `StartPulseGuideAsync` (`IMountDriver` /
+`ICameraDriver` / `IPulseGuideTarget`) commands the hardware and RETURNS; `PulseGuideAsync`
+(`PulseGuideTargetExtensions`) starts AND waits, which a caller almost always means. **Every driver honours the
+primitive**: **the in-flight count rises BEFORE the first write and falls only when the hold ends** (GSS #109),
+and **a failed restore parks in `_pendingPulseFault`**, re-thrown from the next `StartPulseGuideAsync` *and*
+`IsPulseGuidingAsync`. **A test for the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**.
+`docs/plans/gss-parity-audit.md`.
+
+### Backlash Auto-Tuning (from CLAUDE.md)
+
+Every successful AutoFocus opportunistically infers per-direction backlash from the verification
+exposure (no separate measurement routine, based on the cloudynights "no need to measure backlash,
+just overshoot enough" approach). The hyperbola fit predicts HFD at `bestPos`; the verification frame
+measures actual HFD at the mechanical position the focuser landed on. Inverting the fit
+(`Hyperbola.StepsToFocus`) gives the lag, and `B = currentOvershoot + lag`. Per-focuser EWMA (α=0.3)
+sized to `B × 1.5`. State persists to `Profiles/BacklashHistory/<focuserDeviceId>.json` and rounded
+values mirror back to the focuser URI's `focuserBacklashIn`/`focuserBacklashOut` query keys at
+session-end. Wire-up: `BacklashEstimator`, `BacklashHistoryPersistence`, `Session.Focus`,
+`EquipmentActions.SaveBacklashEstimatesIfChangedAsync`.

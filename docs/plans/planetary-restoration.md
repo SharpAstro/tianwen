@@ -7774,3 +7774,29 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   - [WinJUPOS](https://grischa-hahn.hier-im-netz.de/astro/winjupos/tutorials.htm).
   - [ASTRA-SR](https://arxiv.org/abs/2609.26731).
   - The [BlurXTerminator manual](https://www.rc-astro.com/blurxterminator-technical-manual/): sharp images convolved with synthetic PSFs, reconstruction losses only.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`) (from CLAUDE.md)
+
+- **A master is sharpened by ONE routine, `PlanetarySharpening`** (`planetary stack`, `planetary sharpen`, the live
+  Derive):
+  - **No sharpening is drawn outside the limb**: the planet's model to the frame's edge, moons and faint sources laid
+    as stacked (found ONCE, on the luminance); a pixel the sharpening drives below the sky takes the model.
+  - **The derived gains are the truth's; anything past it is the strength OPTION, never the default, and derived gains
+    are never multiplied.** The truth is the planet through the pupil's own diffraction, and the gains undo the
+    telescope too (`PlanetarySharpenTarget.Auto`), band-limited by a Hann taper, never a Tukey.
+  - **Learned gains and a deconvolution are options** (`--learned-gains`, applied only inside what their twins
+    covered; `--finish deconvolve`, on the learned gains only). One Derive fits every stop, and each channel keeps
+    its own gains.
+  - **The limb options are four families, one name across `stack`, `sharpen` and `limb`** (`--fit-*`, `--edge-*`,
+    `--gains-fit`, `--limb-*`); a new one joins its family's prefix.
+  - **The window is the frame MIRRORED, never zero-padded**; a colour master's finest band is kept as stacked.
+  - **A colour master of Jupiter or Saturn is balanced to the planet's own colour AFTER the sharpening, through the
+    camera's own matrix** (`PlanetaryColourBalance`, saturation 1.1 by default); **a colour look is a RENDERING, never
+    a master**.
+  - **What was measured and not adopted is listed in the rules in full; do not re-run it as new** (the derived gains
+    are already a Wiener). Every twin is sampled coarser than its optics resolve.

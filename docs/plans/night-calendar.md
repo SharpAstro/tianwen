@@ -236,3 +236,23 @@ shown.
 - **Colours come from the palette**, and Night mode has no blue: the verdict tints are derived, never literals.
 - **Nothing here touches the session.** The verdict is a forecast for a person deciding; the session never
   reads it.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Night Calendar (one forecast, one verdict) (from CLAUDE.md)
+
+The GUI status-bar date opens a month of NIGHTS (`NightCalendarPopover`, `NightCalendarActions`; pure
+`NightSummary` + `NightVerdict` in `TianWen.Lib.Sequencing`). Design, thresholds and what is still open:
+this document. The rules:
+
+- **Every Open-Meteo hourly array is nullable per element.** The far end of a 16-day range is null, and one null
+  in a `List<double>` fails the whole response.
+- **A night is its EVENING date** (`NightCalendarActions.PlanningEveningDate`: the pinned `PlanningDate.Date`,
+  else `AstronomicalEveningDate`).
+- **The Moon mark is DRAWN from the palette, never an emoji glyph**, which Night mode cannot tint.
+- **The pinned targets are a SECOND half (`NightPins`), never part of the verdict.** They are computed only while
+  the calendar is open, keyed on the pin set (`NightPinsKey`), and unioned across pointings (one mount), never
+  summed. A planet or comet is placed per night by its catalogue index, never from the pin's stored RA/Dec.

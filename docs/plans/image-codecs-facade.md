@@ -216,3 +216,23 @@ uint) plus `SMinSampleValue = 0` / `SMaxSampleValue = 65535` (the `Q16HdriQuantu
 `[0, 1]` is the canonical in-memory range on read as well. Guards: the `Codecs` repo's
 `TiffWriterRoundTripTests.cs` (byte-level reader probe) and `TianWen.Lib.Tests/TiffRoundTripTests.cs`
 (round-trip + SATURATE/unit-scale).
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Float TIFF Convention (`SharpAstro.Tiff` I/O; Magick.NET fully removed) (from CLAUDE.md)
+
+Magick.NET is gone from every project; float TIFF I/O is `SharpAstro.Tiff.TiffWriter`/`TiffReader`
+(`Image.Export.cs` / `Image.Import.cs`) and imports route through the SharpAstro codecs facade (CR2/CR3
+→ FC.SDK.Raw, FITS → FITS.Lib). **The codec types are NOT in DIR.Lib** (3.0 extracted them to the
+`Codecs` repo, 4.0 dropped the dependency): the namespaces are `SharpAstro.Png` / `.Jpeg` / `.Tiff` /
+`.Color.Icc` / `.Jxr` / `.Exr` / `.Exif` / `.Codecs`, pinned as one family via
+`$(SharpAstroCodecsVersion)`; a `DIR.Lib.Tiff.*` or `DIR.Lib.Color.*` reference is a stale name.
+
+**The on-disk convention is `[0, 1]` file values, always**, because libtiff-HDRI readers and
+scientific tools (`tifffile`, PixInsight, ImageJ) disagree on float TIFF values and `[0, 1]` is the one
+range both read. Rationale, the `SMinSampleValue`/`SMaxSampleValue`/`Q16HdriQuantumMax` mechanics, the
+round-trip guards and the codec surface inventory (16-bit, cICP, `iCCP`, `IccProfiles.SRgbV4`):
+this document.

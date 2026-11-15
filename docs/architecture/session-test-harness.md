@@ -288,3 +288,18 @@ about 12 single-thread CPU burners for about 45 minutes beside a temporary 100-r
 declined the load), together with the question the measure leg left open: whether a loaded failure still shows
 the one-frame 26" RA excursion. Until it runs, the fix rests on the re-park timing above and the unloaded repeat, not on a
 loaded result.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Test Collections & Parallelism (from CLAUDE.md)
+
+Every rule below in full, with the incident behind it: this document (the guider
+race, the time pump, and "Test collections and parallelism in full (moved from CLAUDE.md, 2026-10-09)").
+
+- **Less parallelism is faster here, and the config only counts if it is copied to the output**: every test
+  project carries an `xunit.runner.json` (`maxParallelThreads: 4`; Simulators 1 + `parallelizeTestCollections:
+  false`) **and** its `<Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />`. Never
+  diagnose a slow suite by re-running it: one run with a TRX, then rank durations.

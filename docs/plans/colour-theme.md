@@ -584,3 +584,25 @@ and an alternate row is visible against the panel but quieter than a selection.
   were a monochrome fallback in Night only, or drawing them as shapes; neither is worth the work
   for eight glyphs on a rail, and both trade a legible icon for a compliant one. Revisit only if
   field use at the mount says otherwise, which is C5's job.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Colour Theme (`GuiTheme`, four states incl. Night) (from CLAUDE.md)
+
+`GuiTheme` (`TianWen.UI.Abstractions/GuiTheme.cs`) owns the one palette; `UiThemeState` is **System /
+Light / Dark / Night**, `GuiTheme.Apply(state, desktopIsDark)` swaps it in as one reference write and
+`Palette` is one reference read. The source XML comments carry the rationale (scotopic numbers
+included); design + phasing: this document.
+
+- **Anything that CACHES a projection of the palette owes `GuiTheme.PaletteGeneration` in its cache
+  key** (the planner chart's GPU texture kept the old palette after F12; `Apply`'s `bool` return
+  cannot fix a cache the consumer never asked).
+- **Judge Night at night**: anchor the clock with `TIANWEN_NOW` before concluding a Night colour is
+  wrong.
+- **The accent is the colour of an ACTION, green of a state that is good** (#2125): a button that starts something is
+  `GuiTheme.GoButtonBg` (the accent, solid) under `GuiTheme.GoButtonInk`, never a `Success` fill nor a text role as its
+  label; a choice that is on is `PrimaryButtonBg`. tianwen never takes the desktop's accent: the orange is the brand's.
+  **A TUI row asks `TuiRowPalette` for a role and never names an `SgrColor`** (#2126, `TuiPaletteSourceTests`).

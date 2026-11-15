@@ -629,3 +629,42 @@ CLAUDE.md keeps one line per rule; this is its serial-probe rule's full text as 
   Serial.Lib's `SerialPortInfo.Bluetooth`): Windows' incoming port, and a paired headset, phone, computer, keyboard,
   wearable. A pair of headphones took every write and answered none for 31 s of each discovery; an HC-05 on a mount is
   uncategorised and is probed, and a pinned port is verified whatever it is.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Device Management (from CLAUDE.md)
+
+- **One driver per device; a driver's connect is all or nothing** (#806).
+- **Every read on an `ISerialConnection` ends at its `ReplyTimeout`** (5 s unless a driver raises it; serial, TCP and UDP
+  alike): a device that stops answering fails the read instead of holding the port lock for ever, which wedged a disconnect
+  and its node for 14 minutes (an AZ-GTi power-cycled while connected). A reply that waits on motion raises it (the QHY
+  serial wheel, 60 s); never make it infinite.
+
+### Device Secrets (Credential Store) (from CLAUDE.md)
+
+Secrets (API keys) are **not** stored on the device URI or in the profile JSON. `ICredentialStore`
+(`TianWen.Lib/Devices/`) holds them keyed `{deviceId}/{settingKey}` (e.g. `openweathermap/apiKey`);
+keyed by **device, not URI**, so the secret survives the URI being replaced on a provider switch /
+re-discovery (the bug it fixes: OWM's `?apiKey=` used to be wiped on every re-assign) and is shared
+across profiles (enter once).
+
+- **Windows**: `WindowsCredentialStore`. Credential Manager (Generic credentials) via
+  `LibraryImport` (source-gen marshalling, AOT-clean; visible in Control Panel → Credential Manager).
+  The `CREDENTIAL` struct keeps string fields as `IntPtr` (hand-marshalled) so it stays blittable.
+- **Non-Windows**: `FileCredentialStore`; owner-only (`0600`) file per secret under `AppData/Secrets`.
+  A libsecret / macOS-Keychain backend can drop in later behind the same interface.
+- OS-selected in `AddExternal`, **and the file store on any OS under `TIANWEN_DATA_ROOT`**
+  (`TianWenDataRoot.IsOverridden`): a data tree kept apart from the user's (a test's node) must not write the user's
+  vault. A node composed without `AddExternal` falls back to the file store under its own data folder. Tests exercise
+  `FileCredentialStore` over a temp dir (the Windows vault is not unit-tested; it would write to the real per-user store).
+
+A masked `DeviceSettingDescriptor` (`Mask: true`) routes its edit to the store, never the URI, by ONE rule for the GUI
+and the node (`DeviceSettingHelper.Commit`; the GUI through `AppSignalHandler`'s `StringSettingInput.OnCommit`, which
+re-fetches weather afterwards, the node through `PUT /api/v1/devices/setting`, socket only, which never answers the
+value back). A leftover
+`?apiKey=` on a URI is ignored; the driver only reads the store. **Deferred:** a per-profile
+override of the shared per-device key (would need an active-profile-id provider at driver-creation
+time, since `NewInstanceFromDevice(sp)` has no profile context).

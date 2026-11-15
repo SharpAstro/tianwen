@@ -232,3 +232,26 @@ part and the reasoning for it is kept in full.
   policies) + `ManualCoverDriverTests` (`CanControlBrightness`) + `EventBroadcasterPromptTests` (the hosted
   hold/liveness rules).
 
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Flat-Frame Acquisition (automation) (from CLAUDE.md)
+
+`Session.TakeFlatsAsync` (`Session.Flats.cs`) is the automated end-of-session flat block: runs after
+`ObservationLoopAsync` on normal completion only, before `Finalise` warms the cameras, gated on
+`SessionConfiguration.TakeFlatsOnSessionEnd`. Same routines reachable on-demand via
+`ISession.RunFlatsOnlyAsync` -> CLI `tianwen flats` / `POST /api/v1/session/flats`. Capture flows, the
+exposure solvers, the cover-capability model, the GUI mode, config knobs and every test:
+this document. What bites before you open it:
+
+- **`SessionConfiguration.FlatSource` has exactly two values**, `Calibrator` (default) and
+  `TwilightSky` -- a manual hand-switched panel is NOT a third one, it is a `ManualCoverDevice`
+  captured through the same `Calibrator` path.
+- **The GUI surface is a MODE on the Live Session tab, not a tab** (`LiveSessionMode.Flats`). The flat run
+  is the node's (P6), started with the session tab's configuration; the view knows it by its mirror's run
+  (`LiveSessionState.IsFlatRunGoingOn`), never by `IsRunning`, which a flat run does not set. That is exactly
+  why hardware guards ask `DeviceOwnershipGate` and never a UI flag (see Device Ownership).
+- **Native Gemini FlatPanel Lite driver** (`AddGemini()`): an ASCOM-free serial `ICoverDriver`. Wire
+  spec + its two silent traps: `docs/architecture/gemini-flatpanel-lite-protocol.md`.

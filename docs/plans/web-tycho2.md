@@ -665,3 +665,22 @@ Still open:
   chunk axis. So a cull threshold narrower than the grid it culls correctly answers "nothing is
   visible" -- which reads as a broken cull if you assert against it. A test asserting the cull is tight
   needs a view wider than the star spacing it is culling.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### The star field is culled on TWO axes, and both are load-bearing (from CLAUDE.md)
+
+`StarMagnitudeIndex` + `StarChunkIndex` (`TianWen.UI.Abstractions`) are the one implementation for
+`VkSkyMapPipeline` and `WebGlSkyMapPipeline`: sky-region chunks, brightest-first within each, a 0.5-mag
+prefix table; draw only the regions the view cone reaches and only their prefix. **Neither axis covers
+the other** (magnitude bounds a wide field, ~3% of Tycho-2 at 60 degrees but 81% at V<=12; the cone
+bounds a deep zoom and nothing at full sky). **Submitting the whole ~2.5M-star buffer TDR'd an Adreno
+X1-85** and dropped 944 of 1287 frames in the browser. **A limit past the last bin clamps to
+"everything", never wraps to zero** (pinned by a `[Theory]`). **The TOTAL is capped too**
+(`StarChunkIndex.BudgetedMagnitudeLimit`, `MaxStarInstancesPerView` = 300k, both pipelines): the two
+culls bound a view on two axes, never their product, and a limit raised by hand to 12 over a wide field
+reached ~0.8M, so the limit drops a bin at a time until the view fits. Measurements, the WebGL2 `firstInstance`
+workaround and the two cull details that bite: this document.

@@ -218,3 +218,23 @@ itself, and the histogram's own curve), the window, the instance gate. The histo
 toggle are painted when a test asks (`Surface.PaintsHistogram`), from a display built the way the GPU
 viewer builds its own, so a test reads and presses the toggle where it is drawn. The GPU side has its own tests and the live inspector above. The file dialog and the plate
 solver are substitutes, because one waits on a human and the other on a catalogue.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Driving the GUI and the TUI unattended (from CLAUDE.md)
+
+Drive a full `RunAsync` session against simulated hardware with **no human in the loop and no
+screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl. `port=SkyWatcher` /
+`hasCover=false`, the DEBUG inspector surfaces, the cell-buffer contract -- is in
+this document.** The rules that bite even after reading it:
+
+- **An agent starts an app local-only: through `tools/start-app.ps1`, or with `TIANWEN_LOCAL_ONLY=1` set itself**, in a
+  `pilot run` job too. Windows Firewall asks once per executable PATH, and every worktree or job folder is a new path:
+  `tianwen-gui`/`tianwen-server` started straight from `.claude\jobs\<id>\tmp\…` left a firewall prompt (and a rule) per
+  folder on this machine. Only a run that tests the LAN itself sets it to 0.
+- **`ProfileData.SiteLatitude/Longitude` must match the mount URI's `latitude/longitude`** (a split
+  site throws "Could not calculate timezone"); canonical wiring
+  `SessionTestHelper.CreateSessionAsync(mountPort:"SkyWatcher", latitude, longitude)`.

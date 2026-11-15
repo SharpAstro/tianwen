@@ -427,3 +427,30 @@ and FC.SDK's `ShutterPressesTests`.
 - `20394c3` PR-B6: cooling ramp polls via `PollDriverReadAsyncIf` + 2 tests
 
 All on branch `driver-resilience`. 1672 unit + 78 functional session tests pass.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Driver Resilience on the Hot Path (from CLAUDE.md)
+
+All driver calls reachable from the session hot path go through `Session.ResilientInvokeAsync(...)`
+(preset table, the escalation state machine, and `CatchAsync` vs `ResilientInvokeAsync` vs
+`PollDriverReadAsync`): this document.
+
+- **Never introduce a raw `await driver.X(...)` on the session hot path.** Grep PRs for regressions.
+- **A frame the camera never delivers throws nothing, so none of the above sees it.** The imaging
+  loop only starts an exposure on an `Idle` camera, and a lost frame used to leave a DAL camera
+  `Exposing` for ever: no frames, no error. `DALCameraDriver` gives a lost exposure up at
+  `duration + 15 s + 10%` (and on an SDK `Failed`), and resets a `CanResetDevice` body before the
+  next exposure after two in a row, restoring its settings. Measured cause and the hardware probe:
+  the lost-exposure section of this document.
+
+**A command that fails BACKWARD (returns hardware to a state the driver believes it already reached,
+e.g. Skywatcher's `:I1` sidereal-rate restore and `:K1`/`:K2` pulse stop) needs verified retry, not
+best-effort.** `SendCommandVerifiedAsync` classifies the ack (accepted / refused / **null = timeout, a
+different fact from a refusal**) and retries three times before throwing `SkywatcherDriverException`,
+because before this a timeout surfaced nowhere and an unrestored `:I1` tracked RA at up to 2x sidereal
+for the rest of the night. **Do not widen this to every command** -- only ask which of a new serial
+driver's commands fail backward. Rationale + every finding: `docs/plans/gss-parity-audit.md` Finding 3.
