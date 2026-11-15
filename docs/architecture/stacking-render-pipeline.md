@@ -903,3 +903,29 @@ shared **`EnhanceOptions.TryParse`** (also used by the server endpoint) into an 
 Enhance action runs off the render thread via `ViewerController._enhanceTask`; the GUI has no
 document-viewer tab yet. **Server enhance endpoint:** `POST /api/v1/image/enhance` + `GET .../status`,
 single-flight, tied to `ApplicationStopping` not the request: `docs/architecture/hosting-api.md`.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`) (from CLAUDE.md)
+
+- **A bad-pixel mask judges a photosite against its same-colour NEIGHBOURS, never a frame-wide level** (a warm sensor
+  corner is dark current, `BadPixelDetection.ExcessOverNeighbours`), and **the lights' map also takes a weak, persistent
+  vote** (`BadPixelAccumulator.WeakOutlierSigma`): a pixel 2 sigma warm in every sub is a defect a per-sub test never
+  sees, but a frame votes only where the photosite stands ALONE (`StandsAlone`, its immediate neighbours of every
+  colour), or a faint star that barely moves is masked. **The autocrop is clipped where the coverage plane shows
+  absence** (`MasterPostProcessor.ClipToCoverage`).
+- **A master flat repairs what is not the light path, while its frames are in hand** (`FlatDefects`, inside
+  `MasterFrameBuilder.BuildFlatMaster`): a group of photosites over 10% off its own colour's 7x7 neighbourhood takes its
+  neighbours' median when it CHANGED across the run (`TransientSwing`, from `MinFramesForTime` frames) or MOVES light (a
+  photosite brighter than its neighbours beside one darker: a lens; dust only darkens, a responsive photosite is bright
+  alone). A steady defect keeps the flat's value. **The flat recipe is in `InputSetFingerprint` (`FlatRecipe`)**, so a
+  change to it rebuilds cached flats. **Behind it, the master's remaining defects are masked and no known defect is a
+  star** (`BadPixelDetection.BuildMaskFromMasters`, ONE call for the stacker and the dataset registrar;
+  `FrameRegistration.DetectAsync(knownBad:)`): a defect sits where it sits in every sub AND the reference, so as a "star"
+  it registers a sub at the identity. Condensation in the SV605CC flats of 2026-10-17 did that to 52 of 154 subs.
+- **A light's `CALSTAT` is a read guard** (#466, `PreCalibration`, `ImageMeta.PreCalibrated`): a correction its own
+  software already applied (B, D, F) is never applied again, in the bake (`CalibrationResolver.Choose`) or `stack`;
+  the provenance records the letters (`CalibrationProvenance.PreCalibrated`), so such a session reads calibrated.

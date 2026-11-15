@@ -707,3 +707,23 @@ the surface stage is again identical at all four thresholds (0.33 / 2.10 RMS, ke
   `C:\temp\tianwen-scratch\siril-scripts-2026-09-02\` (outside the repo, never vendored).
 - [`pixinsight-parity.md`](pixinsight-parity.md) -- the indexed parity tracker this plan is the #2
   ranked gap under.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Classical Background Extraction (`TianWen.Lib.Imaging.BackgroundExtraction`) (from CLAUDE.md)
+
+`ClassicalBackgroundExtractor` is the AI-free gradient corrector: a robust iterative degree-2 polynomial
+on a block-mean working grid, with an optional inpainted low-pass surface on its residual
+(`SurfaceRefinement`), applied in LINEAR with the model's median added back per plane. Both
+`IBackgroundExtractor` (headless) and `IGradientCorrector`; `AddTianWenAi()` prefers GraXpert when its
+weights resolve, falling back to this so a machine without GraXpert still flattens. **A run chooses with one option,
+`GradientBackend`** (`EnhanceOptions.Gradient`: `flatten --backend`, `sharpen --gradient`, `stack --gradient`, each
+`auto|classical|graxpert`): classical for a frame one galaxy fills, where GraXpert's model eats the halo. Design, the
+reference review, and every measurement: `docs/plans/background-extraction.md`. Rules that bite:
+
+- **`tianwen dataset gradient-report` is the measurement tool.** A TianWen master's canvas ring is
+  EXACT ZERO where no frame covered it and must be masked to NaN before fitting, or the fit chases the
+  edge. `docs/plans/gradient-remover-training.md` H1.

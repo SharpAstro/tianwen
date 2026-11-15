@@ -129,3 +129,25 @@ The page will still exist and still be a page; the target is that it reads like 
 - `RequestRenderCoalesced()` is for `OnPointerMove` / `OnWheel` / `OnPinch` **only**. Everything else
   keeps calling `RenderFrame()` directly, because for a one-shot event an immediate paint is the lowest
   latency available.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### The web host paints per event, so continuous gestures must coalesce onto rAF (from CLAUDE.md)
+
+The browser build has no render loop: every input handler repaints synchronously (71% of move-driven
+repaints were superseded inside their own 16.67 ms). `RequestRenderCoalesced()` (via
+`wwwroot/raf-pump.js`) is for `OnPointerMove` / `OnWheel` / `OnPinch` **only**. **Clear the dirty flag
+BEFORE painting and on the schedule-failure path**, or the canvas freezes for good. **A pointer move
+repaints only when the router or a tab handled it, a gesture owns it, or the atlas hover's
+`HoverFrameRequests` moved** (#339), never on `NeedsRedraw`, which a render sets for reasons of its own
+(it was true on 41 moves of 41, so a gate on it passed every move). Pinned by
+`CanvasRenderCostTests.AHoverThatChangesNothingDoesNotPaintPerMove`. **A delayed step in this host waits at
+least 1 ms and loops, never calls itself**: `Task.Delay` truncates to whole milliseconds and completes a zero
+delay synchronously, so the atlas's former hover-settle wake, which re-armed itself with what was left, never
+waited for a wake due in under a millisecond, and on the browser's coarsened clock it recursed until the
+WebAssembly stack overflowed and the runtime exited (#953). **A trackpad pinch
+is `ctrl`+`wheel`** (Blazor `@onwheel`), a different path from the touch bridge and the densest gesture
+the app sees. Details: `docs/plans/web-host-carve-out.md`.

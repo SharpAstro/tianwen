@@ -459,3 +459,41 @@ weights already on disk because the only bridge was a repo-relative dev script.
 - [stacking.md](stacking.md): satellite trail removal belongs there as a pre-rejection filter
 - [CLAUDE.md](../../CLAUDE.md): "Plate Solving" section's factory-lambda note (same DI gotcha for `ILogger` ctor params)
 - [CLAUDE.md](../../CLAUDE.md), "Stretch Pipeline: CPU/GPU Mirror", `Image.MtfStretch` is the MTF-only entry into the same math `Image.StretchValue` already uses; the multi-stage viewer chain is for display, not for ONNX input prep
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### AI Image Enhancement: RC-Astro (CLI) + TianWen's own models (ONNX) (from CLAUDE.md)
+
+- **TianWen's own deconvolver is the whole-frame DEBLUR, and it serves only when asked** (`OnnxTianWenDeconvolver`,
+  E3.4d, #844): `--ai-backend tianwen` AND a stated kernel (`EnhanceTuning.Deconvolution`, `--deconv-kernel`), since
+  nothing finds the blur in one frame or declines a frame with none (#741). The graph takes the KERNEL as an input;
+  `OperatorDeconvolutionRunner` is `n2n_operator_master.py` step for step through `SplineZoom` (scipy's order-3
+  zoom), held to `training/denoise/n2n_operator_runtime.py`. **DirectML runs it only because the exporter clears
+  `allowzero` on every Reshape** (`clear_reshape_allowzero`; torch.export writes 1 and DirectML fails the session
+  build on it), and a new graph exported through torch.export owes the same. `docs/plans/deconvolver-training.md` § 6.
+- **DirectML takes the high-performance GPU by PREFERENCE, never adapter 0** (`ExecutionProviderResolver`): DXGI's
+  adapter 0 is the Intel UHD 630 beside the GTX 1070 on this desktop, and every TianWen model ran there until
+  2026-10-09 (a deconvolution tile 39 s against 9.9 s). Never pass a device index to DirectML.
+- **The NAFNet pre-stretch measures COVERED pixels only** (`ChunkedNafnetRunner.ApplyInputStretch`,
+  `Image.AbsentPixels`, `Image.MinAndShiftedMedian`; the ring put back exactly, `Image.CopyAbsent`); an interior zero
+  still counts.
+- **The canvas ring is the PIPELINE's, not a step's** (#1399). `SharpenPipeline.SanitiseForEnhance` makes a border
+  ring the zero ring every step reads as absence (it used to get each channel's mean, which every step read as sky),
+  and `ProcessAsync` puts it back after EVERY enhancer (`Image.WithRingFrom`: one walk of the ring when the step kept
+  it, a copy only when it wrote over it, as an RC-Astro product does). **A gradient corrector holds the ring out of its
+  fit**: the classical one fitted a zero ring as sky, an interior model error of 3.5e-3 against 2.4e-6 on a 0.01 sky.
+- **A TianWen model loads only against its contract** (#824, `ModelContract`): `<stem>.contract.json` beside the
+  `.onnx` states the weights' SHA-256, the graph's inputs and output and the domain it is FED, checked at first use
+  against the file, the graph and the runner's own `ModelFeed`; an absent sidecar, or a field the runner relies on
+  left out, is a refusal. A retrain gets a new file name and contract (a plain tracked `Content` file, not LFS), and
+  a new model ships its contract in its first commit.
+- **TianWen's own star remover runs only on weights a caller NAMES** (`image remove-stars --model a.onnx b.onnx`,
+  `OnnxTianWenStarRemover`): none ship and none are registered, so RC-Astro stays the registered `IStarRemover`. It
+  averages its models over a tile's flips and turns in half-overlapping triangle windows, and never through
+  `N2nLinearRunner`, whose `RestoreLevel` would put the removed starlight back as a haze.
+  `docs/plans/star-remover-training.md`, "A whole-frame runner". **Core protection (`--protect-cores`, `ExtendedCoreMask`,
+  #1658) is applied in the split, `NarrowbandCombination.SplitStarsAsync`, never inside a remover**, so a galaxy's nucleus
+  is kept from RC-Astro's remover as from ours.
