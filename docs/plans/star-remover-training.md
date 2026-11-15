@@ -5629,8 +5629,8 @@ the first angle is a step after the model and not another arm:
   SXT is scored on 1738 stars at 100-1000 and 94 saturated: the check skips a window holding a NaN per model, so in
   those two bands the sets differ by one star, and the saturated gap read here (91.6 against 89.4) is about two stars.
   The saturated band has another side: ring DUG by count is 16.8 as trained, 3.2 with floor, 3.2 with floor2 and 5.3
-  with floor3 (SXT 2.1), so against floor and floor2 the bounded lowering digs two more stars (one HIP 80609, one Lobster) while it takes the
-  residue (left by count 6.3 as trained, 7.4 floor, 10.5 floor2, 4.2 floor3; SXT 8.5). Saturated dug is not a registered bar; it is reported on seed 1 and watched.
+  with floor3 (SXT 2.1), so floor3 digs two more stars than floor and floor2 (one HIP 80609, one Lobster; which of its two caps does it is NOT
+  measured) while it takes the residue (left by count 6.3 as trained, 7.4 floor, 10.5 floor2, 4.2 floor3; SXT 8.5). Saturated dug is not a registered bar; it is reported on seed 1 and watched.
 
   With floor3 by count: R3l 99.1 / 100.0 / 93.7, R3s 99.0 / 100.0 / 91.6, R3j 99.2 / 99.5 / 92.6 (`check3-bycount.txt`).
   - **It repairs floor2's harm on a model that leaves wings:** on R3s's seed 0 the SMC rows go 83.6 / 88.1 as trained,
@@ -5667,16 +5667,18 @@ the first angle is a step after the model and not another arm:
     model, judged WITH the step from the start, with the halo rows as its question. One seed is about 13 hours on the 1070.
   (`check3-floor3-haloarms.txt`; whole masters `w-r3j_s0+floor3`, `w-r3u_synth24_s0+floor3`, `w-r3i_synth15_s0+floor3`.)
 - **The halo, looked at the same night (2026-11-16, explored, NOT pre-registered, nothing adopted).** Working files are
-  on DE1 under `C:/temp/e2/explore` (`halo_profile.py`, `twin_halo.py`, `halo_step.py`, `crescent.py`, sheet
+  on DE1 under `C:/temp/e2/explore` (`halo_ring_profile.py`, which is not the tracked `domain/halo_profile.py`, `twin_halo.py`, `halo_step.py`, `crescent.py`, sheet
   `halo-step.png`); none is in the repository.
   - **It is left on real stars only.** Round Andromeda's 71 bright clipped stars, R3v's seed 0 with floor3 leaves a ring
-    of about 0.35 master sigma a pixel from 6 to 25 px (ring median over the plate's own 45-60 px ring, in the stretch);
-    SXT leaves about 0.1. On the twin, round 5,859 bright synthetic stars, the truth error at those radii is zero or
+    (ring median over the plate's own 45-60 px ring, in the stretch, master sigma a pixel, at 6-10 / 10-15 / 15-20 /
+    20-25 px): R 0.32 / 0.38 / 0.35 / 0.28, G 0.33 / 0.41 / 0.36 / 0.20, B 0.27 / 0.44 / 0.27 / 0.17. SXT leaves R 0.14 /
+    0.02 / 0.10 / 0.08, G 0.10 / 0.09 / 0.13 / 0.11, B 0.15 / 0.30 / 0.17 / 0.10, so the gap is widest in red and green
+    and small in blue at 10-15 px. On the twin, round 5,859 bright synthetic stars, the truth error at those radii is zero or
     slightly negative. So the model removes the halos it was shown, and real stars carry wider ones than the drawn ones.
   - **A ring-median step removes it.** Round each clipped compact star of the input, per channel, the plate's ring-median
     profile over its 45-60 px ring, smoothed 2 px in radius, positive part only, tapered out from 37 to 45 px, is
     subtracted. Andromeda's glow row goes 599.4 / 1549.7 / 89 % to 13.5 / 81.4 / 1 % and Tarantula's 1121.1 / 1726.2 /
-    92 % to 13.7 / 223.3 / 15 %; every other whole-master row is unchanged (nucleus -1.0 / 6.0 / 1.6). At random positions
+    92 % to 13.7 / 223.3 / 15 %; every row of the table above is unchanged (nucleus -1.0 / 6.0 / 1.6; Tarantula's crowded BP17-19 and purity move by 0.1). At random positions
     away from those stars the same step takes about a tenth as much (Andromeda, median sigma in 10-30 px, R / G / B:
     0.035 / 0.019 / 0.031 against 0.286 / 0.270 / 0.257; Tarantula 0.031 / 0.055 / 0.046 against 0.438 / 0.502 / 0.283).
     The step picks its stars by its own rule (98 on Andromeda, 15 on Tarantula: clipped and compact, isolation not
@@ -5685,10 +5687,10 @@ the first angle is a step after the model and not another arm:
     construction and says nothing about SXT; only the random-position control is evidence, and there is no truth for
     it, since the twin has no such halo. On the sheet the one or two brightest stars of each master keep an off-centre
     crescent and a dark disc at the core, which this step does not touch.
-  - **The crescent is not a channel offset and not a population effect:** on Andromeda the input's wing offsets are |R-G| 0.31 px and
+  - **The crescent is not a channel offset, and the lean is one SXT shares:** on Andromeda the input's wing offsets are |R-G| 0.31 px and
     |B-G| 0.76 px, far under the residue's lean of about 2.0 px (R / G / B 2.17 / 2.04 / 1.84; SXT 1.82 / 1.80 / 1.48), and
     the residue's dipole does not follow them (median cosine R +0.27, B +0.05; SXT +0.37, -0.08; green is the reference).
-    The population difference to SXT within 25 px is the net excess: 630 / 584 / 600 sigma-pixels against 160 / 159 / 333.
+    What differs from SXT within 25 px, over all 71 stars, is the net excess: 630 / 584 / 600 sigma-pixels against 160 / 159 / 333.
 - **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py <model> floor --pin 2.5 --cap-up 2
   --cap-down 0.05 --tag floor3`; mode `floor3` of `whole_floor.py`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
   seed 1 as trained. It is confirmed if all hold:
