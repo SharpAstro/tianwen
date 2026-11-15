@@ -237,10 +237,9 @@ namespace TianWen.UI.Abstractions
                     _profilePanelFills[key] = r =>
                     {
                         anchor[0] = r;
-                        // A vendor-length profile name ends in an ellipsis before the caret, which stays; the whole
+                        // A vendor-length profile name is cut in the middle, so the caret at the end stays; the whole
                         // name is on the tooltip.
-                        var caretW = Renderer.MeasureText(caret, fontPath, fontSize).Width;
-                        var shown = TextFit.TrimToWidth(Renderer, label, fontPath, FontFallback, fontSize, r.Width - caretW, TextTrim.End) + caret;
+                        var shown = TextFit.TrimToWidth(Renderer, label + caret, fontPath, FontFallback, fontSize, r.Width, TextTrim.Middle);
                         DrawText(shown.AsSpan(), fontPath, r.X, r.Y, r.Width, r.Height, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
                     };
                     return Layout.Builder.Fill(key: key).RowH(BaseHeaderHeight)
