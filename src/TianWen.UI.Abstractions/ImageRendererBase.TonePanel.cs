@@ -314,7 +314,7 @@ partial class ImageRendererBase<TSurface>
                         curveModeLive ? CursorKind.Pointer : null),
                 curveModeLive
                     ? Layout.Builder.Spacer().WStar()
-                    : Layout.Builder.Text(CurveModeNeedsBoostReason, small, ViewerTheme.Palette.DimText))
+                    : Layout.Builder.Text(CurveModeNeedsBoostReason, small, ViewerTheme.Palette.DimText).WStar())
             .WithGap(ToneGap)
             .CrossCenter()
             .WStar());
