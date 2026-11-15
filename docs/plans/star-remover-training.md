@@ -5223,7 +5223,7 @@ The bars:
   points). The nucleus is the risk.
 
 **R3s, read 2026-11-12: killed by two guards; M42's band clears its bar and the nucleus is kept.** Both seeds trained to
-convergence (s0 step 224,000, best held-out 6.61e-6 at 212,000; s1 best 6.64e-6 at 197,500). Every bar on the two seeds' mean:
+convergence (s0 step 224,000, best held-out 6.61e-6 at 212,000; s1 best 6.54e-6 at 219,500). Every bar on the two seeds' mean:
 
 | bar | R3s s0 / s1 | R3s mean | R3l s0 / s1 (mean) | verdict |
 |---|---|---|---|---|
@@ -5478,11 +5478,46 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
   at least 50", against the Tarantula exception beside it. The lines above are the corrected ones; the reviews of the
   correction added the positive rule for seed 1, the SMC exception's bound (first set at R3l's mean less its full seed range,
   84.3 and 75.8, then tightened to R3l's lower seed less 3) and the rule that two seeds are judged on their mean. A last
-  review, the same day and still before any score, added two things to that rule: the M31 nucleus is its one exception,
-  judged on each seed as R3s's was, and "What a kill means" gained its reading of a mean killed by M42 under 40.
+  review, the same day and still before any score, added two things: to that rule its one exception, the M31 nucleus,
+  judged on each seed as R3s's was; and to "What a kill means" its reading of a mean killed by M42 under 40.
 - **Prediction:** the truth tiles rise (more weights fit the synthetic stars better; R2nc's did). M42's band holds at R3s's
   level, 50 to 60. The SMC is the open part and the point of the arm: I put it at even odds that its 20-100 row comes within
   3 of R3l's. M42's blue dig is missed again; nothing in a larger model addresses it.
+
+**R3v's seed 0, read 2026-11-15: not killed, the first arm of this line to hold every guard; seed 1 trains.** It stopped
+on its plateau at step 235,000 (best held-out 5.85e-6 at 211,000; the small model on the same data, R3s, ended at 6.61e-6 on seed 0 and 6.54e-6 on seed 1, so R3v is 11.5 percent
+below R3s's seed 0),
+after 13 hours on the 1070.
+
+| bar | registered | R3v s0 | R3s s0 / s1 | R3l s0 / s1 | SXT | |
+|---|---|---|---|---|---|---|
+| M42 100-1000 clean, own ring | at least 50 (kill under 40) | 56.6 | 58.1 / 52.9 | 27.2 / 39.0 | 91.9 | cleared |
+| M42 blue at 2 and 3 px, sigma | within 0.7 of SXT | -1.82, -1.03 | -2.31, -1.10 / -2.26, -1.14 | -2.68, -1.70 / -2.99, -1.79 | -0.47, -0.03 | missed, by 1.35 and 1.00 |
+| SMC 20-100 clean | at least 89.4 | 97.2 | 83.6 / 79.1 | 94.9 / 89.8 | 98.3 | held |
+| SMC 100-1000 clean | at least 87.7 | 89.8 | 88.1 / 83.1 | 96.6 / 84.7 | 96.6 | held, by 2.1 |
+| HIP 80609 20-100, 100-1000 | at least 96.8, 94.4 | 99.7, 97.1 | 99.7, 98.4 / 99.9, 98.2 | 99.7, 97.7 / 99.9, 97.1 | 99.0, 98.9 | held |
+| Lobster 20-100, 100-1000 | at least 96.8, 96.6 | 99.8, 99.3 | 99.8, 99.4 / 99.8, 99.6 | 99.8, 99.5 / 99.8, 99.6 | 99.5, 99.0 | held |
+| truth tiles 20-100, 100-1000 | at least 72, 54 | 73.3, 58.1 | 71.5, 53.2 (s0) | 73.3, 73.2 and 54.5, 58.2 (the two seeds, row by row) | | held |
+| Andromeda dark dug | at most 47 | 22.4 | | | | held |
+| Tarantula dark flat | at least 69 | 71.9 | 69.3 / 65.1 | | | held |
+| M31 nucleus, R / G / B | under 40 % each | -1.3, 5.2, 1.4 % | | | | held |
+
+- **Q2 is half answered on this seed:** M42's band clears 50 and its blue at 2 to 3 px is still dug, 1.35 and 1.00 sigma under
+  SXT's against the 0.7 allowed. The blue moved a little toward SXT (R3s -2.3, -1.1) and not into the bar.
+- **The SMC is the news.** The 20-100 row reads 97.2, above both of R3l's seeds and 13.6 above R3s's seed 0 on the same
+  data; the 100-1000 row reads 89.8 on 59 stars, 2.1 above its bar, with 8.5 % of them dug where R3l and R3s dug none or
+  one. One seed: R3l's own seeds differ on these rows by 5.1 and 11.9, so nothing about capacity is concluded yet.
+- **What it gave up:** HIP 80609's brightest stars. At 1000 sigma and over its clean share is 79.7 (69 stars) against R3l's
+  91.3 / 94.2 and R3s's 89.9 / 94.2, with 18.8 % dug. That band carries no registered bar and does not kill; it is the
+  first thing to look at on seed 1.
+- **The prediction held on all four counts:** the truth tiles rose (73.3 / 58.1 against R3s's 71.5 / 53.2), M42's band
+  stayed in 50 to 60, the SMC's 20-100 row came to R3l's level or above (97.2 against R3l's mean 92.4), inside the guard's 3 (the even-odds part), and the blue dig was missed.
+- **Seed 1 trains by the registered rule** (seed 0 not killed), started the same evening on the same cache; every bar is
+  then judged on the two-seed mean, the nucleus on each seed. Nothing is adopted on one seed.
+
+Files (DE1): `C:/temp/e2/check3-r3v-s0-own.txt`, `check3-r3v-s0-input-ring.txt`, `bright-channel-r3v-s0.txt`, `r3v.log`;
+under `C:/temp/tianwen-scratch`, `f2-whole-master/w-r3v_synth22_s0/row.txt`, `f2-reports-master/m31-nucleus-r3v_synth22_s0.txt`
+and `f2-logs-master/score-r3v_synth22_s0/eval-on-random.log`; the weights are `D:/temp/tianwen-scratch/r2-synth22/r3v_synth22_s0.pt`.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
