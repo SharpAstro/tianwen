@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
 
