@@ -276,11 +276,14 @@ namespace TianWen.Lib.Tests
             state.ConfigScrollOffset.ShouldBe(6);
         }
 
-        [Fact]
-        public void KeyboardDown_ScrollsSelectedFieldIntoView()
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public void KeyboardDown_ScrollsSelectedFieldIntoView(float dpiScale)
         {
             // Arrange: short viewport; walking the selection to the last field must scroll the panel.
             var tab = CreateTab(out var state, width: 800, height: 200);
+            tab.DpiScale = dpiScale;
             var appState = new GuiAppState();
             var plannerState = new PlannerState();
             var contentRect = new RectF32(0, 0, 800, 200);
@@ -289,16 +292,26 @@ namespace TianWen.Lib.Tests
             state.FieldCount.ShouldBeGreaterThan(1);
             state.SelectedFieldIndex = 0;
 
-            // Act: walk the selection to the bottom of the form.
+            // Act: walk the selection to the bottom of the form, a frame per key as the app draws one. A step
+            // reveals its row where the last paint arranged it, which a scrolled stack does for the viewport and
+            // a viewport's extent either side, so a walk of the whole form with no frame between keys outruns it.
             for (var i = 0; i < state.FieldCount - 1; i++)
             {
                 tab.HandleInput(new InputEvent.KeyDown(InputKey.Down)).ShouldBeTrue();
+                tab.Render(appState, plannerState, contentRect);
             }
-            tab.Render(appState, plannerState, contentRect);
 
-            // Assert: EnsureFieldVisible drove the controller past the top.
+            // Assert: the step revealed its row, which scrolled the form past its top, and the row is painted
+            // whole inside the tab (a row the form's clip cuts registers nothing, so a reveal that stopped short
+            // would leave no region, or one shorter than a row).
             state.SelectedFieldIndex.ShouldBe(state.FieldCount - 1);
             state.ConfigScrollOffset.ShouldBeGreaterThan(0);
+            var last = tab.GetRegisteredRegions()
+                .Where(r => r.Result is HitResult.ListItemHit { ListId: SessionConfigLayout.FieldListId, Index: var i }
+                    && i == state.FieldCount - 1)
+                .ShouldHaveSingleItem();
+            last.Y.ShouldBeGreaterThanOrEqualTo(0f);
+            (last.Y + last.Height).ShouldBeLessThanOrEqualTo(contentRect.Height);
         }
 
         [Fact]
