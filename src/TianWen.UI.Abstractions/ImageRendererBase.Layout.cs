@@ -114,6 +114,25 @@ namespace TianWen.UI.Abstractions
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
         private const float BaseFileListDividerWidth = 6f;
 
+        /// <summary>The least the image is left, design units, when a narrow window has to give the list less than it was dragged to.</summary>
+        private const float BaseImageAreaFloor = 40f;
+
+        /// <summary>The least a list shrinks to, design units, however narrow the window.</summary>
+        private const float BaseFileListNarrowFloor = 60f;
+
+        /// <summary>
+        /// The file list's width as dragged, or less when the window cannot hold it beside the info panel: the panel's text is cut
+        /// at its own width, so the list is the pane that gives. The dragged width in the state is untouched, so the list takes it
+        /// back when the window grows. This sums the Dock's right extent and the divider by hand only because Split cannot yet
+        /// give its second pane a minimum: SharpAstro/DIR.Lib#237 (and the same issue for a Popover's room). Drop it with that.
+        /// </summary>
+        private float FileListExtentThatLeavesTheInfoPanelItsWidth(ViewerState state)
+        {
+            var taken = (state.ShowInfoPanel ? BaseInfoPanelWidth : 0f) + BaseFileListDividerWidth + BaseImageAreaFloor;
+            var room = ContentRegion.Width / DpiScale - taken;
+            return MathF.Min(state.FileListWidthBase, MathF.Max(BaseFileListNarrowFloor, room));
+        }
+
         private void ComputeLayout(ViewerState state)
         {
             Layout.Node content = state.ShowInfoPanel
@@ -135,7 +154,7 @@ namespace TianWen.UI.Abstractions
                         state.IsResizingFileList = !resize.Ended;
                         state.NeedsRedraw = true;
                     },
-                    firstExtent: state.FileListWidthBase,
+                    firstExtent: FileListExtentThatLeavesTheInfoPanelItsWidth(state),
                     dividerThickness: BaseFileListDividerWidth,
                     grabThickness: BaseSplitGrabWidth,
                     dividerHit: new ResizeHandleHit(FileListId),

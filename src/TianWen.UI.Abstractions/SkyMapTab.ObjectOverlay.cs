@@ -340,6 +340,11 @@ namespace TianWen.UI.Abstractions
                 label =>
                 {
                     var (item, lx, ly, maxLineW, labelH) = label;
+                    if (RecordPlacedLabels)
+                    {
+                        PlacedMapLabels.Add(new PlacedMapLabel(new RectF32(lx, ly, maxLineW, labelH), LabelPlacement.BestEffort));
+                    }
+
                     var a = OverlayEngine.MarkerAlpha(
                         item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
                     var (r, g, b) = item.Color;

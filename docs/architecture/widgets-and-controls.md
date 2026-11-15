@@ -425,6 +425,51 @@ per-element hover rects themselves stay by design (the
 [../plans/layout-driven-ui.md](../plans/layout-driven-ui.md) DoD tolerates interactive controls
 whose look needs their own arranged rect); it is the z-order term that must not be duplicated.
 
+## The wireframe sweep (`WireframeSweepTests`, #2139)
+
+Every tab is drawn at one window size after another on DIR.Lib's `WireframeRenderer`, which records each text (its ink, the
+part of it visible, its paint order) and each registered region without painting a pixel, and `Wireframe.Check` judges the
+frame: no text over text, no text half on a control, no control over a control, nothing off the surface, no text cut
+without an ellipsis. The sizes are scales 1 and 1.5, heights 520 and 900 and widths from 560 to 2400, because a row packed
+from both ends draws over itself only at the width where the two meet. A tab, a chrome state or a popover that passes at
+one size can fail at the next, and nothing else in the suite looks.
+
+**What it judges.** Each tab as a scenario (`Scenarios`), the window chrome in its states (`ChromeStates`: a long status
+message, everything connected, a session running, a pinned date with a verdict, the night calendar open under the top bar),
+the Notifications tab, and the FITS viewer's chrome with its popovers open in turn. The states that stress a layout are
+scenarios of their own: the Sky Map with its search window open, its layer palette up and an object selected (the info
+panel), the Planner with its suggestion dropdown open, and the Equipment and Live Session tabs on a rig whose device names
+are what a vendor gives (model, serial number, port). `MustShow` names what a tab is opened for and must be on screen whole
+at every size: a row left undrawn overlaps nothing, so the overlap rules cannot see it go.
+
+**The Sky Map's own text.** The map draws where the sky puts things, so most of its text is not a layout: a constellation name
+runs off the edge, a grid number sits under the palette. `SkyChromeOnly` keeps everything painted before the first control
+that is not of the map out of the judgement, with one exception: a catalogue label that `OverlayEngine.PlaceLabels` placed.
+That placer promises no two labels overlap and none lies under what is drawn after it, so the promise is checked.
+`PlaceLabelsBestEffort`, which the CPU atlas uses, is Stellarium-style: labels overlap by design and one under a panel is
+covered, not cut, so it stays out, as do the planet, comet and constellation names, the grid numbers and everything a GPU
+pipeline draws. `SkyMapTab.PlacedMapLabels` records which placer put each label where, and each entry carries its
+`LabelPlacement`. Today the CPU map records only best-effort labels, so the collision-placed judgement has nothing to judge
+on this renderer until a painter that places with collision avoidance records `LabelPlacement.Collision` entries (the viewer's
+overlay engine and the GPU atlas place that way, and neither records here, nor does the sweep see the GPU one). The mechanism
+is in place and the doc says so rather than pretending.
+
+**Adding a tab or a state.** Add a `Draw` to `Scenarios` under the name the report will use (a tab-wide state is its own
+entry, such as `sky map, search open`), putting the state on screen the way a user would (open the popover through its
+state object, give the tab the long names). A chrome state goes into `ChromeStates` and `ChromeScenario`. Run
+`dotnet test TianWen.Lib.Tests -c Release --filter FullyQualifiedName~WireframeSweep`, see it fail first if it can, and fix
+the finding through the engine (a star width, a trim with an ellipsis and the whole text on hover, a clamp to the room the
+window has), never by excluding it. A finding that is DIR.Lib's gets an issue there (`gh issue create`) and is excluded by
+the issue's name in the test, so the exclusion goes when the issue does.
+
+**Looking at what a finding names.** Set `TIANWEN_WIREFRAME_PICTURES` to a folder outside the working tree and every frame
+is also painted and saved there as `<scenario>_<width>x<height>_<scale>.png`. A finding names the size and the rectangles; the
+picture says what they are.
+
+**What it cannot see.** Anything a GPU pipeline draws (the image quad, the histogram quad, the GPU atlas and its labels), the
+planetary panels, the help panel and the context menu, a colour (contrast is judged by eye and by `ui-changes.md`), and any
+state no scenario puts on screen. A sweep that is green says that the states it draws fit at the sizes it draws, no more.
+
 ## The FITS viewer widget: partials, one layout root, one slider, the live-preview host, the `?` menu
 
 Moved here verbatim from `CLAUDE.md` on 2026-09-12; the rules that bite stay there as one-liners.

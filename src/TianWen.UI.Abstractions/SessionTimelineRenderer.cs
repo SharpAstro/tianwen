@@ -134,7 +134,10 @@ public static class SessionTimelineRenderer
 
         if (state.AstroDark == default)
         {
-            DrawText(renderer, "No twilight yet: it needs the site (Equipment tab, Set Site)", fontPath,
+            // In a narrow tab the hint ends in an ellipsis rather than run past both edges.
+            var hint = TextFit.TrimToWidth(renderer, "No twilight yet: it needs the site (Equipment tab, Set Site)", fontPath, null,
+                fontSize * 0.85f, rect.Width, TextTrim.End);
+            DrawText(renderer, hint, fontPath,
                 rect.X, rect.Y, rect.Width, rect.Height,
                 fontSize * 0.85f, GuiTheme.Palette.DimText, TextAlign.Center, TextAlign.Center);
             return;

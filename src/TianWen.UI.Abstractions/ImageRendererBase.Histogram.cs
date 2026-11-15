@@ -20,14 +20,20 @@ namespace TianWen.UI.Abstractions
 
         private (float Left, float Top, float Width, float Height) GetHistogramRect(ViewerState state)
         {
-            var histW = BaseHistogramWidth * DpiScale;
             var histH = BaseHistogramHeight * DpiScale;
             var margin = BaseHistogramMargin * DpiScale;
             // Right edge + top of the image-area pane (abuts the info panel / region edge) from the layout pass.
             var area = _layout.ImageArea;
+            // Never wider than the pane it sits in: in a narrow window it would reach left over the file list.
+            // A pane that arrived with no width is a narrow window, not a missing layout: only before the first layout pass
+            // (the toolbar spans the window once it has run) does the region stand in for the pane.
+            var arranged = _layout.Toolbar.Width > 0f;
+            var histW = arranged
+                ? MathF.Min(BaseHistogramWidth * DpiScale, MathF.Max(0f, area.Width - 2f * margin))
+                : BaseHistogramWidth * DpiScale;
             var region = ContentRegion;
-            var rightEdge = area.Width > 0 ? area.X + area.Width : region.X + region.Width;
-            var top = (area.Height > 0 ? area.Y : region.Y + ToolbarHeight) + margin;
+            var rightEdge = arranged ? area.X + area.Width : region.X + region.Width;
+            var top = (arranged ? area.Y : region.Y + ToolbarHeight) + margin;
             return (rightEdge - histW - margin, top, histW, histH);
         }
 
@@ -75,6 +81,12 @@ namespace TianWen.UI.Abstractions
                 manualWhiteBalance: state.ManualWhiteBalance);
 
             var (histLeft, histTop, histW, histH) = GetHistogramRect(state);
+
+            // No room in the pane: draw nothing rather than reach over the file list or the info panel.
+            if (histW <= 0f)
+            {
+                return;
+            }
 
             // Semi-transparent background
             FillRect(histLeft, histTop, histW, histH, ViewerTheme.HistogramBg);
