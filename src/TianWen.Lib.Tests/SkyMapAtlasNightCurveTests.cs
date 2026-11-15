@@ -539,8 +539,8 @@ public sealed class SkyMapAtlasNightCurveTests
 
 /// <summary>
 /// Night spends no blue (CLAUDE.md, "Colour Theme"): the night curve, drawn from <see cref="GuiTheme"/> under Night, has a blue
-/// channel of zero in its slot and the line under it, and its line is the palette's accent. In the "UI" collection, since it flips
-/// the app-wide theme.
+/// channel of zero in its slot and the line under it, and its line is the palette's accent. In the serial <see cref="ThemeCollection"/>, since it
+/// flips the app-wide theme.
 /// </summary>
 [Collection(ThemeCollection.Name)]
 public sealed class SkyMapAtlasNightCurveNightTests

@@ -15,7 +15,8 @@ namespace TianWen.Lib.Tests;
 /// <c>SkyMapPlanetDiscTests.TheSunsDiscIsItsTexturedPhotosphere</c> (centre (249,169,112), blue under 200) and
 /// <c>ADiscWhoseCentreIsOffScreenIsStillDrawnWhereItReaches</c> (322 lit pixels, wanted over 1000) because
 /// <c>MeteorShowerCalendarMarkTests</c> (theme Night), in the parallel "UI" collection, called <c>GuiTheme.Apply</c> at the same
-/// moment. Each such class leaves the theme as it found it (Dark) in a <c>finally</c>; <c>ThemeCollectionSourceTests</c> fails a
+/// moment. Each such class puts the theme back to Dark in a <c>finally</c>, which IS what it found: Dark is the process default
+/// (<c>GuiTheme.State</c>), nothing else changes the theme, and this collection runs alone; <c>ThemeCollectionSourceTests</c> fails a
 /// class that calls one of the three outside this collection.</para>
 /// </remarks>
 [CollectionDefinition(Name, DisableParallelization = true)]
