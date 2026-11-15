@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
