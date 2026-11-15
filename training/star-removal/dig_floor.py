@@ -74,6 +74,9 @@ def main():
     model, mode = sys.argv[1], sys.argv[2]
     if mode not in ("floor", "fill"):
         sys.exit(f"mode must be floor or fill, got '{mode}' (the plan's 'floor2' is mode floor with --pin 2.5 --tag floor2; 'floor3' adds --cap-up 2 --cap-down 0.05 --tag floor3)")
+    if (CAP_UP > 0 or CAP_DOWN > 0) and not (PIN > 0 and CAP_UP > 0 and CAP_DOWN > 0 and mode == "floor"):
+        sys.exit("the caps are floor3: give mode floor with --pin, --cap-up and --cap-down together "
+                 "(registered: <model> floor --pin 2.5 --cap-up 2 --cap-down 0.05 --tag floor3)")
     thr, grow, s_bg, s_lo = arg("--thr", 1.5), arg("--grow", 2), arg("--bg", 4.0), arg("--lo", 1.5)
     tag = arg("--tag", mode)
     for sub, src in SETS.items():
@@ -89,4 +92,5 @@ def main():
             fh.writelines(json.dumps(r) + "\n" for r in rows)
         print(f"{sub}: {len(rows)} tiles, masked {100 * np.mean(frac):.1f} % of pixels", flush=True)
 
-main()
+if __name__ == "__main__":
+    main()

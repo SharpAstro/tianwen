@@ -16,6 +16,7 @@ for i, t in enumerate(O[base]):
     p = f"{T}/{t}"; draw = rd(p); plate = rd(p[:p.rindex("_deg")] + "_master.f16"); sig = noise(draw)[:, None, None]
     b = rd(f"{E}/{base}/on-random/{O[base][t]}")
     m = binary_dilation(np.stack([gaussian_filter(c, 1.0) for c in (draw - b) / sig]).max(0) > 1.5, iterations=2)
+    if not m.any() or m.all(): continue   # a tile the base took nothing from (or all of): no mask to score
     for n in models:
         e = (rd(f"{E}/{n}/on-random/{O[n][t]}") - plate) / sig
         lo = np.stack([gaussian_filter(c, 2.0) for c in e])
