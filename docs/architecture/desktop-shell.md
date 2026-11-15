@@ -114,9 +114,11 @@ bytes across the COM boundary and nothing else.
   the surrogate's idle exit is how the DLL leaves memory.
 - **An embedded `ILLink.Substitutions.xml` applies only to the assembly that embeds it.** TianWen.Lib
   carries 57 MB of catalogs against 1.7 MB of code the thumbnail needs; a consumer-side file naming
-  them removed nothing. The switch lives IN TianWen.Lib (`TianWen.Lib.EmbeddedCatalogs`, set false
-  via `RuntimeHostConfigurationOption Trim="true"`), and `EmbeddedCatalogFeatureSwitchTests` pins the
-  list against the assembly both ways because the format has no wildcard.
+  them removed nothing. The switches live IN TianWen.Lib, one a group of data
+  (`TianWen.Lib.EmbeddedData.Sky` / `.Stars` / `.Imaging` / `.FakeDevices`, #2155; each set false via
+  `RuntimeHostConfigurationOption Trim="true"`, the thumbnail provider naming all four), and
+  `EmbeddedCatalogFeatureSwitchTests` pins the lists against the assembly both ways because the format
+  has no wildcard.
 - **The CLSID is written in three places and must never change once shipped** (the C# constant, the
   manifest's `ThumbnailHandler`, its `com:Class`); `build-msix.ps1` checks the manifest agrees with
   itself on every push and that the DLL is in the tree being packed.

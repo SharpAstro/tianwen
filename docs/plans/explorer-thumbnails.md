@@ -60,7 +60,7 @@ wait in the product, unavoidable and commented as such.
 | `StretchModeExtensions.ResolveAuto` | `TianWen.Lib/Imaging` (moved from `ViewerActions`) | The thumbnail must show what the viewer shows on open. The resolver is three lines, which is exactly the size of rule that gets copied instead of moved; moving it keeps ONE resolver. Colour without a calibration renders Unlinked, mono Linked. |
 | `SerImageBridge.ToImage(in SerHeader, ReadOnlySpan<byte>)` | `TianWen.Lib/Imaging` | The SER reader is memory-mapped and wants a path; a handler has a stream. Same materialisation as the reader path, from bytes, with the sample decode mirroring `SerReader.ReadFrame16`. |
 | `TianWen.Shell.Thumbnails` (`tianwen-thumb.dll`) | `src/` | The COM shell: `AstroThumbnailProvider` (`IInitializeWithStream` + `IThumbnailSettings` + `IThumbnailProvider`), `ThumbnailClassFactory`, `Exports`, `Gdi32.CreateTopDownBgra32`. Moves bytes across the boundary in both directions and does no imaging. |
-| `ILLink.Substitutions.xml` + feature switch `TianWen.Lib.EmbeddedCatalogs` | `TianWen.Lib` | Strips the 57 MB of embedded catalogs from a consumer that sets the switch false. Pinned by `EmbeddedCatalogFeatureSwitchTests`. |
+| `ILLink.Substitutions.xml` + feature switches `TianWen.Lib.EmbeddedData.<group>` | `TianWen.Lib` | Strips the 57 MB of embedded data from a consumer that sets every group's switch false. Pinned by `EmbeddedCatalogFeatureSwitchTests`. |
 | manifest `desktop2:ThumbnailHandler` + `com:SurrogateServer`, `Test-ManifestHandlers` | `packaging/windows/msix/` | The Store registration, and the check that the GUID written in two places agrees and the DLL is in the tree being packed. |
 | `FileAssociationRegistrar.RegisterThumbnailProvider` | `TianWen.UI.FitsViewer` | The tarball's registration: `HKCU\Software\Classes\CLSID\{clsid}\InprocServer32` and `<ext>\ShellEx\{E357FCCD-...}` per extension, under the EXTENSION key so it holds whichever app is the default. |
 | the `publish-apps` step | `.github/workflows/dotnet.yml` | Publishes the DLL on the two Windows legs and copies it beside `tianwen-fits.exe`, which is what puts it in both the MSIX and the release tarball with no further step. |
@@ -121,6 +121,10 @@ consumer: `TianWen.Lib/ILLink.Substitutions.xml` lists every resource under
 the thumbnail project sets
 `<RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedCatalogs" Value="false" Trim="true" />`.
 Nothing changes for any other consumer; the switch is off by default and only removes when set false.
+
+Since #2155 the one switch is four, a group of data each (`TianWen.Lib.EmbeddedData.Sky`, `.Stars`,
+`.Imaging`, `.FakeDevices`), because what a consumer reads does not nest: the thumbnail project names
+all four, and the browser app the two it never reads (`Imaging`, `FakeDevices`).
 
 Two rules ride on it. **The list has no wildcard and must name each resource exactly**, so
 `EmbeddedCatalogFeatureSwitchTests` pins it against the built assembly in both directions (a catalog

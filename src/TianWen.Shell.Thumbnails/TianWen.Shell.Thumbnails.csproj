@@ -51,10 +51,14 @@
   </PropertyGroup>
 
   <!-- A thumbnail never opens a catalog. TianWen.Lib's own ILLink.Substitutions.xml drops its 57 MB of
-       embedded astrometry data when this switch is false, which takes the DLL from 59.6 MB to 3 MB.
+       embedded data, one switch a group (#2155), which takes the DLL from 59.6 MB to 3 MB. A thumbnail
+       reads none, so every group is named here; EmbeddedCatalogFeatureSwitchTests fails when one is missed.
        Trim="true" is what forwards the switch to the trimmer / ILC as a feature setting. -->
   <ItemGroup>
-    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedCatalogs" Value="false" Trim="true" />
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.Sky" Value="false" Trim="true" />
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.Stars" Value="false" Trim="true" />
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.Imaging" Value="false" Trim="true" />
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.FakeDevices" Value="false" Trim="true" />
   </ItemGroup>
 
   <ItemGroup>
