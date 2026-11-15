@@ -59,6 +59,10 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
   from several threads for wall-clock time measures the runner, and on a shared 4-core runner its loops held the thread
   pool and stalled the whole test process into the hang dump (#1385). Its loops take threads of their own
   (`TaskCreationOptions.LongRunning`), never pool workers. A deterministic test of a known interleaving runs on CI as any other.
+- **A test class that calls `GuiTheme.Apply`, `ToggleNight` or `CycleTheme` is `[Collection(ThemeCollection.Name)]`** (#2169): the
+  theme is process-static and its `State` and `PaletteGeneration` feed the sprite keys, Night tints and palette colours of every
+  render test, and a `[Collection]` alone does not stop other collections running beside it, so `ThemeCollection` is defined with
+  `DisableParallelization = true`. The class puts the theme back in a `finally`; `ThemeCollectionSourceTests` fails one outside it.
 - **A wall-clock latency bar is opt-in, and never widened** (#2031): it skips unless `TIANWEN_TIMING_TESTS=1` (`TimingTestGate`,
   never on CI), is `[Trait("Category", "Timing")]` and its class is in the non-parallel `TimingCollection`, so it measures alone.
   What the code DOES (the primitive `HighResolutionWait.Arm` chose, the order of a pulse's events) is pinned in the normal suite

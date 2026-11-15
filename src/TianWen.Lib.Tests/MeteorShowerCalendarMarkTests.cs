@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests;
 /// by SHAPE and its tooltip and the detail strip by words, and the one widget draws it in every theme at every DPI
 /// (docs/plans/yearly-planner.md, E).
 /// </summary>
-[Collection("UI")]
+[Collection(ThemeCollection.Name)]
 public class MeteorShowerCalendarMarkTests
 {
     private const double Latitude = 50.1;
