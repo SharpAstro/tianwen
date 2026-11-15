@@ -5519,6 +5519,176 @@ Files (DE1): `C:/temp/e2/check3-r3v-s0-own.txt`, `check3-r3v-s0-input-ring.txt`,
 under `C:/temp/tianwen-scratch`, `f2-whole-master/w-r3v_synth22_s0/row.txt`, `f2-reports-master/m31-nucleus-r3v_synth22_s0.txt`
 and `f2-logs-master/score-r3v_synth22_s0/eval-on-random.log`; the weights are `D:/temp/tianwen-scratch/r2-synth22/r3v_synth22_s0.pt`.
 
+**A classical post-step fills the digs, with no training (explored 2026-11-15 and 16, NOT pre-registered; #2088).** The
+owner asked the same evening for star removal to be explored from several angles. R3v's seed 0 loses to SXT almost only
+by DIGGING (ring dug, by star count, 4.7 % at 100-1000 sigma, 12.2 % at 1000 and over, 16.8 % saturated, against SXT's 0.7, 0.0, 2.1; the
+session-weighted figures first written here, 13.6, 25.4, 26.0 against 2.2, 0.0, 3.6, overstate it), so
+the first angle is a step after the model and not another arm:
+- **The step** (`training/star-removal/dig_floor.py` on tiles, `whole_floor.py` on whole linear masters): where the model
+  took a star (input less output, smoothed 1 px, over 1.5 sigma in any channel, grown 2 px), the sky under it is read from
+  the output OUTSIDE that mask (a normalised Gaussian, 4 px). A pixel more than 2.5 sigma under that sky is a pinhole at a
+  star's core and is set to it. Then the output's smooth part (1.5 px) is lifted where it sits under the sky, tapered to
+  nothing at the mask's edge. In these two versions nothing is ever lowered, and the pixel noise is kept. That is `--pin 2.5`,
+  "floor2" below; the first version ("floor") had no pinhole rule and no taper. floor3, further down and the one registered,
+  brings back a BOUNDED lowering.
+- **It was tuned on what it is scored on.** The first version's constants were chosen once, before any score. The second
+  came from looking at ONE sheet of four M42 crops, where the first left dark pinholes at star centres that the ring
+  measure (2 px outward) cannot see. So the real-star rows below are not a held-out read; for floor and floor2 the whole masters and the twin
+  were scored after the constants were fixed and are. floor3's are not: its cap-up was chosen on the twin's rms (below),
+  so its twin figures are the best of a sweep, and only seed 1 is a held-out read of it.
+
+| R3v seed 0 | as trained | + floor | + floor2 | SXT |
+|---|---|---|---|---|
+| real stars clean, 20-100 sigma (this and the next six rows SESSION-WEIGHTED, four sessions equally; by count is the table further down) | 97.5 | 98.0 | 97.7 | 98.0 |
+| 100-1000 sigma | 85.7 | 98.0 | 97.8 | 96.6 |
+| 1000 sigma and over | 74.2 | 97.4 | 97.4 | 95.1 |
+| saturated | 45.0 | 63.8 | 58.4 | 82.8 |
+| M42 100-1000 clean / dug | 56.6 / 42.6 | 94.1 / 4.4 | 93.4 / 2.9 | 91.9 / 6.6 |
+| SMC 100-1000 clean | 89.8 | 98.3 | 98.3 | 96.6 |
+| twin, TRUE clean at 1000 and over / saturated | 93.4 / 88.3 | 97.5 / 95.7 | 97.2 / 93.6 | |
+| twin, error against the plate under the mask, rms sigma | 1.92 | 1.13 | 1.01 | |
+| twin, mean error under the mask, sigma | -0.51 | +0.03 | -0.00 | |
+| Andromeda dark flat / dug | 69.5 / 22.4 | 87.6 / 0.6 | 83.9 / 0.2 | |
+| Andromeda blue at 1.5-3 px, sigma | -0.79 | -0.27 | -0.05 | |
+| Tarantula dark flat | 71.9 | 82.9 | 82.6 | |
+| M31 nucleus, whole-master row, % | -1.0 / 5.1 / 1.2 | the same | the same | |
+
+- **Against the truth it is a real gain, not the measure's:** on the twin the error under the removed stars falls from 1.92
+  to 1.01 sigma and its mean from -0.51 to zero, and nothing changes outside the mask (0.127 before and after). The glow
+  rows (the halo left round bright clipped stars, lower is better; read in full under floor3 below) move with floor2 from
+  591.4 / 1721.6 to 597.1 / 1761.4 on Andromeda and from 965.5 / 1967.0 to 1175.7 / 1950.3 on Tarantula, whose median is 22 % WORSE.
+- **The two-sided version is dead.** "fill" also removes what stands ABOVE the sky under a removed star: it reads best on
+  every star row (saturated 91.3) and takes 72.8 / 70.7 / 68.1 % of the M31 nucleus. An unbounded lowering is dead; floor and floor2 only lift, and floor3 lowers
+  by at most a twentieth of what the model took at that pixel, which moves the nucleus's green from 5.1 to 6.0 % and its blue
+  from 1.2 to 1.6 % and is why the nucleus bar of the seed 1 test is not vacuous.
+- **The step carries most of the gain on a model that digs, and is NOT harmless on one that leaves wings.** On R3l's seed 0
+  (the small baseline, no channel spread) floor2 reads M42 100-1000 89.0 (27.2 as trained), the SMC 96.6, pooled 100-1000
+  96.2 and saturated 74.5. On R3s's seed 0 it does not recover the SMC (83.1) and it LOWERS it: the SMC 100-1000 clean row
+  goes 88.1 to 83.1 (20-100: 83.6 to 82.5), and pooled 1000-and-over clean goes 79.3 to 61.0 with ring left 0.4 to 39.0
+  (`check3-floor2-arms.txt`; that pooled move is one SMC star, 100 to 0, see the n note below). The bar now registered
+  for seed 1, "SMC rows not lowered by more than 1 point", was written after this read; R3s's seed 0 would have failed it under floor2. The likely cause, NOT measured: the sky under the
+  mask is read from output pixels outside it that still hold a leftover star wing, so the lift overshoots and the fill
+  sits above the true sky. A step that fills what a model leaves behind is only safe on a model that leaves no wings.
+  R3v with the step is the best of the three everywhere but the saturated band.
+- **What is still open, for floor and floor2:** the saturated band's session-weighted figures (58.4 with floor2 against SXT's
+  82.8) are mostly ONE star: the SMC session has one saturated star, a quarter of that mean, and it reads 0 / 0 / 100 for
+  floor / floor2 / floor3. By star count saturated clean is 78.9 as trained, 91.6 floor, 88.4 floor2, 91.6 floor3, SXT 89.4
+  (the by-count table below). The pin rule does raise stars left a little (by count at 1000 and over 0.5 / 0.5 / 1.1). The
+  mask covers 42 to 55 % of a crowded master, so a dark lane narrower than the 4 px sky scale that crosses a removed star
+  is partly filled. And nothing here is in the product: the step is Python glue, and a remover that ships needs it in
+  `TianWen.AI.Imaging`.
+- **Floor or floor2, the trade (superseded: floor3 replaced floor2 as the registered version, and by star count floor3 is at
+  or above floor on every band, 99.4 / 100.0 / 91.6 against 99.1 / 98.9 / 91.6).** floor2 was chosen from ONE sheet (four M42 crops) and was
+  the one first pre-registered. Floor is at or above floor2 in every real-star row (higher in four: 20-100 98.0 vs 97.7, 100-1000
+  98.0 vs 97.8, saturated 63.8 vs 58.4, M42 94.1 vs 93.4), on Andromeda dark flat (87.6 vs 83.9) and on the twin TRUE clean
+  share (97.5 vs 97.2 at 1000 and over, 95.7 vs 93.6 saturated). Floor2 wins on dug (M42 2.9 vs 4.4, Andromeda 0.2 vs 0.6),
+  the twin rms (1.01 vs 1.13), the twin mean (-0.00 vs +0.03) and Andromeda blue (-0.05 vs -0.27). So floor2 buys the
+  pinhole and the smoothness the ring measure cannot see, and pays a few points of clean share, the saturated band most.
+  The twin rms, mean and outside figures are a quarter sample (one tile in four, `twin_err.py`); the TRUE clean twin rows
+  use every tile.
+- **The third version, floor3, scored 2026-11-16: each correction capped by what the model took there.** Two flaws of
+  floor2 showed on a second sheet (the SMC's one saturated star and M42's bright interior): in bright smooth nebula, where
+  the noise is tiny, the pinhole rule and the lift drew contour edges; and the residue a model LEAVES at a saturated core
+  was untouched. floor3 (`dig_floor.py --pin 2.5 --cap-up 2 --cap-down 0.05`, mode `floor3` of `whole_floor.py`) keeps
+  floor2 and bounds it by the model's own removal at that pixel (input less output, smoothed 1 px, the largest within
+  2 px): a lift is at most twice it, and what still stands above the sky is lowered by at most a twentieth of it. The cap
+  on the lift was tried at 0.5, 2 and 4 on the twin (rms 1.28, 0.99, 1.00) and on that sheet; 2 was taken. So floor3 is
+  tuned on seed 0 twice over. The cap on lowering, 0.05, was fixed once with no sweep, and with the M31 nucleus and the
+  saturated sheet in view: it was picked to reach a saturated core's residue (the removal there is hundreds of sigma)
+  and spare the nucleus. So the nucleus bar passing on seed 0 (green 5.1 to 6.0, 0.9 against 1) is by construction, and
+  only seed 1 is a read of it.
+
+| R3v seed 0 | as trained | + floor2 | + floor3 | SXT |
+|---|---|---|---|---|
+| real stars clean, 20-100 sigma (the four sessions weighted equally, as every row to "SMC") | 97.5 | 97.7 | 98.5 | 98.0 |
+| 100-1000 sigma | 85.7 | 97.8 | 98.6 | 96.6 |
+| 1000 sigma and over | 74.2 | 97.4 | 100.0 | 95.1 |
+| saturated (clean / left) | 45.0 / 32.6 | 58.4 / 39.8 | 88.4 / 6.5 | 82.8 / 13.6 |
+| M42 100-1000 clean | 56.6 | 93.4 | 94.9 | 91.9 |
+| SMC 20-100 / 100-1000 clean | 97.2 / 89.8 | 97.2 / 98.3 | 98.9 / 100.0 | 98.3 / 96.6 |
+| twin, TRUE clean at 1000 and over / saturated | 93.4 / 88.3 | 97.2 / 93.6 | 97.7 / 95.7 | |
+| twin, rms error under the mask / mean, sigma (quarter sample) | 1.92 / -0.51 | 1.01 / -0.00 | 0.99 / -0.08 | |
+| Andromeda dark flat / dug | 69.5 / 22.4 | 83.9 / 0.2 | 97.6 / 1.0 | |
+| Tarantula dark flat / left | 71.9 / 16.0 | 82.6 / 16.7 | 93.9 / 4.9 | |
+| Tarantula crowded / Sagittarius crowded | 83.8 / 93.7 | 85.5 / 93.2 | 88.7 / 95.5 | |
+| M31 nucleus, whole-master row, % | -1.0 / 5.1 / 1.2 | the same | -1.0 / 6.0 / 1.6 | |
+| glow, green, the row's two figures: Andromeda | 591.4 / 1721.6 | 597.1 / 1761.4 | 599.4 / 1549.7 | |
+| glow: Tarantula | 965.5 / 1967.0 | 1175.7 / 1950.3 | 1121.1 / 1726.2 | |
+
+  **By star count** (every scored star once; `real_star_check3.py` prints it as "by count" since 2026-11-16; this is the
+  statistic of the seed 1 bars, and the session-weighted rows above overstate both the gap as trained and the gain, since
+  M42's 136 stars and the SMC's 59 weigh as much as Lobster's 987):
+
+| R3v seed 0, clean by star count (n) | as trained | + floor | + floor2 | + floor3 | SXT |
+|---|---|---|---|---|---|
+| 20-100 sigma (2510) | 98.9 | 99.2 | 99.0 | 99.3 | 98.8 |
+| 100-1000 sigma (1739) | 94.9 | 99.1 | 99.1 | 99.4 | 98.3 |
+| 1000 sigma and over (188) | 87.2 | 98.9 | 98.9 | 100.0 | 98.4 |
+| saturated (95) | 78.9 | 91.6 | 88.4 | 91.6 | 89.4 |
+
+  SXT is scored on 1738 stars at 100-1000 and 94 saturated: the check skips a window holding a NaN per model, so in
+  those two bands the sets differ by one star, and the saturated gap read here (91.6 against 89.4) is about two stars.
+
+  With floor3 by count: R3l 99.1 / 100.0 / 93.7, R3s 99.0 / 100.0 / 91.6, R3j 99.2 / 99.5 / 92.6 (`check3-bycount.txt`).
+  - **It repairs floor2's harm on a model that leaves wings:** on R3s's seed 0 the SMC rows go 83.6 / 88.1 as trained,
+    82.5 / 83.1 with floor2 and 98.9 / 100.0 with floor3, and pooled 1000 and over 79.3, 61.0, 100.0
+    (`check3-floor3-r3s.txt`). On R3l's seed 0 floor3 reads 98.2 at 100-1000, 100.0 at 1000 and over and 91.3 saturated.
+  - **The glow rows, read the right way round (corrected 2026-11-16; an earlier text of this section called a fall a cost).**
+    `glow_ring.py` sums the halo a remover LEAVES at 10 to 30 px round each bright clipped star, so LOWER is better; the
+    row's two figures are the median and the p90 over those stars. SXT's Andromeda plate reads 242.8 / 574.8 in green with
+    59 % of stars over the threshold; R3v reads 591.4 / 1721.6 and 89 %. With floor3 the p90 falls 10 % on Andromeda and
+    12 % on Tarantula (a gain), Andromeda's median holds (591.4 to 599.4) and Tarantula's median RISES 16 % (965.5 to
+    1121.1; 22 % with floor2). The likely cause, not measured: as trained, a dig inside the annulus cancels part of the
+    halo in the sum, and filling the dig uncovers it. The nucleus's green moves 5.1 to 6.0 %.
+  - **So the gap that is left is the wide halo, and no step here closes it:** round bright clipped stars the model leaves
+    about 2.5 times SXT's halo (green median 599 against 243) on 89 % of them against 59 %. That is the bright-halo line's
+    own subject (R3q onward), a matter of what the synthetic stars' far wings teach, and the next angle.
+- **With the step, earlier arms that were killed for digging read alike on stars, and the halo tells them apart
+  (2026-11-16, seed 0 of each, floor3).** Three arms of the drawn-wings and channel-spread lines, all the small model:
+
+| seed 0 + floor3 | real stars clean 100-1000 / 1000+ / saturated, SESSION-WEIGHTED (by count: the line under the by-count table) | Andromeda dark flat | Tarantula dark flat | nucleus R / G / B % | Andromeda halo, median / p90 / over | Tarantula halo |
+|---|---|---|---|---|---|---|
+| R3v (four-level, synth22) | 98.6 / 100.0 / 88.4 | 97.6 | 93.9 | -1.0 / 6.0 / 1.6 | 599 / 1550 / 89 % | 1121 / 1726 / 92 % |
+| R3j (drawn wings, the dose up, synth16) | 98.2 / 99.6 / 90.2 | 97.5 | 93.0 | -0.4 / -1.2 / 4.5 | 416 / 1336 / 82 % | 395 / 785 / 54 % |
+| R3u (spreads mixed, synth24) | 98.4 / 100.0 / 90.2 | 97.7 | 91.9 | -4.6 / 3.5 / 3.8 | 600 / 1487 / 90 % | 639 / 1008 / 69 % |
+| R3i (synth15) | 97.8 / 99.6 / 90.2 | 97.5 | 92.4 | 3.3 / 7.8 / 11.7 | 484 / 1175 / 87 % | 265 / 665 / 54 % |
+| SXT | 96.6 / 95.1 / 82.8 | | | | 243 / 575 / 59 % | not scored |
+
+  - The star rows and the dark-flat rows no longer separate the arms: the step fills what each one dug (R3j as trained read
+    M42 100-1000 31.6, Andromeda dark flat 41.1 and dug 45.0). What the kills of R3j, R3u and R3i rested on was mostly
+    digging, which a step after the model now removes; their registrations stand as read, and nothing is un-killed here.
+  - The halo is where they differ, by a factor of four on Tarantula, and seeds differ on it too (R3s's two seeds as trained:
+    321 and 715). The arms that drew wider wings (R3j, R3i) leave the least; R3i pays with the nucleus (11.7 % blue).
+    A dig hides halo in this measure: R3j as trained read 136 on Tarantula and reads 395 once its digs are filled.
+  - **The candidate this points at, named and not started:** the drawn-wings data of R3j (synth16) on R3v's four-level
+    model, judged WITH the step from the start, with the halo rows as its question. One seed is about 13 hours on the 1070.
+  (`check3-floor3-haloarms.txt`; whole masters `w-r3j_s0+floor3`, `w-r3u_synth24_s0+floor3`, `w-r3i_synth15_s0+floor3`.)
+- **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py <model> floor --pin 2.5 --cap-up 2
+  --cap-down 0.05 --tag floor3`; mode `floor3` of `whole_floor.py`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
+  seed 1 as trained. It is confirmed if all hold:
+  - the real-star clean share, read off the "by count clean" row that `real_star_check3.py` prints (every scored star once over the four sessions, small sessions included; never the mean of four session figures: the
+    SMC session has n=1 at 1000 and over, M42 n=11, and one SMC star moved R3s seed 0 pooled from 79.3 to 61.0), is at
+    least 95 at 100-1000 sigma and at 1000 and over AND at least 3 points above seed 1 as trained on each (added
+    2026-11-16 before any seed 1 score, on the review's finding that seed 0 as trained already reads 94.9 by count at
+    100-1000, so 95 alone could hold with no step; seed 0 reads +4.5 and +12.8);
+  - M42's 100-1000 clean row is at least 85 (the "Orion M42" line under 100-1000 that `real_star_check3.py --sessions`
+    prints, with its n);
+  - the SMC 20-100 and 100-1000 clean rows (the "SMC" lines of the same `--sessions` print; the rows with n of 5 or more) are not lowered by more than 1 point against
+    seed 1 as trained; the 1000-and-over and saturated SMC rows, n=1, are reported only;
+  - the M31 nucleus moves by under 1 point in every channel, read from the nucleus field of the whole-master `row.txt`
+    (as trained, and after `whole_floor.py <w-tag> floor3` scored by `score_whole.py` with `--plates`);
+  - the twin's rms error under the mask falls by at least a third, as `twin_err.py <seed 1 model> <seed 1 model>+floor3`
+    prints it in its "rms in mask" column: one twin tile in four (i % 4), the mask taken from the as-trained model
+    (seed 0 reads 1.920 to 0.989).
+  The other whole-master rows (dark flats, crowded, glow) are not criteria but are reported, the glow rows with their direction (lower is better; a glow bar
+  written here for a few hours on 2026-11-16 read the measure backwards and is withdrawn, before any seed 1 score). If the criteria hold, the step is proposed to the owner for the product; if not,
+  it was fitted to seed 0. Any change to these bars after seed 1 is scored is post hoc.
+
+Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
+`check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
+`f2-eval-master/<model>+floor`, `+fill`, `+floor2`, `+floor3` and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`, `+floor3`;
+floor3's reads are `check3-floor3-real.txt`, `check3-floor3-twin.txt`, `check3-floor3-r3s.txt` and the sheets `saturated-smc-m42.png` and `caps.png`.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure

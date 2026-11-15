@@ -212,7 +212,7 @@ def real(models, by_session):
                 res[n][(bnd, sess)].append(v)
                 if not flip: res[n][(bnd, sess, "unflipped")].append(v)
     sessions = sorted({k[1] for k in res[models[0]] if len(k) == 2})
-    print("REAL VAL (no truth). Pooled = the four sessions weighted equally; n = stars scored over all sessions.")
+    print("REAL VAL (no truth). Pooled = the four sessions weighted equally; n = stars scored over all sessions; 'by count' = the share over those n stars.")
     for bnd in BANDS:
         print(f"\n  {bnd}")
         print(f"    {'':16s}" + "".join(f"{n.replace('_synth18', '')[:12]:>13s}" for n in models))
@@ -223,6 +223,14 @@ def real(models, by_session):
                 vals.append(np.mean(per) if per else float("nan"))
             print(f"    {key:16s}" + "".join(f"{v:13.1f}" for v in vals))
         print(f"    {'n':16s}" + "".join(f"{sum(len(res[n].get((bnd, s), [])) for s in sessions):13d}" for n in models))
+        # The same three shares over every scored star at once (the n above), so a session of one star does not weigh a
+        # quarter: the SMC holds 1 star at 1000 sigma and over and 1 saturated, and moved the session mean by 25 points.
+        for key in ("wing clean", "ring dug", "ring left"):
+            vals = []
+            for n in models:
+                allv = [v for s in sessions for v in res[n].get((bnd, s), [])]
+                vals.append(stats(np.array(allv))[key] if allv else float("nan"))
+            print(f"    {'by count ' + key.split()[1]:16s}" + "".join(f"{v:13.1f}" for v in vals))
         if by_session:
             for s in sessions:
                 if not res[models[0]].get((bnd, s)): continue
