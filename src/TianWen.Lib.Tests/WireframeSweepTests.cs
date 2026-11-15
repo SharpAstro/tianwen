@@ -539,17 +539,14 @@ public class WireframeSweepTests
         // Two regions that lie over one another by design, not by a layout's mistake: the file list's splitter handle is a
         // grab zone wider than the divider, so it reaches over the list and the image beside it; and a popover's
         // background is a click sink under the panel, drawn over the toolbar and the picture it floats on.
+        // Lost with it: IgnoreRegion drops EVERY rule for those regions, not only "may lie under others", so text that
+        // runs past a popover panel's edge is not reported as half on a control (WireframeOptions has no narrower switch).
         static bool Overlaps(WireframeRegion r)
             => r.Result is ResizeHandleHit
                 || r.Result is HitResult.ButtonHit { Action: var action }
                     && action.EndsWith("PanelBackground", StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// More observations than a short tab has room for scroll, every one reachable; the list used to build the rows
-    /// that fit and leave the rest out without a word. Two in a tall tab fit, and nothing scrolls (DIR.Lib 11.62: a
-    /// list given the room its fractional rows take used to read as one surface unit too long, and drew a bar).
-    /// </summary>
     // Two map texts that overlap, as the best-effort placer lets them. Judged only when the engine says it placed them with
     // collision avoidance, whose promise they would break.
     private static (WireframeFrame Frame, SkyMapTab<RgbaImage>.PlacedMapLabel[] Boxes) OverlappingMapLabels(
@@ -586,6 +583,45 @@ public class WireframeSweepTests
         Wireframe.Check(frame, SkyChromeOnly(frame, boxes)).ShouldBeEmpty();
     }
 
+    // A chrome text drawn over a map label: the map is drawn first, then a control that is not of the map, then its text.
+    private static (WireframeFrame Frame, SkyMapTab<RgbaImage>.PlacedMapLabel[] Boxes) ChromeOverMapLabel(
+        SkyMapTab<RgbaImage>.LabelPlacement placement)
+    {
+        using var renderer = new WireframeRenderer(400, 200);
+        renderer.Begin();
+        var font = FontResolver.ResolveSystemFont();
+        var white = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        renderer.DrawText("Veil Nebula".AsSpan(), font, 14f, white,
+            new RectInt(new PointInt(20, 20), new PointInt(120, 40)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
+        var mapInk = renderer.Frame.Texts[0].Ink;
+        renderer.RegisterClickable(20, 20, 100, 20, new HitResult.ButtonHit("LayerPalette"), _ => { });
+        renderer.DrawText("Layers".AsSpan(), font, 14f, white,
+            new RectInt(new PointInt(24, 22), new PointInt(124, 42)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
+        var boxes = new[] { new SkyMapTab<RgbaImage>.PlacedMapLabel(new RectF32(mapInk.X, mapInk.Y, mapInk.Width, mapInk.Height), placement) };
+        return (renderer.Frame, boxes);
+    }
+
+    [Fact]
+    public void ACollisionPlacedLabelIsJudgedAgainstTheChromeAboveIt()
+    {
+        var (frame, boxes) = ChromeOverMapLabel(SkyMapTab<RgbaImage>.LabelPlacement.Collision);
+        frame.Texts.Length.ShouldBe(2);
+        Wireframe.Check(frame, SkyChromeOnly(frame, boxes)).ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void ABestEffortLabelUnderChromeIsNotJudged()
+    {
+        var (frame, boxes) = ChromeOverMapLabel(SkyMapTab<RgbaImage>.LabelPlacement.BestEffort);
+        frame.Texts.Length.ShouldBe(2);
+        Wireframe.Check(frame, SkyChromeOnly(frame, boxes)).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// More observations than a short tab has room for scroll, every one reachable; the list used to build the rows
+    /// that fit and leave the rest out without a word. Two in a tall tab fit, and nothing scrolls (DIR.Lib 11.62: a
+    /// list given the room its fractional rows take used to read as one surface unit too long, and drew a bar).
+    /// </summary>
     [Fact]
     public void TheObservationListScrollsOnlyWhenItHoldsMoreThanShows()
     {

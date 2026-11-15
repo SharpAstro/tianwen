@@ -119,6 +119,7 @@ namespace TianWen.Lib.Tests
             var expected = MathF.Min(300f, (NarrowW / dpiScale) - 66f) * dpiScale - 0.5f;
 
             viewer.Render(null, state);
+            var listWidth = viewer.FileList.Width;
             var panelWidth = viewer.InfoPanel.Width;
             panelWidth.ShouldBeGreaterThanOrEqualTo(expected);
 
@@ -129,6 +130,11 @@ namespace TianWen.Lib.Tests
             var narrower = DragDividerTo(viewer, state, 10f);
             viewer.InfoPanel.Width.ShouldBeGreaterThanOrEqualTo(expected);
             narrower.ShouldBeGreaterThan(0f);
+
+            // A drag below the granted width shrinks the list (never grows it): the clamp that once pinned the divider is what
+            // the earlier drag tests guarded. Equal only where the window already sits at the list's floor.
+            narrower.ShouldBeLessThanOrEqualTo(wider);
+            narrower.ShouldBeLessThanOrEqualTo(listWidth);
         }
 
         /// <summary>
