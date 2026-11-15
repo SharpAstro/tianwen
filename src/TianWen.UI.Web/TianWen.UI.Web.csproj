@@ -29,6 +29,15 @@
          ProjectReference into TianWen.Lib's own build, so it must ride the publish command line. -->
   </PropertyGroup>
 
+  <!-- The browser draws the sky and plans a night. It calibrates no image's colour and runs no simulated camera, so
+       the two groups of TianWen.Lib's embedded data it never reads are trimmed out of its download (#2155; the groups
+       are in TianWen.Lib's ILLink.Substitutions.xml). Sky and Stars stay: the atlas reads the first and picks its
+       Tycho-2 tiles with the second. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.Imaging" Value="false" Trim="true" />
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedData.FakeDevices" Value="false" Trim="true" />
+  </ItemGroup>
+
   <!-- The planets' offline texture atlas, served beside the page (Planner.razor's LoadPlanetAtlasAsync); one file, kept in
        TianWen.UI.Abstractions where the desktop hosts copy it from. -->
   <ItemGroup>

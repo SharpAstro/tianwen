@@ -37,6 +37,17 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     // Design units, scaled by DpiScale in the arrange.
     private const float CellW = 62f;
     private const float CellH = 44f;
+    // The least a cell is squeezed to in a window too small for the full grid: a day number, a word that ends in an
+    // ellipsis, and the pin strip still fit. The rest of the popover (header, weekday row, detail, credit, padding, gaps)
+    // is HeightBesidesRows tall, measured from a painted calendar.
+    private const float MinCellW = 34f;
+    private const float MinCellH = 34f;
+    private const float HeightBesidesRows = 97f;
+    private const float WindowMargin = 8f;
+
+    // The cell size of this frame: the design size in a roomy window, less in one that cannot seat the full grid.
+    private float _cellW = CellW;
+    private float _cellH = CellH;
     private const float Gap = 2f;
     private const float FontSize = 13f;
     private const float SmallFontSize = 11f;
@@ -109,6 +120,14 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         var planned = NightCalendarActions.PlanningEveningDate(state, timeProvider);
         var tonight = NightCalendarActions.TonightEveningDate(state, timeProvider);
 
+        // The grid is its design size where the window seats it (below the anchor, inside the margin) and its cells give
+        // way where it does not, so the calendar never runs past the window.
+        var dpi = DpiScale;
+        var roomW = (window.Width / dpi) - (2f * WindowMargin) - 16f - (6f * Gap);
+        var roomH = ((window.Y + window.Height - (anchor.Y + anchor.Height)) / dpi) - WindowMargin - HeightBesidesRows;
+        _cellW = Math.Clamp(roomW / 7f, MinCellW, CellW);
+        _cellH = Math.Clamp(roomH / 6f, MinCellH, CellH);
+
         var content = BuildContent(state, calendar.Month, planned, tonight, hovered ?? calendar.Cursor ?? planned,
             timeProvider, bus, skyMap);
         var tree = Layout.Builder.Popover(anchor, content, calendar.Popover);
@@ -161,7 +180,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
     {
         var palette = GuiTheme.Palette;
         var calendar = state.Calendar;
-        var gridW = (7 * CellW) + (6 * Gap);
+        var gridW = (7 * _cellW) + (6 * Gap);
 
         // Header: [<] Month Year [>] ........ [Tonight]
         var headerBg = palette.HeaderBg;
@@ -189,7 +208,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         for (var i = 0; i < 7; i++)
         {
             weekdays[i] = Layout.Builder.Text(names[((int)firstDay + i) % 7], SmallFontSize, palette.DimText,
-                TextAlign.Center, TextAlign.Center).WFixed(CellW).HStar();
+                TextAlign.Center, TextAlign.Center).WFixed(_cellW).HStar();
         }
         var weekdayRow = Layout.Builder.HStack(weekdays).RowH(18f).WithGap(Gap);
 
@@ -204,7 +223,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
                 var night = grid[(week * 7) + day];
                 cells[day] = BuildCell(state, night, month, planned, tonight, timeProvider, skyMap);
             }
-            rows[week] = Layout.Builder.HStack(cells).RowH(CellH).WithGap(Gap);
+            rows[week] = Layout.Builder.HStack(cells).RowH(_cellH).WithGap(Gap);
         }
 
         var detail = BuildDetail(state, detailNight);
@@ -289,7 +308,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         var cell = Layout.Builder.VStack(inner)
             .Pad(ring is null ? 0f : 2f)
             .Bg(ring ?? fill)
-            .WFixed(CellW).HStar();
+            .WFixed(_cellW).HStar();
         if (CellTooltip(night, _painted) is { } tooltip)
         {
             cell = cell.WithTooltip(tooltip);

@@ -113,6 +113,9 @@ namespace TianWen.UI.Abstractions
             // VisibleRows() places each row with the smooth sub-row shift and reserves the scrollbar column.
             _scroll.SetExtent(_listRect, rowH, entries.Length, Scale);
 
+            // A smooth-scrolled list shows the row at its edge part way; clip to the list so that row ends at the list's
+            // edge and not at its own (it used to draw past the list, over whatever lies below it).
+            PushClip(_listRect.X, _listRect.Y, _listRect.Width, _listRect.Height);
             foreach (var (i, rowRect) in _scroll.VisibleRows())
             {
                 var entry = entries[i];
@@ -131,6 +134,8 @@ namespace TianWen.UI.Abstractions
                     }
                 });
             }
+
+            PopClip();
 
             // Interactive scrollbar at the right edge (hidden when the list fits).
             _scroll.DrawScrollBar(FillRect);

@@ -321,8 +321,12 @@ namespace TianWen.UI.Abstractions
         // Honor the user-resizable width when state is bound; fall back to the
         // historical 300px constant when state hasn't been attached yet (e.g.
         // during initial layout queries before Render(state) has run).
+        // Once the layout has arranged the list, ITS width is the one source: a narrow window gives the list
+        // less than the dragged width (FileListExtentThatLeavesTheInfoPanelItsWidth), and the painter must follow.
         private float FileListWidth =>
-            (_state is { } s ? s.FileListWidthBase : BaseFileListWidth) * DpiScale;
+            _layout.FileList is { Width: > 0f } arranged
+                ? arranged.Width
+                : (_state is { } s ? s.FileListWidthBase : BaseFileListWidth) * DpiScale;
 
         private float FontSize => BaseFontSize * DpiScale;
         private float ToolbarFontSize => BaseToolbarFontSize * DpiScale;
