@@ -114,16 +114,20 @@ namespace TianWen.Lib.Tests
             var viewer = NewViewer(renderer, dpiScale);
             var state = NewState();
 
+            // The panel keeps its nominal width unless the window cannot seat it beside the list's narrow floor (60 + a 6 divider,
+            // in design units): then it takes what is left, and the list is at its floor.
+            var expected = MathF.Min(300f, (NarrowW / dpiScale) - 66f) * dpiScale - 0.5f;
+
             viewer.Render(null, state);
             var panelWidth = viewer.InfoPanel.Width;
-            panelWidth.ShouldBeGreaterThanOrEqualTo(300f * dpiScale - 0.5f);
+            panelWidth.ShouldBeGreaterThanOrEqualTo(expected);
 
             var wider = DragDividerTo(viewer, state, NarrowW * 0.9f);
-            viewer.InfoPanel.Width.ShouldBeGreaterThanOrEqualTo(300f * dpiScale - 0.5f);
+            viewer.InfoPanel.Width.ShouldBeGreaterThanOrEqualTo(expected);
             wider.ShouldBeGreaterThan(0f);
 
             var narrower = DragDividerTo(viewer, state, 10f);
-            viewer.InfoPanel.Width.ShouldBeGreaterThanOrEqualTo(300f * dpiScale - 0.5f);
+            viewer.InfoPanel.Width.ShouldBeGreaterThanOrEqualTo(expected);
             narrower.ShouldBeGreaterThan(0f);
         }
 

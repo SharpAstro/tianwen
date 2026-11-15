@@ -496,7 +496,8 @@ partial class ImageRendererBase<TSurface>
         // window here. That pairing is what OverlayPlacement.ClampX was a private half of.
         var tree = Layout.Builder.Popover(anchor, content, state.TonePopover);
 
-        _toneArranged = ArrangeLayout(tree, new RectF32(0f, 0f, Width, Height), ctx);
+        // The rect it floats in ends at the status bar, so the engine's clamp keeps it above the bar.
+        _toneArranged = ArrangeLayout(tree, new RectF32(0f, 0f, Width, floor), ctx);
         PaintLayout(_toneArranged, ctx);
     }
 }
