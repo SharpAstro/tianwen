@@ -61,8 +61,8 @@
 
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
 
-    <PackageVersion Include="DIR.Lib" Version="11.60.*" />
-    <PackageVersion Include="DIR.Lib.Debug" Version="11.60.*" />
+    <PackageVersion Include="DIR.Lib" Version="11.62.*" />
+    <PackageVersion Include="DIR.Lib.Debug" Version="11.62.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
