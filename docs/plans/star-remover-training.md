@@ -5223,7 +5223,7 @@ The bars:
   points). The nucleus is the risk.
 
 **R3s, read 2026-11-12: killed by two guards; M42's band clears its bar and the nucleus is kept.** Both seeds trained to
-convergence (s0 step 224,000, best held-out 6.61e-6 at 212,000; s1 best 6.64e-6 at 197,500). Every bar on the two seeds' mean:
+convergence (s0 step 224,000, best held-out 6.61e-6 at 212,000; s1 best 6.54e-6 at 219,500). Every bar on the two seeds' mean:
 
 | bar | R3s s0 / s1 | R3s mean | R3l s0 / s1 (mean) | verdict |
 |---|---|---|---|---|
