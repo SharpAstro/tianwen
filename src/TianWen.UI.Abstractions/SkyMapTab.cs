@@ -162,6 +162,7 @@ namespace TianWen.UI.Abstractions
         {
             BeginFrame();
             _deferredLines = null;
+            PlacedMapLabels.Clear();
             // DPI + font come from the inherited DpiScale / FontPath (host-set); the input path
             // (tap-vs-drag slop) reads DpiScale directly, which retired the old render-time
             // _lastDpiScale cache.
@@ -612,6 +613,24 @@ namespace TianWen.UI.Abstractions
 
         /// <inheritdoc cref="GridLabelMs"/>
         internal double PlanetLabelMs { get; private set; }
+
+        /// <summary>
+        /// How the overlay engine placed a catalogue label: with collision avoidance (<see cref="OverlayEngine.PlaceLabels"/>, so a
+        /// label that would overlap another is moved or dropped) or best effort (<see cref="OverlayEngine.PlaceLabelsBestEffort"/>,
+        /// Stellarium style: overlaps are accepted).
+        /// </summary>
+        internal enum LabelPlacement { Collision, BestEffort }
+
+        /// <summary>One catalogue label the engine placed this frame, and how.</summary>
+        internal readonly record struct PlacedMapLabel(RectF32 Box, LabelPlacement Placement);
+
+        /// <summary>
+        /// The catalogue labels placed by the last <see cref="RenderSkyBehind"/>, for the wireframe sweep, which judges the
+        /// collision-placed ones (their promise is no overlap) and leaves the best-effort ones alone (overlap is accepted).
+        /// A host that places labels with <see cref="OverlayEngine.PlaceLabels"/> records them here as
+        /// <see cref="LabelPlacement.Collision"/>.
+        /// </summary>
+        internal List<PlacedMapLabel> PlacedMapLabels { get; } = [];
 
         /// <inheritdoc cref="GridLabelMs"/>
         internal double CometLabelMs { get; private set; }

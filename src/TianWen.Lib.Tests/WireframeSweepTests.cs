@@ -75,19 +75,78 @@ public class WireframeSweepTests
                 new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero)));
             return Task.CompletedTask;
         },
-        ["sky map"] = async (renderer, content, scale) =>
+        ["sky map"] = SkyMap((_, _, _) => { }),
+        // The F3 search window open over the map with a query that has many rows (the palette gives way to it).
+        ["sky map, search open"] = SkyMap((tab, planner, db) =>
         {
-            var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
-            var tab = new SkyMapTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
-            var planner = new PlannerState
+            var search = tab.State.Search;
+            search.Interaction = new SkyMapSearchInteraction(search, db, commit: () => { }, close: () => { }, requestRedraw: () => { });
+            SkyMapSearchActions.OpenSearch(search, db, new TextInputFocus());
+            search.SearchInput.OnTextChanged?.Invoke("NGC 7");
+        }),
+        // The layer palette with its key hints, over a map with the search closed.
+        ["sky map, layer palette"] = SkyMap((tab, _, _) => tab.State.ShowLayerPalette = true),
+        // A selected atlas object: the info panel for the catalogue object with the longest common name of a few known ones.
+        ["sky map, selected object"] = SkyMap((tab, planner, db) =>
+        {
+            var obj = LongestNamed(db, "NGC 7000", "NGC 7293", "NGC 1499", "NGC 2237", "IC 1396", "IC 5070", "M42", "M8", "M20", "NGC 6992");
+            var site = SiteContext.Create(planner.SiteLatitude, planner.SiteLongitude, Now);
+            tab.State.Search.InfoPanel = SkyMapInfoPanelData.FromCatalogObject(
+                obj, planner.SiteLatitude, planner.SiteLongitude, Now, site, null, db);
+        }),
+        // The planner's target search with its suggestion dropdown open.
+        ["planner, suggestions open"] = (renderer, content, scale) =>
+        {
+            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var state = PlannerTabLayoutTests.BuildState();
+            new TextInputFocus().Focus(state.SearchInput, "NGC");
+            state.Search = new PlannerSearchInteraction(
+                state, db: null!, createTransform: () => null,
+                autoComplete: () =>
+                [
+                    "NGC 7000 North America Nebula", "NGC 7293 Helix Nebula", "NGC 6992 Eastern Veil Nebula, Cygnus Loop",
+                    "NGC 2237 Rosette Nebula and the open cluster NGC 2244", "NGC 1499 California Nebula", "NGC 281 Pacman Nebula",
+                    "NGC 6888 Crescent Nebula", "NGC 7380 Wizard Nebula",
+                ],
+                ensureVisible: null, deactivate: () => { }, requestRedraw: () => { });
+            state.SearchInput.OnTextChanged!("NGC");
+            tab.Render(state, content, new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero)));
+            return Task.CompletedTask;
+        },
+        // A rig of devices whose names are what a vendor and a driver give them: a model, a serial number and a port.
+        ["equipment, long device names"] = (renderer, content, scale) =>
+        {
+            var tab = new EquipmentTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            tab.Render(LongNamedRig(), content);
+            return Task.CompletedTask;
+        },
+        ["live session, long device names"] = (renderer, content, scale) =>
+        {
+            var tab = new LiveSessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            var state = new LiveSessionState
             {
-                ObjectDb = db,
-                SiteLatitude = 45.0,
-                SiteLongitude = -75.0,
-                SiteTimeZone = TimeSpan.Zero,
-                PlanningDate = Now,
+                Mode = LiveSessionMode.Preview,
+                MountDisplayName = LongMount,
+                PreviewOTATelemetry =
+                [
+                    PreviewOTATelemetry.Unknown with
+                    {
+                        OtaName = "Main imaging train, Takahashi FSQ-106EDX4 on the east pier",
+                        CameraDisplayName = LongCamera,
+                        CameraConnected = true,
+                        FocuserConnected = true,
+                        FilterWheelConnected = true,
+                        CcdTempC = -10.1,
+                        SetpointC = -10,
+                        CoolerPowerPct = 62,
+                        CoolerOn = true,
+                        FocusPosition = 12345,
+                        FilterName = "Hydrogen alpha 3 nm narrowband (Astrodon)",
+                    },
+                ],
             };
-            tab.Render(planner, content, new FakeTimeProviderWrapper(Now));
+            tab.Render(state, content, new FakeTimeProviderWrapper(Now));
+            return Task.CompletedTask;
         },
         ["home"] = (renderer, content, scale) =>
         {
@@ -121,6 +180,63 @@ public class WireframeSweepTests
         },
     };
 
+    private const string LongMount = "Sky-Watcher EQ6-R Pro (serial EQ6R-20230417-00981) via EQMOD on COM12";
+    private const string LongCamera = "ZWO ASI2600MM Pro (serial 0123456789ABCDEF0123456789ABCDEF) on USB 3.0 hub port 4";
+
+    private static GuiAppState LongNamedRig()
+    {
+        var mount = new Uri($"Mount://FakeDevice/FakeMount1?latitude=48.2&longitude=16.3#{LongMount}");
+        var camera = new Uri($"Camera://FakeDevice/FakeCamera1#{LongCamera}");
+        var focuser = new Uri("Focuser://FakeDevice/FakeFocuser1#Pegasus Astro Focus Cube 3 (serial FC3-2024-000417) on COM14");
+        var wheel = new Uri("FilterWheel://FakeDevice/cfw?filter1=Luminance&filter2=Red#ZWO EFW 8x1.25 inch (serial EFW8-0042) on COM15");
+        return new GuiAppState
+        {
+            LocalProfileKnown = true,
+            ActiveProfile = new Profile(Guid.NewGuid(), "Observatory east pier, Takahashi FSQ-106EDX4 and the guide scope",
+                new ProfileData(Mount: mount, Guider: NoneDevice.Instance.DeviceUri,
+                    OTAs: [new OTAData("Main imaging train, Takahashi FSQ-106EDX4 on the east pier", 530, Camera: camera, Cover: null,
+                        Focuser: focuser, FilterWheel: wheel, PreferOutwardFocus: null, OutwardIsPositive: null)])),
+        };
+    }
+
+    // The catalogue object, of those named, whose common names are longest: a panel title that has to wrap or cut.
+    private static CelestialObject LongestNamed(ICelestialObjectDB db, params string[] indices)
+    {
+        CelestialObject? best = null;
+        var bestLength = -1;
+        foreach (var name in indices)
+        {
+            if (db.TryLookupByIndex(name, out var obj) && obj.DisplayName.Length > bestLength)
+            {
+                best = obj;
+                bestLength = obj.DisplayName.Length;
+            }
+        }
+
+        return best ?? throw new InvalidOperationException("none of the named objects is in the catalogue");
+    }
+
+    // The sky map over a catalogue, with a state put on it by the scenario. The tab is kept for the options: the map's own labels
+    // are judged through what it says it placed.
+    private static SkyMapTab<RgbaImage>? _sky;
+
+    private static Draw SkyMap(Action<SkyMapTab<RgbaImage>, PlannerState, ICelestialObjectDB> setup) => async (renderer, content, scale) =>
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        var tab = new SkyMapTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        var planner = new PlannerState
+        {
+            ObjectDb = db,
+            SiteLatitude = 45.0,
+            SiteLongitude = -75.0,
+            SiteTimeZone = TimeSpan.Zero,
+            PlanningDate = Now,
+        };
+        setup(tab, planner, db);
+        tab.Render(planner, content, new FakeTimeProviderWrapper(Now));
+        _sky = tab;
+    };
+
     // What a tab is opened for, which must be on screen whole at every size. A row left undrawn overlaps nothing, so
     // the overlap rules cannot see it go: the Session tab once stacked its form over the observations at a fixed
     // share of a short tab and showed their header alone.
@@ -144,14 +260,32 @@ public class WireframeSweepTests
 
     // What the map draws lies where the sky puts it: a constellation's name runs off the edge, a grid label sits
     // under the layer palette, and none of that is a layout. The map is drawn first, so everything before the
-    // first control that is not a planet's label is the map, and the rules are asked of the chrome after it.
+    // first control that is not of the map is the map, and the rules are asked of the chrome after it.
+    // Of the map's own text, one kind is judged: a catalogue label the overlay engine placed WITH collision avoidance
+    // (OverlayEngine.PlaceLabels), whose promise is that no two overlap and none lies under what is drawn after it. The
+    // map's own placer is the best-effort one (PlaceLabelsBestEffort: Stellarium-style, overlaps accepted by design, and a
+    // label under a panel is covered, not cut), so those stay out, as do the planet, comet and constellation names, the grid
+    // numbers and everything a GPU pipeline draws, which this renderer does not see. SkyMapTab.PlacedMapLabels says which
+    // placer put each label where.
     private static WireframeOptions SkyChromeOnly(WireframeFrame frame)
     {
         static bool OfTheMap(WireframeRegion r)
-            => r.Result is HitResult.ButtonHit { Action: var action } && action.StartsWith("SkyMapPlanetLabel", StringComparison.Ordinal);
+            => r.Result is HitResult.ButtonHit { Action: var action }
+                && (action.StartsWith("SkyMapPlanetLabel", StringComparison.Ordinal)
+                    || action.StartsWith("SkyMapObjectLabel", StringComparison.Ordinal));
+
+        var collisionPlaced = _sky?.PlacedMapLabels
+            .Where(l => l.Placement == SkyMapTab<RgbaImage>.LabelPlacement.Collision)
+            .Select(l => l.Box).ToArray() ?? [];
+        bool InCollisionLabel(WireframeText t)
+        {
+            var cx = t.Ink.X + t.Ink.Width / 2f;
+            var cy = t.Ink.Y + t.Ink.Height / 2f;
+            return collisionPlaced.Any(b => cx >= b.X && cx <= b.X + b.Width && cy >= b.Y && cy <= b.Y + b.Height);
+        }
 
         var chromeFrom = frame.Regions.Where(r => !OfTheMap(r)).Select(r => r.Order).DefaultIfEmpty(int.MaxValue).Min();
-        return new WireframeOptions { IgnoreText = t => t.Order < chromeFrom, IgnoreRegion = OfTheMap };
+        return new WireframeOptions { IgnoreText = t => t.Order < chromeFrom && !InCollisionLabel(t), IgnoreRegion = OfTheMap };
     }
 
     [Theory(Timeout = 120_000)]
@@ -159,7 +293,7 @@ public class WireframeSweepTests
     public async Task NothingOverlapsAtAnyWindowSize(string tab)
     {
         var report = await Sweep(tab, (width, height, _) => (width, height), Scenarios[tab],
-            frame => tab == "sky map" ? SkyChromeOnly(frame) : null,
+            frame => tab.StartsWith("sky map", StringComparison.Ordinal) ? SkyChromeOnly(frame) : null,
             MustShow.TryGetValue(tab, out var shown) ? shown : null);
         report.ShouldBeEmpty();
     }
@@ -215,7 +349,7 @@ public class WireframeSweepTests
     // The window chrome's states that stress it.
     public static TheoryData<string> ChromeStates =>
         ["no status message", "long status message", "connect all", "session running", "pinned date with verdict",
-         "everything at once"];
+         "everything at once", "night calendar open"];
 
     private const string LongStatusMessage =
         "Could not open the mount on COM12: Access to the path 'C:\\Users\\observer\\AppData\\Local\\TianWen\\Profiles\\Observatory east pier\\mount.json' is denied";
@@ -229,7 +363,7 @@ public class WireframeSweepTests
         chrome.NavigationStrip.FontPath = font;
         chrome.NavigationStrip.DpiScale = scale;
 
-        var everything = state == "everything at once";
+        var everything = state is "everything at once" or "night calendar open";
         var connectAll = state is "connect all" || everything;
         var appState = new GuiAppState
         {
@@ -267,6 +401,18 @@ public class WireframeSweepTests
         chrome.Render(appState, planner, new FakeTimeProviderWrapper(Now), local, local,
             new EquipmentTabState(), new SessionTabState(), new SkyMapState(),
             content.Width + chrome.SidebarWidth, content.Height + chrome.StatusBarHeight);
+
+        if (state == "night calendar open")
+        {
+            // The calendar hangs from the date label the bar just painted, over the window, as a host paints it.
+            planner.Calendar.Popover.Open();
+            var calendar = new NightCalendarPopover<RgbaImage>(renderer) { FontPath = font, DpiScale = scale };
+            var anchor = chrome.DateCalendarAnchor ?? throw new InvalidOperationException("the bar drew no date label");
+            calendar.Render(planner, anchor,
+                new RectF32(0, 0, content.Width + chrome.SidebarWidth, content.Height + chrome.StatusBarHeight),
+                new FakeTimeProviderWrapper(Now));
+        }
+
         return Task.CompletedTask;
     };
 
