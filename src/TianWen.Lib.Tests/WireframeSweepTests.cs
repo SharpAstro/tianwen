@@ -279,16 +279,32 @@ public class WireframeSweepTests
 
         floor.ShouldBeGreaterThan(300f);
         var width = (uint)MathF.Ceiling(floor * scale);
-        using var renderer = new WireframeRenderer(width, 900);
+        var pictures = Environment.GetEnvironmentVariable(PicturesEnvVar) is { Length: > 0 } folder
+            ? Directory.CreateDirectory(folder).FullName
+            : null;
+        using var renderer = new WireframeRenderer(width, 900, paint: pictures is not null);
         var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
         renderer.Begin();
         tab.Render(new GuiAppState(), planner, new RectF32(0, 0, width, 900), new FakeTimeProviderWrapper(Now));
+        if (pictures is not null)
+        {
+            File.WriteAllBytes(Path.Combine(pictures, $"session-at-its-floor_{width}x900_{scale:0.0}.png"),
+                PngWriter.Encode(renderer.Surface.Pixels, (int)width, 900));
+        }
 
         var frame = renderer.Frame;
         string.Join("; ", Wireframe.Check(frame).Select(f => f.Message)).ShouldBeEmpty();
         // Side by side, not stacked: the panel's button is beside the form, not under it.
         var start = frame.Texts.First(t => t.Text.Contains("Start Session", StringComparison.Ordinal));
         start.Ink.X.ShouldBeGreaterThan(width / 2f);
+
+        // The form's controls end where the bar's column begins: the floor is the widest row AND the bar.
+        var formWidth = tab.FormFloor * scale;
+        var bar = ListScrollController.ScrollBarBaseWidthPx * scale;
+        // A row is itself a region as wide as the form; the controls in it (a stepper's buttons, a toggle) are not.
+        var rightmost = frame.Regions.Where(r => r.Rect.X < formWidth && r.Rect.Width < formWidth / 2f).Max(r => r.Rect.X + r.Rect.Width);
+        rightmost.ShouldBeLessThanOrEqualTo(formWidth - bar + 1f,
+            $"a form control reaches {rightmost:0.#} px in a form {formWidth:0.#} px wide whose last {bar:0.#} px are the scrollbar's");
     }
 
     private static IEnumerable<string> NotShownWhole(WireframeFrame frame, string[] shown)
