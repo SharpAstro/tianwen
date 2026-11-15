@@ -567,7 +567,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // Independent of every other phase (it reads its own resource and touches nothing shared until
         // the join below), so it decompresses alongside them.
         var articlesTask = Task.Run(() => ReadObjectArticlesAsync(cancellationToken), cancellationToken);
-        _tycho2BulkLoadTask = Task.Run(() => ReadTycho2BulkAsync(cancellationToken), cancellationToken);
+        _tycho2BulkLoadTask = Task.Run(ReadTycho2BulkAsync, cancellationToken);
 
         // Start HR's SIMBAD parse on the thread pool too - HR is the heaviest SIMBAD
         // file (~200ms to decompress + parse) and by launching it now, it can run
@@ -902,7 +902,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Reads an embedded resource into one exactly-sized array, in one allocation.
     /// </summary>
     /// <remarks>
-    /// <c>GetManifestResourceStream</c> returns an <see cref="UnmanagedMemoryStream"/> over the mapped
+    /// For an embedded file, <c>GetManifestResourceStream</c> returns an <see cref="UnmanagedMemoryStream"/> over the mapped
     /// assembly image, so <see cref="Stream.Length"/> is exact and this is a single memcpy off pages
     /// the OS faults in as it goes -- no growth, no re-copy, and no decompression. Reading it whole is
     /// still the honest step for now, because <c>_tycho2Data</c> is a <c>byte[]</c> that ~31 call sites
@@ -911,14 +911,27 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// </remarks>
     private static byte[] ReadFully(Stream stream)
     {
-        var buffer = new byte[stream.Length];
+        // A host's stream need not know its length (a response body does not): copied as it comes then.
+        if (!stream.CanSeek)
+        {
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            return copy.ToArray();
+        }
+
+        var buffer = new byte[stream.Length - stream.Position];
         stream.ReadExactly(buffer);
         return buffer;
     }
 
-    private async Task ReadTycho2BulkAsync(CancellationToken cancellationToken)
+    private async Task ReadTycho2BulkAsync()
     {
         var dataFiles = _dataFiles;
+
+        // Once started, this read is the database's and not the init caller's: it outlives an init that did not
+        // wait for it, and the sky map and the plate solver await its task later. Cancelled between two files it
+        // would leave the star records without their index, and that task cancelled for good.
+        var cancellationToken = CancellationToken.None;
         // EXPANDED FIRST, and it is the form the build embeds. tyc2.bin is already the layout this
         // reads -- stream count, per-GSC-region offset table, region-major 17-byte records -- so lzip
         // was only ever the container, and a ~4 MiB member has to be decoded WHOLE. That made reaching
@@ -1378,7 +1391,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // embedded resource data and SHA-256 is CPU-bound enough to saturate a core. On a
         // representative cold start the snapshot read takes ~50 ms and the hash ~50 ms;
         // overlapping them shaves ~30-40 ms off the apply path.
-        var hashTask = HashInputsAsync(HdHipCrossInputHasher.InputNames, HdHipCrossInputHasher.Compute, cancellationToken);
+        // tyc2.bin.lz is asked for FIRST: it is the input no build carries, and a source that fetches would
+        // otherwise fetch the catalogues before it for a hash that cannot be computed.
+        var hashTask = HashInputsAsync(HdHipCrossInputHasher.InputNames, HdHipCrossInputHasher.Compute, cancellationToken, askFirst: "tyc2.bin.lz");
 
         HdHipCrossSnapshot snapshot;
         byte[] storedHash;
@@ -1619,13 +1634,29 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// source lacks one of them, since a hash over fewer inputs is not the one a snapshot stored.
     /// </summary>
     private async Task<byte[]?> HashInputsAsync(
-        IReadOnlyList<string> inputNames, Func<Func<string, Stream>, byte[]> compute, CancellationToken cancellationToken)
+        IReadOnlyList<string> inputNames, Func<Func<string, Stream>, byte[]> compute, CancellationToken cancellationToken,
+        string? askFirst = null)
     {
         var streams = new Dictionary<string, Stream>(inputNames.Count, StringComparer.Ordinal);
         try
         {
+            if (askFirst is not null)
+            {
+                if (await _dataFiles.OpenAsync(askFirst, cancellationToken) is not { } first)
+                {
+                    return null;
+                }
+
+                streams[askFirst] = first;
+            }
+
             foreach (var name in inputNames)
             {
+                if (streams.ContainsKey(name))
+                {
+                    continue;
+                }
+
                 if (await _dataFiles.OpenAsync(name, cancellationToken) is not { } stream)
                 {
                     return null;

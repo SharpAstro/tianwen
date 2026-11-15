@@ -16,9 +16,14 @@ namespace TianWen.Lib.IO;
 /// over the web, by putting its own source behind the embedded one (<see cref="DataFiles.Source"/>, #2161).
 /// </summary>
 /// <remarks>
-/// A file is asked for by its NAME (<c>NGC.gs.gz</c>, <c>tyc2_gsc_bounds.bin.lz</c>), never by a path or a
+/// <para>A file is asked for by its NAME (<c>NGC.gs.gz</c>, <c>tyc2_gsc_bounds.bin.lz</c>), never by a path or a
 /// manifest resource name. A source is asked from several threads at once and must answer each on its own
-/// stream, which the caller disposes.
+/// stream, which the caller disposes. The stream is read once from where it stands, start to end: it need not
+/// seek nor know its length, so a response body will do.</para>
+/// <para>The same file is asked for more than once (a snapshot's hash reads the catalogues its reader reads
+/// again, and a reader may probe for a file before opening it), so a source that fetches keeps what it fetched.
+/// A source should also answer null at once for a file it knows it does not carry: a reader asks for files that
+/// only some builds have (<c>tyc2.bin.lz</c>, an expanded <c>.bin</c> beside its <c>.lz</c>).</para>
 /// </remarks>
 public interface IDataFileSource
 {

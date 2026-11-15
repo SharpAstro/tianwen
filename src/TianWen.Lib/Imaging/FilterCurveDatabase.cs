@@ -79,7 +79,7 @@ public static class FilterCurveDatabase
         {
             try
             {
-                await DoLoadAsync(ct);
+                await DoLoadAsync();
                 // Set AFTER the data is there. This used to be set by the CAS winner before DoLoad
                 // had run, so IsLoaded answered true over an empty database -- the same shape of
                 // failure as the viewer's SPCC guard, which declined against a DB nobody had loaded.
@@ -95,11 +95,16 @@ public static class FilterCurveDatabase
         return new ValueTask(tcs.Task);
     }
 
-    private static async Task DoLoadAsync(CancellationToken ct)
+    private static async Task DoLoadAsync()
     {
         // The three files come from the process's data file source (#2161): embedded, or supplied by a host
         // whose build switched TianWen.Lib.EmbeddedData.Imaging off. One that is nowhere loads as empty.
         var dataFiles = DataFiles.Source;
+
+        // The load is the process's, shared by every caller and never started again, so it is no caller's to
+        // cancel: under the first caller's token a cancelled session or render would leave the failed task in
+        // _loadTask for good, and every later caller without filter curves.
+        var ct = CancellationToken.None;
 
         using var filterStream = await dataFiles.OpenAsync("filter_curves.gs.gz", ct);
         LoadResource(filterStream, _filtersByNormalizedName, indexOriginStems: true, out var filters);

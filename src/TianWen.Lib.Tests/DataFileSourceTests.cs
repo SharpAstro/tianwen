@@ -2,11 +2,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.IO;
 using Xunit;
 
@@ -30,21 +32,47 @@ public class DataFileSourceTests
     }
 
     /// <summary>
-    /// A source that has nothing at hand and answers only after yielding, as one that fetches over the web does,
-    /// and counts what it was asked for.
+    /// A source that has nothing at hand and answers only after yielding, with a stream that cannot seek and
+    /// does not know its length, as one that fetches over the web does. It records what it was asked for, in order.
     /// </summary>
     private sealed class Fetched(IDataFileSource inner) : IDataFileSource
     {
-        public ConcurrentDictionary<string, int> Asked { get; } = new(StringComparer.Ordinal);
+        public ConcurrentQueue<string> Asked { get; } = new();
 
         public async ValueTask<Stream?> OpenAsync(string fileName, CancellationToken cancellationToken = default)
         {
-            Asked.AddOrUpdate(fileName, 1, static (_, n) => n + 1);
+            Asked.Enqueue(fileName);
             await Task.Yield();
-            return await inner.OpenAsync(fileName, cancellationToken);
+            return await inner.OpenAsync(fileName, cancellationToken) is { } stream ? new ForwardOnly(stream) : null;
         }
 
         public Stream? OpenIfAtHand(string fileName) => null;
+    }
+
+    /// <summary>A response body: read forward, no length, no position.</summary>
+    private sealed class ForwardOnly(Stream inner) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override int Read(Span<byte> buffer) => inner.Read(buffer);
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 
     private static async Task<byte[]> EmbeddedBytesAsync(string fileName, CancellationToken ct)
@@ -111,11 +139,118 @@ public class DataFileSourceTests
         db.TryGetShape(Index("B 33"), out _).ShouldBe(reference.TryGetShape(Index("B 33"), out _));
         db.TryGetArticle(Index("NGC 1976"), out _).ShouldBe(reference.TryGetArticle(Index("NGC 1976"), out _));
 
-        // It was asked, and nothing else read the files behind its back.
-        fetched.Asked.Keys.ShouldContain("NGC.gs.gz");
-        fetched.Asked.Keys.ShouldContain("simbad_merge.bin.gz");
-        fetched.Asked.Keys.ShouldContain(Tycho2RegionSelector.BoundsFileName);
-        fetched.Asked.Keys.ShouldContain(ObjectArticleTable.FileName);
+        // The source was asked for a file of each kind of reader. That no reader went round it is the source
+        // guard's to say (NothingInTheLibraryOpensAnEmbeddedFileBehindTheSource), not this list's.
+        fetched.Asked.ShouldContain("NGC.gs.gz");
+        fetched.Asked.ShouldContain("simbad_merge.bin.gz");
+        fetched.Asked.ShouldContain("tyc2.bin");
+        fetched.Asked.ShouldContain(Tycho2RegionSelector.BoundsFileName);
+        fetched.Asked.ShouldContain(ObjectArticleTable.FileName);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task TheCrossReferenceHashAsksFirstForTheInputNoBuildCarries()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fetched = new Fetched(DataFiles.Embedded);
+        var db = new CelestialObjectDB(fetched);
+        await db.InitDBAsync(waitForTycho2BulkLoad: false, cancellationToken: ct);
+
+        // The hash cannot be computed without tyc2.bin.lz, so nothing is fetched for it: each catalogue is asked
+        // for by the SIMBAD hash and no second time by this one. (NGC is also read by its own reader.)
+        db.LastInitPhaseTimings.Select(p => p.Phase).ShouldContain("hd-hip-cross-snapshot:unverified-no-tyc2-lz");
+        fetched.Asked.Count(n => n == "tyc2.bin.lz").ShouldBe(1);
+        fetched.Asked.Count(n => n == "Barnard.gs.gz").ShouldBe(1);
+        fetched.Asked.Count(n => n == "vdB.gs.gz").ShouldBe(1);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task WithoutItsSnapshotTheCrossReferencesAreBuiltFromTycho2()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var reference = await SharedCatalogDB.InitAsync(ct);
+        var sirius = Index("HD 48915");
+        reference.TryGetCrossIndices(sirius, out var expected).ShouldBeTrue("the snapshot's own answer");
+
+        // A full build, less the snapshot: the live compute has Tycho-2 in hand and runs. (It used to ask
+        // whether tyc2.bin.lz was embedded, which no build embeds, and skipped it.)
+        var db = new CelestialObjectDB(new Without(DataFiles.Embedded, "hd_hip_cross.bin.gz"));
+        await db.InitDBAsync(waitForTycho2BulkLoad: false, cancellationToken: ct);
+
+        var phases = db.LastInitPhaseTimings.Select(p => p.Phase).ToList();
+        phases.ShouldContain("hd-hip-cross-snapshot:missing");
+        phases.ShouldNotContain("hd-hip-cross:skipped-lightweight");
+        db.AllObjectIndices.Count.ShouldBe(reference.AllObjectIndices.Count);
+        db.TryGetCrossIndices(sirius, out var built).ShouldBeTrue();
+        built.ShouldBe(expected, ignoreOrder: true);
+
+        // The same with no Tycho-2 either is the case that IS skipped, and it shows what the count above tells:
+        // the HD stars the compute adds are not there.
+        var bare = new CelestialObjectDB(new Without(DataFiles.Embedded, "hd_hip_cross.bin.gz", "tyc2.bin", "tyc2.bin.lz"));
+        await bare.InitDBAsync(waitForTycho2BulkLoad: false, cancellationToken: ct);
+
+        bare.LastInitPhaseTimings.Select(p => p.Phase).ShouldContain("hd-hip-cross:skipped-lightweight");
+        bare.AllObjectIndices.Count.ShouldBeLessThan(reference.AllObjectIndices.Count);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ACatalogueTheSnapshotWasNotBakedFromIsMergedLive()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var reference = await SharedCatalogDB.InitAsync(ct);
+
+        // The host serves an older Barnard beside this build's snapshot: the same file less its last record.
+        var barnard = Gunzip(await EmbeddedBytesAsync("Barnard.gs.gz", ct));
+        var lastRecord = barnard.AsSpan(0, barnard.Length - 1).LastIndexOf(AsciiRecordReader.GroupSeparator) + 1;
+        lastRecord.ShouldBeGreaterThan(0);
+        var host = new InMemoryDataFiles();
+        host.Add("Barnard.gs.gz", Gzip(barnard.AsSpan(0, lastRecord)));
+
+        var db = new CelestialObjectDB(DataFiles.FirstOf(host, DataFiles.Embedded));
+        await db.InitDBAsync(waitForTycho2BulkLoad: false, cancellationToken: ct);
+
+        var phases = db.LastInitPhaseTimings.Select(p => p.Phase).ToList();
+        phases.ShouldContain("simbad-snapshot:stale");
+        phases.ShouldNotContain("simbad-snapshot:applied");
+        db.TryLookupByIndex(Index("M 42"), out _).ShouldBeTrue();
+        db.AllObjectIndices.Count.ShouldBeLessThanOrEqualTo(reference.AllObjectIndices.Count);
+    }
+
+    /// <summary>
+    /// The filter curve database loads once for the process, whoever asks first. A first caller that had already
+    /// given up used to leave its cancellation in the shared task for good. Whichever test loaded it first, this
+    /// holds: a cancelled call is followed by a loaded database.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ACallerThatGaveUpDoesNotCancelTheSharedFilterCurveLoad()
+    {
+        using var gaveUp = new CancellationTokenSource();
+        await gaveUp.CancelAsync();
+
+        await FilterCurveDatabase.LoadAsync(gaveUp.Token);
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.IsLoaded.ShouldBeTrue();
+        FilterCurveDatabase.TryGetSensor("IMX533", out _).ShouldBeTrue();
+    }
+
+    private static byte[] Gunzip(byte[] gz)
+    {
+        using var source = new GZipStream(new MemoryStream(gz), CompressionMode.Decompress);
+        using var copy = new MemoryStream();
+        source.CopyTo(copy);
+        return copy.ToArray();
+    }
+
+    private static byte[] Gzip(ReadOnlySpan<byte> raw)
+    {
+        using var packed = new MemoryStream();
+        using (var gz = new GZipStream(packed, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            gz.Write(raw);
+        }
+
+        return packed.ToArray();
     }
 
     [Fact(Timeout = 120_000)]
