@@ -374,8 +374,16 @@ public class WireframeSweepTests
     public async Task TheViewerChromeFitsAtAnyWindowSize(string state)
     {
         var report = await Sweep($"viewer, {state}", (width, height, _) => (width, height),
-            ViewerScenario(state), _ => null, null);
+            ViewerScenario(state), _ => new WireframeOptions { IgnoreRegion = Overlaps }, null);
         report.ShouldBeEmpty();
+
+        // Two regions that lie over one another by design, not by a layout's mistake: the file list's splitter handle is a
+        // grab zone wider than the divider, so it reaches over the list and the image beside it; and a popover's
+        // background is a click sink under the panel, drawn over the toolbar and the picture it floats on.
+        static bool Overlaps(WireframeRegion r)
+            => r.Result is HitResult.ResizeHandleHit
+                || r.Result is HitResult.ButtonHit { Action: var action }
+                    && action.EndsWith("PanelBackground", StringComparison.Ordinal);
     }
 
     /// <summary>
