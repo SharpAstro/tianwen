@@ -11,8 +11,8 @@ from scipy.ndimage import gaussian_filter, binary_dilation, median_filter, maxim
 S = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
 cfg = json.load(open(sys.argv[3] if len(sys.argv) > 3 else f"{S}/whole-blend3-scorecard.json", encoding="utf-8"))
 tag, mode = sys.argv[1], sys.argv[2]
-if mode not in ("floor", "fill", "floor2"):
-    sys.exit(f"mode must be floor, fill or floor2, got '{mode}'")
+if mode not in ("floor", "fill", "floor2", "floor3"):
+    sys.exit(f"mode must be floor, fill, floor2 or floor3, got '{mode}'")
 THR, GROW, SBG, SLO, B = 1.5, 2, 4.0, 1.5, 64
 
 def sigma_map(c, ok):

@@ -5579,13 +5579,44 @@ the first angle is a step after the model and not another arm:
   pinhole and the smoothness the ring measure cannot see, and pays a few points of clean share, the saturated band most.
   The twin rms, mean and outside figures are a quarter sample (one tile in four, `twin_err.py`); the TRUE clean twin rows
   use every tile.
-- **The third version, floor3, was started and NOT scored.** `--cap-up 0.5 --cap-down 0.05` (each correction capped by what
-  the model took there; mode floor3 in the working copy of `whole_floor.py`) wrote `r3v_synth22_s0+floor3` and
-  `r3l_synth18_s0+floor3` under `f2-eval-master`, but no `check3-floor3-*` file exists. It is not in this PR and is neither
-  kept nor killed.
-- **Pre-registered now, for R3v's seed 1 (training, no score exists):** floor2 with exactly these constants (`dig_floor.py
-  --pin 2.5 --tag floor2`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step
-  against seed 1 as trained. It is confirmed if all hold:
+- **The third version, floor3, scored 2026-11-16: each correction capped by what the model took there.** Two flaws of
+  floor2 showed on a second sheet (the SMC's one saturated star and M42's bright interior): in bright smooth nebula, where
+  the noise is tiny, the pinhole rule and the lift drew contour edges; and the residue a model LEAVES at a saturated core
+  was untouched. floor3 (`dig_floor.py --pin 2.5 --cap-up 2 --cap-down 0.05`, mode `floor3` of `whole_floor.py`) keeps
+  floor2 and bounds it by the model's own removal at that pixel (input less output, smoothed 1 px, the largest within
+  2 px): a lift is at most twice it, and what still stands above the sky is lowered by at most a twentieth of it. The cap
+  on the lift was tried at 0.5, 2 and 4 on the twin (rms 1.28, 0.99, 1.00) and on that sheet; 2 was taken. So floor3 is
+  tuned on seed 0 twice over.
+
+| R3v seed 0 | as trained | + floor2 | + floor3 | SXT |
+|---|---|---|---|---|
+| real stars clean, 20-100 sigma (pooled by session) | 97.5 | 97.7 | 98.5 | 98.0 |
+| 100-1000 sigma | 85.7 | 97.8 | 98.6 | 96.6 |
+| 1000 sigma and over | 74.2 | 97.4 | 100.0 | 95.1 |
+| saturated (clean / left) | 45.0 / 32.6 | 58.4 / 39.8 | 88.4 / 6.5 | 82.8 / 13.6 |
+| M42 100-1000 clean | 56.6 | 93.4 | 94.9 | 91.9 |
+| SMC 20-100 / 100-1000 clean | 97.2 / 89.8 | 97.2 / 98.3 | 98.9 / 100.0 | 98.3 / 96.6 |
+| twin, TRUE clean at 1000 and over / saturated | 93.4 / 88.3 | 97.2 / 93.6 | 97.7 / 95.7 | |
+| twin, rms error under the mask / mean, sigma (quarter sample) | 1.92 / -0.51 | 1.01 / -0.00 | 0.99 / -0.08 | |
+| Andromeda dark flat / dug | 69.5 / 22.4 | 83.9 / 0.2 | 97.6 / 1.0 | |
+| Tarantula dark flat / left | 71.9 / 16.0 | 82.6 / 16.7 | 93.9 / 4.9 | |
+| Tarantula crowded / Sagittarius crowded | 83.8 / 93.7 | 85.5 / 93.2 | 88.7 / 95.5 | |
+| M31 nucleus, whole-master row, % | -1.0 / 5.1 / 1.2 | the same | -1.0 / 6.0 / 1.6 | |
+| glow, green, the row's two figures: Andromeda | 591.4 / 1721.6 | 597.1 / 1761.4 | 599.4 / 1549.7 | |
+| glow: Tarantula | 965.5 / 1967.0 | 1175.7 / 1950.3 | 1121.1 / 1726.2 | |
+
+  - **It repairs floor2's harm on a model that leaves wings:** on R3s's seed 0 the SMC rows go 83.6 / 88.1 as trained,
+    82.5 / 83.1 with floor2 and 98.9 / 100.0 with floor3, and pooled 1000 and over 79.3, 61.0, 100.0
+    (`check3-floor3-r3s.txt`). On R3l's seed 0 floor3 reads 98.2 at 100-1000, 100.0 at 1000 and over and 91.3 saturated.
+  - **Its cost, measured:** the glow rows' SECOND figure falls 10 % on Andromeda and 12 % on Tarantula, and the nucleus's
+    green moves 5.1 to 6.0 %. The lowering side takes a little of what stands above the sky under a removed star, and
+    unresolved glow under stars is something the owner wants kept ("starless keeps unresolved glow"). Whether that fall
+    is glow or leftover star wings is NOT measured; the twin's truth (TRUE clean up, error down) says wings, on synthetic
+    stars only.
+- **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3
+  with one bar added, the glow):** floor3 with exactly these constants (`dig_floor.py --pin 2.5 --cap-up 2 --cap-down 0.05
+  --tag floor3`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
+  seed 1 as trained. It is confirmed if all hold:
   - the real-star clean share, pooled BY STAR COUNT over the four sessions (never the mean of four session figures: the
     SMC session has n=1 at 1000 and over, M42 n=11, and one SMC star moved R3s seed 0 pooled from 79.3 to 61.0), is at
     least 95 at 100-1000 sigma and at 1000 and over; a session row with fewer than 5 stars is reported and not counted;
@@ -5593,14 +5624,15 @@ the first angle is a step after the model and not another arm:
   - the SMC 20-100 and 100-1000 clean rows (the rows with n of 5 or more) are not lowered by more than 1 point against
     seed 1 as trained; the 1000-and-over and saturated SMC rows, n=1, are reported only;
   - the M31 nucleus moves by under 1 point in every channel;
-  - the twin's rms error under the mask falls by at least a third.
-  The whole-master rows are not criteria but are reported: on seed 0 Andromeda dark flat fell 87.6 to 83.9 under floor2 and
-  Tarantula's glow row moved by a fifth. If the criteria hold, the step is proposed to the owner for the product; if not,
+  - the twin's rms error under the mask falls by at least a third;
+  - neither whole master's glow figure (green, either of the row's two) falls by more than 15 %.
+  The other whole-master rows are not criteria but are reported. If the criteria hold, the step is proposed to the owner for the product; if not,
   it was fitted to seed 0. Any change to these bars after seed 1 is scored is post hoc.
 
 Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
-`f2-eval-master/<model>+floor`, `+fill`, `+floor2` (and an unscored `+floor3`, above) and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`.
+`f2-eval-master/<model>+floor`, `+fill`, `+floor2`, `+floor3` and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`, `+floor3`;
+floor3's reads are `check3-floor3-real.txt`, `check3-floor3-twin.txt`, `check3-floor3-r3s.txt` and the sheets `saturated-smc-m42.png` and `caps.png`.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
