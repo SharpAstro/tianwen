@@ -5628,6 +5628,9 @@ the first angle is a step after the model and not another arm:
 
   SXT is scored on 1738 stars at 100-1000 and 94 saturated: the check skips a window holding a NaN per model, so in
   those two bands the sets differ by one star, and the saturated gap read here (91.6 against 89.4) is about two stars.
+  The saturated band has another side: ring DUG by count is 16.8 as trained, 3.2 with floor, 3.2 with floor2 and 5.3
+  with floor3 (SXT 2.1), so the bounded lowering digs two more stars (one HIP 80609, one Lobster) while it takes the
+  residue (left 10.5 to 4.2). Saturated dug is not a registered bar; it is reported on seed 1 and watched.
 
   With floor3 by count: R3l 99.1 / 100.0 / 93.7, R3s 99.0 / 100.0 / 91.6, R3j 99.2 / 99.5 / 92.6 (`check3-bycount.txt`).
   - **It repairs floor2's harm on a model that leaves wings:** on R3s's seed 0 the SMC rows go 83.6 / 88.1 as trained,

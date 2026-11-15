@@ -81,6 +81,8 @@ def main():
     if (PIN > 0 or CAP_UP > 0) and "--tag" not in sys.argv:
         sys.exit("--pin or the caps need --tag (floor2 or floor3): the default tag is the mode, and would overwrite the first version's tiles")
     tag = arg("--tag", mode)
+    if not any(os.path.exists(f"{EVAL}/{model}/{sub}/outputs.jsonl") for sub in SETS):
+        sys.exit(f"no outputs.jsonl under {EVAL}/{model}/on-real-val or on-random: nothing to do")
     for sub, src in SETS.items():
         d = f"{EVAL}/{model}/{sub}"; o = f"{EVAL}/{model}+{tag}/{sub}"
         if not os.path.exists(f"{d}/outputs.jsonl"): continue
