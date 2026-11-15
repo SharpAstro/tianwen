@@ -229,7 +229,7 @@ per rule and points here.
 Drive a full `RunAsync` session against simulated hardware with **no human in the loop and no
 screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl. `port=SkyWatcher` /
 `hasCover=false`, the DEBUG inspector surfaces, the cell-buffer contract -- is in
-`docs/architecture/unattended-ui-driving.md`.** The rules that bite even after reading it:
+this document.** The rules that bite even after reading it:
 
 - **An agent starts an app local-only: through `tools/start-app.ps1`, or with `TIANWEN_LOCAL_ONLY=1` set itself**, in a
   `pilot run` job too. Windows Firewall asks once per executable PATH, and every worktree or job folder is a new path:

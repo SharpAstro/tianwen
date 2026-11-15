@@ -722,7 +722,7 @@ on a block-mean working grid, with an optional inpainted low-pass surface on its
 weights resolve, falling back to this so a machine without GraXpert still flattens. **A run chooses with one option,
 `GradientBackend`** (`EnhanceOptions.Gradient`: `flatten --backend`, `sharpen --gradient`, `stack --gradient`, each
 `auto|classical|graxpert`): classical for a frame one galaxy fills, where GraXpert's model eats the halo. Design, the
-reference review, and every measurement: `docs/plans/background-extraction.md`. Rules that bite:
+reference review, and every measurement: this document. Rules that bite:
 
 - **`tianwen dataset gradient-report` is the measurement tool.** A TianWen master's canvas ring is
   EXACT ZERO where no frame covered it and must be masked to NaN before fitting, or the fit chases the

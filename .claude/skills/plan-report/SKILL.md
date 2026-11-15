@@ -5,7 +5,7 @@ description: Report how docs/plans, the GitHub issues and the per-plan milestone
 
 The backlog is GitHub issues. Each plan in `docs/plans/` names its issues section by section, and each issue
 links its plan's section. Every plan with open work has a milestone of the same name holding its issues. The
-link runs both ways, down to the paragraph: see "Project Tracking Docs" in CLAUDE.md.
+link runs both ways, down to the paragraph: see "Project Tracking" in CLAUDE.md.
 `tools/plan-issue-report.py` checks all of that MECHANICALLY, from `gh` data and the plan files. No model reads
 the plans, so running it costs almost nothing.
 

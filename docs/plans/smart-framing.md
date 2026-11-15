@@ -109,16 +109,16 @@ sensor FOV from the profile and collapses co-framable targets into one scheduled
 ("M8 + M20") at the combined-footprint centroid. Pure core in `TianWen.Lib/Sequencing/`
 (`FramingGrouper`/`FramingPlanner`), sensor specs auto-captured on first camera connect into the
 profile JSON (never the camera URI, which re-discovery replaces). Plan, phasing and every invariant
-(grid-local neighbour discovery, index-based identity, RA-seam wrap): `docs/plans/smart-framing.md`.
+(grid-local neighbour discovery, index-based identity, RA-seam wrap): this document.
 
 **Catalog identity root-fix shipped alongside this (SIMBAD merge v4).** Messier numbers exist only as
 cross-index aliases of NGC entries, so a bare index filter dropped SIMBAD records whose only
 main-catalog identifier is an M-number; fixed via `ResolveToDirectIndex`. **Any change to the merge
 logic requires bumping `SimbadMergeSnapshot.AlgorithmVersion` + re-running
 `tools/precompute-simbad-merge.ps1`** (the embedded snapshot's hash guard covers inputs + version, not
-code). Story and numbers: `docs/plans/smart-framing.md`. All lzip I/O goes through the managed
+code). Story and numbers: this document. All lzip I/O goes through the managed
 `tools/lzip-util.ps1`; there is **no external `lzip` binary anywhere**.
 
-**OpenNGC data-quality audit: `docs/plans/smart-framing.md`** ("OpenNGC data-quality audit" section).
+**OpenNGC data-quality audit: this document** ("OpenNGC data-quality audit" section).
 `OpenNgcCorrections` is the ONE place a wrong row is fixed, never the CSV; `tools/openngc-audit`
 verifies every name/identifier against SIMBAD by position.

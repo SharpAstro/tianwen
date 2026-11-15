@@ -446,4 +446,4 @@ pedestal → rescale → MTF). Don't reimplement it.
   intent, resolved before any `StretchUniforms` is built, never a shader mode**, and **every renderer must resolve through it, headless included** -- a literal
   `StretchMode.Linked` in `MasterPreviewRenderer` once bypassed the narrowband line-selective veto and
   clipped red to zero on 5 of 139 gallery cards. Resolver, the four inputs, and the measurements:
-  `docs/architecture/stretch-pipeline.md`.
+  this document.

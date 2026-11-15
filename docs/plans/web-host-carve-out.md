@@ -150,4 +150,4 @@ delay synchronously, so the atlas's former hover-settle wake, which re-armed its
 waited for a wake due in under a millisecond, and on the browser's coarsened clock it recursed until the
 WebAssembly stack overflowed and the runtime exited (#953). **A trackpad pinch
 is `ctrl`+`wheel`** (Blazor `@onwheel`), a different path from the touch bridge and the densest gesture
-the app sees. Details: `docs/plans/web-host-carve-out.md`.
+the app sees. Details: this document.

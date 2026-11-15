@@ -200,7 +200,7 @@ per rule and points here.
 `tianwen-fits` ships to the Microsoft Store as **Astro Photo Viewer**, which is what makes file
 associations worth having and what makes every double-click a fresh AOT process unless the file is
 handed to the window already open. Layering, the two CI lanes, the activation bug that shipped and
-both MSIX traps: `docs/architecture/desktop-shell.md`; packaging: `packaging/windows/msix/`;
+both MSIX traps: this document; packaging: `packaging/windows/msix/`;
 thumbnails: `docs/plans/explorer-thumbnails.md`. Rules that bite:
 
 - **Explorer thumbnails run in the shell's surrogate and get a STREAM.** `Initialize` reads NOTHING

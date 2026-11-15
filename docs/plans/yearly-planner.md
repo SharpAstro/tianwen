@@ -193,7 +193,7 @@ per rule and points here.
 
 ### Meteor showers (`TianWen.Lib.Astrometry.MeteorShowers`) (from CLAUDE.md)
 
-The IMO working list as a static table, an EVENT and not an object. Design and what shipped: `docs/plans/yearly-planner.md`, section E. Rules that bite:
+The IMO working list as a static table, an EVENT and not an object. Design and what shipped: this document, section E. Rules that bite:
 
 - **A year's peak is the Sun reaching the peak's solar longitude** (`MeteorShowerCalendar.PeakNear`), never a stored date.
 - **The rate at the site is `MeteorShowerNights`'s** (calendar and atlas panel read the same words, `MeteorShowerText`), **and

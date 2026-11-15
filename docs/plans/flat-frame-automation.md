@@ -244,7 +244,7 @@ per rule and points here.
 `SessionConfiguration.TakeFlatsOnSessionEnd`. Same routines reachable on-demand via
 `ISession.RunFlatsOnlyAsync` -> CLI `tianwen flats` / `POST /api/v1/session/flats`. Capture flows, the
 exposure solvers, the cover-capability model, the GUI mode, config knobs and every test:
-`docs/plans/flat-frame-automation.md`. What bites before you open it:
+this document. What bites before you open it:
 
 - **`SessionConfiguration.FlatSource` has exactly two values**, `Calibrator` (default) and
   `TwilightSky` -- a manual hand-switched panel is NOT a third one, it is a `ManualCoverDevice`

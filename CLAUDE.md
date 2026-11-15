@@ -2,7 +2,8 @@
 
 Guidance for Claude Code in this repository. **This file holds the rules that bite; the reasons, measurements and
 incidents live in the doc each section names.** Every section here has its former text, in full, in that doc under
-"Moved from CLAUDE.md, 2026-11-15" unless the doc already held it. Open the doc before changing what a rule names.
+"Moved from CLAUDE.md, 2026-11-15" unless the doc already held it. Open the doc before changing what a rule names. A comment or doc that cites a `CLAUDE.md` section by a name not found here
+means a former section: `docs/architecture/claude-md-sections.md` says where each one's text is now.
 
 - Use extended thinking when analyzing bugs, designing architecture or refactoring.
 - `python`, not `python3`; `pwsh`, not `powershell`.
@@ -55,7 +56,8 @@ src/
 └── TianWen.AI/ (ORT facade)   TianWen.AI.Imaging/   TianWen.AI.MCP/ (`tianwen-mcp`)
 ```
 
-- Six projects set `PublishAot`; **only `tianwen`, `tianwen-server`, `tianwen-gui`, `tianwen-fits` are release assets**
+- Seven projects set `PublishAot` (the six named above and `TianWen.Shell.Thumbnails`, the Explorer thumbnail handler);
+  **only `tianwen`, `tianwen-server`, `tianwen-gui`, `tianwen-fits` are release assets**
   (`.github/workflows/dotnet.yml`; a new one needs its upload steps there).
 - **A program another one starts ships beside it** (`src/ExeBeside.targets`, `<ExeBesideThis>`); never find a sibling's
   build output by walking up to the solution.
@@ -242,7 +244,8 @@ Full rules: `docs/architecture/session-invariants.md`, `docs/architecture/driver
   `ProfileData.MountLimits`; a limit routes to `ImageLoopNextAction.LimitReached`; a mount that stops tracking unasked is
   a limit event. `default(PointingState)` is `Normal`: place a test mount by sync. `MountLimitWatcher` enforces with no
   session running.
-- **A guide pulse is two methods**: `StartPulseGuideAsync` starts and returns; `PulseGuideAsync` starts and waits.
+- **A guide pulse is two methods**: `StartPulseGuideAsync` starts and returns; `PulseGuideAsync` starts and waits. A
+  test of the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=...)]`.
 - **Every hot-path driver call goes through `Session.ResilientInvokeAsync`** with a preset (`IdempotentRead`,
   `NonIdempotentAction`, `AbsoluteMove`). A lost exposure throws nothing: `DALCameraDriver` gives it up itself.
 - **A command that fails backward needs verified retry** (`SendCommandVerifiedAsync`); do not widen it to every command.
@@ -311,6 +314,7 @@ Full rules: `docs/plans/ai-enhancement.md`, `docs/plans/rc-astro-enhancers.md`, 
 - No star remover of ours ships: it runs only on weights a caller names (`OnnxTianWenStarRemover`), never through
   `N2nLinearRunner`. Core protection is applied in `NarrowbandCombination.SplitStarsAsync`.
 - RC-Astro is driven through its CLI's NDJSON protocol, never ORT. A vendor's weights are read where the vendor put them.
+  **Never make a shipped capability depend on a script only a checkout can run.**
 - **Mono colour composition:** each step is one verb on one routine; `image combine` is `ColourComposition.RunAsync`
   calling those routines and nothing between. A step writes on its input's scale. Stars are never denoised.
 - **Classical background extraction** (`ClassicalBackgroundExtractor`, chosen by `GradientBackend`): thresholds are in
@@ -331,8 +335,10 @@ Native v1 (`/api/v1/`) is the session plane; ninaAPI v2 (`/v2/api/`) is a shim; 
   `NodeFrames`.
 - The Alpaca plane cannot become the session plane; its device numbers are the active profile's order. Actuation routes
   ask the lease (`ActuationGate`, 409).
-- **AOT is verified by `dotnet publish -r <rid>`.** Never a `ResponseEnvelope<object>` or an anonymous-type payload.
-- **A run is the node's, never a request's** (`IHostedSession.TryStartAsync`, `TryAbort`, `INodeRun`).
+- **AOT is verified by `dotnet publish -r <rid>`.** RDG stays enabled in the `TianWen.Hosting` library and both JSON
+  contexts stay registered; never a `ResponseEnvelope<object>` or an anonymous-type payload.
+- **A run is the node's, never a request's** (`IHostedSession.TryStartAsync`, `TryAbort`, `INodeRun`); a request that
+  lasts ends at `ApplicationStopping`.
 - `new SessionConfiguration()` is the defaults; `default(...)` is zeros. A new field goes into `SessionConfigApiDto` and
   its round-trip test.
 - **A slow operation is a job** (`NodeJobs.StartOrJoin`, 202); a job on a device holds the device.
@@ -350,7 +356,8 @@ Native v1 (`/api/v1/`) is the session plane; ninaAPI v2 (`/v2/api/`) is a shim; 
   0 or a non-finite double; a serialised property with a default is `set`, never `init`.
 - Polling is authoritative, the WebSocket a hint; every broadcast event is one the mirror handles; every request has a
   time budget, filtered on the ORIGINAL token. A member added to `LiveSessionState` goes into `MirrorParityTests`.
-- Control of a rig is its connection's (`NodeGrants`, the credential store).
+- Control of a rig is its connection's (`NodeGrants`, the credential store). A run's notes are worded once
+  (`SessionNotes`); whether a rig answers is one rule, `ISessionTelemetry.Contact`.
 
 ### Images and files
 
@@ -359,7 +366,8 @@ Full rules: `docs/architecture/image-pipeline.md`, `docs/plans/frame-lifecycle.m
 
 - **Who owns a frame is stated once, in the `<remarks>` on `Image`.** Never hold an image from `GetImageAsync` longer
   than needed. A preview of someone else's frame leases it; never `AdoptImageAsync`, never a bare read.
-- `Image` is logically immutable; a new mutating API is named `Adopt*`. **Eviction is not release**; every read goes
+- `Image` is logically immutable; a new mutating API is named `Adopt*`, never a neutral `CreateFrom*`. Test fixtures
+  must not share `Image` instances across tests. **Eviction is not release**; every read goes
   through `Planes`; a reload-backed frame is awaited with `AstroImageDocument.EnsurePlanesAsync` off the render thread.
 - **Every histogram goes through `Image.Traverse`**; parallel row bands through `Image.TraverseInBands` only.
 - A demosaic the viewer offers has its own branch in `image.frag`; resolve `DebayerAlgorithm.Auto` first; every gradient
@@ -425,7 +433,8 @@ it before layout work.
   (`DeclaredLayoutTakesDesignUnitsTests`).
 - **Every host routes press, move and release through `DIR.Lib.InputRouter`** and calls `AfterPaint()`; a press on a
   region is consumed there. No fourth key router. The pointer's appearance is a region's property.
-- **Focus has one owner per window** (`WindowUiSettings.Focus`).
+- **Focus has one owner per window** (`WindowUiSettings.Focus`). `TextInputInteraction` swallows every key while a field
+  is focused, so a binding that must survive one is a `.WithShortcut`, not a case in the host's key switch.
 - `DpiScale` / `FontPath` / `EmojiFontPath` are widget properties, never parameters; never read `Ui.DpiScale` in a
   widget. Faces come from `BundledFonts.Resolve()`.
 - TUI rows are trees (`IRowLayout.BuildRow(in RowContext)`); a new capability is a field on `RowContext`.
