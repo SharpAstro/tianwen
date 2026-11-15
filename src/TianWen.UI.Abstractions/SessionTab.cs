@@ -38,9 +38,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>The Start Session button's height, inside the panel's padding.</summary>
         private const float BaseStartButtonHeight = 36f;
 
-        // The config form is still painted imperatively into the rect its keyed Fill leaf is arranged to.
-        private const string ConfigFillKey = "config";
-
         // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
         // initialiser snapshots the palette at type-init, so this tab went on painting the startup
         // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
@@ -68,11 +65,6 @@ namespace TianWen.UI.Abstractions
         private static RGBAColor32 FrameCountText => GuiTheme.Palette.Success;
         private static RGBAColor32 SelectedRowBg           => GuiTheme.Palette.Selection;
 
-        private float _totalConfigHeight;
-
-        /// <summary>Y positions (relative to scroll origin) of each config field, for scroll-to-visible.</summary>
-        private readonly List<float> _fieldYPositions = [];
-
         /// <summary>Per-frame Fill-leaf painter dispatch for the observation list's single RenderLayout
         /// (the per-row exposure value cell). Render-thread-only, so a plain Dictionary is safe.</summary>
         private readonly Dictionary<string, Action<RectF32>> _obsFills = new();
@@ -96,18 +88,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>Tab state (configuration values, per-OTA camera settings, scroll offset).</summary>
         public SessionTabState State { get; } = new SessionTabState();
 
-        /// <summary>Scroll line height in pixels \u2014 the config panel's atom extent (one BaseItemHeight line).</summary>
-        public float ScrollLineHeight { get; private set; }
-
         /// <summary>
-        /// Config-panel scroll (DIR.Lib atom model): one atom = one <see cref="ScrollLineHeight"/> line,
-        /// <see cref="ScrollBarMode.None"/> keeps the historical clip-only look (no scrollbar). It owns
-        /// the continuous fractional offset (the trackpad wheel carry) and the clamp;
-        /// <see cref="SessionTabState.ConfigScrollOffset"/> is the canonical-atom mirror shared with the
-        /// TUI (whose Console.Lib ScrollableList rows are the same unit).
+        /// The config form's scroll. The form is declared <see cref="Layout.Node.WithScroll"/>, so the engine states
+        /// its extent and viewport; one atom is one form line (<see cref="ListScrollController.AtomDesignUnits"/>),
+        /// which keeps <see cref="SessionTabState.ConfigScrollOffset"/>, the mirror the terminal host reads, in lines
+        /// as its rows are. It owns the fractional offset (the trackpad wheel carry) and the clamp. The bar is drawn
+        /// as the observation list's is: the form had none, so nothing said it scrolled.
         /// </summary>
         private readonly ListScrollController _configScroll =
-            new ListScrollController { Mode = ScrollBarMode.None };
+            new ListScrollController { Mode = ScrollBarMode.Decorative, AtomDesignUnits = BaseItemHeight };
 
 
         // -----------------------------------------------------------------------
@@ -126,8 +115,6 @@ namespace TianWen.UI.Abstractions
             _timeProvider = timeProvider;
             RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
-            ScrollLineHeight = BaseItemHeight * dpiScale;
-
             // Reinitialize per-OTA settings when the profile changes
             if (State.NeedsReinitialization(appState.ActiveProfile))
             {
@@ -142,8 +129,8 @@ namespace TianWen.UI.Abstractions
             // the form's steppers ran off its edge and its labels were cut (1000 px at 150% was enough; found by
             // WireframeSweepTests). The form is now given at least what the engine measures its widest row to need,
             // the panel what is left up to its full width, and where even the panel's least does not fit beside the
-            // form the two are stacked, the form above. The whole tab is ONE tree in design units: the panel is
-            // declared in it, and only the form is still painted into its arranged Fill.
+            // form the two are stacked, the form above. The whole tab is ONE tree in design units, the form and the
+            // panel declared in it alike, and each of the two scrolls in the engine (WithScroll).
             // A caveat beside a value is a star, which adds nothing to the measure, so it coming and going does not
             // move the split.
             CollectStepperValues();
@@ -157,8 +144,16 @@ namespace TianWen.UI.Abstractions
                 maxWidth: tabW - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f,
                 horizontalPadding: BasePadding);
             // The engine measures in device px; the tree below is in design units.
+            var formTree = BuildConfigTree();
             var formNeed = MeasureLayout(
-                BuildConfigTree(), new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width / dpiScale;
+                formTree, new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width / dpiScale;
+            // The form scrolls in the engine, one atom a form line: the engine measures it, slides it and clips it,
+            // and the row an arrow key lands on is brought into view by the widget base (RevealListRow). It used to
+            // sum its own rows into a height and a Y per field, to feed a hand-fed controller and scroll a field
+            // into view, beside a panel the engine already scrolled.
+            _configScroll.TrackColor = SeparatorColor;
+            _configScroll.ThumbColor = GuiTheme.Palette.SeparatorStrong;
+            var form = formTree.WithScroll(_configScroll).Bg(ContentBg);
             var panel = BuildRightPanel(plannerState);
             var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
             // Each floor is stated once: the side-by-side tree declares them and the fit test below reads the same
@@ -166,7 +161,7 @@ namespace TianWen.UI.Abstractions
             var fitsSideBySide = formNeed + BaseSeparatorW + BaseObsPanelLeastWidth <= tabW;
             var tab = fitsSideBySide
                 ? Layout.Builder.HStack(
-                    Layout.Builder.Fill(key: ConfigFillKey).WStar(1f, min: formNeed).HStar(),
+                    form.WStar(1f, min: formNeed).HStar(),
                     rule.WFixed(BaseSeparatorW).HStar(),
                     // Equal shares between the form's floor and the panel's ceiling. The two bounds cannot both bind
                     // (the ceiling binds in a wide tab, the floor in a narrow one), which matters: the engine freezes a
@@ -178,14 +173,14 @@ namespace TianWen.UI.Abstractions
                 // them, which in a short tab left the observations room for their header alone, and in a tall one
                 // a band of empty panel under them.
                 : Layout.Builder.VStack(
-                    Layout.Builder.Fill(key: ConfigFillKey).WStar()
-                        .HStar(1f, min: BaseItemHeight * StackedFormLeastLines),
+                    form.WStar().HStar(1f, min: BaseItemHeight * StackedFormLeastLines),
                     rule.HFixed(BaseSeparatorW).WStar(),
                     panel.WStar().HStarUpToContent());
-            var frame = RenderLayout(tab, contentRect,
+            RenderLayout(tab, contentRect,
                 drawFill: (fill, r) => { if (fill.Key is { } k && _obsFills.TryGetValue(k, out var painter)) painter(r); });
 
-            RenderConfigForm(ArrangedFills.RectOf(frame, ConfigFillKey));
+            // The terminal host reads the form's scroll in lines, which is what an atom is here.
+            State.ConfigScrollOffset = _configScroll.AtomOffset;
         }
 
         // -----------------------------------------------------------------------
@@ -200,8 +195,8 @@ namespace TianWen.UI.Abstractions
                     return HandleConfigKey(key);
 
                 default:
-                    // Wheel + touch/mouse drag over the config panel via the controller (its viewport is
-                    // the config rect from the last render, so right-panel input falls through untouched;
+                    // Wheel + touch/mouse drag over the config form via the controller (its viewport is the
+                    // rect the engine last arranged the form to, so right-panel input falls through untouched;
                     // before the first frame the extent is empty and every event is ignored). Field rows +
                     // stepper buttons are registered clickables the host dispatches BEFORE HandleInput, so
                     // only unclaimed presses land here \u2014 an empty-space tap selects nothing, hence the
@@ -254,10 +249,9 @@ namespace TianWen.UI.Abstractions
         /// index straight, and this brings the cursor to wherever the index is before the arrows move it.
         /// </para>
         /// <para>
-        /// Opened with the row COUNT, which is what lets it walk a form taller than its panel. The tree is
-        /// filtered to the rows intersecting the viewport before painting, so an off-screen row registers
-        /// nothing and a cursor with no count stops dead at the bottom of the window -- the reason this
-        /// list could not take a cursor before DIR.Lib 9.2.
+        /// Opened with the row COUNT, which is what lets it walk a form taller than its panel. The form is a
+        /// scroll node, so an off-screen row registers nothing, and a cursor with no count stops dead at the
+        /// bottom of the window -- the reason this list could not take a cursor before DIR.Lib 9.2.
         /// </para>
         /// </remarks>
         private void SyncFieldCursor()
@@ -265,33 +259,15 @@ namespace TianWen.UI.Abstractions
             if (!_fieldCursorWired)
             {
                 _fieldCursorWired = true;
+                // The step brings its row into view itself (MoveListCursor reveals it in the form's scroll).
                 ListCursor.Moved += index =>
                 {
                     State.SelectedFieldIndex = index;
-                    EnsureFieldVisible();
                     State.NeedsRedraw = true;
                 };
             }
 
             ListCursor.Open(SessionConfigLayout.FieldListId, State.SelectedFieldIndex, State.FieldCount);
-        }
-
-        /// <summary>
-        /// Scrolls the config panel so the selected field is visible.
-        /// </summary>
-        private void EnsureFieldVisible()
-        {
-            // Fields are not atom-aligned (group headers + gaps shift them off the BaseItemHeight grid),
-            // so ensure both atoms the field's pixel span touches \u2014 they are adjacent, so the second call
-            // moves at most one more line and the whole field lands inside the viewport. _fieldYPositions
-            // is from the last render, same as the controller's geometry.
-            if (State.SelectedFieldIndex >= 0 && _fieldYPositions.Count > State.SelectedFieldIndex)
-            {
-                var fieldY = _fieldYPositions[State.SelectedFieldIndex];
-                var ext = ScrollLineHeight;
-                _configScroll.EnsureVisible((int)MathF.Floor(fieldY / ext));
-                _configScroll.EnsureVisible((int)MathF.Floor((fieldY + ext - 0.001f) / ext));
-            }
         }
 
         /// <summary>
@@ -696,71 +672,5 @@ namespace TianWen.UI.Abstractions
             onDecrement: field => _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
             onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
             profile: State.ActiveProfileData);
-
-        private void RenderConfigForm(
-            RectF32 rect)
-        {
-            var dpiScale = DpiScale;
-            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), rect);
-
-            var groups = SessionConfigGroups.Groups;
-
-            // --- Field Y positions (scaled px, relative to scroll origin) + total content height -----
-            // Derived arithmetically from the fixed row structure (header + N items + group gap, per
-            // group) so it exactly matches the tree the engine arranges below; used by EnsureFieldVisible
-            // and the scroll clamp. (Cheaper than measuring the arranged tree, and structurally identical.)
-            _fieldYPositions.Clear();
-            var yDesign = 0f;
-            for (var gi = 0; gi < groups.Length; gi++)
-            {
-                yDesign += BaseHeaderHeight;
-                var fields = groups[gi].Fields;
-                for (var fi = 0; fi < fields.Length; fi++)
-                {
-                    _fieldYPositions.Add(yDesign * dpiScale);
-                    yDesign += BaseItemHeight;
-                }
-                yDesign += BasePadding * 0.5f;
-            }
-
-            _totalConfigHeight = yDesign * dpiScale;
-
-            // Hand the controller this frame's geometry: one atom = one BaseItemHeight line, total in
-            // lines rounded UP so the last partial line stays reachable (the whole-atom bound can
-            // over-scroll by under two line heights past the exact pixel bottom \u2014 accepted slack of the
-            // atom model). SetExtent re-clamps the offset; the state field then mirrors the snapped
-            // canonical atom offset for the TUI's benefit.
-            _configScroll.SetExtent(rect, ScrollLineHeight,
-                (int)MathF.Ceiling(_totalConfigHeight / ScrollLineHeight), Scale);
-            State.ConfigScrollOffset = _configScroll.AtomOffset;
-
-            // --- One tree for the whole form; scroll via the root-bounds Y offset, clipped to the panel ---
-            var tree = BuildConfigTree();
-
-            var contentTop = rect.Y - _configScroll.Offset * ScrollLineHeight;
-            var arranged = ArrangeLayout(tree, new RectF32(rect.X, contentTop, rect.Width, _totalConfigHeight));
-
-            // A single tree arranges every row at an absolute rect -- including rows scrolled off the top
-            // or bottom. Painting those would draw outside the panel AND register clickable regions beyond
-            // the viewport, so drop any node that does not intersect the panel before painting (this is
-            // what the per-row index-virtualised path used to get for free by skipping off-screen rows).
-            var top = rect.Y;
-            var bottom = rect.Y + rect.Height;
-            var visible = ImmutableArray.CreateBuilder<Layout.ArrangedNode<float>>(arranged.Length);
-            foreach (var node in arranged)
-            {
-                var b = node.Bounds;
-                if (b.Y < bottom && b.Y + b.Height > top)
-                {
-                    visible.Add(node);
-                }
-            }
-
-            // Scissor partially-visible top/bottom rows to the panel edge (the proper clip the old header
-            // "Math.Max(cursor, rect.Y)" hack stood in for; section headers now scroll naturally).
-            PushClip(rect.X, top, rect.Width, bottom - top);
-            PaintLayout(visible.ToImmutable());
-            PopClip();
-        }
     }
 }

@@ -296,7 +296,7 @@ namespace TianWen.Lib.Tests
             }
             tab.Render(appState, plannerState, contentRect);
 
-            // Assert: EnsureFieldVisible drove the controller past the top.
+            // Assert: the step revealed its row, which scrolled the form past its top.
             state.SelectedFieldIndex.ShouldBe(state.FieldCount - 1);
             state.ConfigScrollOffset.ShouldBeGreaterThan(0);
         }
