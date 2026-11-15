@@ -25,8 +25,9 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 /// <remarks>
 /// Set <c>TIANWEN_WIREFRAME_PICTURES</c> to a folder to have every frame painted and saved there as a PNG.
-/// What the sweep cannot see: anything a GPU pipeline draws, the window's own top bar and sidebar (they live in
-/// the Vulkan host), and any state the scenarios below do not put on screen.
+/// The window's top bar and sidebar are swept too, as <see cref="GuiWindowChrome{TSurface}"/> over the whole window
+/// (the content widths plus the sidebar) in the states that stress them (#2139). What the sweep cannot see: anything a
+/// GPU pipeline draws, and any state the scenarios below do not put on screen.
 /// </remarks>
 [Collection("UI")]
 public class WireframeSweepTests
@@ -149,8 +150,19 @@ public class WireframeSweepTests
     [MemberData(nameof(Tabs))]
     public async Task NothingOverlapsAtAnyWindowSize(string tab)
     {
+        var report = await Sweep(tab, (width, height, _) => (width, height), Scenarios[tab],
+            frame => tab == "sky map" ? SkyChromeOnly(frame) : null,
+            MustShow.TryGetValue(tab, out var shown) ? shown : null);
+        report.ShouldBeEmpty();
+    }
+
+    // One sweep of a scenario over every scale, height and width. The surface is the size the scenario asks for from the
+    // swept content size (a tab's is the content; the window chrome's is the content plus the sidebar and the top bar).
+    private static async Task<string> Sweep(string name,
+        Func<uint, uint, float, (uint Width, uint Height)> surface, Draw draw,
+        Func<WireframeFrame, WireframeOptions?> options, string[]? shown)
+    {
         var ct = TestContext.Current.CancellationToken;
-        var draw = Scenarios[tab];
         // Set to a folder, every frame is also painted and saved there, to look at what a finding names.
         var pictures = Environment.GetEnvironmentVariable(PicturesEnvVar) is { Length: > 0 } folder
             ? Directory.CreateDirectory(folder).FullName
@@ -163,32 +175,107 @@ public class WireframeSweepTests
             {
                 foreach (var width in Widths)
                 {
-                    using var renderer = new WireframeRenderer(width, height, paint: pictures is not null);
+                    var (surfaceW, surfaceH) = surface(width, height, scale);
+                    using var renderer = new WireframeRenderer(surfaceW, surfaceH, paint: pictures is not null);
                     renderer.Begin();
                     await draw(renderer, new RectF32(0, 0, width, height), scale);
                     if (pictures is not null)
                     {
-                        var name = $"{tab.Replace(' ', '-')}_{width}x{height}_{scale:0.0}.png";
-                        await File.WriteAllBytesAsync(Path.Combine(pictures, name),
-                            PngWriter.Encode(renderer.Surface.Pixels, (int)width, (int)height), ct);
+                        var file = $"{name.Replace(' ', '-').Replace(',', '_')}_{width}x{height}_{scale:0.0}.png";
+                        await File.WriteAllBytesAsync(Path.Combine(pictures, file),
+                            PngWriter.Encode(renderer.Surface.Pixels, (int)surfaceW, (int)surfaceH), ct);
                     }
 
                     var frame = renderer.Frame;
-                    (frame.Texts.Length + frame.Regions.Length).ShouldBeGreaterThan(0, $"{tab} drew nothing at {width}x{height}");
-                    var findings = Wireframe.Check(frame, tab == "sky map" ? SkyChromeOnly(frame) : null)
+                    (frame.Texts.Length + frame.Regions.Length).ShouldBeGreaterThan(0, $"{name} drew nothing at {width}x{height}");
+                    var findings = Wireframe.Check(frame, options(frame))
                         .Select(f => f.Message)
-                        .Concat(MustShow.TryGetValue(tab, out var shown) ? NotShownWhole(frame, shown) : [])
+                        .Concat(shown is not null ? NotShownWhole(frame, shown) : [])
                         .ToArray();
                     if (findings.Length > 0)
                     {
-                        report.Append($"{tab} at {width}x{height}, scale {scale:0.0}:\n  ")
+                        report.Append($"{name} at {width}x{height}, scale {scale:0.0}:\n  ")
                             .Append(string.Join("\n  ", findings)).Append('\n');
                     }
                 }
             }
         }
 
-        report.ToString().ShouldBeEmpty();
+        return report.ToString();
+    }
+
+    // The window chrome's states that stress it.
+    public static TheoryData<string> ChromeStates =>
+        ["no status message", "long status message", "connect all", "session running", "pinned date with verdict",
+         "everything at once"];
+
+    private const string LongStatusMessage =
+        "Could not open the mount on COM12: Access to the path 'C:\\Users\\observer\\AppData\\Local\\TianWen\\Profiles\\Observatory east pier\\mount.json' is denied";
+
+    private static Draw ChromeScenario(string state) => (renderer, content, scale) =>
+    {
+        var font = FontResolver.ResolveSystemFont();
+        var chrome = new GuiWindowChrome<RgbaImage>(renderer) { FontPath = font, DpiScale = scale };
+        chrome.Sidebar.FontPath = font;
+        chrome.Sidebar.DpiScale = scale;
+        chrome.NavigationStrip.FontPath = font;
+        chrome.NavigationStrip.DpiScale = scale;
+
+        var everything = state == "everything at once";
+        var connectAll = state is "connect all" || everything;
+        var appState = new GuiAppState
+        {
+            ActiveProfile = new Profile(Guid.NewGuid(), "Observatory",
+                connectAll
+                    ? ProfileData.Empty with { Mount = new Uri("Mount://FakeDevice/FakeMount1?latitude=48.2&longitude=16.3#Fake Mount") }
+                    : ProfileData.Empty),
+        };
+        if (state is "long status message" || everything)
+        {
+            appState.StatusMessage = LongStatusMessage;
+        }
+        else if (state is not "no status message")
+        {
+            appState.StatusMessage = "Found 3 devices";
+        }
+
+        var planner = new PlannerState();
+        if (state is "pinned date with verdict" || everything)
+        {
+            var pinned = new DateTimeOffset(2026, 6, 23, 22, 0, 0, TimeSpan.Zero);
+            planner.PlanningDate = pinned;
+            planner.AstroDark = pinned.AddHours(1);
+            planner.AstroTwilight = pinned.AddHours(5);
+            var night = new NightSummary(new DateOnly(2026, 6, 23), planner.AstroDark, planner.AstroTwilight,
+                EventType.AmateurAstronomicalTwilight, 0.1, true, TimeSpan.FromHours(4),
+                new NightForecast(TimeSpan.FromHours(4), TimeSpan.FromHours(3.5), TimeSpan.FromHours(3.5), 10, 0, SeeingClass.Good));
+            planner.Calendar.Publish(NightCalendarData.Empty with
+            {
+                Nights = NightCalendarData.Empty.Nights.SetItem(new DateOnly(2026, 6, 23), night),
+            });
+        }
+
+        var local = new LiveSessionState { IsRunning = state is "session running" };
+        chrome.Render(appState, planner, new FakeTimeProviderWrapper(Now), local, local,
+            new EquipmentTabState(), new SessionTabState(), new SkyMapState(),
+            content.Width + chrome.SidebarWidth, content.Height + chrome.StatusBarHeight);
+        return Task.CompletedTask;
+    };
+
+    [Theory(Timeout = 120_000)]
+    [MemberData(nameof(ChromeStates))]
+    public async Task TheWindowChromeFitsAtAnyWindowSize(string state)
+    {
+        var report = await Sweep($"window chrome, {state}",
+            (width, height, scale) =>
+            {
+                // The window is the content area plus the sidebar and the top bar, so the swept widths keep their meaning.
+                var side = (uint)MathF.Ceiling(52f * scale);
+                var bar = (uint)MathF.Ceiling(28f * scale);
+                return (width + side, height + bar);
+            },
+            ChromeScenario(state), _ => null, null);
+        report.ShouldBeEmpty();
     }
 
     /// <summary>
