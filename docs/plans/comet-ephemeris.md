@@ -172,3 +172,16 @@ so it races nothing). The vmag sparkline stays synchronous: comet-only, ~0.7 ms.
 - **MCP** (`tianwen-mcp catalog.lookup`): a comet designation resolves to a live ephemeris plus, given
   lat/lon, tonight's dark window and a ~6-month best-night outlook, via the pure `CometObservability`.
 
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Comet & Small-Body Ephemeris (`TianWen.Lib.Astrometry.Comets`) (from CLAUDE.md)
+
+JPL comets are a **dynamic, ephemeris-computed catalog**: a comet's RA/Dec AND brightness are
+functions of time, computed locally from cached orbital elements, alongside the VSOP87 planets.
+`Catalog.Comet` + `ObjectType.Comet`, covered by `CatalogIndex.IsSolarSystemObject` so the sky-map
+live-position path applies for free. One keyless bulk SBDB fetch (~4000 comets) IS the database,
+cached to `AppData/SmallBodies/comets.json`; position and magnitude are then pure local computation,
+offline. Consumed by the sky map, the planner and `tianwen-mcp catalog.lookup`.

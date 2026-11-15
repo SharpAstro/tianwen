@@ -96,3 +96,29 @@ Tracked by #895.
 - Phase 4 sky-map group-frame rendering (shared FOV rectangle + member labels).
 - Group-aware exposure planning (per-member filter weighting within one frame).
 - A UI affordance to opt a specific pin out of grouping.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Smart Framing (planner co-framing groups) (from CLAUDE.md)
+
+Pinning M8 with a wide-field profile auto-groups M20 into the same pointing: the planner derives the
+sensor FOV from the profile and collapses co-framable targets into one scheduled observation
+("M8 + M20") at the combined-footprint centroid. Pure core in `TianWen.Lib/Sequencing/`
+(`FramingGrouper`/`FramingPlanner`), sensor specs auto-captured on first camera connect into the
+profile JSON (never the camera URI, which re-discovery replaces). Plan, phasing and every invariant
+(grid-local neighbour discovery, index-based identity, RA-seam wrap): `docs/plans/smart-framing.md`.
+
+**Catalog identity root-fix shipped alongside this (SIMBAD merge v4).** Messier numbers exist only as
+cross-index aliases of NGC entries, so a bare index filter dropped SIMBAD records whose only
+main-catalog identifier is an M-number; fixed via `ResolveToDirectIndex`. **Any change to the merge
+logic requires bumping `SimbadMergeSnapshot.AlgorithmVersion` + re-running
+`tools/precompute-simbad-merge.ps1`** (the embedded snapshot's hash guard covers inputs + version, not
+code). Story and numbers: `docs/plans/smart-framing.md`. All lzip I/O goes through the managed
+`tools/lzip-util.ps1`; there is **no external `lzip` binary anywhere**.
+
+**OpenNGC data-quality audit: `docs/plans/smart-framing.md`** ("OpenNGC data-quality audit" section).
+`OpenNgcCorrections` is the ONE place a wrong row is fixed, never the CSV; `tools/openngc-audit`
+verifies every name/identifier against SIMBAD by position.

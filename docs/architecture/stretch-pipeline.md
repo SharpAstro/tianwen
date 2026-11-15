@@ -414,3 +414,36 @@ AutoLevel quantum-range assertions to all four legacy stretch test files.
 
 Pattern when extending tests: assert per-channel byte/float means stay inside `(epsilon, max-epsilon)`
 to catch the channel-collapse regressions hit during the WB + shadow coordinate-space refactor.
+
+## Moved from CLAUDE.md, 2026-11-15
+
+The text `CLAUDE.md` carried until 2026-11-15, where this document did not already hold it; `CLAUDE.md` keeps one line
+per rule and points here.
+
+### Sky Map / FITS Viewer GLSL (pre-baked SPIR-V, no runtime shaderc) (from CLAUDE.md)
+
+TianWen.UI.Shared's shaders are GLSL 450 files under `src/TianWen.UI.Shared/Shaders/*.vert|*.frag`,
+**pre-baked to SPIR-V** (`Shaders/spirv/*.spv`, committed + embedded, loaded via `LoadShaderModule`) by
+`tools/BakeShaders`; there is **no runtime shaderc** (SdlVulkan.Renderer 6.23 dropped
+`Vortice.ShaderCompiler`; shaderc ships no android RID). Two rules: **edit a shader → re-bake → commit
+the `.spv`** (`dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders`;
+**warning TWSH0001** flags a source whose SHA-256 is not the one the bake recorded in
+`Shaders/spirv/sources.sha256` (commit it with the `.spv`), a source missing from it, or a missing
+`.spv`, names the shader, and never fails; nothing in CI checks the `.spv`, so it is their only guard;
+TWIC0001 is its twin for both icon recipes, against the `Recipe SHA-256` header line
+`tools/bake-icons.ps1` writes into each table). **Both compare CONTENT, never modification times**: a
+time check fired for ever on a clone that pulled a source edit the bake left byte-identical (#792), so
+never bring a timestamp or a tolerance back; **ASCII only**, shaderc's
+lexer rejects non-ASCII bytes even inside comments. The `stereoProject` GLSL is inlined into the three
+`skymap_*.vert` files; restoring a single source is a deferred cleanup (#634).
+
+`Image.StretchValue()` is the single source of truth for the scalar stretch math (normalize → subtract
+pedestal → rescale → MTF). Don't reimplement it.
+
+### Stretch Pipeline: CPU/GPU Mirror (from CLAUDE.md)
+
+- **`StretchMode.Auto` (and `.Planetary`, resolved by the document from the frame's percentiles) is a UI
+  intent, resolved before any `StretchUniforms` is built, never a shader mode**, and **every renderer must resolve through it, headless included** -- a literal
+  `StretchMode.Linked` in `MasterPreviewRenderer` once bypassed the narrowband line-selective veto and
+  clipped red to zero on 5 of 139 gallery cards. Resolver, the four inputs, and the measurements:
+  `docs/architecture/stretch-pipeline.md`.
