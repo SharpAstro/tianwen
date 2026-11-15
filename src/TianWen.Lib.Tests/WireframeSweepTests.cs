@@ -381,7 +381,7 @@ public class WireframeSweepTests
         // grab zone wider than the divider, so it reaches over the list and the image beside it; and a popover's
         // background is a click sink under the panel, drawn over the toolbar and the picture it floats on.
         static bool Overlaps(WireframeRegion r)
-            => r.Result is HitResult.ResizeHandleHit
+            => r.Result is ResizeHandleHit
                 || r.Result is HitResult.ButtonHit { Action: var action }
                     && action.EndsWith("PanelBackground", StringComparison.Ordinal);
     }
