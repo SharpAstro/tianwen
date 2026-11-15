@@ -5552,8 +5552,8 @@ the first angle is a step after the model and not another arm:
 
 - **Against the truth it is a real gain, not the measure's:** on the twin the error under the removed stars falls from 1.92
   to 1.01 sigma and its mean from -0.51 to zero, and nothing changes outside the mask (0.127 before and after). The glow
-  rows of both whole masters do not fall materially (Tarantula's second figure falls 1967.0 to 1950.3; green, the row's two figures: Andromeda 591.4 / 1721.6 to 597.1 / 1761.4, Tarantula
-  965.5 / 1967.0 to 1175.7 / 1950.3; Tarantula's first figure RISES by a fifth, which is a change to understand, not only a hold).
+  rows (the halo left round bright clipped stars, lower is better; read in full under floor3 below) move with floor2 from
+  591.4 / 1721.6 to 597.1 / 1761.4 on Andromeda and from 965.5 / 1967.0 to 1175.7 / 1950.3 on Tarantula, whose median is 22 % WORSE.
 - **The two-sided version is dead.** "fill" also removes what stands ABOVE the sky under a removed star: it reads best on
   every star row (saturated 91.3) and takes 72.8 / 70.7 / 68.1 % of the M31 nucleus. Only the one-sided lift is kept.
 - **The step carries most of the gain on a model that digs, and is NOT harmless on one that leaves wings.** On R3l's seed 0
@@ -5608,13 +5608,17 @@ the first angle is a step after the model and not another arm:
   - **It repairs floor2's harm on a model that leaves wings:** on R3s's seed 0 the SMC rows go 83.6 / 88.1 as trained,
     82.5 / 83.1 with floor2 and 98.9 / 100.0 with floor3, and pooled 1000 and over 79.3, 61.0, 100.0
     (`check3-floor3-r3s.txt`). On R3l's seed 0 floor3 reads 98.2 at 100-1000, 100.0 at 1000 and over and 91.3 saturated.
-  - **Its cost, measured:** the glow rows' SECOND figure falls 10 % on Andromeda and 12 % on Tarantula, and the nucleus's
-    green moves 5.1 to 6.0 %. The lowering side takes a little of what stands above the sky under a removed star, and
-    unresolved glow under stars is something the owner wants kept ("starless keeps unresolved glow"). Whether that fall
-    is glow or leftover star wings is NOT measured; the twin's truth (TRUE clean up, error down) says wings, on synthetic
-    stars only.
-- **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3
-  with one bar added, the glow):** floor3 with exactly these constants (`dig_floor.py --pin 2.5 --cap-up 2 --cap-down 0.05
+  - **The glow rows, read the right way round (corrected 2026-11-16; an earlier text of this section called a fall a cost).**
+    `glow_ring.py` sums the halo a remover LEAVES at 10 to 30 px round each bright clipped star, so LOWER is better; the
+    row's two figures are the median and the p90 over those stars. SXT's Andromeda plate reads 242.8 / 574.8 in green with
+    59 % of stars over the threshold; R3v reads 591.4 / 1721.6 and 89 %. With floor3 the p90 falls 10 % on Andromeda and
+    12 % on Tarantula (a gain), Andromeda's median holds (591.4 to 599.4) and Tarantula's median RISES 16 % (965.5 to
+    1121.1; 22 % with floor2). The likely cause, not measured: as trained, a dig inside the annulus cancels part of the
+    halo in the sum, and filling the dig uncovers it. The nucleus's green moves 5.1 to 6.0 %.
+  - **So the gap that is left is the wide halo, and no step here closes it:** round bright clipped stars the model leaves
+    about 2.5 times SXT's halo (green median 599 against 243) on 89 % of them against 59 %. That is the bright-halo line's
+    own subject (R3q onward), a matter of what the synthetic stars' far wings teach, and the next angle.
+- **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py --pin 2.5 --cap-up 2 --cap-down 0.05
   --tag floor3`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
   seed 1 as trained. It is confirmed if all hold:
   - the real-star clean share, pooled BY STAR COUNT over the four sessions (never the mean of four session figures: the
@@ -5624,9 +5628,9 @@ the first angle is a step after the model and not another arm:
   - the SMC 20-100 and 100-1000 clean rows (the rows with n of 5 or more) are not lowered by more than 1 point against
     seed 1 as trained; the 1000-and-over and saturated SMC rows, n=1, are reported only;
   - the M31 nucleus moves by under 1 point in every channel;
-  - the twin's rms error under the mask falls by at least a third;
-  - neither whole master's glow figure (green, either of the row's two) falls by more than 15 %.
-  The other whole-master rows are not criteria but are reported. If the criteria hold, the step is proposed to the owner for the product; if not,
+  - the twin's rms error under the mask falls by at least a third.
+  The whole-master rows are not criteria but are reported, the glow rows with their direction (lower is better; a glow bar
+  written here for a few hours on 2026-11-16 read the measure backwards and is withdrawn, before any seed 1 score). If the criteria hold, the step is proposed to the owner for the product; if not,
   it was fitted to seed 0. Any change to these bars after seed 1 is scored is post hoc.
 
 Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
