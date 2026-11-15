@@ -5618,6 +5618,26 @@ the first angle is a step after the model and not another arm:
   - **So the gap that is left is the wide halo, and no step here closes it:** round bright clipped stars the model leaves
     about 2.5 times SXT's halo (green median 599 against 243) on 89 % of them against 59 %. That is the bright-halo line's
     own subject (R3q onward), a matter of what the synthetic stars' far wings teach, and the next angle.
+- **With the step, earlier arms that were killed for digging read alike on stars, and the halo tells them apart
+  (2026-11-16, seed 0 of each, floor3).** Three arms of the drawn-wings and channel-spread lines, all the small model:
+
+| seed 0 + floor3 | real stars clean 100-1000 / 1000+ / saturated | Andromeda dark flat | Tarantula dark flat | nucleus R / G / B % | Andromeda halo, median / p90 / over | Tarantula halo |
+|---|---|---|---|---|---|---|
+| R3v (four-level, synth22) | 98.6 / 100.0 / 88.4 | 97.6 | 93.9 | -1.0 / 6.0 / 1.6 | 599 / 1550 / 89 % | 1121 / 1726 / 92 % |
+| R3j (drawn wings, the dose up, synth16) | 98.2 / 99.6 / 90.2 | 97.5 | 93.0 | -0.4 / -1.2 / 4.5 | 416 / 1336 / 82 % | 395 / 785 / 54 % |
+| R3u (spreads mixed, synth24) | 98.4 / 100.0 / 90.2 | 97.7 | 91.9 | -4.6 / 3.5 / 3.8 | 600 / 1487 / 90 % | 639 / 1008 / 69 % |
+| R3i (synth15) | 97.8 / 99.6 / 90.2 | 97.5 | 92.4 | 3.3 / 7.8 / 11.7 | 484 / 1175 / 87 % | 265 / 665 / 54 % |
+| SXT | 96.6 / 95.1 / 82.8 | | | | 243 / 575 / 59 % | not scored |
+
+  - The star rows and the dark-flat rows no longer separate the arms: the step fills what each one dug (R3j as trained read
+    M42 100-1000 31.6, Andromeda dark flat 41.1 and dug 45.0). What the kills of R3j, R3u and R3i rested on was mostly
+    digging, which a step after the model now removes; their registrations stand as read, and nothing is un-killed here.
+  - The halo is where they differ, by a factor of four on Tarantula, and seeds differ on it too (R3s's two seeds as trained:
+    321 and 715). The arms that drew wider wings (R3j, R3i) leave the least; R3i pays with the nucleus (11.7 % blue).
+    A dig hides halo in this measure: R3j as trained read 136 on Tarantula and reads 395 once its digs are filled.
+  - **The candidate this points at, named and not started:** the drawn-wings data of R3j (synth16) on R3v's four-level
+    model, judged WITH the step from the start, with the halo rows as its question. One seed is about 13 hours on the 1070.
+  (`check3-floor3-haloarms.txt`; whole masters `w-r3j_s0+floor3`, `w-r3u_synth24_s0+floor3`, `w-r3i_synth15_s0+floor3`.)
 - **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py --pin 2.5 --cap-up 2 --cap-down 0.05
   --tag floor3`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
   seed 1 as trained. It is confirmed if all hold:
