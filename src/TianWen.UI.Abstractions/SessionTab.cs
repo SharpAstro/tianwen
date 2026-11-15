@@ -29,15 +29,17 @@ namespace TianWen.UI.Abstractions
         /// <summary>The least the right panel is given beside the form; with less room than this for it, the tab stacks.</summary>
         private const float BaseObsPanelLeastWidth = 320f;
 
-        /// <summary>The share of the tab's height the form takes when the two halves are stacked.</summary>
-        private const float StackedFormShare = 0.45f;
+        /// <summary>
+        /// The least of the form's own scroll lines it keeps when the two halves are stacked: the right panel is
+        /// served its whole height first (it is what the tab is opened for, and the form scrolls), down to this.
+        /// </summary>
+        private const float StackedFormLeastLines = 3f;
 
-        // Keyed Fill leaves routing the regions the Dock trees carve out to their imperative painters:
-        // the two top-level panes, and the right panel's own three bands.
-        private const string ConfigFillKey      = "config";
-        private const string ObsFillKey         = "observations";
-        private const string CameraFillKey      = "cameraSettings";
-        private const string StartButtonFillKey = "startButton";
+        /// <summary>The Start Session button's height, inside the panel's padding.</summary>
+        private const float BaseStartButtonHeight = 36f;
+
+        // The config form is still painted imperatively into the rect its keyed Fill leaf is arranged to.
+        private const string ConfigFillKey = "config";
 
         // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
         // initialiser snapshots the palette at type-init, so this tab went on painting the startup
@@ -74,6 +76,16 @@ namespace TianWen.UI.Abstractions
         /// <summary>Per-frame Fill-leaf painter dispatch for the observation list's single RenderLayout
         /// (the per-row exposure value cell). Render-thread-only, so a plain Dictionary is safe.</summary>
         private readonly Dictionary<string, Action<RectF32>> _obsFills = new();
+
+        /// <summary>
+        /// The observation list's scroll, its viewport the rect the engine arranges the list to (it is declared
+        /// <see cref="Layout.Node.WithScroll"/>, so the router brings it the wheel). The list used to build only
+        /// the rows that fit and drop the rest without saying so.
+        /// </summary>
+        private readonly ListScrollController _obsScroll = new ListScrollController { Mode = ScrollBarMode.Decorative };
+
+        /// <summary>The observation list's scroll, for tests.</summary>
+        internal ListScrollController ObservationScroll => _obsScroll;
 
         /// <summary>Reused scratch buffer for measuring the shared stepper value-column width (no per-frame alloc).</summary>
         private readonly List<string> _stepperValueScratch = [];
@@ -130,49 +142,50 @@ namespace TianWen.UI.Abstractions
             // the form's steppers ran off its edge and its labels were cut (1000 px at 150% was enough; found by
             // WireframeSweepTests). The form is now given at least what the engine measures its widest row to need,
             // the panel what is left up to its full width, and where even the panel's least does not fit beside the
-            // form the two are stacked, the form above. Sizes here are device px, so the trees are arranged at
-            // DesignScale.One -- one design unit is one device px.
+            // form the two are stacked, the form above. The whole tab is ONE tree in design units: the panel is
+            // declared in it, and only the form is still painted into its arranged Fill.
             // A caveat beside a value is a star, which adds nothing to the measure, so it coming and going does not
             // move the split.
             CollectStepperValues();
+            // The tab's width in design units, the unit every node below is declared in.
+            var tabW = contentRect.Width / dpiScale;
             // The value column is bounded by the whole tab, so even stacked (where the form has the tab's width) a
             // long value cannot push a row's steppers past its edge.
             _stepperValueW = MeasureValueColumnWidth(
                 _stepperValueScratch, FontPath, BaseFontSize,
                 minWidth: BaseValueW,
-                maxWidth: contentRect.Width / dpiScale - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f,
+                maxWidth: tabW - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f,
                 horizontalPadding: BasePadding);
+            // The engine measures in device px; the tree below is in design units.
             var formNeed = MeasureLayout(
-                BuildConfigTree(), new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width;
+                BuildConfigTree(), new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width / dpiScale;
+            var panel = BuildRightPanel(plannerState);
+            var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
             // Each floor is stated once: the side-by-side tree declares them and the fit test below reads the same
             // values (a star's floor is not part of the engine's measure of the row, so the test cannot ask it).
-            var ruleW = BaseSeparatorW * dpiScale;
-            var panelLeast = BaseObsPanelLeastWidth * dpiScale;
-            var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
-            var sideBySide = Layout.Builder.HStack(
-                Layout.Builder.Fill(key: ConfigFillKey).WStar(1f, min: formNeed).HStar(),
-                rule.WFixed(ruleW).HStar(),
-                // Equal shares between the form's floor and the panel's ceiling. The two bounds cannot both bind (the
-                // ceiling binds in a wide tab, the floor in a narrow one), which matters: the engine freezes a capped
-                // star and a floored one in the same pass, and a panel weighted to fill first overflowed the tab.
-                Layout.Builder.Fill(key: ObsFillKey)
-                    .WStar(1f, min: panelLeast, max: BaseObsPanelWidth * dpiScale).HStar());
-            // The three at their least.
-            var fitsSideBySide = formNeed + ruleW + panelLeast <= contentRect.Width;
-            var frame = RenderLayout(
-                fitsSideBySide
-                    ? sideBySide
-                    : Layout.Builder.VStack(
-                        Layout.Builder.Fill(key: ConfigFillKey).WStar().HStar(StackedFormShare),
-                        rule.HFixed(ruleW).WStar(),
-                        Layout.Builder.Fill(key: ObsFillKey).WStar().HStar(1f - StackedFormShare)),
-                contentRect, scale: DesignScale.One);
+            var fitsSideBySide = formNeed + BaseSeparatorW + BaseObsPanelLeastWidth <= tabW;
+            var tab = fitsSideBySide
+                ? Layout.Builder.HStack(
+                    Layout.Builder.Fill(key: ConfigFillKey).WStar(1f, min: formNeed).HStar(),
+                    rule.WFixed(BaseSeparatorW).HStar(),
+                    // Equal shares between the form's floor and the panel's ceiling. The two bounds cannot both bind
+                    // (the ceiling binds in a wide tab, the floor in a narrow one), which matters: the engine freezes a
+                    // capped star and a floored one in the same pass, and a panel weighted to fill first overflowed
+                    // the tab.
+                    panel.WStar(1f, min: BaseObsPanelLeastWidth, max: BaseObsPanelWidth).HStar())
+                // Stacked, the panel is served first, up to its own measured height, out of what the form's floor
+                // leaves, and the form (which scrolls) takes the rest. A fixed share of the height used to split
+                // them, which in a short tab left the observations room for their header alone, and in a tall one
+                // a band of empty panel under them.
+                : Layout.Builder.VStack(
+                    Layout.Builder.Fill(key: ConfigFillKey).WStar()
+                        .HStar(1f, min: BaseItemHeight * StackedFormLeastLines),
+                    rule.HFixed(BaseSeparatorW).WStar(),
+                    panel.WStar().HStarUpToContent());
+            var frame = RenderLayout(tab, contentRect,
+                drawFill: (fill, r) => { if (fill.Key is { } k && _obsFills.TryGetValue(k, out var painter)) painter(r); });
 
-            var obsRect = ArrangedFills.RectOf(frame, ObsFillKey);
-            var configRect = ArrangedFills.RectOf(frame, ConfigFillKey);
-
-            RenderConfigForm(configRect);
-            RenderRightPanel(plannerState, obsRect);
+            RenderConfigForm(ArrangedFills.RectOf(frame, ConfigFillKey));
         }
 
         // -----------------------------------------------------------------------
@@ -357,46 +370,28 @@ namespace TianWen.UI.Abstractions
             LabelWidth: BaseLabelW, Padding: BasePadding,
             ToggleButtonWidth: BaseToggleBtnW, CycleButtonWidth: BaseCycleBtnW);
 
-        private void RenderRightPanel(
-            PlannerState plannerState,
-            RectF32 rect)
+        /// <summary>
+        /// The right panel as ONE tree in design units: the camera settings at their own height, a rule, the
+        /// observations (their list scrolling once it is given less than it holds), and the Start button at the
+        /// foot. Its height is the engine's measure of these, which the stacked tab serves first; it used to be
+        /// carved by a dock from a camera band summed by hand and a list that counted its rows into what was left.
+        /// </summary>
+        private Layout.Node BuildRightPanel(PlannerState plannerState)
         {
-            var dpiScale = DpiScale;
-            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), rect);
-
-            var headerH = BaseHeaderHeight * dpiScale;
-            var padding = BasePadding * dpiScale;
-            var itemH = BaseItemHeight * dpiScale;
-
-            // Camera settings section height: header + per-OTA rows
-            var cameraCount = State.CameraSettings.Count;
-            var cameraRowsPerOta = 3; // setpoint + gain + separator
-            var cameraSectionH = headerH + Math.Max(cameraCount, 1) * (cameraRowsPerOta * itemH + padding);
-
-            // Start Session button: enabled when proposals exist and date is tonight
-            var hasPinned = plannerState.Proposals.Length > 0;
-            var isTonight = !plannerState.PlanningDate.HasValue;
-
-            // The panel's three bands as one Dock tree (was a PixelLayout cursor): camera settings and the
-            // rule below them docked top, the Start button docked bottom when there is anything to start,
-            // observations filling the rest. The strips whose contents are still painted imperatively stay
-            // keyed Fill leaves and are read back by key; only the rule paints from the tree. Sizes are
-            // already device px, hence DesignScale.One.
-            var cameraStrip = Layout.Builder.Top(Layout.Builder.Fill(key: CameraFillKey), cameraSectionH);
-            var ruleStrip = Layout.Builder.Top(Layout.Builder.Spacer().Bg(SeparatorColor), BaseSeparatorW * dpiScale);
-            var buttonStrip = Layout.Builder.Bottom(Layout.Builder.Fill(key: StartButtonFillKey), 36f * dpiScale + padding * 2);
-            var obsFill = Layout.Builder.Fill(key: ObsFillKey);
-
-            var arranged = hasPinned
-                ? RenderLayout(Layout.Builder.Dock(obsFill, cameraStrip, ruleStrip, buttonStrip), rect, scale: DesignScale.One)
-                : RenderLayout(Layout.Builder.Dock(obsFill, cameraStrip, ruleStrip), rect, scale: DesignScale.One);
-
-            if (hasPinned)
+            var bands = new List<Layout.Node>
             {
-                var btnRect = ArrangedFills.RectOf(arranged, StartButtonFillKey);
+                // Each band declares its width: a child of a stack is Auto across it, so rows whose columns are
+                // stars would sit at their natural width (each band was the root of its own arrange before, and a
+                // root fills its rect).
+                BuildCameraSettings().WStar(),
+                Layout.Builder.Spacer().RowH(BaseSeparatorW).Bg(SeparatorColor),
+                BuildObservationList(plannerState).WStar().HStarUpToContent(),
+            };
 
-                // Start button as a declarative node (was a RenderButton + two disabled FillRect/DrawText
-                // branches): running -> disabled label, tonight -> clickable Start, other date -> disabled hint.
+            // Start button: offered when proposals exist; startable only tonight and with no session running.
+            if (plannerState.Proposals.Length > 0)
+            {
+                var isTonight = !plannerState.PlanningDate.HasValue;
                 var btnNode = State.IsSessionRunning
                     ? Layout.Builder.Text("Session running\u2026", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg)
                     : isTonight
@@ -405,21 +400,20 @@ namespace TianWen.UI.Abstractions
                             .Clickable(new HitResult.ButtonHit("StartSession"), _ => PostSignal(new StartSessionSignal()))
                         : Layout.Builder.Text("Start (tonight only)", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg);
 
-                // Its own RenderLayout at the widget's scale, because the button subtree is authored in
-                // DESIGN units (.Pad(BasePadding)) while the dock above it is in device px.
-                RenderLayout(Layout.Builder.VStack(btnNode.Stretch()).Pad(BasePadding), btnRect);
+                // A plain star above the button takes what the list leaves, so the button rests at the foot of a
+                // tall panel as it did when it was docked there.
+                bands.Add(Layout.Builder.Spacer().HStar());
+                bands.Add(Layout.Builder.VStack(btnNode.RowH(BaseStartButtonHeight)).Pad(BasePadding).WStar());
             }
 
-            RenderCameraSettings(ArrangedFills.RectOf(arranged, CameraFillKey));
-            RenderObservationList(plannerState, ArrangedFills.RectOf(arranged, ObsFillKey));
+            return Layout.Builder.VStack([.. bands]).Bg(PanelBg);
         }
 
         // -----------------------------------------------------------------------
         // Per-OTA camera settings
         // -----------------------------------------------------------------------
 
-        private void RenderCameraSettings(
-            RectF32 rect)
+        private Layout.Node BuildCameraSettings()
         {
             // ONE arranged tree: "Camera Settings" header + per-OTA (name header, optional setpoint row,
             // gain row). The stepper value cells are Star, so every row is the same width and the value
@@ -435,8 +429,7 @@ namespace TianWen.UI.Abstractions
             {
                 rows.Add(Layout.Builder.Text("No cameras configured.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center)
                     .RowH(BaseItemHeight));
-                RenderLayout(Layout.Builder.VStack([.. rows]), rect);
-                return;
+                return Layout.Builder.VStack([.. rows]);
             }
 
             for (var i = 0; i < State.CameraSettings.Count; i++)
@@ -495,16 +488,14 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Spacer().RowH(BasePadding * 0.5f));
             }
 
-            RenderLayout(Layout.Builder.VStack([.. rows]), rect);
+            return Layout.Builder.VStack([.. rows]);
         }
 
         // -----------------------------------------------------------------------
         // Observation list with exposure steppers and frame estimates
         // -----------------------------------------------------------------------
 
-        private void RenderObservationList(
-            PlannerState plannerState,
-            RectF32 rect)
+        private Layout.Node BuildObservationList(PlannerState plannerState)
         {
             var dpiScale = DpiScale;
             // Font from the inherited FontPath (host-set); captured by the exposure-cell painter lambda below.
@@ -529,8 +520,7 @@ namespace TianWen.UI.Abstractions
             {
                 rows.Add(Layout.Builder.Text("No targets pinned.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center).RowH(BaseObsRowHeight));
                 rows.Add(Layout.Builder.Text("Use the Planner tab to add targets.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center).RowH(BaseObsRowHeight));
-                RenderLayout(Layout.Builder.VStack([.. rows]), rect);
-                return;
+                return Layout.Builder.VStack([.. rows]);
             }
 
             // Column header row
@@ -550,19 +540,11 @@ namespace TianWen.UI.Abstractions
                 ? SessionTabState.DefaultExposureFromFRatio(State.CameraSettings[0].FRatio)
                 : 120;
 
-            // Build only the rows that fit the panel (mirrors the old cursor viewport guard); clip the rest.
-            var availDesign = rect.Height / dpiScale;
-            var usedDesign = BaseHeaderHeight + BaseObsRowHeight + BaseSeparatorW;
-            var perProposalDesign = BaseObsRowHeight + BaseObsRowHeight * 0.8f + BaseSeparatorW;
-
+            // Every proposal is a row of the scrolling list below the headers, which the engine clips to the room
+            // the panel gives it; it used to build only the rows that fit and drop the rest without a word.
+            var items = new List<Layout.Node>(proposals.Length * 3);
             for (var i = 0; i < proposals.Length; i++)
             {
-                if (usedDesign + perProposalDesign > availDesign)
-                {
-                    break;
-                }
-                usedDesign += perProposalDesign;
-
                 var proposal = proposals[i];
                 var capturedI = i;
                 var bgColor = i % 2 == 0 ? PanelBg : RowAltBg;
@@ -627,7 +609,7 @@ namespace TianWen.UI.Abstractions
                 var frameStr = frameCount > 0 ? $"~{frameCount}" : "\u2014";
 
                 // Row 1: # | target | exposure stepper | frames
-                rows.Add(Layout.Builder.HStack(
+                items.Add(Layout.Builder.HStack(
                         Layout.Builder.Text($"{i + 1}", BaseFontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center).WFixed(colNumW).HStar(),
                         Layout.Builder.Text(proposal.Target.Name, BaseFontSize, BodyText, TextAlign.Near, TextAlign.Center).WStar(),
                         expStepper.WFixed(colExpW).HStar(),
@@ -644,24 +626,24 @@ namespace TianWen.UI.Abstractions
                     var durStr = window.TotalHours >= 1
                         ? $"{(int)window.TotalHours}h {window.Minutes:D2}m"
                         : $"{(int)window.TotalMinutes}m";
-                    rows.Add(Layout.Builder.HStack(
+                    items.Add(Layout.Builder.HStack(
                             Layout.Builder.Spacer().WFixed(colNumW).HStar(),
                             Layout.Builder.Text($"{startStr}-{endStr}  ({durStr})", BaseFontSize * 0.85f, durColor, TextAlign.Near, TextAlign.Center).WStar())
                         .RowH(BaseObsRowHeight * 0.8f).Bg(bgColor));
                 }
                 else
                 {
-                    rows.Add(Layout.Builder.Spacer().RowH(BaseObsRowHeight * 0.8f).Bg(bgColor));
+                    items.Add(Layout.Builder.Spacer().RowH(BaseObsRowHeight * 0.8f).Bg(bgColor));
                 }
 
                 // Thin separator
-                rows.Add(Layout.Builder.Spacer().RowH(BaseSeparatorW).Bg(SeparatorColor));
+                items.Add(Layout.Builder.Spacer().RowH(BaseSeparatorW).Bg(SeparatorColor));
             }
 
-            PushClip(rect.X, rect.Y, rect.Width, rect.Height);
-            RenderLayout(Layout.Builder.VStack([.. rows]), rect,
-                drawFill: (fill, r) => { if (fill.Key is { } k && _obsFills.TryGetValue(k, out var painter)) painter(r); });
-            PopClip();
+            _obsScroll.TrackColor = SeparatorColor;
+            _obsScroll.ThumbColor = GuiTheme.Palette.SeparatorStrong;
+            rows.Add(Layout.Builder.VStack([.. items]).WithScroll(_obsScroll).WStar().HStarUpToContent());
+            return Layout.Builder.VStack([.. rows]);
         }
 
         // -----------------------------------------------------------------------

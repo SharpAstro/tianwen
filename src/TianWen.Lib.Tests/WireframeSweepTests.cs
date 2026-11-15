@@ -112,6 +112,20 @@ public class WireframeSweepTests
         },
     };
 
+    // What a tab is opened for, which must be on screen whole at every size. A row left undrawn overlaps nothing, so
+    // the overlap rules cannot see it go: the Session tab once stacked its form over the observations at a fixed
+    // share of a short tab and showed their header alone.
+    private static readonly Dictionary<string, string[]> MustShow = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["session"] = ["M8", "M42", "Start Session"],
+    };
+
+    private static IEnumerable<string> NotShownWhole(WireframeFrame frame, string[] shown)
+        => shown
+            .Where(part => !frame.Texts.Any(t => t.Text.Contains(part, StringComparison.Ordinal)
+                && t.Visible.Width > 0f && t.Visible.Height >= t.Ink.Height - 0.5f))
+            .Select(part => $"no text holding \"{part}\" is shown whole");
+
     private static LiveSessionState RunningSession() => new LiveSessionState
     {
         IsRunning = true,
@@ -161,16 +175,50 @@ public class WireframeSweepTests
 
                     var frame = renderer.Frame;
                     (frame.Texts.Length + frame.Regions.Length).ShouldBeGreaterThan(0, $"{tab} drew nothing at {width}x{height}");
-                    var findings = Wireframe.Check(frame, tab == "sky map" ? SkyChromeOnly(frame) : null);
+                    var findings = Wireframe.Check(frame, tab == "sky map" ? SkyChromeOnly(frame) : null)
+                        .Select(f => f.Message)
+                        .Concat(MustShow.TryGetValue(tab, out var shown) ? NotShownWhole(frame, shown) : [])
+                        .ToArray();
                     if (findings.Length > 0)
                     {
                         report.Append($"{tab} at {width}x{height}, scale {scale:0.0}:\n  ")
-                            .Append(string.Join("\n  ", findings.Select(f => f.Message))).Append('\n');
+                            .Append(string.Join("\n  ", findings)).Append('\n');
                     }
                 }
             }
         }
 
         report.ToString().ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// More observations than a short tab has room for scroll, every one reachable; the list used to build the rows
+    /// that fit and leave the rest out without a word. Two in a tall tab fit, and nothing scrolls (DIR.Lib 11.62: a
+    /// list given the room its fractional rows take used to read as one surface unit too long, and drew a bar).
+    /// </summary>
+    [Fact]
+    public void TheObservationListScrollsOnlyWhenItHoldsMoreThanShows()
+    {
+        var planner = PlannerTabLayoutTests.BuildState();
+        planner.Proposals = [.. Enumerable.Range(1, 12).Select(i => new ProposedObservation(new Target(i, 10, $"Target {i}", null)))];
+        using var renderer = new WireframeRenderer(800, 520);
+        var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = 1.5f, FontPath = FontResolver.ResolveSystemFont() };
+        var content = new RectF32(0, 0, 800, 520);
+        renderer.Begin();
+        tab.Render(new GuiAppState(), planner, content, new FakeTimeProviderWrapper(Now));
+
+        tab.ObservationScroll.MaxOffset.ShouldBeGreaterThan(0f);
+
+        // Scrolled to its end, the last target is shown whole, and the button stays below the list.
+        tab.ObservationScroll.EnsureVisible(tab.ObservationScroll.TotalAtoms - 1);
+        renderer.Begin();
+        tab.Render(new GuiAppState(), planner, content, new FakeTimeProviderWrapper(Now));
+        NotShownWhole(renderer.Frame, ["Target 12", "Start Session"]).ShouldBeEmpty();
+
+        planner.Proposals = [.. planner.Proposals.Take(2)];
+        using var tall = new WireframeRenderer(1440, 900);
+        var fits = new SessionTab<RgbaImage>(tall) { DpiScale = 1.5f, FontPath = FontResolver.ResolveSystemFont() };
+        fits.Render(new GuiAppState(), planner, new RectF32(0, 0, 1440, 900), new FakeTimeProviderWrapper(Now));
+        fits.ObservationScroll.MaxOffset.ShouldBe(0f);
     }
 }
