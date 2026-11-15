@@ -542,7 +542,7 @@ public sealed class SkyMapAtlasNightCurveTests
 /// channel of zero in its slot and the line under it, and its line is the palette's accent. In the "UI" collection, since it flips
 /// the app-wide theme.
 /// </summary>
-[Collection("UI")]
+[Collection(ThemeCollection.Name)]
 public sealed class SkyMapAtlasNightCurveNightTests
 {
     [Fact(Timeout = 120_000)]
