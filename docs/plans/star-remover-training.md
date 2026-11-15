@@ -5460,10 +5460,13 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
   kill, which read the row against R3l's mean: R3t's seed 0 (94.9 / 83.1, both above 86.8 / 81.7) would have passed it and
   trained seed 1. Any other kill ends the arm on seed 0.
 - **With two seeds, every bar is judged on their mean:** Q2 and each guard as written above, and the arm is killed on the
-  mean by M42 under 40 or by any guard, whatever seed 0 read alone.
+  mean by M42 under 40 or by any guard, whatever seed 0 read alone. The M31 nucleus is the exception, as for R3s: under 40 %
+  in every channel on EACH seed, since a mean hides one seed that takes it.
 - **What a kill means:** on a two-seed mean whose SMC rows, either one, stay more than 3 under R3l's with 8.5 times the
   weights, capacity at this size is not shown to be what holds the two fields apart. A mean killed by another guard with the
-  SMC's rows held says the larger model keeps the SMC and loses elsewhere, which is read as it falls. On a kill that ends the
+  SMC's rows held says the larger model keeps the SMC and loses elsewhere, which is read as it falls. A mean killed by M42
+  under 40 says the larger model gives back the gain the channel spread bought on M42, and then capacity is not the direction
+  for either field. On a kill that ends the
   arm on seed 0 (M42 under 40, another guard, or the SMC past its bound) nothing is concluded about capacity from one seed.
   In every case the line waits for the owner; the owner's second idea of the same day (more than one model, chosen per image by a measurement of its
   stars) is the candidate named, and it is not started unasked.
