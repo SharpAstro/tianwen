@@ -5666,6 +5666,26 @@ the first angle is a step after the model and not another arm:
   - **The candidate this points at, named and not started:** the drawn-wings data of R3j (synth16) on R3v's four-level
     model, judged WITH the step from the start, with the halo rows as its question. One seed is about 13 hours on the 1070.
   (`check3-floor3-haloarms.txt`; whole masters `w-r3j_s0+floor3`, `w-r3u_synth24_s0+floor3`, `w-r3i_synth15_s0+floor3`.)
+- **The halo, looked at the same night (2026-11-16, explored, NOT pre-registered, nothing adopted).** Working files are
+  on DE1 under `C:/temp/e2/explore` (`halo_profile.py`, `twin_halo.py`, `halo_step.py`, `crescent.py`, sheet
+  `halo-step.png`); none is in the repository.
+  - **It is left on real stars only.** Round Andromeda's 71 bright clipped stars, R3v's seed 0 with floor3 leaves a ring
+    of about 0.35 master sigma a pixel from 6 to 25 px (ring median over the plate's own 45-60 px ring, in the stretch);
+    SXT leaves about 0.1. On the twin, round 5,859 bright synthetic stars, the truth error at those radii is zero or
+    slightly negative. So the model removes the halos it was shown, and real stars carry wider ones than the drawn ones.
+  - **A ring-median step removes it.** Round each clipped compact star of the input, per channel, the plate's ring-median
+    profile over its 45-60 px ring, smoothed 2 px in radius, positive part only, tapered out from 37 to 45 px, is
+    subtracted. Andromeda's glow row goes 599.4 / 1549.7 / 89 % to 13.5 / 81.4 / 1 % and Tarantula's 1121.1 / 1726.2 /
+    92 % to 13.7 / 223.3 / 15 %; every other whole-master row is unchanged (nucleus -1.0 / 6.0 / 1.6). At random positions
+    away from those stars the same step takes about a tenth as much (median 0.03 sigma in 10-30 px against 0.27 on
+    Andromeda, 0.04 against 0.44 on Tarantula).
+  - **Read with care:** the step subtracts what the glow row sums, on the stars the row picks, so the row falling is by
+    construction and says nothing about SXT; only the random-position control is evidence, and there is no truth for
+    it, since the twin has no such halo. On the sheet the one or two brightest stars of each master keep an off-centre
+    crescent and a dark disc at the core, which this step does not touch.
+  - **The crescent is not a channel offset and not a population effect:** the residue's dipole does not follow the
+    input's R-G or B-G wing offset (median cosine between -0.1 and 0.3 on Andromeda), and over the 71 stars its lean is 2.0 px against SXT's 1.8.
+    The population difference to SXT within 25 px is the net excess, about 600 sigma-pixels against 160.
 - **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py <model> floor --pin 2.5 --cap-up 2
   --cap-down 0.05 --tag floor3`; mode `floor3` of `whole_floor.py`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
   seed 1 as trained. It is confirmed if all hold:
