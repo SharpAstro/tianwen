@@ -1872,6 +1872,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
         try
         {
+            // The planet every frame is drawn from, through the data file source: a host whose build does not
+            // embed it fetches it here, and one that has it nowhere is told so before the first frame.
+            await JupiterTextureRenderer.LoadAsync(cancellationToken);
             VideoStarts = VideoStarts.Add((options, NumX, NumY, (short)BinX));
             if (options.Gain is { } gain)
             {

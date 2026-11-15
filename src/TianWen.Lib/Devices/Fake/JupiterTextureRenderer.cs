@@ -1,6 +1,9 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Threading;
+using System.Threading.Tasks;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -23,10 +26,55 @@ namespace TianWen.Lib.Devices.Fake;
 /// </summary>
 internal static class JupiterTextureRenderer
 {
-    private const string ResourceSuffix = "jupiter.rgb.gz";
+    private const string FileName = "jupiter.rgb.gz";
 
-    // Decoded once (thread-safe via Lazy); the texture is immutable after load.
-    private static readonly Lazy<JupiterTexture> _texture = new(LoadTexture);
+    // Decoded once; the texture is immutable after load. Two callers racing each decode the same picture and
+    // one is kept, which costs a decode and needs no lock.
+    private static JupiterTexture? _loaded;
+
+    /// <summary>
+    /// The texture, loaded on first use where the process's data file source has it at hand (embedded, which is
+    /// every build that did not switch <c>TianWen.Lib.EmbeddedData.FakeDevices</c> off). A render cannot wait
+    /// for a fetch, so a host that supplies the file awaits <see cref="LoadAsync"/> first, as the fake camera's
+    /// video capture does.
+    /// </summary>
+    private static JupiterTexture Texture
+    {
+        get
+        {
+            if (Volatile.Read(ref _loaded) is { } loaded)
+            {
+                return loaded;
+            }
+
+            using var raw = DataFiles.Source.OpenIfAtHand(FileName) ?? throw new InvalidOperationException(Missing);
+            return Publish(Decode(raw));
+        }
+    }
+
+    private const string Missing =
+        "The fake planetary camera's Jupiter (" + FileName + ") is not to be had: this build does not embed it "
+        + "(TianWen.Lib.EmbeddedData.FakeDevices is off) and the host's data file source (DataFiles.Source) does not "
+        + "supply it.";
+
+    /// <summary>
+    /// Loads the texture through the process's data file source, waiting where the host has to fetch it.
+    /// Idempotent. Throws, naming the file, where neither the assembly nor the host has it.
+    /// </summary>
+    public static async ValueTask LoadAsync(CancellationToken cancellationToken = default)
+    {
+        if (Volatile.Read(ref _loaded) is not null)
+        {
+            return;
+        }
+
+        using var raw = await DataFiles.Source.OpenAsync(FileName, cancellationToken)
+            ?? throw new InvalidOperationException(Missing);
+        Publish(Decode(raw));
+    }
+
+    private static JupiterTexture Publish(JupiterTexture texture)
+        => Interlocked.CompareExchange(ref _loaded, texture, null) ?? texture;
 
     /// <summary>Jupiter's geometric oblateness (polar radius / equatorial radius).</summary>
     public const double Oblateness = 0.935;
@@ -62,7 +110,7 @@ internal static class JupiterTextureRenderer
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(equatorialRadius);
 
-        var tex = _texture.Value;
+        var tex = Texture;
         var peak = maxAdu * bodyLevel;
         var polarRadius = equatorialRadius * Oblateness;
 
@@ -137,7 +185,7 @@ internal static class JupiterTextureRenderer
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(equatorialRadius);
 
-        var tex = _texture.Value;
+        var tex = Texture;
         var peak = maxAdu * bodyLevel;
         var polarRadius = equatorialRadius * Oblateness;
 
@@ -229,13 +277,8 @@ internal static class JupiterTextureRenderer
         return 1; // G (both G1 and G2)
     }
 
-    private static JupiterTexture LoadTexture()
+    private static JupiterTexture Decode(Stream rawStream)
     {
-        var assembly = typeof(JupiterTextureRenderer).Assembly;
-        var manifest = Array.Find(assembly.GetManifestResourceNames(), n => n.EndsWith(ResourceSuffix, StringComparison.Ordinal))
-            ?? throw new InvalidOperationException($"Embedded Jupiter texture '{ResourceSuffix}' not found.");
-        using var rawStream = assembly.GetManifestResourceStream(manifest)
-            ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
         using var gz = new GZipStream(rawStream, CompressionMode.Decompress);
         using var buf = new MemoryStream();
         gz.CopyTo(buf);

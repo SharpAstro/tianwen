@@ -22,8 +22,9 @@
     The names are manifest resource names and must match the assembly exactly; there is no wildcard.
     EmbeddedCatalogFeatureSwitchTests pins these lists against the built assembly: every embedded
     resource is in exactly one group, so adding a catalog without adding it here fails a test rather
-    than silently shipping it in the thumbnail DLL. A reader of a group must say so when its file is
-    gone (or do without it), never read a null stream.
+    than silently shipping it in the thumbnail DLL. A reader asks TianWen.Lib.IO.DataFiles.Source for
+    its file by name, so a host can supply what its build switched off (#2161); where neither has it
+    the reader says which file is missing, or does without it.
   -->
   <!-- The objects an atlas or a planner draws and names: the deep-sky catalogues and their outlines, the bright
        stars (HR), the SIMBAD merge and the verified articles. -->

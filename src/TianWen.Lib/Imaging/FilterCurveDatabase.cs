@@ -75,11 +75,11 @@ public static class FilterCurveDatabase
         if (existing is not null)
             return new ValueTask(existing);
 
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             try
             {
-                DoLoad(ct);
+                await DoLoadAsync(ct);
                 // Set AFTER the data is there. This used to be set by the CAS winner before DoLoad
                 // had run, so IsLoaded answered true over an empty database -- the same shape of
                 // failure as the viewer's SPCC guard, which declined against a DB nobody had loaded.
@@ -95,13 +95,14 @@ public static class FilterCurveDatabase
         return new ValueTask(tcs.Task);
     }
 
-    private static void DoLoad(CancellationToken ct)
+    private static async Task DoLoadAsync(CancellationToken ct)
     {
-        var assembly = typeof(FilterCurveDatabase).Assembly;
-        var manifestNames = assembly.GetManifestResourceNames();
+        // The three files come from the process's data file source (#2161): embedded, or supplied by a host
+        // whose build switched TianWen.Lib.EmbeddedData.Imaging off. One that is nowhere loads as empty.
+        var dataFiles = DataFiles.Source;
 
-        LoadResource(assembly, manifestNames, "filter_curves.gs.gz", _filtersByNormalizedName,
-            indexOriginStems: true, out var filters);
+        using var filterStream = await dataFiles.OpenAsync("filter_curves.gs.gz", ct);
+        LoadResource(filterStream, _filtersByNormalizedName, indexOriginStems: true, out var filters);
         ImmutableInterlocked.Update(ref _allFilters, (_, incoming) => incoming, filters);
 
         var freq = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -114,8 +115,8 @@ public static class FilterCurveDatabase
         }
         _filterTokenFrequency = freq.ToFrozenDictionary(StringComparer.Ordinal);
 
-        LoadResource(assembly, manifestNames, "sensor_qe.gs.gz", _sensorsByNormalizedName,
-            indexOriginStems: false, out var sensors);
+        using var sensorStream = await dataFiles.OpenAsync("sensor_qe.gs.gz", ct);
+        LoadResource(sensorStream, _sensorsByNormalizedName, indexOriginStems: false, out var sensors);
         ImmutableInterlocked.Update(ref _allSensors, (_, incoming) => incoming, sensors);
 
         // Sensor model names are short and unambiguous (e.g. "IMX533"); 
@@ -124,8 +125,8 @@ public static class FilterCurveDatabase
             _sensorsByNormalizedName.TryAdd(s.Name.ToUpperInvariant(), s);
 
         // Load Pickles stellar SEDs and precompute canonical B-V index
-        LoadResource(assembly, manifestNames, "pickles_sed.gs.gz",
-            new ConcurrentDictionary<string, FilterCurve>(StringComparer.Ordinal),
+        using var sedStream = await dataFiles.OpenAsync("pickles_sed.gs.gz", ct);
+        LoadResource(sedStream, new ConcurrentDictionary<string, FilterCurve>(StringComparer.Ordinal),
             indexOriginStems: false, out var seds);
         ImmutableInterlocked.Update(ref _allSeds, (_, incoming) => incoming, seds);
         PrecomputeSedBvIndex();
@@ -266,16 +267,12 @@ public static class FilterCurveDatabase
     };
 
     private static void LoadResource(
-        Assembly assembly, string[] manifestNames, string resourceName,
+        Stream? stream,
         ConcurrentDictionary<string, FilterCurve> dict, bool indexOriginStems,
         out ImmutableArray<FilterCurve> curves)
     {
         curves = ImmutableArray<FilterCurve>.Empty;
 
-        var manifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + resourceName, StringComparison.Ordinal));
-        if (manifest is null) return;
-
-        using var stream = assembly.GetManifestResourceStream(manifest);
         if (stream is null) return;
 
         byte[] decompressed;

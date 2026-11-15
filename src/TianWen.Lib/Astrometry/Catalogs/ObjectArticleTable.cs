@@ -33,7 +33,10 @@ internal readonly record struct ObjectArticleRow(ObjectArticle Article, Immutabl
 /// </remarks>
 internal static class ObjectArticleTable
 {
-    public const string ResourceSuffix = ".object_articles.gs.gz";
+    /// <summary>The table's data file, as a data file source is asked for it.</summary>
+    public const string FileName = "object_articles.gs.gz";
+
+    public const string ResourceSuffix = "." + FileName;
 
     private const string Magic = "TianWenObjectArticles";
     private const int SchemaVersion = 2;

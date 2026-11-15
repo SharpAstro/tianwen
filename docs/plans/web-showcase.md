@@ -102,6 +102,17 @@ never a local nupkg feed).
    spectra, the fake camera's Jupiter), and the trimmer drops them from `TianWen.Lib`. Measured on an
    interpreted Release publish: `TianWen.Lib.wasm` 12.35 MB to 7.52 MB brotli. That needs no global
    property and no second build of the library, so new exclusions go there, not on `Lightweight`.
+   **A file a build no longer embeds can come from the host (#2161)**: every reader in TianWen.Lib asks
+   `DataFiles.Source` (`IDataFileSource`, `TianWen.Lib/IO/DataFiles.cs`) for a file by its name, and the
+   default source is the embedded resources. A host puts its own behind it once at startup
+   (`DataFiles.Source = DataFiles.FirstOf(DataFiles.Embedded, mine)`). The source is asked
+   asynchronously (`OpenAsync`), so a browser fetch fits; a reader that cannot wait (a render, the
+   synchronous Tycho-2 injection's region bounds) takes `OpenIfAtHand` and has a load step the host
+   awaits first (`JupiterTextureRenderer.LoadAsync`, awaited by the fake camera's video capture). A
+   snapshot is still checked against its inputs as the source has them, so files served stale beside
+   new code fall back to the live merge instead of applying a wrong snapshot. Not done yet, and tracked
+   on the same issue: the web host serving the sky catalogues as static files, and Tycho-2 moving onto
+   this seam so `Lightweight` can go.
 
 ## Minimal DI graph for the browser
 
