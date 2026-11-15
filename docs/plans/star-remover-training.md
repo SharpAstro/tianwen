@@ -5456,7 +5456,9 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
 - **When seed 1 trains:** when seed 0 is not killed (every guard held and M42 at 40 or more, whether or not it clears 50);
   or when it is killed on Tarantula's row ALONE by under 4 points; or on the SMC's rows ALONE with each no more than 3 under
   R3l's LOWER seed, the 20-100 row at 86.8 or more (89.8 less 3) and the 100-1000 row at 81.7 or more (84.7 less 3), which
-  is how R3t's and R3u's reads compared this row (R3u's 76.3 is outside it). Any other kill ends the arm on seed 0.
+  is how R3u's read compared this row (R3u's 76.3 is 8.4 under the lower seed, outside it). This bound is looser than R3t's
+  kill, which read the row against R3l's mean: R3t's seed 0 (94.9 / 83.1, both above 86.8 / 81.7) would have passed it and
+  trained seed 1. Any other kill ends the arm on seed 0.
 - **With two seeds, every bar is judged on their mean:** Q2 and each guard as written above, and the arm is killed on the
   mean by M42 under 40 or by any guard, whatever seed 0 read alone.
 - **What a kill means:** on a two-seed mean whose SMC rows, either one, stay more than 3 under R3l's with 8.5 times the
@@ -5465,7 +5467,8 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
   arm on seed 0 (M42 under 40, another guard, or the SMC past its bound) nothing is concluded about capacity from one seed.
   In every case the line waits for the owner; the owner's second idea of the same day (more than one model, chosen per image by a measurement of its
   stars) is the candidate named, and it is not started unasked.
-- **Amended 2026-11-15, before any score of R3v exists** (seed 0 was at step 55,600 of its training): the first registration
+- **Amended 2026-11-15, before any score of R3v exists** (the first text was written with seed 0 at step 55,600 of its training; the seed 1 rule, the SMC
+  bound and the mean rule were added later the same day, still before any score): the first registration
   had four defects, each named for what it was. Two were at odds with the plan's own seed spreads: it killed on M42 under
   50, and it drew the capacity conclusion from one seed of the SMC. One was arithmetic: "seven times the weights" for 6.86 M
   against 0.81 M. One was an internal contradiction: seed 1 trained "only if seed 0 holds every guard and its M42 band reads
