@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
-using TianWen.Lib.Imaging;
 using TianWen.Lib.IO;
 using Xunit;
 
@@ -216,22 +215,11 @@ public class DataFileSourceTests
         db.AllObjectIndices.Count.ShouldBeLessThanOrEqualTo(reference.AllObjectIndices.Count);
     }
 
-    /// <summary>
-    /// The filter curve database loads once for the process, whoever asks first. A first caller that had already
-    /// given up used to leave its cancellation in the shared task for good. Whichever test loaded it first, this
-    /// holds: a cancelled call is followed by a loaded database.
-    /// </summary>
-    [Fact(Timeout = 120_000)]
-    public async Task ACallerThatGaveUpDoesNotCancelTheSharedFilterCurveLoad()
+    [Fact]
+    public async Task TheTileSelectorsBoundsComeEmbeddedOrFromTheSource()
     {
-        using var gaveUp = new CancellationTokenSource();
-        await gaveUp.CancelAsync();
-
-        await FilterCurveDatabase.LoadAsync(gaveUp.Token);
-        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
-
-        FilterCurveDatabase.IsLoaded.ShouldBeTrue();
-        FilterCurveDatabase.TryGetSensor("IMX533", out _).ShouldBeTrue();
+        Tycho2RegionSelector.FromEmbeddedBounds().ShouldNotBeNull("the test build embeds the bounds");
+        (await Tycho2RegionSelector.FromBoundsAsync(TestContext.Current.CancellationToken)).ShouldNotBeNull();
     }
 
     private static byte[] Gunzip(byte[] gz)

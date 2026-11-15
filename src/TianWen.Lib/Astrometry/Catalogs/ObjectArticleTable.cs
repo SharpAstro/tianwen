@@ -36,8 +36,6 @@ internal static class ObjectArticleTable
     /// <summary>The table's data file, as a data file source is asked for it.</summary>
     public const string FileName = "object_articles.gs.gz";
 
-    public const string ResourceSuffix = "." + FileName;
-
     private const string Magic = "TianWenObjectArticles";
     private const int SchemaVersion = 2;
 

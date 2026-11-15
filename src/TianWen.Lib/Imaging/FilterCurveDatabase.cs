@@ -33,10 +33,10 @@ public static class FilterCurveDatabase
     private static ImmutableArray<FilterCurve> _allSeds = ImmutableArray<FilterCurve>.Empty;
     // Sorted by synthetic B-V for binary-search lookup via TryGetSedByBv
     private static ImmutableArray<(double Bv, FilterCurve Sed)> _sedsByBv = ImmutableArray<(double, FilterCurve)>.Empty;
-    private static Task? _loadTask;
-    private static int _loaded;
+    // The one load, shared by every caller (SharedLoad): no caller can cancel it, and a failed one is not kept.
+    private static readonly SharedLoad _load = new(DoLoadAsync);
 
-    public static bool IsLoaded => _loaded != 0;
+    public static bool IsLoaded => _load.IsDone;
 
     /// <summary>All loaded filter curves in insertion order.</summary>
     public static ImmutableArray<FilterCurve> AllFilters => _allFilters;
@@ -55,45 +55,7 @@ public static class FilterCurveDatabase
     /// <c>pickles_sed.gs.gz</c> from embedded resources.
     /// Idempotent: subsequent calls are no-ops.
     /// </summary>
-    public static ValueTask LoadAsync(CancellationToken ct = default)
-    {
-        // Fast path: already loaded (check before taking the lock)
-        var current = _loadTask;
-        if (current is { IsCompletedSuccessfully: true })
-            return ValueTask.CompletedTask;
-        if (current is not null)
-            return new ValueTask(current);
-
-        // Publish the placeholder FIRST, then start the work. Passing Task.Run(...) as the
-        // CompareExchange ARGUMENT evaluates it eagerly, so every racing caller started a DoLoad:
-        // the losers returned the winner's task and then let their own load run on and append a
-        // second copy of every curve, because DoLoad accumulates with AddRange. Two concurrent
-        // callers turned 178 filters into 356 and 16 sensors into 32, which is not merely a wrong
-        // count -- TryMatchFilter walks _allFilters, so every candidate was scored twice.
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var existing = Interlocked.CompareExchange(ref _loadTask, tcs.Task, null);
-        if (existing is not null)
-            return new ValueTask(existing);
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await DoLoadAsync();
-                // Set AFTER the data is there. This used to be set by the CAS winner before DoLoad
-                // had run, so IsLoaded answered true over an empty database -- the same shape of
-                // failure as the viewer's SPCC guard, which declined against a DB nobody had loaded.
-                Interlocked.Exchange(ref _loaded, 1);
-                tcs.SetResult();
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        }, CancellationToken.None);
-
-        return new ValueTask(tcs.Task);
-    }
+    public static ValueTask LoadAsync(CancellationToken ct = default) => _load.RunAsync();
 
     private static async Task DoLoadAsync()
     {
@@ -101,9 +63,9 @@ public static class FilterCurveDatabase
         // whose build switched TianWen.Lib.EmbeddedData.Imaging off. One that is nowhere loads as empty.
         var dataFiles = DataFiles.Source;
 
-        // The load is the process's, shared by every caller and never started again, so it is no caller's to
-        // cancel: under the first caller's token a cancelled session or render would leave the failed task in
-        // _loadTask for good, and every later caller without filter curves.
+        // The load is the process's, shared by every caller, so it is no caller's to cancel: SharedLoad hands
+        // it no token, and under the first caller's a cancelled session or render would fail it for everyone
+        // waiting on it.
         var ct = CancellationToken.None;
 
         using var filterStream = await dataFiles.OpenAsync("filter_curves.gs.gz", ct);

@@ -83,6 +83,16 @@ public sealed class Tycho2RegionSelector
     public const string BoundsFileName = "tyc2_gsc_bounds.bin.lz";
 
     /// <summary>
+    /// Builds a selector from the GSC bounds embedded in this assembly, without waiting; null if this build
+    /// does not embed them. A host that may supply them asks <see cref="FromBoundsAsync"/> instead.
+    /// </summary>
+    public static Tycho2RegionSelector? FromEmbeddedBounds()
+    {
+        using var stream = DataFiles.Embedded.OpenIfAtHand(BoundsFileName);
+        return stream is null ? null : new Tycho2RegionSelector(LzipDecoder.Decompress(stream));
+    }
+
+    /// <summary>
     /// Builds a selector from the GSC bounds the process's data file source has (<see cref="DataFiles.Source"/>):
     /// embedded in this assembly, where they survive the <c>Lightweight</c> build that strips the catalog itself,
     /// or supplied by the host -- so a browser can decide which regions it needs before it has fetched a single

@@ -546,14 +546,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var totalProcessed = 0;
         var totalFailed = 0;
 
-        // Probe for the SIMBAD merge snapshot up front so we can skip pre-starting
-        // hrParseTask + the SIMBAD prefetch pipeline entirely on the apply path. Embedded
-        // resource lookup is a manifest scan, no I/O; a host's source may fetch it here.
+        // Ask for the SIMBAD merge snapshot up front so we can skip pre-starting hrParseTask + the
+        // SIMBAD prefetch pipeline entirely on the apply path. Embedded, that is a manifest scan,
+        // no I/O; a host's source may fetch it, so it is STARTED here and awaited only once the
+        // background reads below are under way, none of which waits for it.
         // ForceLiveSimbadMergeWithCapture (precompute path) bypasses the snapshot apply attempt.
-        // Owned by TryApplySimbadMergeSnapshotAsync, which is always reached when this is not null.
-        var simbadSnapshotStream = ForceLiveSimbadMergeWithCapture
-            ? null
-            : await dataFiles.OpenAsync("simbad_merge.bin.gz", cancellationToken);
+        var simbadSnapshotOpen = ForceLiveSimbadMergeWithCapture
+            ? Task.FromResult<Stream?>(null)
+            : dataFiles.OpenAsync("simbad_merge.bin.gz", cancellationToken).AsTask();
 
         phaseSw.Restart();
         // Split the Tycho-2 read into two tasks. The hot one (HIP/HD→TYC cross-ref arrays,
@@ -569,6 +569,20 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var articlesTask = Task.Run(() => ReadObjectArticlesAsync(cancellationToken), cancellationToken);
         _tycho2BulkLoadTask = Task.Run(ReadTycho2BulkAsync, cancellationToken);
 
+        // Same trick for the NGC catalogs: LZ-decompress them in the background so that
+        // when the main thread reaches the NGC merge phase, the bytes are ready and only
+        // the (synchronous, main-thread-only) merge runs there. DecompressNgcAsync prefers
+        // the ASCII-separated .gs.gz and falls back to the legacy .csv.lz.
+        var ngcDecompressTasks = new[]
+        {
+            DecompressNgcAsync(dataFiles, "NGC", cancellationToken),
+            DecompressNgcAsync(dataFiles, "NGC.addendum", cancellationToken),
+        };
+
+        // The snapshot's stream is this method's from here: disposed however init ends, whether or not
+        // the apply below is reached.
+        using var simbadSnapshotStream = await simbadSnapshotOpen;
+
         // Start HR's SIMBAD parse on the thread pool too - HR is the heaviest SIMBAD
         // file (~200ms to decompress + parse) and by launching it now, it can run
         // alongside the predefined-object loop and NGC CSV parsing on the main thread.
@@ -579,16 +593,6 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         Task<List<SimbadCatalogDto>>? hrParseTask = simbadSnapshotStream is null
             ? ParseSimbadFileAsync(dataFiles, "HR", cancellationToken)
             : null;
-
-        // Same trick for the NGC catalogs: LZ-decompress them in the background so that
-        // when the main thread reaches the NGC merge phase, the bytes are ready and only
-        // the (synchronous, main-thread-only) merge runs there. DecompressNgcAsync prefers
-        // the ASCII-separated .gs.gz and falls back to the legacy .csv.lz.
-        var ngcDecompressTasks = new[]
-        {
-            DecompressNgcAsync(dataFiles, "NGC", cancellationToken),
-            DecompressNgcAsync(dataFiles, "NGC.addendum", cancellationToken),
-        };
 
         foreach (var predefined in _predefinedObjects)
         {
@@ -1591,7 +1595,6 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private async Task<bool> TryApplySimbadMergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken)
     {
         var subSw = Stopwatch.StartNew();
-        using var snapshotOwned = snapshotStream;
 
         // Hash the SIMBAD/NGC inputs (~1 MB) in parallel with the snapshot read+decode.
         // SIMBAD inputs are small but SHA-256 still benefits from running off-thread.

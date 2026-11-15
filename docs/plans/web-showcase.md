@@ -22,8 +22,10 @@ in `TianWen.UI.Gui`. `WebGl.Renderer` implements the full `Renderer<TSurface>` a
 surface (rects, ellipses, lines/polylines + dashed, MTSDF text, clip, scrim). So a browser build
 instantiates the same generic tabs with `TSurface = WebGlContext` instead of `VulkanContext`.
 
-Catalog data is embedded in `TianWen.Lib` (loaded via `Assembly.GetManifestResourceStream`), which
-works unchanged under Blazor WASM - it only adds to the download payload (see Tycho-2 gating below).
+Catalog data is embedded in `TianWen.Lib` and read through `DataFiles.Source`, which answers from
+the embedded files unless a host puts its own source behind it (#2161, under the Lightweight item
+below). That works unchanged under Blazor WASM - it only adds to the download payload (see Tycho-2
+gating below).
 
 ## Portability findings (per render-architecture audit)
 
