@@ -595,7 +595,7 @@ per rule and points here.
 `GuiTheme` (`TianWen.UI.Abstractions/GuiTheme.cs`) owns the one palette; `UiThemeState` is **System /
 Light / Dark / Night**, `GuiTheme.Apply(state, desktopIsDark)` swaps it in as one reference write and
 `Palette` is one reference read. The source XML comments carry the rationale (scotopic numbers
-included); design + phasing: `docs/plans/colour-theme.md`.
+included); design + phasing: this document.
 
 - **Anything that CACHES a projection of the palette owes `GuiTheme.PaletteGeneration` in its cache
   key** (the planner chart's GPU texture kept the old palette after F12; `Apply`'s `bool` return

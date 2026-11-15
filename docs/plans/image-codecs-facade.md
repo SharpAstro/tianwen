@@ -235,4 +235,4 @@ Magick.NET is gone from every project; float TIFF I/O is `SharpAstro.Tiff.TiffWr
 scientific tools (`tifffile`, PixInsight, ImageJ) disagree on float TIFF values and `[0, 1]` is the one
 range both read. Rationale, the `SMinSampleValue`/`SMaxSampleValue`/`Q16HdriQuantumMax` mechanics, the
 round-trip guards and the codec surface inventory (16-bit, cICP, `iCCP`, `IccProfiles.SRgbV4`):
-`docs/plans/image-codecs-facade.md`.
+this document.

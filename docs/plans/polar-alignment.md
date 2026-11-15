@@ -698,7 +698,7 @@ per rule and points here.
 
 `PolarAlignmentSession` (`TianWen.Lib/Sequencing/PolarAlignment/`) is a SharpCap-style two-frame
 plate-solve routine that runs **outside** of `Session.RunAsync` against a manually-connected mount.
-See `docs/plans/polar-alignment.md` for the math/algorithm. **`PolarAlignmentRun` is the ONE routine from
+See this document for the math/algorithm. **`PolarAlignmentRun` is the ONE routine from
 start to restore**, which the GUI runs in its own process and the node for a client (`/api/v1/polar`): it
 resolves the devices from the profile, claims them, runs Phase A and the refine loop, and restores the mount
 however it ends; a host decides only where its state and frames go. **Cancellation is how it ends** (Done and

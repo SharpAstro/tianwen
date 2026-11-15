@@ -34,7 +34,7 @@ equivalent if it is ever wanted). What changes at a call site:
 | reading `<Counters total=` back out of the TRX to catch a filter that matched nothing | `--minimum-expected-tests N` |
 
 **`--filter` survived unchanged, VSTest syntax and all**, as did `xunit.runner.json` and the
-`[Collection]` / parallelism rules below. A stale `--logger` or `--blame-*` fails the run with an
+`[Collection]` / parallelism rules (`docs/architecture/session-test-harness.md`). A stale `--logger` or `--blame-*` fails the run with an
 unknown option rather than collecting less, which is the good outcome. The dump and TRX options
 come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`, referenced by
 `TianWen.Lib.Tests` and `.Functional` only, so they do not exist on the other two suites.

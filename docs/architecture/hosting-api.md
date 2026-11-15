@@ -1148,29 +1148,12 @@ per rule and points here.
 
 ### Hosting API (`TianWen.Hosting` + `TianWen.Server`) (from CLAUDE.md)
 
-Headless REST + WebSocket API plus an ASCOM Alpaca device plane on one ASP.NET Core host: **native v1**
-(`/api/v1/`, multi-OTA, camelCase, POST mutations) is the session plane; the **ninaAPI v2 shim**
-(`/v2/api/`, OTA[0], PascalCase, GET) is compatibility. Run `dotnet run --project TianWen.Server` or
-`tianwen-server [--port 1888]`. **Endpoint inventory, the Alpaca plane, the enhance endpoint, the native-AOT
-rules, and every rule below in full with its reason: `docs/architecture/hosting-api.md`** ("Six invariants on
-the session plane", "Invariants 7-13 in full"); the node's lifetime and version skew:
-`docs/plans/hardware-in-the-server.md`. What bites:
+**The node keeps the computer awake while it holds hardware** (#1957, `NodeKeepsAwake`): a connected device, a lease, a
+run or a running job (`NodeHoldsHardware`, shared with `NodeIdleExit`) holds an `IPowerRequest`, the display free to
+sleep. **Windows takes a power request object, never `SetThreadExecutionState`** (per thread, and a service's
+continuation hops threads). #1673 reuses the seam. `docs/plans/hardware-in-the-server.md`, "Spawn and lifetime".
 
-6. **AOT is verified by `dotnet publish -r <rid>`, not `dotnet build`.** RDG stays enabled in the
-   **`TianWen.Hosting` library**, both JSON contexts stay registered via `ConfigureHttpJsonOptions`, and
-   **never reintroduce a `ResponseEnvelope<object>` or an anonymous-type payload**.
-10. **The machine's node is found on its SOCKET, and one lock admits it** (`NodeSocket`, `NodeLock`: only the
-   holder clears a stale socket, never probe-then-delete; `node.lock` is never deleted). A client uses
-   `NodeTransport`, asks `GET /api/v1/node` first (`NodeWire.Version`) and starts the KEEPER (`--keeper`) through
-   `LocalNodeLauncher`. **A node that dies leaves a crash journal** (`node.journal`, `NodeJournalService`), believed
-   only after `--after-crash <pid>` or when younger than `MachineBoot`, ACTED on, never a run resumed
-   (`NodeKeeper.CrashLoopWindow`); **a new place that commands a cooler owes `IDeviceHub.SetCoolerIntent`**, and
-   there is **ONE cooling ramp, `CameraCoolingRamp`.** **A node a client started exits a minute after nothing uses
-   it** (`NodeIdleExit`, `--idle-exit`; a test whose clients do not beat gives its node a long one, `KeptNode`; **time the
-   computer slept is not idle time**, and a window whose node stops answering finds or starts it again,
-   `MaybeReconnectLocalNode`), and
-   **a client replaces an idle, unattended node of another BUILD, not only another wire** (`IsAnotherBuild`).
-14. **The node keeps the computer awake while it holds hardware** (#1957, `NodeKeepsAwake`): a connected device, a lease, a
-   run or a running job (`NodeHoldsHardware`, shared with `NodeIdleExit`) holds an `IPowerRequest`, the display free to
-   sleep. **Windows takes a power request object, never `SetThreadExecutionState`** (per thread, and a service's
-   continuation hops threads). #1673 reuses the seam. `docs/plans/hardware-in-the-server.md`, "Spawn and lifetime".
+**A node a client started exits a minute after nothing uses it** (`NodeIdleExit`, `--idle-exit`; a test whose clients do not
+beat gives its node a long one, `KeptNode`). **Time the computer slept is not idle time**, and a window whose node stops
+answering finds or starts it again (`MaybeReconnectLocalNode`). **A client replaces an idle, unattended node of another
+BUILD, not only another wire** (`IsAnotherBuild`). **AOT is verified by `dotnet publish -r <rid>`, not `dotnet build`.**

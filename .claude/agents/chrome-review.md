@@ -52,7 +52,7 @@ to) before judging: most of these defects are a relation between two places.
    from one widget and passed to another's `RenderLayout`/`ArrangeLayout`/`MeasureLayout`; a size computed from a CHILD's
    metrics (a viewer's `ToolbarRowHeight`, its toolbar font) used in the parent's arithmetic, or the reverse. A rect
    handed to a child in SURFACE pixels (`SetContentRegion`, an `imageRect`) is fine: pixels are pixels.
-8. **The rules in CLAUDE.md's "Layout DSL" section**, where the diff breaks one: `new Layout.Node.X { }` instead of
+8. **The rules in CLAUDE.md's "Layout and input" section** (in full: `docs/architecture/widgets-and-controls.md`), where the diff breaks one: `new Layout.Node.X { }` instead of
    `Layout.Builder`, `using DIR.Lib.Layout;` instead of the alias, `.Bg(default)`, `.RowH(h)` after `.WFixed(w)`, a symbol
    character in a `Text` run instead of a `Layout.Content.Icon`, a hit or hover rect kept apart from the drawn node, a
    host predicate for the pointer's cursor instead of a region's declaration.

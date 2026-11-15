@@ -33,7 +33,7 @@ non-trivial work:
 |------|---------|
 | `docs/plans/summary.md` | Current status of every plan in `docs/plans/` (DONE / PARTIAL / NOT STARTED) cross-checked against the codebase |
 | `docs/plans/*.md` | Per-feature implementation plans with phasing tables |
-| `docs/architecture/*.md` | Architecture deep-dives, one file per subject, where a section below keeps only the rules that bite (`ls docs/architecture/` is the index) |
+| `docs/architecture/*.md` | Architecture deep-dives, one file per subject, where `CLAUDE.md` keeps only the rules that bite (`ls docs/architecture/` is the index) |
 | `TODO.md`, `docs/todo/*.md` | The DONE archive, by area (the open items are issues now; see above). Kept because a done entry often records the measurement or the reason behind a decision |
 | Issues labelled `bench` | The bench queue (was `docs/todo/hardware-validation.md`): every check only a real device or night can answer, one issue each, its gear in the body; a plan keeps the *why* and a pointer, never a second checkbox |
 | `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |

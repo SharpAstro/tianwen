@@ -157,7 +157,7 @@ per rule and points here.
   plate solve (`FlipEvidence.Inconclusive`, the mount believed); a clear light resumes all of it, and every verdict lands
   through ONE method, `Session.RecordLatestLightCloud`. Cloud past `CloudWaitTimeout` (15 min) takes the
   condition-deterioration path, so a sudden cloud-over now images on for up to 15 minutes instead of pausing at once.
-  In full: `docs/architecture/session-invariants.md`, "Cloud while imaging".
+  In full: this document, "Cloud while imaging".
 
 **Mount safety limits are NOT the meridian flip.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`, pure) is
 the mechanical bound, where the TUBE meets the pier or the ground; a flip is a *scheduling* choice. Derivations,

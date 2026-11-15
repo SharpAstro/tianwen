@@ -1482,7 +1482,7 @@ per rule and points here.
 `IPlateSolverFactory` selects in priority order: `CatalogPlateSolver` (built-in, ~6 matched stars),
 `AstapPlateSolver` (wraps `astap_cli`, ~44 stars), `AstrometryNetPlateSolver` (wraps `solve-field`,
 slower fallback). Every measurement, the dataset rationale and the quad-seed/parity-cache design:
-`docs/plans/plate-solver-performance.md`. Rules that bite:
+this document. Rules that bite:
 
 - **A header hint comes from `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre**
   (`RA`/`DEC` is what the mount reported). `WCS.FromHeader` and `Image.Fits.ParseTargetCoords` must

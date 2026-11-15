@@ -385,7 +385,7 @@ point: the designation guess it replaced 404'd or linked a same-named page silen
 catalogue entries and the lookup follows cross-indices (`M 92` reaches `NGC 6341`'s article), so a test
 of that path must use an index that is not itself a key (M 42 is one). Re-bake by hand and commit; the
 table is binary, so the bake's stdout report is the review. Measurements and the image rules (no SVG, no
-charts, no unlicensed file): `docs/plans/object-imagery.md`.
+charts, no unlicensed file): this document.
 
 **What leaves the app is a LINK, and a link only works where the host's router has `OpenUrl` wired.** The
 object panel's Wikipedia and Sky atlas are underlined accent-coloured `LinkHit`s on their own row

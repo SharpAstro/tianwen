@@ -683,4 +683,4 @@ X1-85** and dropped 944 of 1287 frames in the browser. **A limit past the last b
 (`StarChunkIndex.BudgetedMagnitudeLimit`, `MaxStarInstancesPerView` = 300k, both pipelines): the two
 culls bound a view on two axes, never their product, and a limit raised by hand to 12 over a wide field
 reached ~0.8M, so the limit drops a bin at a time until the view fits. Measurements, the WebGL2 `firstInstance`
-workaround and the two cull details that bite: `docs/plans/web-tycho2.md`.
+workaround and the two cull details that bite: this document.

@@ -246,7 +246,7 @@ per rule and points here.
 
 The GUI status-bar date opens a month of NIGHTS (`NightCalendarPopover`, `NightCalendarActions`; pure
 `NightSummary` + `NightVerdict` in `TianWen.Lib.Sequencing`). Design, thresholds and what is still open:
-`docs/plans/night-calendar.md`. The rules:
+this document. The rules:
 
 - **Every Open-Meteo hourly array is nullable per element.** The far end of a 16-day range is null, and one null
   in a `List<double>` fails the whole response.

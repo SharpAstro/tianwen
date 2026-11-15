@@ -296,7 +296,7 @@ per rule and points here.
 
 ### Test Collections & Parallelism (from CLAUDE.md)
 
-Every rule below in full, with the incident behind it: `docs/architecture/session-test-harness.md` (the guider
+Every rule below in full, with the incident behind it: this document (the guider
 race, the time pump, and "Test collections and parallelism in full (moved from CLAUDE.md, 2026-10-09)").
 
 - **Less parallelism is faster here, and the config only counts if it is copied to the output**: every test
