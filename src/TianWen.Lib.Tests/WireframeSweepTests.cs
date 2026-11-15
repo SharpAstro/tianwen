@@ -593,12 +593,16 @@ public class WireframeSweepTests
         var white = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
         renderer.DrawText("Veil Nebula".AsSpan(), font, 14f, white,
             new RectInt(new PointInt(20, 20), new PointInt(120, 40)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
-        var mapInk = renderer.Frame.Texts[0].Ink;
-        renderer.RegisterClickable(20, 20, 100, 20, new HitResult.ButtonHit("LayerPalette"), _ => { });
         renderer.DrawText("Layers".AsSpan(), font, 14f, white,
             new RectInt(new PointInt(24, 22), new PointInt(124, 42)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
+        var drawn = renderer.Frame;
+        var mapInk = drawn.Texts[0].Ink;
+        // The chrome's control sits between the two texts in paint order: its region's order is the chrome text's own.
+        var control = new RectF32(20, 20, 100, 20);
+        var frame = new WireframeFrame(drawn.Bounds, drawn.Texts, drawn.Fills,
+            [new WireframeRegion(drawn.Texts[1].Order, control, control, new HitResult.ButtonHit("LayerPalette"))]);
         var boxes = new[] { new SkyMapTab<RgbaImage>.PlacedMapLabel(new RectF32(mapInk.X, mapInk.Y, mapInk.Width, mapInk.Height), placement) };
-        return (renderer.Frame, boxes);
+        return (frame, boxes);
     }
 
     [Fact]
