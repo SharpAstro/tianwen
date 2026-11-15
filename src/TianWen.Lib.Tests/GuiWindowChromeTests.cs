@@ -66,9 +66,8 @@ public class GuiWindowChromeTests
 
         foreach (var tab in GuiAppState.TabOrder)
         {
-            painted.Regions.ShouldContain(
-                r => r.Result is HitResult.ButtonHit { Action: var a } && a == $"Tab:{tab}",
-                $"{tab} has a rail cell, re-stated as its Tab:<name> button");
+            painted.Regions.Any(r => r.Result is HitResult.ButtonHit { Action: var a } && a == $"Tab:{tab}")
+                .ShouldBeTrue($"{tab} has a rail cell, re-stated as its Tab:<name> button");
         }
     }
 
@@ -79,11 +78,11 @@ public class GuiWindowChromeTests
         using var renderer = new RgbaImageRenderer(width, SurfaceH);
 
         var idle = Paint(renderer, width, dpi, sessionRunning: false);
-        idle.Regions.ShouldContain(r => r.Result is HitResult.ButtonHit { Action: "DateCalendar" });
+        idle.Regions.Any(r => r.Result is HitResult.ButtonHit { Action: "DateCalendar" }).ShouldBeTrue();
         idle.Chrome.DateCalendarAnchor.ShouldNotBeNull();
 
         var running = Paint(renderer, width, dpi, sessionRunning: true);
-        running.Regions.ShouldNotContain(r => r.Result is HitResult.ButtonHit { Action: "DateCalendar" });
+        running.Regions.Any(r => r.Result is HitResult.ButtonHit { Action: "DateCalendar" }).ShouldBeFalse();
         running.Chrome.DateCalendarAnchor.ShouldBeNull();
     }
 
