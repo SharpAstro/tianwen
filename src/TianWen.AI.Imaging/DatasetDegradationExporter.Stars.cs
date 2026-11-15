@@ -588,7 +588,7 @@ public static partial class DatasetDegradationExporter
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
                 options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger),
-                measuredSaturated: options.SaturatedMeasured);
+                measuredSaturated: options.SaturatedMeasured, haloOverPlate: options.HaloOverPlate);
             if (options.SaturatedAtOwnShare)
             {
                 logger?.LogInformation("[degrade] {Session}: saturated at its own share, {Share:P1} of its sites", sessionId, population.SaturatedShare);

@@ -1941,6 +1941,14 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "it clipped. A measured star keeps that shape whatever the cell's other star options ask (--star-beta, " +
                           "--star-beta-draw, --chromatic-width, --star-shapes, the wing clamp): they move the other stars. Off by default.",
         };
+        var haloOverPlateOpt = new Option<bool>("--halo-over-plate")
+        {
+            Description = "--mode stars, with --saturated-measured and without --outer-halo: also draw the halo the starless plate keeps " +
+                          "round a saturated star (the classical remover leaves a star's outer halo in the plate, so a measurement of " +
+                          "the master less the plate never sees it): a measured star gains the session's median of it per amplitude, " +
+                          "to 45 px, and every other star draws the session's whole halo past 6 px. A session with fewer than eight " +
+                          "measured stars draws as without it. Off by default.",
+        };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
         {
             Description = "--mode stars: the weakest wing, as a factor of the master's own, that half the draws of a cell give one " +
@@ -2012,7 +2020,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, haloOverPlateOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2176,6 +2184,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(saturatedMeasuredOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
             {
                 consoleHost.WriteError("--saturated-measured draws injected stars; it needs --mode stars");
+                return 1;
+            }
+            if (parseResult.GetValue(haloOverPlateOpt) && (!parseResult.GetValue(saturatedMeasuredOpt) || parseResult.GetValue(outerHaloOpt) is not null))
+            {
+                consoleHost.WriteError("--halo-over-plate is read off the measured saturated stars and is the outer halo; it needs --saturated-measured and no --outer-halo");
                 return 1;
             }
             var channelWingCut = parseResult.GetValue(channelWingCutOpt);
@@ -2388,6 +2401,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ChromaticWidthRatio: chromaticWidth,
                 SaturatedAtOwnShare: parseResult.GetValue(saturatedOwnShareOpt),
                 SaturatedMeasured: parseResult.GetValue(saturatedMeasuredOpt),
+                HaloOverPlate: parseResult.GetValue(haloOverPlateOpt),
                 NoiseScale: noiseScale,
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,
