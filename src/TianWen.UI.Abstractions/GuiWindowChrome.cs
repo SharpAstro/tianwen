@@ -439,6 +439,9 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         var planDate = plannerState.PlanningDate ?? now;
         var isTonight = !plannerState.PlanningDate.HasValue || planDate.Date == now.Date;
         string dateStr;
+        // The same label without the night's hours: what the last rung of the fit below keeps when even the date
+        // with its hours does not fit beside the clock and Connect All.
+        var dateShort = isTonight ? "Tonight" : planDate.ToString("ddd d MMM");
         if (isTonight && plannerState.AstroDark != default)
         {
             var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
@@ -503,19 +506,25 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         // CENTRE: [<] date [>] verdict, centred via flanking star spacers. Arrows hidden during a session.
         // The label opens the night calendar (whose Tonight button is what the label's old reset-on-click
         // became); the verdict is the planned night's, from the same summary the calendar cell reads.
-        var dateLabel = Layout.Builder.Text(dateStr, BaseFontSize, dateColor, TextAlign.Center, TextAlign.Center)
-            .WAuto().HStar();
-        if (!sessionRunning)
+        Layout.Node DateLabel(string text)
         {
+            var label = Layout.Builder.Text(text, BaseFontSize, dateColor, TextAlign.Center, TextAlign.Center)
+                .WAuto().HStar();
+            if (sessionRunning)
+            {
+                return label;
+            }
             var calendar = plannerState.Calendar;
-            dateLabel = dateLabel.PadX(gapDu)
+            return label.PadX(gapDu)
                 .BgHover(TianWen.UI.Abstractions.GuiTheme.Hover(StatusBarBg))
                 .Opens(calendar.Popover)
                 // Runs before the toggle: an opening calendar starts on the planned night's month.
                 .Clickable(new HitResult.ButtonHit(DateCalendarAction),
                     _ => { if (!calendar.Popover.IsOpen) NightCalendarActions.PrepareToOpen(calendar); });
         }
-        else
+        var dateLabelFull = DateLabel(dateStr);
+        var dateLabelShort = DateLabel(dateShort);
+        if (sessionRunning)
         {
             plannerState.Calendar.Popover.Close();
         }
@@ -543,8 +552,9 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
                 .Clickable(new HitResult.ButtonHit("DateNext"),
                     _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, skyMapState); });
         }
-        Layout.Node DateGroup(bool arrows, bool verdict)
+        Layout.Node DateGroup(bool arrows, bool verdict, bool hours)
         {
+            var dateLabel = hours ? dateLabelFull : dateLabelShort;
             var shownVerdict = verdict ? verdictNode : Layout.Builder.Spacer().WFixed(0f);
             return arrows && prev is not null && next is not null
                 ? Layout.Builder.HStack(prev, dateLabel, next, shownVerdict).WAuto().HStar().WithGap(gapDu)
@@ -611,20 +621,24 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         var barRect = new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh);
         var available = new Layout.Size<float>(barRect.Width, barRect.Height);
         var groupGap = Layout.Builder.Spacer().WFixed(gapDu * 2f);
-        ReadOnlySpan<(bool Status, bool Day, bool Arrows, bool Verdict)> fits =
+        // The last rung also drops the night's hours from the date label: a pinned date's label is the widest thing
+        // left, and with Connect All beside the clock at 1.5x on a half-screen window the rung before it still ran the
+        // clock off the window (found by the window-chrome sweep, #2139). The order of the rungs above it is unchanged.
+        ReadOnlySpan<(bool Status, bool Day, bool Arrows, bool Verdict, bool Hours)> fits =
         [
-            (true, true, true, true),
-            (false, true, true, true),
-            (false, false, true, true),
-            (false, false, false, true),
-            (false, false, false, false),
+            (true, true, true, true, true),
+            (false, true, true, true, true),
+            (false, false, true, true, true),
+            (false, false, false, true, true),
+            (false, false, false, false, true),
+            (false, false, false, false, false),
         ];
         var fit = fits[^1];
         foreach (var candidate in fits)
         {
             var row = Layout.Builder.HStack(
                     StatusZone(candidate.Status, measuring: true),
-                    DateGroup(candidate.Arrows, candidate.Verdict),
+                    DateGroup(candidate.Arrows, candidate.Verdict, candidate.Hours),
                     groupGap,
                     connectAll,
                     candidate.Day ? clockWithDay : clockTimeAlone)
@@ -637,7 +651,7 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         }
 
         var clockNode = fit.Day ? clockWithDay : clockTimeAlone;
-        var dateGroup = DateGroup(fit.Arrows, fit.Verdict);
+        var dateGroup = DateGroup(fit.Arrows, fit.Verdict, fit.Hours);
         var rightGroup = Layout.Builder.HStack(connectAll, clockNode).WAuto().HStar();
         var widestGroup = MathF.Max(MeasureLayout(dateGroup, available).Width, MeasureLayout(rightGroup, available).Width);
         var bar = fit.Status && widestGroup <= barRect.Width / 3f
