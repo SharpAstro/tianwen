@@ -736,11 +736,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             ("Ced",     Catalog.Ced),
         ];
         phaseSw.Restart();
+        var shapesUnreadable = false;
         foreach (var (fileName, cat) in shapeSources)
         {
-            await ReadCatalogObjectShapesAsync(fileName, cat, cancellationToken);
+            shapesUnreadable |= await ReadCatalogObjectShapesAsync(fileName, cat, cancellationToken) is null;
         }
-        _lastInitPhaseTimings.Add(("shapes", phaseSw.Elapsed));
+        _lastInitPhaseTimings.Add((shapesUnreadable ? "shapes:unreadable" : "shapes", phaseSw.Elapsed));
 
         // Wait for the small cross-ref arrays only: the bulk tyc2.bin.lz decode keeps
         // running in the background and only blocks init if the Phase 2A snapshot apply
@@ -835,11 +836,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// throws on by contract and <see cref="ReadObjectArticles(Stream, out bool)"/> catches. A truncated
     /// resource is the likely way to the latter, and it is only sometimes that: the gzip decoder ends a
     /// cut-short stream silently, so the records before the cut read as a table (see the remark on
-    /// <c>TryRead</c>). Reported as the <c>object-articles:unreadable</c> phase, since this class has no logger.
+    /// <c>TryRead</c>). So is a table its source lists and could not fetch (an <see cref="IOException"/> from
+    /// <see cref="IDataFileSource.OpenAsync"/>, a dropped request on the web): embedded, the file could not fail
+    /// to arrive, and a planner is not ended by one. Reported as the <c>object-articles:unreadable</c> phase,
+    /// since this class has no logger.
     /// </remarks>
     private async Task<FrozenDictionary<CatalogIndex, ObjectArticle>> ReadObjectArticlesAsync(CancellationToken cancellationToken)
     {
-        if (await _dataFiles.OpenAsync(ObjectArticleTable.FileName, cancellationToken) is not { } stream)
+        Stream? stream;
+        try
+        {
+            stream = await _dataFiles.OpenAsync(ObjectArticleTable.FileName, cancellationToken);
+        }
+        catch (IOException)
+        {
+            _objectArticlesUnreadable = true;
+            return FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
+        }
+
+        if (stream is null)
         {
             return FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
         }
@@ -3393,9 +3408,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// by the coarser circular approximation derived from VizieR area/diameter
     /// fields. See <c>Get-VizierDarkNebulaShapes.ps1</c>.
     /// </summary>
-    private async Task<int> ReadCatalogObjectShapesAsync(string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
+    /// <returns>
+    /// The shapes applied, or null where the source lists the file and could not fetch it (an
+    /// <see cref="IOException"/> from <see cref="IDataFileSource.OpenAsync"/>). The shapes enrich the catalogue as
+    /// the articles do, so that is a catalogue without these outlines and never a failed init; the caller reports
+    /// it as the <c>shapes:unreadable</c> phase.
+    /// </returns>
+    private async Task<int?> ReadCatalogObjectShapesAsync(string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
     {
-        if (await _dataFiles.OpenAsync(jsonName + ".shapes.json.lz", cancellationToken) is not { } stream)
+        Stream? stream;
+        try
+        {
+            stream = await _dataFiles.OpenAsync(jsonName + ".shapes.json.lz", cancellationToken);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+
+        if (stream is null)
         {
             return 0;
         }

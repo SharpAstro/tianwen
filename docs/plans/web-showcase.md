@@ -119,7 +119,10 @@ never a local nupkg feed).
    TianWen.Lib's `ILLink.Substitutions.xml`, the same list the trimmer acts on. `Program.cs` stands
    `HttpDataFiles` (`TianWen.Lib/IO`) behind the embedded files: it reads the index, fetches
    everything on it at once, keeps it, answers null without a request for a name not on the index,
-   and tries a failed fetch again. A run that is not published (`dotnet run`, the E2E fixture) is not
+   and tries a failed fetch again, one that timed out as much as one that was refused. A file the
+   catalogue can do without (the article table, the outlines) that still does not arrive is gone
+   without, as the `object-articles:unreadable` or `shapes:unreadable` init phase; a catalogue it
+   needs fails the init naming the file. A run that is not published (`dotnet run`, the E2E fixture) is not
    trimmed, embeds everything and has no `data/`, so nothing is fetched. Measured on an ahead-of-time
    publish, win-arm64: `TianWen.Lib.wasm` 7.07 MB to 4.77 MB brotli, 2.32 MB in `data/`, 22 requests
    (each file once), planner ready in 9 s in headless Chromium as before. The first visit downloads

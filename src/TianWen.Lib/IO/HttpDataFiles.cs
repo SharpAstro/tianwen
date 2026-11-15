@@ -22,7 +22,8 @@ namespace TianWen.Lib.IO;
 /// with no index carries nothing, which is a dev server or a build that embeds everything, and not a fault.</para>
 /// <para>Everything on the index is fetched as soon as the index is read, all at once, and kept: the catalogue
 /// database asks for most of it in turn, some of it twice, and one request after another would cost a round
-/// trip each. A file that fails to arrive fails the reader that asks for it, naming the file.</para>
+/// trip each. A file that fails to arrive fails the reader that asks for it with an <see cref="IOException"/>
+/// naming the file, a request that timed out as much as one that was refused, and the next reader asks again.</para>
 /// </remarks>
 public sealed class HttpDataFiles : IDataFileSource
 {
@@ -52,7 +53,9 @@ public sealed class HttpDataFiles : IDataFileSource
         // A fetch that failed is not kept: the reader that asked was told, and the next one asks the web again,
         // so a dropped request does not leave a catalogue gone until the page is loaded anew.
         var index = Volatile.Read(ref _index);
-        if (index.IsFaulted)
+        // Cancelled counts as failed: nothing here runs under a token, so a cancelled task is a request the client gave
+        // up on, and a test of IsFaulted alone would keep it for good.
+        if (index.IsFaulted || index.IsCanceled)
         {
             var again = ReadIndexAsync();
             index = Interlocked.CompareExchange(ref _index, again, index) == index ? again : Volatile.Read(ref _index);
@@ -64,7 +67,7 @@ public sealed class HttpDataFiles : IDataFileSource
         }
 
         var fetch = _fetches.GetOrAdd(fileName, FetchAsync);
-        if (fetch.IsFaulted)
+        if (fetch.IsFaulted || fetch.IsCanceled)
         {
             var again = FetchAsync(fileName);
             fetch = _fetches.TryUpdate(fileName, again, fetch) ? again : _fetches.GetOrAdd(fileName, again);
@@ -80,14 +83,24 @@ public sealed class HttpDataFiles : IDataFileSource
 
     private async Task<FrozenSet<string>> ReadIndexAsync()
     {
-        using var response = await _http.GetAsync(new Uri(_folder, IndexFileName), HttpCompletionOption.ResponseContentRead);
-        if (response.StatusCode is HttpStatusCode.NotFound)
+        string text;
+        try
         {
-            return FrozenSet<string>.Empty;
+            using var response = await _http.GetAsync(new Uri(_folder, IndexFileName), HttpCompletionOption.ResponseContentRead);
+            if (response.StatusCode is HttpStatusCode.NotFound)
+            {
+                return FrozenSet<string>.Empty;
+            }
+
+            response.EnsureSuccessStatusCode();
+            text = await response.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        {
+            throw new IOException($"The data folder's index {new Uri(_folder, IndexFileName)} could not be read: {ex.Message}", ex);
         }
 
-        response.EnsureSuccessStatusCode();
-        var names = (await response.Content.ReadAsStringAsync())
+        var names = text
             .Split((char)10, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             // A name, never a path: the index is data, and a line with a separator in it would leave the folder.
             .Where(name => name.IndexOfAny(NotInAName) < 0)
@@ -108,7 +121,10 @@ public sealed class HttpDataFiles : IDataFileSource
         {
             return await _http.GetByteArrayAsync(new Uri(_folder, fileName));
         }
-        catch (HttpRequestException ex)
+        // A request timeout is not a cancellation. The client reports its timeout as a TaskCanceledException, and no
+        // token of a reader's reaches this fetch, so it is the same fact as a refused request: the file was not
+        // fetched. Left as it was, it would end the task cancelled, and a reader would take it for its own cancel.
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
             throw new IOException($"The data file {fileName} is listed in {new Uri(_folder, IndexFileName)} but could not be fetched: {ex.Message}", ex);
         }

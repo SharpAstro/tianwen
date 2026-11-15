@@ -31,6 +31,10 @@ public interface IDataFileSource
     /// Opens a file, waiting for it where it has to be fetched. Null when this source does not have the file,
     /// which is an answer and not a fault: the reader then does without it, or says which file is missing.
     /// </summary>
+    /// <exception cref="IOException">
+    /// The source has the file and could not get it (a request that failed or timed out). A reader of a file the
+    /// catalogue can do without catches this and does without; for a file it needs, the fault is the caller's to see.
+    /// </exception>
     ValueTask<Stream?> OpenAsync(string fileName, CancellationToken cancellationToken = default);
 
     /// <summary>
