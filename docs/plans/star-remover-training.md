@@ -5477,7 +5477,9 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
   against 0.81 M. One was an internal contradiction: seed 1 trained "only if seed 0 holds every guard and its M42 band reads
   at least 50", against the Tarantula exception beside it. The lines above are the corrected ones; the reviews of the
   correction added the positive rule for seed 1, the SMC exception's bound (first set at R3l's mean less its full seed range,
-  84.3 and 75.8, then tightened to R3l's lower seed less 3) and the rule that two seeds are judged on their mean.
+  84.3 and 75.8, then tightened to R3l's lower seed less 3) and the rule that two seeds are judged on their mean. A last
+  review, the same day and still before any score, added two things to that rule: the M31 nucleus is its one exception,
+  judged on each seed as R3s's was, and "What a kill means" gained its reading of a mean killed by M42 under 40.
 - **Prediction:** the truth tiles rise (more weights fit the synthetic stars better; R2nc's did). M42's band holds at R3s's
   level, 50 to 60. The SMC is the open part and the point of the arm: I put it at even odds that its 20-100 row comes within
   3 of R3l's. M42's blue dig is missed again; nothing in a larger model addresses it.
