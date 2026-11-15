@@ -9,13 +9,15 @@ noise under the star is kept: only the smooth part moves.
 
 --pin N (the second version, 'floor2' in the plan): a pixel more than N sigma under the sky around it is set to that sky
 first (a pinhole at a star's core), and the smooth lift is tapered to nothing at the mask's edge.
+--cap-up U --cap-down D with --pin (the third version, 'floor3'): a lift is at most U of what the model took at that
+pixel, and what stands above the sky is lowered by at most D of it.
 
 Reads f2-eval-master/<model>/on-real-val and on-random, writes f2-eval-master/<model>+<tag>/ the same way, so
 real_star_check3.py (real and --twin) scores it as a model. Glue only.
 """
 import json, os, sys
 import numpy as np
-from scipy.ndimage import gaussian_filter, binary_dilation, median_filter
+from scipy.ndimage import gaussian_filter, binary_dilation, median_filter, maximum_filter
 
 SCRATCH = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
 EVAL = f"{SCRATCH}/f2-eval-master"
@@ -52,11 +54,21 @@ def post(inp, out, mode, thr, grow, s_bg, s_lo):
             if mode == "floor": s = np.minimum(s, 0)
             taper = np.clip(2 * gaussian_filter(mf, 1.0) - 1, 0, 1)
             res[c] = np.where(m, o - s * taper, out[c])
+            if CAP_UP > 0:
+                # v3: no correction exceeds a share of what the MODEL took at that pixel (its removal, smoothed 1 px, the
+                # largest within 2 px). A lift is at most CAP_UP of it, so smooth bright nebula the model barely touched is
+                # left alone; what still stands ABOVE the sky is lowered by at most CAP_DOWN of it, which reaches the
+                # residue at a saturated core (the removal there is hundreds of sigma) and not a galaxy's nucleus.
+                took = maximum_filter(np.maximum(gaussian_filter(inp[c] - out[c], 1.0), 0), 5)
+                up = np.clip(res[c] - out[c], 0, CAP_UP * took)
+                s2 = gaussian_filter((o - bg) * mf, s_lo) / np.maximum(gaussian_filter(mf, s_lo), 1e-6)
+                down = np.minimum(np.maximum(s2, 0) * taper, CAP_DOWN * took)
+                res[c] = np.where(m, out[c] + up - down, out[c])
         else:
             res[c] = np.where(m, out[c] - s, out[c])
     return res, float(m.mean())
 
-PIN = arg('--pin', 0.0)
+PIN = arg('--pin', 0.0); CAP_UP = arg('--cap-up', 0.0); CAP_DOWN = arg('--cap-down', 0.0)
 
 def main():
     model, mode = sys.argv[1], sys.argv[2]
