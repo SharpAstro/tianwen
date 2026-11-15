@@ -99,44 +99,32 @@ namespace TianWen.Lib.Tests
             return viewer.FileList.Width;
         }
 
+        /// <summary>
+        /// In a narrow window the file list is the pane that gives: the info panel's text is cut at its own width, so the list
+        /// is granted less than it was dragged to, and a drag wider takes nothing from the panel. The divider stays a handle
+        /// with a width to grab (#2139).
+        /// </summary>
         [Theory]
         [InlineData(1f)]
         [InlineData(1.5f)]
         [InlineData(2f)]
-        public void InANarrowWindowTheFileListCanStillBeDraggedNarrower(float dpiScale)
+        public void InANarrowWindowTheInfoPanelKeepsItsWidthWhateverTheListIsDraggedTo(float dpiScale)
         {
             using var renderer = new RgbaImageRenderer(NarrowW, NarrowH);
             var viewer = NewViewer(renderer, dpiScale);
             var state = NewState();
 
             viewer.Render(null, state);
-            var granted = viewer.FileList.Width;
-            granted.ShouldBeGreaterThan(0f);
+            var panelWidth = viewer.InfoPanel.Width;
+            panelWidth.ShouldBeGreaterThanOrEqualTo(300f * dpiScale - 0.5f);
 
-            // Ask for roughly half of what the layout is currently granting.
-            var after = DragDividerTo(viewer, state, granted * 0.5f);
+            var wider = DragDividerTo(viewer, state, NarrowW * 0.9f);
+            viewer.InfoPanel.Width.ShouldBeGreaterThanOrEqualTo(300f * dpiScale - 0.5f);
+            wider.ShouldBeGreaterThan(0f);
 
-            after.ShouldBeLessThan(granted);
-        }
-
-        [Theory]
-        [InlineData(1f)]
-        [InlineData(1.5f)]
-        [InlineData(2f)]
-        public void InANarrowWindowTheFileListCanStillBeDraggedWider(float dpiScale)
-        {
-            using var renderer = new RgbaImageRenderer(NarrowW, NarrowH);
-            var viewer = NewViewer(renderer, dpiScale);
-            var state = NewState();
-
-            viewer.Render(null, state);
-            var granted = viewer.FileList.Width;
-
-            // First make room to grow into, so this is a genuine widen and not a clamp bumping the floor.
-            var narrowed = DragDividerTo(viewer, state, granted * 0.5f);
-            var widened = DragDividerTo(viewer, state, narrowed + granted * 0.25f);
-
-            widened.ShouldBeGreaterThan(narrowed);
+            var narrower = DragDividerTo(viewer, state, 10f);
+            viewer.InfoPanel.Width.ShouldBeGreaterThanOrEqualTo(300f * dpiScale - 0.5f);
+            narrower.ShouldBeGreaterThan(0f);
         }
 
         /// <summary>

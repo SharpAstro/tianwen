@@ -20,11 +20,14 @@ namespace TianWen.UI.Abstractions
 
         private (float Left, float Top, float Width, float Height) GetHistogramRect(ViewerState state)
         {
-            var histW = BaseHistogramWidth * DpiScale;
             var histH = BaseHistogramHeight * DpiScale;
             var margin = BaseHistogramMargin * DpiScale;
             // Right edge + top of the image-area pane (abuts the info panel / region edge) from the layout pass.
             var area = _layout.ImageArea;
+            // Never wider than the pane it sits in: in a narrow window it would reach left over the file list.
+            var histW = area.Width > 0
+                ? MathF.Min(BaseHistogramWidth * DpiScale, MathF.Max(0f, area.Width - 2f * margin))
+                : BaseHistogramWidth * DpiScale;
             var region = ContentRegion;
             var rightEdge = area.Width > 0 ? area.X + area.Width : region.X + region.Width;
             var top = (area.Height > 0 ? area.Y : region.Y + ToolbarHeight) + margin;

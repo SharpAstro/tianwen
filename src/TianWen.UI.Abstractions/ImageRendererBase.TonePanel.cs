@@ -487,7 +487,9 @@ partial class ImageRendererBase<TSurface>
         // contains. The engine measures what is actually in it, prose and track minimum alike; the
         // info panel's width is only a FLOOR, and it is stated as the Star minimum the engine already
         // honours rather than as a max() over a separate measure pass.
-        var content = BuildToneTree(state, (Height - anchor.Y - anchor.Height) / DpiScale).WStar(1f, BaseInfoPanelWidth);
+        // The room is what is left above the status bar, which the popover must not cover: its text is the status.
+        var floor = _layout.StatusBar is { Height: > 0f } bar ? bar.Y : Height;
+        var content = BuildToneTree(state, (floor - anchor.Y - anchor.Height) / DpiScale).WStar(1f, BaseInfoPanelWidth);
 
         // Under the button and on screen, both the engine's: a side means just OUTSIDE that edge of
         // the ANCHOR while the clamp still targets the rect the popover floats in, which is the whole
