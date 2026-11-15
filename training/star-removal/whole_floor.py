@@ -1,6 +1,9 @@
 """The dig_floor post-step on whole linear masters. python -I whole_floor.py <w-tag> <floor|fill|floor2> [scorecard.json]
 Reads f2-whole-master/<w-tag>/{andromeda,tarantula,sag}_starless.fits and the input masters of the scorecard config,
-writes f2-whole-master/<w-tag>+<mode>/<name>_starless.fits (score_whole.py then scores them as given plates)."""
+writes f2-whole-master/<w-tag>+<mode>/<name>_starless.post.fits, NOT <name>_starless.fits. score_whole.py reads
+<name>_starless.fits and copies a --plates file in only when that does not exist yet, so to score a result hand it over as
+--plates <name>=<path to the .post.fits>; a stale <name>_starless.fits already in the folder is scored in preference to a
+re-run .post.fits."""
 import json, os, sys
 import numpy as np
 from astropy.io import fits
@@ -8,6 +11,8 @@ from scipy.ndimage import gaussian_filter, binary_dilation, median_filter, zoom
 S = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
 cfg = json.load(open(sys.argv[3] if len(sys.argv) > 3 else f"{S}/whole-blend3-scorecard.json", encoding="utf-8"))
 tag, mode = sys.argv[1], sys.argv[2]
+if mode not in ("floor", "fill", "floor2"):
+    sys.exit(f"mode must be floor, fill or floor2, got '{mode}'")
 THR, GROW, SBG, SLO, B = 1.5, 2, 4.0, 1.5, 64
 
 def sigma_map(c, ok):

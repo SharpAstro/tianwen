@@ -60,6 +60,8 @@ PIN = arg('--pin', 0.0)
 
 def main():
     model, mode = sys.argv[1], sys.argv[2]
+    if mode not in ("floor", "fill"):
+        sys.exit(f"mode must be floor or fill, got '{mode}' (the plan's 'floor2' is mode floor with --pin 2.5 --tag floor2)")
     thr, grow, s_bg, s_lo = arg("--thr", 1.5), arg("--grow", 2), arg("--bg", 4.0), arg("--lo", 1.5)
     tag = arg("--tag", mode)
     for sub, src in SETS.items():
