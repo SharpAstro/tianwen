@@ -98,6 +98,13 @@ namespace TianWen.UI.Abstractions
         private readonly ListScrollController _configScroll =
             new ListScrollController { Mode = ScrollBarMode.Decorative, AtomDesignUnits = BaseItemHeight };
 
+        /// <summary>
+        /// The narrowest tab, in design units, that still holds the form beside the panel, as the last render
+        /// measured it: the form's own floor, the rule and the panel's least. A test draws the tab at exactly this
+        /// width, where the form has its floor and nothing to spare.
+        /// </summary>
+        internal float SideBySideLeastWidth { get; private set; }
+
 
         // -----------------------------------------------------------------------
         // Public entry point
@@ -143,22 +150,24 @@ namespace TianWen.UI.Abstractions
                 minWidth: BaseValueW,
                 maxWidth: tabW - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f,
                 horizontalPadding: BasePadding);
-            // The engine measures in device px; the tree below is in design units.
-            var formTree = BuildConfigTree();
-            var formNeed = MeasureLayout(
-                formTree, new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width / dpiScale;
             // The form scrolls in the engine, one atom a form line: the engine measures it, slides it and clips it,
             // and the row an arrow key lands on is brought into view by the widget base (RevealListRow). It used to
             // sum its own rows into a height and a Y per field, to feed a hand-fed controller and scroll a field
             // into view, beside a panel the engine already scrolled.
             _configScroll.TrackColor = SeparatorColor;
             _configScroll.ThumbColor = GuiTheme.Palette.SeparatorStrong;
-            var form = formTree.WithScroll(_configScroll).Bg(ContentBg);
+            var form = BuildConfigTree().WithScroll(_configScroll).Bg(ContentBg);
+            // The form's floor is the measure of the SCROLLED node, so it holds the bar's column beside the widest
+            // row (DIR.Lib 11.66; measured bare, the floor was one bar short of what the arrange then reserved).
+            // The engine measures in device px; the tree below is in design units.
+            var formNeed = MeasureLayout(
+                form, new Layout.Size<float>(float.MaxValue, float.MaxValue)).Width / dpiScale;
             var panel = BuildRightPanel(plannerState);
             var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
             // Each floor is stated once: the side-by-side tree declares them and the fit test below reads the same
             // values (a star's floor is not part of the engine's measure of the row, so the test cannot ask it).
-            var fitsSideBySide = formNeed + BaseSeparatorW + BaseObsPanelLeastWidth <= tabW;
+            SideBySideLeastWidth = formNeed + BaseSeparatorW + BaseObsPanelLeastWidth;
+            var fitsSideBySide = SideBySideLeastWidth <= tabW;
             var tab = fitsSideBySide
                 ? Layout.Builder.HStack(
                     form.WStar(1f, min: formNeed).HStar(),

@@ -254,6 +254,43 @@ public class WireframeSweepTests
         ["session"] = ["M8", "M42", "Start Session"],
     };
 
+    /// <summary>
+    /// The Session form at its floor: the tab drawn exactly as wide as the form, the rule and the panel's least
+    /// need side by side, which no width of the sweep happens to be. There the form has what it measured and no
+    /// more, so a measure that leaves the scrollbar's column out (the bare tree, before DIR.Lib 11.66 counted it
+    /// in a scrolled stack's measure) cuts the widest row by one bar.
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void TheSessionFormIsWholeWhereItHasOnlyItsFloor(float scale)
+    {
+        var planner = PlannerTabLayoutTests.BuildState();
+        planner.Proposals = [new ProposedObservation(new Target(5.58, -5.39, "M42", null))];
+
+        float floor;
+        using (var wide = new WireframeRenderer(2400, 900))
+        {
+            var probe = new SessionTab<RgbaImage>(wide) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            wide.Begin();
+            probe.Render(new GuiAppState(), planner, new RectF32(0, 0, 2400, 900), new FakeTimeProviderWrapper(Now));
+            floor = probe.SideBySideLeastWidth;
+        }
+
+        floor.ShouldBeGreaterThan(300f);
+        var width = (uint)MathF.Ceiling(floor * scale);
+        using var renderer = new WireframeRenderer(width, 900);
+        var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        renderer.Begin();
+        tab.Render(new GuiAppState(), planner, new RectF32(0, 0, width, 900), new FakeTimeProviderWrapper(Now));
+
+        var frame = renderer.Frame;
+        string.Join("; ", Wireframe.Check(frame).Select(f => f.Message)).ShouldBeEmpty();
+        // Side by side, not stacked: the panel's button is beside the form, not under it.
+        var start = frame.Texts.First(t => t.Text.Contains("Start Session", StringComparison.Ordinal));
+        start.Ink.X.ShouldBeGreaterThan(width / 2f);
+    }
+
     private static IEnumerable<string> NotShownWhole(WireframeFrame frame, string[] shown)
         => shown
             .Where(part => !frame.Texts.Any(t => t.Text.Contains(part, StringComparison.Ordinal)
