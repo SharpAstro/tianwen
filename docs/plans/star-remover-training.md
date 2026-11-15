@@ -5435,9 +5435,11 @@ reason one behaviour for a star's wings cannot serve M42 and the SMC together.
 - **Why this and not another setting:** three settings of the channel spread each moved M42 and each failed the SMC (R3s, R3t,
   R3u). SXT's weights file is 66.5 MB (about 16 M weights) and StarNet2's 131.5 MB (about 33 M); ours is the smallest by a
   factor of 20. R2nc, the same network on synth4 (2026-10-20), gained on faint stars and not on bright ones, so a gain here is
-  not assumed. The plan also records that the SMC splits by seed, not by recipe ("The SMC read splits by seed", a different
-  measure from the own-ring bands: every seed 1 near 90 % flat, every seed 0 at 37 to 79, R3a among them), and R3l's own seeds
-  differ on the own-ring rows by 5.1 (20-100) and 11.9 (100-1000).
+  not assumed. Two four-level arms already carry SMC rows, on another measure than the own-ring bands (97 stars, flat): R2t
+  read 93.8 on one seed, and R3a, R2t's recipe on the master's stretch, read 62.9 on seed 0 and 91.8 on seed 1. So a
+  four-level net can keep the SMC and does not do so on every seed; neither arm drew its channels apart, which is what fails
+  the SMC here. The plan records the same of every recipe ("The SMC read splits by seed"), and R3l's own seeds differ on the
+  own-ring rows by 5.1 (20-100) and 11.9 (100-1000).
 - **The training:** the frozen trainer copy (`C:/temp/e2/r3h-run`), synth22's prepared cache where R3s trained on it
   (`D:/temp/tianwen-scratch/r2-synth22`), **one seed first**. A probe on the 1070
   (2026-11-15) read 35.7 tiles a second against the small model's 52.5, about 14 hours at R3s's step count.
@@ -5449,15 +5451,22 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
 - **Guards:** as R3s's, every one: HIP 80609, Lobster and SMC at 20-100 and 100-1000 sigma no more than 3 points below R3l's
   mean on the own ring (the SMC 92.4 and 90.7; R3s 81.4 and 85.6); truth tiles at least 72 and 54; Andromeda dark dug at most
   47 and Tarantula dark flat at least 69 (R3s 69.3 / 65.1); the M31 nucleus under 40 % in every channel.
-- **Kill:** M42 under 40, as for R3s, R3t and R3u (50 is the Q2 bar, not the kill; this row has shown a seed spread of 5 to
-  12 points); or a guard fails. A seed 0 that fails on Tarantula's row ALONE by under 4 points, or on the SMC's rows ALONE,
-  trains seed 1 and is read on the mean: both rows are known to move with the seed.
-- **What a kill means:** if the SMC's 20-100 row stays more than 3 under R3l's on the two-seed mean with 8.5 times the
-  weights, capacity at this size is not shown to be what holds the two fields apart, and the next candidate is the owner's
-  second idea of the same day: more than one model, chosen per image by a measurement of its stars.
+- **Kill:** M42 under 40 on seed 0, as for R3t and R3u (R3s's was on its two-seed mean; 50 is the Q2 bar, not the kill, and
+  this row has shown a seed spread of 5 to 12 points); or a guard fails.
+- **When seed 1 trains:** when seed 0 is not killed (every guard held and M42 at 40 or more, whether or not it clears 50);
+  or when it is killed on Tarantula's row ALONE by under 4 points; or on the SMC's rows ALONE with each inside R3l's own
+  seed spread under the bar, the 20-100 row at 84.3 or more (92.4 less 3 less 5.1) and the 100-1000 row at 75.8 or more
+  (90.7 less 3 less 11.9). The two seeds are then read on the mean. Any other kill ends the arm on seed 0.
+- **What a kill means:** on a two-seed mean whose SMC 20-100 row stays more than 3 under R3l's with 8.5 times the weights,
+  capacity at this size is not shown to be what holds the two fields apart. On a kill that ends the arm on seed 0 (M42 under
+  40, another guard, or the SMC past its bound) nothing is concluded about capacity from one seed. In both cases the line
+  waits for the owner; the owner's second idea of the same day (more than one model, chosen per image by a measurement of its
+  stars) is the candidate named, and it is not started unasked.
 - **Amended 2026-11-15, before any score of R3v exists** (seed 0 was at step 55,600 of its training): the first registration
-  killed on M42 under 50, said "seven times the weights" and drew the capacity conclusion from one seed of the SMC. The review
-  of that text showed each at odds with the plan's own seed spreads, and the three lines above are the corrected ones.
+  killed on M42 under 50, said "seven times the weights", drew the capacity conclusion from one seed of the SMC, and trained
+  seed 1 "only if seed 0 holds every guard and its M42 band reads at least 50", which contradicted the Tarantula exception.
+  The reviews of that text showed each at odds with the plan's own seed spreads; the lines above are the corrected ones, the
+  SMC exception's bound and the positive rule for seed 1 among them.
 - **Prediction:** the truth tiles rise (more weights fit the synthetic stars better; R2nc's did). M42's band holds at R3s's
   level, 50 to 60. The SMC is the open part and the point of the arm: I put it at even odds that its 20-100 row comes within
   3 of R3l's. M42's blue dig is missed again; nothing in a larger model addresses it.
