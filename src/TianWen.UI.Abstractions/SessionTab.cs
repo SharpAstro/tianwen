@@ -105,8 +105,8 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         internal float SideBySideLeastWidth { get; private set; }
 
-        /// <summary>The form's own floor in design units, as the last render measured it: its widest row and its scrollbar.</summary>
-        internal float FormFloor { get; private set; }
+        /// <summary>Where the last render arranged the form, in device px: the whole of it, and the part left of its scrollbar.</summary>
+        internal (RectF32 Viewport, RectF32 Content) FormArea => (_configScroll.Viewport, _configScroll.ContentArea);
 
 
         // -----------------------------------------------------------------------
@@ -169,7 +169,6 @@ namespace TianWen.UI.Abstractions
             var rule = Layout.Builder.Spacer().Bg(SeparatorColor);
             // Each floor is stated once: the side-by-side tree declares them and the fit test below reads the same
             // values (a star's floor is not part of the engine's measure of the row, so the test cannot ask it).
-            FormFloor = formNeed;
             SideBySideLeastWidth = formNeed + BaseSeparatorW + BaseObsPanelLeastWidth;
             var fitsSideBySide = SideBySideLeastWidth <= tabW;
             var tab = fitsSideBySide

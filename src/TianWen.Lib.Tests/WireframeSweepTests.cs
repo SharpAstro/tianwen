@@ -298,13 +298,16 @@ public class WireframeSweepTests
         var start = frame.Texts.First(t => t.Text.Contains("Start Session", StringComparison.Ordinal));
         start.Ink.X.ShouldBeGreaterThan(width / 2f);
 
-        // The form's controls end where the bar's column begins: the floor is the widest row AND the bar.
-        var formWidth = tab.FormFloor * scale;
-        var bar = ListScrollController.ScrollBarBaseWidthPx * scale;
+        // Read from where the engine ARRANGED the form, not from what the tab measured: the form overflows this
+        // height, so a bar's column was reserved, and no control in a row reaches into it.
+        var (viewport, content) = tab.FormArea;
+        content.Width.ShouldBeLessThan(viewport.Width, "the form does not overflow here, so no scrollbar was reserved and the test shows nothing");
         // A row is itself a region as wide as the form; the controls in it (a stepper's buttons, a toggle) are not.
-        var rightmost = frame.Regions.Where(r => r.Rect.X < formWidth && r.Rect.Width < formWidth / 2f).Max(r => r.Rect.X + r.Rect.Width);
-        rightmost.ShouldBeLessThanOrEqualTo(formWidth - bar + 1f,
-            $"a form control reaches {rightmost:0.#} px in a form {formWidth:0.#} px wide whose last {bar:0.#} px are the scrollbar's");
+        var rightmost = frame.Regions
+            .Where(r => r.Rect.X < viewport.X + viewport.Width && r.Rect.Width < viewport.Width / 2f)
+            .Max(r => r.Rect.X + r.Rect.Width);
+        rightmost.ShouldBeLessThanOrEqualTo(content.X + content.Width + 1f,
+            $"a form control reaches {rightmost:0.#} px; the form's content ends at {content.X + content.Width:0.#} px and its scrollbar takes the rest up to {viewport.X + viewport.Width:0.#} px");
     }
 
     private static IEnumerable<string> NotShownWhole(WireframeFrame frame, string[] shown)
