@@ -5629,8 +5629,8 @@ the first angle is a step after the model and not another arm:
   SXT is scored on 1738 stars at 100-1000 and 94 saturated: the check skips a window holding a NaN per model, so in
   those two bands the sets differ by one star, and the saturated gap read here (91.6 against 89.4) is about two stars.
   The saturated band has another side: ring DUG by count is 16.8 as trained, 3.2 with floor, 3.2 with floor2 and 5.3
-  with floor3 (SXT 2.1), so the bounded lowering digs two more stars (one HIP 80609, one Lobster) while it takes the
-  residue (left 10.5 to 4.2). Saturated dug is not a registered bar; it is reported on seed 1 and watched.
+  with floor3 (SXT 2.1), so against floor and floor2 the bounded lowering digs two more stars (one HIP 80609, one Lobster) while it takes the
+  residue (left by count 6.3 as trained, 7.4 floor, 10.5 floor2, 4.2 floor3; SXT 8.5). Saturated dug is not a registered bar; it is reported on seed 1 and watched.
 
   With floor3 by count: R3l 99.1 / 100.0 / 93.7, R3s 99.0 / 100.0 / 91.6, R3j 99.2 / 99.5 / 92.6 (`check3-bycount.txt`).
   - **It repairs floor2's harm on a model that leaves wings:** on R3s's seed 0 the SMC rows go 83.6 / 88.1 as trained,
@@ -5643,7 +5643,7 @@ the first angle is a step after the model and not another arm:
     12 % on Tarantula (a gain), Andromeda's median holds (591.4 to 599.4) and Tarantula's median RISES 16 % (965.5 to
     1121.1; 22 % with floor2). The likely cause, not measured: as trained, a dig inside the annulus cancels part of the
     halo in the sum, and filling the dig uncovers it. The nucleus's green moves 5.1 to 6.0 %.
-  - **So the gap that is left is the wide halo, and no step here closes it:** round bright clipped stars the model leaves
+  - **So the gap that is left is the wide halo, and no step judged here closes it (the ring-median step explored below removes it, by construction):** round bright clipped stars the model leaves
     about 2.5 times SXT's halo (green median 599 against 243) on 89 % of them against 59 %. That is the bright-halo line's
     own subject (R3q onward), a matter of what the synthetic stars' far wings teach, and the next angle.
 - **With the step, earlier arms that were killed for digging read alike on stars, and the halo tells them apart
@@ -5677,15 +5677,18 @@ the first angle is a step after the model and not another arm:
     profile over its 45-60 px ring, smoothed 2 px in radius, positive part only, tapered out from 37 to 45 px, is
     subtracted. Andromeda's glow row goes 599.4 / 1549.7 / 89 % to 13.5 / 81.4 / 1 % and Tarantula's 1121.1 / 1726.2 /
     92 % to 13.7 / 223.3 / 15 %; every other whole-master row is unchanged (nucleus -1.0 / 6.0 / 1.6). At random positions
-    away from those stars the same step takes about a tenth as much (median 0.03 sigma in 10-30 px against 0.27 on
-    Andromeda, 0.04 against 0.44 on Tarantula).
+    away from those stars the same step takes about a tenth as much (Andromeda, median sigma in 10-30 px, R / G / B:
+    0.035 / 0.019 / 0.031 against 0.286 / 0.270 / 0.257; Tarantula 0.031 / 0.055 / 0.046 against 0.438 / 0.502 / 0.283).
+    The step picks its stars by its own rule (98 on Andromeda, 15 on Tarantula: clipped and compact, isolation not
+    asked), where the glow row uses `glow_ring.py`'s 71 and 13.
   - **Read with care:** the step subtracts what the glow row sums, on the stars the row picks, so the row falling is by
     construction and says nothing about SXT; only the random-position control is evidence, and there is no truth for
     it, since the twin has no such halo. On the sheet the one or two brightest stars of each master keep an off-centre
     crescent and a dark disc at the core, which this step does not touch.
-  - **The crescent is not a channel offset and not a population effect:** the residue's dipole does not follow the
-    input's R-G or B-G wing offset (median cosine between -0.1 and 0.3 on Andromeda), and over the 71 stars its lean is 2.0 px against SXT's 1.8.
-    The population difference to SXT within 25 px is the net excess, about 600 sigma-pixels against 160.
+  - **The crescent is not a channel offset and not a population effect:** on Andromeda the input's wing offsets are |R-G| 0.31 px and
+    |B-G| 0.76 px, far under the residue's lean of about 2.0 px (R / G / B 2.17 / 2.04 / 1.84; SXT 1.82 / 1.80 / 1.48), and
+    the residue's dipole does not follow them (median cosine R +0.27, B +0.05; SXT +0.37, -0.08; green is the reference).
+    The population difference to SXT within 25 px is the net excess: 630 / 584 / 600 sigma-pixels against 160 / 159 / 333.
 - **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py <model> floor --pin 2.5 --cap-up 2
   --cap-down 0.05 --tag floor3`; mode `floor3` of `whole_floor.py`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
   seed 1 as trained. It is confirmed if all hold:
