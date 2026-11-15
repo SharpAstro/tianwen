@@ -115,7 +115,7 @@ namespace TianWen.UI.Gui
 
         /// <inheritdoc/>
         /// <remarks>
-        /// All but the last: the active tab and the rail are painted under this chrome's own status bar, and the night
+        /// All but the last: the active tab and the rail are painted under the window chrome's own status bar (GuiWindowChrome), and the night
         /// calendar, always listed last, hangs OVER the bar it opens from (the composition stated beside the painting).
         /// Nothing before the first frame.
         /// </remarks>
@@ -303,8 +303,7 @@ namespace TianWen.UI.Gui
             // because that is what a window HAS. Adopting these settings discards the face they resolved
             // during their own construction, which is the intent -- a viewer inside this chrome should
             // label itself in the chrome's face.
-            // The sidebar is a configured DIR.Lib TabBar, not chrome drawn here: a vertical strip of
-            // uniform icon cells that cannot be closed or reordered. See RenderSidebar.
+            // The sidebar and status bar live in GuiWindowChrome (GuiWindowChrome.RenderSidebar), not here.
             _chrome = new GuiWindowChrome<VulkanContext>(renderer) { Bus = bus };
             ShareUiContext(_plannerTab, _equipmentTab, _sessionTab, _skyMapTab,
                            _liveSessionTab, _guiderTab, _notificationsTab, _homeTab,

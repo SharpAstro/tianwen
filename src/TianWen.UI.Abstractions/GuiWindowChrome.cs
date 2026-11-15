@@ -120,7 +120,6 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
     // .TabOrder) and only the per-item icon / enabled state varies.
     private readonly List<TabItem<GuiTab>> _sidebarItems = [];
 
-
     // Stashed by Render, for the same reason _activeTab is: a press arrives BETWEEN frames, and the
     // rail's dispatch has to act on the state the frame was painted from. The hand-drawn sidebar
     // reached the same state through a closure captured per region per frame; one field is the same
@@ -202,7 +201,7 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
 
     private float FontSize => BaseFontSize * DpiScale;
 
-    // Live Session sidebar icon reflects session state (overridden per-frame in RenderSidebar):
+    // Live Session sidebar icon reflects session state (overridden per-frame in GuiWindowChrome.RenderSidebar):
     // idle = camera, running = camera with flash. The clapper board marks the Session Setup tab
     // as the "set up and launch here" entry point. That tab is BOTH the night's configuration and
     // the Start button, which is why neither obvious glyph worked: a cog implied only the setup

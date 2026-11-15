@@ -34,7 +34,8 @@ namespace TianWen.Lib.Tests;
 /// (the content widths plus the sidebar) in the states that stress them, among them the night calendar open under the
 /// top bar (#2139). The Sky Map is swept with its search window open, its layer palette up and an object selected
 /// (the info panel), the Planner with its suggestion dropdown open, and the Equipment and Live Session tabs on a rig
-/// of vendor-length device names. The map's own text is judged only where the overlay engine placed it with collision
+/// of vendor-length device names (Live Session shows them connected; Equipment has no local node here, so it shows the
+/// profile's names, not the discovered or connected device rows). The map's own text is judged only where the overlay engine placed it with collision
 /// avoidance (<c>SkyMapTab.PlacedMapLabels</c>); the best-effort placer the CPU map uses overlaps by design and stays
 /// out, see <c>SkyChromeOnly</c>. What the sweep cannot see: anything a GPU pipeline draws (the GPU atlas's labels
 /// included), and any state the scenarios below do not put on screen. The sweep is written up in
@@ -224,13 +225,14 @@ public class WireframeSweepTests
     }
 
     // The sky map over a catalogue, with a state put on it by the scenario. The tab is kept for the options: the map's own labels
-    // are judged through what it says it placed.
+    // are judged through what it says it placed. Static, which is safe only because the class is [Collection("UI")], whose
+    // tests run one after another.
     private static SkyMapTab<RgbaImage>? _sky;
 
     private static Draw SkyMap(Action<SkyMapTab<RgbaImage>, PlannerState, ICelestialObjectDB> setup) => async (renderer, content, scale) =>
     {
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
-        var tab = new SkyMapTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new SkyMapTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont(), RecordPlacedLabels = true };
         var planner = new PlannerState
         {
             ObjectDb = db,
@@ -273,15 +275,19 @@ public class WireframeSweepTests
     // map's own placer is the best-effort one (PlaceLabelsBestEffort: Stellarium-style, overlaps accepted by design, and a
     // label under a panel is covered, not cut), so those stay out, as do the planet, comet and constellation names, the grid
     // numbers and everything a GPU pipeline draws, which this renderer does not see. SkyMapTab.PlacedMapLabels says which
-    // placer put each label where.
+    // placer put each label where. Today the atlas places every label best-effort, so no swept frame holds a Collision entry
+    // and the judgement is mechanism-only until a painter records one; TheCollisionPlacedLabelJudgementBites drives it.
     private static WireframeOptions SkyChromeOnly(WireframeFrame frame)
+        => SkyChromeOnly(frame, _sky?.PlacedMapLabels ?? []);
+
+    private static WireframeOptions SkyChromeOnly(WireframeFrame frame, IReadOnlyList<SkyMapTab<RgbaImage>.PlacedMapLabel> placed)
     {
         static bool OfTheMap(WireframeRegion r)
             => r.Result is HitResult.ButtonHit { Action: var action }
                 && (action.StartsWith("SkyMapPlanetLabel", StringComparison.Ordinal)
                     || action.StartsWith("SkyMapObjectLabel", StringComparison.Ordinal));
 
-        var collisionPlaced = _sky?.PlacedMapLabels
+        var collisionPlaced = placed
             .Where(l => l.Placement == SkyMapTab<RgbaImage>.LabelPlacement.Collision)
             .Select(l => l.Box).ToArray() ?? [];
         bool InCollisionLabel(WireframeText t)
@@ -544,6 +550,42 @@ public class WireframeSweepTests
     /// that fit and leave the rest out without a word. Two in a tall tab fit, and nothing scrolls (DIR.Lib 11.62: a
     /// list given the room its fractional rows take used to read as one surface unit too long, and drew a bar).
     /// </summary>
+    // Two map texts that overlap, as the best-effort placer lets them. Judged only when the engine says it placed them with
+    // collision avoidance, whose promise they would break.
+    private static (WireframeFrame Frame, SkyMapTab<RgbaImage>.PlacedMapLabel[] Boxes) OverlappingMapLabels(
+        SkyMapTab<RgbaImage>.LabelPlacement placement)
+    {
+        using var renderer = new WireframeRenderer(400, 200);
+        renderer.Begin();
+        var font = FontResolver.ResolveSystemFont();
+        var white = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        renderer.DrawText("Veil Nebula".AsSpan(), font, 14f, white,
+            new RectInt(new PointInt(20, 20), new PointInt(120, 40)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
+        renderer.DrawText("Pelican Nebula".AsSpan(), font, 14f, white,
+            new RectInt(new PointInt(30, 24), new PointInt(150, 44)), horizAlignment: TextAlign.Near, vertAlignment: TextAlign.Near);
+        var frame = renderer.Frame;
+        var boxes = frame.Texts
+            .Select(t => new SkyMapTab<RgbaImage>.PlacedMapLabel(new RectF32(t.Ink.X, t.Ink.Y, t.Ink.Width, t.Ink.Height), placement))
+            .ToArray();
+        return (frame, boxes);
+    }
+
+    [Fact]
+    public void TheCollisionPlacedLabelJudgementBites()
+    {
+        var (frame, boxes) = OverlappingMapLabels(SkyMapTab<RgbaImage>.LabelPlacement.Collision);
+        frame.Texts.Length.ShouldBe(2);
+        Wireframe.Check(frame, SkyChromeOnly(frame, boxes)).ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public void ABestEffortLabelIsNotJudged()
+    {
+        var (frame, boxes) = OverlappingMapLabels(SkyMapTab<RgbaImage>.LabelPlacement.BestEffort);
+        frame.Texts.Length.ShouldBe(2);
+        Wireframe.Check(frame, SkyChromeOnly(frame, boxes)).ShouldBeEmpty();
+    }
+
     [Fact]
     public void TheObservationListScrollsOnlyWhenItHoldsMoreThanShows()
     {

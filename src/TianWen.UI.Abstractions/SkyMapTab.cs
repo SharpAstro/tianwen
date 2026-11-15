@@ -647,6 +647,12 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         internal List<PlacedMapLabel> PlacedMapLabels { get; } = [];
 
+        /// <summary>
+        /// Whether the label painter writes <see cref="PlacedMapLabels"/>. Off in the shipped atlas, so the per-label
+        /// frame path does no test-only bookkeeping; the wireframe sweep turns it on.
+        /// </summary>
+        internal bool RecordPlacedLabels { get; set; }
+
         /// <inheritdoc cref="GridLabelMs"/>
         internal double CometLabelMs { get; private set; }
 
