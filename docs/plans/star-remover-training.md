@@ -5485,7 +5485,8 @@ The bars, read on seed 0 against R3s's two seeds (the same data, the small model
   3 of R3l's. M42's blue dig is missed again; nothing in a larger model addresses it.
 
 **R3v's seed 0, read 2026-11-15: not killed, the first arm of this line to hold every guard; seed 1 trains.** It stopped
-on its plateau at step 235,000 (best held-out 5.85e-6 at 211,000; the small model on the same data ended near 6.85e-6),
+on its plateau at step 235,000 (best held-out 5.85e-6 at 211,000; the small model on the same data, R3s, ended at 6.61e-6 on seed 0 and 6.54e-6 on seed 1, so R3v is 11.5 percent
+below R3s's seed 0),
 after 13 hours on the 1070.
 
 | bar | registered | R3v s0 | R3s s0 / s1 | R3l s0 / s1 | SXT | |
@@ -5499,7 +5500,7 @@ after 13 hours on the 1070.
 | truth tiles 20-100, 100-1000 | at least 72, 54 | 73.3, 58.1 | 71.5, 53.2 (s0) | 73.3, 73.2 and 54.5, 58.2 (the two seeds, row by row) | | held |
 | Andromeda dark dug | at most 47 | 22.4 | | | | held |
 | Tarantula dark flat | at least 69 | 71.9 | 69.3 / 65.1 | | | held |
-| M31 nucleus, R / G / B | under 40 % each | -1.0, 5.1, 1.2 % | | | | held |
+| M31 nucleus, R / G / B | under 40 % each | -1.3, 5.2, 1.4 % | | | | held |
 
 - **Q2 is half answered on this seed:** M42's band clears 50 and its blue at 2 to 3 px is still dug, 1.35 and 1.00 sigma under
   SXT's against the 0.7 allowed. The blue moved a little toward SXT (R3s -2.3, -1.1) and not into the bar.
@@ -5510,7 +5511,7 @@ after 13 hours on the 1070.
   91.3 / 94.2 and R3s's 89.9 / 94.2, with 18.8 % dug. That band carries no registered bar and does not kill; it is the
   first thing to look at on seed 1.
 - **The prediction held on all four counts:** the truth tiles rose (73.3 / 58.1 against R3s's 71.5 / 53.2), M42's band
-  stayed in 50 to 60, the SMC's 20-100 row came within 3 of R3l's (the even-odds part), and the blue dig was missed.
+  stayed in 50 to 60, the SMC's 20-100 row came to R3l's level or above (97.2 against R3l's mean 92.4), inside the guard's 3 (the even-odds part), and the blue dig was missed.
 - **Seed 1 trains by the registered rule** (seed 0 not killed), started the same evening on the same cache; every bar is
   then judged on the two-seed mean, the nucleus on each seed. Nothing is adopted on one seed.
 
