@@ -5532,8 +5532,9 @@ the first angle is a step after the model and not another arm:
   brings back a BOUNDED lowering.
 - **It was tuned on what it is scored on.** The first version's constants were chosen once, before any score. The second
   came from looking at ONE sheet of four M42 crops, where the first left dark pinholes at star centres that the ring
-  measure (2 px outward) cannot see. So the real-star rows below are not a held-out read; the whole masters and the twin
-  were scored after the constants were fixed and are.
+  measure (2 px outward) cannot see. So the real-star rows below are not a held-out read; for floor and floor2 the whole masters and the twin
+  were scored after the constants were fixed and are. floor3's are not: its cap-up was chosen on the twin's rms (below),
+  so its twin figures are the best of a sweep, and only seed 1 is a held-out read of it.
 
 | R3v seed 0 | as trained | + floor | + floor2 | SXT |
 |---|---|---|---|---|
@@ -5621,6 +5622,9 @@ the first angle is a step after the model and not another arm:
 | 1000 sigma and over (188) | 87.2 | 98.9 | 98.9 | 100.0 | 98.4 |
 | saturated (95) | 78.9 | 91.6 | 88.4 | 91.6 | 89.4 |
 
+  SXT is scored on 1738 stars at 100-1000 and 94 saturated: the check skips a window holding a NaN per model, so in
+  those two bands the sets differ by one star, and the saturated gap read here (91.6 against 89.4) is about two stars.
+
   With floor3 by count: R3l 99.1 / 100.0 / 93.7, R3s 99.0 / 100.0 / 91.6, R3j 99.2 / 99.5 / 92.6 (`check3-bycount.txt`).
   - **It repairs floor2's harm on a model that leaves wings:** on R3s's seed 0 the SMC rows go 83.6 / 88.1 as trained,
     82.5 / 83.1 with floor2 and 98.9 / 100.0 with floor3, and pooled 1000 and over 79.3, 61.0, 100.0
@@ -5658,16 +5662,18 @@ the first angle is a step after the model and not another arm:
 - **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py <model> floor --pin 2.5 --cap-up 2
   --cap-down 0.05 --tag floor3`; mode `floor3` of `whole_floor.py`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
   seed 1 as trained. It is confirmed if all hold:
-  - the real-star clean share, pooled BY STAR COUNT over the four sessions (never the mean of four session figures: the
+  - the real-star clean share, read off the "by count clean" row that `real_star_check3.py` prints (every scored star once over the four sessions, small sessions included; never the mean of four session figures: the
     SMC session has n=1 at 1000 and over, M42 n=11, and one SMC star moved R3s seed 0 pooled from 79.3 to 61.0), is at
     least 95 at 100-1000 sigma and at 1000 and over AND at least 3 points above seed 1 as trained on each (added
     2026-11-16 before any seed 1 score, on the review's finding that seed 0 as trained already reads 94.9 by count at
-    100-1000, so 95 alone could hold with no step; seed 0 reads +4.5 and +12.8); a session row with fewer than 5 stars is reported and not counted;
+    100-1000, so 95 alone could hold with no step; seed 0 reads +4.5 and +12.8);
   - M42's 100-1000 clean row is at least 85;
   - the SMC 20-100 and 100-1000 clean rows (the rows with n of 5 or more) are not lowered by more than 1 point against
     seed 1 as trained; the 1000-and-over and saturated SMC rows, n=1, are reported only;
   - the M31 nucleus moves by under 1 point in every channel;
-  - the twin's rms error under the mask falls by at least a third.
+  - the twin's rms error under the mask falls by at least a third, as `twin_err.py <seed 1 model> <seed 1 model>+floor3`
+    prints it in its "rms in mask" column: one twin tile in four (i % 4), the mask taken from the as-trained model
+    (seed 0 reads 1.920 to 0.989).
   The whole-master rows are not criteria but are reported, the glow rows with their direction (lower is better; a glow bar
   written here for a few hours on 2026-11-16 read the measure backwards and is withdrawn, before any seed 1 score). If the criteria hold, the step is proposed to the owner for the product; if not,
   it was fitted to seed 0. Any change to these bars after seed 1 is scored is post hoc.

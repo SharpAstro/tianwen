@@ -78,6 +78,8 @@ def main():
         sys.exit("the caps are floor3: give mode floor with --pin, --cap-up and --cap-down together "
                  "(registered: <model> floor --pin 2.5 --cap-up 2 --cap-down 0.05 --tag floor3)")
     thr, grow, s_bg, s_lo = arg("--thr", 1.5), arg("--grow", 2), arg("--bg", 4.0), arg("--lo", 1.5)
+    if (PIN > 0 or CAP_UP > 0) and "--tag" not in sys.argv:
+        sys.exit("--pin or the caps need --tag (floor2 or floor3): the default tag is the mode, and would overwrite the first version's tiles")
     tag = arg("--tag", mode)
     for sub, src in SETS.items():
         d = f"{EVAL}/{model}/{sub}"; o = f"{EVAL}/{model}+{tag}/{sub}"
