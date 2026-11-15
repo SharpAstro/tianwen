@@ -9,6 +9,8 @@ using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Devices.Guider;
@@ -30,6 +32,10 @@ namespace TianWen.Lib.Tests;
 /// The window's top bar and sidebar are swept too, as <see cref="GuiWindowChrome{TSurface}"/> over the whole window
 /// (the content widths plus the sidebar) in the states that stress them (#2139). What the sweep cannot see: anything a
 /// GPU pipeline draws, and any state the scenarios below do not put on screen.
+/// The Notifications tab and the FITS viewer's chrome (toolbar, info strip and panel, file list, status bar, and the Tone,
+/// Enhance and White Balance popovers open in turn) are swept too (#2139), the viewer as the no-op <c>SweepViewer</c> on
+/// the wireframe renderer. The image quad and the histogram quad are GPU-drawn and unseen here, as are the planetary
+/// panels, the help panel and the context menu.
 /// </remarks>
 [Collection("UI")]
 public class WireframeSweepTests
@@ -277,6 +283,98 @@ public class WireframeSweepTests
                 return (width + side, height + bar);
             },
             ChromeScenario(state), _ => null, null);
+        report.ShouldBeEmpty();
+    }
+
+    // The Notifications tab: empty, forty entries, and one of each severity with a message far longer than any window.
+    public static TheoryData<string> NotificationStates => ["empty", "forty entries", "very long, every severity"];
+
+    private static Draw NotificationScenario(string state) => (renderer, content, scale) =>
+    {
+        var app = new GuiAppState();
+        var longText = string.Join(' ', Enumerable.Repeat(
+            "Mount://ASCOMDevice/ASCOM.OnStep.Telescope refused the slew to Sharpless 2-132 (the Lion Nebula) in Cepheus", 3));
+        if (state == "forty entries")
+        {
+            for (var i = 0; i < 40; i++)
+            {
+                app.RecordNotification(Now.AddMinutes(i), (NotificationSeverity)(i % 3), $"Entry {i}: guiding RMS 0.6 arcsec");
+            }
+        }
+        else if (state != "empty")
+        {
+            foreach (var severity in Enum.GetValues<NotificationSeverity>())
+            {
+                app.RecordNotification(Now, severity, $"{severity}: {longText}");
+                app.RecordNotification(Now, severity, $"{severity}: {new string('W', 160)}");
+            }
+        }
+
+        var tab = new NotificationsTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        tab.Render(app, new ViewContexts().Local, content);
+        return Task.CompletedTask;
+    };
+
+    [Theory(Timeout = 120_000)]
+    [MemberData(nameof(NotificationStates))]
+    public async Task TheNotificationsTabFitsAtAnyWindowSize(string state)
+    {
+        var report = await Sweep($"notifications, {state}", (width, height, _) => (width, height),
+            NotificationScenario(state), _ => null, null);
+        report.ShouldBeEmpty();
+    }
+
+    // The viewer's chrome with an image loaded, the file list (long names) and the info panel shown, then each popover
+    // open in turn. The viewer chrome has its own scale (InterfaceScale 1), so only the DPI is swept.
+    public static TheoryData<string> ViewerStates => ["chrome", "tone popover", "enhance popover", "white balance popover"];
+
+    private static Draw ViewerScenario(string state) => async (renderer, content, scale) =>
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+        var viewer = new SweepViewer(renderer, scale)
+        {
+            Offer = ToolbarOffer.FileViewer.With(ToolbarAction.Enhance),
+        };
+        viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, 8, 6);
+        var viewerState = new ViewerState
+        {
+            ShowFileList = true,
+            ShowHistogram = true,
+            ShowInfoPanel = true,
+            StretchMode = StretchMode.None,
+            ZoomToFit = false,
+            Zoom = 1f,
+        };
+        viewerState.ImageFileNames.AddRange(
+        [
+            "M31_Andromeda_Galaxy_LRGB_Light_300s_-10C_gain100_0001_with_a_very_long_session_suffix_for_the_east_pier.fits",
+            "IC 1805.fit",
+            "NGC 7000 North America Nebula Ha OIII SII mosaic panel 2 of 4 integration 12h40m.xisf",
+        ]);
+        viewerState.EnhanceChoices =
+        [
+            new(EnhanceBackend.Auto, "Auto", ["gradient-correction", "denoise-starless"]),
+            new(EnhanceBackend.TianWen, "TianWen", ["gradient-correction", "denoise-frame"]),
+        ];
+        switch (state)
+        {
+            case "tone popover": viewerState.TonePopover.Open(); break;
+            case "enhance popover": viewerState.EnhancePopover.Open(); break;
+            case "white balance popover": viewerState.WhiteBalancePopover.Open(); break;
+        }
+
+        // Twice, as a window does: the first frame uploads the histogram the second paints.
+        viewer.Render(document, viewerState);
+        viewer.Render(document, viewerState);
+    };
+
+    [Theory(Timeout = 120_000)]
+    [MemberData(nameof(ViewerStates))]
+    public async Task TheViewerChromeFitsAtAnyWindowSize(string state)
+    {
+        var report = await Sweep($"viewer, {state}", (width, height, _) => (width, height),
+            ViewerScenario(state), _ => null, null);
         report.ShouldBeEmpty();
     }
 
