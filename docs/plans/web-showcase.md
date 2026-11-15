@@ -97,6 +97,11 @@ never a local nupkg feed).
    cross-identity, but the deeper HIP/Tycho field is only available WITH tyc2 - there is no small
    HIP-only middle tier in the repo. Further `Lightweight` candidates (dead without tyc2): the
    `hip_to_tyc`/`hd_to_tyc` cross-ref maps (~1.2 MB); `hd_hip_cross` must STAY (bright HIP<->HR identity).
+   **What the browser never reads is trimmed by group instead (#2155)**: the web project sets
+   `TianWen.Lib.EmbeddedData.Imaging` and `.FakeDevices` false (filter curves, sensor QE, the Pickles
+   spectra, the fake camera's Jupiter), and the trimmer drops them from `TianWen.Lib`. Measured on an
+   interpreted Release publish: `TianWen.Lib.wasm` 12.35 MB to 7.52 MB brotli. That needs no global
+   property and no second build of the library, so new exclusions go there, not on `Lightweight`.
 
 ## Minimal DI graph for the browser
 
