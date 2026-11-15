@@ -76,7 +76,7 @@ public class ThemeCollectionSourceTests
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
         {
-            var candidate = Path.Combine(dir.FullName, "src", "TianWen.Lib.Tests");
+            var candidate = Path.Combine(dir.FullName, "src", "TianWen.Lib" + ".Tests");
             if (File.Exists(Path.Combine(candidate, "TianWen.Lib.Tests.csproj")))
             {
                 return candidate;
