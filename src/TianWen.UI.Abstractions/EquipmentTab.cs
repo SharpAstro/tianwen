@@ -19,6 +19,8 @@ namespace TianWen.UI.Abstractions
 
         // Layout constants (at 1x scale)
         private const float BaseProfilePanelWidth = 500f;
+        private const float MinProfilePanelWidth = 200f;
+        private const float MinDeviceListWidth = 220f;
         private static readonly float BaseFontSize     = GuiTheme.Metrics.BaseFontSize;
         private static readonly float BaseItemHeight   = GuiTheme.Metrics.ItemHeight;
         private const float BaseBottomBarHeight   = 50f;
@@ -397,9 +399,12 @@ namespace TianWen.UI.Abstractions
             // [profile panel | 1px separator | device list]. Each region is a keyed Fill leaf whose
             // arranged rect drives the existing sub-renderer; the backgrounds ride on the nodes. The
             // only constructed rect is the host content rect -- no PixelLayout docking cursor.
+            // The panel is its design width in a roomy window and gives way to the device list in a narrow one, which keeps
+            // MinDeviceListWidth: its header and its [Discover] button are what the list is opened for.
+            var profilePanelW = Math.Clamp(contentRect.Width / DpiScale - MinDeviceListWidth, MinProfilePanelWidth, BaseProfilePanelWidth);
             var tree = Layout.Builder.Dock(
                 Layout.Builder.HStack(
-                    Layout.Builder.Fill(key: "profilePanel").WFixed(BaseProfilePanelWidth).HStar().Bg(ProfilePanelBg),
+                    Layout.Builder.Fill(key: "profilePanel").WFixed(profilePanelW).HStar().Bg(ProfilePanelBg),
                     Layout.Builder.Box(1f, 0f, SeparatorColor).WFixed(1f).HStar(),
                     Layout.Builder.Fill(key: "deviceList").WStar().HStar().Bg(DeviceListBg)),
                 Layout.Builder.Bottom(
@@ -458,8 +463,10 @@ namespace TianWen.UI.Abstractions
                 textColor = DimText;
             }
 
+            // The hint ends in an ellipsis rather than run past the window.
+            var hint = TextFit.TrimToWidth(Renderer, message, fontPath, FontFallback, fontSize * 0.9f, w - padding * 2f, TextTrim.End);
             DrawText(
-                message.AsSpan(),
+                hint.AsSpan(),
                 fontPath,
                 x + padding, y, w - padding * 2f, h,
                 fontSize * 0.9f, textColor, TextAlign.Near, TextAlign.Center);

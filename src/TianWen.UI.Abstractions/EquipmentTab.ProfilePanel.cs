@@ -230,15 +230,21 @@ namespace TianWen.UI.Abstractions
                     // position rather than a hand-computed x/y.
                     var anchor = new RectF32[1];
                     const string key = "profileHeader";
-                    var label = $"Profile: {profile.DisplayName} ▾";
+                    const string caret = " ▾";
+                    var label = $"Profile: {profile.DisplayName}";
                     var fontSize = BaseFontSize * 1.1f * DpiScale;
                     var fontPath = FontPath;
                     _profilePanelFills[key] = r =>
                     {
                         anchor[0] = r;
-                        DrawText(label.AsSpan(), fontPath, r.X, r.Y, r.Width, r.Height, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+                        // A vendor-length profile name ends in an ellipsis before the caret, which stays; the whole
+                        // name is on the tooltip.
+                        var caretW = Renderer.MeasureText(caret, fontPath, fontSize).Width;
+                        var shown = TextFit.TrimToWidth(Renderer, label, fontPath, FontFallback, fontSize, r.Width - caretW, TextTrim.End) + caret;
+                        DrawText(shown.AsSpan(), fontPath, r.X, r.Y, r.Width, r.Height, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
                     };
                     return Layout.Builder.Fill(key: key).RowH(BaseHeaderHeight)
+                        .WithTooltip(label)
                         .Clickable(new HitResult.ButtonHit("ProfileHeader"), _ =>
                         {
                             var a = anchor[0];

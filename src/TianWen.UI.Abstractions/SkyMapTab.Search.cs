@@ -94,6 +94,7 @@ namespace TianWen.UI.Abstractions
         private const float SearchPanelWidth  = 480f;
         private const float SearchPanelHeight = 500f;
         private const float SearchRowHeight   = 28f;
+        private const float SearchPanelMargin = 8f;
 
         // Click-vs-drag classification (DIR.Lib TapOrDragGesture, 4px slop at 1x -- the Stellarium/OS
         // convention -- now DPI-scaled). Arming only when the MouseDown actually reached this tab
@@ -232,8 +233,11 @@ namespace TianWen.UI.Abstractions
                     .Clickable(new HitResult.ButtonHit("SearchBackdrop"), _ => PostSignal(new CloseSkyMapSearchSignal())),
                 contentRect, scale: Scale);
 
-            var pw = SearchPanelWidth * dpiScale;
-            var ph = SearchPanelHeight * dpiScale;
+            // The panel is its design size in a roomy window and the content less a margin in a small one.
+            var panelWDesign = Math.Min(SearchPanelWidth, contentRect.Width / dpiScale - 2f * SearchPanelMargin);
+            var panelHDesign = Math.Min(SearchPanelHeight, contentRect.Height / dpiScale - 2f * SearchPanelMargin);
+            var pw = panelWDesign * dpiScale;
+            var ph = panelHDesign * dpiScale;
             var px = contentRect.X + (contentRect.Width - pw) * 0.5f;
             var py = contentRect.Y + (contentRect.Height - ph) * 0.35f;
             var fontSize = 14f * dpiScale;
@@ -251,7 +255,7 @@ namespace TianWen.UI.Abstractions
                 .RowH(headerHDesign).Bg(SearchHeaderBg);
 
             // Results area design height (panel minus title + body padding + input + gap), for the row cap.
-            var resultsDesignH = SearchPanelHeight - headerHDesign - bodyPad * 2f - inputHDesign - inputGap;
+            var resultsDesignH = panelHDesign - headerHDesign - bodyPad * 2f - inputHDesign - inputGap;
             var visibleRows = Math.Max(0, (int)(resultsDesignH / SearchRowHeight));
 
             // The keyboard's position in the results IS the interaction's SelectedIndex (SearchInteraction
@@ -473,6 +477,14 @@ namespace TianWen.UI.Abstractions
                     ArticleUrl: ObjectInfoPanel.ArticleUrlFor(info.Index, plannerState.ObjectDb),
                     // The solar system in 3D (A5), for a body of the Sun's: a planet, the Sun, the Moon or a comet.
                     Orrery: pinIndex is { } bodyIndex && bodyIndex.IsSolarSystemObject ? OpenOrrery : null);
+
+            // The picture is the panel's one optional block that is tall (up to 220 design units): in a window too short for the
+            // panel with it, the panel is shown without it, so its rows and buttons stay on screen.
+            if (options.Picture is not null
+                && ObjectInfoPanel.DesignHeight(in options, in actions) + 32f > contentRect.Height / dpiScale)
+            {
+                options = options with { Picture = null };
+            }
 
             // The selection's own marks on the map go down BEFORE the panel, so the panel covers them. They
             // were drawn last, and a big object's ring (the SMC's, selected with its panel open) ran across

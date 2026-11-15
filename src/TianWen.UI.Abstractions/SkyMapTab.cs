@@ -163,6 +163,7 @@ namespace TianWen.UI.Abstractions
             BeginFrame();
             _deferredLines = null;
             PlacedMapLabels.Clear();
+            _contentDesignWidth = contentRect.Width / DpiScale;
             // DPI + font come from the inherited DpiScale / FontPath (host-set); the input path
             // (tap-vs-drag slop) reads DpiScale directly, which retired the old render-time
             // _lastDpiScale cache.
@@ -511,7 +512,21 @@ namespace TianWen.UI.Abstractions
         /// Whether <see cref="RenderLayerPalette"/> draws the palette this frame. One definition, because
         /// the grid labels step out of its way and must agree with it about whether it is there.
         /// </summary>
-        private bool LayerPaletteShown => State.ShowLayerPalette && !State.Search.IsOpen;
+        private bool LayerPaletteShown => State.ShowLayerPalette && !State.Search.IsOpen && !PaletteGivesWayToInfoPanel;
+
+        /// <summary>
+        /// The content area's width in design units, as the last frame was given it. The info panel pins bottom-left and the
+        /// palette floats right, which is two panels side by side only while the area is wide enough for both.
+        /// </summary>
+        private float _contentDesignWidth = float.MaxValue;
+
+        /// <summary>
+        /// The info panel's width plus its margin plus the palette's and its margin: below this, an open info panel is where
+        /// the palette would be, so the palette stays out of its way (it is one key, or the title bar, from coming back).
+        /// </summary>
+        private const float InfoPanelAndPaletteDesignWidth = 12f + ObjectInfoPanel.DesignWidth + 8f + 140f + 8f;
+
+        private bool PaletteGivesWayToInfoPanel => State.Search.InfoPanel is not null && _contentDesignWidth < InfoPanelAndPaletteDesignWidth;
 
         /// <summary>
         /// The layer palette on its own, floated against the right edge of <paramref name="contentRect"/>
