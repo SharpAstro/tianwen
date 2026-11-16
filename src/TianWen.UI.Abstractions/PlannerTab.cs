@@ -658,7 +658,10 @@ namespace TianWen.UI.Abstractions
         // button clear of where one would stand. Under it the 60 % the text keeps is too little for the button AND a
         // name beside it (560x520 at 150 %: a 210-unit strip, the button over the name), so the strip offers no
         // picture and the button keeps the strip's end. By the STRIP's width, never the selection's, so the button
-        // still stands in one place for every target.
+        // still stands in one place for every target. Not higher: a 1600 px window at 150 % with the GUI's interface
+        // scale has a strip of about 598 units and shows its picture, so at 480 the name's room is the 60 % less the
+        // button and its paddings, about 163 units, some eighteen characters at the name's size, and a longer name ends
+        // in the strip's usual cut.
         internal const float DetailsPictureMinStripWidth = 480f;
 
         // The gap between the details strip's top edge and its Show in atlas button, in design units.
