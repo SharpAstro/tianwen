@@ -309,6 +309,8 @@ var frameTrace = frameLogLevel == "2";
 long _frameTraceOrigin = System.Diagnostics.Stopwatch.GetTimestamp();
 long _frameBegan = 0;
 double _frameRenderMs = 0;
+double _frameBeginMs = 0;
+double _frameAfterPaintMs = 0;
 var _lastFrameLogTimestamp = timeProvider.GetTimestamp();
 long _lastLoggedFull = 0;
 long _lastLoggedPartial = 0;
@@ -597,6 +599,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
 
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        _frameBeginMs = System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan, renderStart).TotalMilliseconds;
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
         // Last, over everything: the one tooltip the router has due, whichever region declared it (#1446).
         guiRenderer.RenderTooltip(handlers.Tooltip);
@@ -635,6 +638,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                     renderElapsed.TotalMilliseconds, appState.ActiveTab);
             }
         }
+
+        _frameAfterPaintMs = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart).TotalMilliseconds - _frameRenderMs;
     },
 
 };
@@ -662,11 +667,12 @@ loop.OnPostFrame = () =>
     if (frameTrace)
     {
         var region = renderer.Context.LastFrameRegion;
-        logger.LogInformation("Frame {Kind} on {ActiveTab} at {AtMs:F0} ms: paint {PaintMs:F1} ms, whole {WholeMs:F1} ms, region {X},{Y} {Width}x{Height}",
+        logger.LogInformation("Frame {Kind} on {ActiveTab} at {AtMs:F0} ms: paint {PaintMs:F1} ms, whole {WholeMs:F1} ms, region {X},{Y} {Width}x{Height}, begin {BeginMs:F1} ms, after paint {AfterPaintMs:F1} ms",
             renderer.LastFrameWasPartial ? "partial" : "full", appState.ActiveTab,
             System.Diagnostics.Stopwatch.GetElapsedTime(_frameTraceOrigin, _frameBegan).TotalMilliseconds,
             _frameRenderMs, System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan).TotalMilliseconds,
-            region.offset.x, region.offset.y, region.extent.width, region.extent.height);
+            region.offset.x, region.offset.y, region.extent.width, region.extent.height,
+            _frameBeginMs, _frameAfterPaintMs);
     }
 
     // Any signal processed this post-frame may have mutated state that the just-rendered
