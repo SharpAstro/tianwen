@@ -18,7 +18,7 @@ namespace TianWen.Lib.Tests;
 /// any object: hover and click come from the one resolver, the object layers switch it off, and the active set is computed once per
 /// night (docs/plans/yearly-planner.md, E).
 /// </summary>
-[Collection("UI")]
+[Collection(ThemeCollection.Name)]
 public sealed class MeteorShowerAtlasRadiantTests
 {
     private const int Size = 600;

@@ -12,11 +12,11 @@ namespace TianWen.Lib.Tests
     /// design artifacts free to drift once the decision is made -- so the guarantees have to be
     /// asserted here, against the palettes the app actually paints with.
     /// </summary>
-    // In the "UI" collection because two of these call GuiTheme.Apply, which mutates PROCESS-WIDE
+    // In the ThemeCollection (serial, nothing beside it) because two of these call GuiTheme.Apply, which mutates PROCESS-WIDE
     // state. They restore it in a finally, but that is not atomic with respect to a test running in
     // parallel -- and PlannerTabLayoutTests renders real pixels offline, so a theme flip landing
-    // mid-render is exactly the kind of thing that would flake once a month and never reproduce.
-    [Collection("UI")]
+    // mid-render is exactly the kind of thing that would flake once a month and never reproduce (it did: #2169).
+    [Collection(ThemeCollection.Name)]
     public class GuiThemeTests
     {
         // WCAG relative luminance. RGBAColor32.Luminance is the NTSC gamma-encoded approximation,
