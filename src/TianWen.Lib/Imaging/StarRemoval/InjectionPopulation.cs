@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.InteropServices;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
 
@@ -156,6 +158,11 @@ public sealed class InjectionPopulation
     /// <summary>Saturated stars a saturated injection is drawn from (0 means the fallback clip).</summary>
     public int SaturatedPool => _saturated.Length;
 
+    /// <summary>The measured saturated stars the halo over the plate was read from (<see cref="HaloOverPlate"/>): those whose
+    /// stamp to <see cref="PlateSkyToPx"/> px lies in the frame and holds no absent pixel. 0 where it was not asked for, or
+    /// where fewer than <see cref="MinHaloOverPlateStars"/> were readable and the session draws as without it.</summary>
+    public int HaloOverPlateStars { get; private init; }
+
     /// <summary>The share of the counted sites the catalogue found saturated: how often a real star here is a clipped one.</summary>
     public double SaturatedShare => _saturatedShare;
 
@@ -227,8 +234,12 @@ public sealed class InjectionPopulation
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
         StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null,
         ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default,
-        bool measuredSaturated = false)
+        bool measuredSaturated = false, bool haloOverPlate = false)
     {
+        if (haloOverPlate && (!measuredSaturated || !outerHalo.IsDefault))
+        {
+            throw new ArgumentException("the halo over the plate is read off the measured saturated stars and is the outer halo; it needs measuredSaturated and no outerHalo", nameof(haloOverPlate));
+        }
         if (!outerHalo.IsDefault && outerHalo.Length != master.ChannelCount)
         {
             throw new ArgumentException($"{outerHalo.Length} outer halos for a {master.ChannelCount}-channel master", nameof(outerHalo));
@@ -313,6 +324,7 @@ public sealed class InjectionPopulation
             .Where(static t => t.Entry.Clips.Any(double.IsFinite) && t.Entry.Clips.All(static v => v > 0))
             .Select(static t => new PoolStar(t.Entry.Amplitudes, t.Entry.Clips, t.Lobes, float.PositiveInfinity))
             .ToArray();
+        var haloOverPlateStars = 0;
         if (measuredSaturated)
         {
             var drawnProfiles = Enumerable.Range(0, channels)
@@ -326,6 +338,9 @@ public sealed class InjectionPopulation
             // 80609's), which a Moffat-only pool never drew. One whose measurement fails is drawn as before if the Moffat pool
             // would hold it, and left out otherwise.
             var measuredPool = new List<PoolStar>();
+            // The halo over the plate: each measured star's own table and what the plate keeps round it, per amplitude.
+            var ownTables = new List<ImmutableArray<OuterHalo>>();
+            var keptTables = new List<double[][]>();
             foreach (var k in Enumerable.Range(0, catalogue.Length))
             {
                 var s = catalogue[k];
@@ -358,6 +373,11 @@ public sealed class InjectionPopulation
                     // so their light is part of both. The ring medians carry only a share of a one-sided lobe's light (about a
                     // third at the median lobe's distance in a Moffat model, and none of its one-sidedness), so this is neither
                     // exact nor measured to be complete; drawing the lobes on top would count that share twice.
+                    if (haloOverPlate && PlateRingExcess(platePlanes, width, height, absent, s.X, s.Y, scale, m.Amplitudes) is { } kept)
+                    {
+                        ownTables.Add(m.Halo);
+                        keptTables.Add(kept);
+                    }
                     measuredPool.Add(new PoolStar(m.Amplitudes, m.Clips, [], float.PositiveInfinity,
                         [.. drawnProfiles.Select((profile, c) => profile with { Outer = m.Halo[c] })]));
                 }
@@ -365,6 +385,28 @@ public sealed class InjectionPopulation
                 {
                     measuredPool.Add(new PoolStar(entry.Amplitudes, entry.Clips, LobesOf(k), float.PositiveInfinity));
                 }
+            }
+            if (haloOverPlate && keptTables.Count >= MinHaloOverPlateStars)
+            {
+                var (keptHalo, fieldHalo) = HaloOverPlate(ownTables, keptTables, channels);
+                // Every measured star carries what the plate kept of it on top of its own table (one whose stamp left the frame
+                // at the wider reach too: the plate's share is the session's, per amplitude), and every other star the
+                // session's whole halo past the core.
+                for (var k = 0; k < measuredPool.Count; k++)
+                {
+                    if (measuredPool[k].OwnProfiles is { IsDefaultOrEmpty: false } profiles)
+                    {
+                        measuredPool[k] = measuredPool[k] with
+                        {
+                            OwnProfiles = [.. profiles.Select((profile, c) => profile with
+                            {
+                                Outer = profile.Outer with { Table = SumTables(profile.Outer.Table, keptHalo[c]), Source = "measured saturated star, with the plate's share" },
+                            })],
+                        };
+                    }
+                }
+                outerHalo = [.. fieldHalo.Select(static t => new OuterHalo(0.0, 0.0, 0.0, t, "the session's saturated stars, over the plate"))];
+                haloOverPlateStars = keptTables.Count;
             }
             saturated = [.. measuredPool];
         }
@@ -434,7 +476,7 @@ public sealed class InjectionPopulation
         }
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo,
+            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo, HaloOverPlateStars = haloOverPlateStars,
             _saturatedShare = countedSites.Length > 0 ? saturatedSites / (double)countedSites.Length : 0.0 };
     }
 
@@ -723,6 +765,149 @@ public sealed class InjectionPopulation
     /// <summary>How far out a measured saturated star's halo is read, its local sky's ring, and where its amplitude is matched, pixels.</summary>
     public const int MeasuredHaloReachPx = 30, MeasuredSkyFromPx = 32, MeasuredSkyToPx = 36, MatchFromPx = 3, MatchToPx = 5;
 
+    /// <summary>The halo over the plate (<see cref="PlateRingExcess"/>): its reach, the ring its sky is read in, the least
+    /// measured stars a session needs for one, and the radii over which every other star's share of it comes in.</summary>
+    public const int PlateHaloReachPx = 45, PlateSkyFromPx = 50, PlateSkyToPx = 60, MinHaloOverPlateStars = 8, FieldHaloFromPx = 8, FieldHaloFullPx = 14;
+
+    /// <summary>
+    /// What the starless plate keeps round a saturated star, which <see cref="MeasureSaturated"/> cannot see because it reads
+    /// the master less that plate: the classical remover subtracts a star's core and inner wing and leaves its outer halo in the
+    /// plate (2026-11-16, 30 sessions: 0.2 to 0.5 sigma a pixel from 6 to 25 px, most of the star's light past 15 px). Per
+    /// channel, the plate's azimuthal median in 1 px rings to <see cref="PlateHaloReachPx"/> less its median from
+    /// <see cref="PlateSkyFromPx"/> to <see cref="PlateSkyToPx"/> px, as a fraction of the star's measured amplitude. A star is
+    /// drawn only when its centre lies within the exporter's injection margin of its tile, so a tile's edge does not hold the
+    /// halo of a star further outside it than that, in the input or in the target. One star's
+    /// rings hold the nebula under it too, so only the median over a session's stars (<see cref="HaloOverPlate"/>) is drawn.
+    /// Null where the stamp leaves the frame or holds a non-finite or an absent pixel.
+    /// </summary>
+    internal static double[][]? PlateRingExcess(float[][] platePlanes, int width, int height, BitMatrix? absent, double cx, double cy, double scale, ImmutableArray<double> amplitudes)
+    {
+        const int reach = PlateSkyToPx;
+        var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
+        if (ix - reach < 0 || iy - reach < 0 || ix + reach >= width || iy + reach >= height)
+        {
+            return null;
+        }
+        const int rings = PlateHaloReachPx + 1;
+        var result = new double[platePlanes.Length][];
+        var bins = new List<float>[rings];
+        for (var k = 0; k < rings; k++)
+        {
+            bins[k] = [];
+        }
+        var sky = new List<float>();
+        for (var c = 0; c < platePlanes.Length; c++)
+        {
+            foreach (var bin in bins)
+            {
+                bin.Clear();
+            }
+            sky.Clear();
+            var plane = platePlanes[c];
+            for (var y = iy - reach; y <= iy + reach; y++)
+            {
+                for (var x = ix - reach; x <= ix + reach; x++)
+                {
+                    var v = plane[(y * width) + x];
+                    // An absent pixel (the master's zero canvas ring, which the classical remover leaves as finite zeros) is no
+                    // sky: a stamp holding one is not read.
+                    if (!float.IsFinite(v) || (absent is { } a && a[y, x]))
+                    {
+                        return null;
+                    }
+                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                    if (r >= PlateSkyFromPx && r <= PlateSkyToPx)
+                    {
+                        sky.Add(v);
+                    }
+                    else if (r < rings - 0.5)
+                    {
+                        bins[(int)Math.Round(r)].Add(v);
+                    }
+                }
+            }
+            var skyLevel = MedianOf(sky);
+            var row = new double[rings];
+            for (var k = 0; k < rings; k++)
+            {
+                row[k] = bins[k].Count > 0 && amplitudes[c] > 0 ? (MedianOf(bins[k]) - skyLevel) * scale / amplitudes[c] : 0.0;
+            }
+            result[c] = row;
+        }
+        return result;
+    }
+
+    // The median of a list, NaN when empty; reorders it in place, so every list it is given is a scratch. Both readings of a
+    // star's rings (MeasureSaturated, PlateRingExcess) share it, so they cannot drift.
+    private static double MedianOf(List<float> v)
+        => v.Count == 0 ? double.NaN : StatisticsHelper.MedianFast(CollectionsMarshal.AsSpan(v));
+
+    /// <summary>
+    /// A session's halo over the plate, per channel, from its measured saturated stars: <c>Kept</c> is the median over the stars
+    /// of what the plate keeps per amplitude (<see cref="PlateRingExcess"/>), a 3-ring running median of it, never negative,
+    /// nothing inside <see cref="MatchToPx"/> (the plate is inpainted there) and faded out over the last five rings; <c>Field</c>
+    /// is the halo every star that was not measured draws, the median of the stars' own tables plus <c>Kept</c>, coming in from
+    /// <see cref="FieldHaloFromPx"/> to <see cref="FieldHaloFullPx"/> px (inside that a saturated star's residual is its clipped
+    /// core's, not a halo) and never negative. A halo per amplitude is the optics' and the sky's, so the stars bright enough to
+    /// show it stand for the rest.
+    /// </summary>
+    internal static (ImmutableArray<float>[] Kept, ImmutableArray<float>[] Field) HaloOverPlate(
+        IReadOnlyList<ImmutableArray<OuterHalo>> ownTables, IReadOnlyList<double[][]> keptTables, int channels)
+    {
+        const int rings = PlateHaloReachPx + 1;
+        var kept = new ImmutableArray<float>[channels];
+        var fieldHalo = new ImmutableArray<float>[channels];
+        var column = new double[keptTables.Count];
+        var three = new double[3];
+        for (var c = 0; c < channels; c++)
+        {
+            var keptMedian = new double[rings];
+            var ownMedian = new double[rings];
+            for (var k = 0; k < rings; k++)
+            {
+                for (var i = 0; i < column.Length; i++)
+                {
+                    column[i] = keptTables[i][c][k];
+                }
+                keptMedian[k] = StatisticsHelper.MedianFast(column);
+                for (var i = 0; i < column.Length; i++)
+                {
+                    var own = ownTables[i][c].Table;
+                    column[i] = k < own.Length ? own[k] : 0.0;
+                }
+                ownMedian[k] = StatisticsHelper.MedianFast(column);
+            }
+            var keptRow = new float[rings];
+            var fieldRow = new float[rings];
+            for (var k = MatchToPx + 1; k < rings; k++)
+            {
+                (three[0], three[1], three[2]) = (keptMedian[k - 1], keptMedian[k], keptMedian[Math.Min(rings - 1, k + 1)]);
+                var fade = Math.Min(1.0, (rings - k) / 5.0);
+                keptRow[k] = (float)(Math.Max(0.0, StatisticsHelper.MedianFast(three)) * fade);
+                var ramp = Math.Clamp((k - FieldHaloFromPx) / (double)(FieldHaloFullPx - FieldHaloFromPx), 0.0, 1.0);
+                fieldRow[k] = (float)Math.Max(0.0, ramp * (ownMedian[k] + keptRow[k]));
+            }
+            kept[c] = [.. keptRow];
+            fieldHalo[c] = [.. fieldRow];
+        }
+        return (kept, fieldHalo);
+    }
+
+    // Two halo tables on the same 1 px rings, ring by ring; the longer one's tail is kept.
+    private static ImmutableArray<float> SumTables(ImmutableArray<float> a, ImmutableArray<float> b)
+    {
+        if (a.IsDefaultOrEmpty)
+        {
+            return b;
+        }
+        var sum = new float[Math.Max(a.Length, b.Length)];
+        for (var k = 0; k < sum.Length; k++)
+        {
+            sum[k] = (k < a.Length ? a[k] : 0f) + (k < b.Length ? b[k] : 0f);
+        }
+        return [.. sum];
+    }
+
     /// <summary>A measured star's drawn peak is at least this many times its clip level, so it still clips as the real one did.</summary>
     public const double MinPeakOverClip = 1.2;
 
@@ -861,17 +1046,6 @@ public sealed class InjectionPopulation
             halos.Add(new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured saturated star"));
         }
         return (amplitudes.MoveToImmutable(), clips.MoveToImmutable(), halos.MoveToImmutable());
-
-        // Sorts in place: every list it is given is a scratch.
-        static double MedianOf(List<float> v)
-        {
-            if (v.Count == 0)
-            {
-                return double.NaN;
-            }
-            v.Sort();
-            return v.Count % 2 == 1 ? v[v.Count / 2] : 0.5 * (v[(v.Count / 2) - 1] + v[v.Count / 2]);
-        }
     }
 
     // A star's profiles at the draw's channel factors (R2s2), or as measured where there are none.

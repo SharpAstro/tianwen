@@ -5823,9 +5823,43 @@ the first angle is a step after the model and not another arm:
     5 px core and none of 6 px in the sample against real's 1,827 and 403; synth18 the same; synth21 (measured
     saturated stars) 2 px 0.86 / 0.57 / 0.33 / 0.21; synth16 (R3j, drawn wings) 2 px 1.06 / 0.86 / 0.65 / 0.71 but
     its 3 to 5 px cores (11 stars) 1.73 / 1.97 / 1.70 / 1.95 times real at 10 / 15 / 20 / 25 px (`C:/temp/e2/explore/stars/profiles-*.json`).
-  - Under way, on a branch and not in this text's PR: an injector option that reads the plate's own ring excess round
-    each measured star and draws the session's median of it; its validation export is read with the same census
-    before any training.
+  - **`degrade --halo-over-plate` draws it (2026-11-16, opt-in, with `--saturated-measured`; no training yet).** Round
+    each measured saturated star the plate's own azimuthal median in 1 px rings to 45 px, less its median at 50 to 60 px,
+    is read per amplitude (`InjectionPopulation.PlateRingExcess`); the session's median over its stars, never negative,
+    nothing inside 5 px, is added to every measured star's table, and every other star draws the session's whole halo
+    (the median of the stars' own tables plus that share), coming in from 8 to 14 px (`HaloOverPlate`). One star's rings
+    hold the nebula under it, so only the median over the session is drawn; a session with fewer than eight measured
+    stars whose 60 px stamp lies in the frame and holds no absent pixel draws as without the option, and its log line says
+    so (`InjectionPopulation.HaloOverPlateStars`). A star is drawn only when its centre lies within the exporter's 8 px
+    margin of a tile (`InjectionMarginPx`, unchanged, since moving it moves every draw), so a tile's edge does not hold
+    the halo of a star further outside it, in the input or the target: no label is wrong, and a halo whose star is off the
+    tile is not taught. It draws no random number and is off by default (`HaloOverPlateTests`).
+  - **Its validation, on the census** (the eight validation sessions exported from one frozen binary with synth22's
+    recipe plus `--saturated-own-share --saturated-measured`, control, and the same plus the option; 1,440 tiles each;
+    the drawn clipped stars' stretched light over real's at 6 / 10 / 15 / 20 / 25 px, all rigs pooled):
+
+| core | control | with the option |
+|---|---|---|
+| 1 px | 1.06 / 0.89 / 0.57 / 0.15 / 0.08 | 1.06 / 0.95 / 0.96 / 0.74 / 0.62 |
+| 2 px | 0.84 / 0.62 / 0.48 / 0.31 / 0.21 | 0.85 / 0.75 / 0.75 / 0.73 / 0.56 |
+| 3 to 5 px | 0.83 / 0.64 / 0.50 / 0.34 / 0.29 | 0.88 / 0.68 / 0.71 / 0.51 / 0.63 |
+
+    Per rig against that rig's own real stars, 2 px cores at 15 / 20 / 25 px: QHY294PROC 0.52 / 0.16 / 0.11 to 0.72 /
+    0.69 / 0.64; ASI533MC Pro 0.52 / 0.18 / 0.09 to 1.30 / 1.06 / 0.99; ASI294MC and ASI585MC Pro within 0.2 of the
+    control (their validation sessions' plates are clean or hold too few measured stars). The inner profile does not
+    move (4 px within 0.01). **What it leaves:** the ASI533MC Pro reads 1.1 to 1.3 times real at 15 px and 1.15 to 1.41
+    at 10 px on 1 and 2 px cores, where its control already reads 1.6 to 1.85 at 6 px; a rig's real column is all its masters and its drawn
+    column one validation session, so a factor of about 1.2 is inside the session mix, and the ramp was moved once
+    (from 6 to 10 px, which read 1.77 and 1.25 at 10 px on that rig) and is not tuned further on this set. Stars of a
+    6 px core and over are drawn 2 to 3.5 times real at 15 to 25 px in the control already (46 drawn stars; 13 and 14
+    real on the two rigs that have them), a fault of the measured saturated stars the option does not touch and that
+    is NOT yet looked at.
+  - **The classifier cannot see it:** star-crop AUC 0.728 +- 0.016 for the control and 0.728 +- 0.013 with the option
+    (seeds 0 to 4, the bar's tiles), as a 24 px crop round a 20 to 500 sigma star must; it says the option does not
+    change ordinary stars, nothing about the halo. Both read under synth11's 0.760 and synth4's 0.782.
+  - Not done: a training export with the option, which needs an arm registered first (with the M32 row and the halo
+    rows as its question). Files (DE1): `C:/temp/e2/explore/stars/` (`val-ctl`, `val-halo2`, `profiles-val-*.json`,
+    `reads/cls-*.json`; `val-halo` is the first ramp), binaries `C:/temp/tianwen-scratch/halo-bin1` and `halo-bin2`.
 
 Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
