@@ -45,7 +45,9 @@ namespace TianWen.Lib.IO;
 /// replace is done. Absence is believed only when a look finds no staging file beside the name (and, on Windows,
 /// a second look 5 ms later finds the name absent with no staging file again). While a staging file is there the
 /// reader polls every 5 ms, up to one second, after which the staging file is taken as a crashed writer's orphan
-/// and the name as gone. A file deleted for good has no staging file, so it is answered after one 5 ms relook
+/// and the name as gone. The look at the name and the look for a staging file are two looks, and a replace that
+/// finishes between them shows in neither, so the last look before an absence is believed is always at the name.
+/// A file deleted for good has no staging file, so it is answered after one 5 ms relook
 /// (<see cref="TryOpenReadAsync"/>, and <see cref="ListAsync"/> for a file the last listing had).</para>
 /// <para>Why not a lock between readers and writers, which would make that exact: measured, it wedges. The
 /// real-time scanner holds a freshly replaced file in kernel mode (the System process, invisible to a share
@@ -72,7 +74,8 @@ public static partial class SharedFile
     private static readonly TimeSpan AbsenceDeadline = TimeSpan.FromSeconds(1);
 
     // Windows hides the name for a moment inside a replace, so one quiet miss may be the tail of a window that has
-    // already closed; a second quiet look finds the file. Elsewhere a miss with no staging file is the answer.
+    // already closed; a second quiet look finds the file. Elsewhere a miss with no staging file is the answer, once
+    // the name has been looked for after the staging file was (see the last look in TryOpenReadAsync).
     private static int QuietLooksNeeded => OperatingSystem.IsWindows() ? 2 : 1;
 
     // A write stages '<name>.<guid>.tmp' before it replaces the name and removes nothing until the replace is
@@ -147,7 +150,15 @@ public static partial class SharedFile
             }
             else if (++quiet >= QuietLooksNeeded)
             {
-                return null;
+                // The last look is at the NAME, never at the staging file. The two looks above are not one: a
+                // replace that finishes between them shows neither (the name was not there yet, the staging file
+                // is there no longer), and that is a file that exists. A staging file leaves only by becoming the
+                // name, so with none seen the name is looked for once more, and only a miss there is an absence.
+                if (!File.Exists(path))
+                {
+                    return null;
+                }
+                continue;
             }
 
             await SystemTimeProvider.Instance.SleepAsync(AbsenceLook, cancellationToken);
@@ -171,6 +182,7 @@ public static partial class SharedFile
         var seen = new Dictionary<string, FileInfo>(StringComparer.OrdinalIgnoreCase);
         var started = Stopwatch.GetTimestamp();
         var quiet = 0;
+        var lastLook = false;
         while (true)
         {
             if (folder.Exists)
@@ -181,7 +193,7 @@ public static partial class SharedFile
                 }
             }
 
-            if (expected is null || AllSeen())
+            if (expected is null || AllSeen() || lastLook)
             {
                 return [.. seen.Values];
             }
@@ -196,7 +208,10 @@ public static partial class SharedFile
             }
             else if (++quiet >= QuietLooksNeeded)
             {
-                return [.. seen.Values];
+                // The last look is at the names, as in TryOpenReadAsync: a replace that finished between the
+                // listing above and the look for its staging file shows in neither.
+                lastLook = true;
+                continue;
             }
 
             await SystemTimeProvider.Instance.SleepAsync(AbsenceLook, cancellationToken);
