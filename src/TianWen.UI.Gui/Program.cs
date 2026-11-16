@@ -661,10 +661,12 @@ loop.OnPostFrame = () =>
 {
     if (frameTrace)
     {
-        logger.LogInformation("Frame {Kind} on {ActiveTab} at {AtMs:F0} ms: paint {PaintMs:F1} ms, whole {WholeMs:F1} ms",
+        var region = renderer.Context.LastFrameRegion;
+        logger.LogInformation("Frame {Kind} on {ActiveTab} at {AtMs:F0} ms: paint {PaintMs:F1} ms, whole {WholeMs:F1} ms, region {X},{Y} {Width}x{Height}",
             renderer.LastFrameWasPartial ? "partial" : "full", appState.ActiveTab,
             System.Diagnostics.Stopwatch.GetElapsedTime(_frameTraceOrigin, _frameBegan).TotalMilliseconds,
-            _frameRenderMs, System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan).TotalMilliseconds);
+            _frameRenderMs, System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan).TotalMilliseconds,
+            region.offset.x, region.offset.y, region.extent.width, region.extent.height);
     }
 
     // Any signal processed this post-frame may have mutated state that the just-rendered
