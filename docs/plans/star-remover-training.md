@@ -5535,8 +5535,13 @@ stopped on its plateau at step 253,500 (best held-out 5.77e-6 at 229,500; seed 0
 | Tarantula dark flat | at least 69 | 71.9 | 80.1 | 76.0 | held |
 | M31 nucleus, R / G / B, each seed | under 40 % each | -1.0, 5.1, 1.2 % | 0.0, -0.3, 1.9 % | | held on each |
 
-- **The capacity question is answered yes at this size:** the SMC's two rows hold on both seeds with the channel spread
-  that failed them three times on the small model, and M42's band clears 50 on both.
+  The M31 row's figures are the whole-master `row.txt` values, the source the seed 1 step bar is registered on; the
+  seed 0 table above reads the `m31-nucleus` report (-1.3, 5.2, 1.4 %) and seed 1's own report reads -0.2, -0.3, 1.7 %.
+  Every triple is far under the bar.
+
+- **Capacity is not refuted on two seeds:** both clear the bars, seed 1's SMC 20-100 by 0.4 (89.8 against 89.4), with
+  the channel spread that failed them three times on the small model, and M42's band clears 50 on both. The two seeds
+  differ by 7.4 on that row (R3l's own seeds by 5.1) and the 100-1000 row is 59 stars, so this is a hold, not an answer.
 - **The guards are no-regression bars, not targets (the owner, 2026-11-16: "dark dug at most 47 is awfully high").**
   47 was set from R3l, which dug 45.1. R3v as trained still digs 22 to 24 % of Andromeda's bright dark-sky stars and
   leaves 68 to 70 % of that sky flat, which is not adoptable alone; what makes the difference is the step below, and an
@@ -5782,14 +5787,17 @@ the first angle is a step after the model and not another arm:
   candidate it names, not registered and not started: a two-sided term on the smooth error under removed stars (or
   a coarser band), tried first as a continuation from R3v's weights, with the step's own figures as its bar.
 - **M32 is removed (2026-11-16, found on the whole-frame sheet; no scorecard row reads it).** Andromeda's compact
-  companion (master y 1480, x 2280) is taken entirely by every arm from R3i to R3v (-3 to +2 % of its core flux
-  kept); SXT keeps about 42 %, StarNet2 about 5 %, R2w, R3a and R3b 5 to 15 %. The dig step cannot bring it back. A
+  companion (master y 1480, x 2280) is taken entirely by every arm from R3i to R3v (-3 to +5 % of its core flux
+  kept; R3v seed 1 reads +3.1 / +2.2 / +4.9 %, seed 0 +2.3 / +2.3 / +1.1, R3l seed 1 -3.0 / -2.7 / -3.0); SXT keeps about 42 %, StarNet2 about 5 %, R2w, R3a and R3b 5 to 15 %. The dig step cannot bring it back. A
   kept-M32 row is proposed as a guard for any next arm (`C:/temp/e2/explore/m32.py`, `m32_all.py`, sheet `m32.png`).
 - **What the classical plate keeps round a bright star (2026-11-16; the owner asked whether drawing stars measured
-  against a classical plate caps us at the classical remover: for the outer halo it does).** Over 30 sessions, round
+  against a classical plate caps us at the classical remover: for the outer halo it does, in about half the sessions).** Over the 29 sessions
+  of `plate_halo2.txt`, round
   the isolated saturated stars with at least 20 sigma at 3-5 px (`C:/temp/e2/explore/stars/plate_halo2.py`, luminance,
   each of master and plate over its own 45-60 px ring, in the catalogue's local sigma, median over a session's
-  stars), the star's light at 6-10 / 10-15 / 15-20 / 20-25 px and what the plate keeps of it:
+  stars), the star's light at 6-10 / 10-15 / 15-20 / 20-25 px and what the plate keeps of it. The six rows were picked
+  by hand, with no rule, as the plan's guard fields plus the Pleiades, and are not a sample; of all 29, 12 keep
+  0.2 sigma or more at 10-15 px and 13 keep under 0.15:
 
 | session | stars | master | plate keeps |
 |---|---|---|---|
@@ -5800,8 +5808,11 @@ the first angle is a step after the model and not another arm:
 | Pleiades L-Quad (SV605CC) | 37 | 26.60 / 4.97 / 1.31 / 0.58 | 0.98 / 0.81 / 0.53 / 0.26 |
 | SMC broadband (ASI585MC Pro) | 89 | 4.78 / 1.12 / 0.30 / 0.13 | -0.06 / 0.09 / 0.13 / 0.08 |
 
-  - The classical remover takes the core and inner wing and leaves 0.2 to 0.5 sigma a pixel from 6 to 25 px, which
-    past 15 px is most or all of the star's light there; the ASI585's and the wide Carina fields' plates are clean.
+  - Where it keeps a halo (12 of 29 sessions), the classical remover takes the core and inner wing and leaves 0.2 to
+    0.5 sigma a pixel from 6 to 25 px, which past 15 px is most or all of the star's light there (the Pleiades is
+    the extreme: 0.98 / 0.81 sigma at 6-10 and 10-15 px, 40 to 45 % of its light kept past 15 px); in the 13 that keep
+    under 0.15 at 10-15 px (the ASI585's, the wide Carina fields' four, Uranus on the SMC, the ASI533 2022 Tarantula and others) the plate is
+    clean.
     `--saturated-measured` reads the master LESS the plate, so that halo is never drawn as a star, and the synthetic
     background keeps the plate's scales from 4 PSF widths up, so it is in the target as sky. R3v leaves 0.3 to 0.4
     sigma a pixel round Andromeda's stars (above), the same size; the two are different fields, so that match is
@@ -5811,7 +5822,7 @@ the first angle is a step after the model and not another arm:
     (R3v's data) 2 px cores 0.50 / 0.25 / 0.15 / 0.04 and 1 px cores 0.85 / 0.36 / 0.15 / 0.00, with 5 stars of a 3 to
     5 px core and none of 6 px in the sample against real's 1,827 and 403; synth18 the same; synth21 (measured
     saturated stars) 2 px 0.86 / 0.57 / 0.33 / 0.21; synth16 (R3j, drawn wings) 2 px 1.06 / 0.86 / 0.65 / 0.71 but
-    1.4 to 1.9 times real at 4 to 6 px (`C:/temp/e2/explore/stars/profiles-*.json`).
+    its 3 to 5 px cores (11 stars) 1.73 / 1.97 / 1.70 / 1.95 times real at 10 / 15 / 20 / 25 px (`C:/temp/e2/explore/stars/profiles-*.json`).
   - Under way, on a branch and not in this text's PR: an injector option that reads the plate's own ring excess round
     each measured star and draws the session's median of it; its validation export is read with the same census
     before any training.
