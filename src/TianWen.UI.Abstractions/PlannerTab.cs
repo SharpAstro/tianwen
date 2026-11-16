@@ -654,6 +654,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>The details panel's Show in atlas button (<see cref="ViewInSkyMapSignal"/>).</summary>
         internal const string ShowInAtlasAction = "ShowInAtlas";
 
+        // The gap between the details strip's top edge and its Show in atlas button, in design units.
+        private const float DetailsButtonTopMargin = 4f;
+
         private void RenderDetailsPanel(
             PlannerState state,
             RectF32 rect,
@@ -737,15 +740,28 @@ namespace TianWen.UI.Abstractions
             var shownType = shown.CatalogIndex is { } shownIdx && state.ObjectDb?.TryLookupByIndex(shownIdx, out var shownObj) == true
                 ? shownObj.ObjectType
                 : ObjectType.Unknown;
+            // ONE place whatever target is selected (reported 2026-11-16: it moved at almost every row). It was laid out
+            // in the name line of the text column, so its left edge followed the picture's width, and jumped to the
+            // strip's end for a target with none, while its top and height followed the line count. Now it ends where
+            // the widest picture section there can be would begin (the strip less DetailsPictureMaxShare), at a fixed
+            // margin under the strip's top, at its own height: none of which the selection changes. A strip that
+            // offers no picture at all (the compact portrait one) keeps it at the strip's end.
             var atlasButton = Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WStar(),
-                    Layout.Builder.Text("Show in atlas", BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
-                        .Pad(8f, 3f)
-                        .Bg(FilterBtnBg).BgHover(GuiTheme.Hover(FilterBtnBg))
-                        .Clickable(new HitResult.ButtonHit(ShowInAtlasAction), _ => PostSignal(
-                            new ViewInSkyMapSignal(shown.Name, shown.RA, shown.Dec, shown.CatalogIndex, shownType))))
-                .CrossCenter();
-            foreach (var node in RenderLayout(atlasButton, new RectF32(rect.X + padding, rect.Y, nameW, lineH)))
+                Layout.Builder.VStack(
+                    Layout.Builder.Spacer().RowH(DetailsButtonTopMargin),
+                    Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WStar(),
+                        Layout.Builder.Text("Show in atlas", BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
+                            .Pad(8f, 3f)
+                            .Bg(FilterBtnBg).BgHover(GuiTheme.Hover(FilterBtnBg))
+                            .Clickable(new HitResult.ButtonHit(ShowInAtlasAction), _ => PostSignal(
+                                new ViewInSkyMapSignal(shown.Name, shown.RA, shown.Dec, shown.CatalogIndex, shownType))),
+                        Layout.Builder.Spacer().WFixed(padding / DpiScale))
+                        .WStar().HAuto(),
+                    Layout.Builder.Spacer().HStar())
+                    .WStar(1f - DetailsPictureMaxShare).HStar(),
+                Layout.Builder.Spacer().WStar(withPicture ? DetailsPictureMaxShare : 0f).HStar());
+            foreach (var node in RenderLayout(atlasButton, rect))
             {
                 if (node.Node.Hit is HitResult.ButtonHit { Action: ShowInAtlasAction })
                 {

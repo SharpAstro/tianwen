@@ -744,6 +744,57 @@ namespace TianWen.Lib.Tests
             return (tab, state, content, time);
         }
 
+        /// <summary>
+        /// <b>Show in atlas sits in one place whatever target is selected.</b> It was laid out in the name line of the
+        /// text column, so its left edge followed the selected picture's width (and jumped to the strip's end for a
+        /// target with none) and its top and height followed the line count, which differs from target to target:
+        /// stepping down the list moved the button under the pointer at almost every row (reported 2026-11-16).
+        /// </summary>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task ShowInAtlasSitsInOnePlaceWhateverTheTarget(float dpiScale)
+        {
+            static (float X, float Y, float W, float H) Button(PlannerTab<RgbaImage> tab)
+            {
+                var button = tab.GetRegisteredRegions()
+                    .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
+                return (button.X, button.Y, button.Width, button.Height);
+            }
+
+            using var first = new RgbaImageRenderer(1600, 1000);
+            var (withPicture, _, _, _) = await PlannerWithPictureAsync(first, dpiScale: dpiScale);
+            using var second = new RgbaImageRenderer(1600, 1000);
+            var (plain, _, _, _) = await PlannerWithPictureAsync(second, CatalogIndex.IC1000, dpiScale);
+            using var third = new RgbaImageRenderer(1600, 1000);
+            var (panorama, _, _, _) = await PlannerWithPictureAsync(third, dpiScale: dpiScale, db: PanoramaDb());
+
+            // Emit the three renders beside the test binary so the strip can be eyeballed.
+            foreach (var (label, renderer) in new[] { ("picture", first), ("plain", second), ("panorama", third) })
+            {
+                File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, $"plannertab-atlasbutton-{label}-{dpiScale:0.0}.png"),
+                    PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
+            }
+
+            withPicture.PaintedDetailLines.Count.ShouldNotBe(plain.PaintedDetailLines.Count, "the two strips differ in line count, or this proves less");
+            var expected = Button(withPicture);
+            foreach (var other in new[] { Button(plain), Button(panorama) })
+            {
+                other.X.ShouldBe(expected.X, 0.5f);
+                other.Y.ShouldBe(expected.Y, 0.5f);
+                other.W.ShouldBe(expected.W, 0.5f);
+                other.H.ShouldBe(expected.H, 0.5f);
+            }
+
+            // And it ends where the widest picture section there can be would begin, a padding short of it.
+            var details = withPicture.DetailsRect;
+            var widestSectionStarts = details.X + details.Width * (1f - PlannerTab<RgbaImage>.DetailsPictureMaxShare);
+            (expected.X + expected.W).ShouldBeLessThanOrEqualTo(widestSectionStarts + 0.5f);
+            (expected.X + expected.W).ShouldBeGreaterThan(widestSectionStarts - 24f * dpiScale);
+            expected.Y.ShouldBeGreaterThan(details.Y);
+            expected.H.ShouldBeLessThan(details.Height / 2f, "its own height, not the strip's");
+        }
+
         [Theory]
         [InlineData(1f, 1f, 1600)]
         [InlineData(1.5f, 1f, 1600)]
