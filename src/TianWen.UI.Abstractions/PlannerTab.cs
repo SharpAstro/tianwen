@@ -654,6 +654,13 @@ namespace TianWen.UI.Abstractions
         /// <summary>The details panel's Show in atlas button (<see cref="ViewInSkyMapSignal"/>).</summary>
         internal const string ShowInAtlasAction = "ShowInAtlas";
 
+        // The narrowest details strip, in design units, that offers a picture section, and so keeps the Show in atlas
+        // button clear of where one would stand. Under it the 60 % the text keeps is too little for the button AND a
+        // name beside it (560x520 at 150 %: a 210-unit strip, the button over the name), so the strip offers no
+        // picture and the button keeps the strip's end. By the STRIP's width, never the selection's, so the button
+        // still stands in one place for every target.
+        internal const float DetailsPictureMinStripWidth = 480f;
+
         // The gap between the details strip's top edge and its Show in atlas button, in design units.
         private const float DetailsButtonTopMargin = 4f;
 
@@ -687,7 +694,8 @@ namespace TianWen.UI.Abstractions
 
             var text = rect;
             List<string>? lines = null;
-            if (withPicture && SelectedPicture(state) is { } picture)
+            var pictureOffered = withPicture && rect.Width / DpiScale >= DetailsPictureMinStripWidth;
+            if (pictureOffered && SelectedPicture(state) is { } picture)
             {
                 var dpiScale = DpiScale;
                 var pictureH = ObjectInfoPanel.DesignPictureHeightIn(rect.Height / dpiScale);
@@ -743,7 +751,8 @@ namespace TianWen.UI.Abstractions
             // strip's end for a target with none, while its top and height followed the line count. Now it ends where
             // the widest picture section there can be would begin (the strip less DetailsPictureMaxShare), at a fixed
             // margin under the strip's top, at its own height: none of which the selection changes. A strip that
-            // offers no picture at all (the compact portrait one) keeps it at the strip's end.
+            // offers no picture at all (the compact portrait one, and one under DetailsPictureMinStripWidth) keeps it
+            // at the strip's end.
             var atlasButton = Layout.Builder.HStack(
                 Layout.Builder.VStack(
                     Layout.Builder.Spacer().RowH(DetailsButtonTopMargin),
@@ -758,7 +767,7 @@ namespace TianWen.UI.Abstractions
                         .WStar().HAuto(),
                     Layout.Builder.Spacer().HStar())
                     .WStar(1f - DetailsPictureMaxShare).HStar(),
-                Layout.Builder.Spacer().WStar(withPicture ? DetailsPictureMaxShare : 0f).HStar());
+                Layout.Builder.Spacer().WStar(pictureOffered ? DetailsPictureMaxShare : 0f).HStar());
             // The name's row is the button's band: the button's height with the margin over it under it too, so the
             // name and the button share one middle and no line under the name stands beside the button. Only the name
             // gives up the width the button takes, read from where the engine put it. The other lines share what the
