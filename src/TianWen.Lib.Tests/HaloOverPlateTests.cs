@@ -88,13 +88,15 @@ public class HaloOverPlateTests
         keptHalo[0].ShouldAllBe(static v => v >= 0f);
         keptHalo[0][InjectionPopulation.PlateHaloReachPx].ShouldBeLessThan(keptHalo[0][InjectionPopulation.PlateHaloReachPx - 5], "faded out at its reach");
 
-        // Every other star: nothing inside 6 px, all of the stars' own table and the plate's share from 10 px.
+        // Every other star: nothing inside the ramp, all of the stars' own table and the plate's share past it.
         for (var k = 0; k <= InjectionPopulation.FieldHaloFromPx; k++)
         {
             fieldHalo[0][k].ShouldBe(0f, $"ring {k}");
         }
-        ((double)fieldHalo[0][8]).ShouldBe(0.5 * (ownTable[8] + keptHalo[0][8]), 1e-7, "half in at 8 px");
-        ((double)fieldHalo[0][12]).ShouldBe(ownTable[12] + keptHalo[0][12], 1e-7);
+        const int half = (InjectionPopulation.FieldHaloFromPx + InjectionPopulation.FieldHaloFullPx) / 2;
+        ((double)fieldHalo[0][half]).ShouldBe(0.5 * (ownTable[half] + keptHalo[0][half]), 1e-7, "half in midway");
+        const int full = InjectionPopulation.FieldHaloFullPx + 2;
+        ((double)fieldHalo[0][full]).ShouldBe(ownTable[full] + keptHalo[0][full], 1e-7);
         ((double)fieldHalo[0][40]).ShouldBe(keptHalo[0][40], 1e-9, "past the stars' own tables only the plate's share is left");
         fieldHalo[0].ShouldAllBe(static v => v >= 0f);
     }

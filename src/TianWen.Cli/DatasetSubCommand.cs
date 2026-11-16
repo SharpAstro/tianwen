@@ -1946,7 +1946,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "--mode stars, with --saturated-measured and without --outer-halo: also draw the halo the starless plate keeps " +
                           "round a saturated star (the classical remover leaves a star's outer halo in the plate, so a measurement of " +
                           "the master less the plate never sees it): a measured star gains the session's median of it per amplitude, " +
-                          "to 45 px, and every other star draws the session's whole halo past 6 px. A session with fewer than eight " +
+                          "to 45 px, and every other star draws the session's whole halo, coming in from 8 to 14 px. A session with fewer than eight " +
                           "measured stars draws as without it. Off by default.",
         };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")

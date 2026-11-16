@@ -758,7 +758,7 @@ public sealed class InjectionPopulation
 
     /// <summary>The halo over the plate (<see cref="PlateRingExcess"/>): its reach, the ring its sky is read in, the least
     /// measured stars a session needs for one, and the radii over which every other star's share of it comes in.</summary>
-    public const int PlateHaloReachPx = 45, PlateSkyFromPx = 50, PlateSkyToPx = 60, MinHaloOverPlateStars = 8, FieldHaloFromPx = 6, FieldHaloFullPx = 10;
+    public const int PlateHaloReachPx = 45, PlateSkyFromPx = 50, PlateSkyToPx = 60, MinHaloOverPlateStars = 8, FieldHaloFromPx = 8, FieldHaloFullPx = 14;
 
     /// <summary>
     /// What the starless plate keeps round a saturated star, which <see cref="MeasureSaturated"/> cannot see because it reads
