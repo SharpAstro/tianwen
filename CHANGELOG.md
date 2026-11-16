@@ -31,6 +31,46 @@ stay, their dates stay verifiable, and `git log v3.6.493..v4.0.564` answers the 
 always did. Hashes quoted in the docs from before the migration were re-pointed the same way. Any
 other commit hash from before 2026-04-22 no longer resolves anywhere.
 
+## 10.1
+
+Additive, so a minor. It gathers what landed on `main` since 10.0 into a release, mainly so the
+ARM64 Linux build a Raspberry Pi runs is current. No change since 10.0 was made as a breaking one.
+Two defaults changed, and both change what the same input produces:
+
+- **`tianwen stack` leaves out lights graded cloud or twilight by default** (`--reject-cloud` is on),
+  judging cloud only in a group of at least ten graded lights. A light that is only suspected
+  (`MAYBE_CLOUD_`) is left out unless `--include-maybe-cloud`.
+- **A run unparks a parked mount at its first move** (`SessionConfiguration.UnparkMount`, on by
+  default), never during the wait for dark. A goto or Home on its own still never unparks.
+
+What it is for, by subject:
+
+- **Guiding without a session (#1915).** The Guider tab loops the guide camera, lets a star be picked
+  on the looped frame, calibrates and guides on it as a run the node owns, and takes the guide
+  camera's dark library. A failed calibration names its cause and every step's displacement (#2050).
+- **A mount that lost power is not trusted.** A Skywatcher mount comes up POSITION LOST and can be
+  synced from its last known position; a restore after a power loss stands only once a plate solve
+  has synced the mount. The node stops every mount's axes and tracking when the OS is about to
+  suspend, and keeps the computer awake while it holds hardware. Home goes back to the power-on
+  position.
+- **Cooling.** The ramp has a ceiling on its rate in C per minute, cooling and warming, and a camera
+  with no heat sink is warmed to the settled sensor reading its cool-down started from.
+- **A frame's grade sees cloud and twilight.** The viewer's Grade section names why a frame is
+  rejected (cloud, streaky, defocused, obstruction), in its file name, and each rig's clear nights
+  are kept so every verdict reads against them.
+- **A device is matched on the evidence (#1090).** A serial device on a serial-numbered cable is the
+  same device in any socket, and a profile follows the cable.
+- **Stacking.** A master carries a saturation sidecar counting the subs clipped at the ADC ceiling,
+  which tells SPCC's clip gate which stars were saturated (#1991).
+- **Planner and atlas.** Back and Forward over the tabs; the selected target's verified picture in
+  the details strip; the atlas info box draws the night curve with the planner's usable part shaded
+  (#2059). The accent is the logo's orange, and a warning or error carries a mark beside its colour
+  (#2025).
+- **Embedded data by group (#2155, #2161).** A trimmed consumer of `TianWen.Lib` switches a group of
+  embedded files off (`TianWen.Lib.EmbeddedData.Sky`, `.Stars`, `.Imaging`, `.FakeDevices`) and its
+  host supplies them through `DataFiles.Source` (`IDataFileSource`). The web planner serves the sky's
+  catalogues as plain files beside the app. Desktop hosts read the embedded files as before.
+
 ## 10.0
 
 Breaking, so a major. The hardware moves into the server (#751, P9 #938 of
