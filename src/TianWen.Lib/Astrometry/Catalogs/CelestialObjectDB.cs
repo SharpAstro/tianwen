@@ -19,6 +19,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpAstro.Lzip;
+using TianWen.Lib.IO;
 using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.EnumHelper;
@@ -149,7 +150,15 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <summary>Entry count that failed to parse in the last <see cref="InitDBAsync"/>.</summary>
     public int LastInitFailed { get; private set; }
 
-    public CelestialObjectDB() { }
+    /// <summary>
+    /// Where this database reads its data files from (#2161): the process's source, so what a trimmed build no
+    /// longer embeds a host can supply. A test hands in its own to read through a source that lacks a file.
+    /// </summary>
+    private readonly IDataFileSource _dataFiles;
+
+    public CelestialObjectDB() : this(DataFiles.Source) { }
+
+    internal CelestialObjectDB(IDataFileSource dataFiles) => _dataFiles = dataFiles;
 
     /// <summary>
     /// Build-time hook for <c>tools/precompute-hd-hip-cross</c>. When true, init forces the
@@ -533,18 +542,18 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         LastInitFailed = 0;
         var phaseSw = new Stopwatch();
 
-        var assembly = typeof(CelestialObjectDB).Assembly;
-        var manifestNames = assembly.GetManifestResourceNames();
+        var dataFiles = _dataFiles;
         var totalProcessed = 0;
         var totalFailed = 0;
 
-        // Probe for the SIMBAD merge snapshot up front so we can skip pre-starting
-        // hrParseTask + the SIMBAD prefetch pipeline entirely on the apply path. Embedded
-        // resource lookup is a manifest scan, no I/O. ForceLiveSimbadMergeWithCapture
-        // (precompute path) bypasses the snapshot apply attempt.
-        var simbadSnapshotResource = ForceLiveSimbadMergeWithCapture
-            ? null
-            : manifestNames.FirstOrDefault(n => n.EndsWith(".simbad_merge.bin.gz", StringComparison.Ordinal));
+        // Ask for the SIMBAD merge snapshot up front so we can skip pre-starting hrParseTask + the
+        // SIMBAD prefetch pipeline entirely on the apply path. Embedded, that is a manifest scan,
+        // no I/O; a host's source may fetch it, so it is STARTED here and awaited only once the
+        // background reads below are under way, none of which waits for it.
+        // ForceLiveSimbadMergeWithCapture (precompute path) bypasses the snapshot apply attempt.
+        var simbadSnapshotOpen = ForceLiveSimbadMergeWithCapture
+            ? Task.FromResult<Stream?>(null)
+            : dataFiles.OpenAsync("simbad_merge.bin.gz", cancellationToken).AsTask();
 
         phaseSw.Restart();
         // Split the Tycho-2 read into two tasks. The hot one (HIP/HD→TYC cross-ref arrays,
@@ -554,11 +563,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // index, ~200-400 ms) is NOT on init's critical path when the Phase 2A snapshot
         // applies cleanly; it stays in `_tycho2BulkLoadTask` for runtime callers
         // (sky map / plate solver) to await via EnsureTycho2DataLoadedAsync().
-        var tycho2CrossRefTask = Task.Run(() => ReadTycho2CrossRefArrays(assembly, manifestNames), cancellationToken);
+        var tycho2CrossRefTask = Task.Run(() => ReadTycho2CrossRefArraysAsync(cancellationToken), cancellationToken);
         // Independent of every other phase (it reads its own resource and touches nothing shared until
         // the join below), so it decompresses alongside them.
-        var articlesTask = Task.Run(() => ReadObjectArticles(assembly, manifestNames), cancellationToken);
-        _tycho2BulkLoadTask = Task.Run(() => ReadTycho2Bulk(assembly, manifestNames), cancellationToken);
+        var articlesTask = Task.Run(() => ReadObjectArticlesAsync(cancellationToken), cancellationToken);
+        _tycho2BulkLoadTask = Task.Run(ReadTycho2BulkAsync, cancellationToken);
+
+        // Same trick for the NGC catalogs: LZ-decompress them in the background so that
+        // when the main thread reaches the NGC merge phase, the bytes are ready and only
+        // the (synchronous, main-thread-only) merge runs there. DecompressNgcAsync prefers
+        // the ASCII-separated .gs.gz and falls back to the legacy .csv.lz.
+        var ngcDecompressTasks = new[]
+        {
+            DecompressNgcAsync(dataFiles, "NGC", cancellationToken),
+            DecompressNgcAsync(dataFiles, "NGC.addendum", cancellationToken),
+        };
+
+        // The snapshot's stream is this method's from here: disposed however init ends, whether or not
+        // the apply below is reached.
+        using var simbadSnapshotStream = await simbadSnapshotOpen;
 
         // Start HR's SIMBAD parse on the thread pool too - HR is the heaviest SIMBAD
         // file (~200ms to decompress + parse) and by launching it now, it can run
@@ -567,19 +590,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // merge immediately.
         // Skip pre-starting if a SIMBAD snapshot is embedded; the apply path won't need
         // HR's parse; on hash miss the live fallback path starts the parse synchronously.
-        Task<List<SimbadCatalogDto>>? hrParseTask = simbadSnapshotResource is null
-            ? ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken)
+        Task<List<SimbadCatalogDto>>? hrParseTask = simbadSnapshotStream is null
+            ? ParseSimbadFileAsync(dataFiles, "HR", cancellationToken)
             : null;
-
-        // Same trick for the NGC catalogs: LZ-decompress them in the background so that
-        // when the main thread reaches the NGC merge phase, the bytes are ready and only
-        // the (synchronous, main-thread-only) merge runs there. DecompressNgcAsync prefers
-        // the ASCII-separated .gs.gz and falls back to the legacy .csv.lz.
-        var ngcDecompressTasks = new[]
-        {
-            DecompressNgcAsync(assembly, manifestNames, "NGC", cancellationToken),
-            DecompressNgcAsync(assembly, manifestNames, "NGC.addendum", cancellationToken),
-        };
 
         foreach (var predefined in _predefinedObjects)
         {
@@ -614,8 +627,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // the embedded SIMBAD/NGC catalog inputs; otherwise fall back to live parse + merge.
         // See docs/plans/catalog-binary-format.md § 2B.
         PreSimbadCaptureState? preSimbadState = null;
-        var simbadAppliedFromSnapshot = simbadSnapshotResource is not null
-            && await TryApplySimbadMergeSnapshotFromEmbeddedAsync(assembly, manifestNames, simbadSnapshotResource);
+        var simbadAppliedFromSnapshot = simbadSnapshotStream is not null
+            && await TryApplySimbadMergeSnapshotAsync(simbadSnapshotStream, cancellationToken);
 
         if (!simbadAppliedFromSnapshot)
         {
@@ -661,15 +674,15 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             Task<List<SimbadCatalogDto>>? nextParseTask = simbadCatalogs.Length switch
             {
                 0 => null,
-                _ when simbadCatalogs[0].FileName == "HR" => hrParseTask ?? ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken),
-                _ => ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].FileName, cancellationToken),
+                _ when simbadCatalogs[0].FileName == "HR" => hrParseTask ?? ParseSimbadFileAsync(dataFiles, "HR", cancellationToken),
+                _ => ParseSimbadFileAsync(dataFiles, simbadCatalogs[0].FileName, cancellationToken),
             };
             for (var i = 0; i < simbadCatalogs.Length; i++)
             {
                 var (fileName, catToAdd) = simbadCatalogs[i];
                 // Kick off parse of the NEXT file before we do this file's merge.
                 var prefetchTask = (i + 1 < simbadCatalogs.Length)
-                    ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[i + 1].FileName, cancellationToken)
+                    ? ParseSimbadFileAsync(dataFiles, simbadCatalogs[i + 1].FileName, cancellationToken)
                     : null;
 
                 var perFileSw = Stopwatch.StartNew();
@@ -723,11 +736,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             ("Ced",     Catalog.Ced),
         ];
         phaseSw.Restart();
+        var shapesUnreadable = false;
         foreach (var (fileName, cat) in shapeSources)
         {
-            await ReadCatalogObjectShapesAsync(assembly, manifestNames, fileName, cat, cancellationToken);
+            shapesUnreadable |= await ReadCatalogObjectShapesAsync(fileName, cat, cancellationToken) is null;
         }
-        _lastInitPhaseTimings.Add(("shapes", phaseSw.Elapsed));
+        _lastInitPhaseTimings.Add((shapesUnreadable ? "shapes:unreadable" : "shapes", phaseSw.Elapsed));
 
         // Wait for the small cross-ref arrays only: the bulk tyc2.bin.lz decode keeps
         // running in the background and only blocks init if the Phase 2A snapshot apply
@@ -739,8 +753,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         phaseSw.Restart();
         // Load cross-ref multi-json files (modifies shared _crossIndexLookuptable, must be sequential)
-        LoadCrossRefMultiJson(assembly, manifestNames, "hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc);
-        LoadCrossRefMultiJson(assembly, manifestNames, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
+        await LoadCrossRefMultiJsonAsync("hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc, cancellationToken);
+        await LoadCrossRefMultiJsonAsync("hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc, cancellationToken);
         _lastInitPhaseTimings.Add(("cross-ref-json", phaseSw.Elapsed));
 
         phaseSw.Restart();
@@ -755,21 +769,24 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             await EnsureTycho2DataLoadedAsync(cancellationToken);
             BuildHdHipCrossIndicesViaTyc(captureSnapshot: true);
         }
-        else if (!await TryApplyHdHipCrossSnapshotFromEmbeddedAsync(assembly, manifestNames))
+        else if (!await TryApplyHdHipCrossSnapshotAsync(cancellationToken))
         {
-            if (manifestNames.Any(n => n.EndsWith(".tyc2.bin.lz", StringComparison.Ordinal)))
+            // Snapshot stale/missing/malformed -> fall back to live compute, which needs the
+            // full Tycho-2 binary. Block here until the background bulk read finishes, and ask
+            // what it FOUND: this used to ask whether tyc2.bin.lz was embedded, which no build
+            // has embedded since the catalogue ships expanded, so a full build with a bad
+            // snapshot took the "no Tycho-2" branch below with the catalogue in hand.
+            await EnsureTycho2DataLoadedAsync(cancellationToken);
+            if (_tycho2Data is not null)
             {
-                // Snapshot stale/missing/malformed -> fall back to live compute, which needs the
-                // full Tycho-2 binary. Block here until the background bulk decode finishes.
-                await EnsureTycho2DataLoadedAsync(cancellationToken);
                 BuildHdHipCrossIndicesViaTyc();
             }
             else
             {
-                // Lightweight build (tyc2 stripped) with no usable snapshot: the live compute is
-                // impossible without the Tycho-2 binary. Degrade to no HD<->HIP cross-indices
-                // (bright-star lookups still resolve via their direct HR/HD identities) rather
-                // than failing init.
+                // No Tycho-2 (a Lightweight build, a source without it) and no usable snapshot:
+                // the live compute is impossible without the Tycho-2 binary. Degrade to no
+                // HD<->HIP cross-indices (bright-star lookups still resolve via their direct
+                // HR/HD identities) rather than failing init.
                 _lastInitPhaseTimings.Add(("hd-hip-cross:skipped-lightweight", phaseSw.Elapsed));
             }
         }
@@ -819,12 +836,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// throws on by contract and <see cref="ReadObjectArticles(Stream, out bool)"/> catches. A truncated
     /// resource is the likely way to the latter, and it is only sometimes that: the gzip decoder ends a
     /// cut-short stream silently, so the records before the cut read as a table (see the remark on
-    /// <c>TryRead</c>). Reported as the <c>object-articles:unreadable</c> phase, since this class has no logger.
+    /// <c>TryRead</c>). So is a table its source lists and could not fetch (an <see cref="IOException"/> from
+    /// <see cref="IDataFileSource.OpenAsync"/>, a dropped request on the web): embedded, the file could not fail
+    /// to arrive, and a planner is not ended by one. Reported as the <c>object-articles:unreadable</c> phase,
+    /// since this class has no logger.
     /// </remarks>
-    private FrozenDictionary<CatalogIndex, ObjectArticle> ReadObjectArticles(Assembly assembly, string[] manifestNames)
+    private async Task<FrozenDictionary<CatalogIndex, ObjectArticle>> ReadObjectArticlesAsync(CancellationToken cancellationToken)
     {
-        var resource = manifestNames.FirstOrDefault(n => n.EndsWith(ObjectArticleTable.ResourceSuffix, StringComparison.Ordinal));
-        if (resource is null || assembly.GetManifestResourceStream(resource) is not { } stream)
+        Stream? stream;
+        try
+        {
+            stream = await _dataFiles.OpenAsync(ObjectArticleTable.FileName, cancellationToken);
+        }
+        catch (IOException)
+        {
+            _objectArticlesUnreadable = true;
+            return FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
+        }
+
+        if (stream is null)
         {
             return FrozenDictionary<CatalogIndex, ObjectArticle>.Empty;
         }
@@ -872,10 +902,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// the very next step (<c>LoadCrossRefMultiJson</c>) reads <see cref="_hipToTyc"/> and
     /// <see cref="_hdToTyc"/> to merge multi-target rows. Runs in ~30-50 ms warm.
     /// </summary>
-    private void ReadTycho2CrossRefArrays(Assembly assembly, string[] manifestNames)
+    private async Task ReadTycho2CrossRefArraysAsync(CancellationToken cancellationToken)
     {
-        _hipToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hip_to_tyc");
-        _hdToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hd_to_tyc");
+        _hipToTyc = await LoadCrossRefBinFileAsync(_dataFiles, "hip_to_tyc", cancellationToken);
+        _hdToTyc = await LoadCrossRefBinFileAsync(_dataFiles, "hd_to_tyc", cancellationToken);
     }
 
     /// <summary>
@@ -891,7 +921,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Reads an embedded resource into one exactly-sized array, in one allocation.
     /// </summary>
     /// <remarks>
-    /// <c>GetManifestResourceStream</c> returns an <see cref="UnmanagedMemoryStream"/> over the mapped
+    /// For an embedded file, <c>GetManifestResourceStream</c> returns an <see cref="UnmanagedMemoryStream"/> over the mapped
     /// assembly image, so <see cref="Stream.Length"/> is exact and this is a single memcpy off pages
     /// the OS faults in as it goes -- no growth, no re-copy, and no decompression. Reading it whole is
     /// still the honest step for now, because <c>_tycho2Data</c> is a <c>byte[]</c> that ~31 call sites
@@ -900,13 +930,27 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// </remarks>
     private static byte[] ReadFully(Stream stream)
     {
-        var buffer = new byte[stream.Length];
+        // A host's stream need not know its length (a response body does not): copied as it comes then.
+        if (!stream.CanSeek)
+        {
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            return copy.ToArray();
+        }
+
+        var buffer = new byte[stream.Length - stream.Position];
         stream.ReadExactly(buffer);
         return buffer;
     }
 
-    private void ReadTycho2Bulk(Assembly assembly, string[] manifestNames)
+    private async Task ReadTycho2BulkAsync()
     {
+        var dataFiles = _dataFiles;
+
+        // Once started, this read is the database's and not the init caller's: it outlives an init that did not
+        // wait for it, and the sky map and the plate solver await its task later. Cancelled between two files it
+        // would leave the star records without their index, and that task cancelled for good.
+        var cancellationToken = CancellationToken.None;
         // EXPANDED FIRST, and it is the form the build embeds. tyc2.bin is already the layout this
         // reads -- stream count, per-GSC-region offset table, region-major 17-byte records -- so lzip
         // was only ever the container, and a ~4 MiB member has to be decoded WHOLE. That made reaching
@@ -918,33 +962,38 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // into obj/ (see the ExpandTycho2 target). Keeping the fallback means a consumer building
         // without that target, or a lightweight build, still works rather than silently losing the
         // catalogue.
-        var expandedManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2.bin"));
-        if (expandedManifest is not null && assembly.GetManifestResourceStream(expandedManifest) is Stream expandedStream)
+        if (await dataFiles.OpenAsync("tyc2.bin", cancellationToken) is { } expandedStream)
         {
-            WireTycho2BulkData(ReadFully(expandedStream));
+            using (expandedStream)
+            {
+                WireTycho2BulkData(ReadFully(expandedStream));
+            }
+        }
+        else if (await dataFiles.OpenAsync("tyc2.bin.lz", cancellationToken) is { } tyc2Stream)
+        {
+            using (tyc2Stream)
+            {
+                WireTycho2BulkData(LzipDecoder.Decompress(tyc2Stream));
+            }
         }
         else
         {
-            var tyc2Manifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2.bin.lz"));
-            if (tyc2Manifest is null || assembly.GetManifestResourceStream(tyc2Manifest) is not Stream tyc2Stream)
+            return;
+        }
+
+        if (await dataFiles.OpenAsync(Tycho2RegionSelector.BoundsFileName, cancellationToken) is { } boundsStream)
+        {
+            using (boundsStream)
             {
-                return;
+                var boundsData = LzipDecoder.Decompress(boundsStream);
+                _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsData);
+                _coordinateGrid = null;
             }
-
-            WireTycho2BulkData(LzipDecoder.Decompress(tyc2Stream));
         }
 
-        var boundsManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
-        if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
+        if (await dataFiles.OpenAsync("tyc2_pm_sidecar.bin.lz", cancellationToken) is { } sidecarStream)
         {
-            var boundsData = LzipDecoder.Decompress(boundsStream);
-            _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsData);
-            _coordinateGrid = null;
-        }
-
-        var sidecarManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_pm_sidecar.bin.lz"));
-        if (sidecarManifest is not null && assembly.GetManifestResourceStream(sidecarManifest) is Stream sidecarStream)
-        {
+            using var sidecarOwned = sidecarStream;
             // Format: 13 bytes per entry, tyc1 u16 | tyc2 u16 | tyc3 u8 | pmRA int32 | pmDec int32.
             // Entry count = byte length / 13 (no header). Sorted ascending by (tyc1, tyc2, tyc3).
             var sidecarBytes = LzipDecoder.Decompress(sidecarStream);
@@ -1035,14 +1084,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return;
         }
 
-        var assembly = typeof(CelestialObjectDB).Assembly;
-        var boundsManifest = assembly.GetManifestResourceNames()
-            .FirstOrDefault(n => n.EndsWith(".tyc2_gsc_bounds.bin.lz", StringComparison.Ordinal));
-        if (boundsManifest is null)
-        {
-            return;
-        }
-        using var boundsStream = assembly.GetManifestResourceStream(boundsManifest);
+        // The injection is synchronous (a host calls it from its draw loop's continuation with the bytes it
+        // fetched), so the bounds are taken only where the source has them at hand: embedded, or already
+        // held by the host that supplies them.
+        using var boundsStream = _dataFiles.OpenIfAtHand(Tycho2RegionSelector.BoundsFileName);
         if (boundsStream is null)
         {
             return;
@@ -1336,11 +1381,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// path. Per-path timings are added to <see cref="_lastInitPhaseTimings"/> so cold-start
     /// telemetry shows which branch ran.
     /// </summary>
-    private async Task<bool> TryApplyHdHipCrossSnapshotFromEmbeddedAsync(Assembly assembly, string[] manifestNames)
+    private async Task<bool> TryApplyHdHipCrossSnapshotAsync(CancellationToken cancellationToken)
     {
         var subSw = Stopwatch.StartNew();
-        var snapshotResource = manifestNames.FirstOrDefault(n => n.EndsWith(".hd_hip_cross.bin.gz", StringComparison.Ordinal));
-        if (snapshotResource is null)
+        using var snapshotStream = await _dataFiles.OpenAsync("hd_hip_cross.bin.gz", cancellationToken);
+        if (snapshotStream is null)
         {
             _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:missing", subSw.Elapsed));
             return false;
@@ -1357,39 +1402,37 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // snapshot when an input changes), and HdHipCrossSnapshotTests still enforces it in CI by
         // resolving each input from whichever assembly carries it. What is lost is a runtime
         // re-check of bytes that shipped together in the same build, which never had much to say.
-        var canVerify = manifestNames.Any(n => n.EndsWith(".tyc2.bin.lz", StringComparison.Ordinal));
+        //
+        // So the hash answers null wherever an input is not to be had, which is every build today, and a
+        // source that does carry all of them is verified.
 
         // Compute the input hash in parallel with snapshot read+decode: both touch ~22 MB of
         // embedded resource data and SHA-256 is CPU-bound enough to saturate a core. On a
         // representative cold start the snapshot read takes ~50 ms and the hash ~50 ms;
         // overlapping them shaves ~30-40 ms off the apply path.
-        var hashTask = canVerify ? Task.Run(() => HdHipCrossInputHasher.Compute(assembly, manifestNames)) : null;
+        // tyc2.bin.lz is asked for FIRST: it is the input no build carries, and a source that fetches would
+        // otherwise fetch the catalogues before it for a hash that cannot be computed.
+        var hashTask = HashInputsAsync(HdHipCrossInputHasher.InputNames, HdHipCrossInputHasher.Compute, cancellationToken, askFirst: "tyc2.bin.lz");
 
         HdHipCrossSnapshot snapshot;
         byte[] storedHash;
         try
         {
-            using var stream = assembly.GetManifestResourceStream(snapshotResource)
-                ?? throw new InvalidOperationException("Snapshot resource stream was null.");
-            snapshot = HdHipCrossSnapshotIo.Read(stream, out storedHash);
+            snapshot = HdHipCrossSnapshotIo.Read(snapshotStream, out storedHash);
         }
         catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or IOException)
         {
             // Treat any decode failure as "stale": fall back to live compute. Debug-time safety
             // net; in CI the snapshot is rebuilt so a malformed embedded resource is a packaging bug.
             _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:malformed", subSw.Elapsed));
-            if (hashTask is not null)
-            {
-                await hashTask;  // observe to avoid unobserved-task warnings
-            }
+            await hashTask;  // observe to avoid unobserved-task warnings
             return false;
         }
         var readElapsed = subSw.Elapsed;
         _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:read", readElapsed));
 
-        if (hashTask is not null)
+        if (await hashTask is { } expectedHash)
         {
-            var expectedHash = await hashTask;
             _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:hash", subSw.Elapsed - readElapsed));
             if (!storedHash.AsSpan().SequenceEqual(expectedHash))
             {
@@ -1564,21 +1607,19 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// path. Caller passes the resource manifest name discovered up-front so the apply path
     /// only runs when there is a snapshot to try.
     /// </summary>
-    private async Task<bool> TryApplySimbadMergeSnapshotFromEmbeddedAsync(Assembly assembly, string[] manifestNames, string snapshotResource)
+    private async Task<bool> TryApplySimbadMergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken)
     {
         var subSw = Stopwatch.StartNew();
 
         // Hash the SIMBAD/NGC inputs (~1 MB) in parallel with the snapshot read+decode.
         // SIMBAD inputs are small but SHA-256 still benefits from running off-thread.
-        var hashTask = Task.Run(() => SimbadMergeInputHasher.Compute(assembly, manifestNames));
+        var hashTask = HashInputsAsync(SimbadMergeInputHasher.InputNames, SimbadMergeInputHasher.Compute, cancellationToken);
 
         SimbadMergeSnapshot snapshot;
         byte[] storedHash;
         try
         {
-            using var stream = assembly.GetManifestResourceStream(snapshotResource)
-                ?? throw new InvalidOperationException("Simbad snapshot resource stream was null.");
-            snapshot = SimbadMergeSnapshotIo.Read(stream, out storedHash);
+            snapshot = SimbadMergeSnapshotIo.Read(snapshotStream, out storedHash);
         }
         catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or IOException)
         {
@@ -1589,9 +1630,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var readElapsed = subSw.Elapsed;
         _lastInitPhaseTimings.Add(("simbad-snapshot:read", readElapsed));
 
+        // An input that is not to be had cannot be the one this snapshot was baked from: stale, and the
+        // live merge then names the missing catalogue.
         var expectedHash = await hashTask;
         _lastInitPhaseTimings.Add(("simbad-snapshot:hash", subSw.Elapsed - readElapsed));
-        if (!storedHash.AsSpan().SequenceEqual(expectedHash))
+        if (expectedHash is null || !storedHash.AsSpan().SequenceEqual(expectedHash))
         {
             _lastInitPhaseTimings.Add(("simbad-snapshot:stale", subSw.Elapsed));
             return false;
@@ -1602,6 +1645,54 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         _lastInitPhaseTimings.Add(("simbad-snapshot:apply", subSw.Elapsed - beforeApply));
         _lastInitPhaseTimings.Add(("simbad-snapshot:applied", subSw.Elapsed));
         return true;
+    }
+
+    /// <summary>
+    /// Hashes a snapshot's inputs as this database's source has them, off the calling thread. Null when the
+    /// source lacks one of them, since a hash over fewer inputs is not the one a snapshot stored.
+    /// </summary>
+    private async Task<byte[]?> HashInputsAsync(
+        IReadOnlyList<string> inputNames, Func<Func<string, Stream>, byte[]> compute, CancellationToken cancellationToken,
+        string? askFirst = null)
+    {
+        var streams = new Dictionary<string, Stream>(inputNames.Count, StringComparer.Ordinal);
+        try
+        {
+            if (askFirst is not null)
+            {
+                if (await _dataFiles.OpenAsync(askFirst, cancellationToken) is not { } first)
+                {
+                    return null;
+                }
+
+                streams[askFirst] = first;
+            }
+
+            foreach (var name in inputNames)
+            {
+                if (streams.ContainsKey(name))
+                {
+                    continue;
+                }
+
+                if (await _dataFiles.OpenAsync(name, cancellationToken) is not { } stream)
+                {
+                    return null;
+                }
+
+                streams[name] = stream;
+            }
+
+            return await Task.Run(() => compute(name => streams[name]), cancellationToken);
+        }
+        finally
+        {
+            // The hasher disposes what it opened; this covers a hash never started or cut short.
+            foreach (var stream in streams.Values)
+            {
+                stream.Dispose();
+            }
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1789,7 +1880,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private static CatalogIndex[]? LoadCrossRefBinFile(Assembly assembly, string[] manifestNames, string name)
+    private static async Task<CatalogIndex[]?> LoadCrossRefBinFileAsync(IDataFileSource dataFiles, string name, CancellationToken cancellationToken)
     {
         // EXPANDED FIRST, exactly as ReadTycho2Bulk does, and for a measured reason: decompressing
         // these two cost 274.7 ms of a 530 ms cold init (83.9 hip + 190.8 hd) against 131.4 ms to
@@ -1799,9 +1890,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // claimed. The build's ExpandTycho2CrossRef writes the expansion into obj/, so the committed
         // .lz -- an LFS object -- is untouched and stays the fallback for a build that skipped the
         // target (Lightweight), which is why this is a preference and not a replacement.
-        var expandedManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".bin"));
         byte[] data;
-        if (expandedManifest is not null && assembly.GetManifestResourceStream(expandedManifest) is Stream expandedStream)
+        if (await dataFiles.OpenAsync(name + ".bin", cancellationToken) is { } expandedStream)
         {
             using (expandedStream)
             {
@@ -1810,8 +1900,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
         else
         {
-            var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".bin.lz"));
-            if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+            if (await dataFiles.OpenAsync(name + ".bin.lz", cancellationToken) is not { } stream)
             {
                 return null;
             }
@@ -1846,10 +1935,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return result;
     }
 
-    private void LoadCrossRefMultiJson(Assembly assembly, string[] manifestNames, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
+    private async Task LoadCrossRefMultiJsonAsync(string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray, CancellationToken cancellationToken)
     {
-        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".json.lz"));
-        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        if (await _dataFiles.OpenAsync(name + ".json.lz", cancellationToken) is not { } stream)
         {
             return;
         }
@@ -2658,12 +2746,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// the thread pool in parallel with other work (predefined objects, HR SIMBAD
     /// parse, Tycho2).
     /// </summary>
-    private static async Task<(byte[]? Bytes, bool IsGs)> DecompressNgcAsync(Assembly assembly, string[] manifestNames, string ngcName, CancellationToken cancellationToken)
+    private static async Task<(byte[]? Bytes, bool IsGs)> DecompressNgcAsync(IDataFileSource dataFiles, string ngcName, CancellationToken cancellationToken)
     {
         // Prefer the ASCII-separated *.gs.gz produced by tools/preprocess-catalog.ps1;
         // fall back to *.csv.lz for catalogs that have not been migrated yet.
-        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + ngcName + ".gs.gz"));
-        if (gsManifest is not null && assembly.GetManifestResourceStream(gsManifest) is { } gsStream)
+        if (await dataFiles.OpenAsync(ngcName + ".gs.gz", cancellationToken) is { } gsStream)
         {
             using (gsStream)
             {
@@ -2671,8 +2758,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             }
         }
 
-        var csvManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + ngcName + ".csv.lz"));
-        if (csvManifest is null || assembly.GetManifestResourceStream(csvManifest) is not Stream csvStream)
+        if (await dataFiles.OpenAsync(ngcName + ".csv.lz", cancellationToken) is not { } csvStream)
         {
             return (null, false);
         }
@@ -2958,16 +3044,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// build, not a valid state.
     /// </para>
     /// </remarks>
-    private static async Task<List<SimbadCatalogDto>> ParseSimbadFileAsync(Assembly assembly, string[] manifestNames, string jsonName, CancellationToken cancellationToken)
+    private static async Task<List<SimbadCatalogDto>> ParseSimbadFileAsync(IDataFileSource dataFiles, string jsonName, CancellationToken cancellationToken)
     {
-        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".gs.gz"));
-        if (gsManifest is null || assembly.GetManifestResourceStream(gsManifest) is not { } gsStream)
+        if (await dataFiles.OpenAsync(jsonName + ".gs.gz", cancellationToken) is not { } gsStream)
         {
             throw new InvalidOperationException(
-                $"Catalog '{jsonName}' has no embedded {jsonName}.gs.gz resource. This is a broken build, " +
-                "not a missing catalog: PreprocessCatalogs generates it from the .json.lz on disk and " +
-                "EmbedCatalogOutputs embeds it. Rebuild TianWen.Lib; if it persists, check that " +
-                $"Astrometry/Catalogs/{jsonName}.json.lz is still a <CatalogPreprocess> item.");
+                $"Catalog '{jsonName}' has no {jsonName}.gs.gz: it is not embedded and the host's data source " +
+                "(DataFiles.Source) does not supply it. Embedded, this is a broken build, not a missing catalog: " +
+                "PreprocessCatalogs generates it from the .json.lz on disk and EmbedCatalogOutputs embeds it. " +
+                "Rebuild TianWen.Lib; if it persists, check that " +
+                $"Astrometry/Catalogs/{jsonName}.json.lz is still a <CatalogPreprocess> item. A consumer that " +
+                "switched TianWen.Lib.EmbeddedData.Sky off supplies the file through its source.");
         }
 
         return await ParseSimbadGsAsync(gsStream, cancellationToken);
@@ -3321,10 +3408,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// by the coarser circular approximation derived from VizieR area/diameter
     /// fields. See <c>Get-VizierDarkNebulaShapes.ps1</c>.
     /// </summary>
-    private async Task<int> ReadCatalogObjectShapesAsync(Assembly assembly, string[] manifestNames, string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
+    /// <returns>
+    /// The shapes applied, or null where the source lists the file and could not fetch it (an
+    /// <see cref="IOException"/> from <see cref="IDataFileSource.OpenAsync"/>). The shapes enrich the catalogue as
+    /// the articles do, so that is a catalogue without these outlines and never a failed init; the caller reports
+    /// it as the <c>shapes:unreadable</c> phase.
+    /// </returns>
+    private async Task<int?> ReadCatalogObjectShapesAsync(string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
     {
-        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".shapes.json.lz"));
-        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        Stream? stream;
+        try
+        {
+            stream = await _dataFiles.OpenAsync(jsonName + ".shapes.json.lz", cancellationToken);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+
+        if (stream is null)
         {
             return 0;
         }

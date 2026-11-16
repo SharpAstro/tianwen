@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.IO;
 using TianWen.UI.Web.Devices;
 using TianWen.UI.Web.Pages;
 
@@ -10,12 +11,13 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<Planner>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// The comet repository fetches JPL SBDB over HTTP; the catalog DB is fully embedded. An HttpClient
+// The comet repository fetches JPL SBDB over HTTP; the catalog DB reads its files through DataFiles.Source,
+// set below (embedded when run untrimmed, fetched from data/ when published). An HttpClient
 // scoped to the app base address covers the wwwroot font fetch at startup and the SBDB call.
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 
 // Minimal browser service graph: the shared clock + a browser IExternal (MEMFS / no serial / no TCP)
-// + astrometry (embedded catalog DB + JPL comet repository). Everything else in the desktop
+// + astrometry (the catalog DB + JPL comet repository). Everything else in the desktop
 // Program.cs (native camera/mount SDKs, serial mounts, ASCOM/Alpaca, session factory) is either
 // inherently non-browser or irrelevant to the planner + atlas.
 builder.Services.AddLogging();
@@ -36,6 +38,15 @@ builder.Services.AddSingleton<IExternal, BrowserExternal>();
 // Both are plain same-origin URLs relative to the app base, so NOTHING here asks whether it is running
 // on Pages: the dev server 404s both and degrades along exactly the path a seed-less host takes.
 var baseAddress = new Uri(builder.HostEnvironment.BaseAddress);
+
+// The published app does not carry the sky's catalogues in TianWen.Lib (the EmbeddedData.Sky switch in the
+// project file): they are plain files in data/, fetched here and kept by the browser across deploys of the code.
+// Set before anything reads a data file. A build that still embeds them (dotnet run, untrimmed) answers from the
+// assembly first and finds no data/index.txt, so nothing is fetched.
+DataFiles.Source = DataFiles.FirstOf(
+    DataFiles.Embedded,
+    new HttpDataFiles(new HttpClient { BaseAddress = baseAddress }, new Uri(baseAddress, "data/")));
+
 builder.Services.AddAstrometry(
     cometQueryUri: new Uri(baseAddress, "comets-sbdb.json"),
     apparitionSeedUri: new Uri(baseAddress, "comets-apparitions.json"));

@@ -383,6 +383,10 @@ Full rules: `docs/architecture/image-pipeline.md`, `docs/plans/frame-lifecycle.m
   cameras record their areas (`DATASEC`, `BIASSEC`; `FitsSection`).
 - **Float TIFF values are [0, 1] on disk.** Codec types are in the `SharpAstro.*` codec packages, not DIR.Lib.
 - **Directory walks go through `FileEnumeration`**, never the `SearchOption` overloads.
+- **An embedded data file is asked of `DataFiles.Source` by NAME** (`IDataFileSource`, #2161), never
+  `GetManifestResourceStream`: a trimmed consumer switches a group off (`TianWen.Lib.EmbeddedData.<group>`) and its host
+  supplies the file instead. A reader awaits `OpenAsync`; one that cannot wait takes `OpenIfAtHand` and owes a load
+  step its host awaits first. A file nobody has is named, or done without. `DataFileSourceTests`.
 - **AppData files have more than one process on them**: `IExternal.AtomicWriteJsonAsync` / `TryReadJsonAsync` or
   `SharedFile`, never a bare `FileStream`; a file every host adds to goes through `UpdateJsonAsync`. Add a new directory
   to the tree in `docs/architecture/runtime-data.md`.

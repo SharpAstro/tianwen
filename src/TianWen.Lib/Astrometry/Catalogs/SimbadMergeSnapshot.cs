@@ -397,6 +397,9 @@ internal static class SimbadMergeSnapshotIo
 /// </summary>
 internal static class SimbadMergeInputHasher
 {
+    /// <summary>The data files the hash covers, by the name a data file source is asked for.</summary>
+    internal static IReadOnlyList<string> InputNames => Inputs;
+
     private static readonly string[] Inputs =
     [
         "Barnard.gs.gz",
@@ -417,6 +420,19 @@ internal static class SimbadMergeInputHasher
     ];
 
     public static byte[] Compute(System.Reflection.Assembly assembly, IReadOnlyList<string> manifestNames)
+        => Compute(suffix =>
+        {
+            var manifest = FindManifest(manifestNames, suffix)
+                ?? throw new InvalidOperationException($"Embedded resource not found while computing simbad-merge input hash: {suffix}");
+            return assembly.GetManifestResourceStream(manifest)
+                ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+        });
+
+    /// <summary>
+    /// Computes the input hash, opening each input through <paramref name="openInput"/> and disposing it: the
+    /// form the catalogue database uses, whose inputs come from its data file source and not from an assembly.
+    /// </summary>
+    public static byte[] Compute(Func<string, Stream> openInput)
     {
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
@@ -432,10 +448,7 @@ internal static class SimbadMergeInputHasher
             sha.AppendData(intBuf);
             sha.AppendData(nameBytes);
 
-            var manifest = FindManifest(manifestNames, inputSuffix)
-                ?? throw new InvalidOperationException($"Embedded resource not found while computing simbad-merge input hash: {inputSuffix}");
-            using var rawStream = assembly.GetManifestResourceStream(manifest)
-                ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+            using var rawStream = openInput(inputSuffix);
 
             // Hash the *decompressed* gzip content so the input hash is invariant to gzip
             // encoder differences across platforms (Windows local bake vs Linux CI rebake

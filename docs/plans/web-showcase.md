@@ -22,8 +22,10 @@ in `TianWen.UI.Gui`. `WebGl.Renderer` implements the full `Renderer<TSurface>` a
 surface (rects, ellipses, lines/polylines + dashed, MTSDF text, clip, scrim). So a browser build
 instantiates the same generic tabs with `TSurface = WebGlContext` instead of `VulkanContext`.
 
-Catalog data is embedded in `TianWen.Lib` (loaded via `Assembly.GetManifestResourceStream`), which
-works unchanged under Blazor WASM - it only adds to the download payload (see Tycho-2 gating below).
+Catalog data is embedded in `TianWen.Lib` and read through `DataFiles.Source`, which answers from
+the embedded files unless a host puts its own source behind it (#2161, under the Lightweight item
+below). That works unchanged under Blazor WASM - it only adds to the download payload (see Tycho-2
+gating below).
 
 ## Portability findings (per render-architecture audit)
 
@@ -102,6 +104,31 @@ never a local nupkg feed).
    spectra, the fake camera's Jupiter), and the trimmer drops them from `TianWen.Lib`. Measured on an
    interpreted Release publish: `TianWen.Lib.wasm` 12.35 MB to 7.52 MB brotli. That needs no global
    property and no second build of the library, so new exclusions go there, not on `Lightweight`.
+   **A file a build no longer embeds can come from the host (#2161)**: every reader in TianWen.Lib asks
+   `DataFiles.Source` (`IDataFileSource`, `TianWen.Lib/IO/DataFiles.cs`) for a file by its name, and the
+   default source is the embedded resources. A host puts its own behind it once at startup
+   (`DataFiles.Source = DataFiles.FirstOf(DataFiles.Embedded, mine)`). The source is asked
+   asynchronously (`OpenAsync`), so a browser fetch fits; a reader that cannot wait (a render, the
+   synchronous Tycho-2 injection's region bounds) takes `OpenIfAtHand` and has a load step the host
+   awaits first (`JupiterTextureRenderer.LoadAsync`, awaited by the fake camera's video capture). A
+   snapshot is still checked against its inputs as the source has them, so files served stale beside
+   new code fall back to the live merge instead of applying a wrong snapshot.
+   **The web app serves the sky's catalogues as plain files (#2161)**: its project switches
+   `TianWen.Lib.EmbeddedData.Sky` off, and the `StageSkyDataFiles` target puts that group's 21 files
+   into the published `wwwroot/data` with an `index.txt` naming them, reading the list from
+   TianWen.Lib's `ILLink.Substitutions.xml`, the same list the trimmer acts on. `Program.cs` stands
+   `HttpDataFiles` (`TianWen.Lib/IO`) behind the embedded files: it reads the index, fetches
+   everything on it at once, keeps it, answers null without a request for a name not on the index,
+   and tries a failed fetch again, one that timed out as much as one that was refused. A file the
+   catalogue can do without (the article table, the outlines) that still does not arrive is gone
+   without, as the `object-articles:unreadable` or `shapes:unreadable` init phase; a catalogue it
+   needs fails the init naming the file. A run that is not published (`dotnet run`, the E2E fixture) is not
+   trimmed, embeds everything and has no `data/`, so nothing is fetched. Measured on an ahead-of-time
+   publish, win-arm64: `TianWen.Lib.wasm` 7.07 MB to 4.77 MB brotli, 2.32 MB in `data/`, 22 requests
+   (each file once), planner ready in 9 s in headless Chromium as before. The first visit downloads
+   the same bytes; what is gained is that a deploy of new code leaves the catalogues in the
+   visitor's cache. Not done yet, and tracked on the same issue: Tycho-2 moving onto this seam so
+   `Lightweight` can go, and whether the browser needs the HD and HIP cross-references.
 
 ## Minimal DI graph for the browser
 
