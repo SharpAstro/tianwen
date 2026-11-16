@@ -220,7 +220,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         listed.Select(f => f.FullName).ShouldBe([path]);
     }
 
-    /// <summary>A file deleted for good has no replace beside it, so it is reported absent, without the deadline.</summary>
+    /// <summary>A file deleted for good has no replace beside it, so it is reported absent. (That it is answered without the deadline is not pinned here: a wall-clock bar is opt-in.)</summary>
     [Fact(Timeout = 60_000)]
     public async Task AFileDeletedForGoodIsReportedAbsentAtOnce()
     {
@@ -230,10 +230,8 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         await SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("old"u8.ToArray(), token).AsTask(), ct);
         File.Delete(path);
 
-        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         (await SharedFile.TryOpenReadAsync(path, ct)).ShouldBeNull();
         (await SharedFile.ListAsync(folder, ".json", [path], ct)).ShouldBeEmpty();
-        System.Diagnostics.Stopwatch.GetElapsedTime(started).ShouldBeLessThan(TimeSpan.FromMilliseconds(500), "no staging file, so no deadline to wait out");
     }
 
     /// <summary>

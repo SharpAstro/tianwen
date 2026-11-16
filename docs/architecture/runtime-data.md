@@ -49,8 +49,13 @@ evidence is the staging file `<name>.<guid>.tmp` a write keeps beside the name u
 one beside it is polled every 5 ms (up to a 1 s deadline, after which it is a crashed writer's orphan), and a miss
 with none is confirmed by one more look 5 ms later on Windows. It used to be four looks at fixed times (now, +5, +25,
 +100 ms); CI run 43825096116 (two writers replacing one profile back to back, 1,254 reads beside 2,000 writes) had
-one read miss at all four, since beside continuous replaces each look can land in a different replace's window and
-under load the windows grow. More or longer fixed looks would only have moved that; the rule is about what the looks
+one read miss at all four, with nothing logged. That is the evidence; the mechanism is one of two it cannot tell
+apart (several replaces' absent windows, one per look, or one window longer than the 130 ms the looks spanned). A
+probe in review on the desktop (Release, 16 cores, two writers flat out for 20 s, 20,265 writes) saw the name absent
+at 2 of 266,782 looks (about 7.5e-6 per look), 0 nulls from 120,253 `TryOpenReadAsync` calls, and a staging file
+visible at both absent looks; four independent misses would need a per-look rate near 0.2, so one long window fits
+at least as well. Neither is measured on the runner. More or longer fixed looks would only have moved it; the rule
+covers both and is about what the looks
 show. A file deleted for good has no staging file and is answered at once. **Do not replace those
 looks with a reader/writer lock**: measured, the real-time scanner then holds a replaced file in kernel mode and every
 rename onto it is refused for minutes. **A file every host ADDS to** (the comet apparition cache) goes through

@@ -31,10 +31,14 @@ namespace TianWen.Lib.IO;
 /// loaded no pins saves that back.</para>
 /// <para>Looking again at fixed times is not evidence of absence. CI run 43825096116 (test-windows, two writers
 /// replacing one profile back to back, 1,254 reads beside 2,000 writes) had one read find the name absent at all
-/// four looks (now, +5, +25, +100 ms) with nothing logged. Beside continuous replaces each look is timed
-/// independently of the writes, so each can land in a DIFFERENT replace's window, and under load the windows grow.
-/// A run to reproduce it on the desktop (Release, 16 cores) passed, so the window lengths were not measured here,
-/// only the CI count above. So the rule is about what the looks show, not how many there are or how far apart: a
+/// four looks (now, +5, +25, +100 ms) with nothing logged. That is the evidence. The mechanism is one of two
+/// that it cannot tell apart: several replaces' absent windows, one per look, or ONE window longer than the
+/// 130 ms the looks spanned (a writer descheduled between its two renames). A probe run in review on the desktop (Release, 16
+/// cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes) saw the name absent at 2
+/// of 266,782 looks (about 7.5e-6 per look), 0 nulls from 120,253 <see cref="TryOpenReadAsync"/> calls, and a
+/// staging file visible at both absent looks. Four independent misses would need a per-look rate near 0.2 on the
+/// runner, so one long window fits the CI miss at least as well as several. Neither is measured on the runner.
+/// The rule below covers both, and is about what the looks show, not how many there are or how far apart: a
 /// write stages <c>name.guid.tmp</c> beside the name before it replaces it, and that file exists until the
 /// replace is done. Absence is believed only when a look finds no staging file beside the name (and, on Windows,
 /// a second look 5 ms later finds the name absent with no staging file again). While a staging file is there the
