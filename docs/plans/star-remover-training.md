@@ -5860,6 +5860,11 @@ the first angle is a step after the model and not another arm:
   - Not done: a training export with the option, which needs an arm registered first (with the M32 row and the halo
     rows as its question). Files (DE1): `C:/temp/e2/explore/stars/` (`val-ctl`, `val-halo2`, `profiles-val-*.json`,
     `reads/cls-*.json`; `val-halo` is the first ramp), binaries `C:/temp/tianwen-scratch/halo-bin1` and `halo-bin2`.
+    Both exports were made again from a binary at the review's fixes (`halo-bin3`: no stamp holding an absent pixel is
+    read, one shared ring median): the control's 3,200 tile files are byte for byte the first control's, so the shared
+    median moves no measured star; with the option 2,880 are identical and the 320 that differ are M42's (ASI294MC), the
+    one session with a measured star near its canvas ring; every census figure above is unchanged to two decimals
+    (`val-ctl3`, `val-halo3`).
 
 Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
