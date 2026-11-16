@@ -5911,7 +5911,9 @@ the first angle is a step after the model and not another arm:
   model that does not dig is better than a step after it). One change from R3v: the detail term's scales.** R3v's
   recipe and data exactly (synth22, `--levels 4 --max-ch 256 --clip-grad 8`, L2, the stored noise plane), with
   `--band-scales "2,4 4,8 8,16 16,32" --band-loss 6` in place of `"2,4 4,8"` and 3 (each of the two fine bands keeps
-  its weight of 1.5, and the two coarse bands get the same), CONTINUED from R3v's finished weights
+  its weight of 1.5, and the two coarse bands get the same; the 16-32 px band's wider blur has a radius of 96 px on a
+  224 px interior, reflect-padded, so it reads mostly as a level over the window and less as 16 to 32 px structure, the
+  same on the output and the target, and is to be read that way), CONTINUED from R3v's finished weights
   (`--init-from r3v_synth22_s0.pt`, new in `n2n_smoke.py`: the model begins there, the optimiser, schedule and plateau
   are fresh) at `--lr 5e-5 --max-decays 2 --patience 24`, capped at 60,000 steps, seed 0. From the frozen copy
   `C:/temp/e2/r3w-run` (R3v's trainer copy plus `--init-from`); a 400-step smoke of the same line ran before this was
