@@ -5519,6 +5519,33 @@ Files (DE1): `C:/temp/e2/check3-r3v-s0-own.txt`, `check3-r3v-s0-input-ring.txt`,
 under `C:/temp/tianwen-scratch`, `f2-whole-master/w-r3v_synth22_s0/row.txt`, `f2-reports-master/m31-nucleus-r3v_synth22_s0.txt`
 and `f2-logs-master/score-r3v_synth22_s0/eval-on-random.log`; the weights are `D:/temp/tianwen-scratch/r2-synth22/r3v_synth22_s0.pt`.
 
+**R3v's two seeds, read 2026-11-16: not killed on the mean; every guard holds, and Q2's blue is missed again.** Seed 1
+stopped on its plateau at step 253,500 (best held-out 5.77e-6 at 229,500; seed 0 5.85e-6).
+
+| bar | registered | seed 0 | seed 1 | mean | |
+|---|---|---|---|---|---|
+| M42 100-1000 clean, own ring | at least 50 (kill under 40) | 56.6 | 52.9 | 54.8 | cleared |
+| M42 blue at 2 and 3 px, sigma | within 0.7 of SXT (-0.47, -0.03) | -1.82, -1.03 | -1.71, -0.88 | -1.77, -0.96 | missed, by 1.30 and 0.93 |
+| SMC 20-100 clean | at least 89.4 | 97.2 | 89.8 | 93.5 | held |
+| SMC 100-1000 clean | at least 87.7 | 89.8 | 91.5 | 90.7 | held |
+| HIP 80609 20-100, 100-1000 | at least 96.8, 94.4 | 99.7, 97.1 | 99.7, 97.8 | 99.7, 97.5 | held |
+| Lobster 20-100, 100-1000 | at least 96.8, 96.6 | 99.8, 99.3 | 99.7, 99.5 | 99.8, 99.4 | held |
+| truth tiles 20-100, 100-1000 | at least 72, 54 | 73.3, 58.1 | 73.2, 56.4 | 73.3, 57.3 | held |
+| Andromeda dark dug | at most 47 | 22.4 | 24.3 | 23.4 | held |
+| Tarantula dark flat | at least 69 | 71.9 | 80.1 | 76.0 | held |
+| M31 nucleus, R / G / B, each seed | under 40 % each | -1.0, 5.1, 1.2 % | 0.0, -0.3, 1.9 % | | held on each |
+
+- **The capacity question is answered yes at this size:** the SMC's two rows hold on both seeds with the channel spread
+  that failed them three times on the small model, and M42's band clears 50 on both.
+- **The guards are no-regression bars, not targets (the owner, 2026-11-16: "dark dug at most 47 is awfully high").**
+  47 was set from R3l, which dug 45.1. R3v as trained still digs 22 to 24 % of Andromeda's bright dark-sky stars and
+  leaves 68 to 70 % of that sky flat, which is not adoptable alone; what makes the difference is the step below, and an
+  adoption is to be judged as the pair against SXT, row by row.
+- **Outside the bars:** HIP 80609 at 1000 sigma and over reads 79.7 and 85.5 clean (R3l 91.3 / 94.2), dug 18.8 and 13.0 %.
+- Files (DE1): `C:/temp/e2/check3-r3v-own.txt`, `check3-r3v-input-ring.txt`, `bright-channel-r3v.txt`; under
+  `C:/temp/tianwen-scratch`, `f2-whole-master/w-r3v_synth22_s1/row.txt`, `f2-reports-master/m31-nucleus-r3v_synth22_s1.txt`
+  and `f2-eval-master/r3v_synth22_s1/on-random/starless-eval-v5.json`. Nothing is adopted; adoption is the owner's.
+
 **A classical post-step fills the digs, with no training (explored 2026-11-15 and 16, NOT pre-registered; #2088).** The
 owner asked the same evening for star removal to be explored from several angles. R3v's seed 0 loses to SXT almost only
 by DIGGING (ring dug, by star count, 4.7 % at 100-1000 sigma, 12.2 % at 1000 and over, 16.8 % saturated, against SXT's 0.7, 0.0, 2.1; the
@@ -5628,7 +5655,7 @@ the first angle is a step after the model and not another arm:
 
   SXT is scored on 1738 stars at 100-1000 and 94 saturated: the check skips a window holding a NaN per model, so in
   those two bands the sets differ by one star, and the saturated gap read here (91.6 against 89.4) is about two stars.
-  The saturated band has another side: ring DUG by count is 16.8 as trained, 3.2 with floor, 3.2 with floor2 and 5.3
+  The saturated band has another side: dug by star count (the "by count dug" row) is 16.8 as trained, 3.2 with floor, 3.2 with floor2 and 5.3
   with floor3 (SXT 2.1), so floor3 digs two more stars than floor and floor2 (one HIP 80609, one Lobster; which of its two caps does it is NOT
   measured) while it takes the residue (left by count 6.3 as trained, 7.4 floor, 10.5 floor2, 4.2 floor3; SXT 8.5). Saturated dug is not a registered bar; it is reported on seed 1 and watched.
 
@@ -5670,17 +5697,23 @@ the first angle is a step after the model and not another arm:
   on DE1 under `C:/temp/e2/explore` (`halo_ring_profile.py`, which is not the tracked `domain/halo_profile.py`, `twin_halo.py`, `halo_step.py`, `crescent.py`, sheet
   `halo-step.png`); none is in the repository.
   - **It is left on real stars only.** Round Andromeda's 71 bright clipped stars, R3v's seed 0 with floor3 leaves a ring
-    (ring median over the plate's own 45-60 px ring, in the stretch, master sigma a pixel, at 6-10 / 10-15 / 15-20 /
+    (the median in each radius bin, over the MEAN of the plate's own 45-60 px ring, in the stretch, master sigma a pixel, at 6-10 / 10-15 / 15-20 /
     20-25 px): R 0.32 / 0.38 / 0.35 / 0.28, G 0.33 / 0.41 / 0.36 / 0.20, B 0.27 / 0.44 / 0.27 / 0.17. SXT leaves R 0.14 /
     0.02 / 0.10 / 0.08, G 0.10 / 0.09 / 0.13 / 0.11, B 0.15 / 0.30 / 0.17 / 0.10, so the gap is widest in red and green
     and small in blue at 10-15 px. On the twin, round 5,859 bright synthetic stars, the truth error at those radii is zero or
-    slightly negative. So the model removes the halos it was shown, and real stars carry wider ones than the drawn ones.
+    slightly negative. So the model leaves no excess where the truth has none. That real stars carry wider halos than the drawn ones is the
+    inference (the two figures are not on one footing: an excess over the plate's own ring against an error against
+    truth); "What the classical plate keeps" below measures it.
   - **A ring-median step removes it.** Round each clipped compact star of the input, per channel, the plate's ring-median
     profile over its 45-60 px ring, smoothed 2 px in radius, positive part only, tapered out from 37 to 45 px, is
     subtracted. Andromeda's glow row goes 599.4 / 1549.7 / 89 % to 13.5 / 81.4 / 1 % and Tarantula's 1121.1 / 1726.2 /
-    92 % to 13.7 / 223.3 / 15 %; every row of the table above is unchanged (nucleus -1.0 / 6.0 / 1.6; Tarantula's crowded BP17-19 and purity move by 0.1). At random positions
-    away from those stars the same step takes about a tenth as much (Andromeda, median sigma in 10-30 px, R / G / B:
-    0.035 / 0.019 / 0.031 against 0.286 / 0.270 / 0.257; Tarantula 0.031 / 0.055 / 0.046 against 0.438 / 0.502 / 0.283).
+    92 % to 13.7 / 223.3 / 15 %; the whole-master rows read again (dark flats, crowded, nucleus) are unchanged (nucleus
+    -1.0 / 6.0 / 1.6; Tarantula's crowded BP17-19 and purity move by 0.1), and the tile rows are not re-scored, since the
+    step runs on whole masters only. At random positions
+    away from those stars the same step takes about a tenth as much by median (Andromeda, median sigma in 10-30 px, R / G / B:
+    0.035 / 0.019 / 0.031 against 0.286 / 0.270 / 0.257; Tarantula 0.031 / 0.055 / 0.046 against 0.438 / 0.502 / 0.283)
+    and about a fifth by mean (Andromeda 0.072 / 0.064 / 0.062 against 0.301 / 0.328 / 0.276), since some random
+    positions do carry structure.
     The step picks its stars by its own rule (98 on Andromeda, 15 on Tarantula: clipped and compact, isolation not
     asked), where the glow row uses `glow_ring.py`'s 71 and 13.
   - **Read with care:** the step subtracts what the glow row sums, on the stars the row picks, so the row falling is by
@@ -5689,7 +5722,8 @@ the first angle is a step after the model and not another arm:
     crescent and a dark disc at the core, which this step does not touch.
   - **The crescent is not a channel offset, and the lean is one SXT shares:** on Andromeda the input's wing offsets are |R-G| 0.31 px and
     |B-G| 0.76 px, far under the residue's lean of about 2.0 px (R / G / B 2.17 / 2.04 / 1.84; SXT 1.82 / 1.80 / 1.48), and
-    the residue's dipole does not follow them (median cosine R +0.27, B +0.05; SXT +0.37, -0.08; green is the reference).
+    the residue's dipole follows them weakly in red only (median cosine R +0.27, SXT +0.37) and not in blue (+0.05, SXT
+    -0.08; green is the reference).
     What differs from SXT within 25 px, over all 71 stars, is the net excess: 630 / 584 / 600 sigma-pixels against 160 / 159 / 333.
 - **Pre-registered for R3v's seed 1 (training, no score exists; amended 2026-11-16 before any score, from floor2 to floor3):** floor3 with exactly these constants (`dig_floor.py <model> floor --pin 2.5 --cap-up 2
   --cap-down 0.05 --tag floor3`; mode `floor3` of `whole_floor.py`) is applied to seed 1's outputs once it is scored, and every figure below is seed 1 with the step against
@@ -5711,6 +5745,76 @@ the first angle is a step after the model and not another arm:
   The other whole-master rows (dark flats, crowded, glow) are not criteria but are reported, the glow rows with their direction (lower is better; a glow bar
   written here for a few hours on 2026-11-16 read the measure backwards and is withdrawn, before any seed 1 score). If the criteria hold, the step is proposed to the owner for the product; if not,
   it was fitted to seed 0. Any change to these bars after seed 1 is scored is post hoc.
+
+- **Seed 1's read of the step (2026-11-16): four of the five bars hold and the twin bar is missed, so as registered it is
+  NOT confirmed.** One run of the registered commands (`C:/temp/e2/explore/seed1-step.sh`, on a copy of the scripts as
+  merged), seed 1 with floor3 against seed 1 as trained:
+
+| registered bar | seed 1 as trained | + floor3 | |
+|---|---|---|---|
+| by count clean, 100-1000 sigma: at least 95 and 3 points up | 95.1 | 99.2 | held |
+| by count clean, 1000 sigma and over: the same | 87.8 | 100.0 | held |
+| M42 100-1000 clean: at least 85 | 52.9 | 93.4 | held |
+| SMC 20-100 / 100-1000 clean: not lowered by more than 1 | 89.8 / 91.5 | 98.9 / 100.0 | held |
+| M31 nucleus R / G / B: moves under 1 point | 0.0 / -0.3 / 1.9 % | 0.1 / -0.3 / 2.2 % | held |
+| twin, rms in mask: falls by at least a third | 1.406 | 0.978 | **missed: 30.4 %** |
+
+  - The step ends where it ended on seed 0 (0.978 against 0.989) and seed 1 began lower (1.406 against 1.920), so the
+    fall is smaller. The bar was a fall of a third and is not moved; a bar on the level reached would have been the
+    better registration, and that is said after the score, so it changes nothing here.
+  - Reported only, as registered: Andromeda dark flat / dug 67.7 / 24.3 to 97.5 / 1.2; Tarantula dark flat / left 80.1 /
+    13.8 to 93.5 / 5.3; Tarantula crowded 83.5 to 88.8, Sagittarius 93.7 to 95.4; saturated by count clean / dug / left
+    74.7 / 17.9 / 18.9 to 91.6 / 5.3 / 4.2 (SXT 89.4 / 2.1 / 8.5), so it still digs more saturated stars than SXT; glow,
+    green (lower is better), Andromeda 557.8 / 1496.5 to 596.7 / 1424.0 and Tarantula 482.4 / 1328.2 to 833.5 / 1436.5,
+    the median rising as on seed 0.
+  - The next step is the owner's: the gains on real stars and whole masters repeat on a seed the step was not tuned
+    on, and one registered bar is missed. Files: `C:/temp/e2/explore/seed1/` (`check3-real.txt`, `check3-twin.txt`,
+    `twin-err.txt` in `step.log`), `f2-whole-master/w-r3v_synth22_s1+floor3/row.txt`; 1:1 renderings of Andromeda and
+    Tarantula, every column in the input master's stretch, in `C:/temp/e2/explore/render1to1/` (`render_1to1.py`).
+- **Why the model digs, as far as it is read (2026-11-16; the owner: a model that does it itself is better than a step).**
+  On the twin the mean error under the mask is -0.51 sigma on seed 0 and -0.30 on seed 1, in the stretched tiles the
+  loss itself is computed on, so the bias is not a matter of the stretch. A dig term exists and is off in R3v: the
+  speckle teacher (`--speckle-weight`, #1362, "R3b's read"), a ONE-SIDED penalty on the cores at removed sites, which
+  on the small model took the dig off the real tiles (1.4 and 0.8 % dug) and paid in light left (81.5 % of M42's
+  bright stars on seed 0). The step differs in kind: it takes the removal as given and restores the SMOOTH sky under
+  it (smooth 2 px rms in mask 0.940 to 0.507 on seed 1). The recipe's loss is L2 plus three times a band term on
+  the 2-4 and 4-8 px scales, so a broad dent costs little; that this is the cause is a hypothesis, NOT measured. The
+  candidate it names, not registered and not started: a two-sided term on the smooth error under removed stars (or
+  a coarser band), tried first as a continuation from R3v's weights, with the step's own figures as its bar.
+- **M32 is removed (2026-11-16, found on the whole-frame sheet; no scorecard row reads it).** Andromeda's compact
+  companion (master y 1480, x 2280) is taken entirely by every arm from R3i to R3v (-3 to +2 % of its core flux
+  kept); SXT keeps about 42 %, StarNet2 about 5 %, R2w, R3a and R3b 5 to 15 %. The dig step cannot bring it back. A
+  kept-M32 row is proposed as a guard for any next arm (`C:/temp/e2/explore/m32.py`, `m32_all.py`, sheet `m32.png`).
+- **What the classical plate keeps round a bright star (2026-11-16; the owner asked whether drawing stars measured
+  against a classical plate caps us at the classical remover: for the outer halo it does).** Over 30 sessions, round
+  the isolated saturated stars with at least 20 sigma at 3-5 px (`C:/temp/e2/explore/stars/plate_halo2.py`, luminance,
+  each of master and plate over its own 45-60 px ring, in the catalogue's local sigma, median over a session's
+  stars), the star's light at 6-10 / 10-15 / 15-20 / 20-25 px and what the plate keeps of it:
+
+| session | stars | master | plate keeps |
+|---|---|---|---|
+| HIP 80609 (ASI533MC Pro) | 33 | 3.18 / 0.82 / 0.41 / 0.16 | 0.47 / 0.37 / 0.19 / 0.15 |
+| Lobster (QHY294PROC) | 45 | 4.11 / 1.04 / 0.37 / 0.13 | 0.27 / 0.23 / 0.25 / 0.16 |
+| M42 LUM (ASI294MM) | 251 | 3.65 / 0.92 / 0.27 / 0.11 | 0.13 / 0.30 / 0.30 / 0.16 |
+| Tarantula L-Quad (SV605CC) | 46 | 4.71 / 1.03 / 0.24 / 0.09 | 0.47 / 0.42 / 0.25 / 0.13 |
+| Pleiades L-Quad (SV605CC) | 37 | 26.60 / 4.97 / 1.31 / 0.58 | 0.98 / 0.81 / 0.53 / 0.26 |
+| SMC broadband (ASI585MC Pro) | 89 | 4.78 / 1.12 / 0.30 / 0.13 | -0.06 / 0.09 / 0.13 / 0.08 |
+
+  - The classical remover takes the core and inner wing and leaves 0.2 to 0.5 sigma a pixel from 6 to 25 px, which
+    past 15 px is most or all of the star's light there; the ASI585's and the wide Carina fields' plates are clean.
+    `--saturated-measured` reads the master LESS the plate, so that halo is never drawn as a star, and the synthetic
+    background keeps the plate's scales from 4 PSF widths up, so it is in the target as sky. R3v leaves 0.3 to 0.4
+    sigma a pixel round Andromeda's stars (above), the same size; the two are different fields, so that match is
+    circumstantial, not a controlled test.
+  - The census agrees (S1c's instrument, `halo_census.py` and `halo_profile.py`, the drawn clipped stars' stretched
+    light over real's, green over luminance, at 10 / 15 / 20 / 25 px; 3,000 tiles of each training export): synth22
+    (R3v's data) 2 px cores 0.50 / 0.25 / 0.15 / 0.04 and 1 px cores 0.85 / 0.36 / 0.15 / 0.00, with 5 stars of a 3 to
+    5 px core and none of 6 px in the sample against real's 1,827 and 403; synth18 the same; synth21 (measured
+    saturated stars) 2 px 0.86 / 0.57 / 0.33 / 0.21; synth16 (R3j, drawn wings) 2 px 1.06 / 0.86 / 0.65 / 0.71 but
+    1.4 to 1.9 times real at 4 to 6 px (`C:/temp/e2/explore/stars/profiles-*.json`).
+  - Under way, on a branch and not in this text's PR: an injector option that reads the plate's own ring excess round
+    each measured star and draws the session's median of it; its validation export is read with the same census
+    before any training.
 
 Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
