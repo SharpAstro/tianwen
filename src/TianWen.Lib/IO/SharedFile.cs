@@ -101,17 +101,8 @@ public static partial class SharedFile
                 return null;
             }
 
-            Diag(path, look);
             await SystemTimeProvider.Instance.SleepAsync(AbsenceRelooks[look], cancellationToken);
         }
-    }
-
-    private static void Diag(string path, int look)
-    {
-        var d = Environment.GetEnvironmentVariable("SF_DIAG");
-        if (d is null) return;
-        var tmps = Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".*.tmp").Length;
-        lock (d) File.AppendAllText(d, $"{DateTime.UtcNow:HH:mm:ss.fffffff} miss look={look} tmps={tmps} exists={File.Exists(path)}\n");
     }
 
     /// <inheritdoc cref="TryOpenReadAsync"/>
