@@ -769,13 +769,6 @@ namespace TianWen.Lib.Tests
             using var third = new RgbaImageRenderer(1600, 1000);
             var (panorama, _, _, _) = await PlannerWithPictureAsync(third, dpiScale: dpiScale, db: PanoramaDb());
 
-            // Emit the three renders beside the test binary so the strip can be eyeballed.
-            foreach (var (label, renderer) in new[] { ("picture", first), ("plain", second), ("panorama", third) })
-            {
-                File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, $"plannertab-atlasbutton-{label}-{dpiScale:0.0}.png"),
-                    PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
-            }
-
             withPicture.PaintedDetailLines.Count.ShouldNotBe(plain.PaintedDetailLines.Count, "the two strips differ in line count, or this proves less");
             var expected = Button(withPicture);
             foreach (var other in new[] { Button(plain), Button(panorama) })
@@ -790,9 +783,34 @@ namespace TianWen.Lib.Tests
             var details = withPicture.DetailsRect;
             var widestSectionStarts = details.X + details.Width * (1f - PlannerTab<RgbaImage>.DetailsPictureMaxShare);
             (expected.X + expected.W).ShouldBeLessThanOrEqualTo(widestSectionStarts + 0.5f);
-            (expected.X + expected.W).ShouldBeGreaterThan(widestSectionStarts - 24f * dpiScale);
+            (expected.X + expected.W).ShouldBe(widestSectionStarts - PlannerTab<RgbaImage>.BasePadding * dpiScale, 1f);
             expected.Y.ShouldBeGreaterThan(details.Y);
             expected.H.ShouldBeLessThan(details.Height / 2f, "its own height, not the strip's");
+
+            // Left of the picture section actually drawn, and no detail line's link runs under it.
+            var picture = withPicture.Pictures.ShouldHaveSingleItem().Rect;
+            (expected.X + expected.W).ShouldBeLessThanOrEqualTo(picture.X);
+            foreach (var link in withPicture.GetRegisteredRegions().Where(r => r.Result is HitResult.LinkHit
+                && r.Y < expected.Y + expected.H && r.Y + r.Height > expected.Y && r.X < expected.X))
+            {
+                (link.X + link.Width).ShouldBeLessThanOrEqualTo(expected.X + 0.5f, "a line beside the button ends before it");
+            }
+        }
+
+        /// <summary>The compact portrait strip offers no picture, so the button keeps the strip's end.</summary>
+        [Fact]
+        public void ShowInAtlasKeepsTheStripsEndWhereNoPictureIsOffered()
+        {
+            using var renderer = new RgbaImageRenderer(390, 844);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            tab.Render(BuildState(), new RectF32(0, 0, renderer.Width, renderer.Height),
+                new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero)));
+
+            var details = tab.DetailsRect;
+            details.Height.ShouldBeGreaterThan(0f, "the strip is on show at this size, or this proves nothing");
+            var button = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
+            (button.X + button.Width).ShouldBe(details.X + details.Width - PlannerTab<RgbaImage>.BasePadding, 1f);
         }
 
         [Theory]

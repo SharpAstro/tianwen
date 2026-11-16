@@ -756,16 +756,22 @@ namespace TianWen.UI.Abstractions
                             .Bg(FilterBtnBg).BgHover(GuiTheme.Hover(FilterBtnBg))
                             .Clickable(new HitResult.ButtonHit(ShowInAtlasAction), _ => PostSignal(
                                 new ViewInSkyMapSignal(shown.Name, shown.RA, shown.Dec, shown.CatalogIndex, shownType))),
-                        Layout.Builder.Spacer().WFixed(padding / DpiScale))
+                        Layout.Builder.Spacer().WFixed(BasePadding))
                         .WStar().HAuto(),
                     Layout.Builder.Spacer().HStar())
                     .WStar(1f - DetailsPictureMaxShare).HStar(),
                 Layout.Builder.Spacer().WStar(withPicture ? DetailsPictureMaxShare : 0f).HStar());
+            // The button stands on its own band now, not on the name line's, so EVERY line whose band it crosses
+            // gives up the width it takes, not the name alone: read from where the engine put it.
+            var buttonTop = 0f;
+            var buttonBottom = 0f;
             foreach (var node in RenderLayout(atlasButton, rect))
             {
                 if (node.Node.Hit is HitResult.ButtonHit { Action: ShowInAtlasAction })
                 {
                     nameW = node.Bounds.X - (rect.X + padding) - padding;
+                    buttonTop = node.Bounds.Y;
+                    buttonBottom = node.Bounds.Y + node.Bounds.Height;
                 }
             }
 
@@ -792,7 +798,8 @@ namespace TianWen.UI.Abstractions
                 // photometry). Rasters exactly like DrawText on desktop; on the web a DOM text layer
                 // renders them as real selectable text instead (Renderer.HostRendersSelectableText). The
                 // name line additionally carries the Wikipedia href -> a real <a> on the web host.
-                var lineW = i == 0 ? nameW : text.Width - padding * 2f;
+                var besideButton = y < buttonBottom && y + lineH > buttonTop;
+                var lineW = besideButton ? MathF.Min(nameW, text.Width - padding * 2f) : text.Width - padding * 2f;
                 // Under the large view's canvas scrim the line is plain raster text: a host that draws selectable
                 // text as DOM spans would otherwise leave it at full brightness above the scrim.
                 if (largePictureOpen)
