@@ -731,8 +731,6 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var lineH = rect.Height / lines.Count;
-
             // Show in atlas, at the end of the name line: the mirror of the atlas panel's View in Planner,
             // which had no way back (reported 2026-09-28). The name line gives up the width it takes.
             var nameW = text.Width - padding * 2f;
@@ -761,10 +759,13 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().HStar())
                     .WStar(1f - DetailsPictureMaxShare).HStar(),
                 Layout.Builder.Spacer().WStar(withPicture ? DetailsPictureMaxShare : 0f).HStar());
-            // The button stands on its own band now, not on the name line's, so EVERY line whose band it crosses
-            // gives up the width it takes, not the name alone: read from where the engine put it.
-            var buttonTop = 0f;
-            var buttonBottom = 0f;
+            // The name's row is the button's band: the button's height with the margin over it under it too, so the
+            // name and the button share one middle and no line under the name stands beside the button. Only the name
+            // gives up the width the button takes, read from where the engine put it. The other lines share what the
+            // name's row leaves. (The rows were equal shares of the strip, which put the button across the second line
+            // and often the third, where a line that cannot be shortened ran under it.)
+            var buttonTop = rect.Y;
+            var buttonBottom = rect.Y;
             foreach (var node in RenderLayout(atlasButton, rect))
             {
                 if (node.Node.Hit is HitResult.ButtonHit { Action: ShowInAtlasAction })
@@ -774,6 +775,9 @@ namespace TianWen.UI.Abstractions
                     buttonBottom = node.Bounds.Y + node.Bounds.Height;
                 }
             }
+            // Always the band, never a share of the strip: the name then stays where it is too, whatever the line count.
+            var nameH = MathF.Min(rect.Height, (buttonBottom - rect.Y) + (buttonTop - rect.Y));
+            var restH = lines.Count > 1 ? (rect.Height - nameH) / (lines.Count - 1) : 0f;
 
             // The name line links to the object's Wikipedia article, the one the object-imagery bake
             // verified. Web-only affordance: the DOM text layer renders it as a real <a href>; the
@@ -784,7 +788,8 @@ namespace TianWen.UI.Abstractions
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                var y = rect.Y + lineH * i;
+                var y = i == 0 ? rect.Y : rect.Y + nameH + restH * (i - 1);
+                var rowH = i == 0 ? nameH : restH;
 
                 // First line is the name (larger, white), rest are info (normal, grey)
                 var fs = i == 0 ? fontSize * 1.25f : fontSize;
@@ -798,19 +803,18 @@ namespace TianWen.UI.Abstractions
                 // photometry). Rasters exactly like DrawText on desktop; on the web a DOM text layer
                 // renders them as real selectable text instead (Renderer.HostRendersSelectableText). The
                 // name line additionally carries the Wikipedia href -> a real <a> on the web host.
-                var besideButton = y < buttonBottom && y + lineH > buttonTop;
-                var lineW = besideButton ? MathF.Min(nameW, text.Width - padding * 2f) : text.Width - padding * 2f;
+                var lineW = i == 0 ? nameW : text.Width - padding * 2f;
                 // Under the large view's canvas scrim the line is plain raster text: a host that draws selectable
                 // text as DOM spans would otherwise leave it at full brightness above the scrim.
                 if (largePictureOpen)
                 {
-                    DrawText(line.AsSpan(), fontPath, rect.X + padding, y, lineW, lineH,
+                    DrawText(line.AsSpan(), fontPath, rect.X + padding, y, lineW, rowH,
                         fs, color, TextAlign.Near, TextAlign.Center);
                 }
                 else
                 {
                     DrawSelectableText(line, fontPath,
-                        rect.X + padding, y, lineW, lineH,
+                        rect.X + padding, y, lineW, rowH,
                         fs, color, TextAlign.Near, TextAlign.Center,
                         i == 0 ? nameHref : null);
                 }
@@ -827,7 +831,7 @@ namespace TianWen.UI.Abstractions
                 // DIR.Lib's CursorKind remarks); stating it beside the click binds the two together.
                 if (i == 0 && nameHref is { } href)
                 {
-                    RegisterClickable(rect.X + padding, y, lineW, lineH,
+                    RegisterClickable(rect.X + padding, y, lineW, rowH,
                         new HitResult.LinkHit(href), cursor: CursorKind.Pointer);
                 }
             }

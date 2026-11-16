@@ -769,6 +769,16 @@ namespace TianWen.Lib.Tests
             using var third = new RgbaImageRenderer(1600, 1000);
             var (panorama, _, _, _) = await PlannerWithPictureAsync(third, dpiScale: dpiScale, db: PanoramaDb());
 
+            // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the three renders beside the test binary, to be looked at.
+            if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
+            {
+                foreach (var (label, renderer) in new[] { ("picture", first), ("plain", second), ("panorama", third) })
+                {
+                    File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, $"plannertab-atlasbutton-{label}-{dpiScale:0.0}.png"),
+                        PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
+                }
+            }
+
             withPicture.PaintedDetailLines.Count.ShouldNotBe(plain.PaintedDetailLines.Count, "the two strips differ in line count, or this proves less");
             var expected = Button(withPicture);
             foreach (var other in new[] { Button(plain), Button(panorama) })
@@ -912,9 +922,14 @@ namespace TianWen.Lib.Tests
         private static void AssertDetailLinesFitTheirColumn(PlannerTab<RgbaImage> tab, TextCapturingRenderer renderer)
         {
             var columnRight = tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width;
+            // The Show in atlas button shares the name's row and no other: no line under the name stands beside it,
+            // so none can run under it.
+            var button = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 var run = renderer.Runs.Last(r => r.Text == line);
+                ((float)run.Rect.UpperLeft.Y).ShouldBeGreaterThanOrEqualTo(button.Y + button.Height - 1f, line);
                 (run.Rect.UpperLeft.X + renderer.MeasureText(line.AsSpan(), run.Font, run.FontSize).Width)
                     .ShouldBeLessThanOrEqualTo(columnRight, line);
             }
