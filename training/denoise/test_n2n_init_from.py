@@ -59,12 +59,25 @@ class InitFrom(unittest.TestCase):
         with self.assertRaises(SystemExit) as fit:
             S.init_weights(wider, saved(source), args(init_from="a.pt"))
         self.assertIn("does not fit", str(fit.exception))
+        self.assertIn("size mismatch", str(fit.exception), "the cause is named, not only the header")
         with self.assertRaises(SystemExit) as base:
             S.init_weights(source, saved(source, base=32), args(init_from="a.pt"))
         self.assertIn("base 32", str(base.exception))
         with self.assertRaises(SystemExit) as empty:
             S.init_weights(source, {"base": 8}, args(init_from="a.pt"))
         self.assertIn("no model state", str(empty.exception))
+
+    def test_a_runs_own_resume_checkpoint_wins_over_init_from(self):
+        import os, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            present = os.path.join(d, "ck.pt")
+            open(present, "wb").close()
+            absent = os.path.join(d, "none.pt")
+            for resume in (False, True):
+                for path, exists in ((present, True), (absent, False)):
+                    want = not (resume and exists)
+                    self.assertEqual(S.should_init_from(args(init_from="a.pt", resume=resume), path), want)
+                    self.assertFalse(S.should_init_from(args(init_from=None, resume=resume), path))
 
 
 if __name__ == "__main__":

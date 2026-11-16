@@ -5894,12 +5894,17 @@ the first angle is a step after the model and not another arm:
 
 | scale | R3v seed 0 | + floor3 | R3v seed 1 | + floor3 |
 |---|---|---|---|---|
+| under 1 px | 0.635 / -0.006 (29 %) | 0.571 / +0.001 (61 %) | 0.560 / -0.006 (36 %) | 0.536 / +0.000 (51 %) |
+| 1-2 px | 0.429 / -0.020 (13 %) | 0.292 / -0.006 (16 %) | 0.334 / -0.017 (13 %) | 0.280 / -0.007 (14 %) |
 | 2-4 px | 0.456 / -0.056 | 0.223 / -0.010 | 0.329 / -0.037 | 0.218 / -0.009 |
 | 4-8 px | 0.391 / -0.085 | 0.154 / -0.009 | 0.269 / -0.046 | 0.155 / -0.006 |
 | over 8 px | 0.680 / -0.291 | 0.221 / -0.061 | 0.511 / -0.179 | 0.362 / -0.062 |
 
-  The band past 8 px holds the largest share of the masked squared error of any one band (33 and 30 %) and most of
-  the bias, and it is the band the recipe's detail term (2-4 and 4-8 px) does not weigh. The bands are not orthogonal
+  The share in brackets is a band's part of the SUM of the five band
+  squares, not of the masked squared error. Per seed the five bands read 29 / 13 / 15 / 11 / 33 % (seed 0) and
+  36 / 13 / 13 / 8 / 30 % (seed 1) from under 1 px to over 8 px, so the band past 8 px is the largest on seed 0 (by 4
+  points) and the second on seed 1, where under 1 px is; on both it holds most of the bias (about 63 %), and it is the
+  band the recipe's detail term (2-4 and 4-8 px) does not weigh. The bands are not orthogonal
   (their squares sum to well under the total), so the shares are a guide, not a budget; and this shows where the
   error is, not that the loss put it there. R3w is the test of that.
 - **R3w, pre-registered 2026-11-16 before any score (an exploration under the owner's standing goal; the owner: a
@@ -5917,11 +5922,21 @@ the first angle is a step after the model and not another arm:
     floor3 -0.08) and its rms in the mask at most 1.30 (1.92; 0.99). By count clean (`real_star_check3.py`) at least
     97.5 at 100-1000 sigma and 95 at 1000 and over (R3v seed 0 94.9 and 87.2; with floor3 99.4 and 100.0; SXT 98.3 and
     98.4). Andromeda dark dug at most 8 and dark flat at least 90 (22.4 and 69.5; 1.0 and 97.6; SXT 1.4 and 98.6).
-  - **Guards, against R3v seed 0:** M42 100-1000 clean at least 50; SMC 20-100 at least 89.4 and 100-1000 at least
+  - **Guards, against R3v seed 0:** HIP 80609 at 20-100 and 100-1000 sigma at least 96.8 and 94.4 and Lobster at least
+    96.8 and 96.6 (R3v's own bars, which seed 0 held at 99.7 / 97.1 and 99.8 / 99.3; a term that weighs 8 to 32 px
+    structure could move them, so they are not dropped); M42 100-1000 clean at least 50; SMC 20-100 at least 89.4 and 100-1000 at least
     87.7; truth tiles at least 72 and 54; Tarantula dark flat at least 69; the M31 nucleus under 10 % in every channel
     (R3v at most 6); and the failure the one-sided term had (R3b: the dig traded for light left): left by count at
     most 2.0 at 100-1000 sigma (R3v seed 0 0.3) and at most 12 saturated (6.3; SXT 8.5).
+  - **No control arm, deliberately:** R3v continued under the same flags with its own `"2,4 4,8"` term at 3 is not
+    registered. The bars sit far outside R3v's seed spread (dug 22.4 and 24.3 against a bar of 11.2), so extra steps at
+    a low rate on a fresh optimiser cannot account for a pass; if R3w passes the question, that control is run before
+    the term is credited to the next fresh arm.
   - **Kill:** a guard fails, or Andromeda dark dug is not at least halved (over 11.2).
+  - **Between the two (added 2026-11-16, before any score, on the review of PR #2182):** a result that is not killed
+    but misses a bar of the question (for example the dig halved and every guard held, with 1000 and over by count
+    under 95, or dark dug above 8 and at most 11.2) does not pass and is not killed: no seed 1, the rows are
+    reported, and the owner decides. The bars stay as registered.
   - **Reported, no bar:** the twin error by scale as above, the glow rows, the crowded rows, M32 kept, HIP 80609 at
     1000 and over, M42's blue at 2 and 3 px, and every figure with floor3 applied on top.
   - **Prediction:** the dig falls by more than half and the twin's mean comes inside 0.15; by count 100-1000 clears

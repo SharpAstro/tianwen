@@ -321,7 +321,13 @@ def init_weights(model, saved, args):
     try:
         model.load_state_dict(saved["model"])
     except RuntimeError as e:
-        raise SystemExit(f"--init-from: {args.init_from} does not fit this model ({str(e).splitlines()[0]})")
+        raise SystemExit(f"--init-from: {args.init_from} does not fit this model: {e}")
+
+
+def should_init_from(args, resume_path):
+    """Whether --init-from loads its file: when it is given, unless --resume has this run's own checkpoint to continue,
+    which wins (a resumed run must not restart from the init file's weights)."""
+    return bool(args.init_from) and not (args.resume and os.path.exists(resume_path))
 
 
 def resume_fingerprint(args, meta):
@@ -2058,7 +2064,7 @@ def train(args):
     start = 1
     # --init-from: the model begins at another run's saved weights (a continuation with a changed objective), with a
     # fresh optimiser, schedule and plateau history. A resume checkpoint of THIS run, when one exists, wins below.
-    if args.init_from and not (args.resume and os.path.exists(resume_path)):
+    if should_init_from(args, resume_path):
         init_weights(model, torch.load(args.init_from, map_location=dev, weights_only=False), args)
         print(f"init from {args.init_from}: the model begins at those weights; optimiser, schedule and plateau are fresh", flush=True)
     if args.resume and os.path.exists(resume_path):
