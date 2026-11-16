@@ -455,6 +455,11 @@ namespace TianWen.AI.Imaging
         /// its halo is the residual against that profile alone) and clipped only in the channels its own light says it clipped.
         /// Each such star's <c>OuterHalo</c> rows record only that it was a measured saturated star (their numbers are zero); its
         /// halo table is not written. Draws no random number.</param>
+        /// <param name="BrightMeasured">Stars mode (#2192): every eligible unsaturated bright pool star is drawn as its master shows it
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.MeasureBright"/>): measured against the field profile on its
+        /// own core, drawn round with its own halo table, in place of the catalogued amplitude. Recorded per star as <c>Measured</c> in
+        /// <c>injections.jsonl</c>. A session where fewer than <c>MinBrightMeasured</c> stars measure draws as without it, which its log
+        /// line says. Off by default, so an export without it is unchanged. Draws no random number.</param>
         /// <param name="HaloOverPlate">Stars mode, with <paramref name="SaturatedMeasured"/> and without <paramref name="OuterHaloPath"/>:
         /// the halo the starless plate keeps round a saturated star is drawn too
         /// (<c>InjectionPopulation.HaloOverPlate</c>): a measured star's table gains the session's
@@ -574,7 +579,8 @@ namespace TianWen.AI.Imaging
             double? StarBeta = null,
             TianWen.Lib.Imaging.StarRemoval.StarBetaDraw? StarBetaDraw = null,
             bool HaloOverPlate = false,
-            Action<string>? Say = null);
+            Action<string>? Say = null,
+            bool BrightMeasured = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

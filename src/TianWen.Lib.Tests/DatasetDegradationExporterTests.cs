@@ -1818,6 +1818,61 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #2192: <c>BrightMeasured</c>. Off (explicit or default) the export is byte-identical in every file, injections.jsonl
+        /// included, and no row says Measured. On, the session either draws measured stars (rows marked Measured, a tile moves) or,
+        /// where the fixture's pool holds fewer than the minimum measurable stars, logs that it drew as without the option and
+        /// leaves every file as off.
+        /// </summary>
+        [Fact]
+        public async Task BrightMeasuredOffChangesNothingAndOnIsRecordedOrSaysItFellBack()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var off = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "bright-off"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot);
+            var explicitOff = off with { OutDir = Path.Combine(_root, "bright-off-explicit"), BrightMeasured = false };
+            var on = off with { OutDir = Path.Combine(_root, "bright-on"), BrightMeasured = true };
+            var log = new RecordingLogger();
+            foreach (var o in new[] { off, explicitOff })
+            {
+                (await DatasetDegradationExporter.RunAsync(o, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            }
+            (await DatasetDegradationExporter.RunAsync(on, log, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            string[] Files(DatasetDegradationExporter.Options o)
+                => [.. Directory.GetFiles(o.OutDir, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(o.OutDir, f)).Order(StringComparer.Ordinal)];
+            var files = Files(off);
+            files.Length.ShouldBeGreaterThan(4);
+            Files(explicitOff).ShouldBe(files);
+            foreach (var file in files)
+            {
+                File.ReadAllBytes(Path.Combine(explicitOff.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), file);
+            }
+            File.ReadAllText(Path.Combine(off.OutDir, DatasetDegradationExporter.InjectionManifestFileName)).ShouldNotContain("\"Measured\"", Case.Sensitive);
+
+            var measured = ReadInjectionRows(on.OutDir).SelectMany(static i => i.Stars).Where(static s => s.Measured).ToArray();
+            var said = log.Messages.Where(static m => m.Contains("--bright-measured", StringComparison.Ordinal) || m.Contains("bright stars as the master shows", StringComparison.Ordinal)).ToArray();
+            said.ShouldNotBeEmpty("a session with the option says whether it measured or fell back");
+            if (said.Any(static m => m.Contains("drawn as without", StringComparison.Ordinal)))
+            {
+                measured.ShouldBeEmpty();
+                foreach (var file in files.Where(static f => f != DatasetDegradationExporter.InjectionManifestFileName && !f.EndsWith(".json", StringComparison.Ordinal)))
+                {
+                    File.ReadAllBytes(Path.Combine(on.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), $"fell back, so as off: {file}");
+                }
+            }
+            else
+            {
+                measured.ShouldNotBeEmpty();
+                files.Where(static f => f.StartsWith("tiles", StringComparison.Ordinal))
+                    .Any(f => !File.ReadAllBytes(Path.Combine(on.OutDir, f)).SequenceEqual(File.ReadAllBytes(Path.Combine(off.OutDir, f))))
+                    .ShouldBeTrue("measured stars change at least one tile");
+            }
+        }
+
+        /// <summary>
         /// A plate store from before profiles were kept has no field profile, and its amplitudes mean nothing with another
         /// profile: the default (field) refuses the session and names the fix; the PSF store's Moffat still draws from it.
         /// </summary>
