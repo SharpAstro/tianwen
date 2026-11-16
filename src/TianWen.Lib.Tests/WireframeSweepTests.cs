@@ -254,6 +254,62 @@ public class WireframeSweepTests
         ["session"] = ["M8", "M42", "Start Session"],
     };
 
+    /// <summary>
+    /// The Session form at its floor: the tab drawn exactly as wide as the form, the rule and the panel's least
+    /// need side by side, which no width of the sweep happens to be. There the form has what it measured and no
+    /// more, so a measure that leaves the scrollbar's column out (the bare tree, before DIR.Lib 11.66 counted it
+    /// in a scrolled stack's measure) cuts the widest row by one bar.
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void TheSessionFormIsWholeWhereItHasOnlyItsFloor(float scale)
+    {
+        var planner = PlannerTabLayoutTests.BuildState();
+        planner.Proposals = [new ProposedObservation(new Target(5.58, -5.39, "M42", null))];
+
+        float floor;
+        using (var wide = new WireframeRenderer(2400, 900))
+        {
+            var probe = new SessionTab<RgbaImage>(wide) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+            wide.Begin();
+            probe.Render(new GuiAppState(), planner, new RectF32(0, 0, 2400, 900), new FakeTimeProviderWrapper(Now));
+            floor = probe.SideBySideLeastWidth;
+        }
+
+        floor.ShouldBeGreaterThan(300f);
+        var width = (uint)MathF.Ceiling(floor * scale);
+        var pictures = Environment.GetEnvironmentVariable(PicturesEnvVar) is { Length: > 0 } folder
+            ? Directory.CreateDirectory(folder).FullName
+            : null;
+        using var renderer = new WireframeRenderer(width, 900, paint: pictures is not null);
+        var tab = new SessionTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        renderer.Begin();
+        tab.Render(new GuiAppState(), planner, new RectF32(0, 0, width, 900), new FakeTimeProviderWrapper(Now));
+        if (pictures is not null)
+        {
+            File.WriteAllBytes(Path.Combine(pictures, $"session-at-its-floor_{width}x900_{scale:0.0}.png"),
+                PngWriter.Encode(renderer.Surface.Pixels, (int)width, 900));
+        }
+
+        var frame = renderer.Frame;
+        string.Join("; ", Wireframe.Check(frame).Select(f => f.Message)).ShouldBeEmpty();
+        // Side by side, not stacked: the panel's button is beside the form, not under it.
+        var start = frame.Texts.First(t => t.Text.Contains("Start Session", StringComparison.Ordinal));
+        start.Ink.X.ShouldBeGreaterThan(width / 2f);
+
+        // Read from where the engine ARRANGED the form, not from what the tab measured: the form overflows this
+        // height, so a bar's column was reserved, and no control in a row reaches into it.
+        var (viewport, content) = tab.FormArea;
+        content.Width.ShouldBeLessThan(viewport.Width, "the form does not overflow here, so no scrollbar was reserved and the test shows nothing");
+        // A row is itself a region as wide as the form; the controls in it (a stepper's buttons, a toggle) are not.
+        var rightmost = frame.Regions
+            .Where(r => r.Rect.X < viewport.X + viewport.Width && r.Rect.Width < viewport.Width / 2f)
+            .Max(r => r.Rect.X + r.Rect.Width);
+        rightmost.ShouldBeLessThanOrEqualTo(content.X + content.Width + 1f,
+            $"a form control reaches {rightmost:0.#} px; the form's content ends at {content.X + content.Width:0.#} px and its scrollbar takes the rest up to {viewport.X + viewport.Width:0.#} px");
+    }
+
     private static IEnumerable<string> NotShownWhole(WireframeFrame frame, string[] shown)
         => shown
             .Where(part => !frame.Texts.Any(t => t.Text.Contains(part, StringComparison.Ordinal)
