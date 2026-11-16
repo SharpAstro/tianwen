@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.AI.Imaging.GraXpert;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.AI.Imaging.RcAstro;
 
@@ -56,7 +57,7 @@ public sealed record AiCapabilities(
     /// </summary>
     public static ImmutableArray<(string Capability, string Variant, string FileName)> Requirements =>
     [
-        ("Gradient correction (GraXpert)", "", OnnxBackgroundExtractor.ModelName),
+        ("Gradient correction (GraXpert)", "", GraXpertBackgroundExtractor.ModelName),
         ("Denoise (in-house N2N, OSC)", "", N2nDenoiser.ModelFileName),
     ];
 

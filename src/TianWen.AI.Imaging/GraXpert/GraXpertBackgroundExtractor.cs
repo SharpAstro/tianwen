@@ -9,13 +9,14 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using TianWen.AI.Imaging.Onnx;
 using TianWen.AI.Inference;
 using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Stat;
 
-namespace TianWen.AI.Imaging.Onnx;
+namespace TianWen.AI.Imaging.GraXpert;
 
 /// <summary>
 /// AI background-gradient correction via the GraXpert BGE ONNX model
@@ -57,9 +58,9 @@ namespace TianWen.AI.Imaging.Onnx;
 /// up-step provides the spatial extent. Chunking would estimate
 /// per-chunk backgrounds, defeating the global-gradient intent.</para>
 /// </remarks>
-public sealed class OnnxBackgroundExtractor(
+public sealed class GraXpertBackgroundExtractor(
     IModelResolver modelResolver,
-    ILogger<OnnxBackgroundExtractor>? logger = null)
+    ILogger<GraXpertBackgroundExtractor>? logger = null)
     : IGradientCorrector, IDisposable
 {
     internal const string ModelName = "graxpert_bge.onnx";
@@ -92,12 +93,12 @@ public sealed class OnnxBackgroundExtractor(
         if (input.ChannelCount is not (1 or 3))
         {
             throw new NotSupportedException(
-                $"OnnxBackgroundExtractor requires 1 or 3 channels (mono / RGB), got {input.ChannelCount}.");
+                $"GraXpertBackgroundExtractor requires 1 or 3 channels (mono / RGB), got {input.ChannelCount}.");
         }
         if (input.MaxValue > 1.5f)
         {
             throw new ArgumentException(
-                $"OnnxBackgroundExtractor requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}. " +
+                $"GraXpertBackgroundExtractor requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}. " +
                 "Use AstroImageDocument.AdoptImageAsync or Image.ScaleFloatValuesToUnitInPlace first.",
                 nameof(input));
         }
@@ -108,7 +109,7 @@ public sealed class OnnxBackgroundExtractor(
     {
         var totalSw = Stopwatch.StartNew();
         var (channels, srcW, srcH) = input.Shape;
-        logger?.LogDebug("OnnxBackgroundExtractor: input {W}x{H}x{C}", srcW, srcH, channels);
+        logger?.LogDebug("GraXpertBackgroundExtractor: input {W}x{H}x{C}", srcW, srcH, channels);
 
         // 1) Bilinear downscale to 240x240, of a frame the model can read: the canvas ring no frame covered and any
         //    interior hole are given values first (ModelSource), since a single NaN spreads through the resize and the
@@ -190,7 +191,7 @@ public sealed class OnnxBackgroundExtractor(
         if (outputTensor is null)
         {
             throw new InvalidOperationException(
-                $"OnnxBackgroundExtractor: model did not produce expected output '{outputName}'.");
+                $"GraXpertBackgroundExtractor: model did not produce expected output '{outputName}'.");
         }
         // ORT may return a sliced view of a backing buffer; copy to an owned
         // tensor so the lifetime is decoupled from the using-disposed `results`.
@@ -277,7 +278,7 @@ public sealed class OnnxBackgroundExtractor(
         var stitchMs = stitchSw.ElapsedMilliseconds;
 
         logger?.LogInformation(
-            "OnnxBackgroundExtractor.EnhanceAsync: {Model} {W}x{H}x{C} prep={Prep}ms infer={Infer}ms stitch={Stitch}ms total={Total}ms bg_per_channel=[{ChannelBg}]",
+            "GraXpertBackgroundExtractor.EnhanceAsync: {Model} {W}x{H}x{C} prep={Prep}ms infer={Infer}ms stitch={Stitch}ms total={Total}ms bg_per_channel=[{ChannelBg}]",
             ModelName, srcW, srcH, channels, prepMs, inferMs, stitchMs, totalSw.ElapsedMilliseconds,
             string.Join("/", channelBg.Select(static v => v.ToString("F5", CultureInfo.InvariantCulture))));
 
@@ -292,7 +293,7 @@ public sealed class OnnxBackgroundExtractor(
             if (_session is null)
             {
                 var modelPath = modelResolver.Resolve(ModelName);
-                logger?.LogInformation("OnnxBackgroundExtractor: loading {Model} from {Path}", ModelName, modelPath);
+                logger?.LogInformation("GraXpertBackgroundExtractor: loading {Model} from {Path}", ModelName, modelPath);
                 using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
                 _session = new InferenceSession(modelPath, options);
             }

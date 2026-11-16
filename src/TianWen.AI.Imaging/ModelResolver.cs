@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using TianWen.AI.Imaging.GraXpert;
 using TianWen.AI.Imaging.Onnx;
 
 namespace TianWen.AI.Imaging;
@@ -248,7 +249,7 @@ public sealed class ModelResolver : IModelResolver
     private static readonly ImmutableArray<(string ModelFileName, string Bucket)> GraXpertBuckets =
     [
         // GraXpert's denoise bucket is deliberately absent: nothing here asks for it.
-        (OnnxBackgroundExtractor.ModelName, "bge-ai-models"),
+        (GraXpertBackgroundExtractor.ModelName, "bge-ai-models"),
     ];
 
     /// <summary>

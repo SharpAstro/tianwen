@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.AI.Imaging;
+using TianWen.AI.Imaging.GraXpert;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
@@ -15,7 +16,7 @@ namespace TianWen.Lib.Tests;
 /// <b>A gradient corrector removes the gradient's SHAPE and leaves every plane's LEVEL alone.</b>
 /// <para>
 /// There are two implementations of <see cref="IGradientCorrector"/> --
-/// <see cref="ClassicalBackgroundExtractor"/> and <see cref="OnnxBackgroundExtractor"/> (GraXpert) --
+/// <see cref="ClassicalBackgroundExtractor"/> and <see cref="GraXpertBackgroundExtractor"/> (GraXpert) --
 /// and they are chosen between at runtime by which model files are installed, so they MUST agree
 /// about what the role does. They did not. The ONNX one added back one mean averaged over all three
 /// channels, which lands every channel on that mean: not level preservation but background
@@ -55,10 +56,10 @@ public class GradientCorrectorLevelTests
     public async Task TheGraXpertCorrectorLeavesEachPlanesLevelWhereItFoundIt()
     {
         var resolver = new ModelResolver();
-        Assert.SkipUnless(resolver.TryResolve(OnnxBackgroundExtractor.ModelName, out _),
+        Assert.SkipUnless(resolver.TryResolve(GraXpertBackgroundExtractor.ModelName, out _),
             "graxpert_bge.onnx not installed; run tools/tianwen-ai-models-fetch.ps1 to enable this test.");
 
-        using var extractor = new OnnxBackgroundExtractor(resolver, NullLogger<OnnxBackgroundExtractor>.Instance);
+        using var extractor = new GraXpertBackgroundExtractor(resolver, NullLogger<GraXpertBackgroundExtractor>.Instance);
         await AssertPreservesPerChannelLevel(extractor);
     }
 
@@ -120,7 +121,7 @@ public class GradientCorrectorLevelTests
         }
         var model = new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta());
 
-        var restored = OnnxBackgroundExtractor.ChannelMedians(model);
+        var restored = GraXpertBackgroundExtractor.ChannelMedians(model);
 
         for (var c = 0; c < 3; c++)
         {
@@ -150,8 +151,8 @@ public class GradientCorrectorLevelTests
         }
         var model = new Image([plane], BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta());
 
-        var whole = OnnxBackgroundExtractor.ChannelMedians(model)[0];
-        var covered = OnnxBackgroundExtractor.ChannelMedians(model, ring)[0];
+        var whole = GraXpertBackgroundExtractor.ChannelMedians(model)[0];
+        var covered = GraXpertBackgroundExtractor.ChannelMedians(model, ring)[0];
 
         covered.ShouldBe(0.01f + (1e-5f * (Size / 5 + (Size - Size / 5) / 2f)), tolerance: 2e-5f, "the covered sky's median");
         whole.ShouldBeGreaterThan(covered, "the ring's extrapolation would have moved it");
@@ -189,7 +190,7 @@ public class GradientCorrectorLevelTests
         }
         var shrunk = new Image([plane], BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta());
 
-        var extended = OnnxBackgroundExtractor.ExtendSkyOverRing(shrunk, ring, Source, Source);
+        var extended = GraXpertBackgroundExtractor.ExtendSkyOverRing(shrunk, ring, Source, Source);
 
         extended.ShouldNotBeSameAs(shrunk);
         // The sky beside the ring is 0.17; a push-pull fill takes a few columns' blend of it at its coarse levels,
@@ -227,9 +228,9 @@ public class GradientCorrectorLevelTests
         if (graxpert)
         {
             var resolver = new ModelResolver();
-            Assert.SkipUnless(resolver.TryResolve(OnnxBackgroundExtractor.ModelName, out _),
+            Assert.SkipUnless(resolver.TryResolve(GraXpertBackgroundExtractor.ModelName, out _),
                 "graxpert_bge.onnx not installed; run tools/tianwen-ai-models-fetch.ps1 to enable this test.");
-            corrector = new OnnxBackgroundExtractor(resolver, NullLogger<OnnxBackgroundExtractor>.Instance);
+            corrector = new GraXpertBackgroundExtractor(resolver, NullLogger<GraXpertBackgroundExtractor>.Instance);
         }
         else
         {

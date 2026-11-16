@@ -61,7 +61,7 @@ this plan have all moved, which is itself the point -- a policy written out long
 |---|---|
 | `SharpenPipeline` | 191, 256, 268, 292, 729, 766 |
 | `Image.Masks.cs` | 232, 240 |
-| `OnnxBackgroundExtractor` | 124, 159 |
+| `GraXpertBackgroundExtractor` | 124, 159 |
 | `MasterPreviewRenderer` | 360 |
 | `RawLightDecoder` | 46 |
 | `Session.Flats.cs` | 305 |
@@ -403,7 +403,7 @@ third route, and the reason it works is worth stating once:
 | `SharpenPipeline` x2 (GHS pass loops) | "is the accumulator still the caller's?" | a `currentIsOurs` flag set by the assignment that made it ours |
 | `Image.MaskedBoost` x2 | "did an optional stage replace `processed`?" | a `processedIsOurs` flag, same shape |
 | `MasterPreviewRenderer` | "did `MaskedBoost` no-op?" | `if (!boost.IsNoOp)` -- the options, not the reference |
-| `OnnxBackgroundExtractor` x2 | "did the mono/RGB conversion allocate?" | `if (channels == 1)` |
+| `GraXpertBackgroundExtractor` x2 | "did the mono/RGB conversion allocate?" | `if (channels == 1)` |
 | `PlanetaryCaptureController` | "did the CFA split allocate?" | `if (stream.Layout == SplitCfa)` |
 | `RawLightDecoder` | "did `Calibrator.Apply` copy?" | deleted -- Apply now consumes |
 
