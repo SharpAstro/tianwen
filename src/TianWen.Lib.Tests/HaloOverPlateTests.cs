@@ -1,4 +1,5 @@
 using Shouldly;
+using TianWen.Lib.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -100,4 +101,97 @@ public class HaloOverPlateTests
         ((double)fieldHalo[0][40]).ShouldBe(keptHalo[0][40], 1e-9, "past the stars' own tables only the plate's share is left");
         fieldHalo[0].ShouldAllBe(static v => v >= 0f);
     }
+
+    private const double Ceiling = 0.9;
+
+    private static readonly StarProfile Truth = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 3.0);
+
+    private static FittedStar Row(float x, float y, bool saturated, float amplitude)
+        => new FittedStar(x, y, 100, amplitude, 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, saturated, false, float.NaN, float.NaN, false, float.NaN,
+            StarFitModel.Moffat, [amplitude]);
+
+    // A one-channel master of saturated stars on a grid, each clipped at the ceiling, and its plate: the classical remover
+    // took each star's profile and left Kept(r) of its amplitude in the plate.
+    private static InjectionPopulation Population(int saturatedStars, bool haloOverPlate, bool measured = true)
+    {
+        const int size = 640, pitch = 180, first = 100;
+        const double amplitude = 5.0;
+        var master = new float[size, size];
+        var plate = new float[size, size];
+        var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
+        var centres = Enumerable.Range(0, saturatedStars).Select(i => (X: first + 0.3 + (pitch * (i % 3)), Y: first - 0.2 + (pitch * (i / 3)))).ToArray();
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                double star = 0.0, kept = 0.0;
+                foreach (var (cx, cy) in centres)
+                {
+                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                    if (r < 70)
+                    {
+                        star += amplitude * Truth.PixelMean(x, y, cx, cy);
+                        kept += r < InjectionPopulation.PlateHaloReachPx ? amplitude * Kept(r) : 0.0;
+                    }
+                }
+                plate[y, x] = (float)(Sky + kept);
+                master[y, x] = (float)Math.Min(Ceiling, Sky + kept + star);
+            }
+        }
+        foreach (var (cx, cy) in centres)
+        {
+            catalogue.Add(Row((float)cx, (float)cy, saturated: true, (float)amplitude));
+        }
+        // Unsaturated rows to draw brightness from, in the frame's last strip, away from every stamp.
+        for (var i = 0; i < 12; i++)
+        {
+            catalogue.Add(Row(20f + (50f * i), size - 12f, saturated: false, 0.05f + (0.01f * i)));
+        }
+        return InjectionPopulation.Build(catalogue.ToImmutable(), new Image([master], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()),
+            new Image([plate], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()), 1.0, [(2.5, 3.0)], null, measuredSaturated: measured, haloOverPlate: haloOverPlate);
+    }
+
+    [Fact]
+    public void ASessionOfEnoughMeasuredStarsDrawsThePlatesShareOnEveryStar()
+    {
+        var with = Population(9, haloOverPlate: true);
+        var without = Population(9, haloOverPlate: false);
+        with.SaturatedPool.ShouldBe(9);
+        with.HaloOverPlateStars.ShouldBe(9);
+        without.HaloOverPlateStars.ShouldBe(0);
+
+        // Every other star: the session's halo under its profile, where there was none.
+        var tail = Kept(55.0);
+        without.ProfilesAt(300, 300, StarProfileFamily.Moffat)[0].Outer.IsNone.ShouldBeTrue();
+        var field = with.ProfilesAt(300, 300, StarProfileFamily.Moffat)[0].Outer;
+        field.AtRadius(4).ShouldBe(0.0, "nothing inside the ramp");
+        foreach (var r in new[] { 16, 20, 30 })
+        {
+            field.AtRadius(r).ShouldBe(Kept(r) - tail, 4e-5, $"the plate's share at {r} px");
+        }
+
+        // A measured star: its own table, read off the master less the plate (which holds none of this), plus the plate's share.
+        var plan = with.Plan(0, 0, 640, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(8));
+        var planWithout = without.Plan(0, 0, 640, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(8));
+        var saturated = plan.Stars.First(static s => s.Saturated);
+        var saturatedWithout = planWithout.Stars.First(static s => s.Saturated);
+        foreach (var r in new[] { 12, 20, 30, 40 })
+        {
+            (saturated.Profiles[0].Outer.AtRadius(r) - saturatedWithout.Profiles[0].Outer.AtRadius(r)).ShouldBe(Kept(r) - tail, 4e-5, $"a measured star at {r} px");
+        }
+        saturatedWithout.Profiles[0].Outer.AtRadius(40).ShouldBe(0.0, "without it a measured star's table ends at 30 px");
+    }
+
+    [Fact]
+    public void ASessionOfTooFewMeasuredStarsDrawsAsWithoutIt()
+    {
+        var few = Population(InjectionPopulation.MinHaloOverPlateStars - 1, haloOverPlate: true);
+        few.SaturatedPool.ShouldBe(InjectionPopulation.MinHaloOverPlateStars - 1);
+        few.HaloOverPlateStars.ShouldBe(0);
+        few.ProfilesAt(300, 300, StarProfileFamily.Moffat)[0].Outer.IsNone.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ItIsRefusedWithoutTheMeasuredStarsItIsReadFrom()
+        => Should.Throw<ArgumentException>(() => Population(9, haloOverPlate: true, measured: false)).ParamName.ShouldBe("haloOverPlate");
 }

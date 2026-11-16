@@ -457,9 +457,10 @@ namespace TianWen.AI.Imaging
         /// halo table is not written. Draws no random number.</param>
         /// <param name="HaloOverPlate">Stars mode, with <paramref name="SaturatedMeasured"/> and without <paramref name="OuterHaloPath"/>:
         /// the halo the starless plate keeps round a saturated star is drawn too
-        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.HaloOverPlate"/>): a measured star's table gains the session's
+        /// (<c>InjectionPopulation.HaloOverPlate</c>): a measured star's table gains the session's
         /// median of it per amplitude, to 45 px, and every other star draws the session's whole halo, coming in from 8 to 14 px. A session with fewer
-        /// than eight measured stars draws as without it. Draws no random number.</param>
+        /// than eight measured stars whose 60 px stamp lies in the frame and holds no absent pixel draws as without it, which the
+        /// session's log line says. Draws no random number.</param>
         /// <param name="OuterHaloPath">Stars mode (#1870): a <c>halo-profiles.json</c> (training/star-removal/domain/halo_profile.py); every
         /// injected star is drawn with a second, wide, faint Moffat under its profile
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>), fitted in C# per rig (the master's camera) to that file's LINEAR

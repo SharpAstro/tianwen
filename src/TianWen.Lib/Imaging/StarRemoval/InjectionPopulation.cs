@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
 
@@ -155,6 +156,11 @@ public sealed class InjectionPopulation
 
     /// <summary>Saturated stars a saturated injection is drawn from (0 means the fallback clip).</summary>
     public int SaturatedPool => _saturated.Length;
+
+    /// <summary>The measured saturated stars the halo over the plate was read from (<see cref="HaloOverPlate"/>): those whose
+    /// stamp to <see cref="PlateSkyToPx"/> px lies in the frame and holds no absent pixel. 0 where it was not asked for, or
+    /// where fewer than <see cref="MinHaloOverPlateStars"/> were readable and the session draws as without it.</summary>
+    public int HaloOverPlateStars { get; private init; }
 
     /// <summary>The share of the counted sites the catalogue found saturated: how often a real star here is a clipped one.</summary>
     public double SaturatedShare => _saturatedShare;
@@ -317,6 +323,7 @@ public sealed class InjectionPopulation
             .Where(static t => t.Entry.Clips.Any(double.IsFinite) && t.Entry.Clips.All(static v => v > 0))
             .Select(static t => new PoolStar(t.Entry.Amplitudes, t.Entry.Clips, t.Lobes, float.PositiveInfinity))
             .ToArray();
+        var haloOverPlateStars = 0;
         if (measuredSaturated)
         {
             var drawnProfiles = Enumerable.Range(0, channels)
@@ -398,6 +405,7 @@ public sealed class InjectionPopulation
                     }
                 }
                 outerHalo = [.. fieldHalo.Select(static t => new OuterHalo(0.0, 0.0, 0.0, t, "the session's saturated stars, over the plate"))];
+                haloOverPlateStars = keptTables.Count;
             }
             saturated = [.. measuredPool];
         }
@@ -467,7 +475,7 @@ public sealed class InjectionPopulation
         }
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo,
+            moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo, HaloOverPlateStars = haloOverPlateStars,
             _saturatedShare = countedSites.Length > 0 ? saturatedSites / (double)countedSites.Length : 0.0 };
     }
 
@@ -765,7 +773,9 @@ public sealed class InjectionPopulation
     /// the master less that plate: the classical remover subtracts a star's core and inner wing and leaves its outer halo in the
     /// plate (2026-11-16, 30 sessions: 0.2 to 0.5 sigma a pixel from 6 to 25 px, most of the star's light past 15 px). Per
     /// channel, the plate's azimuthal median in 1 px rings to <see cref="PlateHaloReachPx"/> less its median from
-    /// <see cref="PlateSkyFromPx"/> to <see cref="PlateSkyToPx"/> px, as a fraction of the star's measured amplitude. One star's
+    /// <see cref="PlateSkyFromPx"/> to <see cref="PlateSkyToPx"/> px, as a fraction of the star's measured amplitude. A star is
+    /// drawn only when its centre lies within the exporter's injection margin of its tile, so a tile's edge does not hold the
+    /// halo of a star further outside it than that, in the input or in the target. One star's
     /// rings hold the nebula under it too, so only the median over a session's stars (<see cref="HaloOverPlate"/>) is drawn.
     /// Null where the stamp leaves the frame or holds a non-finite pixel.
     /// </summary>
@@ -858,13 +868,13 @@ public sealed class InjectionPopulation
                 {
                     column[i] = keptTables[i][c][k];
                 }
-                keptMedian[k] = MedianInPlace(column);
+                keptMedian[k] = StatisticsHelper.MedianFast(column);
                 for (var i = 0; i < column.Length; i++)
                 {
                     var own = ownTables[i][c].Table;
                     column[i] = k < own.Length ? own[k] : 0.0;
                 }
-                ownMedian[k] = MedianInPlace(column);
+                ownMedian[k] = StatisticsHelper.MedianFast(column);
             }
             var keptRow = new float[rings];
             var fieldRow = new float[rings];
@@ -872,7 +882,7 @@ public sealed class InjectionPopulation
             {
                 (three[0], three[1], three[2]) = (keptMedian[k - 1], keptMedian[k], keptMedian[Math.Min(rings - 1, k + 1)]);
                 var fade = Math.Min(1.0, (rings - k) / 5.0);
-                keptRow[k] = (float)(Math.Max(0.0, MedianInPlace(three)) * fade);
+                keptRow[k] = (float)(Math.Max(0.0, StatisticsHelper.MedianFast(three)) * fade);
                 var ramp = Math.Clamp((k - FieldHaloFromPx) / (double)(FieldHaloFullPx - FieldHaloFromPx), 0.0, 1.0);
                 fieldRow[k] = (float)Math.Max(0.0, ramp * (ownMedian[k] + keptRow[k]));
             }
@@ -880,13 +890,6 @@ public sealed class InjectionPopulation
             fieldHalo[c] = [.. fieldRow];
         }
         return (kept, fieldHalo);
-
-        // Sorts in place: every array it is given is a scratch.
-        static double MedianInPlace(double[] v)
-        {
-            Array.Sort(v);
-            return v.Length % 2 == 1 ? v[v.Length / 2] : 0.5 * (v[(v.Length / 2) - 1] + v[v.Length / 2]);
-        }
     }
 
     // Two halo tables on the same 1 px rings, ring by ring; the longer one's tail is kept.

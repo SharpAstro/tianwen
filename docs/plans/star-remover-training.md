@@ -5829,7 +5829,11 @@ the first angle is a step after the model and not another arm:
     nothing inside 5 px, is added to every measured star's table, and every other star draws the session's whole halo
     (the median of the stars' own tables plus that share), coming in from 8 to 14 px (`HaloOverPlate`). One star's rings
     hold the nebula under it, so only the median over the session is drawn; a session with fewer than eight measured
-    stars draws as without the option. It draws no random number and is off by default (`HaloOverPlateTests`).
+    stars whose 60 px stamp lies in the frame and holds no absent pixel draws as without the option, and its log line says
+    so (`InjectionPopulation.HaloOverPlateStars`). A star is drawn only when its centre lies within the exporter's 8 px
+    margin of a tile (`InjectionMarginPx`, unchanged, since moving it moves every draw), so a tile's edge does not hold
+    the halo of a star further outside it, in the input or the target: no label is wrong, and a halo whose star is off the
+    tile is not taught. It draws no random number and is off by default (`HaloOverPlateTests`).
   - **Its validation, on the census** (the eight validation sessions exported from one frozen binary with synth22's
     recipe plus `--saturated-own-share --saturated-measured`, control, and the same plus the option; 1,440 tiles each;
     the drawn clipped stars' stretched light over real's at 6 / 10 / 15 / 20 / 25 px, all rigs pooled):

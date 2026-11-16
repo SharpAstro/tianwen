@@ -589,6 +589,18 @@ public static partial class DatasetDegradationExporter
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
                 options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger),
                 measuredSaturated: options.SaturatedMeasured, haloOverPlate: options.HaloOverPlate);
+            if (options.HaloOverPlate)
+            {
+                if (population.HaloOverPlateStars > 0)
+                {
+                    logger?.LogInformation("[degrade] {Session}: the halo over the plate, read from {Stars} measured saturated stars", sessionId, population.HaloOverPlateStars);
+                }
+                else
+                {
+                    logger?.LogWarning("[degrade] {Session}: no halo over the plate, fewer than {Min} measured saturated stars with a readable stamp; drawn as without --halo-over-plate",
+                        sessionId, InjectionPopulation.MinHaloOverPlateStars);
+                }
+            }
             if (options.SaturatedAtOwnShare)
             {
                 logger?.LogInformation("[degrade] {Session}: saturated at its own share, {Share:P1} of its sites", sessionId, population.SaturatedShare);
