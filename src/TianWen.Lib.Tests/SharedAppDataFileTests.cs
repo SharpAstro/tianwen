@@ -222,7 +222,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
 
     /// <summary>A file deleted for good has no replace beside it, so it is reported absent. (That it is answered without the deadline is not pinned here: a wall-clock bar is opt-in.)</summary>
     [Fact(Timeout = 60_000)]
-    public async Task AFileDeletedForGoodIsReportedAbsentAtOnce()
+    public async Task AFileDeletedForGoodIsReportedAbsent()
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("shared-appdata-");

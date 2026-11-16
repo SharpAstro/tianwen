@@ -24,7 +24,7 @@ namespace TianWen.Lib.IO;
 /// the POSIX-semantics rename, since <c>MoveFileEx</c> refuses to replace a file any handle holds open, and a
 /// reader holding the old version failed the writer. A read opens with <see cref="FileShare.ReadWrite"/> and
 /// <see cref="FileShare.Delete"/>, without which even that rename is refused.</para>
-/// <para>A replace on NTFS leaves the name ABSENT for a moment, with either rename: 0.1 to 0.3 ms at rest,
+/// <para>A replace on NTFS leaves the name ABSENT for a moment, inside its one replace: 0.1 to 0.3 ms at rest,
 /// about one query in 25,000 beside two writers, and longer under load (a look 5 ms later still missed, once in
 /// 60 runs of 2,000 writes). A <see cref="File.Exists"/> or a listing inside that moment calls a file that
 /// exists gone, and a reader that believes it acts on it: the profile list drops a profile, a planner that
@@ -33,8 +33,10 @@ namespace TianWen.Lib.IO;
 /// replacing one profile back to back, 1,254 reads beside 2,000 writes) had one read find the name absent at all
 /// four looks (now, +5, +25, +100 ms) with nothing logged. That is the evidence. The mechanism is one of two
 /// that it cannot tell apart: several replaces' absent windows, one per look, or ONE window longer than the
-/// 130 ms the looks spanned (a writer descheduled between its two renames). A probe run in review on the desktop (Release, 16
-/// cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes) saw the name absent at 2
+/// 130 ms the looks spanned (a writer descheduled inside its one replace). A one-off probe run in review on the
+/// desktop (its script is not in the repo; the on-demand shared-file-repeat workflow is the proof at CI scale;
+/// Release, 16 cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes) saw the name
+/// absent at 2
 /// of 266,782 looks (about 7.5e-6 per look), 0 nulls from 120,253 <see cref="TryOpenReadAsync"/> calls, and a
 /// staging file visible at both absent looks. Four independent misses would need a per-look rate near 0.2 on the
 /// runner, so one long window fits the CI miss at least as well as several. Neither is measured on the runner.
