@@ -41,7 +41,7 @@ public class HaloOverPlateTests
     public void WhatThePlateKeepsIsReadPerAmplitudeOverItsOwnOuterRing()
     {
         const double amplitude = 5.0;
-        var excess = InjectionPopulation.PlateRingExcess([Plate(amplitude)], Size, Size, Cx, Cy, 1.0, [amplitude]).ShouldNotBeNull();
+        var excess = InjectionPopulation.PlateRingExcess([Plate(amplitude)], Size, Size, null, Cx, Cy, 1.0, [amplitude]).ShouldNotBeNull();
         excess.Length.ShouldBe(1);
         excess[0].Length.ShouldBe(InjectionPopulation.PlateHaloReachPx + 1);
         // The sky ring holds the halo's own tail, which reads every ring that much low.
@@ -57,9 +57,37 @@ public class HaloOverPlateTests
     public void AStampThatLeavesTheFrameOrHoldsAnAbsentPixelIsNotRead()
     {
         var plate = Plate(5.0);
-        InjectionPopulation.PlateRingExcess([plate], Size, Size, 40.0, Cy, 1.0, [5.0]).ShouldBeNull("its sky ring leaves the frame");
+        InjectionPopulation.PlateRingExcess([plate], Size, Size, null, 40.0, Cy, 1.0, [5.0]).ShouldBeNull("its sky ring leaves the frame");
         plate[((int)Cy * Size) + (int)Cx + 20] = float.NaN;
-        InjectionPopulation.PlateRingExcess([plate], Size, Size, Cx, Cy, 1.0, [5.0]).ShouldBeNull("an absent pixel in the stamp");
+        InjectionPopulation.PlateRingExcess([plate], Size, Size, null, Cx, Cy, 1.0, [5.0]).ShouldBeNull("a NaN in the stamp");
+    }
+
+    [Fact]
+    public void AStampHoldingTheZeroCanvasRingIsNotReadThoughItsPixelsAreFinite()
+    {
+        // A master's canvas ring is exact zeros, which the classical remover leaves in the plate: finite, so only the absent
+        // matrix says they are no sky. The ring edge is 40 px from the star, inside its 60 px stamp.
+        var plate = Plate(5.0);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (x < 40 || y < 40 || x >= Size - 40 || y >= Size - 40)
+                {
+                    plate[(y * Size) + x] = 0f;
+                }
+            }
+        }
+        var absent = new Image([ToPlane(plate)], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()).AbsentPixels().ShouldNotBeNull();
+        InjectionPopulation.PlateRingExcess([plate], Size, Size, absent, Cx, Cy, 1.0, [5.0]).ShouldBeNull("zeros of the canvas ring in the stamp");
+        InjectionPopulation.PlateRingExcess([plate], Size, Size, null, Cx, Cy, 1.0, [5.0]).ShouldNotBeNull("without the matrix the zeros read as sky, the bias the matrix prevents");
+    }
+
+    private static float[,] ToPlane(float[] flat)
+    {
+        var plane = new float[Size, Size];
+        Buffer.BlockCopy(flat, 0, plane, 0, flat.Length * sizeof(float));
+        return plane;
     }
 
     [Fact]
@@ -72,7 +100,7 @@ public class HaloOverPlateTests
         for (var i = 0; i < 9; i++)
         {
             var amplitude = 2.0 + i;
-            kept.Add(InjectionPopulation.PlateRingExcess([Plate(amplitude, i == 4 ? 4e-3 : 0.0)], Size, Size, Cx, Cy, 1.0, [amplitude]).ShouldNotBeNull());
+            kept.Add(InjectionPopulation.PlateRingExcess([Plate(amplitude, i == 4 ? 4e-3 : 0.0)], Size, Size, null, Cx, Cy, 1.0, [amplitude]).ShouldNotBeNull());
             own.Add([new OuterHalo(0, 0, 0, ownTable)]);
         }
         var (keptHalo, fieldHalo) = InjectionPopulation.HaloOverPlate(own, kept, 1);
@@ -180,6 +208,16 @@ public class HaloOverPlateTests
             (saturated.Profiles[0].Outer.AtRadius(r) - saturatedWithout.Profiles[0].Outer.AtRadius(r)).ShouldBe(Kept(r) - tail, 4e-5, $"a measured star at {r} px");
         }
         saturatedWithout.Profiles[0].Outer.AtRadius(40).ShouldBe(0.0, "without it a measured star's table ends at 30 px");
+
+        // It draws no random number: the same seed places and sizes every star the same with it and without it.
+        plan.Stars.Length.ShouldBe(planWithout.Stars.Length);
+        for (var i = 0; i < plan.Stars.Length; i++)
+        {
+            plan.Stars[i].X.ShouldBe(planWithout.Stars[i].X, $"star {i} x");
+            plan.Stars[i].Y.ShouldBe(planWithout.Stars[i].Y, $"star {i} y");
+            plan.Stars[i].Amplitudes.ShouldBe(planWithout.Stars[i].Amplitudes, $"star {i} amplitudes");
+            plan.Stars[i].Saturated.ShouldBe(planWithout.Stars[i].Saturated, $"star {i} saturated");
+        }
     }
 
     [Fact]
@@ -194,4 +232,13 @@ public class HaloOverPlateTests
     [Fact]
     public void ItIsRefusedWithoutTheMeasuredStarsItIsReadFrom()
         => Should.Throw<ArgumentException>(() => Population(9, haloOverPlate: true, measured: false)).ParamName.ShouldBe("haloOverPlate");
+
+    [Fact]
+    public void ItIsRefusedBesideAnOuterHalo()
+    {
+        var image = new Image([new float[8, 8]], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        ImmutableArray<OuterHalo> outer = [new OuterHalo(0, 0, 0, [0f], "test")];
+        Should.Throw<ArgumentException>(() => InjectionPopulation.Build([], image, image, 1.0, [(2.5, 3.0)], null,
+            outerHalo: outer, measuredSaturated: true, haloOverPlate: true)).ParamName.ShouldBe("haloOverPlate");
+    }
 }

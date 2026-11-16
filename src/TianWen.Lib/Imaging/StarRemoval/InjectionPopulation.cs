@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.InteropServices;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
@@ -372,7 +373,7 @@ public sealed class InjectionPopulation
                     // so their light is part of both. The ring medians carry only a share of a one-sided lobe's light (about a
                     // third at the median lobe's distance in a Moffat model, and none of its one-sidedness), so this is neither
                     // exact nor measured to be complete; drawing the lobes on top would count that share twice.
-                    if (haloOverPlate && PlateRingExcess(platePlanes, width, height, s.X, s.Y, scale, m.Amplitudes) is { } kept)
+                    if (haloOverPlate && PlateRingExcess(platePlanes, width, height, absent, s.X, s.Y, scale, m.Amplitudes) is { } kept)
                     {
                         ownTables.Add(m.Halo);
                         keptTables.Add(kept);
@@ -777,9 +778,9 @@ public sealed class InjectionPopulation
     /// drawn only when its centre lies within the exporter's injection margin of its tile, so a tile's edge does not hold the
     /// halo of a star further outside it than that, in the input or in the target. One star's
     /// rings hold the nebula under it too, so only the median over a session's stars (<see cref="HaloOverPlate"/>) is drawn.
-    /// Null where the stamp leaves the frame or holds a non-finite pixel.
+    /// Null where the stamp leaves the frame or holds a non-finite or an absent pixel.
     /// </summary>
-    internal static double[][]? PlateRingExcess(float[][] platePlanes, int width, int height, double cx, double cy, double scale, ImmutableArray<double> amplitudes)
+    internal static double[][]? PlateRingExcess(float[][] platePlanes, int width, int height, BitMatrix? absent, double cx, double cy, double scale, ImmutableArray<double> amplitudes)
     {
         const int reach = PlateSkyToPx;
         var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
@@ -808,7 +809,9 @@ public sealed class InjectionPopulation
                 for (var x = ix - reach; x <= ix + reach; x++)
                 {
                     var v = plane[(y * width) + x];
-                    if (!float.IsFinite(v))
+                    // An absent pixel (the master's zero canvas ring, which the classical remover leaves as finite zeros) is no
+                    // sky: a stamp holding one is not read.
+                    if (!float.IsFinite(v) || (absent is { } a && a[y, x]))
                     {
                         return null;
                     }
@@ -823,23 +826,21 @@ public sealed class InjectionPopulation
                     }
                 }
             }
-            var skyLevel = SortedMedian(sky);
+            var skyLevel = MedianOf(sky);
             var row = new double[rings];
             for (var k = 0; k < rings; k++)
             {
-                row[k] = bins[k].Count > 0 && amplitudes[c] > 0 ? (SortedMedian(bins[k]) - skyLevel) * scale / amplitudes[c] : 0.0;
+                row[k] = bins[k].Count > 0 && amplitudes[c] > 0 ? (MedianOf(bins[k]) - skyLevel) * scale / amplitudes[c] : 0.0;
             }
             result[c] = row;
         }
         return result;
-
-        // Sorts in place: every list it is given is a scratch.
-        static double SortedMedian(List<float> v)
-        {
-            v.Sort();
-            return v.Count == 0 ? double.NaN : v.Count % 2 == 1 ? v[v.Count / 2] : 0.5 * (v[(v.Count / 2) - 1] + v[v.Count / 2]);
-        }
     }
+
+    // The median of a list, NaN when empty; reorders it in place, so every list it is given is a scratch. Both readings of a
+    // star's rings (MeasureSaturated, PlateRingExcess) share it, so they cannot drift.
+    private static double MedianOf(List<float> v)
+        => v.Count == 0 ? double.NaN : StatisticsHelper.MedianFast(CollectionsMarshal.AsSpan(v));
 
     /// <summary>
     /// A session's halo over the plate, per channel, from its measured saturated stars: <c>Kept</c> is the median over the stars
@@ -1045,17 +1046,6 @@ public sealed class InjectionPopulation
             halos.Add(new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured saturated star"));
         }
         return (amplitudes.MoveToImmutable(), clips.MoveToImmutable(), halos.MoveToImmutable());
-
-        // Sorts in place: every list it is given is a scratch.
-        static double MedianOf(List<float> v)
-        {
-            if (v.Count == 0)
-            {
-                return double.NaN;
-            }
-            v.Sort();
-            return v.Count % 2 == 1 ? v[v.Count / 2] : 0.5 * (v[(v.Count / 2) - 1] + v[v.Count / 2]);
-        }
     }
 
     // A star's profiles at the draw's channel factors (R2s2), or as measured where there are none.
