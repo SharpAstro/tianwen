@@ -2,7 +2,10 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using SharpAstro.Lzip;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Astrometry.Catalogs;
 
@@ -76,22 +79,28 @@ public sealed class Tycho2RegionSelector
         }
     }
 
+    /// <summary>The GSC region bounds' data file, as a data file source is asked for it.</summary>
+    public const string BoundsFileName = "tyc2_gsc_bounds.bin.lz";
+
     /// <summary>
-    /// Builds a selector from the GSC bounds embedded in this assembly, which survive the
-    /// <c>Lightweight</c> build that strips the catalog itself -- so a browser can decide which
-    /// regions it needs before it has fetched a single star. Returns null if the resource is absent.
+    /// Builds a selector from the GSC bounds embedded in this assembly, without waiting; null if this build
+    /// does not embed them. A host that may supply them asks <see cref="FromBoundsAsync"/> instead.
     /// </summary>
     public static Tycho2RegionSelector? FromEmbeddedBounds()
     {
-        var assembly = typeof(Tycho2RegionSelector).Assembly;
-        var name = assembly.GetManifestResourceNames()
-            .FirstOrDefault(n => n.EndsWith(".tyc2_gsc_bounds.bin.lz", StringComparison.Ordinal));
-        if (name is null)
-        {
-            return null;
-        }
+        using var stream = DataFiles.Embedded.OpenIfAtHand(BoundsFileName);
+        return stream is null ? null : new Tycho2RegionSelector(LzipDecoder.Decompress(stream));
+    }
 
-        using var stream = assembly.GetManifestResourceStream(name);
+    /// <summary>
+    /// Builds a selector from the GSC bounds the process's data file source has (<see cref="DataFiles.Source"/>):
+    /// embedded in this assembly, where they survive the <c>Lightweight</c> build that strips the catalog itself,
+    /// or supplied by the host -- so a browser can decide which regions it needs before it has fetched a single
+    /// star. Returns null if the source does not have them.
+    /// </summary>
+    public static async ValueTask<Tycho2RegionSelector?> FromBoundsAsync(CancellationToken cancellationToken = default)
+    {
+        using var stream = await DataFiles.Source.OpenAsync(BoundsFileName, cancellationToken);
         return stream is null ? null : new Tycho2RegionSelector(LzipDecoder.Decompress(stream));
     }
 

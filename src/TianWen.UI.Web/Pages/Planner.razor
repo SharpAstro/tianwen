@@ -1559,10 +1559,10 @@
         try
         {
             var manifest = Tycho2MemberManifest.Read(manifestBytes);
-            var selector = Tycho2RegionSelector.FromEmbeddedBounds();
+            var selector = await Tycho2RegionSelector.FromBoundsAsync();
             if (selector is null)
             {
-                Console.WriteLine("[tianwen-web] GSC bounds are not embedded; using the whole catalog");
+                Console.WriteLine("[tianwen-web] GSC bounds are neither embedded nor supplied; using the whole catalog");
                 return false;
             }
 

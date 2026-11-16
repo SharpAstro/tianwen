@@ -246,6 +246,9 @@ internal static class HdHipCrossSnapshotIo
 /// </summary>
 internal static class HdHipCrossInputHasher
 {
+    /// <summary>The data files the hash covers, by the name a data file source is asked for.</summary>
+    internal static IReadOnlyList<string> InputNames => Inputs;
+
     /// <summary>
     /// Embedded resources whose content fully determines the snapshot output.
     /// Order is fixed (alphabetical) so the hash is reproducible. Append-only; adding

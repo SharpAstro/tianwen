@@ -2023,9 +2023,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
 
 /// <summary>
 /// Night spends no blue (CLAUDE.md, "Colour Theme"): every pixel the orrery paints under Night, the sky behind it, the orbits, the
-/// discs, the comet, the labels and the strip, has a blue channel of zero. In the "UI" collection, since it flips the app-wide theme.
+/// discs, the comet, the labels and the strip, has a blue channel of zero. In the ThemeCollection, since it flips the app-wide theme.
 /// </summary>
-[Collection("UI")]
+[Collection(ThemeCollection.Name)]
 public sealed class OrreryNightTests
 {
     [Fact(Timeout = 120_000)]

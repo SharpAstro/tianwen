@@ -11,8 +11,8 @@ namespace TianWen.Lib.Tests;
 /// colour and the ground, so a contrast figure computed from <see cref="GuiNavigationStrip{TSurface}.ColorsFor"/> was 2 to 3
 /// times the one on screen. The ink is read off the strip painted on a CPU surface and held against the rail's own ground.
 /// </summary>
-// In the "UI" collection: it calls GuiTheme.Apply, which mutates PROCESS-WIDE state (see GuiThemeTests).
-[Collection("UI")]
+// In the ThemeCollection: it calls GuiTheme.Apply, which mutates PROCESS-WIDE state (see GuiThemeTests).
+[Collection(ThemeCollection.Name)]
 public class GuiBackForwardStripColourTests
 {
     private sealed class Navigation(bool back, bool forward) : IGuiNavigation
