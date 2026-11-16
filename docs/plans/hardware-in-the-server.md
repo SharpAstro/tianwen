@@ -519,7 +519,7 @@ first; none needs a decision.
    merges there, newest fetch winning per comet; a lock waiter polls every few milliseconds for up to
    30 s rather than backing off, since a holder that updates again takes the lock straight back (a
    backed-off waiter starved and gave up, measured). **A replace on NTFS leaves the name absent for a
-   moment**, with either rename (0.1 to 0.3 ms at rest, about one query in 25,000 beside two writers, and
+   moment**, with one replace (0.1 to 0.3 ms at rest, about one query in 25,000 beside two writers, and
    longer under load), so a single `File.Exists` or listing can call a file that exists gone, and a planner
    that loaded "no pins" would save that back. A reader believes absence only after looks spread over about
    130 ms (`SharedFile.TryOpenReadAsync`, and `ListAsync` for a file the last listing had; Windows only, a
