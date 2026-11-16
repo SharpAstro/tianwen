@@ -95,7 +95,9 @@ public sealed class GuiFrameReasons
 /// not this either (<see cref="GuiFrameReasons.ClockTick"/>). What is left is content that is a function of "now":
 /// <list type="bullet">
 /// <item>a run's progress bars and countdowns, and a preview capture's: half a second;</item>
-/// <item>the sky as it drifts, and the ETA of a slew in flight: a second;</item>
+/// <item>the sky as it drifts: the time it takes to move half a pixel on screen (<see cref="SkyDrift"/>), which is a
+/// second only in a field of a degree or so and a quarter of a minute in the atlas's opening view;</item>
+/// <item>the ETA of a slew in flight: a second;</item>
 /// <item>the Live Session's timeline marker: half a minute;</item>
 /// <item>everything read to the minute (the top bar's night label and verdict, the planner's "now" line, the session's
 /// remaining windows, the Home board's "last seen", a quiet rig's "not answering" age): a minute.</item>
@@ -116,13 +118,41 @@ public static class GuiTimeCadence
     /// <summary>Everything read to the minute.</summary>
     public static readonly TimeSpan Minute = TimeSpan.FromMinutes(1);
 
+    /// <summary>How fast the sky turns at its fastest (the celestial equator), in arcseconds per second of time.</summary>
+    public const double SkyArcsecPerSecond = 15.041;
+
+    /// <summary>How far the sky may drift on screen, in pixels, before the atlas owes a frame for it.</summary>
+    public const double SkyDriftPixels = 0.5;
+
+    /// <summary>
+    /// How long the sky takes to drift <see cref="SkyDriftPixels"/> on screen in a view of this field and height: the
+    /// atlas's interval. A frame drawn sooner is the last one over again, pixel for pixel, and on a software renderer it
+    /// costs what any full frame costs (llvmpipe at 1200x800: 15 % of a core for a frame a second, #2130). Never under
+    /// a second, never over a minute; a view with no size yet answers a second.
+    /// </summary>
+    /// <param name="fieldOfViewDeg">The view's vertical field of view, in degrees.</param>
+    /// <param name="viewHeightPx">The view's height, in the surface's pixels.</param>
+    public static TimeSpan SkyDrift(double fieldOfViewDeg, float viewHeightPx)
+    {
+        if (!(fieldOfViewDeg > 0.0) || !(viewHeightPx > 0f))
+        {
+            return Second;
+        }
+
+        var arcsecPerPixel = fieldOfViewDeg * 3600.0 / viewHeightPx;
+        var seconds = SkyDriftPixels * arcsecPerPixel / SkyArcsecPerSecond;
+        return TimeSpan.FromSeconds(Math.Clamp(seconds, Second.TotalSeconds, Minute.TotalSeconds));
+    }
+
     /// <summary>The interval at which the window needs a full frame for time's passing alone.</summary>
     /// <param name="tab">The tab on show.</param>
     /// <param name="runGoingOn">A session runs, or a polar alignment routine is past idle, in the local or the viewed context:
     /// its progress surfaces at half a second whatever tab is on show, as it always did.</param>
     /// <param name="previewCapturing">A preview exposure is in flight on the viewed context.</param>
     /// <param name="slewInFlight">The mount is on its way to a target whose ETA the top bar counts down.</param>
-    public static TimeSpan Interval(GuiTab tab, bool runGoingOn, bool previewCapturing, bool slewInFlight)
+    /// <param name="skyDrift">The atlas's interval for the view it shows (<see cref="SkyDrift"/>); a second when the
+    /// host cannot say.</param>
+    public static TimeSpan Interval(GuiTab tab, bool runGoingOn, bool previewCapturing, bool slewInFlight, TimeSpan? skyDrift = null)
     {
         if (runGoingOn)
         {
@@ -131,7 +161,7 @@ public static class GuiTimeCadence
 
         var tabs = tab switch
         {
-            GuiTab.SkyMap => Second,
+            GuiTab.SkyMap => skyDrift ?? Second,
             GuiTab.LiveSession => previewCapturing ? Progress : Timeline,
             _ => Minute,
         };

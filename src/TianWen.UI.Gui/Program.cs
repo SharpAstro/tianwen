@@ -541,7 +541,11 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             RedrawPending: eventLoop is not { RedrawPending: false },
             PendingForPointerMoveAlone: eventLoop is { RedrawPendingForPointerMoveAlone: true },
             PointerMoveChanged: moveChanged,
-            PointerMoveUnstated: moveUnstated));
+            PointerMoveUnstated: moveUnstated,
+            // The atlas is redrawn when its sky has moved, which the view's scale decides, and no frame is drawn
+            // faster than this computer can afford (GuiFrameScheduler reads the cost from the process's own time).
+            SkyDrift: GuiTimeCadence.SkyDrift(guiRenderer.SkyMapState.FieldOfViewDeg, guiRenderer.SkyMapState.LastContentRect.Height),
+            ProcessCpu: Environment.CpuUsage.TotalTime));
     },
 
     // Committed to a frame: say what it repaints. The flags are PEEKED here, never consumed: a narrowed frame takes no
