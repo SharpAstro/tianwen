@@ -190,7 +190,11 @@ public class MeasuredBrightStarTests
         }
         var masterImage = new Image([master], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
         var plateImage = new Image([plate], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
-        var absent = passAbsent ? plateImage.AbsentPixels().ShouldNotBeNull() : null;
+        BitMatrix? absent = null;
+        if (passAbsent)
+        {
+            absent = plateImage.AbsentPixels().ShouldNotBeNull();
+        }
         return InjectionPopulation.Build([.. list.Select(Row)], masterImage, plateImage, 1.0, [FieldPsf], absent, lobes: lobes, measuredBright: measuredBright);
     }
 
@@ -336,7 +340,7 @@ public class MeasuredBrightStarTests
             b.Stars[i].Saturated.ShouldBe(a.Stars[i].Saturated);
             b.Stars[i].Measured.ShouldBe(a.Stars[i].Measured);
             b.Stars[i].Profiles[0].Outer.IsNone.ShouldBe(a.Stars[i].Profiles[0].Outer.IsNone);
-            b.Stars[i].Profiles[0].Fwhm.ShouldBe(a.Stars[i].Profiles[0].Fwhm);
+            b.Stars[i].Profiles[0].FwhmPx.ShouldBe(a.Stars[i].Profiles[0].FwhmPx);
         }
     }
 }
