@@ -1,0 +1,106 @@
+name: Shared file repeat
+
+# The proof #2184 asks for: SharedAppDataFileTests (the readers and writers of one shared AppData file, among them
+# TwoWritersOfOneProfileBesideItsReadersLoseNothingAndNeverFail) run in a loop on windows-latest, where a replace's
+# absent window is long and the test failed (CI run 43825096116: 'read 937: the JSON read found nothing'). It shows that
+# a reader believes a shared file gone only when no replace is in progress. Each iteration is a fresh test process with
+# its own TRX; the loop stops at the first failure and uploads that TRX.
+# It runs only on demand, never on a PR push or any other trigger, and is never a gate:
+#   gh workflow run shared-file-repeat.yml -f ref=<branch-or-sha> [-f iterations=30]
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/SHA to test'
+        required: false
+        default: 'main'
+        type: string
+      iterations:
+        description: 'Iterations'
+        required: false
+        default: '30'
+        type: string
+
+# A second dispatch for the same ref cancels the first, which would be proving a commit that is no longer the head.
+concurrency:
+  group: shared-file-repeat-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUILD_CONF: Release
+  DOTNET_NOLOGO: 1
+  ITERATIONS: ${{ inputs.iterations || '30' }}
+  TEST_FILTER: 'FullyQualifiedName~SharedAppDataFileTests'
+  TEST_COUNT: 9   # the class's facts
+
+jobs:
+  repeat:
+    timeout-minutes: 90
+    runs-on: windows-latest
+    steps:
+      # Inline and first, as dotnet.yml's Windows test jobs do.
+      - name: Defender off for the workspace, temp and NuGet
+        shell: pwsh
+        run: |
+          $nuget = Join-Path $env:RUNNER_TEMP 'nuget-packages'
+          "NUGET_PACKAGES=$nuget" >> $env:GITHUB_ENV
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:USERPROFILE\AppData\Local\Temp", $nuget, "$env:USERPROFILE\.nuget", "$env:ProgramFiles\dotnet"
+          try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Warning "real-time scanning stays on, the exclusions hold: $_" }
+          Get-MpComputerStatus | Format-List RealTimeProtectionEnabled, AntivirusEnabled
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          submodules: recursive
+          lfs: false
+      - name: Fetch required LFS objects
+        uses: ./.github/actions/lfs-pull
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+          cache-prefix: lfs-tests
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # The version as dotnet.yml stamps it: VersionMajorMinor read back from its one place, plus the run number.
+      - name: Resolve version prefix
+        shell: bash
+        run: |
+          MM="$(dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor -nologo | tr -d '[:space:]')"
+          case "$MM" in
+            [0-9]*.[0-9]*) ;;
+            *) echo "::error::VersionMajorMinor did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
+          esac
+          echo "VERSION_PREFIX=${MM}.${{ github.run_number }}" >> "$GITHUB_ENV"
+      - name: Build the unit tests (Release, matches CI)
+        shell: pwsh
+        run: dotnet build TianWen.Lib.Tests -c $env:BUILD_CONF -p:Version="$env:VERSION_PREFIX" -p:FileVersion="$env:VERSION_PREFIX.0" -p:ContinuousIntegrationBuild=true
+        working-directory: src
+      - name: Loop the shared-file tests
+        shell: pwsh
+        run: |
+          $n = [int]$env:ITERATIONS
+          for ($i = 1; $i -le $n; $i++) {
+            Write-Host "::group::iteration $i of $n"
+            dotnet test TianWen.Lib.Tests -c $env:BUILD_CONF --no-build --filter $env:TEST_FILTER --minimum-expected-tests $env:TEST_COUNT --output Detailed --hangdump --hangdump-timeout 120s --report-trx --report-trx-filename "shared-file-$i.trx" --results-directory test-results/
+            $code = $LASTEXITCODE
+            Write-Host "::endgroup::"
+            if ($code -ne 0) {
+              Write-Host "::error::iteration $i of $n failed (exit $code)"
+              "### Failed on iteration $i of $n (exit $code)" >> $env:GITHUB_STEP_SUMMARY
+              exit 1
+            }
+          }
+          "### All $n iterations passed" >> $env:GITHUB_STEP_SUMMARY
+        working-directory: src
+      # The loop stops at the first failure, so the last TRX in the folder is the failing iteration's.
+      - name: Upload the TRX of the failing iteration
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: shared-file-repeat-trx
+          path: src/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

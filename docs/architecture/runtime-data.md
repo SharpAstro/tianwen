@@ -43,8 +43,20 @@ is written with `IExternal.AtomicWriteJsonAsync` and read with `TryReadJsonAsync
 underneath both, never a bare `FileStream`. A write stages under a name of its own and replaces the file with the
 POSIX-semantics rename on Windows, because `File.Move` refuses to replace a file any reader holds open, delete sharing
 or not; a read shares read, write and delete, without which even that rename is refused; and **a reader believes a
-file is gone only after looking again** (`SharedFile.TryOpenReadAsync` / `ListAsync`), because an NTFS replace, either
-rename, hides the name for a moment and a planner that read "no pins" would save that back. **Do not replace those
+file is gone only when no replace is in progress** (`SharedFile.TryOpenReadAsync` / `ListAsync`), because an NTFS
+replace hides the name for a moment and a planner that read "no pins" would save that back. The
+evidence is the staging file `<name>.<guid>.tmp` a write keeps beside the name until its replace is done: a miss with
+one beside it is polled every 5 ms (up to a 1 s deadline, after which it is a crashed writer's orphan), and a miss
+with none is confirmed by one more look 5 ms later on Windows. It used to be four looks at fixed times (now, +5, +25,
++100 ms); CI run 43825096116 (two writers replacing one profile back to back, 1,254 reads beside 2,000 writes) had
+one read miss at all four, with nothing logged. That is the evidence; the mechanism is one of two it cannot tell
+apart (several replaces' absent windows, one per look, or one window longer than the 130 ms the looks spanned). A
+one-off probe on the desktop (Release, 16 cores, two writers flat out for 20 s, 20,265 writes; its script is not in
+the repo) saw the name absent at 2 of 266,782 looks (about 7.5e-6 per look), 0 nulls from 120,253 `TryOpenReadAsync`
+calls, and a staging file visible at both absent looks; four independent misses would need a per-look rate near 0.2,
+so one long window fits at least as well. Neither is measured on the runner; the on-demand `shared-file-repeat`
+workflow is the proof at CI scale. More or longer fixed looks would only have moved it; the rule covers both and is
+about what the looks show. A file deleted for good has no staging file and is answered at once. **Do not replace those
 looks with a reader/writer lock**: measured, the real-time scanner then holds a replaced file in kernel mode and every
 rename onto it is refused for minutes. **A file every host ADDS to** (the comet apparition cache) goes through
 `UpdateJsonAsync`, which holds its directory's `.lock` across the read, the merge and the write; a whole-file write
