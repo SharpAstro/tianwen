@@ -28,9 +28,19 @@ namespace TianWen.Lib.IO;
 /// about one query in 25,000 beside two writers, and longer under load (a look 5 ms later still missed, once in
 /// 60 runs of 2,000 writes). A <see cref="File.Exists"/> or a listing inside that moment calls a file that
 /// exists gone, and a reader that believes it acts on it: the profile list drops a profile, a planner that
-/// loaded no pins saves that back. So on Windows absence is believed only after looks spread over about 130 ms
-/// (<see cref="TryOpenReadAsync"/>, and <see cref="ListAsync"/> for a file the last listing had), a cost only an
-/// absent file pays.</para>
+/// loaded no pins saves that back.</para>
+/// <para>Looking again at fixed times is not evidence of absence. CI run 43825096116 (test-windows, two writers
+/// replacing one profile back to back, 1,254 reads beside 2,000 writes) had one read find the name absent at all
+/// four looks (now, +5, +25, +100 ms) with nothing logged. Beside continuous replaces each look is timed
+/// independently of the writes, so each can land in a DIFFERENT replace's window, and under load the windows grow.
+/// A run to reproduce it on the desktop (Release, 16 cores) passed, so the window lengths were not measured here,
+/// only the CI count above. So the rule is about what the looks show, not how many there are or how far apart: a
+/// write stages <c>name.guid.tmp</c> beside the name before it replaces it, and that file exists until the
+/// replace is done. Absence is believed only when a look finds no staging file beside the name (and, on Windows,
+/// a second look 5 ms later finds the name absent with no staging file again). While a staging file is there the
+/// reader polls every 5 ms, up to one second, after which the staging file is taken as a crashed writer's orphan
+/// and the name as gone. A file deleted for good has no staging file, so it is answered after one 5 ms relook
+/// (<see cref="TryOpenReadAsync"/>, and <see cref="ListAsync"/> for a file the last listing had).</para>
 /// <para>Why not a lock between readers and writers, which would make that exact: measured, it wedges. The
 /// real-time scanner holds a freshly replaced file in kernel mode (the System process, invisible to a share
 /// check), and with a replace taking the directory's lock that hold stopped clearing: every rename onto the file
@@ -52,7 +62,27 @@ public static partial class SharedFile
     private static readonly TimeSpan FirstRetryDelay = TimeSpan.FromMilliseconds(5);
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan LockWaitBudget = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan[] AbsenceRelooks = [TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(25), TimeSpan.FromMilliseconds(100)];
+    private static readonly TimeSpan AbsenceLook = TimeSpan.FromMilliseconds(5);
+    private static readonly TimeSpan AbsenceDeadline = TimeSpan.FromSeconds(1);
+
+    // Windows hides the name for a moment inside a replace, so one quiet miss may be the tail of a window that has
+    // already closed; a second quiet look finds the file. Elsewhere a miss with no staging file is the answer.
+    private static int QuietLooksNeeded => OperatingSystem.IsWindows() ? 2 : 1;
+
+    // A write stages '<name>.<guid>.tmp' before it replaces the name and removes nothing until the replace is
+    // done, so a staging file beside the name is the evidence that a replace is under way.
+    private static bool ReplaceInProgress(string directory, string stagingPattern)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return false;
+        }
+        foreach (var _ in Directory.EnumerateFiles(directory, stagingPattern))
+        {
+            return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// Replaces <paramref name="path"/> with what <paramref name="write"/> produces, all at once: a reader sees the
@@ -77,12 +107,16 @@ public static partial class SharedFile
 
     /// <summary>
     /// Opens <paramref name="path"/> to read without refusing a writer's replace of it, believing the file absent
-    /// only after looking again (see remarks).
+    /// only when no replace is in progress (see remarks).
     /// </summary>
     /// <returns>Null when the file does not exist.</returns>
     public static async Task<FileStream?> TryOpenReadAsync(string path, CancellationToken cancellationToken = default)
     {
-        for (var look = 0; ; look++)
+        var directory = DirectoryOf(path);
+        var stagingPattern = Path.GetFileName(path) + ".*.tmp";
+        var started = Stopwatch.GetTimestamp();
+        var quiet = 0;
+        while (true)
         {
             if (File.Exists(path))
             {
@@ -96,12 +130,21 @@ public static partial class SharedFile
                 }
             }
 
-            if (look == AbsenceRelooks.Length || !OperatingSystem.IsWindows())
+            if (ReplaceInProgress(directory, stagingPattern))
+            {
+                quiet = 0;
+                if (Stopwatch.GetElapsedTime(started) >= AbsenceDeadline)
+                {
+                    // A staging file that never turns into a replace is an orphan of a crashed writer.
+                    return null;
+                }
+            }
+            else if (++quiet >= QuietLooksNeeded)
             {
                 return null;
             }
 
-            await SystemTimeProvider.Instance.SleepAsync(AbsenceRelooks[look], cancellationToken);
+            await SystemTimeProvider.Instance.SleepAsync(AbsenceLook, cancellationToken);
         }
     }
 
@@ -120,7 +163,9 @@ public static partial class SharedFile
         CancellationToken cancellationToken = default)
     {
         var seen = new Dictionary<string, FileInfo>(StringComparer.OrdinalIgnoreCase);
-        for (var look = 0; ; look++)
+        var started = Stopwatch.GetTimestamp();
+        var quiet = 0;
+        while (true)
         {
             if (folder.Exists)
             {
@@ -130,12 +175,25 @@ public static partial class SharedFile
                 }
             }
 
-            if (expected is null || look == AbsenceRelooks.Length || !OperatingSystem.IsWindows() || AllSeen())
+            if (expected is null || AllSeen())
             {
                 return [.. seen.Values];
             }
 
-            await SystemTimeProvider.Instance.SleepAsync(AbsenceRelooks[look], cancellationToken);
+            if (ReplaceInProgress(folder.FullName, "*.tmp"))
+            {
+                quiet = 0;
+                if (Stopwatch.GetElapsedTime(started) >= AbsenceDeadline)
+                {
+                    return [.. seen.Values];
+                }
+            }
+            else if (++quiet >= QuietLooksNeeded)
+            {
+                return [.. seen.Values];
+            }
+
+            await SystemTimeProvider.Instance.SleepAsync(AbsenceLook, cancellationToken);
         }
 
         bool AllSeen()

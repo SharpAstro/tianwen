@@ -175,6 +175,82 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
+    /// The name is absent while a staging file sits beside it, which is a replace under way: the reader keeps
+    /// looking for as long as that lasts instead of counting a fixed number of looks. Here the replace takes
+    /// 300 ms to finish, longer than the old fixed looks (about 130 ms) lasted, and the file must still be read.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AReaderDoesNotBelieveANameGoneWhileAReplaceIsInProgress()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(_folders.Create("shared-appdata-").FullName, "record.json");
+        var staging = $"{path}.{Guid.NewGuid():N}.tmp";
+        await File.WriteAllTextAsync(staging, "new", ct);
+
+        var replacing = Task.Run(async () =>
+        {
+            await Task.Delay(300, ct);
+            File.Move(staging, path);
+        }, ct);
+
+        await using var stream = await SharedFile.TryOpenReadAsync(path, ct) ?? throw new Xunit.Sdk.XunitException("the reader called the name gone during a replace");
+        await replacing;
+        using var reader = new StreamReader(stream);
+        (await reader.ReadToEndAsync(ct)).ShouldBe("new");
+    }
+
+    /// <summary>The same for a listing that expects a file: a replace under way is waited out.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AListingDoesNotBelieveAnExpectedFileGoneWhileAReplaceIsInProgress()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("shared-appdata-");
+        var path = Path.Combine(folder.FullName, "one.json");
+        var staging = $"{path}.{Guid.NewGuid():N}.tmp";
+        await File.WriteAllTextAsync(staging, "new", ct);
+
+        var replacing = Task.Run(async () =>
+        {
+            await Task.Delay(300, ct);
+            File.Move(staging, path);
+        }, ct);
+
+        var listed = await SharedFile.ListAsync(folder, ".json", [path], ct);
+        await replacing;
+        listed.Select(f => f.FullName).ShouldBe([path]);
+    }
+
+    /// <summary>A file deleted for good has no replace beside it, so it is reported absent, without the deadline.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AFileDeletedForGoodIsReportedAbsentAtOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("shared-appdata-");
+        var path = Path.Combine(folder.FullName, "record.json");
+        await SharedFile.WriteAsync(path, (stream, token) => stream.WriteAsync("old"u8.ToArray(), token).AsTask(), ct);
+        File.Delete(path);
+
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        (await SharedFile.TryOpenReadAsync(path, ct)).ShouldBeNull();
+        (await SharedFile.ListAsync(folder, ".json", [path], ct)).ShouldBeEmpty();
+        System.Diagnostics.Stopwatch.GetElapsedTime(started).ShouldBeLessThan(TimeSpan.FromMilliseconds(500), "no staging file, so no deadline to wait out");
+    }
+
+    /// <summary>
+    /// A staging file nobody will ever rename (a crashed writer's) does not keep a name alive for ever: the
+    /// deadline ends the wait and the name is reported absent.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AnOrphanedStagingFileEndsAtTheDeadline()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var path = Path.Combine(_folders.Create("shared-appdata-").FullName, "record.json");
+        await File.WriteAllTextAsync($"{path}.{Guid.NewGuid():N}.tmp", "orphan", ct);
+
+        (await SharedFile.TryOpenReadAsync(path, ct)).ShouldBeNull();
+    }
+
+    /// <summary>
     /// A file every writer ADDS to, as the comet apparition cache is: each writer reads what is there, adds
     /// its own and writes the whole back, so without the file's lock across all three a write lands between
     /// another writer's read and write and one of them loses what it added.
