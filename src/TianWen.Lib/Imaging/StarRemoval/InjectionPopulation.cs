@@ -1116,8 +1116,23 @@ public sealed class InjectionPopulation
             {
                 table[k] = (float)((light[k] - (amplitude * drawnRing[k])) / amplitude * (k == 1 ? 0.5 : 1.0));
             }
+            // The table is read back linearly between rings, so on a steep flank a ring's pixels (2.5 to 3.5 px) average to
+            // more than its value at the ring: two corrections by what the drawn profile with the table actually shows.
+            var halo = new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured bright star");
+            for (var pass = 0; pass < 2; pass++)
+            {
+                if (!ReadRings(planes[c], platePlanes?[c], absent, width, height, cx, cy, scale, drawn[c] with { Outer = halo }, light, drawnRing, out _))
+                {
+                    return null;
+                }
+                for (var k = 1; k < rings; k++)
+                {
+                    table[k] += (float)((light[k] - (amplitude * drawnRing[k])) / amplitude * (k == 1 ? 0.5 : 1.0));
+                }
+                halo = new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured bright star");
+            }
             amplitudes.Add(amplitude);
-            halos.Add(new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured bright star"));
+            halos.Add(halo);
         }
         return (amplitudes.MoveToImmutable(), halos.MoveToImmutable());
     }
