@@ -5866,6 +5866,88 @@ the first angle is a step after the model and not another arm:
     one session with a measured star near its canvas ring; every census figure above is unchanged to two decimals
     (`val-ctl3`, `val-halo3`).
 
+- **SXT on the whole-master rows, scored with the same scorer (2026-11-16; the owner asked for targets, not the
+  guards).** SXT's Tarantula plate was made that day with `tianwen image remove-stars` (RC-Astro's CLI); its Andromeda
+  and Sagittarius plates are the files the earlier reads used (`f2-whole-master/w-sxt/row.txt`):
+
+| whole-master row | SXT | R3v seed 0 / seed 1 as trained | + floor3, seed 0 / seed 1 |
+|---|---|---|---|
+| Andromeda dark flat | 98.6 | 69.5 / 67.7 | 97.6 / 97.5 |
+| Andromeda dark dug | 1.4 | 22.4 / 24.3 | 1.0 / 1.2 |
+| Andromeda blue, 1.5-3 / 3-4.5 px, sigma | -0.40 / -0.27 | -0.79, -0.69 / -0.75, -0.76 | -0.08, -0.22 / -0.12, -0.24 |
+| Tarantula dark flat / left | 96.6 / 2.7 | 71.9, 16.0 / 80.1, 13.8 | 93.9, 4.9 / 93.5, 5.3 |
+| Tarantula crowded | 96.1 | 83.8 / 83.5 | 88.7 / 88.8 |
+| Tarantula BP 17-19 removed | 98.3 | 92.4 / 93.8 | 92.9 / 94.3 |
+| purity (light taken where no star is; lower is better) | 3.1 | 0.6 / 0.5 | 0.5 / 0.5 |
+| Sagittarius crowded | 99.6 | 93.7 / 93.7 | 95.5 / 95.4 |
+| M31 nucleus, R / G / B % | 0.1 / 0.1 / 0.1 | -1.0, 5.1, 1.2 / 0.0, -0.3, 1.9 | -1.0, 6.0, 1.6 / 0.1, -0.3, 2.2 |
+| glow, green, Andromeda (median / p90 / over) | 242.8 / 574.8 / 59 % | 591.4, 1721.6, 89 % / 557.8, 1496.5, 87 % | 599.4, 1549.7, 89 % / 596.7, 1424.0, 90 % |
+| glow, green, Tarantula | -30.8 / 203.4 / 8 % | 965.5, 1967.0, 92 % / 482.4, 1328.2, 85 % | 1121.1, 1726.2, 92 % / 833.5, 1436.5, 85 % |
+
+  With the step the pair is level with SXT on the dark-sky stars (97.5 flat and 1.2 dug against 98.6 and 1.4). What is
+  left, in size order: the crowded fields (Tarantula 88.8 against 96.1, Sagittarius 95.4 against 99.6, BP 17-19 94
+  against 98; R3v trained with no cluster scenes, its extra cache empty), then the glow (2.5 times SXT's on Andromeda,
+  and SXT leaves none on the Tarantula). Ours take a sixth of the light SXT takes where no star is.
+- **The twin error under removed stars, by scale (2026-11-16, `C:/temp/e2/explore/twin_bands.py`, the mask and the
+  quarter sample of `twin_err.py`, the error split by differences of Gaussians of sigma 1, 2, 4 and 8 px, rms / mean in
+  the draw's noise sigma):**
+
+| scale | R3v seed 0 | + floor3 | R3v seed 1 | + floor3 |
+|---|---|---|---|---|
+| under 1 px | 0.635 / -0.006 (29 %) | 0.571 / +0.001 (61 %) | 0.560 / -0.006 (36 %) | 0.536 / +0.000 (51 %) |
+| 1-2 px | 0.429 / -0.020 (13 %) | 0.292 / -0.006 (16 %) | 0.334 / -0.017 (13 %) | 0.280 / -0.007 (14 %) |
+| 2-4 px | 0.456 / -0.056 | 0.223 / -0.010 | 0.329 / -0.037 | 0.218 / -0.009 |
+| 4-8 px | 0.391 / -0.085 | 0.154 / -0.009 | 0.269 / -0.046 | 0.155 / -0.006 |
+| over 8 px | 0.680 / -0.291 | 0.221 / -0.061 | 0.511 / -0.179 | 0.362 / -0.062 |
+
+  The share in brackets is a band's part of the SUM of the five band
+  squares, not of the masked squared error. Per seed the five bands read 29 / 13 / 15 / 11 / 33 % (seed 0) and
+  36 / 13 / 13 / 8 / 30 % (seed 1) from under 1 px to over 8 px, so the band past 8 px is the largest on seed 0 (by 4
+  points) and the second on seed 1, where under 1 px is; on both it holds most of the bias (about 63 %), and it is the
+  band the recipe's detail term (2-4 and 4-8 px) does not weigh. The bands are not orthogonal
+  (their squares sum to well under the total), so the shares are a guide, not a budget; and this shows where the
+  error is, not that the loss put it there. R3w is the test of that.
+- **R3w, pre-registered 2026-11-16 before any score (an exploration under the owner's standing goal; the owner: a
+  model that does not dig is better than a step after it). One change from R3v: the detail term's scales.** R3v's
+  recipe and data exactly (synth22, `--levels 4 --max-ch 256 --clip-grad 8`, L2, the stored noise plane), with
+  `--band-scales "2,4 4,8 8,16 16,32" --band-loss 6` in place of `"2,4 4,8"` and 3 (each of the two fine bands keeps
+  its weight of 1.5, and the two coarse bands get the same; the 16-32 px band's wider blur has a radius of 96 px on a
+  224 px interior, reflect-padded, so it reads mostly as a level over the window and less as 16 to 32 px structure, the
+  same on the output and the target, and is to be read that way), CONTINUED from R3v's finished weights
+  (`--init-from r3v_synth22_s0.pt`, new in `n2n_smoke.py`: the model begins there, the optimiser, schedule and plateau
+  are fresh) at `--lr 5e-5 --max-decays 2 --patience 24`, capped at 60,000 steps, seed 0. From the frozen copy
+  `C:/temp/e2/r3w-run` (R3v's trainer copy plus `--init-from`); a 400-step smoke of the same line ran before this was
+  written (its weights deleted, nothing scored). It is a continuation, not a fresh run, so a pass says the term can
+  move a trained model, and a fresh run with the term is the arm after it.
+  - **The question, read on the model AS TRAINED, no step:** does the dig go.
+    The twin's mean in the mask (`twin_err.py r3w_synth22_s0`) is within 0.15 sigma of zero (R3v seed 0 -0.51; with
+    floor3 -0.08) and its rms in the mask at most 1.30 (1.92; 0.99). By count clean (`real_star_check3.py`) at least
+    97.5 at 100-1000 sigma and 95 at 1000 and over (R3v seed 0 94.9 and 87.2; with floor3 99.4 and 100.0; SXT 98.3 and
+    98.4). Andromeda dark dug at most 8 and dark flat at least 90 (22.4 and 69.5; 1.0 and 97.6; SXT 1.4 and 98.6).
+  - **Guards, against R3v seed 0:** HIP 80609 at 20-100 and 100-1000 sigma at least 96.8 and 94.4 and Lobster at least
+    96.8 and 96.6 (R3v's own bars, which seed 0 held at 99.7 / 97.1 and 99.8 / 99.3; a term that weighs 8 to 32 px
+    structure could move them, so they are not dropped); M42 100-1000 clean at least 50; SMC 20-100 at least 89.4 and 100-1000 at least
+    87.7; truth tiles at least 72 and 54; Tarantula dark flat at least 69; the M31 nucleus under 10 % in every channel
+    (R3v at most 6); and the failure the one-sided term had (R3b: the dig traded for light left): left by count at
+    most 2.0 at 100-1000 sigma (R3v seed 0 0.3) and at most 12 saturated (6.3; SXT 8.5).
+  - **No control arm, deliberately:** R3v continued under the same flags with its own `"2,4 4,8"` term at 3 is not
+    registered. The bars sit far outside R3v's seed spread (dug 22.4 and 24.3 against a bar of 11.2), so extra steps at
+    a low rate on a fresh optimiser cannot account for a pass; if R3w passes the question, that control is run before
+    the term is credited to the next fresh arm.
+  - **Kill:** a guard fails, or Andromeda dark dug is not at least halved (over 11.2).
+  - **Between the two (added 2026-11-16, before any score, on the review of PR #2182):** a result that is not killed
+    but misses a bar of the question (for example the dig halved and every guard held, with 1000 and over by count
+    under 95, or dark dug above 8 and at most 11.2) does not pass and is not killed: no seed 1, the rows are
+    reported, and the owner decides. The bars stay as registered.
+  - **Reported, no bar:** the twin error by scale as above, the glow rows, the crowded rows, M32 kept, HIP 80609 at
+    1000 and over, M42's blue at 2 and 3 px, and every figure with floor3 applied on top.
+  - **Prediction:** the dig falls by more than half and the twin's mean comes inside 0.15; by count 100-1000 clears
+    97.5 and 1000 and over does not reach 95 on a continuation this short; left rises a little and stays inside its
+    guards; M42's blue is not fixed.
+  - **If it passes its question:** the same from R3v's seed 1, then the term goes into the next fresh arm. If it is
+    killed, the coarse bands are not the lever at this weight, and the step stays the route. Nothing is adopted either
+    way; adoption is the owner's.
+
 Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
 `f2-eval-master/<model>+floor`, `+fill`, `+floor2`, `+floor3` and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`, `+floor3`;

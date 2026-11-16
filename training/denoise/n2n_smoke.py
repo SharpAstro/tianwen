@@ -310,6 +310,26 @@ def flux_term(pred, x, y, labels, count, border):
     return torch.nn.functional.huber_loss(r, torch.zeros_like(r), delta=FLUX_HUBER) * 2.0, int(ok.sum())
 
 
+def init_weights(model, saved, args):
+    """Loads a finished run's weights (its --out file) into `model` for --init-from, refusing a file of another shape: the
+    base width and the upsample switch are in the file, and the state must fit the model key for key."""
+    if "model" not in saved:
+        raise SystemExit(f"--init-from: {args.init_from} holds no model state")
+    for key in ("base", "upsample"):
+        if key in saved and saved[key] != getattr(args, key):
+            raise SystemExit(f"--init-from: {args.init_from} was trained with {key} {saved[key]}, this run asks {getattr(args, key)}")
+    try:
+        model.load_state_dict(saved["model"])
+    except RuntimeError as e:
+        raise SystemExit(f"--init-from: {args.init_from} does not fit this model: {e}")
+
+
+def should_init_from(args, resume_path):
+    """Whether --init-from loads its file: when it is given, unless --resume has this run's own checkpoint to continue,
+    which wins (a resumed run must not restart from the init file's weights)."""
+    return bool(args.init_from) and not (args.resume and os.path.exists(resume_path))
+
+
 def resume_fingerprint(args, meta):
     """What makes two invocations the SAME run, for --resume to refuse anything else: the recipe's switches, the seed, and
     the cache's shape. The step cap is left out under --schedule plateau, where it only bounds the run (a resumed run may
@@ -323,6 +343,10 @@ def resume_fingerprint(args, meta):
         fp.update(dihedral=args.dihedral, ema=args.ema)
     if getattr(args, "levels", 2) != 2 or getattr(args, "max_ch", 0):
         fp.update(levels=args.levels, max_ch=args.max_ch)
+    # Only when set, so a checkpoint written before --init-from still resumes: the weights a run began from are part of
+    # what it is (their file's name, not its path, so a run moved with its weights still resumes).
+    if getattr(args, "init_from", None):
+        fp.update(init_from=os.path.basename(args.init_from))
     if getattr(args, "bright_weight", 0.0):
         fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
     if getattr(args, "speckle_weight", 0.0):
@@ -2038,6 +2062,11 @@ def train(args):
               f"(none before 50 steps)", flush=True)
     fingerprint = resume_fingerprint(args, meta)
     start = 1
+    # --init-from: the model begins at another run's saved weights (a continuation with a changed objective), with a
+    # fresh optimiser, schedule and plateau history. A resume checkpoint of THIS run, when one exists, wins below.
+    if should_init_from(args, resume_path):
+        init_weights(model, torch.load(args.init_from, map_location=dev, weights_only=False), args)
+        print(f"init from {args.init_from}: the model begins at those weights; optimiser, schedule and plateau are fresh", flush=True)
     if args.resume and os.path.exists(resume_path):
         ck = torch.load(resume_path, map_location=dev, weights_only=False)
         if ck["fingerprint"] != fingerprint:
@@ -2998,6 +3027,11 @@ if __name__ == "__main__":
     p.add_argument("--resume", action="store_true",
                    help="continue from <out>.resume.pt when it exists (else start fresh): the same run, refused if the "
                         "recipe or the cache differs (resume_fingerprint)")
+    p.add_argument("--init-from", default=None,
+                   help="begin at another run's saved weights (its --out file) instead of a random net, with a fresh "
+                        "optimiser, schedule and plateau history: a continuation under a changed objective. The file must "
+                        "fit this run's model (base, levels, channel cap, upsample). Off by default; when set it is part of "
+                        "the resume fingerprint, and this run's own resume checkpoint wins over it")
     p.add_argument("--snapshot-at", type=int, default=0,
                    help="also save the weights as they stand at this step, as <out>_at<step>.pt: what a run "
                         "capped there saves, from a longer run; 0 (default) saves none")
