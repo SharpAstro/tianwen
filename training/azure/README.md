@@ -10,6 +10,7 @@ it, and the weights come home and the VM is deleted without a session watching. 
 | `common.ps1` | dot-sourced by the others: the settings file, the runs folder, the SAS helpers |
 | `launch-arm.ps1` | one arm in one command: quota check, SAS, `run.env` and `run.tgz`, the VM, the copies, the start, the driver task, then the trainer's own command line |
 | `az-driver.ps1` | the driver task `tw-<tag>`: freshness, eviction and resume while training; fetch, load check and DELETE of everything the run made once it is done; then an optional `-AfterScript` (a scorer) |
+| `launch-batch.ps1`, `batch/task.sh`, `fetch-batch.ps1` | the same arm as an Azure Batch job that removes itself: no VM of ours, no task on this desktop ("A run that removes itself") |
 | `upload-cache.ps1` | a cache folder up to the container, resumable, `-CapMbps` to leave room on the uplink |
 | `blockupload.py` | one large file as numbered blocks that a restart continues (Get Block List, then only the missing blocks) |
 | `vm/setup.sh`, `vm/train.sh`, `vm/resume.sh`, `vm/from-blob.sh` | on the VM: the downloads, the trainer under nohup with a 10-minute cron sync, the resume after an eviction, and a continue on a new VM from the synced checkpoint |
@@ -19,7 +20,7 @@ it, and the weights come home and the VM is deleted without a session watching. 
 This repository is public, so no script names the subscription, the resource group or the storage account. They come
 from a user-only JSON file outside the repository, `$HOME/.azure-upload/tw-training.json` (or the file
 `TIANWEN_AZURE_CONFIG` names): `subscription`, `resourceGroup`, `location`, `storageSubscription`,
-`storageResourceGroup`, `account`, `container`, `sasFile`, `sshKey`, `vmSize`, `maxPrice`, `image`, `tags`. A run's status,
+`storageResourceGroup`, `account`, `container`, `sasFile`, `sshKey`, `vmSize`, `maxPrice`, `image`, `tags`. `batchAccount` is asked for by `launch-batch.ps1` only. A run's status,
 log, stop and done files go to the runs folder, `TIANWEN_RUNS` (`C:/temp/e2` by default, where every run so far is
 recorded).
 
@@ -55,6 +56,33 @@ place of `-TeacherBlob`) has `setup.sh` fetch the members into the cache and `tr
 views before training. A teacher is 7.6 GB, an hour and a half up a home link against about half an hour on the T4; it
 sits on the OS disk, so an eviction keeps it, and the build skips the blocks it has written. The launcher then shows the
 teacher starting rather than the trainer, so read the trainer's own command line once the teacher is done.
+
+## A run that removes itself
+
+The owner's rule (2026-11-16): whatever is started removes itself when it is done, with no machine of ours connected
+(the VM runs above are deleted by a scheduled task on the desktop, which has to be on and logged in). A VM cannot do
+that from inside without a role assignment, which a Contributor cannot make. Azure Batch can, as the service:
+
+```
+pwsh -File training/azure/launch-batch.ps1 -Tag r3xaz -Name r3x_synth16_s0 -Seed 0 -Run C:/temp/e2/r3h-run `
+    -CacheBlob r2-synth16/cache -TrainFlags '--levels 4 --max-ch 256 --clip-grad 8'
+pwsh -File training/azure/fetch-batch.ps1 -Tag r3xaz -Name r3x_synth16_s0 -FetchTo D:/temp/tianwen-scratch/r2-synth16
+```
+
+- **The pool exists for the job alone** (`autoPoolSpecification`, `poolLifetimeOption: job`, `keepAlive: false`): one
+  low-priority T4 node. The job is set to end when its one task does (`onAllTasksComplete: terminatejob`, set after the
+  task is added, since a job made with it and no task ends at once), and Batch then deletes the pool: on success, on a
+  failed task, and at the job's wall-clock cap (`-MaxHours`, 36 by default).
+- **A preempted node is Batch's to replace**: it starts the task again on a new node, and `batch/task.sh` resumes from
+  the checkpoint it synced to the container (the log, the resume checkpoint and a heartbeat go up every 10 minutes; the
+  weights at the end, listed back at their size before the task exits 0).
+- **What stays, and costs cents or nothing:** the Batch account (`batchAccount` in the settings file), the storage
+  account and the job's record. The settings name the Batch account; a low-priority node has no price cap, it bills at
+  Batch's low-priority rate.
+- **`fetch-batch.ps1` changes nothing in Azure**: it reports the job, the task and any pool still up, and brings the log
+  and, once there, the weights home with a load check.
+- The task carries the container SAS as a setting. The launcher mints one that outlives the cap, writes the task file
+  beside the SAS (user-only) and removes it once sent.
 
 ## Traps that each cost a run or an evening
 
