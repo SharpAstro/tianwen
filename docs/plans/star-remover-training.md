@@ -5851,20 +5851,24 @@ the first angle is a step after the model and not another arm:
     at 10 px on 1 and 2 px cores, where its control already reads 1.6 to 1.85 at 6 px; a rig's real column is all its masters and its drawn
     column one validation session, so a factor of about 1.2 is inside the session mix, and the ramp was moved once
     (from 6 to 10 px, which read 1.77 and 1.25 at 10 px on that rig) and is not tuned further on this set. Stars of a
-    6 px core and over are drawn 2 to 3.5 times real at 15 to 25 px in the control already (46 drawn stars; 13 and 14
-    real on the two rigs that have them), a fault of the measured saturated stars the option does not touch and that
-    is NOT yet looked at.
+    6 px core and over read 2 to 3.5 times real at 15 to 25 px in the control already (46 drawn stars; 13 and 14
+    real on the two rigs that have them). Looked at star by star (2026-11-16, the census's own records), that is mostly
+    a comparison of unlike stars in an open-ended group: HIP 80609's master holds 6 such stars, of 6 and 9 px cores,
+    and its 33 drawn ones are mostly copies of the brightest (9 and 10 px), while a rig's real median is its 6 and 7 px
+    cores. What is left: the brightest drawn stars come out about a pixel wider than their source (10 px against 9),
+    and M42's largest stars (cores of 18 to 36 px) are not drawn at all (the drawn ones end at 14).
   - **The classifier cannot see it:** star-crop AUC 0.728 +- 0.016 for the control and 0.728 +- 0.013 with the option
     (seeds 0 to 4, the bar's tiles), as a 24 px crop round a 20 to 500 sigma star must; it says the option does not
     change ordinary stars, nothing about the halo. Both read under synth11's 0.760 and synth4's 0.782.
   - Not done: a training export with the option, which needs an arm registered first (with the M32 row and the halo
-    rows as its question). Files (DE1): `C:/temp/e2/explore/stars/` (`val-ctl`, `val-halo2`, `profiles-val-*.json`,
-    `reads/cls-*.json`; `val-halo` is the first ramp), binaries `C:/temp/tianwen-scratch/halo-bin1` and `halo-bin2`.
+    rows as its question). Files (DE1): `C:/temp/e2/explore/stars/` (`profiles-val-*.json`, `reads/cls-*.json`); the exports (`val-ctl`,
+    `val-halo2`; `val-halo` is the first ramp) and the binaries `halo-bin1` and `halo-bin2` were moved to
+    `D:/temp/tianwen-scratch/halo-validation/` the same day, C: being at 8 GB free.
     Both exports were made again from a binary at the review's fixes (`halo-bin3`: no stamp holding an absent pixel is
     read, one shared ring median): the control's 3,200 tile files are byte for byte the first control's, so the shared
     median moves no measured star; with the option 2,880 are identical and the 320 that differ are M42's (ASI294MC), the
     one session with a measured star near its canvas ring; every census figure above is unchanged to two decimals
-    (`val-ctl3`, `val-halo3`).
+    (`val-ctl3`, `val-halo3`, in the same folder on D:; `halo-bin3` is under `C:/temp/tianwen-scratch`).
 
 - **SXT on the whole-master rows, scored with the same scorer (2026-11-16; the owner asked for targets, not the
   guards).** SXT's Tarantula plate was made that day with `tianwen image remove-stars` (RC-Astro's CLI); its Andromeda
@@ -5947,6 +5951,35 @@ the first angle is a step after the model and not another arm:
   - **If it passes its question:** the same from R3v's seed 1, then the term goes into the next fresh arm. If it is
     killed, the coarse bands are not the lever at this weight, and the step stays the route. Nothing is adopted either
     way; adoption is the owner's.
+
+- **R3x, pre-registered 2026-11-16 before any score (the owner: "kick off what you can with the data already
+  uploaded"). One change from R3v: the data.** R3j's export (synth16, the drawn wings at their highest dose, the
+  candidate named above) on R3v's model and recipe exactly (`--levels 4 --max-ch 256 --clip-grad 8`, the detail term at
+  `"2,4 4,8"` and 3, a fresh run, seed 0), from R3v's frozen trainer copy (`C:/temp/e2/r3h-run`). It trains on an Azure
+  low-priority T4 as a Batch job that removes itself (`training/azure/launch-batch.ps1`, tag `r3xaz`; the cache is in
+  the same region), so a seed's arithmetic is the T4's, as R2i's seed 1 was. It is the arm the uploaded data allows; it
+  does not carry the halo over the plate, the cluster scenes or R3w's coarser bands, which wait for an export.
+  - **Judged WITH floor3 from the start** (the step is applied as registered, `dig_floor.py ... --tag floor3`, and the
+    as-trained rows are reported beside it): R3j's small model as trained dug 45.0 % of Andromeda's dark-sky stars, and
+    a model that draws wide wings is expected to dig.
+  - **The question, the glow (green median, lower is better, with floor3):** Andromeda at most 450 and Tarantula at
+    most 500. R3v with floor3 reads 599.4 and 1121.1 on seed 0 and 596.7 and 833.5 on seed 1; R3j's small model with
+    floor3 416 and 395; SXT 242.8 and -30.8.
+  - **Guards, with floor3, against R3v with floor3:** by count clean at least 98.5 at 100-1000 sigma and 98 at 1000
+    and over (R3v 99.4 and 100.0, 99.2 and 100.0); M42 100-1000 clean at least 88 (94.9, 93.4); SMC 20-100 and
+    100-1000 clean at least 97 (98.9 and 100.0 on both seeds); Andromeda dark flat at least 95 and dug at most 3
+    (97.6 and 1.0, 97.5 and 1.2); Tarantula dark flat at least 91 (93.9, 93.5); the M31 nucleus under 10 % in every
+    channel (R3j's small model 4.5 at most; R3i paid 11.7 in blue for its wings); the twin's rms in the mask at most
+    1.15 (0.989, 0.978).
+  - **Kill:** a guard fails, or the glow misses its bar on BOTH masters. One master cleared and one missed is
+    neither: no seed 1, the rows are reported, the owner decides.
+  - **Reported, no bar:** every row as trained; M32 kept (every arm so far removes it, so a bar would only restate
+    that); the crowded rows; Tarantula's glow p90 and share over; saturated dug and left by count; M42's blue at 2 and
+    3 px; the twin error by scale.
+  - **Prediction:** Tarantula's glow clears 500 and Andromeda's lands near its bar, either side; the star rows hold
+    with floor3; as trained it digs more than R3v; the nucleus stays under 10 %; M32 is removed.
+  - **If the question is cleared and no guard fails:** seed 1, and the halo's answer is then wider drawn wings on
+    this model, to be weighed against the halo over the plate. Nothing is adopted; adoption is the owner's.
 
 Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
