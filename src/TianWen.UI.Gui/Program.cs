@@ -300,7 +300,15 @@ long fullFrames = 0;
 long partialFrames = 0;
 // TIANWEN_FRAME_LOG=1 writes those counts, the tab on show and each cause's count to the log every five seconds: the
 // evidence for a measurement on a machine no inspector reaches (a software renderer in WSL, a Raspberry Pi).
-var frameLog = Environment.GetEnvironmentVariable("TIANWEN_FRAME_LOG") == "1";
+// TIANWEN_FRAME_LOG=2 adds a line for EVERY frame: when it began, how long the paint took and how long the whole frame
+// did, to the hand-back after present. A stall or a stutter is a gap or a long frame in that list, which no count per
+// five seconds can show; a gesture's upper limit is the frames per second it reads.
+var frameLogLevel = Environment.GetEnvironmentVariable("TIANWEN_FRAME_LOG");
+var frameLog = frameLogLevel is "1" or "2";
+var frameTrace = frameLogLevel == "2";
+long _frameTraceOrigin = System.Diagnostics.Stopwatch.GetTimestamp();
+long _frameBegan = 0;
+double _frameRenderMs = 0;
 var _lastFrameLogTimestamp = timeProvider.GetTimestamp();
 long _lastLoggedFull = 0;
 long _lastLoggedPartial = 0;
@@ -552,6 +560,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // part in their life, and they are cleared after a full frame only (OnPostFrame), as they always were.
     OnBeforeFrame = () =>
     {
+        _frameBegan = System.Diagnostics.Stopwatch.GetTimestamp();
         var flagged = appState.NeedsRedraw || plannerState.NeedsRedraw || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw;
         if (frameLog)
@@ -592,6 +601,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // Last, over everything: the one tooltip the router has due, whichever region declared it (#1446).
         guiRenderer.RenderTooltip(handlers.Tooltip);
         var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
+        _frameRenderMs = renderElapsed.TotalMilliseconds;
 
         // Everything that can only be decided once the frame exists: a field that stopped being drawn
         // loses the keyboard (scroll one out of a culled list, or switch tabs away from it, and typing
@@ -649,6 +659,14 @@ loop.OnLoopIteration = () =>
 // Set separately to allow loop.Stop() self-reference
 loop.OnPostFrame = () =>
 {
+    if (frameTrace)
+    {
+        logger.LogInformation("Frame {Kind} on {ActiveTab} at {AtMs:F0} ms: paint {PaintMs:F1} ms, whole {WholeMs:F1} ms",
+            renderer.LastFrameWasPartial ? "partial" : "full", appState.ActiveTab,
+            System.Diagnostics.Stopwatch.GetElapsedTime(_frameTraceOrigin, _frameBegan).TotalMilliseconds,
+            _frameRenderMs, System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan).TotalMilliseconds);
+    }
+
     // Any signal processed this post-frame may have mutated state that the just-rendered
     // frame doesn't reflect: preserve NeedsRedraw so the loop renders again on the next
     // iteration. The previous "redrawBefore == false" gate was buggy: when the click that
