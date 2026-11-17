@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.AI.Imaging.GraXpert;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
@@ -30,7 +31,7 @@ namespace TianWen.AI.Imaging
     /// </remarks>
     public sealed class FallbackGradientCorrector(
         IModelResolver modelResolver,
-        OnnxBackgroundExtractor graXpert,
+        GraXpertBackgroundExtractor graXpert,
         ClassicalBackgroundExtractor classical,
         ILogger<FallbackGradientCorrector>? logger = null)
         : IGradientCorrector
@@ -40,7 +41,7 @@ namespace TianWen.AI.Imaging
         /// <summary>The corrector the next call would run.</summary>
         internal IGradientCorrector Pick()
         {
-            if (modelResolver.TryResolve(OnnxBackgroundExtractor.ModelName, out _))
+            if (modelResolver.TryResolve(GraXpertBackgroundExtractor.ModelName, out _))
             {
                 return graXpert;
             }
@@ -48,7 +49,7 @@ namespace TianWen.AI.Imaging
             {
                 logger?.LogInformation(
                     "Gradient correction: {Model} is not installed (GraXpert's weights are read from its own install once it has run); using the classical robust fit instead.",
-                    OnnxBackgroundExtractor.ModelName);
+                    GraXpertBackgroundExtractor.ModelName);
             }
             return classical;
         }

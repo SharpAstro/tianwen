@@ -7,7 +7,7 @@ G4 (the first training) next.**
 Design captured 2026-08-11, sharpened 2026-09-02 after the Siril and SAS Pro reference review. Tracked by #473. This is the P5 row of
 [ai-denoise-deconv.md](ai-denoise-deconv.md) (design in its section 2.6) at run-level detail. Its
 classical prerequisite is [background-extraction.md](background-extraction.md) Phases 1 and 2, and
-it competes for the same `IGradientCorrector` slot that `OnnxBackgroundExtractor` (GraXpert BGE)
+it competes for the same `IGradientCorrector` slot that `GraXpertBackgroundExtractor` (GraXpert BGE)
 fills today. Shared discipline: [model-training-roadmap.md](model-training-roadmap.md).
 
 ## 0. Why this one is different from the other three imaging models
@@ -35,7 +35,7 @@ fills today. Shared discipline: [model-training-roadmap.md](model-training-roadm
 | Piece | State | Where |
 |---|---|---|
 | The role | shipped | `IGradientCorrector : IImageEnhancer` (`src/TianWen.Lib/Imaging/Enhancement/`), `EnhanceAndEstimateBackgroundAsync` returning the surface; `GradientCorrectionStep` must run first in `SharpenPipeline` (enforced) |
-| Today's implementation | shipped | `OnnxBackgroundExtractor` (`src/TianWen.AI.Imaging/Onnx/`): GraXpert BGE, downsample to 240, pad to 256, per-channel median+MAD normalise, single NHWC pass, denormalise, smooth, upsample; output `source - background + mean(background)`. Read from the user's GraXpert install (`%LOCALAPPDATA%\GraXpert\GraXpert\bge-ai-models\1.0.1\model.onnx`, 217.7 MB); GPL-3.0 code, CC-BY-NC-SA-4.0 weights, never redistributed and never a training target |
+| Today's implementation | shipped | `GraXpertBackgroundExtractor` (`src/TianWen.AI.Imaging/GraXpert/`): GraXpert BGE, downsample to 240, pad to 256, per-channel median+MAD normalise, single NHWC pass, denormalise, smooth, upsample; output `source - background + mean(background)`. Read from the user's GraXpert install (`%LOCALAPPDATA%\GraXpert\GraXpert\bge-ai-models\1.0.1\model.onnx`, 217.7 MB); GPL-3.0 code, CC-BY-NC-SA-4.0 weights, never redistributed and never a training target |
 | CLI surface | shipped | `tianwen image flatten` with `--save-gradient` (`src/TianWen.Cli/ImageSubCommand.cs`) |
 | Classical flattener | **SHIPPED 2026-09-02** (`ClassicalBackgroundExtractor`, also the `IGradientCorrector` that `AddTianWenAi()` falls back to when GraXpert is absent; that plan's "Implementation" section has the measurements) | [background-extraction.md](background-extraction.md); after the 2026-09-02 review the recommended Phase 2 is the sample-free robust-rejection + structure-mask + masked-low-pass-inpainting surface (AutoGradientRemoval.py), degree 2 polynomial, correction in LINEAR, level preserved |
 | Ephemerides | shipped | `MeeusMoon` (`Astrometry/Lunar/`, internal), `VSOP87a` (`Astrometry/VSOP87/`), `CatalogPlateSolver`, `FitsHeaderEditor` writing `AIRMASS` / `CENTALT` / `CENTAZ` |
@@ -219,7 +219,7 @@ strongest gradients sit.
 **Sample = one whole calibrated frame downsampled to model resolution, LINEAR.** GraXpert's recipe
 (downsample to 240, pad to 256) is the reference shape; ours: area-average the linear frame to 256
 on the long side, per-channel, keep the median and MAD as normalisation constants beside the sample
-(the same constants `OnnxBackgroundExtractor` derives at inference so the two paths agree), store
+(the same constants `GraXpertBackgroundExtractor` derives at inference so the two paths agree), store
 fp16 CHW plus a JSONL row with session id, camera, filter, `DATE-OBS`, site, `CENTALT` / `CENTAZ` /
 `AIRMASS`, moon separation / altitude / illumination (computed at export, stored so a consumer never
 recomputes ephemerides), the WCS rotation, and the classical flattener's fitted coefficients for that
@@ -482,7 +482,7 @@ convention every reference and the existing extractor share).
 | G6 | Isotropic vs covariate-conditioned injection | 6 x minutes | H4 |
 | G7 | Site LP prior fitted from G2's sub fits; the real-frame gate | a day | H6 |
 | G8 | Covariate conditioning, only if H4 passed | 6 x minutes | H5 |
-| G9 | Export (fixed 256, opset 17, parity to torch), contract JSON, `OnnxTianWenGradientCorrector : IGradientCorrector`, routing beside `OnnxBackgroundExtractor` | 2 days | Ships |
+| G9 | Export (fixed 256, opset 17, parity to torch), contract JSON, `OnnxTianWenGradientCorrector : IGradientCorrector`, routing beside `GraXpertBackgroundExtractor` | 2 days | Ships |
 | G10 | De-vignetting model (#1169, section 3, "A de-vignetting model, checked against the flat"; priority next, below the star remover). Nothing exists yet: the bake writes `V_eff` (the master flat through the frames' warps) beside the coverage plane, a flat-left-out integration for the held-out sessions, then train on the smooth `V_eff` with whole trains held out, against #1165's falloff and a train's borrowed flat. The `V_eff` plane can land with the next re-bake, before G4 | `V_eff` with a re-bake; a day to train once G4 exists | Flat-less sessions flatten like flat-fielded ones |
 
 **G1b, predicted before its report existed (2026-10-01).** The same verb at the same defaults over a store
@@ -539,7 +539,7 @@ only the masters present). Report and per-master JSONL in the store's `stats/`.
 ## 7. Integration
 
 `OnnxTianWenGradientCorrector : IGradientCorrector` in `src/TianWen.AI.Imaging/Onnx/`, sharing
-`OnnxBackgroundExtractor`'s downsample / normalise / upsample / add-back skeleton (extract it to a
+`GraXpertBackgroundExtractor`'s downsample / normalise / upsample / add-back skeleton (extract it to a
 base so the two cannot drift); `EnhanceAndEstimateBackgroundAsync` returns the surface, which is what
 `tianwen image flatten --save-gradient` already asks for. Selection: the classical
 `ClassicalBackgroundExtractor` from background-extraction is the AI-free fallback and the default

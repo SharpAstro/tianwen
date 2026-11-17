@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using TianWen.AI.Imaging.GraXpert;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging.BackgroundExtraction;
@@ -29,7 +30,7 @@ public static class AiServiceCollectionExtensions
     /// <item><see cref="IDenoiseEnhancer"/> -> <see cref="N2nDenoiser"/>, the in-house OSC model; it
     /// declines mono input through <see cref="IEnhancerAvailability"/>, so the canonical program simply
     /// leaves the denoise out there.</item>
-    /// <item><see cref="IGradientCorrector"/> -> <see cref="FallbackGradientCorrector"/>: <see cref="OnnxBackgroundExtractor"/>
+    /// <item><see cref="IGradientCorrector"/> -> <see cref="FallbackGradientCorrector"/>: <see cref="GraXpertBackgroundExtractor"/>
     /// (GraXpert BGE) when its weights are installed, else the classical <see cref="ClassicalBackgroundExtractor"/>,
     /// which is also registered as <see cref="IBackgroundExtractor"/> in its own right.</item>
     /// <item><see cref="SharpenPipeline"/>, the orchestrator.</item>
@@ -54,11 +55,11 @@ public static class AiServiceCollectionExtensions
             sp.GetService<ILogger<OnnxTianWenDeconvolver>>()));
         // Gradient correction is the one role with an AI-free implementation in TianWen.Lib, so a missing
         // GraXpert install degrades to it instead of to a missing-model failure.
-        services.TryAddSingleton<OnnxBackgroundExtractor>();
+        services.TryAddSingleton<GraXpertBackgroundExtractor>();
         services.AddClassicalBackgroundExtractor();
         services.TryAddSingleton<IGradientCorrector>(sp => new FallbackGradientCorrector(
             sp.GetRequiredService<IModelResolver>(),
-            sp.GetRequiredService<OnnxBackgroundExtractor>(),
+            sp.GetRequiredService<GraXpertBackgroundExtractor>(),
             sp.GetRequiredService<ClassicalBackgroundExtractor>(),
             sp.GetService<ILogger<FallbackGradientCorrector>>()));
         // The orchestrator lives in TianWen.Lib (zero-AI dep) but consumers

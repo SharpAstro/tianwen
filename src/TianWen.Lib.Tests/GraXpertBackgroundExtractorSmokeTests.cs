@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.AI.Imaging;
+using TianWen.AI.Imaging.GraXpert;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
@@ -22,7 +23,7 @@ namespace TianWen.Lib.Tests;
 /// so CI / fresh-clone runs without the fetch don't fail.
 /// </summary>
 [Collection("Imaging")]
-public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
+public class GraXpertBackgroundExtractorSmokeTests(ITestOutputHelper output)
 {
     private static bool HasBgeModel(out string skipMessage)
     {
@@ -74,7 +75,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
         const int w = 256, h = 256;
         var src = BuildSyntheticRgbWithGradient(w, h);
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
-        using var enhancer = new OnnxBackgroundExtractor(new ModelResolver(), factory.CreateLogger<OnnxBackgroundExtractor>());
+        using var enhancer = new GraXpertBackgroundExtractor(new ModelResolver(), factory.CreateLogger<GraXpertBackgroundExtractor>());
 
         var result = await enhancer.EnhanceAsync(src, TestContext.Current.CancellationToken);
 
@@ -140,7 +141,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
         const int w = 256, h = 256;
         var src = BuildSyntheticUndebayeredWithGradient(w, h);
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
-        using var enhancer = new OnnxBackgroundExtractor(new ModelResolver(), factory.CreateLogger<OnnxBackgroundExtractor>());
+        using var enhancer = new GraXpertBackgroundExtractor(new ModelResolver(), factory.CreateLogger<GraXpertBackgroundExtractor>());
 
         var result = await enhancer.EnhanceAsync(src, TestContext.Current.CancellationToken);
 
@@ -172,7 +173,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
         const int w = 256, h = 256;
         var src = BuildSyntheticRgbWithGradient(w, h);
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
-        using var enhancer = new OnnxBackgroundExtractor(new ModelResolver(), factory.CreateLogger<OnnxBackgroundExtractor>());
+        using var enhancer = new GraXpertBackgroundExtractor(new ModelResolver(), factory.CreateLogger<GraXpertBackgroundExtractor>());
 
         var (corrected, background) = await enhancer.EnhanceAndEstimateBackgroundAsync(src, TestContext.Current.CancellationToken);
 
@@ -248,7 +249,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
         var fallback = corrector.ShouldBeOfType<FallbackGradientCorrector>();
         if (HasBgeModel(out _))
         {
-            fallback.Pick().ShouldBeOfType<OnnxBackgroundExtractor>();
+            fallback.Pick().ShouldBeOfType<GraXpertBackgroundExtractor>();
             corrector.Name.ShouldContain("GraXpert");
         }
         else
@@ -270,7 +271,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
     [Fact]
     public async Task FallbackGradientCorrector_RunsTheClassicalFitWhenTheWeightsAreAbsent()
     {
-        using var graXpert = new OnnxBackgroundExtractor(new AbsentModelResolver());
+        using var graXpert = new GraXpertBackgroundExtractor(new AbsentModelResolver());
         var classical = new ClassicalBackgroundExtractor();
         var fallback = new FallbackGradientCorrector(new AbsentModelResolver(), graXpert, classical);
 
@@ -289,7 +290,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
     [Fact]
     public void FallbackGradientCorrector_PrefersGraXpertWhenTheWeightsResolve()
     {
-        using var graXpert = new OnnxBackgroundExtractor(new PretendPresentModelResolver());
+        using var graXpert = new GraXpertBackgroundExtractor(new PretendPresentModelResolver());
         var classical = new ClassicalBackgroundExtractor();
         var fallback = new FallbackGradientCorrector(new PretendPresentModelResolver(), graXpert, classical);
 
@@ -307,7 +308,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
     [Fact]
     public async Task FallbackGradientCorrector_ARunNamingClassicalGetsItWhereGraXpertIsInstalled()
     {
-        using var graXpert = new OnnxBackgroundExtractor(new PretendPresentModelResolver());
+        using var graXpert = new GraXpertBackgroundExtractor(new PretendPresentModelResolver());
         var classical = new ClassicalBackgroundExtractor();
         var fallback = new FallbackGradientCorrector(new PretendPresentModelResolver(), graXpert, classical);
 
@@ -327,7 +328,7 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
     [Fact]
     public async Task FallbackGradientCorrector_ARunNamingGraXpertWithoutItsWeightsFails()
     {
-        using var graXpert = new OnnxBackgroundExtractor(new AbsentModelResolver());
+        using var graXpert = new GraXpertBackgroundExtractor(new AbsentModelResolver());
         var classical = new ClassicalBackgroundExtractor();
         IGradientCorrector corrector = new FallbackGradientCorrector(new AbsentModelResolver(), graXpert, classical);
 
