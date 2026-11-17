@@ -488,9 +488,6 @@ internal sealed partial class ImageSubCommand
     private static string StepOutput(string input, string suffix, string? output, int inputs)
         => output is not null && inputs == 1 ? EnsureFitsExtension(output) : DefaultOut(input, suffix);
 
-    // The stars go beside the STARLESS output, wherever -o put it: a _starless name becomes _stars, any other gains it.
-    // It used to fall back to the input's folder whenever -o's name ended in _starless, so a master read from a store
-    // had its stars written into that store (an Omega Cen session master, 2026-10-07).
     // Core protection is on unless --no-protect-cores; --protect-cores is a no-op kept for old command lines; both is an error.
     internal static bool TryResolveCoreProtection(bool noProtect, bool protect, out ExtendedCoreMask.Options? options)
     {
@@ -498,6 +495,9 @@ internal sealed partial class ImageSubCommand
         return !(noProtect && protect);
     }
 
+    // The stars go beside the STARLESS output, wherever -o put it: a _starless name becomes _stars, any other gains it.
+    // It used to fall back to the input's folder whenever -o's name ended in _starless, so a master read from a store
+    // had its stars written into that store (an Omega Cen session master, 2026-10-07).
     internal static string StarsOutput(string starlessPath)
     {
         var stem = StripExtension(starlessPath);
