@@ -2804,7 +2804,7 @@ owner's other reason: SXT can take the brightest part of M42 as one large star. 
 training half (bright compact cores the target keeps, in the synthetic scenes) is "Kept cores" below.
 
 **`ExtendedCoreMask` (TianWen.Lib), applied in the split** (`NarrowbandCombination.SplitStarsAsync` with options;
-`image remove-stars --protect-cores`), so it holds for any remover, RC-Astro's as well as ours:
+`image remove-stars`, on by default; `--no-protect-cores` turns it off, `--protect-cores` is still accepted), so it holds for any remover, RC-Astro's as well as ours:
 1. The large-scale map: the luminance's 8 px block median, median-filtered over 7 blocks (56 px). A star covers too
    little of any window to survive it, and an extended source survives.
 2. An extended source is a connected region of that map 3 per-pixel sky sigmas over the sky. The sigma comes from
@@ -2821,12 +2821,53 @@ Measured first as a prototype on the owner's frames (`C:/temp/e2/extended-mask.p
 | Lagoon (OIII) | one, 2,048 px about its brightest knot | the knot in E6's stars layer, gone from it |
 | Trifid (8-bit) | one, 14,976 px | little either way |
 
-Through the product (`image remove-stars --protect-cores` with E6's three models at 8 views), the same cores came back:
+Through the product (`image remove-stars`, protection on with E6's three models at 8 views), the same cores came back:
 2,048 px on the Lagoon, 2,944 px on M31. M31's central 6 px are taken 0 % in every channel. Grown and feathered, the
 protected region changes 9,318 and 12,238 px, and keeps 3 of the Lagoon's 13,718 compact sources over 20 sigma and 2 of
 M31's 23,728 out of the stars layer. The owner, on the Lagoon's crops: "it does make the stars a lot cleaner". The price
-is those few stars, which stay in the starless plate. Off by default until the owner says otherwise. The stacking workbench draws the cores and lets
+is those few stars, which stay in the starless plate. On by default since #2199; `--no-protect-cores` reads the remover alone. The stacking workbench draws the cores and lets
 the user drop or add one (`stacking-workbench.md`, Deep sky, step 6). Pinned by `ExtendedCoreMaskTests`.
+
+##### The survey repeated with the two rules (2026-11-17, #2199)
+
+In every earlier round of this plan, "read without `--protect-cores`" means `--no-protect-cores` today, since protection is now the default and `--protect-cores` is a no-op.
+
+The first survey of this mask over the dataset store's 201 session masters found 148 cores, and a read of their contact
+sheets sorted them: a frame-edge rim, a single bright star, dense stars (a cluster), and about 78 extended cores. #2199
+turned that read into two rules in `ExtendedCoreMask.Find`, each reading a measure now carried on `Core`:
+
+- **Edge rule.** A source whose map peak lies closer than `Options.EdgeReachPx` (56 px, `FilterBlocks * BlockPx`) to the
+  frame's border or to an absent pixel gets no core, since the median window is cut there (`Core.EdgeDistancePx`).
+- **Star rule.** A source gets no core when the 90th percentile of the full-resolution light about its peak, over the map's
+  peak above the sky, exceeds `Options.MaxPeakRatio` (`Core.PeakRatio`). A star reads as a faint extended source with a tall
+  compact peak; an extended source's core is the map itself.
+
+The bar is 6.0. The old survey's gap held stars at 7.2 and over and extended sources at 5.5 and under, so 6.0 sits inside
+it and no bar had to move.
+
+| | cores | masters with a core |
+|---|---|---|
+| Before (no rules) | 148 | not recounted |
+| After (both rules) | 77 | 69 of 201 |
+| Dropped | 71 | |
+
+The 77 kept are the issue's 78 extended cores to within one. The highest kept peak ratio is 5.49 (an iTelescope Pleiades
+master; the next is 4.89) and no kept core is within the edge reach. The three scorecard masters keep their cores to the
+pixel: Andromeda (2068, 1484), peak ratio 2.55; the Tarantula (1460, 1516), 3.04; the Sagittarius Triplet (1924, 1340),
+1.90. Omega Centauri's centre is still left for #1363: its masters keep a core of 26,368 px and 1,216 px (peak ratio 1.55
+and 2.04), neither of which is the cluster's centre as such.
+
+To run it (a heavy run, so through the node's queue; about 5 minutes on the 201 masters):
+
+```
+dotnet build training/star-removal/coremask-probe/CoreMaskProbe.csproj -c Release -o <build dir>
+dotnet <build dir>/CoreMaskProbe.dll <out dir> <session-masters folder>
+python training/star-removal/coremask-probe/classify.py <out dir>/survey.jsonl [<earlier survey.jsonl>]
+python training/star-removal/coremask-probe/sheet.py <out dir>/survey.jsonl <session-masters folder> <out dir>
+```
+
+`classify.py` reports the kept cores against the bounds the probe recorded and, given an earlier survey, lists what was
+dropped. The classification itself is the library's: the scripts only read the probe's JSON.
 
 #### Kept cores: bright galaxy-like cores the synthetic target keeps (2026-10-23)
 
@@ -3170,7 +3211,7 @@ the weights and their contract into `src/TianWen.AI.Imaging/models/` beside the 
 remover registered as Tianwen's own `IStarRemover`, served by `--ai-backend tianwen` and wherever RC-Astro is absent, so
 the canonical program splits the stars instead of running whole-frame; its views a setting (one pass by default, eight as
 the measured quality step); and CLAUDE.md's "none ship and none are registered" rewritten with it. Core protection
-(`--protect-cores`, #1658) applies to it as to any remover.
+(`--protect-cores`, #1658, now the default) applies to it as to any remover.
 
 #### R2q: R2p's recipe with synthetic crowded clusters beside synth4, pre-registered (2026-10-21)
 
@@ -4460,8 +4501,8 @@ end of a cosine schedule that records no best step.
 4. **A nucleus-and-core guard in the trainer's training mix.** The guard failed on seed 1 at 20 % and it was never a
    training signal; a set of real bright compact structure (M31's nucleus, the cores of other galaxies) held out of the
    removal target, or a term for it, as R3b2's real-tile term would be. Gate: M31's nucleus under 5 % in every channel
-   without `--protect-cores`, no loss on A's draws beyond the bars.
-5. **Read the nucleus guard with `--protect-cores` as shipped.** The guard is read without it, a remover's own behaviour;
+   without protection (`--no-protect-cores`), no loss on A's draws beyond the bars.
+5. **Read the nucleus guard with protection as shipped (the default).** The guard is read with `--no-protect-cores`, a remover's own behaviour;
    R2t itself sits over 5 % in green on it. The owner decides whether the guard's line is 5 % or the shipped path's, which
    changes whether R3a seed 1 fails anything.
 

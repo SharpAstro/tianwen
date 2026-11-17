@@ -20,6 +20,12 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// sigmas over the sky. One whose own peak stands <see cref="Options.MinPeakSigma"/> sigmas or more gets a core: where the
 /// map is at least <see cref="Options.CoreShare"/> of that peak, at most <see cref="Options.MaxAreaShare"/> of the source's
 /// area, its brightest blocks first, so a nebula filling the frame gives up only its brightest part.</para>
+/// <para>Two rules keep a core off what is not an extended source. <b>Edge:</b> a source whose map peak lies within
+/// <see cref="Options.EdgeReachPx"/> (56 px) of the border or of an absent pixel gets none, since the median window is cut
+/// there and a stack's coverage edge reads as a bright source. <b>Star:</b> a bright star's halo fills the 56 px median
+/// window only at a small share of the star's own height, so the map under it is low and the star's compact peak stands far
+/// over it; a source whose full-resolution p90 about the peak exceeds <see cref="Options.MaxPeakRatio"/> times the map's peak
+/// gets none, whereas an extended source's core IS the map and reads near 1 to 5.5.</para>
 /// <para>The sky sigma is read from second differences along rows by their median; a frame whose differences are mostly zero (8-bit
 /// data) is read by their clipped spread instead, which on a float frame would count the galaxy's own gradients as noise.</para>
 /// </remarks>
@@ -40,13 +46,22 @@ public sealed class ExtendedCoreMask
     /// <param name="MinSourceBlocks">The fewest blocks an extended source covers.</param>
     /// <param name="FeatherRadiusPx">The radius of the three box blurs the mask's edge is feathered with (about a Gaussian of
     /// 1.1 times it).</param>
+    /// <param name="EdgeReachPx">A source whose map peak lies closer than this to the frame's border or to an absent pixel gets
+    /// no core: the median window is cut there, so the map is a coverage edge, not a source (default the window's reach,
+    /// <see cref="FilterBlocks"/> times <see cref="BlockPx"/>).</param>
+    /// <param name="MaxPeakRatio">A source gets no core when the 90th percentile of the full-resolution light above the sky in a
+    /// box about its peak (side the square root of the core's area) exceeds this multiple of the map's peak above the sky: that
+    /// is a star's halo, not an extended source. The survey (2026-11) put stars at 7.2 and over and extended sources at 5.5 and
+    /// under; the bar sits in that gap.</param>
     public sealed record Options(
         double CoreShare = 0.5,
         double MaxAreaShare = 0.01,
         double ExtendedSigma = 3.0,
         double MinPeakSigma = 50.0,
         int MinSourceBlocks = 16,
-        int FeatherRadiusPx = 4)
+        int FeatherRadiusPx = 4,
+        int EdgeReachPx = FilterBlocks * BlockPx,
+        double MaxPeakRatio = 6.0)
     {
         /// <summary>The defaults, measured on the owner's M31, Lagoon and Trifid frames (2026-10-19).</summary>
         public static readonly Options Default = new();
@@ -58,7 +73,11 @@ public sealed class ExtendedCoreMask
     /// <param name="PeakSigma">That peak over the sky, in per-pixel sky sigmas.</param>
     /// <param name="SourceAreaPx">The extended source's area.</param>
     /// <param name="CoreAreaPx">The core's area, before feathering.</param>
-    public readonly record struct Core(int X, int Y, double PeakSigma, int SourceAreaPx, int CoreAreaPx);
+    /// <param name="EdgeDistancePx">The peak's distance (Chebyshev) to the frame's border or the nearest absent pixel, capped at
+    /// <see cref="Options.EdgeReachPx"/>.</param>
+    /// <param name="PeakRatio">The star rule's measure: the 90th percentile of the full-resolution light above the sky in a box
+    /// about the peak, over the map's peak above the sky.</param>
+    public readonly record struct Core(int X, int Y, double PeakSigma, int SourceAreaPx, int CoreAreaPx, int EdgeDistancePx = 0, double PeakRatio = 0);
 
     private ExtendedCoreMask(int width, int height, float[] weight, ImmutableArray<Core> cores, double skySigma)
     {
@@ -230,12 +249,29 @@ public sealed class ExtendedCoreMask
                 top.Sort((a, b) => map[b].CompareTo(map[a]));
                 top.RemoveRange(cap, top.Count - cap);
             }
+            var px = ((peakAt % gw) * BlockPx) + (BlockPx / 2);
+            var py = ((peakAt / gw) * BlockPx) + (BlockPx / 2);
+            var coreAreaPx = top.Count * BlockPx * BlockPx;
+
+            // Edge rule: a source peaking where the median window is cut by the frame's border or by absent pixels is a
+            // coverage edge or a stack's rim, never a core.
+            var edge = EdgeDistance(present, width, height, px, py, options.EdgeReachPx);
+            if (edge < options.EdgeReachPx)
+            {
+                continue;
+            }
+            // Star rule: a star's halo fills the median window only at a small share of its own height, so a star reads as a
+            // faint extended source with a very tall compact peak; an extended source's core is the map.
+            var ratio = PeakRatio(luminance, present, width, height, px, py, (int)Math.Round(Math.Sqrt(coreAreaPx)), sky, peak);
+            if (ratio > options.MaxPeakRatio)
+            {
+                continue;
+            }
             foreach (var m in top)
             {
                 keep[m] = true;
             }
-            found.Add((new Core(((peakAt % gw) * BlockPx) + (BlockPx / 2), ((peakAt / gw) * BlockPx) + (BlockPx / 2),
-                peak / sigma, members.Count * BlockPx * BlockPx, top.Count * BlockPx * BlockPx), peak));
+            found.Add((new Core(px, py, peak / sigma, members.Count * BlockPx * BlockPx, coreAreaPx, edge, ratio), peak));
         }
 
         // Feathered OUTWARD: the cores grown by the blur's reach (three passes of its radius) first, so the blur's ramp lies
@@ -314,6 +350,48 @@ public sealed class ExtendedCoreMask
             planes[c] = plane;
         }
         return new Image(planes, BitDepth.Float32, starless.MaxValue, starless.MinValue, starless.Pedestal, starless.ImageMeta);
+    }
+
+    // The Chebyshev distance from (px, py) to the frame's border or the nearest absent pixel, capped at reach.
+    private static int EdgeDistance(bool[] present, int width, int height, int px, int py, int reach)
+    {
+        var d = Math.Min(Math.Min(px, py), Math.Min(width - 1 - px, height - 1 - py));
+        d = Math.Min(d, reach);
+        for (var y = Math.Max(0, py - reach); y <= Math.Min(height - 1, py + reach); y++)
+        {
+            for (var x = Math.Max(0, px - reach); x <= Math.Min(width - 1, px + reach); x++)
+            {
+                if (!present[(y * width) + x])
+                {
+                    d = Math.Min(d, Math.Max(Math.Abs(x - px), Math.Abs(y - py)));
+                }
+            }
+        }
+        return d;
+    }
+
+    // The 90th percentile of the full-resolution light above the sky in a box of the given side about (px, py), over the
+    // large-scale map's peak above the sky.
+    private static double PeakRatio(float[] luminance, bool[] present, int width, int height, int px, int py, int side, float sky, float mapPeak)
+    {
+        var half = Math.Max(1, side) / 2;
+        var values = new List<float>();
+        for (var y = Math.Max(0, py - half); y < Math.Min(height, py + half); y++)
+        {
+            for (var x = Math.Max(0, px - half); x < Math.Min(width, px + half); x++)
+            {
+                if (present[(y * width) + x])
+                {
+                    values.Add(luminance[(y * width) + x] - sky);
+                }
+            }
+        }
+        if (values.Count == 0 || !(mapPeak > 0))
+        {
+            return 0;
+        }
+        values.Sort();
+        return values[Math.Min(values.Count - 1, (int)(0.9 * values.Count))] / mapPeak;
     }
 
     // The per-pixel sky sigma from horizontal SECOND differences (x[i-1] - 2 x[i] + x[i+1], variance 6 sigma^2), which a

@@ -168,21 +168,32 @@ internal sealed partial class ImageSubCommand
             DefaultValueFactory = _ => 8,
         };
         var monoAsRgbOpt = new Option<bool>("--mono-as-rgb") { Description = "With --model: put a mono master in all three channels (the models are one-shot colour and none was measured on mono)." };
+        var noProtectCoresOpt = new Option<bool>("--no-protect-cores")
+        {
+            Description = "Do not protect cores. By default the brightest part of each galaxy or nebula is kept out of the stars, whichever "
+                + "remover runs: a nucleus like M31's or a bright knot a remover takes as a star stays in the starless plate, with the stars "
+                + "inside it (#1658). Give this to read the remover's own behaviour.",
+        };
         var protectCoresOpt = new Option<bool>("--protect-cores")
         {
-            Description = "Keep the brightest part of each galaxy or nebula out of the stars, whichever remover runs: a nucleus like M31's or "
-                + "a bright knot a remover takes as a star stays in the starless plate, with the stars inside it (#1658).",
+            Description = "Accepted and ignored: core protection is the default (see --no-protect-cores).",
         };
         var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator, or TianWen's own weights named with --model): the starless "
             + "plate and the stars it took out, each on its input's scale, so image add-stars puts them back exactly. Several masters "
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, protectCoresOpt },
+            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = parseResult.Required(mastersArg);
+            var noProtect = parseResult.GetValue(noProtectCoresOpt);
+            if (!TryResolveCoreProtection(noProtect, parseResult.GetValue(protectCoresOpt), out var coreOptions))
+            {
+                consoleHost.WriteScrollable("[remove-stars] --protect-cores and --no-protect-cores contradict each other; give one");
+                return 1;
+            }
             if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
             {
                 return 1;
@@ -194,7 +205,7 @@ internal sealed partial class ImageSubCommand
             IStarRemover remover = own ?? starRemover;
             consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
             var (starless, stars, cores) = await NarrowbandCombination.SplitStarsAsync(
-                masters, remover, parseResult.GetValue(protectCoresOpt) ? ExtendedCoreMask.Options.Default : null, ct);
+                masters, remover, coreOptions, ct);
             for (var i = 0; i < starless.Length; i++)
             {
                 if (cores?[i] is { } mask)
@@ -476,6 +487,13 @@ internal sealed partial class ImageSubCommand
     // -o names the output of a step with one input; with several each goes beside its input.
     private static string StepOutput(string input, string suffix, string? output, int inputs)
         => output is not null && inputs == 1 ? EnsureFitsExtension(output) : DefaultOut(input, suffix);
+
+    // Core protection is on unless --no-protect-cores; --protect-cores is a no-op kept for old command lines; both is an error.
+    internal static bool TryResolveCoreProtection(bool noProtect, bool protect, out ExtendedCoreMask.Options? options)
+    {
+        options = noProtect ? null : ExtendedCoreMask.Options.Default;
+        return !(noProtect && protect);
+    }
 
     // The stars go beside the STARLESS output, wherever -o put it: a _starless name becomes _stars, any other gains it.
     // It used to fall back to the input's folder whenever -o's name ended in _starless, so a master read from a store

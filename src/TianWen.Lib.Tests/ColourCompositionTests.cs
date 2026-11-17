@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -102,8 +103,8 @@ public class ColourCompositionTests(ITestOutputHelper output)
         deblurred = [RoundTrip(deblurred[0], dir, "r_d"), RoundTrip(deblurred[1], dir, "g_d"), RoundTrip(deblurred[2], dir, "b_d"), RoundTrip(deblurred[3], dir, "h_d")];
         // image continuum --dry-run --line ha_deblur.fits --continuum red_linearfit_deblur.fits (the number carried by hand)
         var k = ContinuumSubtractor.FlattestResidualScale(deblurred[3], deblurred[0]).K;
-        // image remove-stars (all four, one scale)
-        var (starless, stars) = await NarrowbandCombination.SplitStarsAsync(deblurred, remover, ct);
+        // image remove-stars (all four, one scale); core protection is its default, as it is in the recipe's own splits
+        var (starless, stars, _) = await NarrowbandCombination.SplitStarsAsync(deblurred, remover, ExtendedCoreMask.Options.Default, ct);
         starless = [RoundTrip(starless[0], dir, "r_s"), RoundTrip(starless[1], dir, "g_s"), RoundTrip(starless[2], dir, "b_s"), RoundTrip(starless[3], dir, "h_s")];
         stars = [RoundTrip(stars[0], dir, "r_st", mask: false), RoundTrip(stars[1], dir, "g_st", mask: false), RoundTrip(stars[2], dir, "b_st", mask: false)];
         // image add-line --broadband red_starless --line ha_starless --scale k
@@ -116,7 +117,7 @@ public class ColourCompositionTests(ITestOutputHelper output)
         var (luminance, _, _) = await SyntheticLuminance.BuildAsync(full, null, reference: 1, ct);
         luminance = RoundTrip(luminance, dir, "lum");
         // image remove-stars lum.fits; image denoise lum_starless.fits
-        var (luminanceStarless, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover, ct);
+        var (luminanceStarless, _, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover, ExtendedCoreMask.Options.Default, ct);
         var luminanceDenoised = RoundTrip((await NarrowbandCombination.DenoiseAsync([RoundTrip(luminanceStarless[0], dir, "lum_s")], denoiser, options.DetailDenoise, ct))[0], dir, "lum_s_dn");
         // image denoise --colour --strength 0.5 red_line.fits green_starless.fits blue_starless.fits
         var colour = await NarrowbandCombination.DenoiseColourAsync(redLine, starless[1], starless[2], denoiser, options.ColourDenoise, ct);

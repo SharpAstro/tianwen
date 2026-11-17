@@ -110,6 +110,77 @@ public class ExtendedCoreMaskTests(ITestOutputHelper output)
         mask.Cores.Length.ShouldBe(1);
     }
 
+    // A flat sky with noise and a list of Gaussians (centre, sigma px, amplitude in noise sigmas) added to it.
+    private static float[,] Painted(params (double X, double Y, double Sigma, double Amp)[] blobs)
+    {
+        var rng = new Random(7);
+        var frame = new float[Size, Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                double v = Sky + (Noise * StarInjection.Gaussian(rng));
+                foreach (var (bx, by, s, amp) in blobs)
+                {
+                    var d2 = ((x - bx) * (x - bx)) + ((y - by) * (y - by));
+                    if (d2 < 9 * s * s)
+                    {
+                        v += amp * Noise * Math.Exp(-d2 / (2.0 * s * s));
+                    }
+                }
+                frame[y, x] = (float)v;
+            }
+        }
+        return frame;
+    }
+
+    [Fact]
+    public void ABrightStarWithAWideHaloGetsNoCore()
+    {
+        // The halo alone (150 sigma, 20 px) makes an extended source over MinPeakSigma; the star on it stands far over the map.
+        var mask = ExtendedCoreMask.Find(ImageOf(Painted((256, 256, 20, 150), (256, 256, 1.5, 6000))));
+
+        mask.Cores.ShouldBeEmpty("a star's halo fills the median window at a small share of its height, so its peak ratio is far over the bar and it is no extended source");
+    }
+
+    [Fact]
+    public void AStripeAlongTheBorderGetsNoCore()
+    {
+        var frame = Painted();
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < 40; x++)
+            {
+                frame[y, x] += 200 * Noise;
+            }
+        }
+
+        var mask = ExtendedCoreMask.Find(ImageOf(frame));
+
+        mask.Cores.ShouldBeEmpty("a source peaking within the median window's reach of the border is a coverage edge, not a source");
+    }
+
+    [Fact]
+    public void ASmoothBulgeWithACompactNucleusKeepsItsCore()
+    {
+        // The M31 kind: a smooth bulge and a compact nucleus on it.
+        var mask = ExtendedCoreMask.Find(ImageOf(Painted((Cx, Cy, 30, 300), (Cx, Cy, 2, 400))));
+
+        output.WriteLine(string.Join("; ", mask.Cores.Select(c => $"({c.X}, {c.Y}) ratio {c.PeakRatio:F2} edge {c.EdgeDistancePx}")));
+        mask.Cores.Length.ShouldBe(1, "an extended source's core is the map: the nucleus must not read as a star");
+        mask.Cores[0].PeakRatio.ShouldBeLessThan(ExtendedCoreMask.Options.Default.MaxPeakRatio, "the nucleus sits on a bulge that is the map, so the ratio is under the bar");
+    }
+
+    [Fact]
+    public void ANebulaKnotWithStarsInsideItKeepsItsCore()
+    {
+        var mask = ExtendedCoreMask.Find(ImageOf(Painted((Cx, Cy, 50, 300), (Cx + 25, Cy, 1.5, 2000), (Cx - 25, Cy + 10, 1.5, 2000),
+            (Cx, Cy - 28, 1.5, 2000), (Cx + 10, Cy + 30, 1.5, 2000))));
+
+        output.WriteLine(string.Join("; ", mask.Cores.Select(c => $"({c.X}, {c.Y}) ratio {c.PeakRatio:F2}")));
+        mask.Cores.Length.ShouldBe(1, "the stars inside a knot are not in the box about its peak, so the knot keeps its core");
+    }
+
     /// <summary>Returns a fixed plate on whatever scale it is handed the input on.</summary>
     private sealed class FixedRemover(float[,] model, float inputPeak) : IStarRemover
     {

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Dev-only: the survey of #2199. Runs ExtendedCoreMask.Find at its defaults over session masters and writes one JSON
+       line per master. Not in TianWen.slnx, never built by CI. See docs/plans/star-remover-training.md, "Core protection". -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>CoreMaskProbe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

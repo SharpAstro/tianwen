@@ -35,13 +35,16 @@ other commit hash from before 2026-04-22 no longer resolves anywhere.
 
 Additive, so a minor. It gathers what landed on `main` since 10.0 into a release, mainly so the
 ARM64 Linux build a Raspberry Pi runs is current. No change since 10.0 was made as a breaking one.
-Two defaults changed, and both change what the same input produces:
+Three defaults changed, and all change what the same input produces:
 
 - **`tianwen stack` leaves out lights graded cloud or twilight by default** (`--reject-cloud` is on),
   judging cloud only in a group of at least ten graded lights. A light that is only suspected
   (`MAYBE_CLOUD_`) is left out unless `--include-maybe-cloud`.
 - **A run unparks a parked mount at its first move** (`SessionConfiguration.UnparkMount`, on by
   default), never during the wait for dark. A goto or Home on its own still never unparks.
+- **`image remove-stars` protects cores by default** (`--no-protect-cores` turns it off; `--protect-cores` is
+  still accepted). No core is taken at the frame's edge or on a star, and the colour composition's
+  star splits protect them too (#2199).
 
 What it is for, by subject:
 
