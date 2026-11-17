@@ -123,7 +123,8 @@ public static partial class DatasetDegradationExporter
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
         bool Saturated, double[]? ClipLevel, bool Lobe = false, double[]? HaloGain = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Faint = false,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OuterHaloRow[]? OuterHalo = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OuterHaloRow[]? OuterHalo = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Measured = false);
 
     /// <summary>One channel's outer halo (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>, #1870) as drawn under a star: its
     /// rig's key, its centre value as a fraction of the star's peak, its scale radius in pixels and its Moffat exponent.</summary>
@@ -596,7 +597,20 @@ public static partial class DatasetDegradationExporter
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
                 options.FaintStarFloor, stars.WingEnvelope, outerHalo: stars.OuterHaloFor(selected.Count > 0 ? selected[0].Camera : "", channels, logger),
-                measuredSaturated: options.SaturatedMeasured, haloOverPlate: options.HaloOverPlate);
+                measuredSaturated: options.SaturatedMeasured, haloOverPlate: options.HaloOverPlate, measuredBright: options.BrightMeasured);
+            if (options.BrightMeasured)
+            {
+                if (population.BrightSessionFellBack)
+                {
+                    logger?.LogWarning("[degrade] {Session}: fewer than {Min} unsaturated stars measured ({Fell} left on the field profile); drawn as without --bright-measured",
+                        sessionId, InjectionPopulation.MinBrightMeasured, population.BrightFellBack);
+                }
+                else
+                {
+                    logger?.LogInformation("[degrade] {Session}: bright stars as the master shows them, {Measured} measured, {Fell} left on the field profile",
+                        sessionId, population.BrightMeasured, population.BrightFellBack);
+                }
+            }
             if (options.HaloOverPlate)
             {
                 if (population.HaloOverPlateStars > 0)
@@ -1057,7 +1071,8 @@ public static partial class DatasetDegradationExporter
                 s.Lobe,
                 s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null,
                 s.Faint,
-                s.Profiles.Any(static p => !p.Outer.IsNone) ? [.. s.Profiles.Select(p => new OuterHaloRow(p.Outer.Source ?? cell.Camera, p.Outer.Fraction, p.Outer.AlphaPx, p.Outer.Beta))] : null))],
+                s.Profiles.Any(static p => !p.Outer.IsNone) ? [.. s.Profiles.Select(p => new OuterHaloRow(p.Outer.Source ?? cell.Camera, p.Outer.Fraction, p.Outer.AlphaPx, p.Outer.Beta))] : null,
+                s.Measured))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))],
             RelationFrom: plan.RelationFrom,

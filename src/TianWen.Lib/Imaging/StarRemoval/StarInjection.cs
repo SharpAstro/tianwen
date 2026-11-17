@@ -19,9 +19,11 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// (<see cref="InjectionPopulation.LobeReachFwhm"/>): rendered as any star, never scored as one.</param>
 /// <param name="Faint">A star under the catalogue's detection limit, drawn from the master's fitted luminosity function
 /// (<see cref="LuminosityFunction"/>, S2): rendered as any star.</param>
+/// <param name="Measured">Drawn as the master shows it, with the profiles and halo it was measured against (a measured saturated
+/// star, or a measured bright one, #2192).</param>
 public sealed record InjectedStar(
     double X, double Y, ImmutableArray<double> Amplitudes, ImmutableArray<StarProfile> Profiles, bool Saturated,
-    ImmutableArray<double> ClipLevels, bool Lobe = false, bool Faint = false);
+    ImmutableArray<double> ClipLevels, bool Lobe = false, bool Faint = false, bool Measured = false);
 
 /// <summary>What <see cref="StarInjection.Render"/> returns.</summary>
 /// <param name="Planes">The plate plus the stars, noise-free, one row-major plane per channel.</param>

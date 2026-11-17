@@ -1941,6 +1941,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "it clipped. A measured star keeps that shape whatever the cell's other star options ask (--star-beta, " +
                           "--star-beta-draw, --chromatic-width, --star-shapes, the wing clamp): they move the other stars. Off by default.",
         };
+        var brightMeasuredOpt = new Option<bool>("--bright-measured")
+        {
+            Description = "--mode stars (#2192): draw every eligible unsaturated bright star as its master shows it: measured against the " +
+                          "field profile on its own core (the catalogued amplitude and the field's wings misjudge a bright star that is not " +
+                          "clipped), drawn round with its own radial halo table. Each such star is marked Measured in injections.jsonl. " +
+                          "A session where fewer than 20 stars measure draws as without it, and the log says so. Off by default.",
+        };
         var haloOverPlateOpt = new Option<bool>("--halo-over-plate")
         {
             Description = "--mode stars, with --saturated-measured and without --outer-halo: also draw the halo the starless plate keeps " +
@@ -2020,7 +2027,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, haloOverPlateOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, brightMeasuredOpt, haloOverPlateOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2184,6 +2191,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(saturatedMeasuredOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
             {
                 consoleHost.WriteError("--saturated-measured draws injected stars; it needs --mode stars");
+                return 1;
+            }
+            if (parseResult.GetValue(brightMeasuredOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--bright-measured draws injected stars; it needs --mode stars");
                 return 1;
             }
             if (parseResult.GetValue(haloOverPlateOpt) && (!parseResult.GetValue(saturatedMeasuredOpt) || parseResult.GetValue(outerHaloOpt) is not null))
@@ -2405,7 +2417,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 NoiseScale: noiseScale,
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,
-                Say: Say);
+                Say: Say,
+                BrightMeasured: parseResult.GetValue(brightMeasuredOpt));
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

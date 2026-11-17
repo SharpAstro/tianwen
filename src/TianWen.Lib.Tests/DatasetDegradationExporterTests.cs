@@ -54,7 +54,7 @@ namespace TianWen.Lib.Tests
 
         /// <summary>A linear master on an ADU-like scale: sky, a gradient, stars, and noise at the depth
         /// a 64-frame integration would have.</summary>
-        private static Image SyntheticMaster(int stackedFrames = 64, bool withNoise = true)
+        private static Image SyntheticMaster(int stackedFrames = 64, bool withNoise = true, (float X, float Y)[]? sharedStars = null)
         {
             var rng = new Random(4);
             var planes = new float[3][,];
@@ -68,11 +68,12 @@ namespace TianWen.Lib.Tests
                         p[y, x] = 900f + (c * 120f) + (140f * x / (W - 1)) + (60f * y / (H - 1));
                     }
                 }
-                for (var s = 0; s < 40; s++)
+                for (var s = 0; s < (sharedStars?.Length ?? 40); s++)
                 {
-                    var cx = (float)(8 + (rng.NextDouble() * (W - 16)));
-                    var cy = (float)(8 + (rng.NextDouble() * (H - 16)));
-                    var amp = (float)(200 + (rng.NextDouble() * 6000));
+                    // A shared scene puts the same round star at the same place in every channel; the default scene draws its own.
+                    var cx = sharedStars is null ? (float)(8 + (rng.NextDouble() * (W - 16))) : sharedStars[s].X;
+                    var cy = sharedStars is null ? (float)(8 + (rng.NextDouble() * (H - 16))) : sharedStars[s].Y;
+                    var amp = sharedStars is null ? (float)(200 + (rng.NextDouble() * 6000)) : SharedStarAmplitude;
                     for (var y = Math.Max(0, (int)cy - 6); y < Math.Min(H, (int)cy + 6); y++)
                     {
                         for (var x = Math.Max(0, (int)cx - 6); x < Math.Min(W, (int)cx + 6); x++)
@@ -223,11 +224,11 @@ namespace TianWen.Lib.Tests
         /// still has its input. <paramref name="subScale"/> puts the subs on a unit scale that many times smaller than the
         /// master's, as a real bake does when each frame is divided by its own unit divisor (1.08 to 8.3, E16b's D2).
         /// </summary>
-        private string BuildBakeWithHalves(int stackedFrames = 64, double subScale = 1.0)
+        private string BuildBakeWithHalves(int stackedFrames = 64, double subScale = 1.0, (float X, float Y)[]? sharedStars = null)
         {
             var bake = Path.Combine(_root, "bake-halves");
             Directory.CreateDirectory(bake);
-            var truth = SyntheticMaster(stackedFrames, withNoise: false);
+            var truth = SyntheticMaster(stackedFrames, withNoise: false, sharedStars);
             var rng = new Random(11);
             var halfDepth = Math.Sqrt(2.0 / stackedFrames);
             var halves = new Image[2];
@@ -1285,6 +1286,16 @@ namespace TianWen.Lib.Tests
         /// <summary>Every channel's FWHM in the Stars fixture's PSF store.</summary>
         private const double PlateFwhm = 2.5;
 
+        /// <summary>The peak above sky of every star of the shared bright scene: well under saturation, well over the noise.</summary>
+        private const float SharedStarAmplitude = 3000f;
+
+        /// <summary>
+        /// A scene for <c>BrightMeasured</c>: thirty round stars on a 6 by 5 grid, 55 and 50 px apart (beyond the 12 px crowding
+        /// reach), 50 px or more from every edge (beyond the 36 px a stamp needs), the same star in every channel.
+        /// </summary>
+        private static (float X, float Y)[] BrightGrid()
+            => [.. Enumerable.Range(0, 30).Select(static i => (50.25f + (55 * (i % 6)), 50.25f + (50 * (i / 6))))];
+
         /// <summary>
         /// Beyond this distance from every injected star the Stars fixture's draw is untouched. From the render's own reach: a
         /// 30,000 ADU saturated star, at 1.2 times its amplitude and width, falls under 0.02 of green's master noise by 29 px,
@@ -1818,6 +1829,79 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #2192: <c>BrightMeasured</c> on a scene that carries it: thirty round, isolated, unsaturated stars in every channel.
+        /// Off (explicit or default) the export is byte-identical in every file, injections.jsonl included, and no row says
+        /// Measured. On, the rows of the measured stars say Measured, a tile moves, and the session log counts the measured stars.
+        /// </summary>
+        [Fact]
+        public async Task BrightMeasuredOffChangesNothingAndOnWritesMeasuredRowsAndMovesTiles()
+        {
+            var grid = BrightGrid();
+            var bake = BuildBakeWithHalves(sharedStars: grid);
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake, sharedStars: grid);
+            var off = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "bright-off"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 0.0);
+            var explicitOff = off with { OutDir = Path.Combine(_root, "bright-off-explicit"), BrightMeasured = false };
+            var on = off with { OutDir = Path.Combine(_root, "bright-on"), BrightMeasured = true };
+            var log = new RecordingLogger();
+            foreach (var o in new[] { off, explicitOff })
+            {
+                (await DatasetDegradationExporter.RunAsync(o, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            }
+            (await DatasetDegradationExporter.RunAsync(on, log, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            string[] Files(DatasetDegradationExporter.Options o)
+                => [.. Directory.GetFiles(o.OutDir, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(o.OutDir, f)).Order(StringComparer.Ordinal)];
+            var files = Files(off);
+            files.Length.ShouldBeGreaterThan(4);
+            Files(explicitOff).ShouldBe(files);
+            foreach (var file in files)
+            {
+                File.ReadAllBytes(Path.Combine(explicitOff.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), file);
+            }
+            File.ReadAllText(Path.Combine(off.OutDir, DatasetDegradationExporter.InjectionManifestFileName)).ShouldNotContain("\"Measured\"", Case.Sensitive);
+
+            log.Messages.ShouldNotContain(static m => m.Contains("drawn as without --bright-measured", StringComparison.Ordinal),
+                "the scene carries enough measurable stars, so the session must not fall back");
+            log.Messages.ShouldContain(static m => m.Contains("bright stars as the master shows them", StringComparison.Ordinal)
+                && System.Text.RegularExpressions.Regex.IsMatch(m, @", [1-9]\d* measured,"));
+            var stars = ReadInjectionRows(on.OutDir).SelectMany(static i => i.Stars).ToArray();
+            stars.ShouldNotBeEmpty();
+            stars.Count(static s => s.Measured).ShouldBeGreaterThan(0, "the rows of measured stars say so");
+            files.Where(static f => f.StartsWith("tiles", StringComparison.Ordinal))
+                .Any(f => !File.ReadAllBytes(Path.Combine(on.OutDir, f)).SequenceEqual(File.ReadAllBytes(Path.Combine(off.OutDir, f))))
+                .ShouldBeTrue("measured stars change at least one tile");
+        }
+
+        /// <summary>
+        /// #2192: where a session's pool holds fewer than the minimum measurable stars (the default fixture's channels each
+        /// carry their own stars), <c>BrightMeasured</c> says it drew as without the option and every tile is as off.
+        /// </summary>
+        [Fact]
+        public async Task BrightMeasuredFallsBackAndSaysSoWhenTooFewStarsMeasure()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var off = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "bright-fb-off"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot);
+            var on = off with { OutDir = Path.Combine(_root, "bright-fb-on"), BrightMeasured = true };
+            var log = new RecordingLogger();
+            (await DatasetDegradationExporter.RunAsync(off, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            (await DatasetDegradationExporter.RunAsync(on, log, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            log.Messages.ShouldContain(static m => m.Contains("drawn as without --bright-measured", StringComparison.Ordinal));
+            ReadInjectionRows(on.OutDir).SelectMany(static i => i.Stars).ShouldAllBe(static s => !s.Measured);
+            foreach (var file in Directory.GetFiles(Path.Combine(off.OutDir, "tiles"), "*", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(off.OutDir, file);
+                File.ReadAllBytes(Path.Combine(on.OutDir, rel)).ShouldBe(File.ReadAllBytes(file), $"fell back, so as off: {rel}");
+            }
+        }
+
+        /// <summary>
         /// A plate store from before profiles were kept has no field profile, and its amplitudes mean nothing with another
         /// profile: the default (field) refuses the session and names the fix; the PSF store's Moffat still draws from it.
         /// </summary>
@@ -1873,7 +1957,7 @@ namespace TianWen.Lib.Tests
         /// <see cref="FieldBeta"/>, deliberately not the PSF store's, and a short halo table.
         /// </summary>
         private async Task<(string Root, (double X, double Y)[] Sites)> BuildPlatesStoreAsync(
-            string bake, PsfProfileFit.Result?[]? profiles = null, bool fieldProfile = true)
+            string bake, PsfProfileFit.Result?[]? profiles = null, bool fieldProfile = true, (float X, float Y)[]? sharedStars = null)
         {
             var root = Path.Combine(_root, "plates-store");
             var platesDir = Path.Combine(root, "plates");
@@ -1911,13 +1995,27 @@ namespace TianWen.Lib.Tests
             var saturated = (X: (double)(brightest % W), Y: (double)(brightest / W));
 
             var rng = new Random(21);
-            var sites = new System.Collections.Generic.List<(double X, double Y)> { saturated };
+            var sites = new System.Collections.Generic.List<(double X, double Y)>();
             var stars = ImmutableArray.CreateBuilder<FittedStar>();
-            // Saturated in red alone, as the master's brightest pixel is (each channel's stars are its own in this fixture):
-            // green and blue carry the faint wing amplitude of a channel the star did not clip, so they take no clip.
-            stars.Add(new FittedStar((float)saturated.X, (float)saturated.Y, 20f, 30000f, 1f, 1000f, 5f, StarFitOutcome.Subtracted, true, false,
-                float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [30000f, 5f, 5f]));
-            while (sites.Count < 13)
+            if (sharedStars is null)
+            {
+                sites.Add(saturated);
+                // Saturated in red alone, as the master's brightest pixel is (each channel's stars are its own in this fixture):
+                // green and blue carry the faint wing amplitude of a channel the star did not clip, so they take no clip.
+                stars.Add(new FittedStar((float)saturated.X, (float)saturated.Y, 20f, 30000f, 1f, 1000f, 5f, StarFitOutcome.Subtracted, true, false,
+                    float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [30000f, 5f, 5f]));
+            }
+            else
+            {
+                // The bright scene's catalogue: every star unsaturated, round and significant, on the master's own sites.
+                foreach (var (sx, sy) in sharedStars)
+                {
+                    sites.Add((sx, sy));
+                    stars.Add(new FittedStar(sx, sy, 200f, SharedStarAmplitude, 1f, 1000f, 5f, StarFitOutcome.Subtracted, false, false,
+                        float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [SharedStarAmplitude, SharedStarAmplitude, SharedStarAmplitude]));
+                }
+            }
+            while (sharedStars is null && sites.Count < 13)
             {
                 // Two decimals, as the catalogue stores a position.
                 var x = Math.Round(10 + (rng.NextDouble() * (W - 20)), 2);

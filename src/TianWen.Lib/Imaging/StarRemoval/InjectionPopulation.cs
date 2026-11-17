@@ -163,6 +163,16 @@ public sealed class InjectionPopulation
     /// where fewer than <see cref="MinHaloOverPlateStars"/> were readable and the session draws as without it.</summary>
     public int HaloOverPlateStars { get; private init; }
 
+    /// <summary>With <c>measuredBright</c>: the unsaturated pool stars drawn as the master shows them (<see cref="MeasureBright"/>).
+    /// 0 where it was not asked for, or where fewer than <see cref="MinBrightMeasured"/> measured.</summary>
+    public int BrightMeasured { get; private init; }
+
+    /// <summary>With <c>measuredBright</c>: the unsaturated pool stars left on the field profile (not eligible, crowded or unmeasurable).</summary>
+    public int BrightFellBack { get; private init; }
+
+    /// <summary>Whether <c>measuredBright</c> was asked for and fewer than <see cref="MinBrightMeasured"/> stars measured, so the session draws as without it.</summary>
+    public bool BrightSessionFellBack { get; private init; }
+
     /// <summary>The share of the counted sites the catalogue found saturated: how often a real star here is a clipped one.</summary>
     public double SaturatedShare => _saturatedShare;
 
@@ -234,7 +244,7 @@ public sealed class InjectionPopulation
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
         StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null,
         ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default,
-        bool measuredSaturated = false, bool haloOverPlate = false)
+        bool measuredSaturated = false, bool haloOverPlate = false, bool measuredBright = false)
     {
         if (haloOverPlate && (!measuredSaturated || !outerHalo.IsDefault))
         {
@@ -297,8 +307,10 @@ public sealed class InjectionPopulation
             .ToArray();
         var saturatedSites = Enumerable.Range(0, catalogue.Length)
             .Count(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && catalogue[k].Saturated && !IsLobe(k));
-        var amplitudes = Enumerable.Range(0, catalogue.Length)
+        var poolRows = Enumerable.Range(0, catalogue.Length)
             .Where(k => catalogue[k] is var s && Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0 && !IsLobe(k) && !Diverged(s, clip))
+            .ToArray();
+        var amplitudes = poolRows
             .Select(k => new PoolStar([.. catalogue[k].ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)], [], LobesOf(k), catalogue[k].Significance))
             .ToArray();
         if (amplitudes.Length == 0)
@@ -325,13 +337,15 @@ public sealed class InjectionPopulation
             .Select(static t => new PoolStar(t.Entry.Amplitudes, t.Entry.Clips, t.Lobes, float.PositiveInfinity))
             .ToArray();
         var haloOverPlateStars = 0;
+        ImmutableArray<float>[]? sessionKeptHalo = null;
+        // The round field profiles a measured star is measured against and drawn with.
+        var drawnProfiles = Enumerable.Range(0, channels)
+            .Select(c => field is { } fp
+                ? new StarProfile(StarProfileFamily.Field, fp.Channels[c].Fwhm, fp.Channels[c].Beta, 1.0, 0.0, fp.Channels[c].Table, fp.Channels[c].TableAlpha)
+                : StarProfile.Round(StarProfileFamily.Moffat, psf[c].Fwhm, psf[c].Beta))
+            .ToArray();
         if (measuredSaturated)
         {
-            var drawnProfiles = Enumerable.Range(0, channels)
-                .Select(c => field is { } fp
-                    ? new StarProfile(StarProfileFamily.Field, fp.Channels[c].Fwhm, fp.Channels[c].Beta, 1.0, 0.0, fp.Channels[c].Table, fp.Channels[c].TableAlpha)
-                    : StarProfile.Round(StarProfileFamily.Moffat, psf[c].Fwhm, psf[c].Beta))
-                .ToArray();
             // EVERY subtracted saturated star with an amplitude per channel, not only those the builder fitted with the field's
             // Moffat: a measured star's amplitude and halo are read off its own pixels, so its fit does not matter, and the stars
             // the builder could only fit with its own profile are often the brightest (63 % of M42's saturated stars, 21 % of HIP
@@ -407,8 +421,64 @@ public sealed class InjectionPopulation
                 }
                 outerHalo = [.. fieldHalo.Select(static t => new OuterHalo(0.0, 0.0, 0.0, t, "the session's saturated stars, over the plate"))];
                 haloOverPlateStars = keptTables.Count;
+                sessionKeptHalo = keptHalo;
             }
             saturated = [.. measuredPool];
+        }
+        var cataloguedPool = amplitudes;
+        var (brightMeasured, brightFellBack, brightSessionFellBack) = (0, 0, false);
+        if (measuredBright)
+        {
+            // Another catalogued star of at least a tenth of the candidate's amplitude within 12 px (its own lobes aside) leaves
+            // it on the field profile: its rings hold that star's light.
+            var allSites = new SiteGrid([.. catalogue.Select(static s => ((double)s.X, (double)s.Y))], BrightCrowdReachPx);
+            // A neighbour with a non-finite amplitude is of unknown brightness, so it counts as crowding (infinite peak) rather
+            // than being ignored; one with no amplitudes at all holds no light.
+            static double Peak(FittedStar s) => s.ChannelAmplitudes.IsDefaultOrEmpty ? 0.0 : !s.ChannelAmplitudes.All(float.IsFinite) ? double.PositiveInfinity : s.ChannelAmplitudes.Max();
+            var measured = new PoolStar?[amplitudes.Length];
+            var measuredCount = 0;
+            for (var i = 0; i < poolRows.Length; i++)
+            {
+                var k = poolRows[i];
+                var s = catalogue[k];
+                if (s.Significance < BrightMinSignificance)
+                {
+                    continue;
+                }
+                var own = Peak(s);
+                if (allSites.Nearest(s.X, s.Y, BrightCrowdReachPx, j => j != k && parentOf?[j] != k && Peak(catalogue[j]) >= BrightCrowdAmplitudeFraction * own) >= 0)
+                {
+                    continue;
+                }
+                if (MeasureBright(planes, platePlanes, absent, width, height, s.X, s.Y, scale, drawnProfiles) is { } m)
+                {
+                    measured[i] = new PoolStar(m.Amplitudes, [], [], s.Significance,
+                        [.. drawnProfiles.Select((profile, c) => profile with { Outer = m.Halo[c] })]);
+                    measuredCount++;
+                }
+            }
+            if (measuredCount >= MinBrightMeasured)
+            {
+                var kept = sessionKeptHalo;
+                amplitudes = [.. amplitudes.Select((star, i) => measured[i] is { } m
+                    ? kept is null
+                        ? m
+                        : m with
+                        {
+                            OwnProfiles = [.. m.OwnProfiles.Select((profile, c) => profile with
+                            {
+                                Outer = profile.Outer with { Table = SumTables(profile.Outer.Table, kept[c]), Source = "measured bright star, with the plate's share" },
+                            })],
+                        }
+                    : star)];
+                brightMeasured = measuredCount;
+                brightFellBack = poolRows.Length - measuredCount;
+            }
+            else
+            {
+                brightSessionFellBack = true;
+                brightFellBack = poolRows.Length;
+            }
         }
         var fallbackClips = Enumerable.Range(0, channels)
             .Select(c => FallbackClipFraction * planes[c].Where(float.IsFinite).DefaultIfEmpty(0f).Max() * scale)
@@ -457,10 +527,10 @@ public sealed class InjectionPopulation
                 ?? throw new InvalidOperationException(
                     $"the plate's catalogue holds fewer than {LuminosityFunction.MinFitStars} stars from {LuminosityFunction.FitLowSigma} to {LuminosityFunction.FitHighSigma} sigma to fit a luminosity function to");
             // A faint star's colour is a faint catalogued star's, the nearest the catalogue holds.
-            faintColours = amplitudes.Where(static s => s.Significance < LuminosityFunction.FitLowSigma && s.Significance > 0).ToArray();
+            faintColours = cataloguedPool.Where(static s => s.Significance < LuminosityFunction.FitLowSigma && s.Significance > 0).ToArray();
             if (faintColours.Length == 0)
             {
-                faintColours = amplitudes.Where(static s => s.Significance > 0).ToArray();
+                faintColours = cataloguedPool.Where(static s => s.Significance > 0).ToArray();
             }
             if (faintColours.Length == 0)
             {
@@ -477,6 +547,7 @@ public sealed class InjectionPopulation
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
             moments.ToArray(), field) { Refused = refused, _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo, HaloOverPlateStars = haloOverPlateStars,
+            BrightMeasured = brightMeasured, BrightFellBack = brightFellBack, BrightSessionFellBack = brightSessionFellBack,
             _saturatedShare = countedSites.Length > 0 ? saturatedSites / (double)countedSites.Length : 0.0 };
     }
 
@@ -667,12 +738,20 @@ public sealed class InjectionPopulation
             {
                 var clipped = DrawSaturated(rng, out var ownFallback);
                 fallbackOwn |= ownFallback;
-                stars.Add(new InjectedStar(p.X, p.Y, clipped.Amplitudes, SaturatedProfiles(clipped, p.X, p.Y), Saturated: true, clipped.Clips));
+                stars.Add(new InjectedStar(p.X, p.Y, clipped.Amplitudes, SaturatedProfiles(clipped, p.X, p.Y), Saturated: true, clipped.Clips,
+                    Measured: !clipped.OwnProfiles.IsDefault));
                 AddLobes(stars, p, clipped.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity));
                 placed++;
                 continue;
             }
             var drawn = _amplitudes[rng.Next(_amplitudes.Length)];
+            if (!drawn.OwnProfiles.IsDefault)
+            {
+                // A measured bright star: its own profiles, which nothing of the cell moves, and no lobes (their light is in its rings).
+                stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, drawn.OwnProfiles, Saturated: false, ImmutableArray<double>.Empty, Measured: true));
+                placed++;
+                continue;
+            }
             stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, Shaped(p.X, p.Y, drawn.Significance), Saturated: false, ImmutableArray<double>.Empty));
             AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, drawn.Significance));
             placed++;
@@ -690,7 +769,8 @@ public sealed class InjectionPopulation
                 var drawn = DrawSaturated(rng, out var extraFallback);
                 fallback |= extraFallback;
                 // A saturated star is the brightest band's, however its source star was found.
-                stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, SaturatedProfiles(drawn, p.X, p.Y), Saturated: true, drawn.Clips));
+                stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, SaturatedProfiles(drawn, p.X, p.Y), Saturated: true, drawn.Clips,
+                    Measured: !drawn.OwnProfiles.IsDefault));
                 AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity));
             }
         }
@@ -908,6 +988,158 @@ public sealed class InjectionPopulation
         return [.. sum];
     }
 
+    private static bool StampInFrame(int width, int height, double cx, double cy)
+    {
+        var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
+        return !(ix - MeasuredSkyToPx < 0 || iy - MeasuredSkyToPx < 0 || ix + MeasuredSkyToPx >= width || iy + MeasuredSkyToPx >= height);
+    }
+
+    // The ring reading both measurements share (MeasureSaturated, MeasureBright), so they cannot drift: one channel's master
+    // less its plate, less the sky at MeasuredSkyFromPx to MeasuredSkyToPx, as 1 px ring medians (light, on the unit scale), and
+    // the ring medians of what the renderer draws per pixel for the drawn profile (drawnRing). False where the stamp holds a
+    // non-finite pixel, or an absent one when the frame's absent matrix is given.
+    private static bool ReadRings(float[] plane, float[]? platePlane, BitMatrix? absent, int width, int height, double cx, double cy, double scale,
+        StarProfile drawn, double[] light, double[] drawnRing, out double skyLevel)
+    {
+        const int reach = MeasuredSkyToPx;
+        const int rings = MeasuredHaloReachPx + 1;
+        var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
+        var bins = new List<float>[rings];
+        for (var k = 0; k < rings; k++)
+        {
+            bins[k] = [];
+        }
+        var sky = new List<float>();
+        skyLevel = double.NaN;
+        for (var y = iy - reach; y <= iy + reach; y++)
+        {
+            for (var x = ix - reach; x <= ix + reach; x++)
+            {
+                var v = plane[(y * width) + x] - (platePlane is null ? 0f : platePlane[(y * width) + x]);
+                if (!float.IsFinite(v) || (absent is { } a && a[y, x]))
+                {
+                    return false;
+                }
+                var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                if (r >= MeasuredSkyFromPx && r <= MeasuredSkyToPx)
+                {
+                    sky.Add(v);
+                }
+                else if (r < rings - 0.5)
+                {
+                    bins[(int)Math.Round(r)].Add(v);
+                }
+            }
+        }
+        skyLevel = MedianOf(sky);
+        for (var k = 0; k < rings; k++)
+        {
+            light[k] = bins[k].Count > 0 ? (MedianOf(bins[k]) - skyLevel) * scale : 0.0;
+        }
+        // The drawn profile read as the star was: the ring median of what the renderer draws per pixel (its quadrature),
+        // not the centre value at the ring's radius, which sits under a convex profile's pixel mean 3 to 5 px out and left
+        // every rendered star a tenth short of its own light past 8 px against its 5 px light.
+        foreach (var bin in bins)
+        {
+            bin.Clear();
+        }
+        for (var y = iy - MeasuredHaloReachPx; y <= iy + MeasuredHaloReachPx; y++)
+        {
+            for (var x = ix - MeasuredHaloReachPx; x <= ix + MeasuredHaloReachPx; x++)
+            {
+                var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                if (r < rings - 0.5)
+                {
+                    bins[(int)Math.Round(r)].Add((float)drawn.PixelMean(x, y, cx, cy));
+                }
+            }
+        }
+        for (var k = 0; k < rings; k++)
+        {
+            drawnRing[k] = bins[k].Count > 0 ? MedianOf(bins[k]) : drawn.UngainedAt(k);
+        }
+        return true;
+    }
+
+    /// <summary>The least unsaturated stars that must measure for <c>measuredBright</c> to take effect; fewer and the session draws as without it.</summary>
+    public const int MinBrightMeasured = 20;
+
+    /// <summary>A measured bright star needs at least this significance.</summary>
+    public const float BrightMinSignificance = 100f;
+
+    /// <summary>A star with another catalogued star of at least <see cref="BrightCrowdAmplitudeFraction"/> of its amplitude within
+    /// <see cref="BrightCrowdReachPx"/> px is left on the field profile.</summary>
+    public const double BrightCrowdReachPx = 12.0, BrightCrowdAmplitudeFraction = 0.1;
+
+    /// <summary>
+    /// An unsaturated bright star as the master shows it (#2192): per channel, the amplitude at which <paramref name="drawn"/>
+    /// meets the star's light in rings 0 and 1, its CORE (a clipped star is matched on its wing because its core is cut; an
+    /// unclipped one on its core, so that its flank comes out as its own), and the rest of its light from ring 1 outward (half at
+    /// ring 1) to <see cref="MeasuredHaloReachPx"/> as a fraction of that amplitude (<see cref="OuterHalo.Table"/>), negative
+    /// where the drawn profile is brighter. No clip level. Null where the stamp leaves the frame, holds a non-finite or an absent
+    /// pixel, or a channel's match has no finite positive ratio.
+    /// </summary>
+    internal static (ImmutableArray<double> Amplitudes, ImmutableArray<OuterHalo> Halo)? MeasureBright(
+        float[][] planes, float[][]? platePlanes, BitMatrix? absent, int width, int height, double cx, double cy, double scale,
+        IReadOnlyList<StarProfile> drawn)
+    {
+        if (!StampInFrame(width, height, cx, cy))
+        {
+            return null;
+        }
+        var channels = planes.Length;
+        const int rings = MeasuredHaloReachPx + 1;
+        var amplitudes = ImmutableArray.CreateBuilder<double>(channels);
+        var halos = ImmutableArray.CreateBuilder<OuterHalo>(channels);
+        var light = new double[rings];
+        var drawnRing = new double[rings];
+        var ratios = new List<float>(2);
+        for (var c = 0; c < channels; c++)
+        {
+            if (!ReadRings(planes[c], platePlanes?[c], absent, width, height, cx, cy, scale, drawn[c], light, drawnRing, out _))
+            {
+                return null;
+            }
+            ratios.Clear();
+            for (var k = 0; k <= 1; k++)
+            {
+                if (drawnRing[k] > 0 && double.IsFinite(light[k]) && light[k] > 0)
+                {
+                    ratios.Add((float)(light[k] / drawnRing[k]));
+                }
+            }
+            var amplitude = ratios.Count > 0 ? MedianOf(ratios) : double.NaN;
+            if (!(amplitude > 0) || !double.IsFinite(amplitude))
+            {
+                return null;
+            }
+            var table = new float[rings];
+            for (var k = 1; k < rings; k++)
+            {
+                table[k] = (float)((light[k] - (amplitude * drawnRing[k])) / amplitude * (k == 1 ? 0.5 : 1.0));
+            }
+            // The table is read back linearly between rings, so on a steep flank a ring's pixels (2.5 to 3.5 px) average to
+            // more than its value at the ring: two corrections by what the drawn profile with the table actually shows. Each pass
+            // re-reads the stamp (a cost on a dense master, not a correctness issue; the drawn profile changes each pass).
+            var halo = new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured bright star");
+            for (var pass = 0; pass < 2; pass++)
+            {
+                if (!ReadRings(planes[c], platePlanes?[c], absent, width, height, cx, cy, scale, drawn[c] with { Outer = halo }, light, drawnRing, out _))
+                {
+                    return null;
+                }
+                for (var k = 1; k < rings; k++)
+                {
+                    table[k] += (float)((light[k] - (amplitude * drawnRing[k])) / amplitude * (k == 1 ? 0.5 : 1.0));
+                }
+                halo = new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured bright star");
+            }
+            amplitudes.Add(amplitude);
+            halos.Add(halo);
+        }
+        return (amplitudes.MoveToImmutable(), halos.MoveToImmutable());
+    }
+
     /// <summary>A measured star's drawn peak is at least this many times its clip level, so it still clips as the real one did.</summary>
     public const double MinPeakOverClip = 1.2;
 
@@ -931,81 +1163,27 @@ public sealed class InjectionPopulation
         float[][] planes, float[][]? platePlanes, int width, int height, double cx, double cy, double scale, IReadOnlyList<StarProfile> drawn,
         ImmutableArray<double> cores)
     {
-        const int reach = MeasuredSkyToPx;
-        var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
-        if (ix - reach < 0 || iy - reach < 0 || ix + reach >= width || iy + reach >= height)
+        if (!StampInFrame(width, height, cx, cy))
         {
             return null;
         }
+        var (ix, iy) = ((int)Math.Round(cx), (int)Math.Round(cy));
         var channels = planes.Length;
         const int rings = MeasuredHaloReachPx + 1;
         var amplitudes = ImmutableArray.CreateBuilder<double>(channels);
         var clips = ImmutableArray.CreateBuilder<double>(channels);
         var halos = ImmutableArray.CreateBuilder<OuterHalo>(channels);
-        var bins = new List<float>[rings];
-        for (var k = 0; k < rings; k++)
-        {
-            bins[k] = [];
-        }
-        var sky = new List<float>();
         var light = new double[rings];
         var drawnRing = new double[rings];
         var ratios = new List<float>(MatchToPx - MatchFromPx + 1);
         for (var c = 0; c < channels; c++)
         {
-            foreach (var bin in bins)
-            {
-                bin.Clear();
-            }
-            sky.Clear();
-            var plane = planes[c];
             var platePlane = platePlanes?[c];
-            for (var y = iy - reach; y <= iy + reach; y++)
+            // No absent matrix here: MeasureSaturated's caller never passed one, and refusing a stamp with an absent pixel would
+            // change which saturated stars measure.
+            if (!ReadRings(planes[c], platePlane, null, width, height, cx, cy, scale, drawn[c], light, drawnRing, out var skyLevel))
             {
-                for (var x = ix - reach; x <= ix + reach; x++)
-                {
-                    var v = plane[(y * width) + x] - (platePlane is null ? 0f : platePlane[(y * width) + x]);
-                    if (!float.IsFinite(v))
-                    {
-                        return null;
-                    }
-                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
-                    if (r >= MeasuredSkyFromPx && r <= MeasuredSkyToPx)
-                    {
-                        sky.Add(v);
-                    }
-                    else if (r < rings - 0.5)
-                    {
-                        bins[(int)Math.Round(r)].Add(v);
-                    }
-                }
-            }
-            var skyLevel = MedianOf(sky);
-            for (var k = 0; k < rings; k++)
-            {
-                light[k] = bins[k].Count > 0 ? (MedianOf(bins[k]) - skyLevel) * scale : 0.0;
-            }
-            // The drawn profile read as the star was: the ring median of what the renderer draws per pixel (its quadrature),
-            // not the centre value at the ring's radius, which sits under a convex profile's pixel mean 3 to 5 px out and left
-            // every rendered star a tenth short of its own light past 8 px against its 5 px light.
-            foreach (var bin in bins)
-            {
-                bin.Clear();
-            }
-            for (var y = iy - MeasuredHaloReachPx; y <= iy + MeasuredHaloReachPx; y++)
-            {
-                for (var x = ix - MeasuredHaloReachPx; x <= ix + MeasuredHaloReachPx; x++)
-                {
-                    var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
-                    if (r < rings - 0.5)
-                    {
-                        bins[(int)Math.Round(r)].Add((float)drawn[c].PixelMean(x, y, cx, cy));
-                    }
-                }
-            }
-            for (var k = 0; k < rings; k++)
-            {
-                drawnRing[k] = bins[k].Count > 0 ? MedianOf(bins[k]) : drawn[c].UngainedAt(k);
+                return null;
             }
             ratios.Clear();
             for (var k = MatchFromPx; k <= MatchToPx; k++)
