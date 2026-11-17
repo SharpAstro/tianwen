@@ -591,13 +591,15 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             var timer = new RecordedTimer(this, callback, state);
-            timer.Schedule(dueTime, period);
+            // Made dormant, then armed by Arm: the inner timer exists before anything can see the record.
+            timer.Inner = inner.CreateTimer(static s => ((RecordedTimer)s!).Fire(), timer, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            timer.Arm(dueTime, period);
             _timers[timer] = 0;
-            Seam?.Invoke();
-            // The inner timer can fire before CreateTimer returns (a zero due time), so the record is complete first.
-            timer.Inner = inner.CreateTimer(static s => ((RecordedTimer)s!).Fire(), timer, dueTime, period);
             return timer;
         }
+
+        /// <summary>The clock's now, in UTC ticks.</summary>
+        private long Now => inner.GetUtcNow().UtcTicks;
 
         /// <summary>
         /// The earliest due time, in UTC ticks, of a live ONE-SHOT timer strictly after <paramref name="now"/>;
@@ -670,10 +672,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
 
             public bool IsPeriodic => Volatile.Read(ref _period) > 0;
 
-            public void Schedule(TimeSpan dueTime, TimeSpan period)
+            public void Schedule(TimeSpan dueTime, TimeSpan period, long now)
             {
                 Volatile.Write(ref _period, period == Timeout.InfiniteTimeSpan || period <= TimeSpan.Zero ? 0 : period.Ticks);
-                Volatile.Write(ref _nextDue, dueTime == Timeout.InfiniteTimeSpan ? long.MaxValue : owner.GetUtcNow().UtcTicks + dueTime.Ticks);
+                Volatile.Write(ref _nextDue, dueTime == Timeout.InfiniteTimeSpan ? long.MaxValue : now + dueTime.Ticks);
             }
 
             /// <summary>
@@ -686,13 +688,54 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
                 var period = Volatile.Read(ref _period);
                 Volatile.Write(ref _nextDue, period > 0 ? NextDue + period : long.MaxValue);
                 Interlocked.Increment(ref owner._fires);
+                Interlocked.Increment(ref _fired);
                 callback(state);
+            }
+
+            private long _fired;
+
+            /// <summary>
+            /// Records a due time and arms the inner timer for it so that the two agree even when an
+            /// <see cref="FakeTimeProvider.Advance"/> on another thread lands in between (#2194). Recording first and
+            /// arming after left a gap: an advance in it moved the clock past the recorded due time, fired nothing
+            /// (the inner timer was not armed yet), and the inner timer was then due a whole delay after the advance
+            /// while the record showed the old due time, so a test that waited for that due time never saw it.
+            /// <para>
+            /// Chosen over a lock held across <c>Advance</c>: an advance runs timer callbacks on its own thread and a
+            /// test may block one there (see the <c>advance</c> parameter of <c>PumpUntilAsync</c>), which would
+            /// deadlock every thread that makes or changes a timer. Instead each pass reads the clock, records against
+            /// that reading, arms, and reads the clock again. If it did not move, record and inner timer were made
+            /// from the same instant. If it moved, the pass is repeated from the new instant, unless the timer fired
+            /// meanwhile (an advance that reached it, which the fire already accounted for). The loop retries only
+            /// when an advance actually happened, so it neither spins nor polls.
+            /// </para>
+            /// </summary>
+            public void Arm(TimeSpan dueTime, TimeSpan period)
+            {
+                var first = true;
+                while (true)
+                {
+                    var firedBefore = Interlocked.Read(ref _fired);
+                    var before = owner.Now;
+                    Schedule(dueTime, period, before);
+                    if (first)
+                    {
+                        first = false;
+                        owner.Seam?.Invoke();
+                    }
+
+                    Inner?.Change(dueTime, period);
+                    if (owner.Now == before || Interlocked.Read(ref _fired) != firedBefore)
+                    {
+                        return;
+                    }
+                }
             }
 
             public bool Change(TimeSpan dueTime, TimeSpan period)
             {
-                Schedule(dueTime, period);
-                return Inner?.Change(dueTime, period) ?? false;
+                Arm(dueTime, period);
+                return true;
             }
 
             public void Dispose()
