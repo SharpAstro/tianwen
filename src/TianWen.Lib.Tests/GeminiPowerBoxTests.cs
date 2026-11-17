@@ -328,10 +328,13 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         concrete.HandshakeTimeout = Long;
 
         var connect = driver.ConnectAsync(ct).AsTask();
-        // One advance per attempt: each attempt's deadline is made when it starts, so one made after an advance never fires.
-        for (var attempt = 0; attempt < 3; attempt++)
+        // One advance per attempt, taken for THAT attempt's own deadline: the driver makes the deadline before it writes
+        // the query, so the box's nth '>H#' means attempt n's deadline is made, and waiting for a timer due past half
+        // the deadline then cannot be satisfied by an earlier attempt's.
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct);
+            await box.WaitForWriteAsync(">H#", attempt, ct);
+            await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct, $"attempt {attempt}'s handshake deadline");
             external.TimeProvider.Advance(Long);
         }
 

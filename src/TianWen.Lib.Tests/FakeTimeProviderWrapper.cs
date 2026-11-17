@@ -152,13 +152,33 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// deadline test sets its deadline far past every other timer, waits here until the code under test has made it (a
     /// deadline built on this clock, never on the wall clock), then advances the clock past it ONCE.
     /// </summary>
-    public async Task WaitForTimerDueAfterAsync(TimeSpan atLeast, CancellationToken cancellationToken)
+    /// <param name="atLeast">The least distance from now the awaited timer is due at.</param>
+    /// <param name="cancellationToken">The test's token; its cancellation (the fact's timeout) is the only end of a wait that never comes.</param>
+    /// <param name="description">What is awaited ("attempt 2's handshake deadline"), named in the failure of a wait that never comes.</param>
+    public async Task WaitForTimerDueAfterAsync(TimeSpan atLeast, CancellationToken cancellationToken, string? description = null)
     {
-        while (!_recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks))
+        try
         {
-            await Task.Delay(1, cancellationToken);
+            while (!_recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks))
+            {
+                await Task.Delay(1, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw NeverCame(ex, description, $"a one-shot timer due at least {atLeast} from now", cancellationToken);
         }
     }
+
+    /// <summary>
+    /// The failure of a wait whose token ended: it names what was awaited and lists every live timer with its due time
+    /// relative to now. Built only on this path, once the test's own token has ended the wait: the wait has no bound of
+    /// its own (a wall-clock timeout inside a test is not allowed), so there is no earlier moment at which "it never came"
+    /// is known, and a message written before that would describe a wait that may still succeed.
+    /// </summary>
+    private OperationCanceledException NeverCame(OperationCanceledException inner, string? description, string shape, CancellationToken token)
+        => new($"Waited for {description ?? "a timer"} ({shape}) and the test's token ended first. "
+            + $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}", inner, token);
 
     /// <summary>
     /// <see cref="WaitForTimerDueAfterAsync"/> for a timer due no later than <paramref name="atMost"/> from now as well.
@@ -166,17 +186,24 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// advance so that the advance cannot wake it) needs this: "a timer due after half the deadline" is then true of
     /// that other deadline before the one under test has even been made, and an advance taken on that look fires nothing.
     /// </summary>
-    public async Task WaitForTimerDueWithinAsync(TimeSpan atLeast, TimeSpan atMost, CancellationToken cancellationToken)
+    public async Task WaitForTimerDueWithinAsync(TimeSpan atLeast, TimeSpan atMost, CancellationToken cancellationToken, string? description = null)
     {
-        while (true)
+        try
         {
-            var now = _fake.GetUtcNow().UtcTicks;
-            if (_recording.HasOneShotDueAfter(now + atLeast.Ticks, now + atMost.Ticks))
+            while (true)
             {
-                return;
-            }
+                var now = _fake.GetUtcNow().UtcTicks;
+                if (_recording.HasOneShotDueAfter(now + atLeast.Ticks, now + atMost.Ticks))
+                {
+                    return;
+                }
 
-            await Task.Delay(1, cancellationToken);
+                await Task.Delay(1, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw NeverCame(ex, description, $"a one-shot timer due between {atLeast} and {atMost} from now", cancellationToken);
         }
     }
 
@@ -649,6 +676,20 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             }
 
             return false;
+        }
+
+        /// <summary>Every live timer, one-shot or periodic, with its due time (or period) relative to <paramref name="now"/> (UTC ticks).</summary>
+        public string DescribeTimers(long now)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var (timer, _) in _timers)
+            {
+                var due = timer.NextDue;
+                var when = due == long.MaxValue ? "never due" : $"due in {TimeSpan.FromTicks(due - now)}";
+                parts.Add(timer.IsPeriodic ? $"periodic ({when})" : $"one-shot ({when})");
+            }
+
+            return parts.Count == 0 ? "none" : string.Join("; ", parts);
         }
 
         private void Forget(RecordedTimer timer) => _timers.TryRemove(timer, out _);
