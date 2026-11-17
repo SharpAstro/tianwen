@@ -24,7 +24,7 @@
     <!-- The per-user node's socket location, lock and Kestrel hosting, lifted out of TianWen.Hosting (SharpAstro/Node.Lib). -->
     <PackageVersion Include="Node.Lib" Version="1.2.*" />
     <PackageVersion Include="Node.Lib.Hosting" Version="1.2.*" />
-    <PackageVersion Include="SharpAstro.AppShell" Version="1.2.*" />
+    <PackageVersion Include="SharpAstro.AppShell" Version="1.3.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
 
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
@@ -61,8 +61,8 @@
 
     <PackageVersion Include="System.CommandLine" Version="2.0.12" />
 
-    <PackageVersion Include="DIR.Lib" Version="11.69.*" />
-    <PackageVersion Include="DIR.Lib.Debug" Version="11.69.*" />
+    <PackageVersion Include="DIR.Lib" Version="11.75.*" />
+    <PackageVersion Include="DIR.Lib.Debug" Version="11.75.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
@@ -79,11 +79,11 @@
 
     <PackageVersion Include="SharpAstro.Codecs" Version="$(SharpAstroCodecsVersion)" />
 
-    <PackageVersion Include="Console.Lib" Version="5.25.*" />
-    <PackageVersion Include="Console.Lib.Debug" Version="5.25.*" />
+    <PackageVersion Include="Console.Lib" Version="5.28.*" />
+    <PackageVersion Include="Console.Lib.Debug" Version="5.28.*" />
 
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.95.*" />
-    <PackageVersion Include="SdlVulkan.Renderer.Debug" Version="7.95.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.98.*" />
+    <PackageVersion Include="SdlVulkan.Renderer.Debug" Version="7.98.*" />
     <!-- tools/BakeShaders only. Here rather than inline because this file now covers tools/ as well as
          src/, which is the whole point: a version the sweep cannot see is a version that drifts. -->
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />

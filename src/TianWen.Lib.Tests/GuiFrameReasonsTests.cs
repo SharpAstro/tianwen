@@ -1,3 +1,4 @@
+using System;
 using Shouldly;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -77,6 +78,23 @@ public class GuiFrameReasonsTests
     [InlineData(GuiTab.SkyMap, 1.0)]
     public void AnIdleTabAsksForAFrameAtItsOwnInterval(GuiTab tab, double seconds)
         => GuiTimeCadence.Interval(tab, runGoingOn: false, previewCapturing: false, slewInFlight: false).TotalSeconds.ShouldBe(seconds);
+
+    // Half a pixel of drift at the sidereal rate: 60 degrees down 800 px is 270 arcseconds a pixel, 9 s.
+    [Theory]
+    [InlineData(60.0, 800f, 8.98)]
+    [InlineData(60.0, 1600f, 4.49)]
+    [InlineData(90.0, 480f, 22.44)]
+    [InlineData(1.0, 800f, 1.0)]
+    [InlineData(180.0, 200f, 60.0)]
+    [InlineData(60.0, 0f, 1.0)]
+    [InlineData(0.0, 800f, 1.0)]
+    public void TheAtlasIsDrawnWhenItsSkyHasMovedHalfAPixel(double fieldOfViewDeg, float heightPx, double seconds)
+        => GuiTimeCadence.SkyDrift(fieldOfViewDeg, heightPx).TotalSeconds.ShouldBe(seconds, 0.01);
+
+    [Fact]
+    public void TheAtlassIntervalIsTheOneItsViewAsksFor()
+        => GuiTimeCadence.Interval(GuiTab.SkyMap, runGoingOn: false, previewCapturing: false, slewInFlight: false, TimeSpan.FromSeconds(9))
+            .ShouldBe(TimeSpan.FromSeconds(9));
 
     [Theory]
     [InlineData(GuiTab.Home)]

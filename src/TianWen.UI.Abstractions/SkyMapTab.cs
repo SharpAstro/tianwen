@@ -1434,9 +1434,12 @@ namespace TianWen.UI.Abstractions
             RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(rect.X, stripY, rect.Width, stripH));
 
             var localTime = viewingTime.ToOffset(siteTimeZone);
+            // To the minute, shifted or not. The seconds are the top bar's clock, which ticks in its own rectangle; a
+            // second count here would be a second clock, and one that stood still between the map's frames, which
+            // are drawn when the sky has moved (GuiTimeCadence.SkyDrift) and not once a second.
             var timeText = isTimeShifted
                 ? $"{localTime:yyyy-MM-dd HH:mm}"
-                : $"{localTime:HH:mm:ss}";
+                : $"{localTime:HH:mm}";
 
             // Append a compact signed offset chip while scrubbed (e.g. "(+2d 03h)") so the
             // absolute instant above is read as a deliberate offset from the live wall clock

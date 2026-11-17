@@ -130,9 +130,9 @@ public class GuiFrameSchedulerTests
         frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.Home, clockRect: null).ShouldBeEmpty();
     }
 
-    // Where the sky map's pipeline draws, a narrowed frame is not sound, so the tick is a full frame there.
+    // Where the viewer can lay the sky behind a frame, a narrowed frame has not been looked at, so the tick is a full
+    // frame there. (The Sky Map itself may be narrowed: AWideAtlasIsDrawnWhenItsSkyHasMoved.)
     [Theory]
-    [InlineData(GuiTab.SkyMap)]
     [InlineData(GuiTab.LiveSession)]
     [InlineData(GuiTab.Guider)]
     public void NoFrameIsNarrowedWhereAPipelineSetsItsOwnScissor(GuiTab tab)
@@ -149,11 +149,90 @@ public class GuiFrameSchedulerTests
     {
         var frames = Drawn(GuiTab.SkyMap);
 
-        var (full, _) = Run(frames, 10, 10_000, GuiTab.SkyMap);
+        var (full, narrow) = Run(frames, 10, 10_000, GuiTab.SkyMap);
 
         // Its own interval and the clock's coincide, and each is a full frame here.
         full.ShouldBeInRange(10, 11);
+        narrow.ShouldBe(0);
     }
+
+    // THE guard for the atlas (llvmpipe at 1200x800 sat at 15 % of a core, a Raspberry Pi 3B the same): a view whose
+    // sky takes 18 s to move half a pixel is drawn every 18 s (and once more a second later, the settling frame every
+    // caused frame is owed), and the clock ticks in its own rectangle between.
+    [Fact]
+    public void AWideAtlasIsDrawnWhenItsSkyHasMoved()
+    {
+        var frames = Drawn(GuiTab.SkyMap);
+        var idle = Idle(GuiTab.SkyMap) with { SkyDrift = TimeSpan.FromSeconds(18) };
+
+        var (full, narrow) = Run(frames, 10, 60_000, GuiTab.SkyMap, _ => idle);
+
+        full.ShouldBeInRange(6, 8, "the first frame's settling frame, then a frame and its settling frame each 18 s");
+        narrow.ShouldBeInRange(52, 54, "every other second is the clock alone");
+    }
+
+    // The sky's frame is drawn ON the clock's tick: a change in the middle of a second used to leave the two half a
+    // second apart from then on, two frames a second where one does.
+    [Fact]
+    public void ATimeDrivenFrameOfASecondIsTheClocksFrame()
+    {
+        var frames = Drawn(GuiTab.SkyMap);
+        Run(frames, 10, 2_000, GuiTab.SkyMap);
+        frames.Check(2_500, Idle(GuiTab.SkyMap) with { Changed = true }).ShouldBeTrue();
+        frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.SkyMap, Clock).ShouldBeEmpty();
+
+        var (full, narrow) = Run(frames, 2_510, 12_000, GuiTab.SkyMap);
+
+        (full + narrow).ShouldBeInRange(9, 11, "one frame a second, the clock in it");
+    }
+
+    /// <summary>Runs the idle atlas for a minute on a renderer whose full frame costs <paramref name="costMs"/> of processor.</summary>
+    private static int FullFramesInAMinute(int costMs, TimeSpan? skyDrift = null, bool runGoingOn = false)
+    {
+        var frames = Drawn(GuiTab.SkyMap);
+        var cpu = TimeSpan.Zero;
+        var full = 0;
+        for (long now = 10; now <= 60_000; now += 10)
+        {
+            var inputs = Idle(GuiTab.SkyMap) with { SkyDrift = skyDrift, RunGoingOn = runGoingOn, ProcessCpu = cpu + TimeSpan.FromMilliseconds(1) };
+            if (frames.Check(now, inputs) && frames.BeginFrame(flagged: false, shuttingDown: false, GuiTab.SkyMap, Clock).Count == 0)
+            {
+                full++;
+                cpu += TimeSpan.FromMilliseconds(costMs);
+            }
+        }
+
+        return full;
+    }
+
+    // A frame that costs 2 ms of processor is drawn as often as the content asks.
+    [Fact]
+    public void AFastRendererKeepsTheContentsInterval()
+        => FullFramesInAMinute(costMs: 2).ShouldBeInRange(58, 61);
+
+    // One that costs 150 ms (llvmpipe, the atlas at 1200x800) is held to a twentieth of a core: a frame and its
+    // settling frame each 6 s.
+    [Fact]
+    public void ASlowRendererIsHeldToItsShareOfACore()
+        => FullFramesInAMinute(costMs: 150).ShouldBeInRange(19, 23);
+
+    // However slow, an interval is not stretched past ten seconds for cost alone.
+    [Fact]
+    public void CostNeverSlowsAnIntervalPastItsBound()
+        => FullFramesInAMinute(costMs: 2_000).ShouldBeInRange(11, 13);
+
+    // A run's progress is time-driven too, and paced the same way.
+    [Fact]
+    public void ARunsProgressIsPacedByCostAsWell()
+    {
+        FullFramesInAMinute(costMs: 2, runGoingOn: true).ShouldBeInRange(115, 121);
+        FullFramesInAMinute(costMs: 150, runGoingOn: true).ShouldBeInRange(19, 23);
+    }
+
+    // An interval already slower than what cost asks for is left alone.
+    [Fact]
+    public void CostDoesNotShortenASlowInterval()
+        => FullFramesInAMinute(costMs: 150, skyDrift: TimeSpan.FromSeconds(18)).ShouldBeInRange(6, 8);
 
     [Fact]
     public void ARunsProgressIsDrawnTwiceASecond()

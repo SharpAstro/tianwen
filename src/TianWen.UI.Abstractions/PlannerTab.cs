@@ -654,6 +654,19 @@ namespace TianWen.UI.Abstractions
         /// <summary>The details panel's Show in atlas button (<see cref="ViewInSkyMapSignal"/>).</summary>
         internal const string ShowInAtlasAction = "ShowInAtlas";
 
+        // The narrowest details strip, in design units, that offers a picture section, and so keeps the Show in atlas
+        // button clear of where one would stand. Under it the 60 % the text keeps is too little for the button AND a
+        // name beside it (560x520 at 150 %: a 210-unit strip, the button over the name), so the strip offers no
+        // picture and the button keeps the strip's end. By the STRIP's width, never the selection's, so the button
+        // still stands in one place for every target. Not higher: a 1600 px window at 150 % with the GUI's interface
+        // scale has a strip of about 598 units and shows its picture, so at 480 the name's room is the 60 % less the
+        // button and its paddings, about 163 units, some eighteen characters at the name's size, and a longer name ends
+        // in the strip's usual cut.
+        internal const float DetailsPictureMinStripWidth = 480f;
+
+        // The gap between the details strip's top edge and its Show in atlas button, in design units.
+        private const float DetailsButtonTopMargin = 4f;
+
         private void RenderDetailsPanel(
             PlannerState state,
             RectF32 rect,
@@ -684,7 +697,8 @@ namespace TianWen.UI.Abstractions
 
             var text = rect;
             List<string>? lines = null;
-            if (withPicture && SelectedPicture(state) is { } picture)
+            var pictureOffered = withPicture && rect.Width / DpiScale >= DetailsPictureMinStripWidth;
+            if (pictureOffered && SelectedPicture(state) is { } picture)
             {
                 var dpiScale = DpiScale;
                 var pictureH = ObjectInfoPanel.DesignPictureHeightIn(rect.Height / dpiScale);
@@ -728,8 +742,6 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var lineH = rect.Height / lines.Count;
-
             // Show in atlas, at the end of the name line: the mirror of the atlas panel's View in Planner,
             // which had no way back (reported 2026-09-28). The name line gives up the width it takes.
             var nameW = text.Width - padding * 2f;
@@ -737,21 +749,47 @@ namespace TianWen.UI.Abstractions
             var shownType = shown.CatalogIndex is { } shownIdx && state.ObjectDb?.TryLookupByIndex(shownIdx, out var shownObj) == true
                 ? shownObj.ObjectType
                 : ObjectType.Unknown;
+            // ONE place whatever target is selected (reported 2026-11-16: it moved at almost every row). It was laid out
+            // in the name line of the text column, so its left edge followed the picture's width, and jumped to the
+            // strip's end for a target with none, while its top and height followed the line count. Now it ends where
+            // the widest picture section there can be would begin (the strip less DetailsPictureMaxShare), at a fixed
+            // margin under the strip's top, at its own height: none of which the selection changes. A strip that
+            // offers no picture at all (the compact portrait one, and one under DetailsPictureMinStripWidth) keeps it
+            // at the strip's end.
             var atlasButton = Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WStar(),
-                    Layout.Builder.Text("Show in atlas", BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
-                        .Pad(8f, 3f)
-                        .Bg(FilterBtnBg).BgHover(GuiTheme.Hover(FilterBtnBg))
-                        .Clickable(new HitResult.ButtonHit(ShowInAtlasAction), _ => PostSignal(
-                            new ViewInSkyMapSignal(shown.Name, shown.RA, shown.Dec, shown.CatalogIndex, shownType))))
-                .CrossCenter();
-            foreach (var node in RenderLayout(atlasButton, new RectF32(rect.X + padding, rect.Y, nameW, lineH)))
+                Layout.Builder.VStack(
+                    Layout.Builder.Spacer().RowH(DetailsButtonTopMargin),
+                    Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WStar(),
+                        Layout.Builder.Text("Show in atlas", BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
+                            .Pad(8f, 3f)
+                            .Bg(FilterBtnBg).BgHover(GuiTheme.Hover(FilterBtnBg))
+                            .Clickable(new HitResult.ButtonHit(ShowInAtlasAction), _ => PostSignal(
+                                new ViewInSkyMapSignal(shown.Name, shown.RA, shown.Dec, shown.CatalogIndex, shownType))),
+                        Layout.Builder.Spacer().WFixed(BasePadding))
+                        .WStar().HAuto(),
+                    Layout.Builder.Spacer().HStar())
+                    .WStar(1f - DetailsPictureMaxShare).HStar(),
+                Layout.Builder.Spacer().WStar(pictureOffered ? DetailsPictureMaxShare : 0f).HStar());
+            // The name's row is the button's band: the button's height with the margin over it under it too, so the
+            // name and the button share one middle and no line under the name stands beside the button. Only the name
+            // gives up the width the button takes, read from where the engine put it. The other lines share what the
+            // name's row leaves. (The rows were equal shares of the strip, which put the button across the second line
+            // and often the third, where a line that cannot be shortened ran under it.)
+            var buttonTop = rect.Y;
+            var buttonBottom = rect.Y;
+            foreach (var node in RenderLayout(atlasButton, rect))
             {
                 if (node.Node.Hit is HitResult.ButtonHit { Action: ShowInAtlasAction })
                 {
                     nameW = node.Bounds.X - (rect.X + padding) - padding;
+                    buttonTop = node.Bounds.Y;
+                    buttonBottom = node.Bounds.Y + node.Bounds.Height;
                 }
             }
+            // Always the band, never a share of the strip: the name then stays where it is too, whatever the line count.
+            var nameH = MathF.Min(rect.Height, (buttonBottom - rect.Y) + (buttonTop - rect.Y));
+            var restH = lines.Count > 1 ? (rect.Height - nameH) / (lines.Count - 1) : 0f;
 
             // The name line links to the object's Wikipedia article, the one the object-imagery bake
             // verified. Web-only affordance: the DOM text layer renders it as a real <a href>; the
@@ -762,7 +800,8 @@ namespace TianWen.UI.Abstractions
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                var y = rect.Y + lineH * i;
+                var y = i == 0 ? rect.Y : rect.Y + nameH + restH * (i - 1);
+                var rowH = i == 0 ? nameH : restH;
 
                 // First line is the name (larger, white), rest are info (normal, grey)
                 var fs = i == 0 ? fontSize * 1.25f : fontSize;
@@ -781,13 +820,13 @@ namespace TianWen.UI.Abstractions
                 // text as DOM spans would otherwise leave it at full brightness above the scrim.
                 if (largePictureOpen)
                 {
-                    DrawText(line.AsSpan(), fontPath, rect.X + padding, y, lineW, lineH,
+                    DrawText(line.AsSpan(), fontPath, rect.X + padding, y, lineW, rowH,
                         fs, color, TextAlign.Near, TextAlign.Center);
                 }
                 else
                 {
                     DrawSelectableText(line, fontPath,
-                        rect.X + padding, y, lineW, lineH,
+                        rect.X + padding, y, lineW, rowH,
                         fs, color, TextAlign.Near, TextAlign.Center,
                         i == 0 ? nameHref : null);
                 }
@@ -804,7 +843,7 @@ namespace TianWen.UI.Abstractions
                 // DIR.Lib's CursorKind remarks); stating it beside the click binds the two together.
                 if (i == 0 && nameHref is { } href)
                 {
-                    RegisterClickable(rect.X + padding, y, lineW, lineH,
+                    RegisterClickable(rect.X + padding, y, lineW, rowH,
                         new HitResult.LinkHit(href), cursor: CursorKind.Pointer);
                 }
             }

@@ -676,7 +676,8 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         {
             if (ReferenceEquals(arranged.Node, clockNode))
             {
-                ClockRect = new RectF32(arranged.Bounds.X, arranged.Bounds.Y, arranged.Bounds.Width, arranged.Bounds.Height);
+                ClockRect = GuiChromePixels.PaintedRows(
+                    new RectF32(arranged.Bounds.X, arranged.Bounds.Y, arranged.Bounds.Width, arranged.Bounds.Height));
                 break;
             }
         }
@@ -693,7 +694,28 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
 
     /// <summary>
     /// The clock's rectangle as the last frame painted it, in the surface's pixels; null when the bar was not drawn.
-    /// What a frame owed to the clock's tick alone repaints (<see cref="GuiFrameReasons"/>).
+    /// What a frame owed to the clock's tick alone repaints (<see cref="GuiFrameReasons"/>): its box over the pixel rows
+    /// the bar's fill paints (<see cref="GuiChromePixels.PaintedRows"/>), never a row of the tab under the bar.
     /// </summary>
     public RectF32? ClockRect { get; private set; }
+}
+
+/// <summary>What the chrome's boxes cover in whole pixels, stated beside the fills that decide it.</summary>
+public static class GuiChromePixels
+{
+    /// <summary>
+    /// A box over the pixel rows its fill paints. A fill covers the rows from its truncated top to its truncated bottom
+    /// (<c>PixelWidgetBase.FillRect</c>), so the row a fractional bottom edge ends in is not the box's: under the top bar it
+    /// is the first row of the tab. A repaint rectangle handed on with the fraction is rounded out by the renderer, that
+    /// row joins the frame, and with it everything the tab draws there. At a display scale of 1.15 the bar ends at 32.2,
+    /// which made every clock frame on the atlas shade the whole star field for one row of pixels that had not changed
+    /// (llvmpipe: 12 ms a frame where any other tab's takes 3). The columns are left alone: text may end on the box's own
+    /// edge. A box inside one row is returned as it is.
+    /// </summary>
+    public static RectF32 PaintedRows(RectF32 box)
+    {
+        var top = MathF.Floor(box.Y);
+        var bottom = MathF.Floor(box.Y + box.Height);
+        return bottom > top ? new RectF32(box.X, top, box.Width, bottom - top) : box;
+    }
 }
