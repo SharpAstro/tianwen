@@ -432,7 +432,9 @@ public sealed class InjectionPopulation
             // Another catalogued star of at least a tenth of the candidate's amplitude within 12 px (its own lobes aside) leaves
             // it on the field profile: its rings hold that star's light.
             var allSites = new SiteGrid([.. catalogue.Select(static s => ((double)s.X, (double)s.Y))], BrightCrowdReachPx);
-            static double Peak(FittedStar s) => s.ChannelAmplitudes.IsDefaultOrEmpty || !s.ChannelAmplitudes.All(float.IsFinite) ? 0.0 : s.ChannelAmplitudes.Max();
+            // A neighbour with a non-finite amplitude is of unknown brightness, so it counts as crowding (infinite peak) rather
+            // than being ignored; one with no amplitudes at all holds no light.
+            static double Peak(FittedStar s) => s.ChannelAmplitudes.IsDefaultOrEmpty ? 0.0 : !s.ChannelAmplitudes.All(float.IsFinite) ? double.PositiveInfinity : s.ChannelAmplitudes.Max();
             var measured = new PoolStar?[amplitudes.Length];
             var measuredCount = 0;
             for (var i = 0; i < poolRows.Length; i++)
@@ -1117,7 +1119,8 @@ public sealed class InjectionPopulation
                 table[k] = (float)((light[k] - (amplitude * drawnRing[k])) / amplitude * (k == 1 ? 0.5 : 1.0));
             }
             // The table is read back linearly between rings, so on a steep flank a ring's pixels (2.5 to 3.5 px) average to
-            // more than its value at the ring: two corrections by what the drawn profile with the table actually shows.
+            // more than its value at the ring: two corrections by what the drawn profile with the table actually shows. Each pass
+            // re-reads the stamp (a cost on a dense master, not a correctness issue; the drawn profile changes each pass).
             var halo = new OuterHalo(0.0, 0.0, 0.0, [.. table], "measured bright star");
             for (var pass = 0; pass < 2; pass++)
             {

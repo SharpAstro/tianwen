@@ -1865,7 +1865,8 @@ namespace TianWen.Lib.Tests
 
             log.Messages.ShouldNotContain(static m => m.Contains("drawn as without --bright-measured", StringComparison.Ordinal),
                 "the scene carries enough measurable stars, so the session must not fall back");
-            log.Messages.ShouldContain(static m => m.Contains("bright stars as the master shows them", StringComparison.Ordinal) && m.Contains("measured", StringComparison.Ordinal));
+            log.Messages.ShouldContain(static m => m.Contains("bright stars as the master shows them", StringComparison.Ordinal)
+                && System.Text.RegularExpressions.Regex.IsMatch(m, @", [1-9]\d* measured,"));
             var stars = ReadInjectionRows(on.OutDir).SelectMany(static i => i.Stars).ToArray();
             stars.ShouldNotBeEmpty();
             stars.Count(static s => s.Measured).ShouldBeGreaterThan(0, "the rows of measured stars say so");
