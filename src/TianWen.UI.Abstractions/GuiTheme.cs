@@ -328,6 +328,26 @@ namespace TianWen.UI.Abstractions
         /// <summary>The label on a <see cref="GoButtonBg"/> fill, measured (<see cref="InkOn"/>).</summary>
         public static RGBAColor32 GoButtonInk => InkOn(GoButtonBg);
 
+        /// <summary>
+        /// The bar on the navigation rail's active tab: a MARK that says "the tab you are on", on the rail's outer edge.
+        /// </summary>
+        /// <remarks>
+        /// A role of its own rather than <see cref="GoButtonBg"/>, because it marks a state and the go button is an
+        /// action; the two share the accent's colour today and nothing else. A mark has to stand off both grounds it
+        /// touches, the active plate (<see cref="UiPalette.Selection"/>) and the rail (<see cref="UiPalette.PanelBg"/>),
+        /// at 3:1; a palette whose accent does not gets the body ink instead, which always does.
+        /// </remarks>
+        public static RGBAColor32 RailAccent
+        {
+            get
+            {
+                var p = Palette;
+                return Contrast(p.Accent, p.Selection) >= 3.0 && Contrast(p.Accent, p.PanelBg) >= 3.0
+                    ? p.Accent
+                    : p.BodyText;
+            }
+        }
+
         /// <summary>An action that interrupts something in flight, or a reversible-but-costly choice.</summary>
         public static RGBAColor32 CautionButtonBg => Mix(Palette.PanelBg, Palette.Warn, 0.55f);
 

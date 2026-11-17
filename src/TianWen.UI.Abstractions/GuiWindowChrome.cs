@@ -313,17 +313,11 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
     /// while the window is alive and a field initialiser would snapshot at type-init.
     /// </summary>
     /// <remarks>
-    /// Two of these deliberately blend into the surface behind them, because a nav rail is not a
-    /// document strip and TianWen's has never drawn either:
-    /// <list type="bullet">
-    /// <item><b>Separator</b> takes the rail's own background, so no rule is drawn between cells or
-    /// down the rail's inner edge. Give it <c>Palette.Separator</c> to turn them on.</item>
-    /// <item><b>ActiveAccent</b> takes the active plate, so the accent bar is invisible. Give it
-    /// <c>Palette.Accent</c> for the VS Code-style marker on the outer edge.</item>
-    /// </list>
-    /// <see cref="TabBarColors.HoverBackground"/> is the reason the rail needed it: with no accent,
-    /// hover and active would otherwise render identically and the rail could not say which cell a
-    /// click would take you to.
+    /// <b>Separator</b> deliberately blends into the surface behind it, because a nav rail is not a
+    /// document strip: it takes the rail's own background, so no rule is drawn between cells or down
+    /// the rail's inner edge. Give it <c>Palette.Separator</c> to turn them on.
+    /// <b>ActiveAccent</b> is <see cref="GuiTheme.RailAccent"/>: the bar on the active cell's outer
+    /// edge, so the tab you are on is told from a hovered one by a mark as well as by its plate.
     /// </remarks>
     private static TabBarColors SidebarColors => new()
     {
@@ -335,7 +329,7 @@ public sealed class GuiWindowChrome<TSurface> : CompositeWidget<TSurface>
         InactiveText = IconColor,
         DisabledText = LockedIcon,
         Separator = SidebarBg,
-        ActiveAccent = ActiveTabBg,
+        ActiveAccent = GuiTheme.RailAccent,
     };
 
     /// <summary>

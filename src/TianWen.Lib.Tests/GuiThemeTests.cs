@@ -249,6 +249,33 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        // The rail's active-tab bar is a mark: it has to stand off the active plate it is drawn on and the
+        // rail beside it, and at night it may spend no blue.
+        [Theory]
+        [InlineData("Light")]
+        [InlineData("Dark")]
+        [InlineData("Night")]
+        public void TheRailAccentStandsOffTheActivePlateAndTheRail(string state)
+        {
+            try
+            {
+                GuiTheme.Apply(ByState(state), desktopIsDark: state != "Light");
+
+                var mark = GuiTheme.RailAccent;
+                mark.ShouldBe(GuiTheme.Palette.Accent);
+                Contrast(mark, GuiTheme.Palette.Selection).ShouldBeGreaterThanOrEqualTo(3.0, $"{state}: on the active plate");
+                Contrast(mark, GuiTheme.Palette.PanelBg).ShouldBeGreaterThanOrEqualTo(3.0, $"{state}: on the rail");
+                if (state == "Night")
+                {
+                    mark.Blue.ShouldBe((byte)0);
+                }
+            }
+            finally
+            {
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
+
         // C2c introduced DERIVED fills (Mix of two roles) for buttons, alt rows and the sky ramp. A
         // derived colour can land anywhere, so its label needs the same guarantee a stated role gets,
         // and only InkOn can give it: the mix moves with the theme, so no fixed ink can be right.
