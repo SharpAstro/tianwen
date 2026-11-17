@@ -102,6 +102,44 @@ a software run proves nothing about the GPU. The launch is correct when the log 
 Release build does NOT have is the inspector, so validation findings are read from the log (the
 renderer's 4xx events) rather than from `validation_report`.
 
+## Measuring the idle load on a software renderer
+
+The guest is also the nearest thing on this desk to a Raspberry Pi with no GPU driver: pin the driver to llvmpipe
+instead of `dzn` and every frame is rasterised on the CPU, so the app's idle load is its frame count made visible.
+
+```sh
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json TIANWEN_FRAME_LOG=1 TIANWEN_LOCAL_ONLY=1 \
+TIANWEN_DATA_ROOT=$HOME/twd DISPLAY=:0 ./tianwen-gui
+```
+
+- A released `tianwen-gui-linux-arm64.tar.gz` runs as it is; nothing needs building in the guest.
+- **Read the load from `/proc/<pid>/stat`** (`utime + stime`, in clock ticks) over 30 s or more, as a share of one
+  core. The rasteriser's threads are named `llvmpipe-N` under `/proc/<pid>/task`.
+- **`TIANWEN_FRAME_LOG=1` says why**: every 5 s the GUI's log (`<data root>/Logs/<date>/GUI_*.log`) carries a
+  `Frames in 5 s on <tab>` line with the full and partial frame counts and each cause's count. It works in Release.
+- **Switch tabs by clicking**, `xdotool mousemove --window <id> 40 <y>` then `xdotool click 1`, and confirm by the
+  window title, which names the tab. Key chords sent with `xdotool key` do not arrive. Park the pointer and keep the
+  real one off the window: a pointer moving over it is a frame per move, and shows in the log as `move=`.
+- Measured on the 10.1 release at 1200x800 (2026-11-16): every tab idled at 1 to 3 % of a core but the Sky Map,
+  which sat at 15 %, a full frame a second for the sky's drift and another for the clock. The atlas is now drawn
+  when its sky has moved half a pixel (`GuiTimeCadence.SkyDrift`) and no time-driven frame is drawn faster than the
+  renderer can afford (`GuiFrameScheduler.PacedForCost`), which measured 6 %.
+- **`TIANWEN_FRAME_LOG=2` writes a line per frame**: when it began (ms on a monotonic clock), the paint, the whole
+  frame, the region it repainted, and the time before the paint and after it. What is left of the whole is the
+  submit and present, which on a software rasteriser is where the drawing is done: the paint only records it.
+- **Time a phase on the monotonic clock** (`/proc/uptime`), never `date`: the guest's wall clock is stepped while it
+  syncs to the host, and a 20 s sleep has read as 17.8 s. Gaps between frames come from the trace's own clock.
+- **Build nothing on the host while a run measures**: a `dotnet publish` beside it showed as 60 ms frames in a pan.
+- **A partial frame still shades every vertex drawn under its scissor.** The atlas's clock frame took 12 ms where any
+  other tab's took 3, because at a display scale of 1.15 the bar ends at 32.2 px, the clock's region was rounded out
+  to 33 rows, and the one row it shared with the map had the whole star field drawn for it. The clock's region is now
+  the rows the bar paints (`GuiChromePixels.PaintedRows`) and the map's draws are left out of a frame that misses it
+  (`VkSkyMapTab.RegionMissesMap`). Found by leaving the atlas's parts out in turn, ten seconds each, with the part
+  named in the trace.
+- Measured on renderer 7.98 from NuGet with both in (2026-11-17, 1200x800, 4 processors): every tab idles at 1.5 to
+  3 %, the atlas at 3.2 %; a pan is held to half the machine's processors (194 % of a core) at 30 frames a second
+  with no gap over 90 ms in a dozen pans; atlas hover 15 %, wheel zoom 29 %, planner chart hover 16 %.
+
 ## Two things that will waste your time
 
 **WSLg goes stale, and the symptom is a window that never appears.** The process runs, the log looks

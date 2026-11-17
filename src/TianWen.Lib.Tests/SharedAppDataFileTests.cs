@@ -187,17 +187,24 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         var staging = $"{path}.{Guid.NewGuid():N}.tmp";
         await File.WriteAllTextAsync(staging, "new", ct);
 
-        var replacing = Task.Run(async () =>
-        {
-            await Task.Delay(300, ct);
-            File.Move(staging, path);
-        }, ct);
+        var replacing = ReplaceAfterAWhile(staging, path, ct);
 
         await using var stream = await SharedFile.TryOpenReadAsync(path, ct) ?? throw new Xunit.Sdk.XunitException("the reader called the name gone during a replace");
         await replacing;
         using var reader = new StreamReader(stream);
         (await reader.ReadToEndAsync(ct)).ShouldBe("new");
     }
+
+    // The writer whose replace takes 300 ms, on a thread of its own. On the pool it waited its turn behind the rest
+    // of the suite: on a CI runner that was longer than the second a reader gives a staging file before taking it
+    // for a crashed writer's orphan, and the reader then called the name gone, rightly, in a test that says it must
+    // not (#2190: both failures ran 1.1 s and 1.7 s, where a pass takes 0.3).
+    private static Task ReplaceAfterAWhile(string staging, string path, CancellationToken ct)
+        => Task.Factory.StartNew(() =>
+        {
+            ct.WaitHandle.WaitOne(300);
+            File.Move(staging, path);
+        }, ct, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
     /// <summary>The same for a listing that expects a file: a replace under way is waited out.</summary>
     [Fact(Timeout = 60_000)]
@@ -209,11 +216,7 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         var staging = $"{path}.{Guid.NewGuid():N}.tmp";
         await File.WriteAllTextAsync(staging, "new", ct);
 
-        var replacing = Task.Run(async () =>
-        {
-            await Task.Delay(300, ct);
-            File.Move(staging, path);
-        }, ct);
+        var replacing = ReplaceAfterAWhile(staging, path, ct);
 
         var listed = await SharedFile.ListAsync(folder, ".json", [path], ct);
         await replacing;

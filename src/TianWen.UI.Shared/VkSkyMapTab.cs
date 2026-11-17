@@ -249,15 +249,18 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // which puts a photograph between them) gets the imagery here and the lines from
         // RenderSkyMapLines below, reusing the ring-buffer writes above: same frame, same offsets,
         // so the geometry is built once however many passes read it.
-        PushClip(contentRect.X, contentRect.Y, mapW, mapH);
-        try
+        if (!FrameMissesMap(contentRect, mapW, mapH))
         {
-            _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
-                milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo, phase);
-        }
-        finally
-        {
-            PopClip();
+            PushClip(contentRect.X, contentRect.Y, mapW, mapH);
+            try
+            {
+                _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
+                    milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo, phase);
+            }
+            finally
+            {
+                PopClip();
+            }
         }
 
         _deferredGeometry = phase is SkyMapDrawPhase.Backdrop
@@ -280,6 +283,35 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// </summary>
     public static (uint Width, uint Height) FullTargetExtent(uint swapchainWidth, uint swapchainHeight, uint rendererWidth, uint rendererHeight)
         => swapchainWidth > 0 && swapchainHeight > 0 ? (swapchainWidth, swapchainHeight) : (rendererWidth, rendererHeight);
+
+    /// <summary>
+    /// Whether a frame that repaints only <paramref name="region"/> (device pixels) leaves the map rect alone: the top bar's clock,
+    /// once a second. The map's pipeline draws are then left out. The frame's scissor would discard every fragment of them anyway,
+    /// but only after their vertices were shaded, and on a software rasteriser that is the cost of the frame: the stars are shaded
+    /// on the processor whether or not one lands in the rectangle. Measured on llvmpipe at 1200x800 with the map's parts left out
+    /// in turn: a clock frame on the atlas took 12 ms, 10 of them these draws, where any other tab's takes 3. A region that only
+    /// touches the map's edge misses it; an empty map rect is missed by everything.
+    /// Public because this assembly grants no <c>InternalsVisibleTo</c>, and the tests pin the choice.
+    /// </summary>
+    public static bool RegionMissesMap(int regionX, int regionY, uint regionWidth, uint regionHeight,
+        float mapX, float mapY, float mapWidth, float mapHeight)
+        => mapWidth <= 0 || mapHeight <= 0
+            || regionX >= mapX + mapWidth || regionX + (long)regionWidth <= mapX
+            || regionY >= mapY + mapHeight || regionY + (long)regionHeight <= mapY;
+
+    // Only a partial frame can miss the map: a full frame's region is the whole target. Nothing else is left out on a frame
+    // that misses it: the view's state, its hit regions and its labels are worked out as on any frame.
+    private bool FrameMissesMap(RectF32 contentRect, float mapW, float mapH)
+    {
+        if (!renderer.LastFrameWasPartial)
+        {
+            return false;
+        }
+
+        var region = renderer.Context.LastFrameRegion;
+        return RegionMissesMap(region.offset.x, region.offset.y, region.extent.width, region.extent.height,
+            contentRect.X, contentRect.Y, mapW, mapH);
+    }
 
     // The viewport of the whole target (FullTargetExtent), after a sky pass set the map rect's. The scissor is not
     // touched: it is the renderer's clip stack's, which the pass pushed the map rect onto and popped again, so what is
@@ -320,16 +352,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         _deferredGeometry = null;
 
         var cmd = renderer.CurrentCommandBuffer;
-        PushClip(contentRect.X, contentRect.Y, g.MapWidth, g.MapHeight);
-        try
+        if (!FrameMissesMap(contentRect, g.MapWidth, g.MapHeight))
         {
-            _pipeline.Draw(cmd, State, g.MapWidth, g.MapHeight, contentRect.X, contentRect.Y,
-                g.MilkyWayAlpha, g.Horizon, g.Meridian, g.AltAzGrid, g.FovOutlines,
-                SkyMapDrawPhase.Lines);
-        }
-        finally
-        {
-            PopClip();
+            PushClip(contentRect.X, contentRect.Y, g.MapWidth, g.MapHeight);
+            try
+            {
+                _pipeline.Draw(cmd, State, g.MapWidth, g.MapHeight, contentRect.X, contentRect.Y,
+                    g.MilkyWayAlpha, g.Horizon, g.Meridian, g.AltAzGrid, g.FovOutlines,
+                    SkyMapDrawPhase.Lines);
+            }
+            finally
+            {
+                PopClip();
+            }
         }
 
         // The pipeline clips its viewport to the map rect; everything drawn after this is in window

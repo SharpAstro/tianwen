@@ -744,6 +744,85 @@ namespace TianWen.Lib.Tests
             return (tab, state, content, time);
         }
 
+        /// <summary>
+        /// <b>Show in atlas sits in one place whatever target is selected.</b> It was laid out in the name line of the
+        /// text column, so its left edge followed the selected picture's width (and jumped to the strip's end for a
+        /// target with none) and its top and height followed the line count, which differs from target to target:
+        /// stepping down the list moved the button under the pointer at almost every row (reported 2026-11-16).
+        /// </summary>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task ShowInAtlasSitsInOnePlaceWhateverTheTarget(float dpiScale)
+        {
+            static (float X, float Y, float W, float H) Button(PlannerTab<RgbaImage> tab)
+            {
+                var button = tab.GetRegisteredRegions()
+                    .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
+                return (button.X, button.Y, button.Width, button.Height);
+            }
+
+            using var first = new RgbaImageRenderer(1600, 1000);
+            var (withPicture, _, _, _) = await PlannerWithPictureAsync(first, dpiScale: dpiScale);
+            using var second = new RgbaImageRenderer(1600, 1000);
+            var (plain, _, _, _) = await PlannerWithPictureAsync(second, CatalogIndex.IC1000, dpiScale);
+            using var third = new RgbaImageRenderer(1600, 1000);
+            var (panorama, _, _, _) = await PlannerWithPictureAsync(third, dpiScale: dpiScale, db: PanoramaDb());
+
+            // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the three renders beside the test binary, to be looked at.
+            if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
+            {
+                foreach (var (label, renderer) in new[] { ("picture", first), ("plain", second), ("panorama", third) })
+                {
+                    File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, $"plannertab-atlasbutton-{label}-{dpiScale:0.0}.png"),
+                        PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
+                }
+            }
+
+            withPicture.PaintedDetailLines.Count.ShouldNotBe(plain.PaintedDetailLines.Count, "the two strips differ in line count, or this proves less");
+            var expected = Button(withPicture);
+            foreach (var other in new[] { Button(plain), Button(panorama) })
+            {
+                other.X.ShouldBe(expected.X, 0.5f);
+                other.Y.ShouldBe(expected.Y, 0.5f);
+                other.W.ShouldBe(expected.W, 0.5f);
+                other.H.ShouldBe(expected.H, 0.5f);
+            }
+
+            // And it ends where the widest picture section there can be would begin, a padding short of it.
+            var details = withPicture.DetailsRect;
+            var widestSectionStarts = details.X + details.Width * (1f - PlannerTab<RgbaImage>.DetailsPictureMaxShare);
+            (expected.X + expected.W).ShouldBeLessThanOrEqualTo(widestSectionStarts + 0.5f);
+            (expected.X + expected.W).ShouldBe(widestSectionStarts - PlannerTab<RgbaImage>.BasePadding * dpiScale, 1f);
+            expected.Y.ShouldBeGreaterThan(details.Y);
+            expected.H.ShouldBeLessThan(details.Height / 2f, "its own height, not the strip's");
+
+            // Left of the picture section actually drawn, and no detail line's link runs under it.
+            var picture = withPicture.Pictures.ShouldHaveSingleItem().Rect;
+            (expected.X + expected.W).ShouldBeLessThanOrEqualTo(picture.X);
+            foreach (var link in withPicture.GetRegisteredRegions().Where(r => r.Result is HitResult.LinkHit
+                && r.Y < expected.Y + expected.H && r.Y + r.Height > expected.Y && r.X < expected.X))
+            {
+                (link.X + link.Width).ShouldBeLessThanOrEqualTo(expected.X + 0.5f, "a line beside the button ends before it");
+            }
+        }
+
+        /// <summary>The compact portrait strip offers no picture, so the button keeps the strip's end.</summary>
+        [Fact]
+        public void ShowInAtlasKeepsTheStripsEndWhereNoPictureIsOffered()
+        {
+            using var renderer = new RgbaImageRenderer(390, 844);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            tab.Render(BuildState(), new RectF32(0, 0, renderer.Width, renderer.Height),
+                new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero)));
+
+            var details = tab.DetailsRect;
+            details.Height.ShouldBeGreaterThan(0f, "the strip is on show at this size, or this proves nothing");
+            var button = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
+            (button.X + button.Width).ShouldBe(details.X + details.Width - PlannerTab<RgbaImage>.BasePadding, 1f);
+        }
+
         [Theory]
         [InlineData(1f, 1f, 1600)]
         [InlineData(1.5f, 1f, 1600)]
@@ -843,9 +922,14 @@ namespace TianWen.Lib.Tests
         private static void AssertDetailLinesFitTheirColumn(PlannerTab<RgbaImage> tab, TextCapturingRenderer renderer)
         {
             var columnRight = tab.PaintedDetailsTextRect.X + tab.PaintedDetailsTextRect.Width;
+            // The Show in atlas button shares the name's row and no other: no line under the name stands beside it,
+            // so none can run under it.
+            var button = tab.GetRegisteredRegions()
+                .Single(r => r.Result is HitResult.ButtonHit { Action: PlannerTab<RgbaImage>.ShowInAtlasAction });
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 var run = renderer.Runs.Last(r => r.Text == line);
+                ((float)run.Rect.UpperLeft.Y).ShouldBeGreaterThanOrEqualTo(button.Y + button.Height - 1f, line);
                 (run.Rect.UpperLeft.X + renderer.MeasureText(line.AsSpan(), run.Font, run.FontSize).Width)
                     .ShouldBeLessThanOrEqualTo(columnRight, line);
             }

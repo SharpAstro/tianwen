@@ -300,7 +300,17 @@ long fullFrames = 0;
 long partialFrames = 0;
 // TIANWEN_FRAME_LOG=1 writes those counts, the tab on show and each cause's count to the log every five seconds: the
 // evidence for a measurement on a machine no inspector reaches (a software renderer in WSL, a Raspberry Pi).
-var frameLog = Environment.GetEnvironmentVariable("TIANWEN_FRAME_LOG") == "1";
+// TIANWEN_FRAME_LOG=2 adds a line for EVERY frame: when it began, how long the paint took and how long the whole frame
+// did, to the hand-back after present. A stall or a stutter is a gap or a long frame in that list, which no count per
+// five seconds can show; a gesture's upper limit is the frames per second it reads.
+var frameLogLevel = Environment.GetEnvironmentVariable("TIANWEN_FRAME_LOG");
+var frameLog = frameLogLevel is "1" or "2";
+var frameTrace = frameLogLevel == "2";
+long _frameTraceOrigin = System.Diagnostics.Stopwatch.GetTimestamp();
+long _frameBegan = 0;
+double _frameRenderMs = 0;
+double _frameBeginMs = 0;
+double _frameAfterPaintMs = 0;
 var _lastFrameLogTimestamp = timeProvider.GetTimestamp();
 long _lastLoggedFull = 0;
 long _lastLoggedPartial = 0;
@@ -541,13 +551,18 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             RedrawPending: eventLoop is not { RedrawPending: false },
             PendingForPointerMoveAlone: eventLoop is { RedrawPendingForPointerMoveAlone: true },
             PointerMoveChanged: moveChanged,
-            PointerMoveUnstated: moveUnstated));
+            PointerMoveUnstated: moveUnstated,
+            // The atlas is redrawn when its sky has moved, which the view's scale decides, and no frame is drawn
+            // faster than this computer can afford (GuiFrameScheduler reads the cost from the process's own time).
+            SkyDrift: GuiTimeCadence.SkyDrift(guiRenderer.SkyMapState.FieldOfViewDeg, guiRenderer.SkyMapState.LastContentRect.Height),
+            ProcessCpu: Environment.CpuUsage.TotalTime));
     },
 
     // Committed to a frame: say what it repaints. The flags are PEEKED here, never consumed: a narrowed frame takes no
     // part in their life, and they are cleared after a full frame only (OnPostFrame), as they always were.
     OnBeforeFrame = () =>
     {
+        _frameBegan = System.Diagnostics.Stopwatch.GetTimestamp();
         var flagged = appState.NeedsRedraw || plannerState.NeedsRedraw || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw;
         if (frameLog)
@@ -584,10 +599,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
 
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        _frameBeginMs = System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan, renderStart).TotalMilliseconds;
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
         // Last, over everything: the one tooltip the router has due, whichever region declared it (#1446).
         guiRenderer.RenderTooltip(handlers.Tooltip);
         var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
+        _frameRenderMs = renderElapsed.TotalMilliseconds;
 
         // Everything that can only be decided once the frame exists: a field that stopped being drawn
         // loses the keyboard (scroll one out of a culled list, or switch tabs away from it, and typing
@@ -621,6 +638,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                     renderElapsed.TotalMilliseconds, appState.ActiveTab);
             }
         }
+
+        _frameAfterPaintMs = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart).TotalMilliseconds - _frameRenderMs;
     },
 
 };
@@ -645,6 +664,17 @@ loop.OnLoopIteration = () =>
 // Set separately to allow loop.Stop() self-reference
 loop.OnPostFrame = () =>
 {
+    if (frameTrace)
+    {
+        var region = renderer.Context.LastFrameRegion;
+        logger.LogInformation("Frame {Kind} on {ActiveTab} at {AtMs:F0} ms: paint {PaintMs:F1} ms, whole {WholeMs:F1} ms, region {X},{Y} {Width}x{Height}, begin {BeginMs:F1} ms, after paint {AfterPaintMs:F1} ms",
+            renderer.LastFrameWasPartial ? "partial" : "full", appState.ActiveTab,
+            System.Diagnostics.Stopwatch.GetElapsedTime(_frameTraceOrigin, _frameBegan).TotalMilliseconds,
+            _frameRenderMs, System.Diagnostics.Stopwatch.GetElapsedTime(_frameBegan).TotalMilliseconds,
+            region.offset.x, region.offset.y, region.extent.width, region.extent.height,
+            _frameBeginMs, _frameAfterPaintMs);
+    }
+
     // Any signal processed this post-frame may have mutated state that the just-rendered
     // frame doesn't reflect: preserve NeedsRedraw so the loop renders again on the next
     // iteration. The previous "redrawBefore == false" gate was buggy: when the click that
