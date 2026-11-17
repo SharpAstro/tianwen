@@ -188,7 +188,8 @@ internal sealed partial class ImageSubCommand
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = parseResult.Required(mastersArg);
-            if (parseResult.GetValue(noProtectCoresOpt) && parseResult.GetValue(protectCoresOpt))
+            var noProtect = parseResult.GetValue(noProtectCoresOpt);
+            if (!TryResolveCoreProtection(noProtect, parseResult.GetValue(protectCoresOpt), out var coreOptions))
             {
                 consoleHost.WriteScrollable("[remove-stars] --protect-cores and --no-protect-cores contradict each other; give one");
                 return 1;
@@ -204,7 +205,7 @@ internal sealed partial class ImageSubCommand
             IStarRemover remover = own ?? starRemover;
             consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
             var (starless, stars, cores) = await NarrowbandCombination.SplitStarsAsync(
-                masters, remover, parseResult.GetValue(noProtectCoresOpt) ? null : ExtendedCoreMask.Options.Default, ct);
+                masters, remover, coreOptions, ct);
             for (var i = 0; i < starless.Length; i++)
             {
                 if (cores?[i] is { } mask)
@@ -490,6 +491,13 @@ internal sealed partial class ImageSubCommand
     // The stars go beside the STARLESS output, wherever -o put it: a _starless name becomes _stars, any other gains it.
     // It used to fall back to the input's folder whenever -o's name ended in _starless, so a master read from a store
     // had its stars written into that store (an Omega Cen session master, 2026-10-07).
+    // Core protection is on unless --no-protect-cores; --protect-cores is a no-op kept for old command lines; both is an error.
+    internal static bool TryResolveCoreProtection(bool noProtect, bool protect, out ExtendedCoreMask.Options? options)
+    {
+        options = noProtect ? null : ExtendedCoreMask.Options.Default;
+        return !(noProtect && protect);
+    }
+
     internal static string StarsOutput(string starlessPath)
     {
         var stem = StripExtension(starlessPath);

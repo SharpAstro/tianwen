@@ -1,5 +1,5 @@
 // Usage: CoreMaskProbe <outDir> <session-masters folder | master.fits>...
-// The core mask of every master named (ExtendedCoreMask.Find at its defaults, as image remove-stars --protect-cores runs it),
+// The core mask of every master named (ExtendedCoreMask.Find at its defaults, as image remove-stars runs it by default),
 // one JSON line each in <outDir>/survey.jsonl: the cores with the two measures the rules read (EdgeDistancePx, PeakRatio), the area the
 // starless plate takes back, and the catalogued stars inside it. A core's weight plane is written to <outDir>/<stem>.weight.u8.
 using System.Globalization;

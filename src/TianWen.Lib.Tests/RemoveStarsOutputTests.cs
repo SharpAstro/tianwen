@@ -21,4 +21,15 @@ public class RemoveStarsOutputTests
     {
         ImageSubCommand.StarsOutput(starless).ShouldBe(expected);
     }
+
+    [Theory]
+    [InlineData(false, false, true, true)]   // no flag: protected
+    [InlineData(false, true, true, true)]    // --protect-cores: still protected
+    [InlineData(true, false, true, false)]   // --no-protect-cores: not protected
+    [InlineData(true, true, false, false)]   // both: refused
+    public void CoreProtectionIsOnUnlessSwitchedOff(bool noProtect, bool protect, bool accepted, bool protectedRun)
+    {
+        ImageSubCommand.TryResolveCoreProtection(noProtect, protect, out var options).ShouldBe(accepted);
+        (options is not null).ShouldBe(protectedRun);
+    }
 }

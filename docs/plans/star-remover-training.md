@@ -2825,10 +2825,12 @@ Through the product (`image remove-stars`, protection on with E6's three models 
 2,048 px on the Lagoon, 2,944 px on M31. M31's central 6 px are taken 0 % in every channel. Grown and feathered, the
 protected region changes 9,318 and 12,238 px, and keeps 3 of the Lagoon's 13,718 compact sources over 20 sigma and 2 of
 M31's 23,728 out of the stars layer. The owner, on the Lagoon's crops: "it does make the stars a lot cleaner". The price
-is those few stars, which stay in the starless plate. Off by default until the owner says otherwise. The stacking workbench draws the cores and lets
+is those few stars, which stay in the starless plate. On by default since #2199; `--no-protect-cores` reads the remover alone. The stacking workbench draws the cores and lets
 the user drop or add one (`stacking-workbench.md`, Deep sky, step 6). Pinned by `ExtendedCoreMaskTests`.
 
 ##### The survey repeated with the two rules (2026-11-17, #2199)
+
+In every earlier round of this plan, "read without `--protect-cores`" means `--no-protect-cores` today, since protection is now the default and `--protect-cores` is a no-op.
 
 The first survey of this mask over the dataset store's 201 session masters found 148 cores, and a read of their contact
 sheets sorted them: a frame-edge rim, a single bright star, dense stars (a cluster), and about 78 extended cores. #2199
@@ -3209,7 +3211,7 @@ the weights and their contract into `src/TianWen.AI.Imaging/models/` beside the 
 remover registered as Tianwen's own `IStarRemover`, served by `--ai-backend tianwen` and wherever RC-Astro is absent, so
 the canonical program splits the stars instead of running whole-frame; its views a setting (one pass by default, eight as
 the measured quality step); and CLAUDE.md's "none ship and none are registered" rewritten with it. Core protection
-(`--protect-cores`, #1658) applies to it as to any remover.
+(`--protect-cores`, #1658, now the default) applies to it as to any remover.
 
 #### R2q: R2p's recipe with synthetic crowded clusters beside synth4, pre-registered (2026-10-21)
 
@@ -4499,8 +4501,8 @@ end of a cosine schedule that records no best step.
 4. **A nucleus-and-core guard in the trainer's training mix.** The guard failed on seed 1 at 20 % and it was never a
    training signal; a set of real bright compact structure (M31's nucleus, the cores of other galaxies) held out of the
    removal target, or a term for it, as R3b2's real-tile term would be. Gate: M31's nucleus under 5 % in every channel
-   without `--protect-cores`, no loss on A's draws beyond the bars.
-5. **Read the nucleus guard with `--protect-cores` as shipped.** The guard is read without it, a remover's own behaviour;
+   without protection (`--no-protect-cores`), no loss on A's draws beyond the bars.
+5. **Read the nucleus guard with protection as shipped (the default).** The guard is read with `--no-protect-cores`, a remover's own behaviour;
    R2t itself sits over 5 % in green on it. The owner decides whether the guard's line is 5 % or the shipped path's, which
    changes whether R3a seed 1 fails anything.
 
