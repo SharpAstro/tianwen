@@ -106,6 +106,21 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         other.WrittenCommands.ShouldBe([">H#"], "nothing but the identity query reaches a device that is not the box");
     }
 
+    [Fact]
+    public async Task AWriteWaitThatNeverComesNamesTheCommandTheCountAndTheCallersText()
+    {
+        var box = new FakeGeminiPowerBoxSerialDevice();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var ex = await Should.ThrowAsync<OperationCanceledException>(
+            () => box.WaitForWriteAsync(">H#", 3, cts.Token, () => "the callback text"));
+
+        ex.Message.ShouldContain(">H#");
+        ex.Message.ShouldContain("3 time(s)");
+        ex.Message.ShouldContain("the callback text");
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task EveryChannelReadsFromTheBoxsFrame()
     {

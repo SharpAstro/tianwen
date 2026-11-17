@@ -170,16 +170,16 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         }
     }
 
+    /// <summary>The clock's now and every live timer with its due time relative to now, for a failure message of a wait on something else (a fake device's write).</summary>
+    public string DescribeLiveTimers()
+        => $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}";
+
     /// <summary>
     /// The failure of a wait whose token ended: it names what was awaited and lists every live timer with its due time
     /// relative to now. Built only on this path, once the test's own token has ended the wait: the wait has no bound of
     /// its own (a wall-clock timeout inside a test is not allowed), so there is no earlier moment at which "it never came"
     /// is known, and a message written before that would describe a wait that may still succeed.
     /// </summary>
-    /// <summary>The clock's now and every live timer with its due time relative to now, for a failure message of a wait on something else (a fake device's write).</summary>
-    public string DescribeLiveTimers()
-        => $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}";
-
     private OperationCanceledException NeverCame(OperationCanceledException inner, string? description, string shape, CancellationToken token)
         => new($"Waited for {description ?? "a timer"} ({shape}) and the test's token ended first. "
             + $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}", inner, token);
@@ -754,6 +754,17 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             /// from the same instant. If it moved, the pass is repeated from the new instant, unless the timer fired
             /// meanwhile (an advance that reached it, which the fire already accounted for). The loop retries only
             /// when an advance actually happened, so it neither spins nor polls.
+            /// </para>
+            /// <para>
+            /// Known limit, accepted: <c>firedBefore</c> is read before the pass, so on a <c>Change</c> of a LIVE timer an
+            /// advance that fires its OLDER arming just before <c>Inner.Change</c> counts as "fired meanwhile". The record
+            /// then stays <c>never due</c> while the inner timer is armed, so a pump or a
+            /// <see cref="WaitForTimerDueAfterAsync"/> is blind to that timer (the pump falls back to its coarse step).
+            /// A timer created dormant and then changed (the Gemini deadline) has no older arming and cannot hit it, and
+            /// the window is a few instructions wide. Reading the count only after <c>Inner.Change</c> would not close
+            /// it, since a fire could still land between the read and the change. Likewise a periodic timer that fires
+            /// while hidden keeps <c>long.MaxValue</c> (<see cref="Fire"/> leaves a hidden due time alone), so
+            /// <c>DescribeTimers</c> shows it as <c>periodic (never due)</c>; harmless, it is a description only.
             /// </para>
             /// </summary>
             public void Arm(TimeSpan dueTime, TimeSpan period)
