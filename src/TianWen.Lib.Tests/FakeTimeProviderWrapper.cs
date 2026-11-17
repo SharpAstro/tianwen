@@ -176,6 +176,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// its own (a wall-clock timeout inside a test is not allowed), so there is no earlier moment at which "it never came"
     /// is known, and a message written before that would describe a wait that may still succeed.
     /// </summary>
+    /// <summary>The clock's now and every live timer with its due time relative to now, for a failure message of a wait on something else (a fake device's write).</summary>
+    public string DescribeLiveTimers()
+        => $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}";
+
     private OperationCanceledException NeverCame(OperationCanceledException inner, string? description, string shape, CancellationToken token)
         => new($"Waited for {description ?? "a timer"} ({shape}) and the test's token ended first. "
             + $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}", inner, token);
@@ -727,7 +731,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             public void Fire()
             {
                 var period = Volatile.Read(ref _period);
-                Volatile.Write(ref _nextDue, period > 0 ? NextDue + period : long.MaxValue);
+                var due = NextDue;
+                Volatile.Write(ref _nextDue, period > 0 && due != long.MaxValue ? due + period : long.MaxValue);
                 Interlocked.Increment(ref owner._fires);
                 Interlocked.Increment(ref _fired);
                 callback(state);
@@ -754,11 +759,14 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             public void Arm(TimeSpan dueTime, TimeSpan period)
             {
                 var first = true;
+                var firedBefore = Interlocked.Read(ref _fired);
+                // Hidden first: no waiter sees a due time until the inner timer holds it, so an Advance taken on a due
+                // time the record shows has that timer armed for it (this holds for Change on a live timer as well,
+                // whose old due time must not stay shown while the new one is being armed).
+                Volatile.Write(ref _nextDue, long.MaxValue);
                 while (true)
                 {
-                    var firedBefore = Interlocked.Read(ref _fired);
                     var before = owner.Now;
-                    Schedule(dueTime, period, before);
                     if (first)
                     {
                         first = false;
@@ -766,8 +774,22 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
                     }
 
                     Inner?.Change(dueTime, period);
-                    if (owner.Now == before || Interlocked.Read(ref _fired) != firedBefore)
+                    if (Interlocked.Read(ref _fired) != firedBefore)
                     {
+                        // An advance reached the timer meanwhile; Fire already accounted for it.
+                        Volatile.Write(ref _period, period == Timeout.InfiniteTimeSpan || period <= TimeSpan.Zero ? 0 : period.Ticks);
+                        return;
+                    }
+
+                    if (owner.Now == before)
+                    {
+                        Schedule(dueTime, period, before);
+                        if (Interlocked.Read(ref _fired) != firedBefore && _period == 0)
+                        {
+                            // Fired between the check and the publish: a one-shot is spent.
+                            Volatile.Write(ref _nextDue, long.MaxValue);
+                        }
+
                         return;
                     }
                 }

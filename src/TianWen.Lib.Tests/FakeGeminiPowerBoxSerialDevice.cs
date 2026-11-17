@@ -68,7 +68,11 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
     /// time on this port, or at once if it already has. A signal completed where <see cref="WrittenCommands"/> is appended,
     /// never a poll; it ends with <paramref name="cancellationToken"/> (the test's, so the 30 s fact timeout).
     /// </summary>
-    public Task WaitForWriteAsync(string command, int count, CancellationToken cancellationToken)
+    /// <param name="command">The command awaited.</param>
+    /// <param name="count">How many writes of it.</param>
+    /// <param name="cancellationToken">The test's token.</param>
+    /// <param name="describe">What the wait is for and the clock's state, evaluated only when the token ended the wait (the message is not known earlier).</param>
+    public async Task WaitForWriteAsync(string command, int count, CancellationToken cancellationToken, Func<string>? describe = null)
     {
         TaskCompletionSource tcs;
         lock (_stateLock)
@@ -84,7 +88,7 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
 
             if (seen >= count)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             if (!_writeWaiters.TryGetValue((command, count), out tcs!))
@@ -93,7 +97,15 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
             }
         }
 
-        return tcs.Task.WaitAsync(cancellationToken);
+        try
+        {
+            await tcs.Task.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                $"Waited for '{command}' to be written {count} time(s) and the test's token ended first. {describe?.Invoke()}", ex, cancellationToken);
+        }
     }
 
     public bool IsOpen { get; private set; } = true;

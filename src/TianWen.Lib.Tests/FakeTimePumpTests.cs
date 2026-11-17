@@ -365,5 +365,40 @@ namespace TianWen.Lib.Tests
             time.Advance(due);
             fired.ShouldBe(1);
         }
+
+        /// <summary>
+        /// #2194, the Change path: an Advance in the gap that reaches the whole due time must not find the record showing a
+        /// due time the inner timer does not have yet (the inner timer is still dormant, so that advance fires nothing and
+        /// a waiter who took it would then wait for a timer a whole delay later). The record is hidden until armed.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public void AChangeShowsNoDueTimeBeforeItsInnerTimerHasIt()
+        {
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+            var due = TimeSpan.FromSeconds(10);
+            var fired = 0;
+            using var timer = time.CreateTimer(_ => fired++, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            var shownInGap = true;
+            var advancedInGap = false;
+            time.BetweenRecordAndInnerTimer = () =>
+            {
+                if (!advancedInGap)
+                {
+                    advancedInGap = true;
+                    time.Advance(due);
+                    // Due at (or after) a second before now would include a due time equal to now, which the record must not show.
+                    shownInGap = time.HasTimerDueAfter(TimeSpan.FromSeconds(-1));
+                }
+            };
+
+            timer.Change(due, Timeout.InfiniteTimeSpan);
+
+            advancedInGap.ShouldBeTrue();
+            shownInGap.ShouldBeFalse("the record showed a due time the inner timer did not hold");
+            fired.ShouldBe(0, "the gap advance reached a dormant inner timer");
+            time.HasTimerDueAfter(TimeSpan.FromSeconds(5)).ShouldBeTrue("re-armed from the clock as it now is");
+            time.Advance(due);
+            fired.ShouldBe(1);
+        }
     }
 }

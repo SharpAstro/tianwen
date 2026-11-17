@@ -333,7 +333,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         // the deadline then cannot be satisfied by an earlier attempt's.
         for (var attempt = 1; attempt <= 3; attempt++)
         {
-            await box.WaitForWriteAsync(">H#", attempt, ct);
+            await box.WaitForWriteAsync(">H#", attempt, ct, () => $"That is attempt {attempt}'s identity query. {external.TimeProvider.DescribeLiveTimers()}");
             await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct, $"attempt {attempt}'s handshake deadline");
             external.TimeProvider.Advance(Long);
         }
