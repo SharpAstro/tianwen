@@ -57,6 +57,15 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public bool ExternalTimePump { get; set; }
 
     /// <summary>
+    /// Test seam: run on the creating thread after a timer's due time is recorded and before the inner timer is armed,
+    /// the window an <see cref="Advance"/> from another thread can land in (#2194). Tests only.
+    /// </summary>
+    internal Action? BetweenRecordAndInnerTimer { get => _recording.Seam; set => _recording.Seam = value; }
+
+    /// <summary>Whether a live one-shot timer is due after <paramref name="atLeast"/> from now (the look of <see cref="WaitForTimerDueAfterAsync"/>).</summary>
+    internal bool HasTimerDueAfter(TimeSpan atLeast) => _recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks);
+
+    /// <summary>
     /// How long <see cref="PumpUntilCompletedAsync"/> waits for a <see cref="SleepAsync"/> waiter to appear, or for a
     /// released one to leave its park, before advancing anyway. Pacing is an optimisation; liveness is not, and a
     /// session loop has phases with no waiter at all.
@@ -568,6 +577,9 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     {
         private readonly ConcurrentDictionary<RecordedTimer, byte> _timers = new();
 
+        /// <summary>Test seam, run once between a timer's record and its inner timer (see <see cref="FakeTimeProviderWrapper.BetweenRecordAndInnerTimer"/>).</summary>
+        public Action? Seam { get; set; }
+
         public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
 
         public override long GetTimestamp() => inner.GetTimestamp();
@@ -581,6 +593,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             var timer = new RecordedTimer(this, callback, state);
             timer.Schedule(dueTime, period);
             _timers[timer] = 0;
+            Seam?.Invoke();
             // The inner timer can fire before CreateTimer returns (a zero due time), so the record is complete first.
             timer.Inner = inner.CreateTimer(static s => ((RecordedTimer)s!).Fire(), timer, dueTime, period);
             return timer;
