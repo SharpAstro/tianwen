@@ -113,9 +113,18 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        var ex = await Should.ThrowAsync<OperationCanceledException>(
-            () => box.WaitForWriteAsync(">H#", 3, cts.Token, () => "the callback text"));
+        OperationCanceledException? ex = null;
+        try
+        {
+            await box.WaitForWriteAsync(">H#", 3, cts.Token, () => "the callback text");
+        }
+        catch (OperationCanceledException caught)
+        {
+            ex = caught;
+        }
 
+        ex.ShouldNotBeNull();
+        ex.GetType().ShouldBe(typeof(OperationCanceledException));
         ex.Message.ShouldContain(">H#");
         ex.Message.ShouldContain("3 time(s)");
         ex.Message.ShouldContain("the callback text");
