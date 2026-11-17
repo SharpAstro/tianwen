@@ -11,8 +11,8 @@ using TianWen.Lib.Imaging.StarRemoval;
 var outDir = args[0];
 Directory.CreateDirectory(outDir);
 var paths = args.Skip(1).SelectMany(a => Directory.Exists(a)
-    ? Directory.EnumerateFiles(a, "*.fits").Where(f => !Regex.IsMatch(f, @"\.(badpixels|coverage|rejection)\.fits$")).Order(StringComparer.Ordinal)
-    : [a]).ToArray();
+    ? Directory.EnumerateFiles(a, "*.fits").Where(f => !Regex.IsMatch(f, @"\.(badpixels|coverage|rejection)\.fits$")).Order(StringComparer.Ordinal).ToArray()
+    : new[] { a }).ToArray();
 using var jsonl = new StreamWriter(Path.Combine(outDir, "survey.jsonl"), false, new System.Text.UTF8Encoding(false));
 foreach (var path in paths)
 {
