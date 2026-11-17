@@ -106,6 +106,30 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         other.WrittenCommands.ShouldBe([">H#"], "nothing but the identity query reaches a device that is not the box");
     }
 
+    [Fact]
+    public async Task AWriteWaitThatNeverComesNamesTheCommandTheCountAndTheCallersText()
+    {
+        var box = new FakeGeminiPowerBoxSerialDevice();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        OperationCanceledException? ex = null;
+        try
+        {
+            await box.WaitForWriteAsync(">H#", 3, cts.Token, () => "the callback text");
+        }
+        catch (OperationCanceledException caught)
+        {
+            ex = caught;
+        }
+
+        ex.ShouldNotBeNull();
+        ex.GetType().ShouldBe(typeof(OperationCanceledException));
+        ex.Message.ShouldContain(">H#");
+        ex.Message.ShouldContain("3 time(s)");
+        ex.Message.ShouldContain("the callback text");
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task EveryChannelReadsFromTheBoxsFrame()
     {
@@ -328,10 +352,13 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         concrete.HandshakeTimeout = Long;
 
         var connect = driver.ConnectAsync(ct).AsTask();
-        // One advance per attempt: each attempt's deadline is made when it starts, so one made after an advance never fires.
-        for (var attempt = 0; attempt < 3; attempt++)
+        // One advance per attempt, taken for THAT attempt's own deadline: the driver makes the deadline before it writes
+        // the query, so the box's nth '>H#' means attempt n's deadline is made, and waiting for a timer due past half
+        // the deadline then cannot be satisfied by an earlier attempt's.
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct);
+            await box.WaitForWriteAsync(">H#", attempt, ct, () => $"That is attempt {attempt}'s identity query. {external.TimeProvider.DescribeLiveTimers()}");
+            await external.TimeProvider.WaitForTimerDueAfterAsync(Long / 2, ct, $"attempt {attempt}'s handshake deadline");
             external.TimeProvider.Advance(Long);
         }
 

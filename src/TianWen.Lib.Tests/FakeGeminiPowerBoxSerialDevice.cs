@@ -61,6 +61,53 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
 
     public List<string> WrittenCommands { get; } = [];
 
+    private readonly Dictionary<(string Command, int Count), TaskCompletionSource> _writeWaiters = [];
+
+    /// <summary>
+    /// Completes once <paramref name="command"/> (as written, <c>&gt;H#</c>) has been written the <paramref name="count"/>th
+    /// time on this port, or at once if it already has. A signal completed where <see cref="WrittenCommands"/> is appended,
+    /// never a poll; it ends with <paramref name="cancellationToken"/> (the test's, so the 30 s fact timeout).
+    /// </summary>
+    /// <param name="command">The command awaited.</param>
+    /// <param name="count">How many writes of it.</param>
+    /// <param name="cancellationToken">The test's token.</param>
+    /// <param name="describe">What the wait is for and the clock's state, evaluated only when the token ended the wait (the message is not known earlier).</param>
+    public async Task WaitForWriteAsync(string command, int count, CancellationToken cancellationToken, Func<string>? describe = null)
+    {
+        TaskCompletionSource tcs;
+        lock (_stateLock)
+        {
+            var seen = 0;
+            foreach (var c in WrittenCommands)
+            {
+                if (c == command)
+                {
+                    seen++;
+                }
+            }
+
+            if (seen >= count)
+            {
+                return;
+            }
+
+            if (!_writeWaiters.TryGetValue((command, count), out tcs!))
+            {
+                _writeWaiters[(command, count)] = tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        try
+        {
+            await tcs.Task.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                $"Waited for '{command}' to be written {count} time(s) and the test's token ended first. {describe?.Invoke()}", ex, cancellationToken);
+        }
+    }
+
     public bool IsOpen { get; private set; } = true;
     public Encoding Encoding => Encoding.ASCII;
     public ValueTask<bool> TryCloseAsync() { Unplug(); return ValueTask.FromResult(true); }
@@ -120,9 +167,36 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
         }
 
         var command = raw[(start + 1)..end];
+        var written = $">{command}#";
+        List<TaskCompletionSource>? reached = null;
         lock (_stateLock)
         {
-            WrittenCommands.Add($">{command}#");
+            WrittenCommands.Add(written);
+            var count = 0;
+            foreach (var c in WrittenCommands)
+            {
+                if (c == written)
+                {
+                    count++;
+                }
+            }
+
+            foreach (var ((cmd, n), tcs) in _writeWaiters)
+            {
+                if (cmd == written && n <= count)
+                {
+                    (reached ??= []).Add(tcs);
+                }
+            }
+        }
+
+        // Completed outside the lock: continuations are asynchronous, but a waiter must never run under the box's state lock.
+        if (reached is not null)
+        {
+            foreach (var tcs in reached)
+            {
+                tcs.TrySetResult();
+            }
         }
 
         Handle(command[0], command[1..]);

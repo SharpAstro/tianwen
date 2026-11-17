@@ -57,6 +57,15 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public bool ExternalTimePump { get; set; }
 
     /// <summary>
+    /// Test seam: run on the creating thread after a timer's due time is recorded and before the inner timer is armed,
+    /// the window an <see cref="Advance"/> from another thread can land in (#2194). Tests only.
+    /// </summary>
+    internal Action? BetweenRecordAndInnerTimer { get => _recording.Seam; set => _recording.Seam = value; }
+
+    /// <summary>Whether a live one-shot timer is due after <paramref name="atLeast"/> from now (the look of <see cref="WaitForTimerDueAfterAsync"/>).</summary>
+    internal bool HasTimerDueAfter(TimeSpan atLeast) => _recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks);
+
+    /// <summary>
     /// How long <see cref="PumpUntilCompletedAsync"/> waits for a <see cref="SleepAsync"/> waiter to appear, or for a
     /// released one to leave its park, before advancing anyway. Pacing is an optimisation; liveness is not, and a
     /// session loop has phases with no waiter at all.
@@ -143,13 +152,37 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// deadline test sets its deadline far past every other timer, waits here until the code under test has made it (a
     /// deadline built on this clock, never on the wall clock), then advances the clock past it ONCE.
     /// </summary>
-    public async Task WaitForTimerDueAfterAsync(TimeSpan atLeast, CancellationToken cancellationToken)
+    /// <param name="atLeast">The least distance from now the awaited timer is due at.</param>
+    /// <param name="cancellationToken">The test's token; its cancellation (the fact's timeout) is the only end of a wait that never comes.</param>
+    /// <param name="description">What is awaited ("attempt 2's handshake deadline"), named in the failure of a wait that never comes.</param>
+    public async Task WaitForTimerDueAfterAsync(TimeSpan atLeast, CancellationToken cancellationToken, string? description = null)
     {
-        while (!_recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks))
+        try
         {
-            await Task.Delay(1, cancellationToken);
+            while (!_recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks))
+            {
+                await Task.Delay(1, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw NeverCame(ex, description, $"a one-shot timer due at least {atLeast} from now", cancellationToken);
         }
     }
+
+    /// <summary>The clock's now and every live timer with its due time relative to now, for a failure message of a wait on something else (a fake device's write).</summary>
+    public string DescribeLiveTimers()
+        => $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}";
+
+    /// <summary>
+    /// The failure of a wait whose token ended: it names what was awaited and lists every live timer with its due time
+    /// relative to now. Built only on this path, once the test's own token has ended the wait: the wait has no bound of
+    /// its own (a wall-clock timeout inside a test is not allowed), so there is no earlier moment at which "it never came"
+    /// is known, and a message written before that would describe a wait that may still succeed.
+    /// </summary>
+    private OperationCanceledException NeverCame(OperationCanceledException inner, string? description, string shape, CancellationToken token)
+        => new($"Waited for {description ?? "a timer"} ({shape}) and the test's token ended first. "
+            + $"Fake now is {_fake.GetUtcNow():O}. Live timers: {_recording.DescribeTimers(_fake.GetUtcNow().UtcTicks)}", inner, token);
 
     /// <summary>
     /// <see cref="WaitForTimerDueAfterAsync"/> for a timer due no later than <paramref name="atMost"/> from now as well.
@@ -157,17 +190,24 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// advance so that the advance cannot wake it) needs this: "a timer due after half the deadline" is then true of
     /// that other deadline before the one under test has even been made, and an advance taken on that look fires nothing.
     /// </summary>
-    public async Task WaitForTimerDueWithinAsync(TimeSpan atLeast, TimeSpan atMost, CancellationToken cancellationToken)
+    public async Task WaitForTimerDueWithinAsync(TimeSpan atLeast, TimeSpan atMost, CancellationToken cancellationToken, string? description = null)
     {
-        while (true)
+        try
         {
-            var now = _fake.GetUtcNow().UtcTicks;
-            if (_recording.HasOneShotDueAfter(now + atLeast.Ticks, now + atMost.Ticks))
+            while (true)
             {
-                return;
-            }
+                var now = _fake.GetUtcNow().UtcTicks;
+                if (_recording.HasOneShotDueAfter(now + atLeast.Ticks, now + atMost.Ticks))
+                {
+                    return;
+                }
 
-            await Task.Delay(1, cancellationToken);
+                await Task.Delay(1, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw NeverCame(ex, description, $"a one-shot timer due between {atLeast} and {atMost} from now", cancellationToken);
         }
     }
 
@@ -568,6 +608,9 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     {
         private readonly ConcurrentDictionary<RecordedTimer, byte> _timers = new();
 
+        /// <summary>Test seam, run once between a timer's record and its inner timer (see <see cref="FakeTimeProviderWrapper.BetweenRecordAndInnerTimer"/>).</summary>
+        public Action? Seam { get; set; }
+
         public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
 
         public override long GetTimestamp() => inner.GetTimestamp();
@@ -579,12 +622,15 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             var timer = new RecordedTimer(this, callback, state);
-            timer.Schedule(dueTime, period);
+            // Made dormant, then armed by Arm: the inner timer exists before anything can see the record.
+            timer.Inner = inner.CreateTimer(static s => ((RecordedTimer)s!).Fire(), timer, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            timer.Arm(dueTime, period);
             _timers[timer] = 0;
-            // The inner timer can fire before CreateTimer returns (a zero due time), so the record is complete first.
-            timer.Inner = inner.CreateTimer(static s => ((RecordedTimer)s!).Fire(), timer, dueTime, period);
             return timer;
         }
+
+        /// <summary>The clock's now, in UTC ticks.</summary>
+        private long Now => inner.GetUtcNow().UtcTicks;
 
         /// <summary>
         /// The earliest due time, in UTC ticks, of a live ONE-SHOT timer strictly after <paramref name="now"/>;
@@ -636,6 +682,20 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             return false;
         }
 
+        /// <summary>Every live timer, one-shot or periodic, with its due time (or period) relative to <paramref name="now"/> (UTC ticks).</summary>
+        public string DescribeTimers(long now)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var (timer, _) in _timers)
+            {
+                var due = timer.NextDue;
+                var when = due == long.MaxValue ? "never due" : $"due in {TimeSpan.FromTicks(due - now)}";
+                parts.Add(timer.IsPeriodic ? $"periodic ({when})" : $"one-shot ({when})");
+            }
+
+            return parts.Count == 0 ? "none" : string.Join("; ", parts);
+        }
+
         private void Forget(RecordedTimer timer) => _timers.TryRemove(timer, out _);
 
         private long _fires;
@@ -657,10 +717,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
 
             public bool IsPeriodic => Volatile.Read(ref _period) > 0;
 
-            public void Schedule(TimeSpan dueTime, TimeSpan period)
+            public void Schedule(TimeSpan dueTime, TimeSpan period, long now)
             {
                 Volatile.Write(ref _period, period == Timeout.InfiniteTimeSpan || period <= TimeSpan.Zero ? 0 : period.Ticks);
-                Volatile.Write(ref _nextDue, dueTime == Timeout.InfiniteTimeSpan ? long.MaxValue : owner.GetUtcNow().UtcTicks + dueTime.Ticks);
+                Volatile.Write(ref _nextDue, dueTime == Timeout.InfiniteTimeSpan ? long.MaxValue : now + dueTime.Ticks);
             }
 
             /// <summary>
@@ -671,15 +731,85 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             public void Fire()
             {
                 var period = Volatile.Read(ref _period);
-                Volatile.Write(ref _nextDue, period > 0 ? NextDue + period : long.MaxValue);
+                var due = NextDue;
+                Volatile.Write(ref _nextDue, period > 0 && due != long.MaxValue ? due + period : long.MaxValue);
                 Interlocked.Increment(ref owner._fires);
+                Interlocked.Increment(ref _fired);
                 callback(state);
+            }
+
+            private long _fired;
+
+            /// <summary>
+            /// Records a due time and arms the inner timer for it so that the two agree even when an
+            /// <see cref="FakeTimeProvider.Advance"/> on another thread lands in between (#2194). Recording first and
+            /// arming after left a gap: an advance in it moved the clock past the recorded due time, fired nothing
+            /// (the inner timer was not armed yet), and the inner timer was then due a whole delay after the advance
+            /// while the record showed the old due time, so a test that waited for that due time never saw it.
+            /// <para>
+            /// Chosen over a lock held across <c>Advance</c>: an advance runs timer callbacks on its own thread and a
+            /// test may block one there (see the <c>advance</c> parameter of <c>PumpUntilAsync</c>), which would
+            /// deadlock every thread that makes or changes a timer. Instead each pass reads the clock, records against
+            /// that reading, arms, and reads the clock again. If it did not move, record and inner timer were made
+            /// from the same instant. If it moved, the pass is repeated from the new instant, unless the timer fired
+            /// meanwhile (an advance that reached it, which the fire already accounted for). The loop retries only
+            /// when an advance actually happened, so it neither spins nor polls.
+            /// </para>
+            /// <para>
+            /// Known limit, accepted: <c>firedBefore</c> is read before the pass, so on a <c>Change</c> of a LIVE timer an
+            /// advance that fires its OLDER arming just before <c>Inner.Change</c> counts as "fired meanwhile". The record
+            /// then stays <c>never due</c> while the inner timer is armed, so a pump or a
+            /// <see cref="WaitForTimerDueAfterAsync"/> is blind to that timer (the pump falls back to its coarse step).
+            /// A timer created dormant and then changed (the Gemini deadline) has no older arming and cannot hit it, and
+            /// the window is a few instructions wide. Reading the count only after <c>Inner.Change</c> would not close
+            /// it, since a fire could still land between the read and the change. Likewise a periodic timer that fires
+            /// while hidden keeps <c>long.MaxValue</c> (<see cref="Fire"/> leaves a hidden due time alone), so
+            /// <c>DescribeTimers</c> shows it as <c>periodic (never due)</c>; harmless, it is a description only.
+            /// </para>
+            /// </summary>
+            public void Arm(TimeSpan dueTime, TimeSpan period)
+            {
+                var first = true;
+                var firedBefore = Interlocked.Read(ref _fired);
+                // Hidden first: no waiter sees a due time until the inner timer holds it, so an Advance taken on a due
+                // time the record shows has that timer armed for it (this holds for Change on a live timer as well,
+                // whose old due time must not stay shown while the new one is being armed).
+                Volatile.Write(ref _nextDue, long.MaxValue);
+                while (true)
+                {
+                    var before = owner.Now;
+                    if (first)
+                    {
+                        first = false;
+                        owner.Seam?.Invoke();
+                    }
+
+                    Inner?.Change(dueTime, period);
+                    if (Interlocked.Read(ref _fired) != firedBefore)
+                    {
+                        // An advance reached the timer meanwhile; Fire already accounted for it.
+                        Volatile.Write(ref _period, period == Timeout.InfiniteTimeSpan || period <= TimeSpan.Zero ? 0 : period.Ticks);
+                        return;
+                    }
+
+                    if (owner.Now == before)
+                    {
+                        Schedule(dueTime, period, before);
+                        if (Interlocked.Read(ref _fired) != firedBefore && _period == 0)
+                        {
+                            // Fired between the check and the publish: a one-shot is spent.
+                            Volatile.Write(ref _nextDue, long.MaxValue);
+                        }
+
+                        return;
+                    }
+                }
             }
 
             public bool Change(TimeSpan dueTime, TimeSpan period)
             {
-                Schedule(dueTime, period);
-                return Inner?.Change(dueTime, period) ?? false;
+                Arm(dueTime, period);
+                return true;
             }
 
             public void Dispose()
