@@ -2828,6 +2828,45 @@ M31's 23,728 out of the stars layer. The owner, on the Lagoon's crops: "it does 
 is those few stars, which stay in the starless plate. Off by default until the owner says otherwise. The stacking workbench draws the cores and lets
 the user drop or add one (`stacking-workbench.md`, Deep sky, step 6). Pinned by `ExtendedCoreMaskTests`.
 
+##### The survey repeated with the two rules (2026-11-17, #2199)
+
+The first survey of this mask over the dataset store's 201 session masters found 148 cores, and a read of their contact
+sheets sorted them: a frame-edge rim, a single bright star, dense stars (a cluster), and about 78 extended cores. #2199
+turned that read into two rules in `ExtendedCoreMask.Find`, each reading a measure now carried on `Core`:
+
+- **Edge rule.** A source whose map peak lies closer than `Options.EdgeReachPx` (56 px, `FilterBlocks * BlockPx`) to the
+  frame's border or to an absent pixel gets no core, since the median window is cut there (`Core.EdgeDistancePx`).
+- **Star rule.** A source gets no core when the 90th percentile of the full-resolution light about its peak, over the map's
+  peak above the sky, exceeds `Options.MaxPeakRatio` (`Core.PeakRatio`). A star reads as a faint extended source with a tall
+  compact peak; an extended source's core is the map itself.
+
+The bar is 6.0. The old survey's gap held stars at 7.2 and over and extended sources at 5.5 and under, so 6.0 sits inside
+it and no bar had to move.
+
+| | cores | masters with a core |
+|---|---|---|
+| Before (no rules) | 148 | not recounted |
+| After (both rules) | 77 | 69 of 201 |
+| Dropped | 71 | |
+
+The 77 kept are the issue's 78 extended cores to within one. The highest kept peak ratio is 5.49 (an iTelescope Pleiades
+master; the next is 4.89) and no kept core is within the edge reach. The three scorecard masters keep their cores to the
+pixel: Andromeda (2068, 1484), peak ratio 2.55; the Tarantula (1460, 1516), 3.04; the Sagittarius Triplet (1924, 1340),
+1.90. Omega Centauri's centre is still left for #1363: its masters keep a core of 26,368 px and 1,216 px (peak ratio 1.55
+and 2.04), neither of which is the cluster's centre as such.
+
+To run it (a heavy run, so through the node's queue; about 5 minutes on the 201 masters):
+
+```
+dotnet build training/star-removal/coremask-probe/CoreMaskProbe.csproj -c Release -o <build dir>
+dotnet <build dir>/CoreMaskProbe.dll <out dir> <session-masters folder>
+python training/star-removal/coremask-probe/classify.py <out dir>/survey.jsonl [<earlier survey.jsonl>]
+python training/star-removal/coremask-probe/sheet.py <out dir>/survey.jsonl <session-masters folder> <out dir>
+```
+
+`classify.py` reports the kept cores against the bounds the probe recorded and, given an earlier survey, lists what was
+dropped. The classification itself is the library's: the scripts only read the probe's JSON.
+
 #### Kept cores: bright galaxy-like cores the synthetic target keeps (2026-10-23)
 
 Tracked by #1658, its training half: `degrade --kept-cores` (with `--background synthetic`) draws a bright extended core

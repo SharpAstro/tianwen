@@ -1,11 +1,12 @@
 """Every core the mask protects, as a crop of its master (220 px a side at 1:1 or shrunk to hold the core) with the mask's
 0.5 contour in red. Sheets of 48."""
-import json, sys
+import json, os, sys
 import numpy as np
 from astropy.io import fits
 from PIL import Image, ImageDraw
-S = "D:/Astro-Dataset/2026-10-12-full/session-masters"
-R = [json.loads(l) for l in open('survey.jsonl', encoding='utf-8')]
+# python sheet.py <survey.jsonl> <session-masters folder> <probe out dir>; the sheets are written beside the survey
+SURVEY, S, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
+R = [json.loads(l) for l in open(SURVEY, encoding='utf-8')]
 W = [r for r in R if r['cores']]
 tot_in, tot_all = {}, {}
 for r in R:
@@ -17,7 +18,7 @@ for r in sorted(W, key=lambda r: r['stem']):
     d = np.asarray(fits.getdata(f"{S}/{r['stem']}.fits"), dtype=np.float32)
     if d.ndim == 2: d = d[None]
     d = np.nan_to_num(d)
-    w = np.fromfile(f"out/{r['stem']}.weight.u8", dtype=np.uint8).reshape(r['Height'], r['Width'])
+    w = np.fromfile(os.path.join(OUT, r['stem'] + ".weight.u8"), dtype=np.uint8).reshape(r['Height'], r['Width'])
     for c in r['cores']:
         half = int(max(110, 1.6 * np.sqrt(c['CoreAreaPx'])))
         y0, y1, x0, x1 = max(0, c['Y'] - half), min(r['Height'], c['Y'] + half), max(0, c['X'] - half), min(r['Width'], c['X'] + half)
@@ -41,5 +42,5 @@ for s in range(0, len(tiles), per):
         parts = stem.split('_')
         dr.text((x, y), f"{s + i + 1}. {'_'.join(parts[2:4])[:34]}", fill=(235, 235, 235))
         dr.text((x, y + 14), cap[:40], fill=(170, 200, 255))
-    sheet.save(f"cores-{s // per + 1}.png"); print('sheet', s // per + 1)
+    sheet.save(os.path.join(OUT, f"cores-{s // per + 1}.png")); print('sheet', s // per + 1)
 print(len(tiles), 'tiles')
