@@ -494,6 +494,6 @@ per rule and points here.
   `OnnxTianWenStarRemover`): none ship and none are registered, so RC-Astro stays the registered `IStarRemover`. It
   averages its models over a tile's flips and turns in half-overlapping triangle windows, and never through
   `N2nLinearRunner`, whose `RestoreLevel` would put the removed starlight back as a haze.
-  `docs/plans/star-remover-training.md`, "A whole-frame runner". **Core protection (`--protect-cores`, `ExtendedCoreMask`,
+  `docs/plans/star-remover-training.md`, "A whole-frame runner". **Core protection (on by default, `--no-protect-cores` turns it off, `ExtendedCoreMask`,
   #1658) is applied in the split, `NarrowbandCombination.SplitStarsAsync`, never inside a remover**, so a galaxy's nucleus
   is kept from RC-Astro's remover as from ours.

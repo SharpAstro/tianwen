@@ -2804,7 +2804,7 @@ owner's other reason: SXT can take the brightest part of M42 as one large star. 
 training half (bright compact cores the target keeps, in the synthetic scenes) is "Kept cores" below.
 
 **`ExtendedCoreMask` (TianWen.Lib), applied in the split** (`NarrowbandCombination.SplitStarsAsync` with options;
-`image remove-stars --protect-cores`), so it holds for any remover, RC-Astro's as well as ours:
+`image remove-stars`, on by default; `--no-protect-cores` turns it off, `--protect-cores` is still accepted), so it holds for any remover, RC-Astro's as well as ours:
 1. The large-scale map: the luminance's 8 px block median, median-filtered over 7 blocks (56 px). A star covers too
    little of any window to survive it, and an extended source survives.
 2. An extended source is a connected region of that map 3 per-pixel sky sigmas over the sky. The sigma comes from
@@ -2821,7 +2821,7 @@ Measured first as a prototype on the owner's frames (`C:/temp/e2/extended-mask.p
 | Lagoon (OIII) | one, 2,048 px about its brightest knot | the knot in E6's stars layer, gone from it |
 | Trifid (8-bit) | one, 14,976 px | little either way |
 
-Through the product (`image remove-stars --protect-cores` with E6's three models at 8 views), the same cores came back:
+Through the product (`image remove-stars`, protection on with E6's three models at 8 views), the same cores came back:
 2,048 px on the Lagoon, 2,944 px on M31. M31's central 6 px are taken 0 % in every channel. Grown and feathered, the
 protected region changes 9,318 and 12,238 px, and keeps 3 of the Lagoon's 13,718 compact sources over 20 sigma and 2 of
 M31's 23,728 out of the stars layer. The owner, on the Lagoon's crops: "it does make the stars a lot cleaner". The price

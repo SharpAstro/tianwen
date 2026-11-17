@@ -106,8 +106,9 @@ if ($Skip -notcontains 'nucleus' -and -not (Test-Path $nucleusRead)) {
     if (-not (Test-Path $m31out)) {
         Say "M31 through $Name, 8 views"
         New-Item -ItemType Directory -Force $arm.m31_out | Out-Null
+        # --no-protect-cores: the guard reads the remover's own behaviour on M31's nucleus, which protection (now the default) would hide.
         $w = Start-Process $arm.remove_cli -ArgumentList 'image', 'remove-stars', $arm.m31_master, '-o', $m31out,
-            '--no-stars', '--model', $onnx, '--views', '8' -NoNewWindow -PassThru -Wait `
+            '--no-stars', '--no-protect-cores', '--model', $onnx, '--views', '8' -NoNewWindow -PassThru -Wait `
             -RedirectStandardOutput "$logs/m31.log" -RedirectStandardError "$logs/m31.err.log"
         if ($w.ExitCode -ne 0) { throw "remove-stars over M31 exited $($w.ExitCode)" }
     }
