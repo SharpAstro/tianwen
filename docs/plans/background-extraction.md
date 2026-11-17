@@ -133,7 +133,7 @@ so the sky LEVEL is preserved and only the gradient's SHAPE is removed.** This s
 "the fit's minimum becomes the new zero baseline plus a ~1% pedestal" and attributed that to SAS
 Pro; it is wrong on both counts. All four references read on 2026-09-02 restore the level
 (SAS Pro and AutoBGE re-add the original median, AutoGradientRemoval the background median,
-GraXpert the background mean), and so does our `OnnxBackgroundExtractor`, which is what keeps the
+GraXpert the background mean), and so does our `GraXpertBackgroundExtractor`, which is what keeps the
 classical and the AI gradient paths interchangeable. Ours restores the background MEDIAN per plane
 on both paths (the statistic `ClassicalBackgroundExtractor` has always used), not GraXpert's mean:
 the two correctors implement one role and are chosen by which weights a machine has, so they must
@@ -269,12 +269,12 @@ does, and the cap becomes a choice rather than a necessity); an input with a max
 divided by that maximum for the run and rescaled at the end; mono is triplicated for the run and
 channel 0 taken back; the background is optionally returned as a separate linear document.
 
-### `GraXpert-AI.py` BGE (Knagg-Baugh, v2.1.0): parity check against `OnnxBackgroundExtractor`
+### `GraXpert-AI.py` BGE (Knagg-Baugh, v2.1.0): parity check against `GraXpertBackgroundExtractor`
 
 `BGEProcessing.extract_background_ai` "adapts code from GraXpert", so it is the closest reference
-to our `OnnxBackgroundExtractor` short of GraXpert itself. Step by step against ours:
+to our `GraXpertBackgroundExtractor` short of GraXpert itself. Step by step against ours:
 
-| Step | Siril script | `OnnxBackgroundExtractor` |
+| Step | Siril script | `GraXpertBackgroundExtractor` |
 |---|---|---|
 | Shrink | INTER_LINEAR to 240 = 256 - 2 x 8 | bilinear to 240 |
 | Pad | edge, 8 px | edge, 8 px |
@@ -309,7 +309,7 @@ interop surface: same units, but no header round-trip and no background plate co
 why our in-process ONNX path (and the Siril script's) is the better one to keep.
 
 **Licence, corrected the same day.** GraXpert's code is **GPL-3.0** (GitHub API, 2026-09-02) and
-the script header states its AI models are **CC-BY-NC-SA-4.0**. Both `OnnxBackgroundExtractor`'s
+the script header states its AI models are **CC-BY-NC-SA-4.0**. Both `GraXpertBackgroundExtractor`'s
 XML doc and `tianwen-ai-models-fetch.ps1` called GraXpert "MIT-licensed"; fixed. We read the
 weights from the user's own GraXpert install and never redistribute them, which the NC term
 permits; shipping them inside a release asset would not be, for the reason
@@ -455,7 +455,7 @@ Tracked by #832.
 it runs, on arrays, testable without an `Image`. Pinned by `ClassicalBackgroundExtractorTests` (30
 tests against synthetic truth: a ramp under noise and stars, a dome, a blob, a NaN border, a
 vignette, three channels with different skies, a CFA mosaic with per-colour gradients, exclusion
-polygons, determinism, DI) and by the fallback tests in `OnnxBackgroundExtractorSmokeTests`.
+polygons, determinism, DI) and by the fallback tests in `GraXpertBackgroundExtractorSmokeTests`.
 
 ### What it does
 
@@ -493,7 +493,7 @@ polygons, determinism, DI) and by the fallback tests in `OnnxBackgroundExtractor
    is what forced `MasterPreviewRenderer.WithZeroPedestal` on GraXpert-flattened masters.
 
    **The ONNX path did NOT follow the per-plane rule until 2026-09-19, and the two implementations of
-   one role disagreeing is the whole reason it matters.** `OnnxBackgroundExtractor` added back
+   one role disagreeing is the whole reason it matters.** `GraXpertBackgroundExtractor` added back
    `MeanScalar(background)`, a single mean over ALL channels, so every plane landed on that one
    value. The model tracks each channel's own sky, which makes that background NEUTRALISATION, not
    level preservation, and it silently rewrote the colour of every OSC master that went through the
