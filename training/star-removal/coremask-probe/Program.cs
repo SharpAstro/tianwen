@@ -1,15 +1,20 @@
-// Usage: CoreMaskProbe <outDir> <master.fits>...
+// Usage: CoreMaskProbe <outDir> <session-masters folder | master.fits>...
 // The core mask of every master named (ExtendedCoreMask.Find at its defaults, as image remove-stars --protect-cores runs it),
-// one JSON line each on stdout: the cores with the two measures the rules read (EdgeDistancePx, PeakRatio), the area the
+// one JSON line each in <outDir>/survey.jsonl: the cores with the two measures the rules read (EdgeDistancePx, PeakRatio), the area the
 // starless plate takes back, and the catalogued stars inside it. A core's weight plane is written to <outDir>/<stem>.weight.u8.
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.StarRemoval;
 
 var outDir = args[0];
 Directory.CreateDirectory(outDir);
-foreach (var path in args.Skip(1))
+var paths = args.Skip(1).SelectMany(a => Directory.Exists(a)
+    ? Directory.EnumerateFiles(a, "*.fits").Where(f => !Regex.IsMatch(f, @"\.(badpixels|coverage|rejection)\.fits$")).Order(StringComparer.Ordinal)
+    : [a]).ToArray();
+using var jsonl = new StreamWriter(Path.Combine(outDir, "survey.jsonl"), false, new System.Text.UTF8Encoding(false));
+foreach (var path in paths)
 {
     var stem = Path.GetFileNameWithoutExtension(path);
     if (!Image.TryReadFitsFile(path, out var raw)) { Console.Error.WriteLine($"unreadable: {path}"); continue; }
@@ -45,13 +50,14 @@ foreach (var path in args.Skip(1))
         for (var i = 0; i < bytes.Length; i++) { bytes[i] = (byte)Math.Round(255 * mask.Weight[i]); }
         File.WriteAllBytes(Path.Combine(outDir, stem + ".weight.u8"), bytes);
     }
-    Console.WriteLine(JsonSerializer.Serialize(new
+    jsonl.WriteLine(JsonSerializer.Serialize(new
     {
         stem, mask.Width, mask.Height, sigma = mask.SkySigma, hasCatalogue = File.Exists(csv),
         edgeReachPx = ExtendedCoreMask.Options.Default.EdgeReachPx, maxPeakRatio = ExtendedCoreMask.Options.Default.MaxPeakRatio,
         cores = mask.Cores.Select(c => new { c.X, c.Y, peak = Math.Round(c.PeakSigma, 1), c.SourceAreaPx, c.CoreAreaPx, c.EdgeDistancePx, peakRatio = Math.Round(c.PeakRatio, 2) }).ToArray(),
         fullPx = full, anyPx = any, inside, all,
     }));
+    jsonl.Flush();
     image.Release();
     raw.Release();
 }
