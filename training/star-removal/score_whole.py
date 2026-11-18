@@ -75,7 +75,9 @@ for k in NAMES:
             raise SystemExit(f'no plate for {k}: give --model or --plates {k}=...')
         mono = ['--mono-as-rgb'] if k == 'sag' else []
         # --no-protect-cores: the scorecard reads the remover alone (M31's nucleus guard), and protection is the default now.
-        run([CLI, 'image', 'remove-stars', src, '-o', dst, '--no-stars', '--no-protect-cores', '--views', a.views, *mono, '--model', *a.model])
+        # --no-fill-digs: likewise, so a row stays the model's own output as past rows were (the dig-fill step is the default
+        # since #2204; a plate with it is scored by handing it over with --plates).
+        run([CLI, 'image', 'remove-stars', src, '-o', dst, '--no-stars', '--no-protect-cores', '--no-fill-digs', '--views', a.views, *mono, '--model', *a.model])
     plates[k] = dst
 
 

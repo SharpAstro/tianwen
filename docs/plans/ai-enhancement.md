@@ -497,3 +497,24 @@ per rule and points here.
   `docs/plans/star-remover-training.md`, "A whole-frame runner". **Core protection (on by default, `--no-protect-cores` turns it off, `ExtendedCoreMask`,
   #1658) is applied in the split, `NarrowbandCombination.SplitStarsAsync`, never inside a remover**, so a galaxy's nucleus
   is kept from RC-Astro's remover as from ours.
+- **TianWen's own remover's plate has its digs filled, by default** (`DigFill`, #2204, adopted 2026-11-18). Our models
+  dig a hole under many of the stars they take, which is most of their gap to StarXTerminator. `DigFill.Apply` is a
+  classical step with no model in it: where a star was taken (input less plate over 1.5 noise sigmas, grown 2 px) it
+  reads the sky from the plate around, sets a pinhole (over 2.5 sigmas under that sky) to it, lifts the plate's smooth
+  part where it sits under the sky (tapered to nothing at the edge, the pixel noise kept), and lowers light left above
+  the sky; a lift is at most twice what the model took at that pixel and a lowering at most a twentieth of it. Absent
+  pixels stay absent, and nothing outside a removed star moves.
+  - **Where it runs:** in the split, `NarrowbandCombination.SplitStarsAsync(..., fillDigs)`, after core protection and
+    against the original input (the order it was scored in), and only for a remover whose `IStarRemover.TakesDigFill`
+    is true. That is `OnnxTianWenStarRemover` alone: **RC-Astro's plate is never touched.** The stars are the input less
+    the filled plate, so `image add-stars` still gives the input back.
+  - **Turning it off:** `image remove-stars --model ... --no-fill-digs` writes the models' own output; the scoring
+    scripts (`score-arm.ps1`, `score_whole.py`) pass it, beside `--no-protect-cores`, so their rows stay the model
+    alone. `image fill-digs --input <master> --starless <plate>` is the step on its own, with no model run.
+  - **It is the Python step, to the bit.** It was chosen and scored as "floor3" of
+    `training/star-removal/whole_floor.py` (the reasons for each rule and the scores:
+    `docs/plans/star-remover-training.md`), so `DigFill` reproduces scipy's filters exactly (the Gaussian's truncation,
+    border and summing order, the median, the maximum, the dilation, the linear zoom). On the three whole masters of
+    the scorecard (two colour, one mono) its output equals the Python's bit for bit at every pixel;
+    `training/star-removal/dig_fill_parity.py` is that comparison. A change to a constant or a filter there is a
+    change to a scored step: re-run the parity, and re-score.
