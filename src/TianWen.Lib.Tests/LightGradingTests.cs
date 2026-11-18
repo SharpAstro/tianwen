@@ -37,6 +37,25 @@ public class LightGradingTests
     private static ImmutableDictionary<string, LightGrade> Grades(params (string Path, LightGrade Grade)[] entries)
         => entries.ToImmutableDictionary(e => e.Path, e => e.Grade, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A camera records what an exposure lasted, so one 30 s set reads 30.000, 30.006, 30.064 s. Grouped to the millisecond
+    /// each such frame was alone, with nothing to be graded against, and read as clear under cloud (#2151). Exposures a star
+    /// count is not comparable across still part.
+    /// </summary>
+    [Theory]
+    [InlineData(30.0, 30_000)]
+    [InlineData(30.0055577, 30_000)]
+    [InlineData(30.063714, 30_000)]
+    [InlineData(29.98, 30_000)]
+    [InlineData(60.0, 60_000)]
+    [InlineData(120.004, 120_000)]
+    [InlineData(1.4, 1_400)]
+    [InlineData(1.5, 1_500)]
+    [InlineData(0.0102, 10)]
+    [InlineData(0.0004, 0)]
+    public void AFrameIsGroupedByItsExposureToTwoFigures(double seconds, long expectedMs)
+        => LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(seconds)).ShouldBe(expectedMs);
+
     [Fact]
     public void AGradeIsTheScoreAsAShareOfItsGroupsBest()
     {

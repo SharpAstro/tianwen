@@ -34,8 +34,26 @@ public readonly record struct LightGradeKey(
             meta.SensorType,
             meta.Filter.Name is null ? string.Empty : meta.Filter.IdentityKey,
             meta.ObjectName is { Length: > 0 } name ? name.Trim().ToUpperInvariant() : string.Empty,
-            (long)Math.Round(meta.ExposureDuration.TotalMilliseconds),
+            ExposureKeyMs(meta.ExposureDuration),
             meta.BinX);
+    }
+
+    /// <summary>
+    /// The exposure a frame is grouped by, in milliseconds: its recorded duration rounded to two significant figures. A
+    /// camera records what the exposure LASTED, so one 30 s set reads 30.000, 30.006, 30.064 s; matched to the millisecond
+    /// each of those was a group of one, which has nothing to be graded against and so reads as a good, clear frame. In a
+    /// run under cloud that ended the cloud early and let the star-count check count a deterioration (#2151). Two figures
+    /// keep a set together and still tell apart exposures a star count is not comparable across (1.4 and 1.5 s, 30 and 60 s).
+    /// </summary>
+    internal static long ExposureKeyMs(TimeSpan exposure)
+    {
+        var ms = exposure.TotalMilliseconds;
+        if (!(ms >= 1))
+        {
+            return 0;
+        }
+        var step = Math.Pow(10, Math.Floor(Math.Log10(ms)) - 1);
+        return (long)Math.Round(Math.Round(ms / step, MidpointRounding.AwayFromZero) * step);
     }
 
     /// <summary>The key in words, for the panel: the filter and the exposure, which are what tell two groups of one folder apart.</summary>
