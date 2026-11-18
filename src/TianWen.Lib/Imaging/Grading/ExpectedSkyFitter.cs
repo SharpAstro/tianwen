@@ -124,7 +124,7 @@ public static class ExpectedSkyFitter
                 }
                 var key = new ExpectedSkyKey(LightGrading.RoundSite(meta.Latitude), LightGrading.RoundSite(meta.Longitude), LightGrading.RigOf(meta),
                     meta.SensorType, meta.Filter.Name is null ? string.Empty : meta.Filter.IdentityKey,
-                    (long)Math.Round(meta.ExposureDuration.TotalMilliseconds), meta.BinX);
+                    LightGradeKey.ExposureKeyMs(meta.ExposureDuration), meta.BinX);
                 rows.Add(new Row(key, LightGrading.NightOf(meta), new SkySample(SkyCovariates.From(meta), surface.Level, surface.GradientStrength, zeroPoint)));
             }
             finally

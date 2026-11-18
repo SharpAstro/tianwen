@@ -44,6 +44,11 @@ public readonly record struct LightGradeKey(
     /// each of those was a group of one, which has nothing to be graded against and so reads as a good, clear frame. In a
     /// run under cloud that ended the cloud early and let the star-count check count a deterioration (#2151). Two figures
     /// keep a set together and still tell apart exposures a star count is not comparable across (1.4 and 1.5 s, 30 and 60 s).
+    /// The expected-sky fitter keys its rows through this too, so a stored model and a live lookup agree.
+    /// Known edge: a bucket boundary sits exactly on every nominal exposure with three significant figures ending in 5
+    /// (12.5, 125, 1.25 s), so a set of those with a few ms of jitter can still split in two (12.494 s reads 12000,
+    /// 12.506 s reads 13000). Accepted: such exposures are rare, and a wider bucket would merge exposures that differ
+    /// by 10 percent.
     /// </summary>
     internal static long ExposureKeyMs(TimeSpan exposure)
     {

@@ -56,6 +56,27 @@ public class LightGradingTests
     public void AFrameIsGroupedByItsExposureToTwoFigures(double seconds, long expectedMs)
         => LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(seconds)).ShouldBe(expectedMs);
 
+    /// <summary>Pins the wiring: the key a frame is grouped by goes through the two-figure rounding, so one set is one group.</summary>
+    [Fact]
+    public void FramesOfOneSetWithRecordedJitterShareAGradeKey()
+    {
+        LightGradeKey.Of(Frame(Filter.Luminance, 30.006)).ShouldBe(LightGradeKey.Of(Frame(Filter.Luminance, 30.0)));
+        LightGradeKey.Of(Frame(Filter.Luminance, 30.064)).ShouldBe(LightGradeKey.Of(Frame(Filter.Luminance, 30.0)));
+
+        var best = Graded(Filter.Luminance, 10f, 30.0);
+        var jittered = Graded(Filter.Luminance, 5f, 30.006);
+        var grades = Grades(("a", best), ("b", jittered));
+        LightGrading.Relative(grades, best).ShouldBe(1f);
+        LightGrading.Relative(grades, jittered).ShouldBe(0.5f);
+    }
+
+    /// <summary>The known, accepted edge: a nominal 12.5 s set straddles a bucket boundary (see <see cref="LightGradeKey.ExposureKeyMs"/>).</summary>
+    [Theory]
+    [InlineData(12.494, 12_000)]
+    [InlineData(12.506, 13_000)]
+    public void AHalfStepExposureSitsOnABucketEdge(double seconds, long expectedMs)
+        => LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(seconds)).ShouldBe(expectedMs);
+
     [Fact]
     public void AGradeIsTheScoreAsAShareOfItsGroupsBest()
     {
