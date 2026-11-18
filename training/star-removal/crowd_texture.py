@@ -11,9 +11,10 @@ STORE = os.environ.get("TIANWEN_SR_STORE", "D:/Astro-Dataset/2026-10-12-full"); 
 onnx, stem = sys.argv[1], sys.argv[2]
 master = np.asarray(fits.getdata(f"{STORE}/session-masters/{stem}.fits"), np.float32)
 plate = np.asarray(fits.getdata(f"{STORE}/starless/plates/{stem}_plate.fits"), np.float32)
-dst = f"{OUT}/smc-out.fits"
+dst = f"{OUT}/{stem.split('_')[0]}-{os.path.splitext(os.path.basename(onnx))[0]}-out.fits"  # one per session and model
 if not os.path.exists(dst):
-    r = subprocess.run([CLI, "image", "remove-stars", f"{STORE}/session-masters/{stem}.fits", "-o", dst, "--no-stars", "--views", "1", "--model", onnx],
+    r = subprocess.run([CLI, "image", "remove-stars", f"{STORE}/session-masters/{stem}.fits", "-o", dst, "--no-stars", "--views", "1", "--model", onnx]
+                       + [f for f in ("--no-fill-digs", "--no-protect-cores") if f in subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout],
                        capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
     if r.returncode: raise SystemExit(r.stdout[-1500:] + r.stderr[-1500:])
 out = np.asarray(fits.getdata(dst), np.float32)

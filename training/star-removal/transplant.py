@@ -23,9 +23,19 @@ onnx, stems = sys.argv[1], sys.argv[2:]
 os.makedirs(OUT, exist_ok=True)
 
 
+def as_trained_flags():
+    """The options that switch off the dig-fill and core protection, where this build has them: every row these scripts
+    give is the model AS TRAINED. A build from before those steps has neither option and needs neither."""
+    text = subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    return [f for f in ("--no-fill-digs", "--no-protect-cores") if f in text]
+
+
+MODEL = os.path.splitext(os.path.basename(onnx))[0]
+
+
 def remove(src, dst):
     if not os.path.exists(dst):
-        r = subprocess.run([CLI, "image", "remove-stars", src, "-o", dst, "--no-stars", "--views", "1", "--model", onnx],
+        r = subprocess.run([CLI, "image", "remove-stars", src, "-o", dst, "--no-stars", "--views", "1", "--model", onnx] + as_trained_flags(),
                            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode != 0:
             raise SystemExit(f"remove-stars failed on {src}:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}")
@@ -46,8 +56,8 @@ for stem in stems:
     src_b = f"{OUT}/{tag}-moved.fits"
     if not os.path.exists(src_b):
         fits.PrimaryHDU(moved, header).writeto(src_b)
-    out_a = remove(f"{STORE}/session-masters/{stem}.fits", f"{OUT}/{tag}-real-out.fits")
-    out_b = remove(src_b, f"{OUT}/{tag}-moved-out.fits")
+    out_a = remove(f"{STORE}/session-masters/{stem}.fits", f"{OUT}/{tag}-real-{MODEL}-out.fits")
+    out_b = remove(src_b, f"{OUT}/{tag}-moved-{MODEL}-out.fits")
     stars = [r for r in csv.DictReader(open(f"{STORE}/starless/plates/{stem}_plate.stars.csv", encoding="utf-8"))]
     print(f"\n{stem}\n  master {master.shape}, median {np.nanmedian(master):.5f}, plate median {np.nanmedian(plate):.5f}, "
           f"layer share over 0 {100 * (layer > 0).mean():.1f} %, {len(stars)} catalogued")

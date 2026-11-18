@@ -6317,7 +6317,9 @@ the first angle is a step after the model and not another arm:
       -0.57, seed 1 0.15 / -2.55 / -0.55 / -0.22, R3z 0.37 / -2.21 / -0.14 / 0.02. HIP 80609: R3v -0.19 / -0.02 / -0.52 /
       -0.53, seed 0 -0.27 / -0.20 / -0.44 / -0.47, seed 1 -0.34 / -0.11 / -0.44 / -0.45, R3z 0.12 / 0.26 / -0.21 / -0.31.
       R3z, whose data differ in the halo and the saturated stars and not in the flank, has the shallowest ring on both.
-      The other two sessions, read 2026-11-18 (`site-run-rest.sh`, same rows). Lobster (5,818 stars): R3v -0.04 / 0.04 /
+      The other two sessions, read 2026-11-18 (`site-run-rest.sh`, same rows; like `site-run.sh`, which made the
+      M42 and HIP 80609 rows per model, it runs `site_remove.py`, then `site_core_o.py` and `site_core_ch_o.py`, the
+      variants of `transplant.py`, `site_core.py` and `site_core_ch.py` that keep one output folder per model). Lobster (5,818 stars): R3v -0.04 / 0.04 /
       -0.44 / -0.52, seed 0 -0.23 / 0.04 / -0.35 / -0.43, seed 1 -0.25 / -0.11 / -0.40 / -0.48. SMC (383 stars): R3v
       0.56 / 0.06 / -0.19 / -0.29, seed 0 0.00 / 0.15 / -0.16 / -0.44, seed 1 0.21 / 0.60 / 0.34 / -0.12. Neither has
       M42's ring at 1.6 to 2.5 px; Lobster has HIP 80609's shallow dip of about half a sigma from 2.5 to 4.5 px in
@@ -6410,7 +6412,8 @@ the first angle is a step after the model and not another arm:
     99.6). The crowded fields are the largest gap left to SXT.
   - **The twin inside the rim** (`twin_err_inner.py`, R3v's mask): rms 0.769 as trained and 0.823 with floor3 (R3v
     0.700); the registered-way figure, the rim's, 2.907 and 1.091.
-  - Not yet read: the ring profile at real sites (`site_core.py`), which the registration reports with no bar.
+  - The ring profile at real sites, which the registration reports with no bar, is read beside R3y's above (M42 0.37
+    / -2.21 / -0.14 / 0.02, HIP 80609 0.12 / 0.26 / -0.21 / -0.31): the shallowest ring of the four models on both.
 
 - **R4a, pre-registered 2026-11-17 before any score. One change from R3z: the cluster scenes join the draw, for the
   crowded fields.** R3z's data (synth25) and F6's master-stretched cluster scenes (`r3-clusters-master/cache`, 2,592
@@ -6670,7 +6673,8 @@ the first angle is a step after the model and not another arm:
     | purity | at most 1.0 % | 0.9 | | |
     | HIP 80609 / Lobster 100-1000 as trained, clean | at least 97.1 / 97.5 | 98.6 / 99.5 | 99.1 / 99.5 | 97.1 / 99.3 |
 
-    The margin on the question is one star: 34 of 136 dug, and 36 would have missed the bar. One seed does not settle
+    The margin on the question is two stars: 34 of 136 dug, 35 (25.7 %) would still pass and 36 (26.5 %) would have
+    missed the bar. One seed does not settle
     a margin that size, which is what the registered seed 1 is for.
   - **Reported, no bar.** As trained the brighter bands moved the same way: at 1000 sigma and over clean 89.8 by wing
     (R3v 74.2), M42's 11 stars dug 27.3 % (R3v 81.8), HIP 80609's 69 dug 4.3 % (18.8); saturated M42 dug 64.3 %
@@ -6683,6 +6687,12 @@ the first angle is a step after the model and not another arm:
     (R3v 1.92), 1.06 with floor3.
   - **Next by the registration: seed 1.** Not launched: the owner's word of 2026-11-18 is that the open ends of #2207
     are worked down before another day-long run. The cluster scenes do not join (R4a was killed).
+
+Every script here that runs the remover (`transplant.py`, `site_remove.py`, `crowd_texture.py`, `wb_invariance.py`,
+`flatten_invariance.py`) gives the model AS TRAINED: it passes `--no-fill-digs` and `--no-protect-cores` where the
+build has them (the rows in this plan were made with a build from before both steps), and names its cached output for
+the model as well as the session, so a second model never reads the first one's plate (`site_core.py` and
+`site_core_ch.py` take `TIANWEN_SR_MODEL` to pick one).
 
 Files (DE1): R3y's Q1 export is made by `training/star-removal/flank-q1-export.ps1` (the arm `synth-draw12` under
 `dig-2x2/`) and the synth22 shares over beta 6 by `beta_over_share.py`; item 5's instrument is `training/star-removal/flank_cmp.py` and the exports behind its beta rows are made by

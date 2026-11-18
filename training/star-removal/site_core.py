@@ -12,7 +12,7 @@ E=[0,0.8,1.6,2.5,3.5,4.5,6,8]
 for stem,tag in zip(sys.argv[1::2],sys.argv[2::2]):
     rd=lambda p: np.nanmean(np.asarray(fits.getdata(p),dtype=np.float32),0)
     plate=rd(f"{STORE}/starless/plates/{stem}_plate.fits"); master=rd(f"{STORE}/session-masters/{stem}.fits")
-    out=rd(glob.glob(f"{OUT}/{tag}*-real-out.fits")[0]); H,W=plate.shape; print(stem[:40]); print("   radii",E)
+    out=rd(glob.glob(f"{OUT}/{tag}*{os.environ.get('TIANWEN_SR_MODEL', '')}*-real-out.fits")[0]); H,W=plate.shape; print(stem[:40]); print("   radii",E)
     for lo,hi in ((100,1000),(1000,1e9)):
       for inp in ("0","1"):
         acc={k:[] for k in ("layer","plate","out")}

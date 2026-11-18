@@ -21,9 +21,19 @@ onnx, stems = sys.argv[1], sys.argv[2:]
 os.makedirs(OUT, exist_ok=True)
 
 
+def as_trained_flags():
+    """The options that switch off the dig-fill and core protection, where this build has them: every row these scripts
+    give is the model AS TRAINED. A build from before those steps has neither option and needs neither."""
+    text = subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    return [f for f in ("--no-fill-digs", "--no-protect-cores") if f in text]
+
+
+MODEL = os.path.splitext(os.path.basename(onnx))[0]
+
+
 def remove(src, dst):
     if not os.path.exists(dst):
-        r = subprocess.run([CLI, "image", "remove-stars", src, "-o", dst, "--no-stars", "--views", "1", "--model", onnx],
+        r = subprocess.run([CLI, "image", "remove-stars", src, "-o", dst, "--no-stars", "--views", "1", "--model", onnx] + as_trained_flags(),
                            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode != 0:
             raise SystemExit(f"remove-stars failed on {src}:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}")
@@ -38,7 +48,7 @@ for stem in stems:
     with fits.open(f"{STORE}/session-masters/{stem}.fits") as h:
         master = np.asarray(h[0].data, dtype=np.float32); header = h[0].header
     plate = np.asarray(fits.getdata(f"{STORE}/starless/plates/{stem}_plate.fits"), dtype=np.float32)
-    base = remove(f"{STORE}/session-masters/{stem}.fits", f"{OUT}/{tag}-base-out.fits")
+    base = remove(f"{STORE}/session-masters/{stem}.fits", f"{OUT}/{tag}-base-{MODEL}-out.fits")
     stars = [r for r in csv.DictReader(open(f"{STORE}/starless/plates/{stem}_plate.stars.csv", encoding="utf-8"))]
     H, W = master.shape[1:]
     print(f"\n{stem}\n  sky medians {[round(float(np.nanmedian(c[::8, ::8])), 5) for c in master]}, {len(stars)} catalogued")
@@ -47,7 +57,7 @@ for stem in stems:
         src = f"{OUT}/{tag}-{gname}.fits"
         if not os.path.exists(src):
             fits.PrimaryHDU(master * g, header).writeto(src)
-        out = remove(src, f"{OUT}/{tag}-{gname}-out.fits") / g
+        out = remove(src, f"{OUT}/{tag}-{gname}-{MODEL}-out.fits") / g
         diff = out - base
         print(f"  gain {gain}: whole frame, median |scaled back - base| per channel "
               f"{[float(np.nanmedian(np.abs(c[::4, ::4]))) for c in diff]}")
