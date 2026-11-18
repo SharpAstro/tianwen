@@ -281,7 +281,7 @@ public class SessionCloudTests(ITestOutputHelper output)
             var meta = info.Meta;
             key = new ExpectedSkyKey(LightGrading.RoundSite(meta.Latitude), LightGrading.RoundSite(meta.Longitude), LightGrading.RigOf(meta),
                 meta.SensorType, meta.Filter.Name is null ? string.Empty : meta.Filter.IdentityKey,
-                (long)Math.Round(meta.ExposureDuration.TotalMilliseconds), meta.BinX);
+                LightGradeKey.ExposureKeyMs(meta.ExposureDuration), meta.BinX);
             Image.TryReadFitsFile(written[0], out var image, out _).ShouldBeTrue();
             image.ShouldNotBeNull();
             try

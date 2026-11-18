@@ -37,6 +37,46 @@ public class LightGradingTests
     private static ImmutableDictionary<string, LightGrade> Grades(params (string Path, LightGrade Grade)[] entries)
         => entries.ToImmutableDictionary(e => e.Path, e => e.Grade, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A camera records what an exposure lasted, so one 30 s set reads 30.000, 30.006, 30.064 s. Grouped to the millisecond
+    /// each such frame was alone, with nothing to be graded against, and read as clear under cloud (#2151). Exposures a star
+    /// count is not comparable across still part.
+    /// </summary>
+    [Theory]
+    [InlineData(30.0, 30_000)]
+    [InlineData(30.0055577, 30_000)]
+    [InlineData(30.063714, 30_000)]
+    [InlineData(29.98, 30_000)]
+    [InlineData(60.0, 60_000)]
+    [InlineData(120.004, 120_000)]
+    [InlineData(1.4, 1_400)]
+    [InlineData(1.5, 1_500)]
+    [InlineData(0.0102, 10)]
+    [InlineData(0.0004, 0)]
+    public void AFrameIsGroupedByItsExposureToTwoFigures(double seconds, long expectedMs)
+        => LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(seconds)).ShouldBe(expectedMs);
+
+    /// <summary>Pins the wiring: the key a frame is grouped by goes through the two-figure rounding, so one set is one group.</summary>
+    [Fact]
+    public void FramesOfOneSetWithRecordedJitterShareAGradeKey()
+    {
+        LightGradeKey.Of(Frame(Filter.Luminance, 30.006)).ShouldBe(LightGradeKey.Of(Frame(Filter.Luminance, 30.0)));
+        LightGradeKey.Of(Frame(Filter.Luminance, 30.064)).ShouldBe(LightGradeKey.Of(Frame(Filter.Luminance, 30.0)));
+
+        var best = Graded(Filter.Luminance, 10f, 30.0);
+        var jittered = Graded(Filter.Luminance, 5f, 30.006);
+        var grades = Grades(("a", best), ("b", jittered));
+        LightGrading.Relative(grades, best).ShouldBe(1f);
+        LightGrading.Relative(grades, jittered).ShouldBe(0.5f);
+    }
+
+    /// <summary>The known, accepted edge: a nominal 12.5 s set straddles a bucket boundary (see <see cref="LightGradeKey.ExposureKeyMs"/>).</summary>
+    [Theory]
+    [InlineData(12.494, 12_000)]
+    [InlineData(12.506, 13_000)]
+    public void AHalfStepExposureSitsOnABucketEdge(double seconds, long expectedMs)
+        => LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(seconds)).ShouldBe(expectedMs);
+
     [Fact]
     public void AGradeIsTheScoreAsAShareOfItsGroupsBest()
     {
