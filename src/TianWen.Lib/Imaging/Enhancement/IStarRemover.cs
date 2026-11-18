@@ -24,4 +24,9 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// </remarks>
 public interface IStarRemover : IImageEnhancer
 {
+    /// <summary>
+    /// Whether this remover's plate takes the dig-fill step after it (<see cref="StarRemoval.DigFill"/>, #2204): true only
+    /// for TianWen's own remover, whose model digs under the stars it takes. RC-Astro's plate is never touched by it.
+    /// </summary>
+    bool TakesDigFill => false;
 }

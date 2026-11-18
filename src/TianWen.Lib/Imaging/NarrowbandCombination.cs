@@ -37,26 +37,33 @@ public static class NarrowbandCombination
 
     /// <summary>
     /// Every plane split into its starless plate and its stars (the plane less the plate) on one scale
-    /// (<see cref="StarlessAsync"/>): <c>image remove-stars</c>, and the recipe's star split.
+    /// (<see cref="StarlessAsync"/>), the remover's own output with nothing done after it: no core protected, no dig filled.
     /// </summary>
     public static async Task<(Image[] Starless, Image[] Stars)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
     {
-        var (starless, stars, _) = await SplitStarsAsync(planes, remover, protectCores: null, cancellationToken);
+        var (starless, stars, _, _) = await SplitStarsAsync(planes, remover, protectCores: null, fillDigs: false, cancellationToken);
         return (starless, stars);
     }
 
     /// <summary>
-    /// <see cref="SplitStarsAsync(IReadOnlyList{Image}, IStarRemover, CancellationToken)"/>, and with
-    /// <paramref name="protectCores"/> each plate takes its plane back in the plane's extended cores (<see cref="ExtendedCoreMask"/>,
-    /// #1658) before its stars are read, so no galaxy nucleus or nebula knot the remover took ends up in the stars. Also each
-    /// plane's cores; null without <paramref name="protectCores"/>.
+    /// <see cref="SplitStarsAsync(IReadOnlyList{Image}, IStarRemover, CancellationToken)"/> with the two steps that finish a
+    /// plate before its stars are read off it: <c>image remove-stars</c>, and the recipe's star split.
+    /// <para>With <paramref name="protectCores"/> each plate takes its plane back in the plane's extended cores
+    /// (<see cref="ExtendedCoreMask"/>, #1658), so no galaxy nucleus or nebula knot the remover took ends up in the stars. Also
+    /// each plane's cores; null without <paramref name="protectCores"/>.</para>
+    /// <para>With <paramref name="fillDigs"/>, and only for a remover that takes it (<see cref="IStarRemover.TakesDigFill"/>:
+    /// TianWen's own, never RC-Astro's), each plate then has the holes the model dug under its stars filled
+    /// (<see cref="DigFill"/>, #2204). Also the share of each plate's pixels the step could change; null when it did not run.</para>
+    /// <para>The stars are the plane less the FINISHED plate, so plate plus stars is the plane whatever ran.</para>
     /// </summary>
-    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores)> SplitStarsAsync(
-        IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, CancellationToken cancellationToken = default)
+    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
+        CancellationToken cancellationToken = default)
     {
         var starless = await StarlessAsync(planes, remover, cancellationToken);
         var cores = protectCores is null ? null : new ExtendedCoreMask[planes.Count];
+        var filled = fillDigs && remover.TakesDigFill ? new double[planes.Count] : null;
         var stars = new Image[planes.Count];
         for (var i = 0; i < planes.Count; i++)
         {
@@ -70,9 +77,24 @@ public static class NarrowbandCombination
                     plate.Release();
                 }
             }
+            // Cores first, digs second, the fill read against the ORIGINAL plane: the order the step was scored in (the
+            // whole masters went through the model with core protection, then through floor3 against their inputs). It is
+            // also the order that keeps the two apart: inside a protected core the plate IS the plane, so the fill sees
+            // nothing taken there and leaves the nucleus alone, where filling first would work on a nucleus the model dug
+            // into and the core's feathered edge would then blend that work back in.
+            if (filled is not null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var plate = starless[i];
+                (starless[i], filled[i]) = DigFill.Apply(planes[i], plate);
+                if (!ReferenceEquals(starless[i], plate))
+                {
+                    plate.Release();
+                }
+            }
             stars[i] = Stars(planes[i], starless[i]);
         }
-        return (starless, stars, cores);
+        return (starless, stars, cores, filled);
     }
 
     /// <summary>

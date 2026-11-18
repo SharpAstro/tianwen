@@ -65,6 +65,11 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
 
     public string Name => $"Star remover (TianWen R2, {_models.Length} model{(_models.Length == 1 ? "" : "s")} x {_views} view{(_views == 1 ? "" : "s")})";
 
+    /// <summary>These models dig under the stars they take, so the split fills the digs after them (<c>DigFill</c>, #2204).
+    /// The step is the split's (<c>NarrowbandCombination.SplitStarsAsync</c>), never run in here: <see cref="EnhanceAsync"/>
+    /// hands back the models' own output.</summary>
+    public bool TakesDigFill => true;
+
     /// <summary>
     /// Opens every model against the contract beside it and refuses the set when one does not match, so a run never
     /// starts on a model it cannot finish with. <paramref name="views"/> is how many of a tile's eight flips and quarter
