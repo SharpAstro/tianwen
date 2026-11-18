@@ -2776,7 +2776,7 @@ goes through end to end, using the denoiser's weights as a stand-in graph.
 
 #### Bright compact structure taken as stars: a galaxy nucleus, a nebula knot (2026-10-18)
 
-Tracked by #1658. The owner saw it three times on the first whole frames: a green-and-red blob in M31's core in E6's stars layer, and the
+Tracked by #1658; what the mask protects that is not a core, and the default, by #2199 (the survey of 2026-11-17, under R3z's read). The owner saw it three times on the first whole frames: a green-and-red blob in M31's core in E6's stars layer, and the
 Lagoon's and the Trifid's bright knots with their dust lanes. Measured on M31 (`C:/temp/e2/m31-nucleus.py`, the share of
 the input's light a starless frame no longer holds), E6 takes 16.5 / 7.9 / 6.2 % (R / G / B) of the central 6 px and
 2.8 / 0.6 / 0.6 % from 6 to 12 px. StarNet2's exe and StarXTerminator take about none of either (within 1 %). The
@@ -5659,6 +5659,13 @@ the first angle is a step after the model and not another arm:
   pinhole and the smoothness the ring measure cannot see, and pays a few points of clean share, the saturated band most.
   The twin rms, mean and outside figures are a quarter sample (one tile in four, `twin_err.py`); the TRUE clean twin rows
   use every tile.
+- **floor3 is in the product since 2026-11-18 (PR #2208, issue #2204).** `DigFill.Apply` in `TianWen.Lib`, run inside
+  `NarrowbandCombination.SplitStarsAsync` after core protection and only for TianWen's own remover; on by default,
+  `--no-fill-digs` on `image remove-stars` turns it off, and `image fill-digs` runs it alone on an existing plate. Its
+  output is bit for bit the script's on Andromeda, the Tarantula and the mono Sagittarius master, and the whole path
+  (R3z's weights, both defaults on) gives the Tarantula plate the scorecard read, with no pixel different. The scoring
+  scripts pass `--no-fill-digs` and apply floor3 themselves, so every earlier row is reproducible. No remover of ours
+  ships; this is the step a caller's named weights now get.
 - **The third version, floor3, scored 2026-11-16: each correction capped by what the model took there.** Two flaws of
   floor2 showed on a second sheet (the SMC's one saturated star and M42's bright interior): in bright smooth nebula, where
   the noise is tiny, the pinhole rule and the lift drew contour edges; and the residue a model LEAVES at a saturated core
@@ -6022,7 +6029,683 @@ the first angle is a step after the model and not another arm:
   - **If the question is cleared and no guard fails:** seed 1, and the halo's answer is then wider drawn wings on
     this model, to be weighed against the halo over the plate. Nothing is adopted; adoption is the owner's.
 
-Files (DE1): `C:/temp/e2/explore/` (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
+- **R3x's read (2026-11-17): killed on the glow, on both masters.** It trained on the T4 to step 160,500 (best held-out
+  value 5.971e-6 at 148,500), the Batch job ended and its pool was deleted by Batch; scored on DE1 as R3w was.
+
+  | row, with floor3 | registered | R3v seed 0 | R3x |
+  |---|---|---|---|
+  | Andromeda glow, green median | at most 450 | 599.4 | 663.4 |
+  | Tarantula glow, green median | at most 500 | 1121.1 | 1252.3 |
+  | by count clean, 100-1000 / 1000 and over | at least 98.5 / 98 | 99.4 / 100.0 | 99.2 / 99.5 |
+  | M42 100-1000 clean | at least 88 | 94.9 | 94.1 |
+  | SMC 20-100 / 100-1000 clean | at least 97 | 98.9 / 100.0 | 98.9 / 100.0 |
+  | Andromeda dark flat / dug | at least 95 / at most 3 | 97.6 / 1.0 | 97.5 / 0.7 |
+  | Tarantula dark flat | at least 91 | 93.9 | 92.3 |
+  | M31 nucleus, largest channel | under 10 % | 6.0 % | 5.8 % |
+  | twin rms in the mask (the registered way, the rim included) | at most 1.15 | 0.989 | 0.981 |
+
+  Every guard held and the question failed on both masters, in the wrong direction: the widest drawn wings on the
+  four-level model leave MORE glow than R3v, not less (as trained 708.8 and 1127.4). The prediction (Tarantula under
+  500, Andromeda near its bar) was wrong; that the star rows hold with floor3, that it digs more as trained and that
+  the nucleus stays under 10 % were right. The small model's glow under these wings (R3j with floor3, 416 and 395)
+  did not carry to the larger model, so wider drawn wings are not the halo's answer on it.
+  - **As trained, reported:** Andromeda dark flat 37.7 and dug 51.4 (R3v 69.5 and 22.4); by count clean 90.1 at
+    100-1000 and 70.7 at 1000 and over (94.9, 87.2), dug 9.3 and 28.7; M42 100-1000 clean 20.6 with 77.2 dug (56.6,
+    42.6); SMC 100-1000 72.9 (89.8); HIP 80609 100-1000 94.1 (97.1); Tarantula dark flat 69.7, left 23.6; crowded
+    Tarantula 82.5, BP17-19 92.6, Sagittarius 94.4; M42's blue -1.66 and -1.11. The twin inside the rim reads as
+    R3v's in its rms (0.704 against 0.700, mean -0.081 against -0.078; with floor3 0.759), an aggregate the faint
+    stars dominate. By star (`real_star_check3.py --twin`, TRUE dug) the drawn stars are alike at 100-1000 sigma
+    (0.8 against R3v's 0.9) and dug more often by R3x above that: 9.7 against 6.2 at 1000 and over (TRUE clean 89.6
+    against 93.4) and 17.0 against 10.6 saturated (83.0 against 88.3). So drawn bright stars are dug about 1.6 times
+    as often as by R3v, where real ones at 1000 and over are dug 2.4 times as often (28.7 against 12.2).
+  - **The registered rows the lines above leave out.** M32 is removed, as predicted: R3x keeps 1.9 / 1.6 / 2.6 % of
+    its core flux in red, green and blue (R3v 2.3 / 2.3 / 1.1, StarXTerminator 42 to 44). The glow's p90 and share
+    over, with floor3: Andromeda 1881.6 and 92 % (R3v 1549.7 and 89 %), Tarantula 2129.1 and 92 % (1726.2 and 92 %).
+    Saturated stars by count: as trained clean 68.4, dug 24.2, left 16.8 (R3v 78.9, 16.8, 6.3; StarXTerminator
+    89.4, 2.1, 8.5), so as trained R3x leaves more saturated stars than R3v or StarXTerminator, a regression the
+    guards do not read; with floor3 93.7, 4.2, 3.2 (R3v 91.6, 5.3, 4.2). The twin error by scale, rms in the mask in
+    sigma, under 1 px / 1-2 / 2-4 / 4-8 / over 8 px: R3x 0.614 / 0.479 / 0.548 / 0.460 / 0.782 against R3v's 0.635 /
+    0.429 / 0.456 / 0.391 / 0.680, so R3x is worse at every scale from 1 px up; with floor3 0.563 / 0.281 / 0.219 /
+    0.155 / 0.230.
+  - **What it adds to the flank reading above:** synth16 draws half its cells at beta 1.3 to 2.5 with no channel
+    spread, the fattest stars of any export, and on the same model as R3v it digs more than twice as many real stars
+    (51.4 against 22.4). That is consistent with the flank reading and with the channel spread alike, and does not
+    tell them apart: R3x's export has no channel spread where R3v's has 3, the spread alone took the dig from 45.1
+    (R3l) to 25.3 (R3s), and R3j on the small model with this same export dug 45.0, so 51.4 is what no spread
+    already predicts. What it does show is that the same export digs alike on the small and the four-level model
+    (45.0 and 51.4).
+
+- **R3w's read (2026-11-16): killed.** It stopped at step 51,500 (best held-out value at 27,500). As trained:
+
+  | bar | registered | R3v seed 0 | R3w |
+  |---|---|---|---|
+  | twin, mean in the mask | within 0.15 of zero | -0.51 | -0.507 |
+  | twin, rms in the mask | at most 1.30 | 1.92 | 1.873 |
+  | Andromeda dark dug / flat | at most 8 (kill over 11.2) / at least 90 | 22.4 / 69.5 | 29.7 / 62.7 |
+  | by count clean, 100-1000 / 1000 and over | at least 97.5 / 95 | 94.9 / 87.2 | 94.7 / 86.2 |
+  | SMC 100-1000 clean (guard) | at least 87.7 | 89.8 | 84.7 |
+
+  Killed on the rule (the dig rose) and on the SMC guard. HIP 80609 100-1000 96.9, M42 100-1000 55.9 and the truth
+  tiles (73.9 / 58.4) held. The bias past 8 px is unchanged (-0.285 against -0.291). With floor3 on top (R3w seed 0 plus
+  floor3, its own whole-master read) Andromeda reads 97.5 flat / 1.2 dug and Tarantula dark 93.3 / 5.4 left, against R3v
+  seed 0 plus floor3's 97.6 / 1.0 and 93.9 / 4.9 (the table above): the same within a tenth or so, so R3w adds nothing
+  under floor3 either. The coarse bands are not the lever. One line of the prediction held:
+  1000 and over by count did not reach 95 (86.2). The rest was wrong: the dig rose instead of falling by more than half,
+  and the SMC guard failed (84.7 against 87.7).
+- **Why no loss term could have done it: four measurements after R3w (2026-11-16).**
+  1. **The model does not dig on its own kind of data.** The twin's figures read on the training cache's held-out
+     cells (`train_dig.py`, 160 cells, two draws, the loss's own rim left out): mean in the mask -0.021 (R3v seed 0),
+     -0.010 (seed 1), -0.024 (R3w); rms 0.50 on all three.
+  2. **The twin's figures were the tile rim.** `twin_err.py` reads whole 256 px tiles, the 16 px rim included; the loss
+     leaves the rim out and the whole-master runner gives it no weight (`StarRemoverRunner`'s triangle is zero there).
+     The same twin tiles, the same model, the rim left out (`twin_err_inner.py`): R3v seed 0 mean
+     -0.08 and rms 0.70 (the same tiles with the rim: -0.51 and 1.92, as in the table above; both are the quarter sample,
+     `i % 4`, and the mask is R3v seed 0's), seed 1 -0.06 and 0.70, R3w -0.08 and 0.70. Inside the rim floor3 does not
+     lower the twin's rms, it **raises** it: 0.70 to 0.76 on seed 0 (+9 %, mean -0.08 to -0.06) and 0.70 to 0.76 on seed 1
+     (+8 %, mean -0.06 to -0.05), R3w 0.70 to 0.76 (mean -0.08 to -0.06). What floor3 filled on the twin was the rim, and
+     on the pixels inference uses it costs a little rms, so the proposal of floor3 to the owner carries that rise. **So every twin
+     "in the mask" figure above this point (R3v's 1.92 and 1.41, floor3's 0.99 and 0.98, the dig step's missed twin
+     bar, R3w's two twin bars, the error by scale) describes pixels inference never uses, and is void as a measure of
+     the dig.** The real-star rows and the whole-master rows are not touched by this: `real_star_check3.py` keeps its
+     stars off the rim, and a whole master is run with the rim discarded. R3x's twin guard stays as registered and is
+     read the registered way, with the inside-the-rim figure beside it.
+  3. **On the twin, the wing draw does not move the error and the plate background does** (`dig-2x2.ps1`: the eight validation sessions
+     exported four ways from one binary, 427 tiles each, the rim left out; R3v seed 0 / seed 1):
+
+     | export | rms in the mask | mean in the mask |
+     |---|---|---|
+     | synthetic background, wings drawn | 0.524 / 0.514 | -0.020 / -0.008 |
+     | synthetic background, no wing draw | 0.512 / 0.507 | -0.019 / -0.004 |
+     | plate background, wings drawn | 0.750 / 0.749 | -0.092 / -0.079 |
+     | plate background, no wing draw | 0.747 / 0.750 | -0.093 / -0.077 |
+
+     A real plate costs about 0.07 sigma of bias and half again the rms; the wing draw nothing. This 2x2 reads the twin
+     (drawn stars), which item 4 says are not dug, so it rules out the wing draw as a source of the twin's error and says
+     the plate raises it; it cannot clear either factor as the cause of the dig on real stars, which only item 4's real
+     rows measure.
+  4. **Drawn stars on real plates are not dug; real stars in the same sessions are.** At 100-1000 sigma the twin's
+     drawn stars are truly dug 0.9 % of the time (`real_star_check3.py --twin`, R3v seed 0; by star, and the TRUE dug,
+     the output less the plate), the real stars of the same four sessions 4.7 % by count (the measured verdict, which
+     the script's header says under-counts a wide dig; n=1739; M42 alone 42.6 %, 136 stars). The 13.6 % that stood here
+     was the four sessions weighted equally, which the by-count rule above says overstates. The contrast stays, as about
+     5 to 1 and on two instruments, not 15 to 1. On the real masters, against the plate (smooth there: nearly every bright site
+     is inpainted, and its ring sits within 0.1 sigma of its local sky), R3v's whole-master output in rings round
+     each catalogued star, in the star's catalogued sigma (`site_core.py`, medians; M42 1,560 stars and HIP 80609
+     2,807 at 100-1000 sigma):
+
+     | radius, px | 0-0.8 | 0.8-1.6 | 1.6-2.5 | 2.5-3.5 | 3.5-4.5 | 4.5-6 |
+     |---|---|---|---|---|---|---|
+     | M42, output less local sky | +0.59 | +0.57 | -2.75 | -0.50 | -0.17 | -0.01 |
+     | M42, the star's own light there | 420 | 227 | 59 | 26 | 12 | 5.5 |
+     | HIP 80609, output less local sky | +0.41 | -0.19 | -0.02 | -0.52 | -0.53 | -0.27 |
+
+     On M42 the error is a shape error on its flank: a narrow ring taken at about 2 px, some 5 % of the star's light at
+     that radius (2.75 / 59 = 4.7 %), which is the model removing a star a little wider than the real one. The core
+     excess (+0.59, +0.57) is under the 1 sigma clean threshold and 0.1 to 0.3 % of the star's own light, so it is noise
+     level, not light left. HIP 80609 shows no ring at 1.6-2.5 px (-0.02) and takes its -0.52 / -0.53 at 2.5-4.5 px, a
+     different radius. Its own-light row (`site_core.py`, same six radii) is 360.5, 162.8, 39.9, 11.0, 4.0, 2.1, so its
+     -0.52 at 2.5-3.5 px is 4.7 % of the star's light there (0.52 / 11.0, the same share as M42's 2.75 / 59) and its
+     -0.53 at 3.5-4.5 px is 13 %. The share at the ring is alike on both instruments, the radius is not, so this ring is
+     not shown to be general in where it sits. The
+     rows above are in the star's catalogued sigma divided by root 3 (`site_core.py`, the mean of the three planes); the
+     per-channel figures (`site_core_ch.py`) are in the catalogued sigma itself, root 3 smaller, which is why they do not
+     average to the row (about -1.6 times root 3 is -2.8 against -2.75). On M42 per channel it is red (-2.68 at 1.6-2.5
+     px) and blue (+1.25 at 0.8-1.6, -1.58 at 1.6-2.5), green barely (-0.54).
+     A transplant (`transplant.py`: the same star layer moved 37, 53 px onto plate that never held a star) is the one
+     test that holds the star layer fixed and moves the site, and it is not read as a verdict: the moved star carries its
+     old site's noise as well as the new one's, which can explain a good deal by itself. Ring at 2-4 px, median in
+     sigma, real site to moved: M42 100-1000 -1.40 to -0.03 and 1000 and over -1.88 to -3.99; HIP 80609 100-1000 -0.52
+     to -0.42 and 1000 and over -1.10 to -1.72. Only M42 at 100-1000 loses its ring when the star is moved, and that is
+     the reading the doubled noise has to explain (its core is left more, +1.57, with the ring unbiased); in the other
+     three the ring stays or deepens, so there the dig follows the star and not the site. That points to flank shape
+     over site for those rows, and leaves M42 100-1000 as the exception.
+  - **What follows (from M42's rows; HIP's ring sits at a different radius).** The dig is SUSPECTED to be the gap between a drawn star's flank and a real one's, per channel and per star, at
+    1.5 to 3.5 px (item 5 measures the gap on HIP 80609, Lobster and M42 and not on Andromeda, and its size does not match the
+    dig where a beta draw can reach it; R3y below is the test, not a finding). A loss term on the present data cannot see it (R3w, and probably why R3b traded the dig for light
+    left), wider or narrower wings past 4 px do not address it, and the halo over the plate (synth25) is about 8 px
+    and beyond. The candidate that does: draw a share of the training stars from the masters' own measured stars (the
+    master less its inpainted plate, which is the real star whole) instead of the field profile, as
+    `--saturated-measured` does for clipped stars. It is not registered here; it needs injector work first.
+  5. **The drawn star is fatter than the real one at equal core height, and the wing draw's green never went sharper than beta 6** (`flank_cmp.py`, the same evening). Real: the validation masters' tiles (`r2-real-val`) at the plate
+     catalogue's unsaturated stars of 50 sigma and over. Drawn: the same sessions' stars on their plates from the
+     current injector (`dig-2x2/plate-plain`, the field profile, no wing draw). Both in the tiles' stretched domain, sky
+     taken at 12 to 20 px, stars binned by green's peak, each ring as a share of the core (0 to 0.8 px); medians, green,
+     peak 0.25 to 0.5 (red and blue read the same way):
+
+     | session | | 1.6-2.5 px | 2.5-3.5 | 3.5-4.5 | 4.5-6 |
+     |---|---|---|---|---|---|
+     | HIP 80609 | real (307 stars) | 0.215 | 0.062 | 0.018 | 0.007 |
+     | | drawn, field profile (503) | 0.270 | 0.095 | 0.036 | 0.019 |
+     | | drawn, `--star-beta 8` | 0.206 | 0.059 | 0.029 | 0.014 |
+     | | drawn, `--star-beta 20` | 0.183 | 0.037 | 0.019 | 0.025 |
+     | Lobster | real (388) | 0.169 | 0.034 | 0.008 | 0.003 |
+     | | drawn, field profile (452) | 0.181 | 0.046 | 0.018 | 0.012 |
+     | | drawn, `--star-beta 8` | 0.164 | 0.032 | 0.014 | 0.012 |
+     | | drawn, `--star-beta 20` | 0.147 | 0.023 | 0.009 | 0.008 |
+     | M42 | real (118) | 0.238 | 0.119 | 0.052 | 0.019 |
+     | | drawn, field profile (147) | 0.250 | 0.103 | 0.040 | 0.016 |
+     | | drawn, `--star-beta 8` | 0.138 | 0.020 | 0.002 | 0.001 |
+
+     On HIP 80609 and Lobster the field profile draws 1.04 to 1.27 times real's light at 1.6 to 2.5 px and 1.2 to 1.6 times
+     at 2.5 to 3.5 px, in every channel, and at 1.6 to 3.5 px real sits at or between the field profile and a Moffat of
+     beta 8 at the field's width. Past 3.5 px that does not hold: real is under beta 8 (HIP 0.018 against 0.029 at 3.5-4.5 and
+     0.007 against 0.014 at 4.5-6; Lobster 0.008 against 0.014 and 0.003 against 0.012) and about equal to beta 20 at 3.5-4.5
+     (0.018 against 0.019, 0.008 against 0.009) and under it at 4.5-6. The far rings also have a floor: HIP's beta 20 reads
+     0.025 at 4.5-6, above beta 8 (0.014) and the field profile (0.019), which a Moffat at fixed width cannot do (a higher
+     beta is thinner), so something else sets about 0.01 to 0.02 there. The likeliest part is the field profile's residual table: a drawn
+     beta moves the Moffat and keeps the table as it was (`StarBeta`'s remarks), so every beta arm carries the field's own
+     far residual, while real reads under that level (0.007 and 0.003 at 4.5 to 6 px); it is not separated here from plate
+     residual, noise or the 12 to 20 px sky annulus. The flank claim
+     is therefore made for 1.6 to 3.5 px only; at 3.5 to 6 px the table cannot separate the arms from that floor, and a draw
+     up to beta 12 stops short of real's far flank by it. M42 is the other kind: its real stars carry more at 2.5 to 4.5 px than the field profile and less at
+     1.6 to 2.5 px in red and blue (0.217 and 0.169 against 0.249 and 0.209), and no single beta draws them. No
+     wing draw trained so far went sharper than beta 6: R3i, R3j and R3k drew 1.3 to 2.5, R3l 0.3,1.3,6 and R3t and R3v
+     0.3,1.3,6 with a channel spread of 2 and 3. That is the draw's high end for GREEN, not for every star: a held cell's red and
+     blue betas are green's times a factor log-uniform in [1/spread, spread] (`StarBetaDraw.DrawCell`), so at spread 3 they
+     reach 18, and the cells not held keep their field's own beta. In synth22 (the review's read of 1 record in 40 of 22,080)
+     (`beta_over_share.py`, 552 records, 213,257 stars) green's beta is over 6 on 3.4 % of the stars, red's on 21 %, blue's on 19 %, and 34 % have at least one channel over 6.
+     So sharp channels were in the training data; a star sharp in green, or in all three at once, by the draw, was not. Where the archive's own betas sit
+     is not tabulated here (only the lowest fit, 1.63, and M42's 3.06 / 1.72 / 4.54), so nothing is claimed about a draw near 6
+     against a session's own beta, and on Andromeda's dark sky the arms that drew wings without a channel spread dug 45.0 and 45.1 (R3j, R3l) against
+     R2w's 28.8 with none. The stretched domain bends both sides alike at a matched peak; it is a
+     comparison, not a profile in linear light.
+- **R3y, pre-registered 2026-11-16 before any export or score. Three differences from R3v, named: the share of held cells 0.3 to 0.5, the upper beta 6 to 12, and the binary.**
+  synth26 = `training/star-removal/export-synth.ps1 -Name synth26 -BetaDraw 0.5,1.3,12,3` with no `-Extra` (synth22's
+  line with the share raised from 0.3 to 0.5 and the upper beta from 6 to 12). By `StarBetaDraw.DrawCell` (a cell is held
+  with probability share, beta uniform in [low, high]) the cells under beta 6 go from 0.30 to 0.5 x (6-1.3)/(12-1.3) = 0.22,
+  a quarter FEWER than R3v's, the cells over beta 6 are 0.5 x 6/10.7 = 0.28 (none in R3v), and the cells on the field
+  profile are 0.50 (0.70 in R3v). The arm is the three together, from the binary frozen
+  at `D:/temp/tianwen-scratch/bh-bin8` (main with the halo option, which is off; synth22 came from an older binary, so
+  the export is not byte-comparable to synth22 outside the drawn cells and that is a third, unmeasured difference).
+  **A change in Andromeda dark dug is read against the measured record**, whole master, as trained: R2w (no wing draw)
+  28.8; R3j (0.5,1.3,2.5, the dose up) 45.0 and R3l (0.3,1.3,6) 45.1, level with each other; R3s (R3l's share and range
+  with the channel spread 3) 25.3; R3v (R3s's data on the four-level model) 22.4 and 24.3. So drawing wings at all cost
+  about 16 points, the dose and range between R3j and R3l moved nothing (R3l's "at or under R2w" was its prediction, and
+  it failed), and the channel spread took the cost back. For R3y that means two things. The smaller share under beta 6
+  (0.22 against 0.30) is not shown to predict less dig by itself, since two doses dug alike; it is not shown to be
+  harmless either. And the held share rises from 0.3 to 0.5, so more cells carry the channel spread, the one change on
+  record that cut the dig. A fall from 22.4, the pass bar and the prediction included, therefore cannot be credited to
+  green's sharper betas alone: more spread cells could give it. The readings that speak to the sharp draw are no change
+  or a rise, and, beside the dig, the ring at real sites on HIP 80609 at 2.5 to 4.5 px, which neither the dose nor the
+  spread is on record as moving. A pass sends the arm on; it does not name the cause.
+  Trained on R3v's model and recipe exactly (`--levels 4 --max-ch 256 --clip-grad 8`, the detail term at `"2,4 4,8"`
+  and 3, a fresh run, seed 0) from R3v's frozen trainer copy, as a Batch job that removes itself (tag `r3yaz`).
+  - **Q1, the export, before training** (`flank_cmp.py <session key> <export> --min-beta 8` on the validation sessions
+    exported with the same line): the population is the drawn stars at green peak 0.25 to 0.5 whose green Beta (read from
+    injections.jsonl) is 8 or over, about 0.5 x (12-8)/10.7 = 0.19 of all cells (0.37 of the held cells). Expected: at beta 8
+    the table reads 0.206 against real's 0.215 on HIP and 0.164 against 0.169 on Lobster at 1.6 to 2.5 px, so this
+    population's median is just under real's, and at least a quarter of it (the script's "under real median" column) lies
+    under real's median at 1.6 to 2.5 px and at 2.5 to 3.5 px, on HIP 80609 and on Lobster, in green. Red and blue are
+    reported, not barred (their betas are the cell's green beta times the channel spread of 3). The share of ALL drawn stars
+    under real's median is reported beside it and is expected to be about 0.19 or under, short of a quarter, because half the
+    cells stay on the field profile (HIP 1.6-2.5 px median 0.270 over real's 0.215); that is not a failure. Q1 reads 1.6 to
+    3.5 px only. The far flank (3.5 to 6 px, where real is under beta 8 and about beta 20, above item 5's 0.01 to 0.02
+    floor) is reported with no bar and is not reached by a draw to 12. If Q1 fails, the range does not reach real and the
+    arm is not trained.
+  - **Q1's read (2026-11-16, the validation sessions exported with the line, `dig-2x2/synth-draw12`): the quarter bar is cleared and did not discriminate; the contrast is the read.** Green, peak
+    0.25 to 0.5, the stars at green beta 8 and over: 0.59 and 0.54 of them under real's median at 1.6 to 2.5 and 2.5 to
+    3.5 px on HIP 80609 (108 stars; their median 0.201 and 0.055 against real's 0.215 and 0.062), 0.66 and 0.69 on Lobster
+    (68 stars; 0.140 and 0.018 against 0.169 and 0.034). Red and blue, reported: HIP 0.48 / 0.51 and 0.51 / 0.51, Lobster
+    0.74 / 0.69 and 0.65 / 0.59. Of ALL drawn stars 0.32 and 0.26 (HIP) and 0.38 and 0.31 (Lobster) are under real's median,
+    where this registration expected about 0.19 or under, short of a quarter: that expectation failed on all four cells
+    (a held cell's stars under beta 8 and the scatter of single stars count too), so the bar of a quarter is cleared by the
+    whole export and could not have failed. What the read shows is the contrast: the stars at beta 8 and over sit under
+    real's median about twice as often as all drawn stars (0.59 / 0.54 against 0.32 / 0.26 on HIP, 0.66 / 0.69 against
+    0.38 / 0.31 on Lobster) and their median is at or under real's, where the whole export's is over it (HIP 0.252 and
+    0.089 against 0.215 and 0.062). The arm goes on, on that contrast and not on the bar. The far
+    flank, reported with no bar (green, the medians of the stars at beta 8 and over against real's): HIP 0.034 and 0.020
+    against 0.018 and 0.007 at 3.5 to 4.5 and 4.5 to 6 px, Lobster 0.007 and 0.008 against 0.008 and 0.003; so it is not
+    reached on HIP, as the registration said, and on Lobster only to 4.5 px. This
+    registration's first wording of Q1, before the review replaced it (the lower quartile of all drawn stars under real's
+    median in every channel), reads 11 cells of 12 on the same export: HIP's blue at 2.5 to 3.5 px misses (quartile 0.0345
+    against a median of 0.0341). The export line is unchanged.
+  - **The question, on the model AS TRAINED, no step:** Andromeda dark dug at most 11.2 (half of R3v seed 0's 22.4)
+    with dark flat at least 80 (69.5), and by count clean at 100-1000 sigma at least 97 (94.9).
+  - **Guards, as trained, against R3v seed 0:** M42 100-1000 clean at least 50 (56.6) and M42's blue ring at 1.6 to 2.5 px
+    (`site_core_ch.py`, catalogued sigma; R3v's is -1.58, item 4) no lower than -3.08, 1.5 sigma further from zero (that
+    allowance is as large as R3v's whole ring and lets the dig double without failing, so it is a loose guard); SMC 20-100 at least 89.4 and 100-1000 at least 87.7; HIP 80609
+    100-1000 at least 94.4 and Lobster at least 96.6; left by count at most 2.0 at 100-1000 sigma (0.3) and at most 12
+    saturated; truth tiles at least 72 and 54; Tarantula dark flat at least 69 and left at most 20 (16.0); the M31
+    nucleus under 10 % in every channel.
+  - **Kill:** a guard fails, or Andromeda dark dug stays over 16.8 (not cut by a quarter). Between 11.2 and 16.8 with
+    every guard held it neither passes nor is killed: no seed 1, the rows are reported, the owner decides.
+  - **Reported, no bar:** every row with floor3; the glow rows; the crowded rows; M32 kept; the output's ring profile
+    at real sites on M42 and HIP 80609 (`site_core.py`) beside R3v's; the twin inside the rim.
+  - **Prediction (the likely outcome is "owner decides"):** dug falls to between 10 and 16, almost wholly inside the 11.2 to 16.8 band that neither passes nor kills and HIP 80609's ring at 2.5 to 4.5 px rises towards zero; M42's
+    ring at 1.6 to 2.5 px does not move (no beta draws its stars); left at 100-1000 rises to about 1; Tarantula's left
+    rises a little.
+  - **If it passes:** seed 1, and the measured-star draw above is then the way to reach M42's kind. If it is killed
+    on the dig, the flank at equal core height is not the lever by a beta draw, and the measured stars are tried
+    before the idea is dropped. Nothing is adopted; adoption is the owner's.
+  - **Seed 1, registered 2026-11-17 on PR #2189 (a comment of 01:04 UTC) before any score of either seed** (the owner:
+    "ideally we use both GPU and Azure"). R3y's recipe and data exactly, the trainer bundle the `r3yaz` job runs, only
+    `--seed 1`, on the GTX 1070 (DE1) where seed 0 trains on the T4, so the pair's difference also holds the two GPUs'
+    arithmetic. It is read with seed 0 against this registration as it stands: no new bar, none moved after either
+    seed is seen. This replaces "If it passes: seed 1" above only in the order the seeds train; a kill by seed 0 is
+    not undone by seed 1.
+  - **Read 2026-11-18: both seeds killed, each by the dig itself and by guards. A sharper drawn flank by a beta draw is
+    not the lever.** Seed 0 trained on the T4 (five evictions), seed 1 on the GTX 1070. As trained unless said:
+
+    | row | bar | seed 0 | seed 1 | R3v seed 0 | verdict |
+    |---|---|---|---|---|---|
+    | Andromeda dark dug | at most 11.2; kill over 16.8 | 24.4 | 34.0 | 22.4 | **kill, both** |
+    | Andromeda dark flat | at least 80 | 68.6 | 58.8 | 69.5 | failed, both |
+    | by count clean, 100-1000 | at least 97 | 93.9 | 96.1 | 94.9 | failed, both |
+    | M42 100-1000 clean | at least 50 | 42.6 | 64.0 | 56.6 | **failed, seed 0** |
+    | M42 blue ring, 1.6 to 2.5 px, 100-1000 (`site_core_ch.py`) | no lower than -3.08 | -2.53 | -1.70 | -1.58 | held |
+    | SMC 20-100, 100-1000 clean | at least 89.4, 87.7 | 98.3, 84.7 | 92.7, 91.5 | 97.2, 89.8 | **failed, seed 0** |
+    | HIP 80609, Lobster 100-1000 clean | at least 94.4, 96.6 | 97.7, 99.4 | 98.7, 99.4 | 97.1, 99.3 | held |
+    | left by count, 100-1000 and saturated | at most 2.0, 12 | 0.2, 7.4 | 0.6, 11.6 | 0.3, 6.3 | held |
+    | Tarantula dark flat, left | at least 69, at most 20 | 74.8, 18.3 | 69.7, 23.3 | 71.9, 16.0 | **failed, seed 1 (left)** |
+    | M31 nucleus R / G / B | under 10 % | 21.8 / 27.8 / 31.6 | 5.9 / 11.0 / 5.6 | | **failed, both** |
+
+    The truth tiles guard (72 and 54) was read on 2026-11-18 (`f2-eval-master/<model>/on-random/starless-eval-v5.json`, the output's clean rate at 20-100 and 100-1000) and holds on both seeds, 73.3 / 55.7 and 72.9 / 54.2 (R3v 73.3 / 58.1, R3z 72.7 / 56.8, R4a's seeds 73.5 / 59.5 and 72.8 / 58.2); the verdict did not hang on it. R3v's dark dug is the figure the
+    bar of 11.2 was set from (half of it).
+    - **The prediction failed.** Dug was to fall to between 10 and 16; it rose on both seeds. The two side predictions
+      held: M42's ring at 1.6 to 2.5 px did not move (all channels, 100-1000: R3v -2.75, seed 0 -3.10, seed 1 -2.55), and
+      HIP 80609's ring at 2.5 to 4.5 px rose towards zero by under 0.1 sigma (R3v -0.52 / -0.53, seed 0 -0.44 / -0.47,
+      seed 1 -0.44 / -0.45), far too little to count.
+    - **The seeds differ by more than the arm does from R3v**: 9.6 points on the dig, 21.4 on M42's 100-1000 row, and
+      the nucleus fails by a factor of three on one seed and by one point on the other. A one-seed difference of that
+      size on these rows is not a finding, in this arm or an earlier one.
+    - **With floor3 the two seeds read alike** and like R3v: Andromeda dark flat 97.7 / 97.5 with 1.3 / 1.2 dug,
+      Tarantula dark flat 93.7 / 93.8 with 5.3 left on both, by count clean at 100-1000 99.3 / 99.1 and saturated
+      92.6 / 93.7, Tarantula crowded 89.8 on both, BP 17-19 95.1 / 93.6, Sagittarius crowded 95.7 / 96.9. The glow is
+      R3v's (Andromeda green median 546.4 / 559.4), as it should be: this arm has none of R3z's halo.
+    - **Ring profiles at real sites (`site_core.py`, output less its own sky in noise sigma, 100-1000, radii 0.8 to
+      1.6, 1.6 to 2.5, 2.5 to 3.5, 3.5 to 4.5 px).** M42: R3v 0.57 / -2.75 / -0.50 / -0.17, seed 0 0.07 / -3.10 / -0.82 /
+      -0.57, seed 1 0.15 / -2.55 / -0.55 / -0.22, R3z 0.37 / -2.21 / -0.14 / 0.02. HIP 80609: R3v -0.19 / -0.02 / -0.52 /
+      -0.53, seed 0 -0.27 / -0.20 / -0.44 / -0.47, seed 1 -0.34 / -0.11 / -0.44 / -0.45, R3z 0.12 / 0.26 / -0.21 / -0.31.
+      R3z, whose data differ in the halo and the saturated stars and not in the flank, has the shallowest ring on both.
+      The other two sessions, read 2026-11-18 (`site-run-rest.sh`, same rows; like `site-run.sh`, which made the
+      M42 and HIP 80609 rows per model, it runs `site_remove.py`, the real-site half of `transplant.py` with one output
+      folder per model, then `site_core.py` and `site_core_ch.py`). Lobster (5,818 stars): R3v -0.04 / 0.04 /
+      -0.44 / -0.52, seed 0 -0.23 / 0.04 / -0.35 / -0.43, seed 1 -0.25 / -0.11 / -0.40 / -0.48. SMC (383 stars): R3v
+      0.56 / 0.06 / -0.19 / -0.29, seed 0 0.00 / 0.15 / -0.16 / -0.44, seed 1 0.21 / 0.60 / 0.34 / -0.12. Neither has
+      M42's ring at 1.6 to 2.5 px; Lobster has HIP 80609's shallow dip of about half a sigma from 2.5 to 4.5 px in
+      all three models, and the SMC's rows differ between the seeds by more than they differ from R3v. So the sharper
+      draw moved none of the four sessions' rings, and the deep ring is M42's alone.
+    - **What follows, as registered:** the flank at equal core height is not the lever by a beta draw; the measured
+      stars are tried before the idea is dropped, and that is R4b below. The beta draw to 12 stops here.
+- **R3z, pre-registered 2026-11-17 before any score. The halo's other route: the stars' own measured halos and the
+  halo the plate keeps, on R3v's model.** synth25 = `export-synth.ps1 -Name synth25 -BetaDraw 0.3,1.3,6,3 -Extra
+  --saturated-own-share,--saturated-measured,--halo-over-plate` from `bh-bin8` (exported and uploaded in the night of
+  2026-11-16; 4,840 cells, 4,520 train and 320 held out), trained on R3v's model and recipe exactly, seed 0, as a Batch
+  job that removes itself (tag `r3zaz`). Against R3v's data it differs in four named things: saturated stars drawn at the
+  master's own share, drawn as measured, the halo over the plate (validated above: the drawn ring at 15, 20 and 25 px
+  goes from 0.48 / 0.31 / 0.21 of real to 0.75 / 0.73 / 0.56), and the binary. The first two were R3r's on the small
+  model (killed there; its section above), so a kill here on a star guard may repeat R3r and does not by itself
+  speak to the halo over the plate.
+  - **Judged WITH floor3**, the as-trained rows beside it, as R3x was.
+  - **The question, the glow (green median, lower is better, with floor3):** Andromeda at most 450 and Tarantula at most
+    500 (R3x's bars; R3v 599.4 and 1121.1, R3x 663.4 and 1252.3, SXT 242.8 and -30.8).
+  - **Guards, with floor3:** R3x's, unchanged: by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over;
+    M42 100-1000 clean at least 88; SMC 20-100 and 100-1000 clean at least 97; Andromeda dark flat at least 95 and dug at
+    most 3; Tarantula dark flat at least 91; the M31 nucleus under 10 % in every channel; and, since the drawn halo is
+    light the model is taught to take, M32 kept is reported with the nucleus. The twin's rms is read inside the rim
+    (`twin_err_inner.py`) and reported, with no bar: the registered-way figure is the rim's.
+  - **Kill:** a guard fails, or the glow misses its bar on BOTH masters. One master cleared and one missed is neither:
+    no seed 1, the rows are reported, the owner decides.
+  - **Reported, no bar:** every row as trained; saturated dug and left by count (the rows the measured stars are for);
+    the glow's p90 and share over; the crowded rows; the ring profile at real sites (`site_core.py`).
+  - **Prediction:** the glow falls on both masters against R3v, by less than is needed: Andromeda lands between 450 and
+    600 and Tarantula stays over 500, because the drawn ring still holds a quarter less than real's and the faint
+    stars' halo is the field's median, not their own. Saturated left falls. The guards hold with floor3.
+  - **If the question is cleared:** seed 1. Nothing is adopted; adoption is the owner's.
+
+- **R3z, read 2026-11-17: killed by one guard, M31's nucleus; the glow question is cleared on both masters, far past
+  the prediction.** The job trained to step 173,000 (best held-out 7.49e-6 at 149,000, converged after the fourth
+  halving; one preemption, resumed from its checkpoint), its pool gone when the weights were fetched. With floor3, as
+  registered, beside R3v seed 0 with floor3 and SXT:
+
+| row | bar | R3z | R3v s0 | SXT | verdict |
+|---|---|---|---|---|---|
+| glow, Andromeda, green median / p90 / over | at most 450 | -146.9 / 700.1 / 17 % | 599.4 / 1549.7 / 89 % | 242.8 / 574.8 / 59 % | cleared |
+| glow, Tarantula, green median / p90 / over | at most 500 | -29.0 / 358.8 / 23 % | 1121.1 / 1726.2 / 92 % | -30.8 / 203.4 / 8 % | cleared |
+| M31 nucleus, R / G / B, one view | under 10 % each | 9.8 / 31.3 / 39.2 % | -1.0 / 6.0 / 1.6 % | 0.1 / 0.1 / 0.1 % | **failed** |
+| by count clean, 100-1000 sigma | at least 98.5 | 99.2 | 99.4 | 98.3 | held |
+| by count clean, 1000 sigma and over | at least 98 | 100.0 | 100.0 | 98.4 | held |
+| M42 100-1000 clean | at least 88 | 94.1 | 94.9 | 91.9 | held |
+| SMC 20-100 / 100-1000 clean | at least 97 | 98.9 / 100.0 | 98.9 / 100.0 | 98.3 / 96.6 | held |
+| Andromeda dark flat / dug | at least 95 / at most 3 | 97.8 / 1.0 | 97.6 / 1.0 | 98.6 / 1.4 | held |
+| Tarantula dark flat | at least 91 | 95.1 | 93.9 | 96.6 | held |
+
+  - **The kill is the registration's and stands.** The prediction was wrong on the question (it said Andromeda between
+    450 and 600 and Tarantula over 500) and right that the guards other than the nucleus hold.
+  - **The glow has a sign, and "lower is better" stops at zero.** The row is the plate less its local sky summed over
+    the 10 to 30 px annulus (about 2,500 px), so R3v's 599.4 is +0.24 sigma a pixel, SXT's 242.8 is +0.10 and R3z's
+    -146.9 is -0.06: R3z takes a little more than the halo on Andromeda. By channel, with floor3: Andromeda R / G / B
+    -298.9 / -146.9 / -77.0 (SXT 156.7 / 242.8 / 391.4), Tarantula 347.3 / -29.0 / 234.0 (SXT -39.1 / -30.8 / -54.6).
+    Green on the Tarantula is SXT's; its red and blue still keep light. A bar on this row is two-sided from here on.
+  - **The nucleus is taken in the inner 6 px, in green and blue.** At eight views (`m31-nucleus-r3z_synth25_s0.txt`):
+    0 to 6 px +5.3 / +24.3 / +34.2 %, 6 to 12 px -3.7 / +2.3 / +9.2 %. R3r, the small model with the same two saturated
+    star options and no plate halo, took 17 to 38 % there, so the options that draw saturated stars as measured are
+    the likely cause and the halo over the plate is not shown to be; the two cannot be separated by this arm, since
+    `--halo-over-plate` needs `--saturated-measured`.
+  - **With `--protect-cores` (#1658) the nucleus reads 0.0 / 0.0 / 0.0 % and no other whole-master row moves** by more
+    than 0.1 (Tarantula's BP 17-19 as trained 91.8 against 91.9; every other figure of both rows identical, glow
+    included). The scoring binary of October has no such option, so the row was made with `bh-bin8`, and the same
+    binary without the option reproduces the October binary's rows to the last digit (tags `w-r3z_synth25_s0-pc` and
+    `-b8`, each with `+floor3`). The mask protects one core on each master: Andromeda (2068, 1484), 2,944 px;
+    the Tarantula (1460, 1516), 2,240 px, which is R136, a star cluster inside the nebula's brightest knot; the
+    Sagittarius Triplet (1924, 1340), 2,048 px.
+  - **What the mask protects over the whole store (the owner, 2026-11-17: core protection becomes the default if it
+    protects cores only): it did not at this date; #2199 added the two rules and the default, PR #2200.** `ExtendedCoreMask.Find` at its defaults over the store's 201
+    session masters (a probe calling the library, which reproduces the CLI's "protected" lines on the three whole
+    masters): 95 masters get a core, 148 cores, with 11,066 catalogued stars inside them that a starless plate would
+    keep, 737 of those at 100 sigma and over or saturated. Looked at one by one on a contact sheet and read by two
+    numbers (the peak's distance from the border; the 90th percentile of the pixels about the peak over the
+    large-scale map's peak): 11 cores are the frame's edge (within 16 px of it), 59 are one bright star and its halo
+    or a tight group (Alnitak, Antares, Alcyone, HIP 80609, eta Carinae; that ratio 7.2 and over, most 20 to 900), and
+    78 are a nebula's or galaxy's bright part or a globular's centre (ratio 1.0 to 5.5). The three whole masters'
+    cores are of the last kind. The issue held the rule that drops the first two kinds and the default after it; both
+    are on main since PR #2200 ("The survey repeated with the two rules" above: 77 cores kept, the three whole
+    masters' cores unchanged), and the probe is in `training/star-removal/coremask-probe/`.
+  - **As trained** (reported): Andromeda dark flat 59.3 dug 25.8 (R3v 69.5 / 22.4); by count clean 95.3 at 100-1000
+    sigma and 93.1 at 1000 and over (94.9 / 87.2); M42 100-1000 clean 58.1 dug 39.0 (56.6 / 42.6); SMC 20-100 84.7 and
+    100-1000 74.6 (97.2 / 89.8), its losses stars left, which floor3 takes; HIP 80609 99.1; Tarantula dark flat 78.5
+    left 15.9; crowded Tarantula 83.6, BP 17-19 91.9, Sagittarius 96.2; glow -158.7 and -290.7.
+  - **Saturated stars by count** (the rows the measured stars are for): as trained clean 84.2 dug 10.5 left 9.5 (R3v
+    78.9 / 16.8 / 6.3); with floor3 93.7 / 5.3 / 1.1 (R3v 91.6 / 5.3 / 4.2, SXT 89.4 / 2.1 / 8.5). The prediction that
+    saturated left falls holds with the step and not as trained.
+  - **Crowded, with floor3:** Tarantula 87.9, BP 17-19 92.6, Sagittarius 97.3 (R3v 88.7 / 92.9 / 95.5; SXT 96.1 / 98.3 /
+    99.6). The crowded fields are the largest gap left to SXT.
+  - **The twin inside the rim** (`twin_err_inner.py`, R3v's mask): rms 0.769 as trained and 0.823 with floor3 (R3v
+    0.700); the registered-way figure, the rim's, 2.907 and 1.091.
+  - The ring profile at real sites, which the registration reports with no bar, is read beside R3y's above (M42 0.37
+    / -2.21 / -0.14 / 0.02, HIP 80609 0.12 / 0.26 / -0.21 / -0.31): the shallowest ring of the four models on both.
+
+- **R4a, pre-registered 2026-11-17 before any score. One change from R3z: the cluster scenes join the draw, for the
+  crowded fields.** R3z's data (synth25) and F6's master-stretched cluster scenes (`r3-clusters-master/cache`, 2,592
+  training cells of one draw, by their share of the tiles 12.5 % of the training draw, as R3a's log printed) on R3v's
+  model and recipe exactly, seed 0, as a Batch job that removes itself (tag `r4aaz`, `launch-batch.ps1 -CacheBlob
+  r2-synth25/cache -ExtraBlob r3-clusters-master/cache`). R3v, R3x, R3y and R3z trained with no cluster scenes.
+  - **Judged with floor3 AND `--protect-cores`** (the owner, 2026-11-17: core protection becomes the default once its
+    mask is shown to protect cores only; that validation is its own measurement and is not this arm's). The plates are made with
+    `bh-bin8`, which reproduces the October scoring binary's rows on R3z to the last digit. The rows as trained and
+    the nucleus without protection are reported beside.
+  - **The question, the crowded fields, against R3z with floor3:** the Tarantula's crowded stars flat at least 92.0
+    (R3z 87.9, SXT 96.1: half the gap) and Gaia BP 17-19 removed at least 95.4 (92.6, 98.3: half the gap).
+  - **Guards:** R3z's star guards unchanged (by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over;
+    M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat at least 95 and dug at most 3;
+    Tarantula dark flat at least 91); the glow's green median within 450 of zero on Andromeda and within 500 on the
+    Tarantula, either side; the M31 nucleus under 10 % in every channel with protection; purity at most 1.0 %; the
+    Sagittarius Triplet's crowded stars flat at least 96.3 (R3z 97.3 less one point).
+  - **Kill:** a guard fails, or the Tarantula's crowded flat stays under 89.9 (not 2 points over R3z). Between 89.9
+    and 92.0 with every guard held, or one of the two bars cleared and the other missed, it neither passes nor is
+    killed: no seed 1, the rows are reported, the owner decides.
+  - **Reported, no bar:** every row as trained; the glow by channel, p90 and share over; saturated by count; the
+    nucleus without protection; M32 kept; the twin inside the rim.
+  - **Prediction:** the crowded rows rise by less than half the gap (the Tarantula's flat to about 90 or 91, BP 17-19
+    to about 94), as R2q's clusters did on the small model; the glow and the star guards hold; the nucleus without
+    protection is taken as R3z's is.
+  - **If the question is cleared:** seed 1. Nothing is adopted; adoption is the owner's.
+  - **Seed 1, registered 2026-11-18 before any score of either seed** (seed 0 is at about step 80,000 of its
+    training). R3y's two seeds differed by 9.6 points on the dig, 21.4 on M42's 100-1000 row and a factor of three on
+    the nucleus, so one seed does not settle rows like these. R4a's recipe and data exactly (the same trainer files,
+    `--extra-cache` on the local copy of the cluster cache), only `--seed 1` (`r4a_synth25c_s1`), on the GTX 1070 while
+    seed 0 trains on the T4. Read with seed 0 against this registration as it stands: no new bar, none moved. A
+    question counts as cleared only if both seeds clear it; a kill by either seed stands. This replaces "If the
+    question is cleared: seed 1" above only in the order the seeds train.
+  - **Seed 0's read, 2026-11-18: KILLED, the Tarantula's crowded flat at 88.5 against the kill bar of 89.9.** The
+    trainer stopped at step 225,500 (the held-out objective's best at 213,500). With floor3 and core protection, against
+    R3z with floor3:
+
+| row | bar | R4a seed 0 | R3z |
+|---|---|---|---|
+| Tarantula crowded flat (question) | at least 92.0, kill under 89.9 | **88.5** | 87.9 |
+| Gaia BP 17-19 (question) | at least 95.4 | **94.1** | 92.6 |
+| by count clean, 100-1000 / 1000 and over | 98.5 / 98 | 99.3 / 100.0 | |
+| M42 100-1000 clean | 88 | 94.1 | |
+| SMC 20-100 / 100-1000 clean | 97 | 98.9 / 100.0 | |
+| Andromeda dark flat / dug | 95 / at most 3 | 98.1 / 1.0 | |
+| Tarantula dark flat | 91 | 94.5 | |
+| glow green median, Andromeda / Tarantula | within 450 / 500 | -73.7 / -190.6 | |
+| M31 nucleus with protection | under 10 % | 0.0 / 0.0 / 0.0 | |
+| purity | at most 1.0 % | 0.8 | |
+| Sagittarius crowded flat | 96.3 | 96.4 | 97.3 |
+
+    Every guard holds (the Sagittarius one by a tenth) and both question bars are missed: the crowded flat rose 0.6
+    points and BP 17-19 rose 1.5, under the prediction's 90 to 91 and about 94. An eighth of the draw as cluster scenes
+    does not close the crowded gap on this model. Reported, no bar: as trained, Andromeda dark flat 56.6 dug 34.8,
+    Tarantula dark flat 70.5 left 23.3, Tarantula crowded 82.8, BP 93.3, Sagittarius 94.6, by count clean 100-1000
+    95.5 (M42 55.1 dug 41.9; HIP 80609 99.3; Lobster 99.6; SMC 84.7), saturated by count clean 85.3 as trained and 93.7
+    with floor3; the nucleus without protection 25.2 / 43.0 / 46.9 % as trained.
+  - **Seed 1's read, 2026-11-18: KILLED on the same bar, and on the Sagittarius guard by a tenth.** It stopped at step
+    192,000 (best at 180,000). With floor3 and core protection: the Tarantula's crowded flat **88.5**, the same as seed
+    0 to the tenth; BP 17-19 **92.4** (seed 0 94.1, R3z 92.6); the Sagittarius crowded flat 96.2 against the guard's
+    96.3; Andromeda dark flat 98.1 dug 1.1; Tarantula dark flat 94.5; by count clean 99.3 at 100-1000 and 100.0 at 1000
+    and over; M42 100-1000 95.6; SMC 98.9 / 100.0; glow green median +50.1 / +97.3; nucleus 0.0 with protection;
+    purity 0.7. As trained: Andromeda dark flat 66.1 dug 28.4, Tarantula crowded 84.3, BP 91.6, M42 100-1000 clean
+    72.1 dug 25.7 (seed 0 55.1 and 41.9), the nucleus without protection -0.1 / -6.1 / 15.6 %. So the crowded flat
+    does not move with the seed (88.5 twice) and BP 17-19 moves 1.7 points, which is as much as seed 0 gained on
+    R3z: the cluster scenes buy nothing measurable on the crowded rows. As trained the two seeds again differ widely
+    on the dig (6.4 points) and on M42 (17 points), as R3y's did.
+  - **Where the crowded gap is (seed 0 with floor3, the Tarantula's 13,939 crowded stars):** flat 88.5 %, dug 2.1 %,
+    **left 9.4 %**. The stars are left in, not dug, so the dig-fill step has nothing to do there.
+  - **A second pass, registered 2026-11-18 before any score: R3z's seed 0 run again over its own starless plate.** No
+    training. The plates of `w-r3z_synth25_s0-pc` (core protection on) go through `image remove-stars --protect-cores`
+    a second time with the same weights and binary (`bh-bin8`), then floor3 against the ORIGINAL master, then the
+    whole-master scorecard (`w-r3z_synth25_s0-pc2`). **Question,** R4a's: the Tarantula's crowded flat at least 92.0
+    and BP 17-19 at least 95.4. **Guards,** those of R4a's that the scorecard reads: Andromeda dark flat at least 95
+    and dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 and 500 of zero; the nucleus
+    under 10 % with protection; purity at most 1.0 %; the Sagittarius crowded flat at least 96.3. **Kill:** a guard
+    fails, or the crowded flat under 89.9. **Prediction:** the crowded flat rises to about 91 as the stars a first
+    pass left lose their neighbours, and the cost shows in purity or in the light taken from the field, since a pass
+    that takes 1 to 9 % too much flux does so twice.
+  - **The second pass's read, 2026-11-18: KILLED, the crowded flat 89.1 against 89.9.** With floor3, one pass against
+    two: the Tarantula's crowded flat 87.9 to **89.1** (left 10.1 to 8.9 %, dug 2.0 both), BP 17-19 92.6 to **94.2**,
+    purity 0.7 to 0.8, the light taken from the field 79 to 80 %; every guard holds and nothing else moves (Andromeda
+    dark flat 98.0 dug 0.9, Tarantula dark flat 95.7, Sagittarius crowded 97.3, glow green median -147.4 / -68.5,
+    nucleus 0.0). The prediction of about 91 was too high and the cost it expected did not appear. Nine in ten of the
+    crowded stars a first pass leaves are left by the second as well: the model does not see them as stars, with or
+    without their neighbours, so a second pass is not the crowded fields' answer.
+  - **The crowded gap is in the truth plate, not in the model (2026-11-18, a measurement, no arm).** In the
+    Tarantula's densest 300 px cell StarXTerminator's plate sits below the input's own darkest tenth (red 0.01124
+    against 0.01148; ours 0.01165), so it takes the unresolved light too, and after a 3 px box its spread is 1.6 / 1.1
+    / 0.9 sigma (R / G / B) where ours is 3.5 / 2.1 / 1.5. On the SMC validation session, which has a truth plate
+    (`crowd_texture.py`, R3z as trained), the model's plate has the TRUTH's spread in the five densest cells (0.85 /
+    1.20 / 0.73 against 0.87 / 1.09 / 0.74 in the densest; 2.75 / 2.39 / 1.36 against 2.83 / 2.53 / 1.44 in the next)
+    where a sparse cell reads 0.55: the model returns what the builder left. Split by the builder's own records
+    (`mottle_split.py`, the luminance after a 3 px box less its 21 px median, white noise about 1; a sparse cell reads
+    1.8): the pixels the builder never touched are 78 to 79 % of a dense cell, read 2.6 to 3.6 and hold 55 to 81 % of
+    the structure; the candidates it left in (466 knots, 75 with no fit, 43 merged, 14 too narrow, of 25,157) are
+    under 1 % of the pixels, read +13 to +22 and hold 5 to 36 %; the subtracted sites are the QUIETEST class (1.8 to
+    2.3) and hold 5 to 10 %; the inpainted pixels 3 to 5 %. So the mottle is the stars the finder never found, in a
+    field whose own noise is faint stars, and the blends the star test refuses; it is not the subtraction's marks.
+    More training toward these plates cannot close the gap, which is why the cluster scenes and the second pass did
+    not. What the plate should hold in such a field is the owner's (2026-10-20: the starless plate keeps the
+    unresolved glow); the builder's finder and its star test in crowded cells are where a change would go.
+  - **What the finder left, counted (2026-11-18, `leftover_peaks.py`, the same SMC plate).** The plate's luminance
+    less its 21 px median through a Gaussian of 1.2 px, in the photon noise (a sparse cell's filtered spread, scaled
+    by each cell's neighbour differences), local maxima per 300 px cell. The five densest cells hold 557 to 654
+    catalogued stars each and still 91 to 133 maxima at 5 sigma, 226 to 271 at 4 and 447 to 513 at 3, where a sparse
+    cell of 120 catalogued stars holds 17, 77 and 179. Of the 5 sigma leftovers 71 to 93 a cell lie further than 5 px
+    from anything the builder catalogued, at a median of 5.4 to 5.8 sigma, so the finder's threshold misses about one
+    star for every seven it finds and those sit just over it; 5 to 19 a cell are at a candidate it left in, and 0 to
+    14 at a subtracted star. The plate's filtered spread is 1.3 to 1.5 times the photon noise in the dense cells and
+    1.0 in the sparse one. So most of the mottle is stars between 2 and 5 sigma, under any threshold a finder can hold
+    on noise alone, and the masks are not the cause (the inpainted pixels are 3 to 7 % of a dense cell). A finder for
+    the truth plates of crowded fields, separate from `Image.FindStarsAsync` (the owner, 2026-11-18), is #2203.
+  - **#2203 step 1, 2026-11-18: a lower threshold alone is not the answer.** `dataset starless-plates
+    --detection-sigma` (branch `feat/crowded-plate-finder`) built the SMC, M42 and held-out Tarantula plates at 5, 4
+    and 3.5 sigma (`threshold_cmp.py`; the Tarantula's plate is a diagnosis, never a training plate); the 5 sigma build
+    reproduces the stored SMC plate to the star. **SMC, the five densest cells:** stars subtracted 2,920 / 3,993 /
+    4,890, maxima left at 5 sigma 564 / 166 / 116 and at 4 sigma 1,269 / 612 / 270, but the structure only 3.21 / 3.01
+    / 2.87. **M42, the five brightest cells:** candidates 718 / 1,047 / 1,389 and subtracted as stars 527 / 769 /
+    1,057, the plate moved 7.6 and 8.8 sigma against the 5 sigma one: nebula texture taken. Core protection does not
+    cover it (one region of 15,924 px round the Trapezium holds 5 of the 258 extra subtractions at 4 sigma and 10 of
+    557 at 3.5), and it acts when the remover is used, not when a plate is built. **The Tarantula's densest cell,**
+    spread after a 3 px box in sigma, R / G / B: StarXTerminator 1.59 / 1.05 / 0.90, the model (R3z with floor3) 3.52
+    / 2.09 / 1.52, the classical plate at 5 sigma 5.81 / 3.60 / 2.76, at 4 sigma 5.13 / 3.27 / 2.56, at 3.5 sigma 4.80
+    / 3.10 / 2.46, with 948 / 1,289 / 1,587 candidates of which 98 % pass the star test. So in a field this dense the
+    builder's plate is rougher than the model's own output at every threshold: the field is confusion-limited, every
+    resolution element holds a star, and subtracting stars one by one cannot reach a smooth plate. The star test's
+    pass rate does not separate the cases well either (97 to 98 % in the star field, 90 to 91 % in 30 Doradus's
+    core, 73 % in M42's). What a plate should be in a confusion-limited cell is the next step's question.
+  - **#2203 step 2, 2026-11-18: where the grain is, and what teaches the model to keep it.** After a 7 px median the
+    Tarantula's dense field still holds a grain in the 9 to 41 px band of 14.4 / 9.0 / 7.4 sigma of a 9 px mean (0.76
+    / 0.39 / 0.35 % of the sky) where StarXTerminator's plate holds 2.9 / 2.3 / 2.1; it follows the catalogued stars'
+    density only weakly (r = 0.20), so it is the chance clustering of stars under any threshold. StarXTerminator keeps
+    the glow as a smooth surface at about 40 px and up (the same reddish clouds are in its plate) and drops the
+    grain, so "the plate keeps the unresolved glow" and "no grain" do not exclude each other. A prototype
+    (`plate_grain.py`: the detail between a 7 px and a 31 px median replaced by the smooth base where subtracted stars
+    are dense and the detail's rms over 21 px is under twice the grain's own level, that level a line in the square
+    root of the star density) takes the Tarantula's dense cells from 6.2 / 5.7 / 5.0 to 2.2 / 2.3 / 2.2 and from 6.5
+    / 6.3 / 5.7 to 3.4 / 3.6 / 3.4 (StarXTerminator 0.8 to 1.2), leaves 30 Doradus's core as it was (61.9 / 68.9 /
+    51.5 to 61.6 / 68.4 / 51.3) and M42 untouched; a variant that reached 1.6 cost 30 Doradus a quarter of its
+    structure and was dropped. By the density test 153 of the 201 stored plates have crowded sky (eta Carinae at 135
+    mm, Rosette, Seagull, Vela), not only the Magellanic fields, and a stored eta Carinae plate is peppered with
+    faint stars across its whole frame. **But the training tiles do not carry the plate's pixels:** every export
+    since synth18 draws its background synthetic (`--background synthetic`: the plate's coarse scales, fine ones
+    synthesised to the plate's own local signal), and the injector draws brightness from the catalogue, which holds
+    nothing under the builder's 5 sigma. So the model is never shown a star under 5 sigma to take, and the grain the
+    plate holds comes back as fine texture the target keeps. The extension that draws the stars under the catalogue
+    was built on 2026-10-23 (`--faint-stars`, "Synthetics S2" below), capped per tile at 0.1 sigma by the owner's
+    decision of that day, and left "opt-in and capped, for a training arm to judge". No arm has trained with it.
+    That arm is R4c.
+- **Colour balance and gradient extraction before the remover change nothing that matters (2026-11-18, the owner's
+  two questions; R3z as trained, HIP 80609 and M42, per catalogued star against the untouched run and the truth
+  plate).** The input stretch is per channel (each channel's own minimum and median, `ChunkedNafnetRunner`), the
+  export uses the same routine, and the trainer adds flips and quarter turns only. *A channel halved or quartered*
+  (`wb_invariance.py`): the median change in a star's core is at most 0.03 sigma up to 1000 sigma and no star moves
+  by more than 1 sigma; over 1000 sigma (about 250 stars a master) at most 0.14 sigma and the dug share within 3
+  points. *The master flattened first* (`flatten_invariance.py`, the background put back on the output): with the
+  classical extractor the dug share in the core moves by 1 to 2 points up in red and 2 to 10 down in green and blue
+  (M42 100-1000 green 43.7 to 33.7), median changes at most 0.2 sigma; one row worse, M42's red ring at 2 to 4 px,
+  38.9 to 45.5. GraXpert gives the same picture row for row (M42 100-1000 green 43.7 to 33.0, the red ring 38.9 to
+  46.8). Two seeds of one recipe differ by about 10 points on these rows. `image flatten` writes on the unit scale
+  whatever its input's (#2202), which the script undoes by the ratio of neighbour differences.
+- **R4c, pre-registered 2026-11-18 before any score. One change from R3z: the stars under the catalogue are drawn.**
+  synth28 = synth25's line plus `--faint-stars 3` (the reviewed floor, the default cap of 0.1 sigma a tile), from
+  the same binary (`bh-bin8`), on the stored plates as they are; R3v's model and recipe exactly, seed 0, no cluster
+  scenes, a Batch job that removes itself (tag `r4caz`).
+  - **The question, with floor3 and core protection, against R3z:** Gaia BP 17-19 removed at least 95.4 (R3z 92.6,
+    StarXTerminator 98.3: half the gap) and the Tarantula's crowded flat at least 92.0 (87.9, 96.1).
+  - **Guards, R4a's:** by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over; M42 100-1000 at least
+    88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat at least 95 and dug at most 3; Tarantula dark flat at
+    least 91; the glow's green median within 450 of zero on Andromeda and within 500 on the Tarantula; the M31 nucleus
+    under 10 % with protection; purity at most 1.0 %; the Sagittarius crowded flat at least 96.3.
+  - **Kill:** a guard fails, or BP 17-19 under 93.6 (not one point over R3z). Between the kill and the question's
+    bars with every guard held it neither passes nor is killed; the rows are reported and the owner decides.
+  - **Reported, no bar:** every row as trained; the grain in the Tarantula's two dense cells and 30 Doradus's core
+    (the 9 to 41 px band, as above) beside R3z's and StarXTerminator's; the light taken from the field; the share of
+    tiles the cap touched and the faint stars drawn and dropped a tile.
+  - **Prediction:** BP 17-19 rises to about 94.5, since those are the stars the extension adds; purity rises toward
+    1.0 as stars near the noise are taken; the Tarantula's crowded flat moves under a point and the dense cells'
+    grain stays, because the cap stops the draw exactly where the field is dense. If so, the cap, not the model, is
+    what holds the crowded fields, and raising it is the owner's (2026-10-23).
+  - **If the question is cleared:** seed 1. Nothing is adopted; adoption is the owner's.
+- **R4d, pre-registered 2026-11-18 before any score of R4c or itself. One change from R4c: the cap lifted.** The
+  owner, 2026-11-18, on the finding above: "lets use the faint stars then if we have them". synth29 = synth28's line
+  with `--faint-stars 3,1` (`export-synth.ps1 -FaintStars`): the same floor, the cap at 1 sigma a tile, which no
+  validation tile reaches (uncapped at this floor the worst read 0.232, the SMC's mean 0.109), so every star the
+  luminosity function asks for is drawn; the same binary (`bh-bin8`), R3v's model and recipe, seed 0, trained on the
+  GTX 1070 while R4c trains on the T4. It is a diagnosis of what the cap holds back, not a proposal to drop it: the
+  cap is the owner's decision of 2026-10-23 (unresolved glow belongs in the starless image) and stays the default.
+  - **The question, with floor3 and core protection, against R4c:** the Tarantula's crowded flat at least 2 points
+    over R4c's AND the grain in the Tarantula's two dense cells (the 9 to 41 px band) at most two thirds of R4c's.
+  - **Guards, R4c's,** and one more for what the cap was set to protect: the light taken from the field on the
+    Tarantula (green, the densest tenth of cells and the whole frame) no more than 5 points over R3z's 78 and 79 %,
+    and 30 Doradus's core (cell 4,4) keeping at least 95 % of its 9 to 41 px band against R3z's plate.
+  - **Kill:** a guard fails. With every guard held and the question missed, the cap is not what holds the crowded
+    fields and the arm stops there.
+  - **Prediction:** the dense cells' grain falls by about a third and the crowded flat rises 2 to 3 points; the
+    light taken from the densest cells rises, toward the glow guard's edge, because a model taught to take every
+    faint star takes part of the sea they sum to.
+  - **Nothing is adopted;** a pass means the cap's value goes back to the owner with these numbers.
+
+- **`--bright-measured` (#2192, PR #2193) against real stars, 2026-11-17: it reaches M42's kind and does not move HIP
+  80609's or Lobster's.** The eight validation sessions exported as item 5's plate-plain arm with the one option, from
+  `bh-bin9` (main with PR #2193; `dig-2x2/plate-bright-measured`), read by `flank_cmp.py` with the drawn stars kept to
+  those marked Measured. The option measures 1.1 to 4.6 % of a session's drawn stars (Lobster 1,801 of 60,902, M42 248
+  of 5,420, HIP 80609 972 of 58,138, SMC 115 of 10,341) and 22 to 47 % of the brightest twentieth of the unsaturated
+  ones, so the medians over all drawn stars do not move. The measured stars alone, the ring at 1.6 to 2.5 px over the
+  core, peak 0.25 to 0.5, R / G / B, against real and against the field profile's draw:
+
+| session | real | measured | field profile |
+|---|---|---|---|
+| M42 | 0.217 / 0.238 / 0.169 | 0.206 / 0.218 / 0.156 | 0.249 / 0.250 / 0.209 |
+| HIP 80609 | 0.172 / 0.215 / 0.138 | 0.201 / 0.266 / 0.176 | 0.208 / 0.270 / 0.176 |
+| Lobster | 0.191 / 0.169 / 0.199 | 0.243 / 0.222 / 0.222 | 0.205 / 0.181 / 0.206 |
+
+  On M42 the measured stars sit 5 to 8 % under real where the field profile sits 5 to 24 % over (blue, the channel
+  the model digs, 0.156 against 0.169 where it was 0.209), and at 2.5 to 3.5 px they hold 0.089 / 0.094 / 0.043
+  against real's 0.107 / 0.119 / 0.061, a fifth to a third under. On HIP 80609 the measured stars are as fat as the
+  field profile's, and on Lobster fatter (35 stars), so the option is not a fix for the flank of item 5 there; why a
+  star drawn from its own master reads fatter than the real stars of its bin on those two is not found (the exporter's
+  warp and the bin's selection are the candidates).
+- **R4b, pre-registered 2026-11-17 before any score. One change from R3z's data: the unsaturated bright stars drawn as
+  measured.** synth27 = synth25's line plus `--bright-measured` (`export-synth.ps1 -Name synth27 -BetaDraw 0.3,1.3,6,3
+  -Extra --saturated-own-share,--saturated-measured,--halo-over-plate,--bright-measured`), from `bh-bin9`, a second
+  named difference (synth25 came from `bh-bin8`); R3v's model and recipe exactly, seed 0, no cluster scenes, a Batch
+  job that removes itself (tag `r4baz`).
+  - **The question, on the model AS TRAINED, against R3z as trained:** M42's stars at 100-1000 sigma dug at most 26.0
+    (R3z 39.0, R3v 42.6: a third off) with clean at least 68 (58.1).
+  - **Guards, with floor3 and `--protect-cores`, R4a's:** by count clean at least 98.5 at 100-1000 sigma and 98 at
+    1000 and over; M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat at least 95 and
+    dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 of zero on Andromeda and within
+    500 on the Tarantula; the M31 nucleus under 10 % in every channel with protection; purity at most 1.0 %. As
+    trained: HIP 80609 100-1000 clean at least 97.1 and Lobster at least 97.5 (R3z 99.1 and 99.5 less two points).
+  - **Kill:** a guard fails, or M42's dug as trained stays over 33.0 (not cut by 6 points). Between 26.0 and 33.0 with
+    every guard held it neither passes nor is killed: no seed 1, the rows are reported, the owner decides.
+  - **Reported, no bar:** every row with floor3; M42's ring profile at real sites (`site_core_ch.py`) beside R3v's;
+    the crowded rows; saturated by count; the nucleus without protection; the twin inside the rim.
+  - **Prediction:** M42's dug falls to about 30, inside the band that neither passes nor kills, since the measured
+    stars are a twentieth of the drawn ones and still a fifth under real past 2.5 px; HIP 80609 and Lobster do not
+    move; the glow and the guards hold as R3z's did.
+  - **If the question is cleared:** seed 1, and the cluster scenes of R4a join if R4a's read allows. Nothing is
+    adopted; adoption is the owner's.
+  - **Read 2026-11-18, seed 0 (`r4b_synth27_s0`, 240,000 steps): the question is CLEARED, narrowly, and every guard
+    holds.** The prediction (about 30, neither pass nor kill) was wrong on the good side.
+
+    | row | bar | R4b | R3z | R3v |
+    |---|---|---|---|---|
+    | M42 100-1000 as trained, dug (136 stars) | at most 26.0 | 25.0 | 39.0 | 42.6 |
+    | M42 100-1000 as trained, clean | at least 68 | 73.5 | 58.1 | 56.6 |
+    | by count clean, 100-1000 / 1000 and over, floor3 | 98.5 / 98 | 99.3 / 100.0 | | 99.4 / 100.0 |
+    | M42 100-1000, floor3 | at least 88 | 94.1 | | 94.9 |
+    | SMC 20-100 / 100-1000, floor3 | at least 97 | 98.9 / 100.0 | | 98.9 / 100.0 |
+    | Andromeda dark flat / dug, floor3 | at least 95 / at most 3 | 98.4 / 0.7 | | |
+    | Tarantula dark flat, floor3 | at least 91 | 94.5 | | |
+    | glow green median, Andromeda / Tarantula, floor3 | within 450 / 500 | +32.1 / +192.2 | | |
+    | M31 nucleus with protection | under 10 % | 0.0 in every channel | | |
+    | purity | at most 1.0 % | 0.9 | | |
+    | HIP 80609 / Lobster 100-1000 as trained, clean | at least 97.1 / 97.5 | 98.6 / 99.5 | 99.1 / 99.5 | 97.1 / 99.3 |
+
+    The margin on the question is two stars: 34 of 136 dug, 35 (25.7 %) would still pass and 36 (26.5 %) would have
+    missed the bar. One seed does not settle
+    a margin that size, which is what the registered seed 1 is for.
+  - **Reported, no bar.** As trained the brighter bands moved the same way: at 1000 sigma and over clean 89.8 by wing
+    (R3v 74.2), M42's 11 stars dug 27.3 % (R3v 81.8), HIP 80609's 69 dug 4.3 % (18.8); saturated M42 dug 64.3 %
+    (85.7). One row moved the wrong way as trained: the SMC at 100-1000 sigma (59 stars) clean 81.4 dug 16.9, where
+    R3v has 89.8 and 8.5; with floor3 it is 100.0, so the guard holds, but the measured stars cost the SMC as trained.
+    Crowded rows with floor3: Tarantula crowded 90.0, BP 17-19 94.7, Sagittarius 96.1, so the crowded gap is where
+    R3z left it, as expected of an arm that changes only the bright stars. M42's ring profile at real sites, blue,
+    100 sigma and over (1,560 sites, in the star's sigma, radii 0 / 0.8 / 1.6 / 2.5 / 3.5 px): -0.47 / +0.58 / -1.47
+    / -0.68 / -0.21; the dig is still the ring at 1.6 to 2.5 px. The twin inside the rim: rms in mask 2.35 as trained
+    (R3v 1.92), 1.06 with floor3.
+  - **Next by the registration: seed 1.** Not launched: the owner's word of 2026-11-18 is that the open ends of #2207
+    are worked down before another day-long run. The cluster scenes do not join (R4a was killed).
+
+Every script here that runs the remover (`transplant.py`, `site_remove.py`, `crowd_texture.py`, `wb_invariance.py`,
+`flatten_invariance.py`) gives the model AS TRAINED: it passes `--no-fill-digs` and `--no-protect-cores` where the
+build has them (the rows in this plan were made with a build from before both steps). No model reads another's cached
+plate: `site_remove.py` keeps them apart by folder (`SITE_OUT`, one per model, set by `site-run.sh`), the others by
+naming the output for the model as well as the session. `site_core.py` and `site_core_ch.py` read either: `SITE_OUT`'s
+folder, or transplant.py's with `TIANWEN_SR_MODEL` to pick the model.
+
+Files (DE1): R3y's Q1 export is made by `training/star-removal/flank-q1-export.ps1` (the arm `synth-draw12` under
+`dig-2x2/`) and the synth22 shares over beta 6 by `beta_over_share.py`; item 5's instrument is `training/star-removal/flank_cmp.py` and the exports behind its beta rows are made by
+`flank-exports.ps1` (the plate-plain arm of `dig-2x2.ps1` plus `--star-beta 8` and `--star-beta 20`, outputs `plate-beta8` and
+`plate-beta20` under `dig-2x2/`); `flank_cmp.py` takes `TIANWEN_DATASET` and `TIANWEN_REAL_VAL_ROOT` (the folder holding
+`r2-real-val`), and its console output is the item 5 table. Item 5's inputs: `r2-real-val`, `dig-2x2/plate-plain`,
+`dig-2x2/plate-beta8` and `dig-2x2/plate-beta20`. The four-measurements scripts are in `training/star-removal/` (`train_dig.py`, `export_dig.py`, `export_dig2.py`,
+`twin_err_inner.py`, `dig-2x2.ps1`, `site_core.py`, `site_core_ch.py`, `transplant.py`. Paths: `transplant.py`, `site_core.py` and `site_core_ch.py` read `TIANWEN_DATASET` and
+`TIANWEN_TRANSPLANT` (and `transplant.py` `TIANWEN_CLI`, the tianwen.exe) with DE1 defaults; `twin_err_inner.py` reads
+`TIANWEN_SR_SCRATCH`; `dig-2x2.ps1` has its D: and C: paths written in, as DE1 only; `export_dig.py`, `export_dig2.py`
+(the `RIM` variant of it) and `train_dig.py` take theirs as arguments), their outputs in `C:/temp/e2/explore/` (`dig-2x2-r3v_synth22_s0.pt.txt` and `_s1`, `transplant.txt`,
+`r3w/` for R3w's reads); and `C:/temp/e2/explore/` also holds (`check3-floor-real.txt`, `check3-floor-twin.txt`, `check3-floor2-real.txt`,
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
 `f2-eval-master/<model>+floor`, `+fill`, `+floor2`, `+floor3` and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`, `+floor3`;
 floor3's reads are `check3-floor3-real.txt`, `check3-floor3-twin.txt`, `check3-floor3-r3s.txt` and the sheets `saturated-smc-m42.png` and `caps.png`.

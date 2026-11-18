@@ -23,6 +23,9 @@ param(
     [string[]]$Extra = @(),
     # --star-beta-draw's value: share,low,high[,channel spread]. synth18 to synth21 drew 0.3,1.3,6.
     [string]$BetaDraw = '0.3,1.3,6',
+    # --faint-stars' value, <floor>[,<cap>] (Synthetics S2): empty draws none. A parameter of its own because a cap puts a
+    # comma in the value, which -Extra would split.
+    [string]$FaintStars = '',
     [string]$Store = 'D:/Astro-Dataset/2026-10-12-full',
     # The 138 training sessions synth4 to synth20 were exported over, one session id per line.
     [string]$Sessions = (Join-Path $PSScriptRoot 'synth-sessions.txt'),
@@ -48,12 +51,12 @@ try {
     $Extra = @($Extra | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $list = @(Get-Content $Sessions | Where-Object { $_ })
     if ($list.Count -ne 138) { Say "FAILED: $($list.Count) sessions, the training set has 138"; return }
-    "bin $Bin; beta draw $BetaDraw; extra $($Extra -join ' ')" | Out-File "$Root/export.recipe" -Encoding utf8
+    "bin $Bin; beta draw $BetaDraw; faint stars $FaintStars; extra $($Extra -join ' ')" | Out-File "$Root/export.recipe" -Encoding utf8
 
     $common = @('dataset', 'degrade', '--bake', "`"$Store`"", '--plates', "`"$plates`"", '--mode', 'stars', '--shape', 'warped',
         '--warp-sigma', '0.5', '--warp-sigma-drizzle', '0', '--cells', '40', '--draws', '4', '--seed', '1',
         '--background', 'synthetic', '--steer', '0.5,2,0.8,1', '--nebula-knots', '--bright-knots-wide', '--stretch-from', 'master',
-        '--star-beta-draw', $BetaDraw) + $Extra + @('--out', "`"$out`"")
+        '--star-beta-draw', $BetaDraw) + $(if ($FaintStars) { @('--faint-stars', $FaintStars) } else { @() }) + $Extra + @('--out', "`"$out`"")
     for ($i = 0; $i -lt $list.Count; $i += $Chunk) {
         $tag = '{0}-{1:D3}' -f $Name, $i
         if (Select-String -Path $exportLog -SimpleMatch " $tag exit 0" -Quiet) { continue }
