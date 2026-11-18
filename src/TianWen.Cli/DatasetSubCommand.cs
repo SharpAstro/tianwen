@@ -1948,14 +1948,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "clipped), drawn round with its own radial halo table. Each such star is marked Measured in injections.jsonl. " +
                           "A session where fewer than 20 stars measure draws as without it, and the log says so. Off by default.",
         };
-        var noiseFromPlateOpt = new Option<bool>("--noise-from-plate")
+        var noiseAsRecordedOpt = new Option<bool>("--noise-as-recorded")
         {
-            Description = "--mode stars (#1786): hold each session's noise level to what its starless plate reads, per channel. The " +
-                          "recorded level is read off the master with its stars in, which in a crowded field overstates the noise " +
-                          "between the stars (1.11 to 1.17 times on the Lobster master). The noise is drawn at the bounded level, and the " +
-                          "injection floor, a star's significance and the conditioning plane are read against it; a synthetic " +
-                          "background's knots and kept cores and the faint stars' cap keep the recorded level. The log and each row's PlateNoiseRatio carry " +
-                          "the ratio. Not with --noise-scale. Off by default.",
+            Description = "--mode stars (#1786): draw at each master's recorded noise level as it is, as every export before 2026-11-19 " +
+                          "did. By default the level is held to what the session's starless plate reads, per channel: the record is " +
+                          "read off the master with its stars in, which in a crowded field overstates the noise between the stars " +
+                          "(1.11 to 1.17 times on the Lobster master). The bounded level is the noise draw's, the injection floor's, a " +
+                          "star's significance's and the conditioning plane's; a synthetic background's knots and kept cores and the " +
+                          "faint stars' cap keep the recorded level. The log and each row's PlateNoiseRatio carry the ratio. With " +
+                          "--noise-scale the level is not bounded.",
         };
         var haloOverPlateOpt = new Option<bool>("--halo-over-plate")
         {
@@ -2036,7 +2037,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, brightMeasuredOpt, haloOverPlateOpt, noiseFromPlateOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, brightMeasuredOpt, haloOverPlateOpt, noiseAsRecordedOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2207,9 +2208,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--bright-measured draws injected stars; it needs --mode stars");
                 return 1;
             }
-            if (parseResult.GetValue(noiseFromPlateOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            if (parseResult.GetValue(noiseAsRecordedOpt) && mode != DatasetDegradationExporter.DegradationMode.Stars)
             {
-                consoleHost.WriteError("--noise-from-plate reads the starless plate; it needs --mode stars");
+                consoleHost.WriteError("--noise-as-recorded is about a stars export's noise level; it needs --mode stars");
                 return 1;
             }
             if (parseResult.GetValue(haloOverPlateOpt) && (!parseResult.GetValue(saturatedMeasuredOpt) || parseResult.GetValue(outerHaloOpt) is not null))
@@ -2307,11 +2308,6 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 if (!DatasetDegradationExporter.IsNoiseScale(scale))
                 {
                     consoleHost.WriteError($"--noise-scale {scale}: the scale is in (1, 16]");
-                    return 1;
-                }
-                if (parseResult.GetValue(noiseFromPlateOpt))
-                {
-                    consoleHost.WriteError("--noise-from-plate and --noise-scale are two arms; give one");
                     return 1;
                 }
             }
@@ -2433,7 +2429,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 SaturatedAtOwnShare: parseResult.GetValue(saturatedOwnShareOpt),
                 SaturatedMeasured: parseResult.GetValue(saturatedMeasuredOpt),
                 HaloOverPlate: parseResult.GetValue(haloOverPlateOpt),
-                NoiseFromPlate: parseResult.GetValue(noiseFromPlateOpt),
+                NoiseAsRecorded: parseResult.GetValue(noiseAsRecordedOpt),
                 NoiseScale: noiseScale,
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,

@@ -13,6 +13,9 @@
 # gets a parameter of its own, as -BetaDraw has. Record the binary's commit beside the export (-Bin's folder holds HEAD.txt when it was built for one): R3r's
 # synth21 used bh-bin6, R3s's synth22 and R3t's synth23 bh-bin7, their commits' subjects in the plan.
 #
+# Since 2026-11-19 (#1786) the binary holds each session's noise level to its starless plate's reading by default. An arm that
+# repeats a recipe of synth29 or earlier passes -Extra '--noise-as-recorded' (or exports from the frozen binary it used).
+#
 # Run DETACHED, with no window (from a PowerShell session: Start-Process pwsh -ArgumentList ... -NoNewWindow).
 #   pwsh -NoProfile -File export-synth.ps1 -Root D:/temp/tianwen-scratch/r3-train-synth21 -Name synth21 `
 #        -Bin C:/temp/tianwen-scratch/bh-bin6/tianwen.exe -Extra '--saturated-own-share','--saturated-measured'

@@ -1757,17 +1757,50 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// #1786: <c>NoiseFromPlate</c> holds each session's level to its plate's own estimate. Off, no row says anything of
-        /// it; on, every row carries the ratio per channel and its one-sub sigma is the plain export's times the ratio where the
-        /// ratio is under 1 and the plain one where it is not; the stars, knots and kept cores are the plain export's to the byte of
-        /// injections.jsonl, which holds at least one of each; and it is refused with a noise scale. (The faint stars' cap keeps
-        /// the recorded level too; this fixture's catalogue is too small to fit the luminosity function they are drawn from.)
+        /// #1786: by default each session's level is held to its plate's own estimate. With <c>NoiseAsRecorded</c> no row says
+        /// anything of it; by default every row carries the ratio per channel and its one-sub sigma is the recorded export's times
+        /// the ratio where the ratio is under 1 and the recorded one where it is not; the stars, knots and kept cores are the
+        /// recorded export's to the byte of injections.jsonl, which holds at least one of each; and under a noise scale nothing is
+        /// bounded. (The faint stars' cap keeps the recorded level too; this fixture's catalogue is too small to fit the
+        /// luminosity function they are drawn from.)
         /// </summary>
         [Fact]
-        public async Task TheNoiseFromThePlateBoundsTheLevelAndMovesNoStar()
+        public async Task ThePlateBoundsTheNoiseLevelByDefaultAndMovesNoStar()
         {
             var bake = BuildBakeWithHalves();
             var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            // The fixture's plate is a noise-free ramp, which no master less its stars is and which the bound does not believe
+            // (StretchedNoise.MinPlateNoiseRatio). Give it noise at 0.8 of what the master's record says, read off one export
+            // at the recorded level.
+            var probe = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-probe"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 1,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
+                SyntheticBackground: true, NoiseAsRecorded: true);
+            (await DatasetDegradationExporter.RunAsync(probe, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var probed = ReadDegradationRows(probe.OutDir)[0];
+            var recordedSigma = probed.OneSubSigmaPerChannel.ShouldNotBeNull().Select(s => s * probed.MasterDepth).ToArray();
+            RetainedMasterStore.TryRead(bake, SessionId, out var fixtureMaster, logger: null).ShouldBeTrue();
+            var divisor = DatasetTileExporter.UnitDivisor(fixtureMaster);
+            fixtureMaster.Release();
+            var noiseRng = new Random(7);
+            var noisyPlanes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                var p = new float[H, W];
+                for (var y = 0; y < H; y++)
+                {
+                    for (var x = 0; x < W; x++)
+                    {
+                        var gauss = Math.Sqrt(-2.0 * Math.Log(1.0 - noiseRng.NextDouble())) * Math.Cos(2.0 * Math.PI * noiseRng.NextDouble());
+                        p[y, x] = (float)(900.0 + (c * 120.0) + (140.0 * x / (W - 1)) + (60.0 * y / (H - 1)) + (0.8 * recordedSigma[c] * divisor * gauss));
+                    }
+                }
+                noisyPlanes[c] = p;
+            }
+            var noisyPlate = new Image(noisyPlanes, BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+            noisyPlate.WriteToFitsFile(Path.Combine(platesRoot, "plates", DatasetTileExporter.Sanitize(SessionId) + "_plate.fits"));
+            noisyPlate.Release();
+
             // The scene the byte comparison holds has to be there, a knot and a kept core, and the fixture has few cells: the
             // first seed whose plain export draws both is the one compared.
             DatasetDegradationExporter.Options? found = null;
@@ -1776,7 +1809,7 @@ namespace TianWen.Lib.Tests
                 var candidate = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, $"stars-recorded-{seed}"),
                     Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: seed,
                     NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
-                    SyntheticBackground: true, KeptCores: true);
+                    SyntheticBackground: true, KeptCores: true, NoiseAsRecorded: true);
                 (await DatasetDegradationExporter.RunAsync(candidate, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
                 var drawn = ReadInjectionRows(candidate.OutDir);
                 if (drawn.Any(static i => i.Knots is { Length: > 0 }) && drawn.Any(static i => i.Core is not null))
@@ -1785,7 +1818,7 @@ namespace TianWen.Lib.Tests
                 }
             }
             var plain = found.ShouldNotBeNull("no seed from 1 to 24 drew both a knot and a kept core");
-            var bounded = plain with { OutDir = Path.Combine(_root, "stars-from-plate"), NoiseFromPlate = true };
+            var bounded = plain with { OutDir = Path.Combine(_root, "stars-from-plate"), NoiseAsRecorded = false };
             (await DatasetDegradationExporter.RunAsync(bounded, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
 
             File.ReadAllText(Path.Combine(bounded.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
@@ -1804,16 +1837,16 @@ namespace TianWen.Lib.Tests
                 var wasSigma = was.OneSubSigmaPerChannel.ShouldNotBeNull();
                 for (var c = 0; c < 3; c++)
                 {
-                    ratio[c].ShouldBeGreaterThan(0.0);
+                    ratio[c].ShouldBeInRange(0.6, 1.0, $"channel {c}: the plate was given 0.8 of the recorded noise");
                     sigma[c].ShouldBe(wasSigma[c] * Math.Min(1.0, ratio[c]), wasSigma[c] * 1e-9, $"channel {c}");
                     lowered += ratio[c] < 1.0 ? 1 : 0;
                 }
             }
             lowered.ShouldBeGreaterThan(0, "no channel of the fixture's plate reads under its record, so the lowering was not exercised");
 
-            var scaled = bounded with { OutDir = Path.Combine(_root, "stars-from-plate-scaled"), SyntheticBackground = false, NoiseScale = 4.0 };
-            var refused = await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(scaled, logger: null, TestContext.Current.CancellationToken));
-            refused.Message.ShouldContain("noise scale");
+            var scaled = bounded with { OutDir = Path.Combine(_root, "stars-from-plate-scaled"), SyntheticBackground = false, KeptCores = false, NoiseScale = 4.0 };
+            (await DatasetDegradationExporter.RunAsync(scaled, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            ReadDegradationRows(scaled.OutDir).ShouldAllBe(static r => r.PlateNoiseRatio == null);
         }
 
         /// <summary>

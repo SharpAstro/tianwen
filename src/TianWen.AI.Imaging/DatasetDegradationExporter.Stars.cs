@@ -260,10 +260,6 @@ public static partial class DatasetDegradationExporter
             {
                 throw new ArgumentException("the wing relation clamp solves each wing against the master's own profile; it would move the wings a held or drawn star beta set", nameof(options));
             }
-            if (options.NoiseFromPlate && options.NoiseScale is not null)
-            {
-                throw new ArgumentException("the plate's noise bounds the level a synthetic background is drawn at; a noise scale carries the plate's own cell, whose noise is what it is", nameof(options));
-            }
             if (options.HaloOverPlate && !options.SaturatedMeasured)
             {
                 throw new ArgumentException("the halo over the plate is read off the measured saturated stars; give SaturatedMeasured too", nameof(options));
@@ -565,7 +561,7 @@ public static partial class DatasetDegradationExporter
             var absent = plate.AbsentPixels();
             // #1786: the master's recorded noise is read with its stars in; the plate's own reading bounds it from above too.
             LinearDegradation.NoiseCalibration[]? plateNoise = null;
-            if (options.NoiseFromPlate)
+            if (!options.NoiseAsRecorded && options.NoiseScale is null)
             {
                 var stretches = new StretchedNoise.ChannelStretch[channels];
                 for (var c = 0; c < channels; c++)
@@ -729,6 +725,11 @@ public static partial class DatasetDegradationExporter
                     {
                         logger?.LogInformation("[degrade] {Session}: the plate's noise over the master's recorded {Ratio}; a channel under 1 is drawn at that share",
                             sessionId, string.Join(" / ", ratios.Select(static r => r.ToString("F3", CultureInfo.InvariantCulture))));
+                        if (ratios.Any(static r => r < StretchedNoise.MinPlateNoiseRatio))
+                        {
+                            logger?.LogWarning("[degrade] {Session}: a channel of the plate reads under {Min} of its master's noise, which no master less its stars does; that channel keeps the recorded level",
+                                sessionId, StretchedNoise.MinPlateNoiseRatio);
+                        }
                     }
                     plateNoiseRatio = ratios;
                 }
@@ -983,7 +984,7 @@ public static partial class DatasetDegradationExporter
         // without them, virtual subs and all; cut in their drawn order where the tile's faint light reaches the cap.
         var faintDrawn = plan.Faint.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
         // The cap is the scene's, as the knots and kept cores are: read against the recorded level (sceneCalibrations), which
-        // NoiseFromPlate (#1786) does not move, so the option keeps the faint stars an export without it draws.
+        // the plate's bound (#1786) does not move, so the faint stars are the ones an export at the recorded level draws.
         var faintKept = faintDrawn.Length == 0 ? 0
             : LuminosityFunction.KeptUnderCap(local, faintDrawn, size,
                 [.. (sceneCalibrations ?? calibrations).Select(k => k.SigmaAt(k.BackgroundAdu, masterDepth))], options.FaintStarCap);
@@ -1140,7 +1141,7 @@ public static partial class DatasetDegradationExporter
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
         // The knots' and kept cores' peaks are in noise sigma of the level their ranges were set against: the recorded one, which
-        // NoiseFromPlate (#1786) does not move. The noise below is drawn at the level of calibrations.
+        // the plate's bound (#1786) does not move. The noise below is drawn at the level of calibrations.
         var noiseSigma = (sceneCalibrations ?? calibrations).Select(k => k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
         var level = synthetic.Cell(cell.X, cell.Y, size, noiseSigma, new Random(seed), out var knots);
         var core = keptCores?.AddTo(level, size, noiseSigma, new Random(seed ^ 0x7f4a7c15));
