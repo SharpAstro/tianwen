@@ -7473,7 +7473,7 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   each session's level is the recorded one held to its plate's own estimate, per channel
   (`StretchedNoise.BoundedByPlate`; a plate that reads more changes nothing). The noise is drawn at the bounded level, and the
   injection floor, a star's significance and the conditioning plane are read against it; a synthetic background's knots and
-  kept cores keep the recorded level their ranges were set against, so the scene is the one an export without the option
+  kept cores and the faint stars' cap keep the recorded level their ranges were set against, so the scene is the one an export without the option
   draws. The session's log line and each row's `PlateNoiseRatio` carry the ratio. `export-synth.ps1` takes it through `-Extra`.
 - **Checked on an export of five sessions** (Lobster and its two flips, Tempel, the SMC, one draw each, no faint stars): the ratios
   taken were 0.81, 0.80, 0.87 on Lobster, 0.96 on Tempel and 0.97 on the SMC. Lobster's draws went from 1.30, 1.24, 1.19 to 1.08,

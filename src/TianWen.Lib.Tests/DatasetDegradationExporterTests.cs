@@ -1759,20 +1759,33 @@ namespace TianWen.Lib.Tests
         /// <summary>
         /// #1786: <c>NoiseFromPlate</c> holds each session's level to its plate's own estimate. Off, no row says anything of
         /// it; on, every row carries the ratio per channel and its one-sub sigma is the plain export's times the ratio where the
-        /// ratio is under 1 and the plain one where it is not; the stars, knots and kept cores are the plain export's to the byte
-        /// of injections.jsonl; and it is refused with a noise scale.
+        /// ratio is under 1 and the plain one where it is not; the stars, knots and kept cores are the plain export's to the byte of
+        /// injections.jsonl, which holds at least one of each; and it is refused with a noise scale. (The faint stars' cap keeps
+        /// the recorded level too; this fixture's catalogue is too small to fit the luminosity function they are drawn from.)
         /// </summary>
         [Fact]
         public async Task TheNoiseFromThePlateBoundsTheLevelAndMovesNoStar()
         {
             var bake = BuildBakeWithHalves();
             var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
-            var plain = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-recorded"),
-                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
-                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
-                SyntheticBackground: true);
+            // The scene the byte comparison holds has to be there, a knot and a kept core, and the fixture has few cells: the
+            // first seed whose plain export draws both is the one compared.
+            DatasetDegradationExporter.Options? found = null;
+            for (var seed = 1; seed <= 24 && found is null; seed++)
+            {
+                var candidate = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, $"stars-recorded-{seed}"),
+                    Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: seed,
+                    NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
+                    SyntheticBackground: true, KeptCores: true);
+                (await DatasetDegradationExporter.RunAsync(candidate, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+                var drawn = ReadInjectionRows(candidate.OutDir);
+                if (drawn.Any(static i => i.Knots is { Length: > 0 }) && drawn.Any(static i => i.Core is not null))
+                {
+                    found = candidate;
+                }
+            }
+            var plain = found.ShouldNotBeNull("no seed from 1 to 24 drew both a knot and a kept core");
             var bounded = plain with { OutDir = Path.Combine(_root, "stars-from-plate"), NoiseFromPlate = true };
-            (await DatasetDegradationExporter.RunAsync(plain, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
             (await DatasetDegradationExporter.RunAsync(bounded, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
 
             File.ReadAllText(Path.Combine(bounded.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
