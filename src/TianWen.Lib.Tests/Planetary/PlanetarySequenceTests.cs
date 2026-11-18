@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
@@ -106,7 +107,7 @@ public class PlanetarySequenceTests(ITestOutputHelper output) : IDisposable
         var sequence = new PlanetarySequence([Step(R, 3, 100, 4), Step(G, 4, 110, 4), Step(B, 5, 120, 4)], Sets: 2);
         var runner = rig.Runner(output);
 
-        var run = runner.RunAsync(sequence, Files(out var folder), ct);
+        var run = runner.RunAsync(sequence, Files(out var folder), giveBack: null, ct);
         var stepped = await StepUntilAsync(rig.Capture, run, ct);
         output.WriteLine($"stepped {stepped} frames");
         await run;
@@ -159,7 +160,9 @@ public class PlanetarySequenceTests(ITestOutputHelper output) : IDisposable
         var runner = rig.Runner(output);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        var run = runner.RunAsync(new PlanetarySequence([Step(R, 3, 100, 1000)], Sets: 1), Files(out _), stop.Token);
+        var givenBack = new List<bool>();
+        var run = runner.RunAsync(new PlanetarySequence([Step(R, 3, 100, 1000)], Sets: 1), Files(out _),
+            () => givenBack.Add(runner.Progress.HasEnded), stop.Token);
         // Through the change, into the recording, and a few frames on.
         for (var i = 0; i < 50 && runner.Progress.Phase is not PlanetarySequencePhase.Recording; i++)
         {
@@ -171,6 +174,7 @@ public class PlanetarySequenceTests(ITestOutputHelper output) : IDisposable
 
         await Should.ThrowAsync<OperationCanceledException>(run);
         runner.Progress.Phase.ShouldBe(PlanetarySequencePhase.Stopped);
+        givenBack.ShouldBe([false], "what was claimed for the run is given back once, before its progress says it was stopped");
         var recording = rig.Capture.Recording.ShouldNotBeNull();
         (recording.IsRecording, recording.Completion.IsCompleted, recording.EndReason).ShouldBe((false, true, "the sequence was stopped"));
         recording.FramesWritten.ShouldBeGreaterThanOrEqualTo(5, "the frames the step took are kept");
@@ -186,9 +190,12 @@ public class PlanetarySequenceTests(ITestOutputHelper output) : IDisposable
         var runner = rig.Runner(output);
         var sequence = new PlanetarySequence([Step(R, 3, 100, 2)], Sets: 3, Until: rig.Time.GetUtcNow() - TimeSpan.FromSeconds(1));
 
-        await runner.RunAsync(sequence, Files(out var folder), ct);
+        // #2160: a reader that sees Done and uses the wheel at once must find it free, so the give-back comes first.
+        var givenBack = new List<bool>();
+        await runner.RunAsync(sequence, Files(out var folder), () => givenBack.Add(runner.Progress.HasEnded), ct);
 
         (runner.Progress.Phase, runner.Progress.Set).ShouldBe((PlanetarySequencePhase.Done, 0));
+        givenBack.ShouldBe([false], "given back once, before its progress says Done");
         Directory.GetFiles(folder.FullName).ShouldBeEmpty();
         rig.Camera.VideoStarts.Length.ShouldBe(1, "the stream was never stopped");
     }
@@ -200,8 +207,11 @@ public class PlanetarySequenceTests(ITestOutputHelper output) : IDisposable
         await using var rig = await RigAsync(ct);
         var runner = rig.Runner(output);
 
+        var givenBack = new List<bool>();
         var failure = await Should.ThrowAsync<InvalidOperationException>(
-            runner.RunAsync(new PlanetarySequence([Step(R, 3, 100, 2), Step(9, 3, 100, 2)], Sets: 1), Files(out _), ct));
+            runner.RunAsync(new PlanetarySequence([Step(R, 3, 100, 2), Step(9, 3, 100, 2)], Sets: 1), Files(out _),
+                () => givenBack.Add(runner.Progress.HasEnded), ct));
+        givenBack.ShouldBe([false], "given back once, before its progress says it failed");
 
         failure.Message.ShouldBe($"Step 2 asks for position 9; the wheel has positions 0 to {rig.Wheel.Filters.Count - 1}");
         (runner.Progress.Phase, runner.Progress.FailureReason).ShouldBe((PlanetarySequencePhase.Failed, failure.Message));
