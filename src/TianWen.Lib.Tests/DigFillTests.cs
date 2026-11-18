@@ -301,6 +301,15 @@ public class DigFillTests
         cores.ShouldNotBeNull();
         cores[0].Cores.Length.ShouldBe(1, "the nucleus is an extended core, the lone star is not");
         share.ShouldNotBeNull();
+
+        // The order pin. Cores first, the nucleus is back in the plate before the fill reads it, so its pixels are not in the
+        // set of removed stars. Fill first (or no protection) and the nucleus the model took (200 sigma) is in that set, so the
+        // share is larger. Plate and stars match in either order, so only the share tells them apart.
+        var unprotected = new FixedRemover(model, PeakOf(frame), takesDigFill: true);
+        var (_, _, _, unprotectedShare) = await NarrowbandCombination.SplitStarsAsync([input], unprotected, protectCores: null, fillDigs: true, ct);
+        unprotectedShare.ShouldNotBeNull();
+        share[0].ShouldBeLessThan(unprotectedShare[0], "the fill reads the plate after the cores went back, so the nucleus is not counted as a removed star");
+
         starless[0][0, galaxyY, galaxyX].ShouldBe(frame[galaxyY, galaxyX], "the core is the plane's, bit for bit, and the fill leaves it alone");
         stars[0][0, galaxyY, galaxyX].ShouldBe(0f, "no stars in the core");
 
