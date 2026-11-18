@@ -223,7 +223,7 @@ namespace TianWen.AI.Imaging
         /// cross-correlations were drawn at, 1 when the fit reached them, below it when they were shrunk toward independent.</param>
         /// <param name="NoiseScale">Stars mode: the times the master's noise the pair's plate carries (<see cref="Options.NoiseScale"/>,
         /// #1947); null when it carries the master's own.</param>
-        /// <param name="PlateNoiseRatio">Stars mode with <see cref="Options.NoiseFromPlate"/> (#1786): per channel, the starless
+        /// <param name="PlateNoiseRatio">Stars mode without <see cref="Options.NoiseAsRecorded"/> (#1786): per channel, the starless
         /// plate's noise over the master's recorded one, as read; a channel under 1 was drawn at that share of the recorded level.
         /// Null without the option.</param>
         public sealed record DegradationRow(
@@ -464,14 +464,15 @@ namespace TianWen.AI.Imaging
         /// own core, drawn round with its own halo table, in place of the catalogued amplitude. Recorded per star as <c>Measured</c> in
         /// <c>injections.jsonl</c>. A session where fewer than <c>MinBrightMeasured</c> stars measure draws as without it, which its log
         /// line says. Off by default, so an export without it is unchanged. Draws no random number.</param>
-        /// <param name="NoiseFromPlate">Stars mode (#1786): each session's noise level is its master's recorded one held to what its
-        /// starless plate reads (<see cref="StretchedNoise.BoundedByPlate"/>), per channel. The recorded level
-        /// is read off the master with its stars in, and in a crowded field that overstates the noise between the stars (1.11 to
-        /// 1.17 times on the Lobster master). The bounded level is the one the noise is drawn at and everything read in noise
-        /// units against it: the injection floor, a star's significance and the conditioning plane. A synthetic background's
-        /// knots and kept cores and the faint stars' cap keep the recorded level, which their ranges were set against, so the
-        /// scene does not change with the option. The session's log line and each row's <c>PlateNoiseRatio</c> carry the ratio. Off by
-        /// default, so an export without it is unchanged. Draws no random number.</param>
+        /// <param name="NoiseAsRecorded">Stars mode (#1786): draw at each master's recorded noise level as it is, as every export
+        /// before 2026-11-19 did. Without it (the default) the level is the recorded one held to what the session's starless plate
+        /// reads (<see cref="StretchedNoise.BoundedByPlate"/>), per channel: the record is read off the master with its stars in,
+        /// and in a crowded field that overstates the noise between the stars (1.11 to 1.17 times on the Lobster master). The
+        /// bounded level is the one the noise is drawn at and everything read in noise units against it: the injection floor, a
+        /// star's significance and the conditioning plane. A synthetic background's knots and kept cores and the faint stars' cap
+        /// keep the recorded level, which their ranges were set against. The session's log line and each row's
+        /// <c>PlateNoiseRatio</c> carry the ratio. With a <paramref name="NoiseScale"/> the level is not bounded: that export
+        /// carries the plate's own cell, whose noise is what it is. Draws no random number.</param>
         /// <param name="HaloOverPlate">Stars mode, with <paramref name="SaturatedMeasured"/> and without <paramref name="OuterHaloPath"/>:
         /// the halo the starless plate keeps round a saturated star is drawn too
         /// (<c>InjectionPopulation.HaloOverPlate</c>): a measured star's table gains the session's
@@ -593,7 +594,7 @@ namespace TianWen.AI.Imaging
             bool HaloOverPlate = false,
             Action<string>? Say = null,
             bool BrightMeasured = false,
-            bool NoiseFromPlate = false);
+            bool NoiseAsRecorded = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

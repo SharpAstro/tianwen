@@ -422,6 +422,13 @@ public class StretchedNoiseTests(ITestOutputHelper output)
         bounded[1].OneSubSigmaAdu.ShouldBe(0.0036, 1e-12);
         bounded[1].BackgroundAdu.ShouldBe(master.BackgroundAdu);
         bounded[1].StackedFrames.ShouldBe(master.StackedFrames);
+
+        // A plate under half its master's noise is not that master less its stars, and is not believed.
+        var smoothed = new LinearDegradation.NoiseCalibration(0.0, 0.02, 0.0004, 1);
+        var kept = StretchedNoise.BoundedByPlate([master], [smoothed], 0.25, out var unbelieved);
+        unbelieved[0].ShouldBe(0.4, 1e-9);
+        unbelieved[0].ShouldBeLessThan(StretchedNoise.MinPlateNoiseRatio);
+        kept[0].ShouldBe(master);
     }
 
     /// <summary>

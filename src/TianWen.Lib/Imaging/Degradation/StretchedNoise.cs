@@ -276,20 +276,26 @@ public static class StretchedNoise
             ? calibrations
             : throw new ArgumentException($"no {EstimateBlockPx} px block of the frame is free of the canvas ring and NaN", nameof(unitLinear));
 
+    /// <summary>The least a plate's noise over its master's that <see cref="BoundedByPlate"/> believes.</summary>
+    public const double MinPlateNoiseRatio = 0.5;
+
     /// <summary>
     /// A master's calibration held to what its starless plate reads (#1786). <see cref="EstimateCalibration"/> answers
     /// with the quietest quarter of its blocks because texture only adds to a block's reading; in a field with several
     /// stars in every block (the Lobster master holds about eight per <see cref="EstimateBlockPx"/> px block) no block is
     /// quiet, and the master's sigma reads 1.11 to 1.17 times the noise between its stars. The plate is that master less
     /// its fitted stars, so its reading is a second upper bound on the same noise, and the lower of the two is kept.
+    /// A plate that reads under <see cref="MinPlateNoiseRatio"/> of its master is not believed and changes nothing: no
+    /// real plate does (the store's lowest reads 0.65), so such a frame is not that master less its stars (a smoothed or
+    /// inpainted plate, a test's noise-free one), and a level taken from it would draw almost no noise.
     /// </summary>
     /// <param name="master">The master's calibration per channel, at any depth (one sub's, or its own).</param>
     /// <param name="plateOwn">The plate's own calibration per channel, as <see cref="EstimateCalibration"/> returns it
     /// (its <c>OneSubSigmaAdu</c> is the plate's sigma at the plate's background).</param>
     /// <param name="masterDepth">The master's depth as a multiple of <paramref name="master"/>'s (1 when
     /// <paramref name="master"/> is at the master's own depth, 1/sqrt(N) when it is one sub's).</param>
-    /// <param name="ratios">Per channel, the plate's sigma over the master's at the master's background, as read: under 1
-    /// where the plate lowered the calibration.</param>
+    /// <param name="ratios">Per channel, the plate's sigma over the master's at the master's background, as read: from
+    /// <see cref="MinPlateNoiseRatio"/> to under 1 where the plate lowered the calibration.</param>
     public static LinearDegradation.NoiseCalibration[] BoundedByPlate(
         IReadOnlyList<LinearDegradation.NoiseCalibration> master, IReadOnlyList<LinearDegradation.NoiseCalibration> plateOwn,
         double masterDepth, out double[] ratios)
@@ -302,7 +308,7 @@ public static class StretchedNoise
             var own = master[c].SigmaAt(master[c].BackgroundAdu, masterDepth);
             var ratio = own > 0 ? plateOwn[c].SigmaAt(master[c].BackgroundAdu, 1.0) / own : 1.0;
             ratios[c] = ratio;
-            bounded[c] = double.IsFinite(ratio) && ratio > 0 && ratio < 1.0
+            bounded[c] = double.IsFinite(ratio) && ratio >= MinPlateNoiseRatio && ratio < 1.0
                 ? master[c] with { OneSubSigmaAdu = master[c].OneSubSigmaAdu * ratio }
                 : master[c];
         }

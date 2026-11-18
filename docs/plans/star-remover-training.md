@@ -7469,12 +7469,16 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
 - **So every export so far drew its crowded sessions too noisy**, by the table's ratio. This is the 1.11 to 1.17 of #1786: at the
   same 40 cells, synth22's Lobster draws read 1.30, 1.24, 1.19 at a lag of 8 px where the real tiles read 1.18, 1.11, 1.10, with
   the star light itself matched (13.5 % of real pixels and 12.7 % of drawn ones carry over 1 sigma of star).
-- **The fix is an export option, `dataset degrade --noise-from-plate`** (off by default, so no registered arm's export changes):
-  each session's level is the recorded one held to its plate's own estimate, per channel
-  (`StretchedNoise.BoundedByPlate`; a plate that reads more changes nothing). The noise is drawn at the bounded level, and the
-  injection floor, a star's significance and the conditioning plane are read against it; a synthetic background's knots and
-  kept cores and the faint stars' cap keep the recorded level their ranges were set against, so the scene is the one an export without the option
-  draws. The session's log line and each row's `PlateNoiseRatio` carry the ratio. `export-synth.ps1` takes it through `-Extra`.
+- **The fix is the default since 2026-11-19 (the owner's word; first an option, `--noise-from-plate`, PRs #2215 and #2217)**:
+  each session's level is the recorded one held to its plate's own estimate, per channel. `dataset degrade --noise-as-recorded`
+  gives the level every export up to synth29 was drawn at, and an arm that repeats one of their recipes passes it
+  (`export-synth.ps1 -Extra '--noise-as-recorded'`); the arms then running export from frozen binaries and are not touched.
+  With `--noise-scale` nothing is bounded. The bound is `StretchedNoise.BoundedByPlate`; a plate that reads more changes
+  nothing, and neither does one that reads under half its master (no real plate does, the store's lowest is 0.65; the log
+  warns). The noise is drawn at the bounded level, and the injection floor, a star's significance and the conditioning plane
+  are read against it; a synthetic background's knots and kept cores and the faint stars' cap keep the recorded level their
+  ranges were set against, so the scene is the one an export at the recorded level draws. The session's log line and each
+  row's `PlateNoiseRatio` carry the ratio.
 - **Checked on an export of five sessions** (Lobster and its two flips, Tempel, the SMC, one draw each, no faint stars): the ratios
   taken were 0.81, 0.80, 0.87 on Lobster, 0.96 on Tempel and 0.97 on the SMC. Lobster's draws went from 1.30, 1.24, 1.19 to 1.08,
   1.01, 1.04 against real's 1.18, 1.11, 1.10 at a lag of 8 px: from 10 % over to 8 % under. Tempel's and the SMC's draws went
