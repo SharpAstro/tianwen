@@ -81,7 +81,9 @@ public class DigFillTests
         {
             for (var x = 0; x < Size; x++)
             {
-                plate[0, y, x].ShouldBeGreaterThanOrEqualTo(model[y, x], "nothing is lowered where no light was left");
+                // Noise standing over the sky counts as light left, so a pixel may come down, by no more than the cap on
+                // the largest take there is (the star's peak and the dig under it).
+                (model[y, x] - plate[0, y, x]).ShouldBeLessThanOrEqualTo(DigFill.MaxLoweringOfTaken * (StarPeak + (5 * Noise)), "a lowering stays within its cap");
                 if (Math.Abs(x - Cx) > 12 || Math.Abs(y - Cy) > 12)
                 {
                     plate[0, y, x].ShouldBe(model[y, x], "away from the star the plate is the model's, bit for bit");
