@@ -150,9 +150,13 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
     /// filter's name (null where the step leaves the wheel) and the instant it starts. Ends once every set is taken or its end
     /// time has come; a stop (<paramref name="cancellationToken"/>) ends the step's recording, whose frames so far are kept.
     /// </summary>
+    /// <param name="giveBack">Run once the sequence's work is over and BEFORE <see cref="Progress"/> says it ended, however it
+    /// ended: where the caller gives back what it claimed for the run (the wheel, the focuser), so whoever reads an ended
+    /// phase and acts at once finds them free (#2160). It must not throw.</param>
     /// <exception cref="InvalidOperationException">The sequence is not one this wheel can run, a step's change or recording was
     /// refused, or the capture ended under it; the reason is <see cref="Progress"/>'s too.</exception>
-    public async Task RunAsync(PlanetarySequence sequence, Func<string?, DateTimeOffset, string> pathFor, CancellationToken cancellationToken)
+    public async Task RunAsync(PlanetarySequence sequence, Func<string?, DateTimeOffset, string> pathFor, Action? giveBack,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sequence);
         var filters = wheel?.Filters;
@@ -203,15 +207,18 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
                 index = steps.Length;
             }
             set = Math.Min(set, sequence.Sets);
+            giveBack?.Invoke();
             Note(PlanetarySequencePhase.Done);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            giveBack?.Invoke();
             Note(PlanetarySequencePhase.Stopped);
             throw;
         }
         catch (Exception ex)
         {
+            giveBack?.Invoke();
             Note(PlanetarySequencePhase.Failed, StatusText.FromException(ex));
             throw;
         }

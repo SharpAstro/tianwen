@@ -630,11 +630,23 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
         var runner = new PlanetarySequenceRunner(Capture, wheel, focuser, _timeProvider, _logger);
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Volatile.Write(ref _sequence, new SequenceRun(runner, stop, done.Task));
+        // Given back once, and before the sequence's progress reads as ended (the runner calls it there): a client that sees
+        // Done and changes the filter or starts the next sequence at once is not refused (#2160). The finally below is for an
+        // end the runner never reached.
+        var givenBack = 0;
+        void GiveBack()
+        {
+            if (Interlocked.Exchange(ref givenBack, 1) == 0)
+            {
+                claim?.Dispose();
+                Volatile.Write(ref _sequencing, 0);
+            }
+        }
         _ = Task.Run(async () =>
         {
             try
             {
-                await runner.RunAsync(sequence, pathFor, stop.Token);
+                await runner.RunAsync(sequence, pathFor, GiveBack, stop.Token);
             }
             catch (OperationCanceledException ex) when (stop.IsCancellationRequested)
             {
@@ -647,8 +659,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
             }
             finally
             {
-                claim?.Dispose();
-                Volatile.Write(ref _sequencing, 0);
+                GiveBack();
                 done.TrySetResult();
             }
         }, CancellationToken.None);
