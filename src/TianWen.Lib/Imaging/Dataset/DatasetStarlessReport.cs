@@ -45,8 +45,10 @@ public static class DatasetStarlessReport
     /// <param name="ProfilesOnly">Build no plate: give each plate already in <c>plates/</c> its field profile
     /// (<see cref="StarlessFieldProfile"/>), measured as the builder measures it, where it has none (every one with
     /// <paramref name="Force"/>), and check it against the beta the store recorded for the plate.</param>
+    /// <param name="Plate">The builder's knobs; null is the design's defaults.</param>
     public sealed record RunOptions(
-        ImmutableArray<string> Masters, string OutputRoot, bool WritePlates = true, int ProbeHoles = 100, bool Force = false, bool ProfilesOnly = false);
+        ImmutableArray<string> Masters, string OutputRoot, bool WritePlates = true, int ProbeHoles = 100, bool Force = false, bool ProfilesOnly = false,
+        StarlessPlateOptions? Plate = null);
 
     /// <summary>What a run did.</summary>
     public sealed record RunResult(int Measured, int Skipped, int Failed, string ReportPath, bool Stopped = false);
@@ -116,7 +118,7 @@ public static class DatasetStarlessReport
                     failed++;
                     continue;
                 }
-                var plate = await ClassicalStarRemover.BuildAsync(image, logger: logger, cancellationToken: cancellationToken);
+                var plate = await ClassicalStarRemover.BuildAsync(image, options.Plate, logger, cancellationToken);
                 var fill = options.ProbeHoles > 0
                     ? StarlessFillProbe.Measure(plate, StarlessFillProbe.DefaultRadii, options.ProbeHoles, cancellationToken: cancellationToken)
                     : ImmutableArray<FillProbeBand>.Empty;

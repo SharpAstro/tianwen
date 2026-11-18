@@ -942,13 +942,19 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "(<stem>_plate.profile.json), where it has none (every one with --force), checked against the store's record.",
         };
 
+        var detectionSigmaOpt = new Option<float?>("--detection-sigma")
+        {
+            Description = "The finder's threshold for a point source, in the filtered plane's noise (the design's 5). For measuring what " +
+                          "another threshold finds and costs (#2203); a store built with it is not the default store.",
+        };
+
         var command = new Command("starless-plates",
             "Build the classical starless plate of each master (PSF subtraction plus inpainting) and report what it left: " +
             "the residual at subtracted stars, the point sources still on the plate, and the fill measured on known pixels. " +
             "Resumes: a master already in the store is skipped. Create <out>/" + DatasetStarlessReport.StopFileName +
             " to stop before the next master.")
         {
-            Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt, profilesOnlyOpt },
+            Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt, profilesOnlyOpt, detectionSigmaOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -980,7 +986,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var result = await DatasetStarlessReport.RunAsync(
                 new DatasetStarlessReport.RunOptions(files.ToImmutable(), parseResult.Required(outOpt),
                     WritePlates: !parseResult.GetValue(noPlatesOpt), ProbeHoles: parseResult.GetValue(probeOpt), Force: parseResult.GetValue(forceOpt),
-                    ProfilesOnly: parseResult.GetValue(profilesOnlyOpt)),
+                    ProfilesOnly: parseResult.GetValue(profilesOnlyOpt),
+                    Plate: parseResult.GetValue(detectionSigmaOpt) is { } detectionSigma
+                        ? StarlessPlateOptions.Default with { DetectionSigma = detectionSigma }
+                        : null),
                 logger,
                 progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
                 cancellationToken: ct);
