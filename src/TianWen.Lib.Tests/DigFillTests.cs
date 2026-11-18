@@ -270,7 +270,28 @@ public class DigFillTests
     [Fact]
     public async Task TheSplitFillsAgainstTheOriginalInputAfterCoreProtection()
     {
-        var (frame, model) = Scene(dig: 4f);
+        // A galaxy (a Gaussian of 60 px at 400 sigma) with a compact nucleus, as ExtendedCoreMaskTests builds it, and one
+        // dug star far from it. The model took the nucleus (a remover that takes everything compact) and dug under the star.
+        const int size = 512, galaxyX = 256, galaxyY = 240, starX = 70, starY = 70;
+        const float sky = 0.02f, noise = 1e-4f;
+        var rng = new Random(1);
+        var frame = new float[size, size];
+        var model = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var gr2 = ((x - galaxyX) * (x - galaxyX)) + ((y - galaxyY) * (y - galaxyY));
+                var sr2 = ((x - starX) * (x - starX)) + ((y - starY) * (y - starY));
+                var smooth = sky + (float)(400 * noise * Math.Exp(-gr2 / (2.0 * 60 * 60)));
+                var nucleus = (float)(200 * noise * Math.Exp(-gr2 / (2.0 * 1.2 * 1.2)));
+                var star = (float)(300 * noise * Math.Exp(-sr2 / (2.0 * 1.2 * 1.2)));
+                var hole = (float)(4 * noise * Math.Exp(-sr2 / (2.0 * 3 * 3)));
+                var n = (float)(noise * StarInjection.Gaussian(rng));
+                frame[y, x] = smooth + nucleus + star + n;
+                model[y, x] = smooth + n - hole;
+            }
+        }
         var input = ImageOf(frame);
         var ct = TestContext.Current.CancellationToken;
         var own = new FixedRemover(model, PeakOf(frame), takesDigFill: true);
@@ -278,9 +299,25 @@ public class DigFillTests
         var (starless, stars, cores, share) = await NarrowbandCombination.SplitStarsAsync([input], own, ExtendedCoreMask.Options.Default, fillDigs: true, ct);
 
         cores.ShouldNotBeNull();
-        cores[0].Cores.Length.ShouldBe(0, "a lone star is no extended core");
+        cores[0].Cores.Length.ShouldBe(1, "the nucleus is an extended core, the lone star is not");
         share.ShouldNotBeNull();
-        MeanAtStar(starless[0]).ShouldBeInRange(-0.75, 0.75);
-        stars[0][0, Cy, Cx].ShouldBe(frame[Cy, Cx] - starless[0][0, Cy, Cx]);
+        starless[0][0, galaxyY, galaxyX].ShouldBe(frame[galaxyY, galaxyX], "the core is the plane's, bit for bit, and the fill leaves it alone");
+        stars[0][0, galaxyY, galaxyX].ShouldBe(0f, "no stars in the core");
+
+        double sum = 0;
+        var count = 0;
+        for (var y = starY - 3; y <= starY + 3; y++)
+        {
+            for (var x = starX - 3; x <= starX + 3; x++)
+            {
+                if (((x - starX) * (x - starX)) + ((y - starY) * (y - starY)) <= 9)
+                {
+                    sum += (starless[0][0, y, x] - sky) / noise;
+                    count++;
+                }
+            }
+        }
+        (sum / count).ShouldBeInRange(-0.75, 0.75, "the dug star is filled to the sky");
+        stars[0][0, starY, starX].ShouldBe(frame[starY, starX] - starless[0][0, starY, starX]);
     }
 }

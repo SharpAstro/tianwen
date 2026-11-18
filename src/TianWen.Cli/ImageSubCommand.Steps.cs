@@ -217,7 +217,7 @@ internal sealed partial class ImageSubCommand
                 if (filled is not null)
                 {
                     consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"[remove-stars] {Path.GetFileName(paths[i])}: digs filled under the removed stars, {filled[i]:P1} of the pixels"));
+                        $"[remove-stars] {Path.GetFileName(paths[i])}: dig-fill step covered {filled[i]:P1} of the pixels"));
                 }
                 if (cores?[i] is { } mask)
                 {
@@ -264,7 +264,7 @@ internal sealed partial class ImageSubCommand
             }
             var (plate, share) = DigFill.Apply(input[0], starless[0]);
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[fill-digs] {Path.GetFileName(starlessPath)}: digs filled under the removed stars, {share:P1} of the pixels"));
+                $"[fill-digs] {Path.GetFileName(starlessPath)}: dig-fill step covered {share:P1} of the pixels"));
             WriteStep(plate, StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), wcs, "fill-digs");
             return 0;
         });

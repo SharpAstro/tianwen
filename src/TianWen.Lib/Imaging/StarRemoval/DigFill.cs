@@ -278,7 +278,26 @@ public static class DigFill
             }
             planes[c] = plane;
         }
-        return (new Image(planes, BitDepth.Float32, starless.MaxValue, starless.MinValue, starless.Pedestal, starless.ImageMeta), (double)masked / n);
+
+        // Labelled with the peak and floor the plate HOLDS, as NarrowbandCombination's ThroughOneScale does: this step lowers
+        // and lifts values, so the plate's own labels may no longer bound them.
+        var max = float.NegativeInfinity;
+        var min = float.PositiveInfinity;
+        foreach (var plane in planes)
+        {
+            foreach (var v in plane)
+            {
+                if (float.IsFinite(v))
+                {
+                    max = MathF.Max(max, v);
+                    min = MathF.Min(min, v);
+                }
+            }
+        }
+        var filled = float.IsFinite(max)
+            ? new Image(planes, BitDepth.Float32, max, min, starless.Pedestal, starless.ImageMeta)
+            : new Image(planes, BitDepth.Float32, starless.MaxValue, starless.MinValue, starless.Pedestal, starless.ImageMeta);
+        return (filled, (double)masked / n);
     }
 
     // The local noise sigma at every pixel (step 1), or null when the frame has no present pixel to read it from.
