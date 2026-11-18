@@ -1,0 +1,108 @@
+name: Chrome review
+
+# The chrome-review agent (.claude/agents/chrome-review.md) reads a PR's src/TianWen.UI.* diff for layout arithmetic the
+# DIR.Lib engine should own, posts what it found as one comment on the PR, and fails the check when a finding it rates
+# high survives. It replaced a Stop hook (.claude/hooks/chrome_review_gate.py, removed 2026-11-19) that asked every
+# session to run the agent before finishing: of its 106 asks, 34 ran the agent, about 45 were answered "no layout here"
+# or "only the fixes since the last review", and 20, mostly in pilot flight worktrees, were ignored outright and still
+# counted as reviewed. Here it runs once per state of the PR that a person is about to merge, whoever wrote it.
+#
+# Drafts are skipped: a draft is still moving, and every push would be a paid review. Marking a PR ready runs it, and so
+# does every push after that; a newer push cancels a review still running on an older one.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - 'src/TianWen.UI.**'
+
+concurrency:
+  group: chrome-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Not a draft, and not a fork: a fork's PR has no secrets, and a review is billed to the owner's subscription.
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    # Measured locally a review takes one to two minutes (docs/plans/viewer-layout-engine.md); a run past this is stuck.
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    env:
+      GIT_LFS_SKIP_SMUDGE: '1'
+      OUT: chrome-review-out
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      # The whole history, so the agent can diff against origin/main as it does on a dev box. No LFS and no submodules:
+      # it reads source, it builds nothing.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+
+      - name: Run the chrome-review agent
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Sonnet, as the agent's own frontmatter says: a checklist review does not need the larger model. Read-only
+          # tools and the git reads the agent's instructions name; Write only for the two output files.
+          claude_args: |
+            --model claude-sonnet-5-5
+            --allowedTools "Read,Grep,Glob,Write,Bash(git fetch:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
+          prompt: |
+            You are the chrome-review agent. Your instructions are the body of .claude/agents/chrome-review.md (everything
+            after its frontmatter): read that file first and follow it exactly. The base to diff against is
+            origin/${{ github.event.pull_request.base.ref }}; HEAD is the pull request's head.
+
+            Before you report a finding, open the line it names and the method around it and confirm it holds. Drop any you
+            cannot confirm.
+
+            Write two files, and nothing else:
+            - ${{ env.OUT }}/report.md: the report in the format the instructions give (or their "No chrome arithmetic in
+              this diff." line and the files you read).
+            - ${{ env.OUT }}/verdict.json: {"high": <number of high-confidence findings>, "medium": <number of medium>}.
+
+      # One comment per PR, edited in place on each run, so a PR does not collect a comment per push.
+      - name: Post the report on the PR
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker='<!-- chrome-review -->'
+          if [ -s "$OUT/report.md" ]; then
+            body="$(printf '%s\n### Chrome review of %s\n\n%s\n' "$marker" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
+          else
+            body="$(printf '%s\n### Chrome review of %s\n\nThe review did not finish; see the run: %s\n' "$marker" "${SHA:0:7}" \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+          fi
+          id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id // empty")"
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body" > /dev/null
+          fi
+
+      # The gate: a high-confidence finding fails the check. Medium ones are reported and pass, since the agent is a
+      # cheap model reading a diff. A review that wrote no verdict fails too, so a broken run is never a silent pass.
+      - name: Fail on a high-confidence finding
+        run: |
+          if [ ! -s "$OUT/verdict.json" ]; then
+            echo "::error::The review wrote no verdict."; exit 1
+          fi
+          high="$(jq -r '.high // empty' "$OUT/verdict.json")"
+          medium="$(jq -r '.medium // 0' "$OUT/verdict.json")"
+          if [ -z "$high" ]; then
+            echo "::error::The verdict has no high count: $(cat "$OUT/verdict.json")"; exit 1
+          fi
+          echo "high $high, medium $medium"
+          if [ "$high" -gt 0 ]; then
+            echo "::error::The chrome review found $high high-confidence finding(s); the PR comment lists them."; exit 1
+          fi
