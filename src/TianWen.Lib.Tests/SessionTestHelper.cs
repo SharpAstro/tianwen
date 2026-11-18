@@ -97,7 +97,9 @@ internal static class SessionTestHelper
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        var sp = external.BuildServiceProvider();
+        // The session's own log goes to the test's output, so a failed assertion has the session's account beside it (#2151:
+        // a deterioration counted once on CI, and no line anywhere said which path counted it).
+        var sp = external.BuildServiceProvider(output);
         var camera = new Camera(cameraDevice, sp);
         var focuser = new Focuser(focuserDevice, sp);
 
@@ -241,7 +243,9 @@ internal static class SessionTestHelper
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var external = new FakeExternal(output, timeProvider, callerName: SessionFolderName());
-        var sp = external.BuildServiceProvider();
+        // The session's own log goes to the test's output, so a failed assertion has the session's account beside it (#2151:
+        // a deterioration counted once on CI, and no line anywhere said which path counted it).
+        var sp = external.BuildServiceProvider(output);
 
         // OTA 1: OSC camera, no filter wheel (fixed L-Ultimate dual-band)
         var oscCameraDevice = new FakeDevice(DeviceType.Camera, 1);
