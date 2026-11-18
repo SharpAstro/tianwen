@@ -1757,6 +1757,53 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #1786: <c>NoiseFromPlate</c> holds each session's level to its plate's own estimate. Off, no row says anything of
+        /// it; on, every row carries the ratio per channel and its one-sub sigma is the plain export's times the ratio where the
+        /// ratio is under 1 and the plain one where it is not; the stars, knots and kept cores are the plain export's to the byte
+        /// of injections.jsonl; and it is refused with a noise scale.
+        /// </summary>
+        [Fact]
+        public async Task TheNoiseFromThePlateBoundsTheLevelAndMovesNoStar()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var plain = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-recorded"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
+                SyntheticBackground: true);
+            var bounded = plain with { OutDir = Path.Combine(_root, "stars-from-plate"), NoiseFromPlate = true };
+            (await DatasetDegradationExporter.RunAsync(plain, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            (await DatasetDegradationExporter.RunAsync(bounded, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            File.ReadAllText(Path.Combine(bounded.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(plain.OutDir, DatasetDegradationExporter.InjectionManifestFileName)), "the level moves no star, knot or core");
+            var plainRows = ReadDegradationRows(plain.OutDir);
+            plainRows.ShouldAllBe(static r => r.PlateNoiseRatio == null);
+            var rows = ReadDegradationRows(bounded.OutDir);
+            rows.Length.ShouldBe(plainRows.Length);
+            var lowered = 0;
+            foreach (var row in rows)
+            {
+                var was = plainRows.Single(r => r.Tile == row.Tile);
+                var ratio = row.PlateNoiseRatio.ShouldNotBeNull();
+                ratio.Length.ShouldBe(3);
+                var sigma = row.OneSubSigmaPerChannel.ShouldNotBeNull();
+                var wasSigma = was.OneSubSigmaPerChannel.ShouldNotBeNull();
+                for (var c = 0; c < 3; c++)
+                {
+                    ratio[c].ShouldBeGreaterThan(0.0);
+                    sigma[c].ShouldBe(wasSigma[c] * Math.Min(1.0, ratio[c]), wasSigma[c] * 1e-9, $"channel {c}");
+                    lowered += ratio[c] < 1.0 ? 1 : 0;
+                }
+            }
+            lowered.ShouldBeGreaterThan(0, "no channel of the fixture's plate reads under its record, so the lowering was not exercised");
+
+            var scaled = bounded with { OutDir = Path.Combine(_root, "stars-from-plate-scaled"), SyntheticBackground = false, NoiseScale = 4.0 };
+            var refused = await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(scaled, logger: null, TestContext.Current.CancellationToken));
+            refused.Message.ShouldContain("noise scale");
+        }
+
+        /// <summary>
         /// #1870: <c>OuterHaloPath</c> draws a per-rig outer halo under every injected star. Off, no row says anything of it and
         /// a second run is byte-identical; on, the stars keep their places and brightness, each row records its rig's term, and
         /// the tiles change; a profile file without the master's rig draws nothing, says so, and leaves every tile as off.

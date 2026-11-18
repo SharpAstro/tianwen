@@ -1952,7 +1952,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Description = "--mode stars (#1786): hold each session's noise level to what its starless plate reads, per channel. The " +
                           "recorded level is read off the master with its stars in, which in a crowded field overstates the noise " +
-                          "between the stars (1.11 to 1.17 times on the Lobster master). The log and each row's PlateNoiseRatio carry " +
+                          "between the stars (1.11 to 1.17 times on the Lobster master). The noise is drawn at the bounded level, and the " +
+                          "injection floor, a star's significance and the conditioning plane are read against it; a synthetic " +
+                          "background's knots and kept cores keep the recorded level. The log and each row's PlateNoiseRatio carry " +
                           "the ratio. Not with --noise-scale. Off by default.",
         };
         var haloOverPlateOpt = new Option<bool>("--halo-over-plate")
@@ -2305,6 +2307,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 if (!DatasetDegradationExporter.IsNoiseScale(scale))
                 {
                     consoleHost.WriteError($"--noise-scale {scale}: the scale is in (1, 16]");
+                    return 1;
+                }
+                if (parseResult.GetValue(noiseFromPlateOpt))
+                {
+                    consoleHost.WriteError("--noise-from-plate and --noise-scale are two arms; give one");
                     return 1;
                 }
             }
