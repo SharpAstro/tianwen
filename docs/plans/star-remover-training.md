@@ -7456,8 +7456,11 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   | 10P/Tempel 2, QHY294PROC | 129 | 0.96, 0.95, 0.96 | 0.97, 0.96, 0.97 |
   | Helix, QHY178M luminance | 34 | 0.99 | 0.99 |
 
-  Both are the estimator's own statistic (the frame less its 4 px low-pass, MAD per block, the lower quartile): once over the
-  starless plate, once over the master's pixels outside a disc round every catalogued star (`noise_masked.py`).
+  Both are the estimator's statistic as `noise_masked.py` reads it, in linear (the frame less its 4 px low-pass, MAD per block,
+  the lower quartile): once over the starless plate, once over the master's pixels outside a disc round every catalogued star.
+  **The option's own figure differs a little**: C# reads the plate through the stretch, divides each block by what the noise model
+  says its level carries, and takes the result at the master's background. On Lobster that gave 0.81, 0.80, 0.87 where this
+  table says 0.76, 0.76, 0.86; the session's log line and `PlateNoiseRatio` print the C# figure.
 - **It grows with the star count.** Over the 199 sessions of the store, the plate's difference noise at a lag of 8 px over the
   record (`noise_plate_all.py`; a different statistic, which reads a few percent higher than the one above) has a median of 1.06 under
   100 stars per tile, 1.04 from 100 to 250, 1.00 from 250 to 400 and 0.92 over 400, and it is under 0.90 on 29 sessions, down to
@@ -7468,8 +7471,10 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   the star light itself matched (13.5 % of real pixels and 12.7 % of drawn ones carry over 1 sigma of star).
 - **The fix is an export option, `dataset degrade --noise-from-plate`** (off by default, so no registered arm's export changes):
   each session's level is the recorded one held to its plate's own estimate, per channel
-  (`StretchedNoise.BoundedByPlate`; a plate that reads more changes nothing). The session's log line and each row's
-  `PlateNoiseRatio` carry the ratio. `export-synth.ps1` takes it through `-Extra`.
+  (`StretchedNoise.BoundedByPlate`; a plate that reads more changes nothing). The noise is drawn at the bounded level, and the
+  injection floor, a star's significance and the conditioning plane are read against it; a synthetic background's knots and
+  kept cores and the faint stars' cap keep the recorded level their ranges were set against, so the scene is the one an export without the option
+  draws. The session's log line and each row's `PlateNoiseRatio` carry the ratio. `export-synth.ps1` takes it through `-Extra`.
 - **Checked on an export of five sessions** (Lobster and its two flips, Tempel, the SMC, one draw each, no faint stars): the ratios
   taken were 0.81, 0.80, 0.87 on Lobster, 0.96 on Tempel and 0.97 on the SMC. Lobster's draws went from 1.30, 1.24, 1.19 to 1.08,
   1.01, 1.04 against real's 1.18, 1.11, 1.10 at a lag of 8 px: from 10 % over to 8 % under. Tempel's and the SMC's draws went

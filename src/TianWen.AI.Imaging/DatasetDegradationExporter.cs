@@ -465,9 +465,12 @@ namespace TianWen.AI.Imaging
         /// <c>injections.jsonl</c>. A session where fewer than <c>MinBrightMeasured</c> stars measure draws as without it, which its log
         /// line says. Off by default, so an export without it is unchanged. Draws no random number.</param>
         /// <param name="NoiseFromPlate">Stars mode (#1786): each session's noise level is its master's recorded one held to what its
-        /// starless plate reads (<see cref="TianWen.Lib.Imaging.StretchedNoise.BoundedByPlate"/>), per channel. The recorded level
+        /// starless plate reads (<see cref="StretchedNoise.BoundedByPlate"/>), per channel. The recorded level
         /// is read off the master with its stars in, and in a crowded field that overstates the noise between the stars (1.11 to
-        /// 1.17 times on the Lobster master). The session's log line and each row's <c>PlateNoiseRatio</c> carry the ratio. Off by
+        /// 1.17 times on the Lobster master). The bounded level is the one the noise is drawn at and everything read in noise
+        /// units against it: the injection floor, a star's significance and the conditioning plane. A synthetic background's
+        /// knots and kept cores and the faint stars' cap keep the recorded level, which their ranges were set against, so the
+        /// scene does not change with the option. The session's log line and each row's <c>PlateNoiseRatio</c> carry the ratio. Off by
         /// default, so an export without it is unchanged. Draws no random number.</param>
         /// <param name="HaloOverPlate">Stars mode, with <paramref name="SaturatedMeasured"/> and without <paramref name="OuterHaloPath"/>:
         /// the halo the starless plate keeps round a saturated star is drawn too

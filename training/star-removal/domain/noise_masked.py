@@ -6,8 +6,9 @@ Per channel, the block estimate as StretchedNoise reads it but in linear (32 px 
 low-pass, 1.4826 MAD per block, the lower quartile over blocks), three ways: over every pixel of the master (what the
 record holds), over the master's pixels outside every catalogued star's footprint (a block needs 300 such pixels), and
 over every pixel of the plate. Each over the first. A star's footprint is a disc of radius
-1.5 x fwhm x sqrt(log2(4 x significance)) px, at least 3: where a Gaussian of that width falls under a quarter sigma,
-half as wide again for the wings.
+1.5 x fwhm x width x sqrt(log2(4 x significance)) px, at least 3 and at most 40, where fwhm is the widest channel's of the
+field profile and width the star's own catalogued factor. A Gaussian of that FWHM falls under a quarter sigma at a third of
+that radius, so the disc is three times as wide: the wings of a real star reach further than a Gaussian's.
 """
 import csv, json, sys
 import numpy as np

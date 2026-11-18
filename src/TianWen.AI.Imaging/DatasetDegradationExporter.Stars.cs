@@ -720,6 +720,8 @@ public static partial class DatasetDegradationExporter
                 var calibrations = CellMasterCalibration(cell, channels, stackedFrames)
                     ?? throw new InvalidOperationException($"{sessionId}: cell x{cell.X} y{cell.Y} has no master row with a recorded calibration");
                 var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
+                // The scene (a synthetic background's knots and kept cores) keeps the recorded level its ranges were set against.
+                var recorded = calibrations;
                 if (plateNoise is not null)
                 {
                     calibrations = StretchedNoise.BoundedByPlate(calibrations, plateNoise, masterDepth, out var ratios);
@@ -739,7 +741,8 @@ public static partial class DatasetDegradationExporter
                 {
                     (background, knots, core, cleanMad) = SyntheticCell(sessionOptions, synthetic, unitPlate, absent, cell, calibrations, masterDepth,
                         stackedFrames, DrawSeed(options.Seed, sessionId, cell.X, cell.Y, -1), origMin, balances,
-                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId, keptCores, noiseCorrelation, noiseStructure);
+                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId, keptCores, noiseCorrelation, noiseStructure,
+                        sceneCalibrations: recorded);
                 }
                 else if (options.NoiseScale is { } scale)
                 {
@@ -768,7 +771,7 @@ public static partial class DatasetDegradationExporter
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
                         origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut, core,
-                        noiseCorrelation, noiseStructure, plateCell, options.NoiseScale ?? 1.0);
+                        noiseCorrelation, noiseStructure, plateCell, options.NoiseScale ?? 1.0, sceneCalibrations: recorded);
                     degRows.Add(row with
                     {
                         Stretch = options.StretchFromMaster ? "master" : "plate",
@@ -936,7 +939,8 @@ public static partial class DatasetDegradationExporter
         ChannelNoiseCorrelation? noiseCorrelation = null,
         ChannelNoiseStructure? noiseStructure = null,
         float[][]? plateCell = null,
-        double noiseScale = 1.0)
+        double noiseScale = 1.0,
+        LinearDegradation.NoiseCalibration[]? sceneCalibrations = null)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
@@ -978,8 +982,11 @@ public static partial class DatasetDegradationExporter
         // The faint stars (S2) on top, in a pass of their own with a stream of their own, so the other stars render as they do
         // without them, virtual subs and all; cut in their drawn order where the tile's faint light reaches the cap.
         var faintDrawn = plan.Faint.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
+        // The cap is the scene's, as the knots and kept cores are: read against the recorded level (sceneCalibrations), which
+        // NoiseFromPlate (#1786) does not move, so the option keeps the faint stars an export without it draws.
         var faintKept = faintDrawn.Length == 0 ? 0
-            : LuminosityFunction.KeptUnderCap(local, faintDrawn, size, [.. floors.Select(static f => f / InjectionFloorSigma)], options.FaintStarCap);
+            : LuminosityFunction.KeptUnderCap(local, faintDrawn, size,
+                [.. (sceneCalibrations ?? calibrations).Select(k => k.SigmaAt(k.BackgroundAdu, masterDepth))], options.FaintStarCap);
         var faintLocal = faintDrawn[..faintKept];
         if (faintLocal.Length > 0)
         {
@@ -1120,17 +1127,21 @@ public static partial class DatasetDegradationExporter
     /// own shape at the master's depth, written as the clean tile with its conditioning plane (the noise-free level's, as an
     /// injected draw's is). Returns the noisy linear planes the cell's draws inject into, the knots, the kept core (#1658,
     /// with <paramref name="keptCores"/>, drawn from a stream of its own) and the clean tile's MAD. A pixel on the canvas ring
-    /// keeps the plate's own value, so the ring stays what it was.
+    /// keeps the plate's own value, so the ring stays what it was. <paramref name="sceneCalibrations"/>, where given, is the
+    /// level the knots and kept cores are sized against in place of the one in <paramref name="calibrations"/>.
     /// </summary>
     private static (float[][] Planes, ImmutableArray<SyntheticBackground.Knot> Knots, KeptCore? Core, double CleanMad) SyntheticCell(
         Options options, SyntheticBackground synthetic, Image unitPlate, BitMatrix? absent, CellSpec cell,
         LinearDegradation.NoiseCalibration[] calibrations, double masterDepth, int stackedFrames, int seed,
         float[] origMin, double[] balances, string tilePath, string sigmaPath, string sessionId, KeptCores? keptCores = null,
-        ChannelNoiseCorrelation? noiseCorrelation = null, ChannelNoiseStructure? noiseStructure = null)
+        ChannelNoiseCorrelation? noiseCorrelation = null, ChannelNoiseStructure? noiseStructure = null,
+        LinearDegradation.NoiseCalibration[]? sceneCalibrations = null)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
-        var noiseSigma = calibrations.Select(k => k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
+        // The knots' and kept cores' peaks are in noise sigma of the level their ranges were set against: the recorded one, which
+        // NoiseFromPlate (#1786) does not move. The noise below is drawn at the level of calibrations.
+        var noiseSigma = (sceneCalibrations ?? calibrations).Select(k => k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
         var level = synthetic.Cell(cell.X, cell.Y, size, noiseSigma, new Random(seed), out var knots);
         var core = keptCores?.AddTo(level, size, noiseSigma, new Random(seed ^ 0x7f4a7c15));
         var (shape, warpSigma) = DrawNoiseShape(options, seed);
