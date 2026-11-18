@@ -312,7 +312,8 @@ Full rules: `docs/plans/ai-enhancement.md`, `docs/plans/rc-astro-enhancers.md`, 
 - **A TianWen model loads only against its contract** (`<stem>.contract.json`, `ModelContract`); a retrain gets a new
   file name. A new LFS file type the apps ship goes into `APP_LFS_INCLUDE` in `dotnet.yml`.
 - No star remover of ours ships: it runs only on weights a caller names (`OnnxTianWenStarRemover`), never through
-  `N2nLinearRunner`. Core protection is applied in `NarrowbandCombination.SplitStarsAsync`.
+  `N2nLinearRunner`. Core protection is applied in `NarrowbandCombination.SplitStarsAsync`, and after it, for our
+  remover only, the dig-fill (`DigFill.Apply`).
 - RC-Astro is driven through its CLI's NDJSON protocol, never ORT. A vendor's weights are read where the vendor put them.
   **Never make a shipped capability depend on a script only a checkout can run.**
 - **Mono colour composition:** each step is one verb on one routine; `image combine` is `ColourComposition.RunAsync`

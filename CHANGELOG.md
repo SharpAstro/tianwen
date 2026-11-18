@@ -35,7 +35,7 @@ other commit hash from before 2026-04-22 no longer resolves anywhere.
 
 Additive, so a minor. It gathers what landed on `main` since 10.0 into a release, mainly so the
 ARM64 Linux build a Raspberry Pi runs is current. No change since 10.0 was made as a breaking one.
-Three defaults changed, and all change what the same input produces:
+Four defaults changed, and all change what the same input produces:
 
 - **`tianwen stack` leaves out lights graded cloud or twilight by default** (`--reject-cloud` is on),
   judging cloud only in a group of at least ten graded lights. A light that is only suspected
@@ -45,6 +45,9 @@ Three defaults changed, and all change what the same input produces:
 - **`image remove-stars` protects cores by default** (`--no-protect-cores` turns it off; `--protect-cores` is
   still accepted). No core is taken at the frame's edge or on a star, and the colour composition's
   star splits protect them too (#2199).
+- **`image remove-stars --model` fills the digs by default** (`--no-fill-digs` turns it off): the holes TianWen's
+  own models dig under the stars they take are filled to the sky around them (`DigFill`, #2204). RC-Astro's
+  plate is never touched. `image fill-digs` is the step on its own.
 
 What it is for, by subject:
 

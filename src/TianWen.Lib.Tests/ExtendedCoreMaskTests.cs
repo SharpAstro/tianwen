@@ -210,7 +210,7 @@ public class ExtendedCoreMaskTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
 
         var (_, plain) = await NarrowbandCombination.SplitStarsAsync([input], new FixedRemover(model, peak), ct);
-        var (_, kept, cores) = await NarrowbandCombination.SplitStarsAsync([input], new FixedRemover(model, peak), ExtendedCoreMask.Options.Default, ct);
+        var (_, kept, cores, _) = await NarrowbandCombination.SplitStarsAsync([input], new FixedRemover(model, peak), ExtendedCoreMask.Options.Default, fillDigs: true, ct);
 
         plain[0][0, Cy, Cx].ShouldBeGreaterThan(100 * Noise, "without protection the remover's take of the nucleus is in the stars");
         kept[0][0, Cy, Cx].ShouldBe(0f, 1e-6f, "with it the nucleus stays in the starless plate");

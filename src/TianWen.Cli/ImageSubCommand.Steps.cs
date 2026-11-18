@@ -178,12 +178,18 @@ internal sealed partial class ImageSubCommand
         {
             Description = "Accepted and ignored: core protection is the default (see --no-protect-cores).",
         };
+        var noFillDigsOpt = new Option<bool>("--no-fill-digs")
+        {
+            Description = "With --model: do not fill the digs. By default the holes TianWen's own models dig under the stars they take are "
+                + "filled to the sky around them, and the little light they leave is lowered a little (#2204; image fill-digs is the step "
+                + "alone). RC-Astro's plate is never touched. Give this to read the models' own output.",
+        };
         var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator, or TianWen's own weights named with --model): the starless "
             + "plate and the stars it took out, each on its input's scale, so image add-stars puts them back exactly. Several masters "
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt },
+            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, noFillDigsOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -204,10 +210,15 @@ internal sealed partial class ImageSubCommand
                 : null;
             IStarRemover remover = own ?? starRemover;
             consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
-            var (starless, stars, cores) = await NarrowbandCombination.SplitStarsAsync(
-                masters, remover, coreOptions, ct);
+            var (starless, stars, cores, filled) = await NarrowbandCombination.SplitStarsAsync(
+                masters, remover, coreOptions, fillDigs: !parseResult.GetValue(noFillDigsOpt), ct);
             for (var i = 0; i < starless.Length; i++)
             {
+                if (filled is not null)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[remove-stars] {Path.GetFileName(paths[i])}: dig-fill step covered {filled[i]:P1} of the pixels"));
+                }
                 if (cores?[i] is { } mask)
                 {
                     consoleHost.WriteScrollable(mask.Cores.Length == 0
@@ -222,6 +233,39 @@ internal sealed partial class ImageSubCommand
                     WriteStep(stars[i], StarsOutput(dst), wcs, "remove-stars");
                 }
             }
+            return 0;
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image fill-digs ----------------------------------
+
+    private Command BuildFillDigsCommand()
+    {
+        var inputOpt = new Option<string>("--input") { Description = "The master the stars were removed from.", Required = true };
+        var starlessOpt = new Option<string>("--starless") { Description = "Its starless plate as the models left it (image remove-stars --model ... --no-fill-digs).", Required = true };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <starless>_filled.fits." };
+        var cmd = new Command("fill-digs", "The step image remove-stars runs after TianWen's own models, alone (DigFill, #2204): where a star was "
+            + "taken, a hole dug under it is filled to the sky around it and light left standing is lowered a little, each bounded by "
+            + "what the model took there. No model runs. Not for an RC-Astro plate, which has no digs to fill.")
+        {
+            Options = { inputOpt, starlessOpt, outputOpt },
+        };
+        cmd.SetAction(parseResult =>
+        {
+            var starlessPath = parseResult.Required(starlessOpt);
+            // The plate is read as written: remove-stars wrote its absent pixels as NaN, and an exact zero in it is a value
+            // the model gave, not the absent ring a master marks with zero.
+            if (!TryReadMasters([parseResult.Required(inputOpt)], out var input, out var wcs)
+                || !TryReadMasters([starlessPath], out var starless, out _, maskAbsent: false)
+                || !OneGrid([input[0], starless[0]]))
+            {
+                return 1;
+            }
+            var (plate, share) = DigFill.Apply(input[0], starless[0]);
+            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                $"[fill-digs] {Path.GetFileName(starlessPath)}: dig-fill step covered {share:P1} of the pixels"));
+            WriteStep(plate, StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), wcs, "fill-digs");
             return 0;
         });
         return cmd;

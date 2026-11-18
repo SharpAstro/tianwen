@@ -230,8 +230,8 @@ public static class ColourComposition
                 say($"removing stars from the luminance ({remover.Name})");
                 // Protected: the starless luminance carries the detail into every channel, so a nucleus a remover took as a star
                 // would be dug out of all three; the cores stay in it and out of the stars plate, which WithStars puts back whole.
-                var (starlessLuminances, luminanceStars, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover,
-                    ExtendedCoreMask.Options.Default, cancellationToken);
+                var (starlessLuminances, luminanceStars, _, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover,
+                    ExtendedCoreMask.Options.Default, fillDigs: true, cancellationToken);
                 starlessLuminance = starlessLuminances[0];
                 if (options.Denoise)
                 {
@@ -280,8 +280,8 @@ public static class ColourComposition
                 say($"removing stars from {source.Count} masters ({remover.Name})");
                 // Protected: the channels' starless plates feed the picture's look (emission, denoise, detail), and a core a remover
                 // dug out of one would show as a hole in the final colour; cores stay in the plate, out of the stars.
-                var (starless, stars, _) = await NarrowbandCombination.SplitStarsAsync(source, remover,
-                    ExtendedCoreMask.Options.Default, cancellationToken);
+                var (starless, stars, _, _) = await NarrowbandCombination.SplitStarsAsync(source, remover,
+                    ExtendedCoreMask.Options.Default, fillDigs: true, cancellationToken);
                 layerStars = stars;
                 split = starless;
             }
