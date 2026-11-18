@@ -7435,6 +7435,51 @@ and the columns of this table compare with each other, not with #1786's.
   rig the synthetic own lag-1 is 0.158, 0.160 and 0.146 (R, G, B) against real's 0.205, 0.179 and 0.157, which is worth a factor of
   about 1.03 on red and 1.01 on green. That is a part of the gap, not the 1.16.
 
+##### S4b: the level's cause, a crowded master has no quiet block (2026-11-19, #1786)
+
+Found on synth22, synth25 and synth28 with the store's own tiles, every figure in linear (a tile is taken back through its
+recorded stretch) and over the master's recorded sigma. Instruments: `training/star-removal/domain/noise_*.py`.
+
+- **The drawn noise is at the recorded level.** A synthetic clean tile (background and noise, no star) reads 0.94 to 1.09 of the
+  recorded sigma at a lag of 8 px on 20 of the 22 sessions read, Lobster's among them (1.006, 0.975, 0.983); the two outside are
+  the ASI294MM's M42 luminance (2.09, real's own tile 1.43) and the ASI585MC Pro's Tarantula (0.79 to 0.87). The lag-1 reading
+  is lower in both real and synthetic, as correlated noise reads.
+- **The recorded level itself is too high on a crowded master.** `StretchedNoise.EstimateCalibration` answers with the quietest
+  quarter of its 32 px blocks, because texture only adds to a block's reading. The Lobster master holds 95 thousand catalogued stars,
+  about eight per block, so no block is quiet. Two readings that do not share that fault agree with each other:
+
+  | session | catalogued stars per 256 px tile | the plate, over the record (R, G, B) | the master away from its stars, over the record |
+  |---|---|---|---|
+  | Lobster Nebula, QHY294PROC | 502 | 0.76, 0.76, 0.86 | 0.73, 0.74, 0.84 |
+  | Running Chicken, QHY178M luminance | 762 | 0.65 | 0.67 |
+  | SMC, ASI585MC Pro (2024-09-27) | 176 | 0.97, 0.97, 0.98 | 0.96, 0.96, 0.97 |
+  | 10P/Tempel 2, QHY294PROC | 129 | 0.96, 0.95, 0.96 | 0.97, 0.96, 0.97 |
+  | Helix, QHY178M luminance | 34 | 0.99 | 0.99 |
+
+  Both are the estimator's own statistic (the frame less its 4 px low-pass, MAD per block, the lower quartile): once over the
+  starless plate, once over the master's pixels outside a disc round every catalogued star (`noise_masked.py`).
+- **It grows with the star count.** Over the 199 sessions of the store, the plate's difference noise at a lag of 8 px over the
+  record (`noise_plate_all.py`; a different statistic, which reads a few percent higher than the one above) has a median of 1.06 under
+  100 stars per tile, 1.04 from 100 to 250, 1.00 from 250 to 400 and 0.92 over 400, and it is under 0.90 on 29 sessions, down to
+  0.67 on an eta Carinae master. The Magellanic, Tarantula and Sagittarius masters read 1.05 to 1.19: their plates keep the grain
+  of stars nobody catalogued.
+- **So every export so far drew its crowded sessions too noisy**, by the table's ratio. This is the 1.11 to 1.17 of #1786: at the
+  same 40 cells, synth22's Lobster draws read 1.30, 1.24, 1.19 at a lag of 8 px where the real tiles read 1.18, 1.11, 1.10, with
+  the star light itself matched (13.5 % of real pixels and 12.7 % of drawn ones carry over 1 sigma of star).
+- **The fix is an export option, `dataset degrade --noise-from-plate`** (off by default, so no registered arm's export changes):
+  each session's level is the recorded one held to its plate's own estimate, per channel
+  (`StretchedNoise.BoundedByPlate`; a plate that reads more changes nothing). The session's log line and each row's
+  `PlateNoiseRatio` carry the ratio. `export-synth.ps1` takes it through `-Extra`.
+- **Checked on an export of five sessions** (Lobster and its two flips, Tempel, the SMC, one draw each, no faint stars): the ratios
+  taken were 0.81, 0.80, 0.87 on Lobster, 0.96 on Tempel and 0.97 on the SMC. Lobster's draws went from 1.30, 1.24, 1.19 to 1.08,
+  1.01, 1.04 against real's 1.18, 1.11, 1.10 at a lag of 8 px: from 10 % over to 8 % under. Tempel's and the SMC's draws went
+  from 1 to 2 % under real to 5 % under.
+- **What is left under real at 8 px is not noise by the estimator's statistic.** The clean tiles now match the plate in the
+  estimator's band, and the draws of this check held no star under 5 sigma, which the real tiles do
+  (the cause R4c and R4d were registered on). That
+  reading is SUSPECTED, not measured: an export with `--faint-stars` and this option together would say.
+- **No arm is registered on it.** Whether a model trained on such an export does better on the crowded rows is an arm's question.
+
 ##### S4b: the read
 
 Residual cross-correlation of the tiles AS EXPORTED (not re-stretched), by rig, at lags (dy, dx) 0 to 2, against real, synth4 and the
