@@ -6,5 +6,5 @@ SMC="ZWO-ASI585MC-Pro_Optolong-L-eNhance_Small-Magellanic-Cloud_2024-09-27_ZWO A
 for m in "$@"; do
   export SITE_OUT=${TIANWEN_SR_SITE:-D:/temp/tianwen-scratch/site}/$m; mkdir -p $SITE_OUT
   python -I site_remove.py ${TIANWEN_SR_MODELS:-C:/temp/tianwen-scratch/f2-logs-master}/score-$m/$m.onnx "$LOB" "$SMC" > $SITE_OUT/remove-rest.txt 2>&1 || { echo "remove failed $m"; tail -5 $SITE_OUT/remove-rest.txt; continue; }
-  echo "== $m"; python -I site_core_o.py "$LOB" QHYCCD-QHY294C "$SMC" ZWO-ASI585MC-Pro 2>/dev/null | tee $SITE_OUT/site-rest.txt
+  echo "== $m"; python -I site_core.py "$LOB" QHYCCD-QHY294C "$SMC" ZWO-ASI585MC-Pro 2>/dev/null | tee $SITE_OUT/site-rest.txt
 done

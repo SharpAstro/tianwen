@@ -6318,8 +6318,8 @@ the first angle is a step after the model and not another arm:
       -0.53, seed 0 -0.27 / -0.20 / -0.44 / -0.47, seed 1 -0.34 / -0.11 / -0.44 / -0.45, R3z 0.12 / 0.26 / -0.21 / -0.31.
       R3z, whose data differ in the halo and the saturated stars and not in the flank, has the shallowest ring on both.
       The other two sessions, read 2026-11-18 (`site-run-rest.sh`, same rows; like `site-run.sh`, which made the
-      M42 and HIP 80609 rows per model, it runs `site_remove.py`, then `site_core_o.py` and `site_core_ch_o.py`, the
-      variants of `transplant.py`, `site_core.py` and `site_core_ch.py` that keep one output folder per model). Lobster (5,818 stars): R3v -0.04 / 0.04 /
+      M42 and HIP 80609 rows per model, it runs `site_remove.py`, the real-site half of `transplant.py` with one output
+      folder per model, then `site_core.py` and `site_core_ch.py`). Lobster (5,818 stars): R3v -0.04 / 0.04 /
       -0.44 / -0.52, seed 0 -0.23 / 0.04 / -0.35 / -0.43, seed 1 -0.25 / -0.11 / -0.40 / -0.48. SMC (383 stars): R3v
       0.56 / 0.06 / -0.19 / -0.29, seed 0 0.00 / 0.15 / -0.16 / -0.44, seed 1 0.21 / 0.60 / 0.34 / -0.12. Neither has
       M42's ring at 1.6 to 2.5 px; Lobster has HIP 80609's shallow dip of about half a sigma from 2.5 to 4.5 px in
@@ -6690,9 +6690,10 @@ the first angle is a step after the model and not another arm:
 
 Every script here that runs the remover (`transplant.py`, `site_remove.py`, `crowd_texture.py`, `wb_invariance.py`,
 `flatten_invariance.py`) gives the model AS TRAINED: it passes `--no-fill-digs` and `--no-protect-cores` where the
-build has them (the rows in this plan were made with a build from before both steps), and names its cached output for
-the model as well as the session, so a second model never reads the first one's plate (`site_core.py` and
-`site_core_ch.py` take `TIANWEN_SR_MODEL` to pick one).
+build has them (the rows in this plan were made with a build from before both steps). No model reads another's cached
+plate: `site_remove.py` keeps them apart by folder (`SITE_OUT`, one per model, set by `site-run.sh`), the others by
+naming the output for the model as well as the session. `site_core.py` and `site_core_ch.py` read either: `SITE_OUT`'s
+folder, or transplant.py's with `TIANWEN_SR_MODEL` to pick the model.
 
 Files (DE1): R3y's Q1 export is made by `training/star-removal/flank-q1-export.ps1` (the arm `synth-draw12` under
 `dig-2x2/`) and the synth22 shares over beta 6 by `beta_over_share.py`; item 5's instrument is `training/star-removal/flank_cmp.py` and the exports behind its beta rows are made by

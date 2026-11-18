@@ -1,14 +1,12 @@
-"""site_remove.py: transplant.py as it ran for the per-model site reads (site-run.sh), its outputs in SITE_OUT, one
-folder per model, so no model reads another's plate. What it does:
+"""The remover's plate of a session's master, as trained, for the ring reads at real sites (site-run.sh), and the
+output less the truth plate in rings round each catalogued star.
 
-The transplant test (2026-11-16): is a real star dug because of its own light, or because of where it sits?
+    SITE_OUT=<a folder of this model's own> python -I site_remove.py <onnx> <session stem> [<session stem> ...]
 
-The master is the starless plate plus a star layer (master less plate). Run the remover on the master as it is (shift 0)
-and on the plate with the SAME star layer moved by (37, 53) px, so every real star's light sits on background that never
-held a star. The plate is the truth both times. Per catalogued star, by significance band: the output less the plate in
-rings round the star, in the star's own catalogued noise sigma.
-
-    python -I transplant.py <onnx> <session stem> [<session stem> ...]
+It writes SITE_OUT/<tag>-real-out.fits, tag being the stem up to its first '_', and skips the remover when that file is
+there: models are kept apart by SITE_OUT being one folder per model (site-run.sh sets it), not by the file's name.
+site_core.py and site_core_ch.py read it. This is transplant.py's real-site half only; the moved star layer is
+transplant.py's.
 """
 import csv, os, subprocess, sys
 import numpy as np
@@ -17,7 +15,6 @@ from astropy.io import fits
 STORE = os.environ.get("TIANWEN_DATASET", "D:/Astro-Dataset/2026-10-12-full")
 OUT = os.environ["SITE_OUT"]
 CLI = os.environ.get("TIANWEN_CLI", "C:/temp/e2/sr-cli/tianwen.exe")
-DY, DX = 37, 53
 RINGS = [(0, 2), (2, 4), (4, 8), (8, 16)]
 BANDS = [("20-100", 20, 100), ("100-1000", 100, 1000), (">=1000", 1000, 1e9)]
 onnx, stems = sys.argv[1], sys.argv[2:]
@@ -43,15 +40,12 @@ for stem in stems:
         master = np.asarray(h[0].data, dtype=np.float32); header = h[0].header
     plate = np.asarray(fits.getdata(f"{STORE}/starless/plates/{stem}_plate.fits"), dtype=np.float32)
     layer = np.nan_to_num(master - plate, nan=0.0)
-    moved = plate + np.roll(layer, (DY, DX), axis=(1, 2))
-    src_b = f"{OUT}/{tag}-moved.fits"
     out_a = remove(f"{STORE}/session-masters/{stem}.fits", f"{OUT}/{tag}-real-out.fits")
-    out_b = out_a
     stars = [r for r in csv.DictReader(open(f"{STORE}/starless/plates/{stem}_plate.stars.csv", encoding="utf-8"))]
     print(f"\n{stem}\n  master {master.shape}, median {np.nanmedian(master):.5f}, plate median {np.nanmedian(plate):.5f}, "
           f"layer share over 0 {100 * (layer > 0).mean():.1f} %, {len(stars)} catalogued")
     H, W = master.shape[1:]
-    for name, out, dy, dx in (("real site (shift 0)", out_a, 0, 0), (f"moved ({DY},{DX})", out_b, DY, DX)):
+    for name, out, dy, dx in (("real site (shift 0)", out_a, 0, 0),):
         err = np.nanmean(out - plate, axis=0)
         print(f"  {name}")
         print(f"    {'band':10s} {'n':>6s}" + "".join(f"   r{a}-{b}: med  dug% left%" for a, b in RINGS))
