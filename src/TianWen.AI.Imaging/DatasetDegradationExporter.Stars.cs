@@ -260,6 +260,10 @@ public static partial class DatasetDegradationExporter
             {
                 throw new ArgumentException("the wing relation clamp solves each wing against the master's own profile; it would move the wings a held or drawn star beta set", nameof(options));
             }
+            if (options.NoiseFromPlate && options.NoiseScale is not null)
+            {
+                throw new ArgumentException("the plate's noise bounds the level a synthetic background is drawn at; a noise scale carries the plate's own cell, whose noise is what it is", nameof(options));
+            }
             if (options.HaloOverPlate && !options.SaturatedMeasured)
             {
                 throw new ArgumentException("the halo over the plate is read off the measured saturated stars; give SaturatedMeasured too", nameof(options));
@@ -559,6 +563,21 @@ public static partial class DatasetDegradationExporter
             plateStretched = unitPlate.MtfStretchWith(origMin, balances);
 
             var absent = plate.AbsentPixels();
+            // #1786: the master's recorded noise is read with its stars in; the plate's own reading bounds it from above too.
+            LinearDegradation.NoiseCalibration[]? plateNoise = null;
+            if (options.NoiseFromPlate)
+            {
+                var stretches = new StretchedNoise.ChannelStretch[channels];
+                for (var c = 0; c < channels; c++)
+                {
+                    stretches[c] = new StretchedNoise.ChannelStretch(balances[c], origMin[c]);
+                }
+                if (!StretchedNoise.TryEstimateCalibration(unitPlate, stretches, absent, out plateNoise))
+                {
+                    throw new InvalidOperationException($"{sessionId}: the starless plate has no block to read its noise from");
+                }
+            }
+            double[]? plateNoiseRatio = null;
             // Synthetics S4: the plate is the master less its fitted stars, so its noise is the master's own, with most of the
             // shared light a faint star would add to a correlation taken out with the stars.
             var noiseCorrelation = options.ChannelNoiseCorrelation && channels > 1 ? ChannelNoiseCorrelation.Measure(unitPlate, absent) : null;
@@ -701,6 +720,16 @@ public static partial class DatasetDegradationExporter
                 var calibrations = CellMasterCalibration(cell, channels, stackedFrames)
                     ?? throw new InvalidOperationException($"{sessionId}: cell x{cell.X} y{cell.Y} has no master row with a recorded calibration");
                 var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
+                if (plateNoise is not null)
+                {
+                    calibrations = StretchedNoise.BoundedByPlate(calibrations, plateNoise, masterDepth, out var ratios);
+                    if (plateNoiseRatio is null)
+                    {
+                        logger?.LogInformation("[degrade] {Session}: the plate's noise over the master's recorded {Ratio}; a channel under 1 is drawn at that share",
+                            sessionId, string.Join(" / ", ratios.Select(static r => r.ToString("F3", CultureInfo.InvariantCulture))));
+                    }
+                    plateNoiseRatio = ratios;
+                }
                 float[][]? background = null;
                 var knots = ImmutableArray<SyntheticBackground.Knot>.Empty;
                 KeptCore? core = null;
@@ -747,6 +776,7 @@ public static partial class DatasetDegradationExporter
                         NoiseStructure = noiseStructure is null ? null : "cross-lags",
                         NoiseStructureShrink = noiseStructure?.Shrink,
                         NoiseScale = options.NoiseScale,
+                        PlateNoiseRatio = plateNoiseRatio,
                     });
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(

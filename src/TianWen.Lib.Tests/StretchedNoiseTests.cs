@@ -342,6 +342,89 @@ public class StretchedNoiseTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// #1786: a field with several stars in every block has no quiet block, so the block estimate of the master reads over
+    /// the noise between its stars (the Lobster master's, about eight catalogued stars per block, read 1.11 to 1.17 times).
+    /// The same frame without the stars, which is what a starless plate is, reads the noise itself, and the calibration
+    /// bounded by it is the truth's.
+    /// </summary>
+    [Fact]
+    public void ACrowdedMastersNoiseIsHeldToItsPlates()
+    {
+        const int size = 512;
+        const double depth = 0.25;
+        var truth = new LinearDegradation.NoiseCalibration(PedestalAdu: 0.0, BackgroundAdu: 0.02, OneSubSigmaAdu: 0.004, StackedFrames: 16);
+        var sigma = truth.SigmaAt(truth.BackgroundAdu, depth);
+        var rng = new Random(11);
+        var plate = new float[Channels][];
+        var master = new float[Channels][];
+        // Eight stars per 32 px block, as a catalogue holds them: from 5 sigma at the peak to 200, the faint ones the most common.
+        var stars = Enumerable.Range(0, 8 * (size / 32) * (size / 32))
+            .Select(_ => (X: rng.NextDouble() * size, Y: rng.NextDouble() * size, Peak: sigma * 5.0 * Math.Pow(40.0, Math.Pow(rng.NextDouble(), 1.5))))
+            .ToArray();
+        for (var c = 0; c < Channels; c++)
+        {
+            var p = Enumerable.Repeat((float)truth.BackgroundAdu, size * size).ToArray();
+            LinearDegradation.AddNoiseInPlace(p, NoiseField.White(size, size, rng), truth, depth);
+            var m = p.AsSpan().ToArray();
+            foreach (var (sx, sy, peak) in stars)
+            {
+                for (var y = Math.Max(0, (int)sy - 7); y <= Math.Min(size - 1, (int)sy + 7); y++)
+                {
+                    for (var x = Math.Max(0, (int)sx - 7); x <= Math.Min(size - 1, (int)sx + 7); x++)
+                    {
+                        var r2 = ((x - sx) * (x - sx)) + ((y - sy) * (y - sy));
+                        m[(y * size) + x] += (float)(peak * Math.Exp(-r2 / (2 * 1.0 * 1.0)));
+                    }
+                }
+            }
+            plate[c] = p;
+            master[c] = m;
+        }
+        var masterImage = ToImage(master, size);
+        var (origMin, balances) = masterImage.MtfStretchParameters(0.25);
+        var stretches = Enumerable.Range(0, Channels).Select(c => new StretchedNoise.ChannelStretch(balances[c], origMin[c])).ToArray();
+
+        var ofMaster = StretchedNoise.EstimateCalibration(masterImage, stretches);
+        var ofPlate = StretchedNoise.EstimateCalibration(ToImage(plate, size), stretches);
+        var bounded = StretchedNoise.BoundedByPlate(ofMaster, ofPlate, 1.0, out var ratios);
+
+        for (var c = 0; c < Channels; c++)
+        {
+            var masterReads = ofMaster[c].SigmaAt(truth.BackgroundAdu, 1.0) / sigma;
+            var plateReads = ofPlate[c].SigmaAt(truth.BackgroundAdu, 1.0) / sigma;
+            var boundedReads = bounded[c].SigmaAt(truth.BackgroundAdu, 1.0) / sigma;
+            output.WriteLine($"channel {c}: the master reads {masterReads:F3} of the noise, the plate {plateReads:F3}, bounded {boundedReads:F3} (ratio {ratios[c]:F3})");
+            masterReads.ShouldBeGreaterThan(1.08, $"channel {c}: the stars are not read as noise, so this frame tests nothing");
+            plateReads.ShouldBe(1.0, 0.08, $"channel {c}");
+            boundedReads.ShouldBe(1.0, 0.08, $"channel {c}");
+            ratios[c].ShouldBeLessThan(0.95, $"channel {c}");
+            bounded[c].BackgroundAdu.ShouldBe(ofMaster[c].BackgroundAdu);
+        }
+    }
+
+    /// <summary>
+    /// #1786: a plate that reads MORE than its master (subtraction residue, a nebula the estimate could not clear) lowers
+    /// nothing: both readings are upper bounds, and the master's is the lower one. A one-sub calibration is bounded at the
+    /// master's depth and stays a one-sub calibration.
+    /// </summary>
+    [Fact]
+    public void APlateThatReadsMoreLeavesTheMastersNoiseAlone()
+    {
+        var master = new LinearDegradation.NoiseCalibration(0.0, 0.02, 0.004, 16);
+        var noisier = new LinearDegradation.NoiseCalibration(0.0, 0.02, 0.0012, 1);
+        var quieter = new LinearDegradation.NoiseCalibration(0.0, 0.02, 0.0009, 1);
+
+        var bounded = StretchedNoise.BoundedByPlate([master, master], [noisier, quieter], 0.25, out var ratios);
+
+        ratios[0].ShouldBe(1.2, 1e-9);
+        bounded[0].ShouldBe(master);
+        ratios[1].ShouldBe(0.9, 1e-9);
+        bounded[1].OneSubSigmaAdu.ShouldBe(0.0036, 1e-12);
+        bounded[1].BackgroundAdu.ShouldBe(master.BackgroundAdu);
+        bounded[1].StackedFrames.ShouldBe(master.StackedFrames);
+    }
+
+    /// <summary>
     /// A colour frame whose channels do NOT share one noise-per-level, as a real one does not: the sky sits at a
     /// different level in each (SMC 2026's measured floors, red lowest), and green, built from twice the photosites
     /// by a Bayer drizzle, carries half the variance per unit of signal. Each channel's own estimate has to find its
