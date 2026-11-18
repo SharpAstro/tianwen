@@ -4,6 +4,8 @@
 
 Per image and channel: the image through a 7 px median, then its 9 px box mean less its 41 px box mean, the rms over
 the cell, in units of the noise of a 9 px mean (the truth plate's neighbour-difference sigma in the cell over 9).
+Beside it the image's median level in the cell over the plate's (printed, not applied: a model that takes light reads
+under 1, and its band is that of the image as it is).
 The truth plate is always read first. A cell is 300 px, i down and j across, as crowd_texture.py numbers them.
 """
 import sys
@@ -25,10 +27,10 @@ for i, j in cells:
     sig = [1.4826 * np.median(np.abs(np.diff(plate[c, y0:y0 + B, x0:x0 + B], axis=1))) / np.sqrt(2) for c in range(3)]
     for label, path in images:
         a = np.asarray(fits.getdata(path), np.float32)
-        out = []
+        out, lev = [], []
         for c in range(3):
             p7 = median_filter(a[c, ys, xs], 7)
             band = (uniform_filter(p7, 9) - uniform_filter(p7, 41))[inner]
-            scale = np.median(plate[c, y0:y0 + B, x0:x0 + B]) / np.median(a[c, y0:y0 + B, x0:x0 + B])
-            out.append(np.sqrt(np.mean(band ** 2)) * (scale if abs(scale - 1) > 0.02 else 1.0) / (sig[c] / 9))
-        print(f"{i},{j}    {label:16s} " + " / ".join(f"{v:.1f}" for v in out), flush=True)
+            lev.append(np.median(a[c, y0:y0 + B, x0:x0 + B]) / np.median(plate[c, y0:y0 + B, x0:x0 + B]))
+            out.append(np.sqrt(np.mean(band ** 2)) / (sig[c] / 9))
+        print(f"{i},{j}    {label:16s} " + " / ".join(f"{v:.1f}" for v in out) + "    level over the plate's " + " / ".join(f"{v:.3f}" for v in lev), flush=True)
