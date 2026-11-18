@@ -1,4 +1,5 @@
-"""Twin truth error of a model's output against the plate, in the draw's noise sigma: over the pixels the post-step's mask
+"""NOTE: this scores whole 256 px tiles, the 16 px rim included, which the loss leaves out and inference gives no weight
+(2026-11-16); read it beside twin_err_inner.py, the same figure with the rim left out. Twin truth error of a model's output against the plate, in the draw's noise sigma: over the pixels the post-step's mask
 covers (taken from the base model) and outside them. python -I twin_err.py <base> [<model>...]
 The first model is the base (it defines the mask) and is scored too. Only one tile in four is scored (i % 4), so the rms,
 outside and mean figures are a quarter sample; the TRUE clean twin rows of real_star_check3.py use every tile."""
