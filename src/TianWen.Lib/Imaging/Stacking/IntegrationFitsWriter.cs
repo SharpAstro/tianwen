@@ -160,40 +160,7 @@ public static class IntegrationFitsWriter
         {
             extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
         }
-        // ALIGNMNT is written ALWAYS, including for an ordinary star-aligned stack. Absence would
-        // otherwise conflate "sidereal" with "written before this card existed", and every master on
-        // disk today is in the second group -- the same ambiguity that let a missing FILTER read as
-        // "no filter in the light path". FITS keywords cap at 8 characters, which is why this is not
-        // spelled ALIGNMENT.
-        var basis = alignment?.Basis ?? AlignmentProvenance.Sidereal.Basis;
-        extras["ALIGNMNT"] = (basis, "Registration basis (Sidereal | Comet)");
-        if (alignment is { } al && al.DriftPxPerHour is { } drift)
-        {
-            // The drift is what makes the alignment reproducible without re-querying an ephemeris,
-            // and CANVAS px/hr is the basis it was applied in: the star solution has already absorbed
-            // dither and field rotation by the time it acts, so a sky rate would not round-trip.
-            extras["DRIFTX"] = ((double)drift.X, "Target drift, canvas px/hr (X)");
-            extras["DRIFTY"] = ((double)drift.Y, "Target drift, canvas px/hr (Y)");
-            if (al.RateSource is { Length: > 0 } src)
-            {
-                extras["DRIFTSRC"] = (src, "How the drift was obtained (Horizons | Manual)");
-            }
-            if (al.TargetBody is { Length: > 0 } body)
-            {
-                extras["TRACKOBJ"] = (body, "Body the stack was registered on");
-            }
-        }
-        if (alignment is { CanvasOriginX: { } originX, CanvasOriginY: { } originY })
-        {
-            // Two masters from one reference overlay by the difference of these; the canvas is the
-            // union of each run's frame footprints, so neither its extent nor its origin is shared.
-            extras["CANVASX0"] = (originX, "Pixel (0,0) of this image in reference-frame px, x");
-            extras["CANVASY0"] = (originY, "Pixel (0,0) of this image in reference-frame px, y");
-        }
-        if (alignment?.ReferenceFrame is { Length: > 0 } reference)
-        {
-            extras["REFFRAME"] = (reference, "Reference frame whose pixel space CANVASX0/Y0 are in");
-        }
+        (alignment ?? AlignmentProvenance.Sidereal).AddHeaderCards(extras);
         if (modifiedBy is not null)
         {
             extras["SWMODIFY"] = (modifiedBy, "Software that modified this image");
@@ -817,4 +784,71 @@ public sealed record AlignmentProvenance(
             CanvasOriginX = CanvasOriginX is { } ox ? ox + cropX : null,
             CanvasOriginY = CanvasOriginY is { } oy ? oy + cropY : null,
         };
+
+    /// <summary>
+    /// Adds this provenance's header cards to <paramref name="extras"/>: the ONE place they are written, so
+    /// <see cref="FromHeader"/> reads back exactly what the integration writer and a crop write.
+    /// </summary>
+    public void AddHeaderCards(Dictionary<string, (object Value, string Comment)> extras)
+    {
+        // ALIGNMNT is written ALWAYS, including for an ordinary star-aligned stack. Absence would
+        // otherwise conflate "sidereal" with "written before this card existed", and every master on
+        // disk today is in the second group -- the same ambiguity that let a missing FILTER read as
+        // "no filter in the light path". FITS keywords cap at 8 characters, which is why this is not
+        // spelled ALIGNMENT.
+        extras["ALIGNMNT"] = (Basis, "Registration basis (Sidereal | Comet)");
+        if (DriftPxPerHour is { } drift)
+        {
+            // The drift is what makes the alignment reproducible without re-querying an ephemeris,
+            // and CANVAS px/hr is the basis it was applied in: the star solution has already absorbed
+            // dither and field rotation by the time it acts, so a sky rate would not round-trip.
+            extras["DRIFTX"] = ((double)drift.X, "Target drift, canvas px/hr (X)");
+            extras["DRIFTY"] = ((double)drift.Y, "Target drift, canvas px/hr (Y)");
+            if (RateSource is { Length: > 0 } src)
+            {
+                extras["DRIFTSRC"] = (src, "How the drift was obtained (Horizons | Manual)");
+            }
+            if (TargetBody is { Length: > 0 } body)
+            {
+                extras["TRACKOBJ"] = (body, "Body the stack was registered on");
+            }
+        }
+        if (CanvasOriginX is { } originX && CanvasOriginY is { } originY)
+        {
+            // Two masters from one reference overlay by the difference of these; the canvas is the
+            // union of each run's frame footprints, so neither its extent nor its origin is shared.
+            extras["CANVASX0"] = (originX, "Pixel (0,0) of this image in reference-frame px, x");
+            extras["CANVASY0"] = (originY, "Pixel (0,0) of this image in reference-frame px, y");
+        }
+        if (ReferenceFrame is { Length: > 0 } reference)
+        {
+            extras["REFFRAME"] = (reference, "Reference frame whose pixel space CANVASX0/Y0 are in");
+        }
+    }
+
+    /// <summary>
+    /// Reads the provenance back from a master's header. Null when <c>ALIGNMNT</c> is absent: a file written
+    /// before the card existed says nothing, which is not the same as "Sidereal".
+    /// </summary>
+    public static AlignmentProvenance? FromHeader(Header header)
+    {
+        if (header.GetStringValue("ALIGNMNT") is not { Length: > 0 } basis)
+        {
+            return null;
+        }
+        var dx = header.GetDoubleValue("DRIFTX", double.NaN);
+        var dy = header.GetDoubleValue("DRIFTY", double.NaN);
+        Vector2? drift = double.IsFinite(dx) && double.IsFinite(dy) ? new Vector2((float)dx, (float)dy) : null;
+        var ox = header.GetIntValue("CANVASX0", int.MinValue);
+        var oy = header.GetIntValue("CANVASY0", int.MinValue);
+        var hasOrigin = ox != int.MinValue && oy != int.MinValue;
+        return new AlignmentProvenance(
+            basis,
+            TargetBody: header.GetStringValue("TRACKOBJ"),
+            DriftPxPerHour: drift,
+            RateSource: header.GetStringValue("DRIFTSRC"),
+            CanvasOriginX: hasOrigin ? ox : null,
+            CanvasOriginY: hasOrigin ? oy : null,
+            ReferenceFrame: header.GetStringValue("REFFRAME"));
+    }
 }
