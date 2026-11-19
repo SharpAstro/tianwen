@@ -57,13 +57,18 @@
           ]},
           {"kind": "text", "text": "… 308 more", "color": "DimText"},
           {"kind": "text", "text": "L_0003 left out: FWHM 4.90 is over 2σ", "color": "Warn"},
-          {"kind": "text", "text": "Pipeline", "fontSize": 15, "color": "HeaderText", "padding": 4},
-          {"kind": "checkbox", "bind": "calibrate", "label": "Calibrate (master dark, flat)"},
-          {"kind": "checkbox", "bind": "debayer", "label": "Debayer (RGGB)"},
-          {"kind": "checkbox", "bind": "register", "label": "Register (star alignment)"},
-          {"kind": "dropdown", "bind": "rejection", "label": "Rejection", "options": ["Winsorized σ-clip", "Linear fit", "ESD", "None"]},
-          {"kind": "dropdown", "bind": "weighting", "label": "Weighting", "options": ["PSF signal", "SNR", "Noise", "Equal"]},
-          {"kind": "text", "text": "Integrate 311 frames", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"}
+          {"kind": "text", "text": "Workflow", "fontSize": 15, "color": "HeaderText", "padding": 4},
+          {"kind": "dropdown", "bind": "stackWorkflow", "label": "Deep sky (auto)", "options": ["tianwen viewer (guided)", "Deep sky (auto)", "Mono LRGB", "Narrowband SHO", "Quick look"]},
+          {"kind": "text", "text": "On these frames it will:", "color": "DimText"},
+          {"kind": "text", "text": "1  Calibrate (darks, flats, bias)", "color": "BodyText"},
+          {"kind": "text", "text": "2  Bayer drizzle 2× (311 > 60 frames)", "color": "BodyText"},
+          {"kind": "text", "text": "3  Integrate (Winsorized σ-clip)", "color": "BodyText"},
+          {"kind": "text", "text": "…  then 5 processing steps", "color": "DimText"},
+          {"kind": "dock", "height": 34, "children": [
+            {"kind": "text", "side": "left", "size": 130, "text": "Edit workflow ↗", "color": "Accent", "action": "goto:workflow"},
+            {"kind": "text", "side": "right", "size": 170, "text": "Run on 311 frames", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
+            {"kind": "spacer"}
+          ]}
         ]
       },
       {

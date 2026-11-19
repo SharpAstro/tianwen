@@ -23,7 +23,7 @@
           {"kind": "text", "text": "2 Calibrate ✓", "color": "BodyText", "align": "center", "padding": 4},
           {"kind": "text", "text": "3 Analyse ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "1 frame left out: FWHM over 2σ"},
           {"kind": "text", "text": "4 Register ✓", "color": "BodyText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "5 Integrate ✓", "color": "BodyText", "align": "center", "padding": 4},
+          {"kind": "text", "text": "5 Integrate ✓", "color": "BodyText", "align": "center", "padding": 4, "action": "goto:integrate"},
           {"kind": "text", "text": "6 Crop ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "Quick auto-crop (GPU, same as the viewer): 6193×4136 px", "action": "goto:crop"},
           {"kind": "text", "text": "7 Plate solve", "color": "SelectionText", "background": "Selection", "align": "center", "padding": 4, "borderRadius": 4},
           {"kind": "text", "text": "8 SPCC", "color": "DimText", "align": "center", "padding": 4},
@@ -51,6 +51,7 @@
             {"kind": "text", "text": "Centre 05h 35m 17s, −05° 23′ 28″", "color": "BodyText"},
             {"kind": "text", "text": "0.48″/px · 92.3° · 1 204 stars", "color": "BodyText"}
           ]},
+          {"kind": "checkbox", "bind": "runOn", "label": "Run on until a step needs me", "tooltip": "Off: stop after every step so you can look"},
           {"kind": "dock", "height": 34, "children": [
             {"kind": "text", "side": "left", "size": 80, "text": "← Back", "padding": 8, "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "align": "center"},
             {"kind": "text", "side": "right", "size": 130, "text": "Next: SPCC →", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},

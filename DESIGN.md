@@ -12,17 +12,27 @@
 Step 7 of 10: plate solve the cropped master
 ```
 
-**Notes:** The step bar is the workflow itself, laid out flat: done steps carry ✓, the current one is selected, later ones are dim, so the state is in words and marks, not colour alone. Each step has one panel (what it does, its few settings, its result) and Back / Next; the canvas shows that step's output (here the solved sky grid). Plate solve and SPCC use the same code as the tianwen viewer so a master looks the same in both. "Open as workflow" leads to the Workflow editor, where gates and extra steps live: Guided is the easy road, Workflow and Process the flexible ones. Guided is always one image (SDI); it has no Windows switch. Crop sits before plate solving so the solve and SPCC never see the ragged stacking edges.
+**Notes:** The step bar is the workflow itself, laid out flat: done steps carry ✓, the current one is selected, later ones are dim, so the state is in words and marks, not colour alone. Each step has one panel (what it does, its few settings, its result) and Back / Next; the canvas shows that step's output (here the solved sky grid). Plate solve and SPCC use the same code as the tianwen viewer so a master looks the same in both. "Open as workflow" leads to the Workflow editor, where gates and extra steps live: Guided is the easy road, Workflow and Process the flexible ones. Guided is always one image (SDI); it has no Windows switch. Crop sits before plate solving so the solve and SPCC never see the ragged stacking edges. "Run on until a step needs me" (on by default) carries on through the steps and stops only where one asks for something, such as a failed solve; off, it stops after every step.
+
+## Jump ahead
+
+**Objective:** Shows going straight to a later step, as in APP: click 5 Integrate on a new session and press Integrate; steps 1–4 that are not done, or no longer match their input, run first.
+
+```screen id=integrate
+Step 5 chosen directly: what runs first and why
+```
+
+**Notes:** Every step keeps what it made together with the inputs it made it from. Picking a later step checks the earlier ones: ✓ still valid and reused, ↻ done but its input changed (here new flats) so it runs again, ○ not done yet so it runs. The marks are in the step bar and spelt out in the panel, and the button says what it will do ("Integrate (runs 2–4 first)"). This is the non-destructive principle applied to stacking: nothing has to be redone by hand, and nothing is redone that is still good.
 
 ## Stack
 
-**Objective:** Shows the session's frames with their quality (FWHM, stars, weight), which frames are left out and why, and the pipeline settings that turn them into one master.
+**Objective:** Shows the session's frames with their quality (FWHM, stars, weight), which frames are left out and why, and the workflow that turns them into one master.
 
 ```screen id=home
-Stack workspace: frames, pipeline, preview
+Stack workspace: frames, chosen workflow, preview
 ```
 
-**Notes:** One workspace switch (Guided · Stack · Process · Workflow) in the header instead of a menu tree. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
+**Notes:** One workspace switch (Guided · Stack · Process · Workflow) in the header instead of a menu tree. Stack does not have its own pipeline settings any more: it runs a workflow. The panel picks one and lists, in words, what it will do with these frames (the gates already decided), with "Edit workflow ↗" for changing it. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
 
 ## Process
 
