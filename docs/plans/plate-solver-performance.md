@@ -397,6 +397,10 @@ one a user is watching.
 
 ### C. Quad-descriptor matching against the catalog
 
+**Issue:** #2249 (a frame that states no scale is refused by the catalogue solver, though the seed finds its scale
+from a hint twice wrong: the Sagittarius Triplet master, 2026-11-19, solves to 5.983 arcsec/px from `--scale 3.1`
+and is not tried at all with no scale; ASTAP then solves it, so a machine without ASTAP has no solution).
+
 **Measured 2026-08-31 by `QuadCatalogFeasibilityProbe` (`TIANWEN_QUAD_FEASIBILITY=1`), and it splits
 this phase in two: the matching half is dead, the SCALE half is alive and is the half this plan
 actually cared about.**
