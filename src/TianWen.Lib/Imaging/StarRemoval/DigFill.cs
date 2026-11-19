@@ -335,8 +335,12 @@ public static class DigFill
     // as whole planes they were about 2 GB on a 26 megapixel colour master). The sums and their order are those of scipy's
     // gaussian_filter on float64: down the column first (the centre tap, then the pairs from the farthest in), then along
     // the row the same way, both mirrored at the border. Only the set's pixels are read off it, so only they are worked
-    // out: a row with none is skipped, and so is a Gaussian a row has no pixel for, which the far one is on most rows.
-    internal static float[] SkyTrust(float[][] plates, float[] sky, float[][] sigma, bool[] set, float[] nearWeight, bool hasFar, int width, int height)
+    // out: a row with none is skipped, and so is a Gaussian on a row that has no pixel for it.
+    //
+    // spread, where given, takes each set pixel's largest scatter as it was summed. The trust is clamped and narrowed to
+    // float, which hides a last digit, so a test that holds the sums to the bit reads them here.
+    internal static float[] SkyTrust(
+        float[][] plates, float[] sky, float[][] sigma, bool[] set, float[] nearWeight, bool hasFar, int width, int height, double[]? spread = null)
     {
         var trust = new float[width * height];
         var near = GaussianKernel(SkyBlurPx);
@@ -372,6 +376,10 @@ public static class DigFill
                 if (row.Near[px] || row.Far[px])
                 {
                     trust[(y * width) + px] = (float)Math.Clamp((UntrustedSkySpread - row.Largest[px]) / (UntrustedSkySpread - TrustedSkySpread), 0.0, 1.0);
+                    if (spread is not null)
+                    {
+                        spread[(y * width) + px] = row.Largest[px];
+                    }
                 }
             }
             return row;

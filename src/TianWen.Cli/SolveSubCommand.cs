@@ -261,10 +261,20 @@ internal sealed class SolveSubCommand(
                 consoleHost.WriteScrollable("[solve] no solution");
             }
 
+            // A path that cannot be written is said, not thrown, and ends the run with 3 as a failed Gaia export does.
+            var exportFailed = false;
             if (exportPath is not null)
             {
-                await ExportStarsAsync(stars, result.Solution, exportPath, exportFormat, ct);
-                consoleHost.WriteScrollable($"[export] {stars.Count} stars -> {exportPath}");
+                try
+                {
+                    await ExportStarsAsync(stars, result.Solution, exportPath, exportFormat, ct);
+                    consoleHost.WriteScrollable($"[export] {stars.Count} stars -> {exportPath}");
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    consoleHost.WriteError($"[export] {e.Message}");
+                    exportFailed = true;
+                }
             }
 
             // The Gaia export is an extra: whatever stops it is reported and ends the run with 3, after --export-stars is written.
@@ -292,14 +302,14 @@ internal sealed class SolveSubCommand(
                             : $"[gaia] faintest magnitude in the field {gaia.Field.FaintestMagnitude:F1}; the database is under its density cap here");
                     }
                 }
-                catch (Exception e) when (e is NotSupportedException or InvalidDataException or IOException)
+                catch (Exception e) when (e is NotSupportedException or InvalidDataException or IOException or UnauthorizedAccessException)
                 {
                     consoleHost.WriteError($"[gaia] {e.Message}");
                     gaiaFailed = true;
                 }
             }
 
-            if (gaiaFailed)
+            if (gaiaFailed || exportFailed)
             {
                 return 3;
             }
