@@ -1,6 +1,8 @@
 # Stacking and processing app
 
-**Objective:** A stand-alone app to calibrate, stack and post-process astro images, in the spirit of PixInsight; tianwen's GUI gets live stacking only, as a mode of its frame preview.
+**Objective:** A stand-alone app to calibrate, stack and post-process (edit) astro images, in the spirit of PixInsight, with non-destructive editing throughout; tianwen's GUI gets live stacking only, as a mode of its frame preview.
+
+**Principle: non-destructive editing.** An image is its original plus a list of edits (the Image class): crop, gradient removal, a stretch are each an edit that can be switched off, changed or reordered later, and later edits re-run. Nothing is written over. When many images are open (five masters, starless and star copies, masks), images not being worked on are kept on disk in a cache folder and load back on demand; the app says which ones and how much memory is in use.
 
 ## Guided
 
@@ -24,13 +26,13 @@ Stack workspace: frames, pipeline, preview
 
 ## Process
 
-**Objective:** Shows post-processing of the master: a process list on the left, the chosen process's settings and the history on the right, a before/after preview in the middle.
+**Objective:** Shows post-processing of the master: a process list on the left, the chosen process's settings and the image's edit list on the right, a before/after preview in the middle.
 
 ```screen id=process
 Process workspace: hyperbolic stretch on the master
 ```
 
-**Notes:** One process open at a time, docked, instead of PixInsight's floating windows. History is a plain list; clicking a step would roll the preview back to it. The header's One image / Windows switch picks SDI or MDI; One image is the default.
+**Notes:** One process open at a time, docked, instead of PixInsight's floating windows. The history is the image's edit list, not an undo log: each edit has a tick to switch it off and opens its settings when clicked, and the original stays untouched underneath. A process's button says Keep (add or update this edit), not Apply, because nothing is burnt in. The header's One image / Windows switch picks SDI or MDI; One image is the default.
 
 ## Crop
 
@@ -40,7 +42,7 @@ Process workspace: hyperbolic stretch on the master
 Process: Crop, auto-cropping the stacking edges
 ```
 
-**Notes:** Auto-crop uses the integration's cover map (where fewer than 90 % of frames overlap), so it is exact rather than guessed from the pixels; "Cover map" in the canvas toolbar shows it. The side fields show the auto values and can be overwritten; dragging the frame does the same. North-up needs a plate solve and says so. Crop is also step 6 of Guided and a step a workflow can hold.
+**Notes:** Crop is an edit like any other: the crop frame is stored, not the cut pixels, so it can be widened again later. Auto-crop finds the edges one of two ways: from the integration's cover map (where fewer than 90 % of frames overlap), which is exact and the default here; or from the image on the GPU, the quick way the tianwen viewer does it today, which is what Guided uses. "Cover map" in the canvas toolbar shows the map. The side fields show the auto values and can be overwritten; dragging the frame does the same. North-up needs a plate solve and says so. Crop is also step 6 of Guided and a step a workflow can hold.
 
 ## Windows (MDI)
 
@@ -50,7 +52,7 @@ Process: Crop, auto-cropping the stacking edges
 Process in Windows mode: pixel math across four windows
 ```
 
-**Notes:** MDI earns its keep where a process needs more than one image: pixel math, masks, channel combine. Windows tile by default (Cascade and Tabs on offer) so nothing hides another; zoom and pan can be linked. The active window has a thick blue outline and is named in the panel and the status line, so it is not shown by colour alone. The switch lives in the Process header and is remembered; Stack and Guided stay single-image.
+**Notes:** MDI earns its keep where a process needs more than one image: pixel math, masks, channel combine. Windows tile by default (Cascade and Tabs on offer) so nothing hides another; zoom and pan can be linked. The active window has a thick blue outline and is named in the panel and the status line, so it is not shown by colour alone. The switch lives in the Process header and is remembered; Stack and Guided stay single-image. "Open images" lists each image with where it is (memory or on disk) and how many edits it carries, above a memory bar; images go to the cache folder on their own when memory runs short, and the window title says "on disk" so a slow first redraw is explained.
 
 ## Workflow
 

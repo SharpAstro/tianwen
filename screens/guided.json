@@ -24,7 +24,7 @@
           {"kind": "text", "text": "3 Analyse ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "1 frame left out: FWHM over 2σ"},
           {"kind": "text", "text": "4 Register ✓", "color": "BodyText", "align": "center", "padding": 4},
           {"kind": "text", "text": "5 Integrate ✓", "color": "BodyText", "align": "center", "padding": 4},
-          {"kind": "text", "text": "6 Crop ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "Stacking edges cut off: 6193×4136 px", "action": "goto:crop"},
+          {"kind": "text", "text": "6 Crop ✓", "color": "BodyText", "align": "center", "padding": 4, "tooltip": "Quick auto-crop (GPU, same as the viewer): 6193×4136 px", "action": "goto:crop"},
           {"kind": "text", "text": "7 Plate solve", "color": "SelectionText", "background": "Selection", "align": "center", "padding": 4, "borderRadius": 4},
           {"kind": "text", "text": "8 SPCC", "color": "DimText", "align": "center", "padding": 4},
           {"kind": "text", "text": "9 Gradient", "color": "DimText", "align": "center", "padding": 4},
