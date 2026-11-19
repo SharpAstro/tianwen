@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 
@@ -99,6 +100,16 @@ internal sealed class SolveSubCommand(
             DefaultValueFactory = _ => "csv",
         };
 
+        var exportGaiaOpt = new Option<string?>("--export-gaia")
+        {
+            Description = "Path to write the Gaia stars of the solved frame to, as CSV: x, y, ra_deg, dec_deg, mag. They are read from the star database an installed ASTAP keeps (no download); the folder TIANWEN_ASTAP_FOLDER names is looked in first. Needs a successful solve.",
+        };
+        var gaiaMaxMagOpt = new Option<float>("--gaia-max-mag")
+        {
+            Description = "With --export-gaia: the faintest magnitude to write. The database itself is cut at its density cap, which the command reports where a frame runs into it.",
+            DefaultValueFactory = _ => 99f,
+        };
+
         var updateFitsOpt = new Option<bool>("--update-fits")
         {
             Description = "Write the solved WCS back into the input FITS file in place. Default off (read-only).",
@@ -123,6 +134,7 @@ internal sealed class SolveSubCommand(
                 searchOriginOpt, searchRadiusOpt, rangeOpt,
                 snrMinOpt, minStarsOpt, maxStarsOpt,
                 exportStarsOpt, exportFormatOpt,
+                exportGaiaOpt, gaiaMaxMagOpt,
                 updateFitsOpt,
                 annotateOpt, annotateSearchRadiusOpt,
             },
@@ -249,6 +261,25 @@ internal sealed class SolveSubCommand(
                 consoleHost.WriteScrollable("[solve] no solution");
             }
 
+            if (parseResult.GetValue(exportGaiaOpt) is { } gaiaPath && result.Solution is { } gaiaWcs)
+            {
+                if (AstapStarDatabase.FindInstalled() is not { } database)
+                {
+                    consoleHost.WriteError($"[gaia] no ASTAP star database found in {string.Join(", ", AstapStarDatabase.InstallFolders())}; install one with ASTAP or name its folder in {AstapStarDatabase.FolderVariable}");
+                    return 3;
+                }
+                if (await database.ReadFrameAsync(gaiaWcs, width, height, parseResult.GetValue(gaiaMaxMagOpt), ct) is not { } gaia)
+                {
+                    consoleHost.WriteError("[gaia] the solution does not place the frame on the sky");
+                    return 3;
+                }
+                await ExportGaiaAsync(gaia, gaiaPath, ct);
+                consoleHost.WriteScrollable($"[gaia] {gaia.Stars.Length} stars -> {gaiaPath} ({database.Name} in {database.Folder}: {database.Description})");
+                consoleHost.WriteScrollable(gaia.Field.DensityLimited
+                    ? $"[gaia] the database is at its density cap here ({gaia.Field.StarsInCone} stars in {gaia.Field.AreaSquareDegrees:F2} square degrees): its faintest star here is magnitude {gaia.Field.FaintestMagnitude:F1}, fainter stars are missing, and where the field is densest the cut is brighter"
+                    : $"[gaia] faintest magnitude in the field {gaia.Field.FaintestMagnitude:F1}; the database is under its density cap here");
+            }
+
             if (exportPath is not null)
             {
                 await ExportStarsAsync(stars, result.Solution, exportPath, exportFormat, ct);
@@ -306,6 +337,19 @@ internal sealed class SolveSubCommand(
     /// fields to narrow its candidate space; CD-matrix entries stay zero
     /// because the solve itself produces those.
     /// </summary>
+    private static async Task ExportGaiaAsync(AstapFrameStars gaia, string path, CancellationToken ct)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var text = new StringBuilder("x,y,ra_deg,dec_deg,mag\n");
+        foreach (var (star, x, y) in gaia.Stars)
+        {
+            text.Append(x.ToString("F3", inv)).Append(',').Append(y.ToString("F3", inv)).Append(',')
+                .Append((star.RA * 15).ToString("F7", inv)).Append(',').Append(star.Dec.ToString("F7", inv)).Append(',')
+                .Append(star.Magnitude.ToString("F1", inv)).Append('\n');
+        }
+        await File.WriteAllTextAsync(path, text.ToString(), ct);
+    }
+
     private static WCS? TryParseSearchOrigin(string text, out WCS wcs)
     {
         wcs = default;

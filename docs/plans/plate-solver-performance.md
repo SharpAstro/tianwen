@@ -1257,6 +1257,34 @@ star, while a block's median drops it. Not public, a linear fit, scale bounds ha
 no position unless the caller gives one. On frame 1 it solves blind in 23 s to the ground truth. **A shipped or downloaded
 Gaia band is the offline answer and a later option** (the owner, 2026-10-19: #1685); the pair search above is its prototype.
 
+### The installed rung of the Gaia ladder: ASTAP's star database, read in place (2026-11-19, #1685)
+
+The owner's wish for the Gaia stars of a field is a ladder of sources, the one already on the machine first: an
+installed ASTAP keeps a Gaia DR3 extract beside `astap_cli` (`d50_*.1476`, 933 MB), so nothing has to be downloaded.
+`AstapStarDatabase` (`TianWen.Lib.Astrometry.Catalogs`) reads it: `FindInstalled()` looks in the folder
+`TIANWEN_ASTAP_FOLDER` names, then the installer's folder on Windows and `/opt/astap` on Linux; `ReadConeAsync` gives
+the stars of a cone and `ReadFrameAsync` those of a plate-solved frame with their pixel positions. `tianwen solve
+<fits> --export-gaia <csv>` writes them (x, y, ra_deg, dec_deg, mag).
+
+- **Written from the format's description, not from ASTAP's source,** which is GPL: a 110-byte text header whose last
+  byte is the record size, then 5-byte records; FF FF FF opens a section header that carries the declination's high
+  byte and the magnitude, and every star after it inherits both. The ring and cell geometry is read off the files
+  the first time a ring is needed, so no layout is assumed. Only 5-byte records are read; the 6-byte kind (with a
+  colour) was not at hand to check and is refused.
+- **Measured against the sky** (Gaia DR3 from VizieR, 29.5 square degrees of Carina): positions to a median 0.19
+  arcsec, the magnitude is Gaia's BP to within 0.04, and 98.7 to 99.8 % of Gaia's stars from BP 8 to 14 are there.
+  On the held-out Tarantula master the exported positions sit on the master's stars to a median 0.1 to 0.2 px. An
+  earlier note that the reader found only 23 to 40 % of the stars at BP 13 to 15 does not reproduce; the decode and
+  the file walk are both right.
+- **Its limit is the density cap.** The database is cut brightest-first at 5,000 stars a square degree, cell by
+  cell: in Carina that is BP 15 (90 % of the stars at 14 to 15, 21 % at 15 to 16, none past 17), and the Tarantula
+  master's field holds 45,844 stars in 9.1 square degrees, at the cap. `AstapStarField.DensityLimited` says when a
+  field ran into it, which is the ladder's signal to go to the next rung. Positions are at the database's epoch
+  (2025), not J2000.
+- **Not built yet:** the next rung (VizieR over TAP, cached, complete to about magnitude 21; the research scripts
+  `training/denoise/gaia_vizier.py` do it in Python), the ladder that chooses between the rungs, and the solver's
+  own use of these stars for a deep field offline.
+
 ## Correctness gates
 
 Speed that costs accuracy is a regression, so every phase is measured against the same oracles.

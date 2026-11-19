@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using Xunit;
 
@@ -121,6 +122,31 @@ public sealed class AstapStarDatabaseTests : IDisposable
         // Six stars in pi square degrees against a cap of two a square degree.
         field.StarsInCone.ShouldBe(6);
         field.DensityLimited.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task TheStarsOfASolvedFrameComeWithTheirPixelPositions()
+    {
+        var folder = _temp.Create("astapdb").FullName;
+        // A frame of 200 by 100 px at 36 arcsec a pixel, north up and east left, centred on 2 h, +30 degrees: 2 by 1 degrees.
+        const int width = 200, height = 100;
+        const double scale = 0.01;
+        var wcs = new WCS(2.0, 30.0) { CRPix1 = (width - 1) / 2.0, CRPix2 = (height - 1) / 2.0, CD1_1 = -scale, CD1_2 = 0, CD2_1 = 0, CD2_2 = scale };
+        // The centre; half a degree north; just inside and just outside the eastern edge; one off the top.
+        var east = 0.9 / Math.Cos(double.DegreesToRadians(30.0)) / 15;
+        Write(folder, "t50_0101.1", FileOf(Gaia, (5.0f, [(2.0, 30.0)]), (6.0f, [(2.0, 30.4)]), (7.0f, [(2.0 + east, 30.0)]),
+            (8.0f, [(2.0 + (east * 1.2), 30.0)]), (9.0f, [(2.0, 30.6)])));
+
+        var database = AstapStarDatabase.Discover(folder).ShouldHaveSingleItem();
+        var frame = (await database.ReadFrameAsync(wcs, width, height, 99f, TestContext.Current.CancellationToken)).ShouldNotBeNull();
+
+        frame.Stars.Select(static s => s.Star.Magnitude).ShouldBe([5.0f, 6.0f, 7.0f]);
+        frame.Stars[0].X.ShouldBe((width - 1) / 2.0, 0.01);
+        frame.Stars[0].Y.ShouldBe((height - 1) / 2.0, 0.01);
+        // North is up in the sky and CD2_2 is positive, so half a degree north is 40 px along +y; east is towards -x.
+        (frame.Stars[1].Y - frame.Stars[0].Y).ShouldBe(40.0, 0.05);
+        (frame.Stars[2].X - frame.Stars[0].X).ShouldBe(-90.0, 0.5);
+        frame.Field.StarsInCone.ShouldBeGreaterThanOrEqualTo(3);
     }
 
     [Fact]

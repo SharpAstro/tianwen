@@ -26,9 +26,20 @@ public readonly record struct AstapStar(double RA, double Dec, float Magnitude);
 /// <param name="AreaSquareDegrees">The cone's area.</param>
 /// <param name="FaintestMagnitude">The faintest magnitude the database holds inside the cone; NaN when it holds no star there.</param>
 /// <param name="DensityLimited">True when the cone holds at least nine tenths of the database's density cap, so the database
-/// was cut brightest-first there and stars fainter than about <paramref name="FaintestMagnitude"/> are missing: the sign that a
-/// deeper source is needed for this field.</param>
+/// was cut brightest-first there: no star fainter than <paramref name="FaintestMagnitude"/> is in it, and where the cone is
+/// densest the cut is brighter than that (it is made cell by cell). The sign that a deeper source is needed for this field.</param>
 public sealed record AstapStarField(ImmutableArray<AstapStar> Stars, int StarsInCone, double AreaSquareDegrees, float FaintestMagnitude, bool DensityLimited);
+
+/// <summary>A database star that falls on a frame, with where it falls.</summary>
+/// <param name="Star">The star.</param>
+/// <param name="X">Its column in the frame, in the coordinates a <see cref="WCS"/> works in (0-based, a pixel's centre at its index).</param>
+/// <param name="Y">Its row.</param>
+public readonly record struct AstapFrameStar(AstapStar Star, double X, double Y);
+
+/// <summary>The database's stars on a plate-solved frame.</summary>
+/// <param name="Stars">The stars inside the frame, brightest first.</param>
+/// <param name="Field">The cone the frame was read from (the circle round its corners): its count and depth.</param>
+public sealed record AstapFrameStars(ImmutableArray<AstapFrameStar> Stars, AstapStarField Field);
 
 /// <summary>
 /// A star database as the ASTAP plate solver installs it (Han Kleijn's HNSKY format: <c>d50_0101.1476</c> and its siblings),
@@ -234,6 +245,50 @@ public sealed partial class AstapStarDatabase
         var area = 2 * Math.PI * (1 - Math.Cos(double.DegreesToRadians(radiusDegrees))) * (180 / Math.PI) * (180 / Math.PI);
         var limited = MaxStarsPerSquareDegree is { } cap && inCone >= 0.9 * cap * area;
         return new AstapStarField([.. stars], inCone, area, faintest, limited);
+    }
+
+    /// <summary>
+    /// The stars that fall on a plate-solved frame, no fainter than <paramref name="maxMagnitude"/>, brightest first, each
+    /// with its pixel position. Null where the solution cannot place the frame's centre or a corner on the sky.
+    /// </summary>
+    /// <remarks>The positions are the database's, at its <see cref="Epoch"/>; a star of large proper motion lies a little off
+    /// a solution made against a J2000 catalogue.</remarks>
+    public async ValueTask<AstapFrameStars?> ReadFrameAsync(WCS wcs, int width, int height, float maxMagnitude, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(width, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(height, 1);
+        if (wcs.PixelToSky((width - 1) / 2.0, (height - 1) / 2.0) is not { } centre)
+        {
+            return null;
+        }
+        var radius = 0.0;
+        (double X, double Y)[] corners = [(-0.5, -0.5), (width - 0.5, -0.5), (-0.5, height - 0.5), (width - 0.5, height - 0.5)];
+        foreach (var (x, y) in corners)
+        {
+            if (wcs.PixelToSky(x, y) is not { } corner)
+            {
+                return null;
+            }
+            radius = Math.Max(radius, SeparationDegrees(centre.RA, centre.Dec, corner.RA, corner.Dec));
+        }
+        var field = await ReadConeAsync(centre.RA, centre.Dec, Math.Clamp(radius * 1.01, 1e-6, 180), maxMagnitude, cancellationToken).ConfigureAwait(false);
+        var onFrame = ImmutableArray.CreateBuilder<AstapFrameStar>(field.Stars.Length);
+        foreach (var star in field.Stars)
+        {
+            if (wcs.SkyToPixel(star.RA, star.Dec) is { } at && at.X >= -0.5 && at.X < width - 0.5 && at.Y >= -0.5 && at.Y < height - 0.5)
+            {
+                onFrame.Add(new AstapFrameStar(star, at.X, at.Y));
+            }
+        }
+        return new AstapFrameStars(onFrame.ToImmutable(), field);
+    }
+
+    private static double SeparationDegrees(double raHoursA, double decA, double raHoursB, double decB)
+    {
+        var (sinA, cosA) = Math.SinCos(double.DegreesToRadians(decA));
+        var (sinB, cosB) = Math.SinCos(double.DegreesToRadians(decB));
+        var cos = (sinA * sinB) + (cosA * cosB * Math.Cos((raHoursA - raHoursB) * Math.PI / 12));
+        return double.RadiansToDegrees(Math.Acos(Math.Clamp(cos, -1, 1)));
     }
 
     /// <summary>Every star of one file's bytes, in file order (brightest section first).</summary>
