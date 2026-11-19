@@ -164,11 +164,12 @@ internal sealed partial class ImageSubCommand(
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, sharpen, flatten, render, stats, sources, channel-offsets), and a mono colour composition's steps, one verb each as in PixInsight (align, linear-fit, match-psf, deblur, remove-stars, continuum, add-line, denoise, luminance, lrgb, add-stars), with combine to run them in order.")
+        var image = new Command("image", "Single-image enhancement, render and measurement verbs (autocrop, crop, sharpen, flatten, render, stats, sources, channel-offsets), and a mono colour composition's steps, one verb each as in PixInsight (align, linear-fit, match-psf, deblur, remove-stars, continuum, add-line, denoise, luminance, lrgb, add-stars), with combine to run them in order.")
         {
             Subcommands =
             {
                 BuildAutocropCommand(),
+                BuildCropCommand(),
                 BuildSharpenCommand(),
                 BuildFlattenCommand(),
                 BuildRenderCommand(),
@@ -712,10 +713,74 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(0);
             }
 
-            var cropped = src.Crop(rect);
+            // Written through the same routine as `image crop`, so the output carries the alignment
+            // provenance (canvas origin, reference frame) moved by the crop offset as well as the WCS.
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_autocrop"));
-            cropped.WriteToFitsFile(dst, wcs?.CroppedTo(rect.X, rect.Y), SharpenPipeline.SwModifyHeader());
+            var written = MasterCrop.CropLoaded(input, src, wcs, rect, dst);
+            if (!written.Succeeded)
+            {
+                consoleHost.WriteError(written.Message);
+                return Task.FromResult(2);
+            }
             consoleHost.WriteScrollable($"[autocrop] wrote {dst}");
+            return Task.FromResult(0);
+        });
+
+        return cmd;
+    }
+
+    // -------- tianwen image crop ---------------------------------------
+
+    /// <summary>
+    /// Crops a master to a rectangle the USER chose, where <c>image autocrop</c> finds one. The four
+    /// numbers are exactly the crop or nothing: a rectangle not wholly inside the image is refused in
+    /// words and no file is written. The WCS and the alignment provenance move with the crop.
+    ///
+    /// <para>This calls <see cref="MasterCrop"/> and nothing of its own.</para>
+    /// </summary>
+    private Command BuildCropCommand()
+    {
+        var inputArg = new Argument<string>("input") { Description = "FITS master to crop." };
+        var xOpt = new Option<int>("--x") { Description = "Left edge of the rectangle, in pixels from the left.", Required = true };
+        var yOpt = new Option<int>("--y") { Description = "Top edge of the rectangle, in pixels from the top.", Required = true };
+        var widthOpt = new Option<int>("--width") { Description = "Width of the rectangle in pixels.", Required = true };
+        var heightOpt = new Option<int>("--height") { Description = "Height of the rectangle in pixels.", Required = true };
+        var outputOpt = new Option<string?>("--output", "-o")
+        {
+            Description = "Output FITS. Default: <input>_crop.fits beside the input.",
+        };
+
+        var cmd = new Command("crop",
+            "Crop a master to a rectangle given as --x --y --width --height. A rectangle not wholly inside the "
+            + "image is refused, nothing is written. The WCS and the alignment provenance move with the crop, so "
+            + "the output still solves. To let the coverage scan find the rectangle instead, use `autocrop`.")
+        {
+            Arguments = { inputArg },
+            Options = { xOpt, yOpt, widthOpt, heightOpt, outputOpt },
+        };
+
+        cmd.SetAction((parseResult, ct) =>
+        {
+            var input = parseResult.Required(inputArg);
+            if (!File.Exists(input))
+            {
+                consoleHost.WriteError($"Input not found: {input}");
+                return Task.FromResult(1);
+            }
+
+            var rect = new PixelRect(
+                parseResult.GetValue(xOpt), parseResult.GetValue(yOpt),
+                parseResult.GetValue(widthOpt), parseResult.GetValue(heightOpt));
+            var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_crop"));
+
+            var result = MasterCrop.CropFile(input, rect, dst);
+            if (!result.Succeeded)
+            {
+                consoleHost.WriteError(result.Message);
+                return Task.FromResult(2);
+            }
+            consoleHost.WriteScrollable(
+                $"[crop] {result.SourceWidth}x{result.SourceHeight} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) -> {dst}");
             return Task.FromResult(0);
         });
 
