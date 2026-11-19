@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using nom.tam.fits;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging.Enhancement;
@@ -58,15 +59,57 @@ public static class MasterCrop
             return new MasterCropResult(false, $"{inputPath} could not be read as a FITS image", 0, 0);
         }
 
-        AlignmentProvenance? provenance;
+        return CropLoaded(inputPath, image, wcs, rect, outputPath);
+    }
+
+    /// <summary>
+    /// As <see cref="CropFile"/> for a caller that has already read <paramref name="image"/> and
+    /// <paramref name="wcs"/> from <paramref name="inputPath"/> (the autocrop verb scans the pixels first), so
+    /// the pixels are read once per crop. Only the header is read again, for the provenance and the stack cards.
+    /// </summary>
+    public static MasterCropResult CropLoaded(string inputPath, Image image, WCS? wcs, PixelRect rect, string outputPath)
+    {
+        AlignmentProvenance? provenance = null;
+        var carried = new Dictionary<string, (object Value, string Comment)>();
         using (var fits = Image.OpenFitsHeader(inputPath))
         {
-            provenance = fits.ReadFirstImageHduHeaderOnly()?.Header is { } header
-                ? AlignmentProvenance.FromHeader(header)
-                : null;
+            if (fits.ReadFirstImageHduHeaderOnly()?.Header is { } header)
+            {
+                provenance = AlignmentProvenance.FromHeader(header);
+                CarryStackCards(header, carried);
+            }
         }
 
-        return Crop(image, wcs, provenance, rect, outputPath);
+        return Crop(image, wcs, provenance, rect, outputPath, carried);
+    }
+
+    /// <summary>
+    /// Copies the cards that describe how the master was integrated, which a crop does not change:
+    /// the frame count, the SBFITSEXT count, the rejection totals and the strategy. A card the input does
+    /// not hold is not invented.
+    /// </summary>
+    private static void CarryStackCards(Header header, Dictionary<string, (object Value, string Comment)> carried)
+    {
+        if (header.GetIntValue("STACK_N", 0) is > 0 and var stackN)
+        {
+            carried["STACK_N"] = (stackN, "Number of frames combined into this master");
+        }
+        if (header.GetIntValue("SNAPSHOT", 0) is > 0 and var snapshot)
+        {
+            carried["SNAPSHOT"] = (snapshot, "Number of images combined (SBFITSEXT)");
+        }
+        if (header.GetLongValue("REJ_TOT", -1L) is >= 0 and var rejTot)
+        {
+            carried["REJ_TOT"] = (rejTot, "Total per-pixel rejections across the stack (of the uncropped master)");
+        }
+        if (header.GetDoubleValue("REJ_RATE", -1.0) is >= 0 and var rejRate)
+        {
+            carried["REJ_RATE"] = (rejRate, "Mean rejection rate (of the uncropped master)");
+        }
+        if (header.GetStringValue("STRATEGY") is { Length: > 0 } strategy)
+        {
+            carried["STRATEGY"] = (strategy, "Integration strategy used (IntegrationStrategyKind)");
+        }
     }
 
     /// <summary>
@@ -75,7 +118,8 @@ public static class MasterCrop
     /// crop offset (<see cref="AlignmentProvenance.ForCrop"/>) and is written back, and <c>SWMODIFY</c> is
     /// stamped. A <paramref name="provenance"/> of null (a master written before the card) gets none.
     /// </summary>
-    public static MasterCropResult Crop(Image image, WCS? wcs, AlignmentProvenance? provenance, PixelRect rect, string outputPath)
+    public static MasterCropResult Crop(Image image, WCS? wcs, AlignmentProvenance? provenance, PixelRect rect, string outputPath,
+        IReadOnlyDictionary<string, (object Value, string Comment)>? carried = null)
     {
         if (Validate(rect, image.Width, image.Height) is { } refusal)
         {
@@ -84,6 +128,13 @@ public static class MasterCrop
 
         var cropped = image.Crop(rect);
         var extras = SharpenPipeline.SwModifyHeader();
+        if (carried is not null)
+        {
+            foreach (var (key, value) in carried)
+            {
+                extras[key] = value;
+            }
+        }
         provenance?.ForCrop(rect.X, rect.Y).AddHeaderCards(extras);
         cropped.WriteToFitsFile(outputPath, wcs?.CroppedTo(rect.X, rect.Y), extras);
         return new MasterCropResult(true, string.Empty, cropped.Width, cropped.Height);

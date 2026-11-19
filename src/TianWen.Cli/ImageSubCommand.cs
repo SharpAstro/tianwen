@@ -707,7 +707,7 @@ internal sealed partial class ImageSubCommand(
             // Written through the same routine as `image crop`, so the output carries the alignment
             // provenance (canvas origin, reference frame) moved by the crop offset as well as the WCS.
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_autocrop"));
-            var written = MasterCrop.CropFile(input, rect, dst);
+            var written = MasterCrop.CropLoaded(input, src, wcs, rect, dst);
             if (!written.Succeeded)
             {
                 consoleHost.WriteError(written.Message);
@@ -759,18 +759,10 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            if (!Image.TryReadFitsFile(input, out var src, out _))
-            {
-                consoleHost.WriteError($"Failed to read FITS file: {input}");
-                return Task.FromResult(1);
-            }
-
             var rect = new PixelRect(
                 parseResult.GetValue(xOpt), parseResult.GetValue(yOpt),
                 parseResult.GetValue(widthOpt), parseResult.GetValue(heightOpt));
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_crop"));
-            consoleHost.WriteScrollable(
-                $"[crop] {src.Width}x{src.Height} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y})");
 
             var result = MasterCrop.CropFile(input, rect, dst);
             if (!result.Succeeded)
@@ -778,7 +770,8 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteError(result.Message);
                 return Task.FromResult(2);
             }
-            consoleHost.WriteScrollable($"[crop] wrote {dst}");
+            consoleHost.WriteScrollable(
+                $"[crop] {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) -> {dst}");
             return Task.FromResult(0);
         });
 

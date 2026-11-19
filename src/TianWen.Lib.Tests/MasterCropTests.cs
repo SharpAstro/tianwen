@@ -96,6 +96,13 @@ public class MasterCropTests : IDisposable
         header.GetStringValue("SWMODIFY").ShouldNotBeNullOrEmpty();
         AlignmentProvenance.FromHeader(header).ShouldBe(alignment.ForCrop(7, 4));
 
+        // The integration cards describe the stack, which a crop does not change.
+        var source = ReadHeader(input);
+        header.GetIntValue("STACK_N", -1).ShouldBe(2);
+        header.GetIntValue("SNAPSHOT", -1).ShouldBe(2);
+        header.GetLongValue("REJ_TOT", -1L).ShouldBe(source.GetLongValue("REJ_TOT", -2L));
+        header.GetDoubleValue("REJ_RATE", -1.0).ShouldBe(source.GetDoubleValue("REJ_RATE", -2.0));
+
         // The same sky is at the shifted pixel.
         wcsBefore.ShouldNotBeNull();
         wcsAfter.ShouldNotBeNull();

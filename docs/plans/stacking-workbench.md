@@ -205,12 +205,16 @@ What exists, read from the code on 2026-11-19:
   does see it.
 - The rectangle comes from `ViewerActions.ScanForCrop`: the master's coverage plane where the sidecar has one
   (`Image.CoverageCropRectangle`), else the edge walk over the pixels (`Image.LargestCoveredRectangle`).
-- `image autocrop` is the CLI verb, and **it calls `ViewerActions.ScanForCrop`**, a routine in `TianWen.UI.Abstractions`. A
-  rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244; the owner, 2026-11-19: "we can add
-  a crop verb, takes in four parameters, but that is a seperate thing"). It calls `MasterCrop` in Lib, which refuses a
-  rectangle not wholly inside the image in words and writes nothing, moves the WCS (`WCS.CroppedTo`) and carries the alignment
-  provenance (`AlignmentProvenance.ForCrop`). `image autocrop` now writes through the same routine, so its output carries
-  the provenance too.
+- `image autocrop` is the CLI verb, and **it calls `ViewerActions.ScanForCrop`**, a routine in
+  `TianWen.UI.Abstractions`. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244; the
+  owner, 2026-11-19: "we can add a crop verb, takes in four parameters, but that is a seperate thing"). It calls
+  `MasterCrop` in Lib, which refuses a rectangle not wholly inside the image in words and writes nothing, moves the WCS
+  (`WCS.CroppedTo`) and carries the alignment provenance (`AlignmentProvenance.ForCrop`) and the stack cards (`STACK_N`,
+  `SNAPSHOT`, `REJ_TOT`, `REJ_RATE`, `STRATEGY`; the two rejection cards stay those of the uncropped master). `image
+  autocrop` writes through the same routine, so its output carries the same. The pixels are read once per crop.
+- **The coverage, rejection and std-error sidecars are not cropped** with the master, and none is written beside the
+  crop; that was so for `autocrop` before #2244. A crop therefore has no coverage plane of its own, and `ScanForCrop` on
+  it falls back to the edge walk. Cropping the sidecars is the same rectangle on each, left for its own issue.
 
 What the workbench needs, and why the display clip is not enough for it: a process after the crop must be handed the cropped
 pixels (a gradient fit must not see the ragged edge), an export must be the cropped image with a moved WCS, and the user must be
