@@ -7075,7 +7075,10 @@ floor3's reads are `check3-floor3-real.txt`, `check3-floor3-twin.txt`, `check3-f
 hole where a bright star sits on a bump of nebula, which floor4 does not reach).
 
 The flat patches the owner marked in 30 Doradus and the Lagoon are floor3's, and they have one cause: inside a core
-the step does not know the sky it fills to.
+the step does not know the sky it fills to. The instruments named below that are not under `training/star-removal`
+(`floor_diag.py`, `floor_depth.py`, `floor_spread.py`, `floor4.py`, `floor4_read.py`, `floor4_look.py`,
+`floor4_spots_disk.py`, `digfill-bench.ps1`) are working files in `C:/temp/e2/explore` on the development machine,
+and the sheets are in `D:/temp/tianwen-scratch/r4-look`.
 
 - **What floor3 does there** (`floor_diag.py`; R4c seed 0, the two 220 px core crops). The set of "removed star"
   pixels is one blob, 57.5 % of the 30 Doradus crop and 31.3 % of the Lagoon's, since the model takes broad light in
@@ -7196,8 +7199,18 @@ the step does not know the sky it fills to.
     where the sky is trusted, and the filled band ends in a stepped edge (5.5 sigma between neighbours on R3v; R4d's
     plate shows a stepped band at the same place). Where the model digs into structure no fill is right; this is
     recorded on #2252.
-  - **Cost in time:** `image fill-digs` on the 12.1 megapixel colour Andromeda master takes 14 s on the loaded
-    development machine; floor3 was not timed beside it.
+  - **Cost in memory and time, measured after the merge (#2254).** As merged, floor4 held whole planes in double
+    for the scatter and doubled the step's peak memory. The scatter is now summed row by row, and only over runs of
+    the pixels of removed stars (the far Gaussian answers for 0.2 to 2.6 % of a frame's pixels, scattered over 22 to
+    98 % of its rows), which holds no whole plane in double and is the same sum in the same order: the product is
+    still the script bit for bit on the three masters, and a test compares the trust with a plain whole-frame
+    computation on a frame narrower than the far Gaussian reaches. `image fill-digs`, each case run alone three
+    times (`digfill-bench.ps1`; peak working set the largest of the three, time the fastest):
+
+    | frame | floor3 | floor4 as merged | floor4, scatter by runs |
+    |---|---|---|---|
+    | 12.2 megapixel colour (the Andromeda master) | 2,405 MB, 7.4 s | 4,545 MB, 11.1 s | 2,738 MB, 8.5 s |
+    | 24.4 megapixel colour (that master joined to its mirror image) | 5,509 MB, 14.8 s | 12,393 MB, 24.0 s | 5,143 MB, 16.5 s |
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
