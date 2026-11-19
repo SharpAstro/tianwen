@@ -206,7 +206,8 @@ What exists, read from the code on 2026-11-19:
 - The rectangle comes from `ViewerActions.ScanForCrop`: the master's coverage plane where the sidecar has one
   (`Image.CoverageCropRectangle`), else the edge walk over the pixels (`Image.LargestCoveredRectangle`).
 - `image autocrop` is the CLI verb, and **it calls `ViewerActions.ScanForCrop`**, a routine in `TianWen.UI.Abstractions`. There
-  is no verb that crops to a rectangle the user gives.
+  is no verb that crops to a rectangle the user gives. That verb is its own issue, #2244 (the owner, 2026-11-19: "we can add
+  a crop verb, takes in four parameters, but that is a seperate thing").
 
 What the workbench needs, and why the display clip is not enough for it: a process after the crop must be handed the cropped
 pixels (a gradient fit must not see the ragged edge), an export must be the cropped image with a moved WCS, and the user must be
@@ -253,10 +254,15 @@ planes; five of them, each with six stored edits beside the original, are 35 fil
    step's output is written to the step store by the job that made it, the document then takes that file as its readout source,
    and from there it is an ordinary file-backed document the cache can release. What is new is small: attaching a readout source
    to a document after its file is written.
-2. **The budget is the viewer's.** 384 MB holds one large master. The workbench sets `TotalBudgetBytes` from a setting of its
-   own. It stays a number: DSN-1 draws a bar reading "12.5 of 16 GB in use", which is the machine's memory, and
-   `EnhanceRevertPolicy` rules that out on purpose (identical input must behave identically whatever else is running). The bar
-   shows resident planes against the app's budget.
+2. **The budget is the viewer's.** 384 MB holds one large master, and it is a constant: the viewer measures nothing.
+   **The owner, 2026-11-19:** "maybe we measure the free space on program start, page size etc, and basically try to avoid
+   swapping". The stacker already measures: `HostSnapshot.Take` reads the memory the process can still grow into without paging
+   (`GC.GetGCMemoryInfo`) and the free space of a drive, and `IntegrationProbe` sizes a stack from it. So the workbench takes
+   **one snapshot when it starts** and sets `TotalBudgetBytes` and the step store's reserve from it, with a setting to override
+   each. Once per run keeps what `EnhanceRevertPolicy` protects (a decision does not flip because another program allocated
+   between two clicks) and still fits the machine. What fraction of the free memory is the budget is measured in W11 against the
+   one thing asked for, no swapping, and is not guessed here. DSN-1's bar ("12.5 of 16 GB in use") shows resident planes against
+   that budget, not the machine's memory.
 3. **Release happens only when a document opens** (the owner's answer on #1852). In the workbench a finished step is a new
    document, so the same trigger fires after every step; nothing to add until a measurement says otherwise.
 4. **The GPU has no budget at all.** A released document keeps its texture. With several images tiled that is the next thing to
@@ -332,7 +338,16 @@ labelled as theirs.
 
 Astro Pixel Processor's per-step view, which the owner likes, is one fixed workflow. Here the step bar is drawn from whichever
 workflow is open: its top-level steps left to right, a gate drawn as the branch the data took. The guided view is the easy road
-and always shows one image. "Open as workflow" leads to the editor, where gates and extra steps are. W2 builds the bar; it needs
+and always shows one image.
+
+**Any step can be started directly, as in APP** (the owner, 2026-11-19: "you can just go straight to 6. Integrate and start
+integration and it will run (or re-run if required) all previous steps unless they are compatible"). That is rule 2 read
+forwards: starting step 6 computes the key of every step before it, takes from the step store each one whose key is there, and
+runs the rest in order. So there is no separate "run all" and no way to integrate over stale calibration. The bar says, before
+anything starts, which earlier steps will run and which are kept.
+
+**It runs until a step needs the user** (a failed solve, frames to look at), with a switch to stop at every step (the owner,
+2026-11-19: yes). "Open as workflow" leads to the editor, where gates and extra steps are. W2 builds the bar; it needs
 W9 for anything but a fixed list.
 
 ## Two views: guided (one image) and the workspace (several)
@@ -366,7 +381,7 @@ the code line by line; it is here to size the work, not to settle it.
 
 | Group | Process | Routine | Verb | Missing |
 |---|---|---|---|---|
-| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `ViewerActions.ScanForCrop` | `image autocrop` | The solver in Lib; a crop to a given rectangle |
+| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `ViewerActions.ScanForCrop` | `image autocrop` | The solver in Lib (W10); a crop to a given rectangle (#2244) |
 | Geometry | Rotate, flip, resample, bin | `Image.Affine`, `BilinearResize`, `Downsample` | none | The verbs; the WCS carried through each |
 | Geometry | Align to a reference | `FrameRegistration` | `image align` | |
 | Astrometry | Plate solve | the solver | `tianwen solve` | |
@@ -486,8 +501,8 @@ workflow, with its parity test against `tianwen stack --enhance`. A built-in gat
 
 Tracked as #2237. First the audit of [the process table](#the-processes-what-exists-and-what-is-missing) against the code. Then, each as a
 Lib routine with a verb and tests: the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib with the viewer,
-`image autocrop` and `tianwen stack` calling it; `image crop` to a given rectangle or rule, the WCS and provenance carried;
-rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
+`image autocrop` and `tianwen stack` calling it; the crop rule as a setting (`image crop` to four given numbers is #2244, on
+its own); rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
 PR, and none needs the app.
 
 ### W11 Memory, GPU and disk for many open images
@@ -517,15 +532,20 @@ Each with a recommendation. The first is W0's; the rest came out of DSN-1's ques
 
 1. **The name**, and B confirmed as where it lives (#1640).
 2. **Does the guided view stop at every step, or run until a step needs you** (a failed solve, frames to review)?
-   Recommended: run until needed, with a switch to stop at each step.
+   **Decided 2026-11-19: run until needed, with a switch, and any step can be started directly**, which runs or re-runs what is
+   before it ([The guided view](#the-guided-view-is-a-workflow-drawn-as-steps)).
 3. **Does a workflow with gates open in the guided view?** Recommended: yes, the bar showing the branch taken.
 4. **May a gate's branch hold several steps, or another gate?** Recommended: yes; a workflow is a tree.
-5. **Does the Stack screen simply run a workflow?** Recommended: yes. One path: its panel becomes the workflow's steps.
-6. **The memory budget, the step store's folder, its size limit and the disk reserve**: the defaults. `ScratchSpace`'s 109 GB
-   is the planetary verbs' reserve on one drive and is not a default for an app.
+5. **Does the Stack screen simply run a workflow?** **Decided 2026-11-19: yes.** One path: its panel becomes the workflow's
+   steps.
+6. **The memory budget, the step store's folder, its size limit and the disk reserve**: the defaults. **Direction
+   2026-11-19: measured once at start, to avoid swapping** ([Where the pixels live](#where-the-pixels-live-memory-the-gpu-the-disk),
+   item 2); the fractions are W11's to measure. The store's folder is still open. `ScratchSpace`'s 109 GB is the planetary verbs'
+   reserve on one drive and is not a default for an app.
 7. **Reordering edits by dragging**: recommended not in the first version.
-8. **The windowed mode**: tabs and tiles, no overlapping windows; the switch in the workspace only, the guided view always one
-   image (the owner's word).
+8. **The windowed mode**: tabs and tiles, no overlapping windows (windows that float over one another and are dragged about,
+   PixInsight's way, which DSN-1 offers as "Cascade"); the switch in the workspace only, the guided view always one image (the
+   owner's word). Asked 2026-11-19, not yet answered.
 9. **Pixel math as typed expressions** (DSN-1 draws "starless + 0.8 * stars"): recommended fixed-form blends only.
 10. **XISF reading**, the first door a PixInsight user meets ([pixinsight-parity.md](pixinsight-parity.md) "DSPX"): not in this
     plan; it needs its own.
