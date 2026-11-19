@@ -6614,6 +6614,72 @@ the first angle is a step after the model and not another arm:
     light taken from the densest cells rises, toward the glow guard's edge, because a model taught to take every
     faint star takes part of the sea they sum to.
   - **Nothing is adopted;** a pass means the cap's value goes back to the owner with these numbers.
+  - **A correction to a cell's name, 2026-11-19, before any score of R4d exists.** The extra guard above names 30
+    Doradus's core "cell 4,4". In the numbering of `crowd_texture.py` and `band.py` (300 px cells, row then column,
+    on the store's ASI585MC Pro session of 2024-10-02) cell 4,4 is the DENSEST star cell (1,300 catalogued stars, a
+    band of about 5 sigma) and the bright nebula is cell 4,6 (544 stars, a band of 60 to 105 sigma, the size the
+    section above gives for 30 Doradus's core). The name was wrong, not the guard: the guard is read on the bright
+    cell, 4,6, as its words say (30 Doradus's core keeping at least 95 % of its band), and the question's two dense
+    cells are 4,4 and 5,4. Read on 4,4 the guard would contradict the arm's own question.
+- **R4c's read, 2026-11-19 (seed 0, `r4c_synth28_s0`): one bar of the question cleared, the other missed, every
+  guard held. Not killed and not passed; the rows go to the owner.** With floor3 and core protection:
+
+  | row | R3z | R4c | bar | StarXTerminator |
+  |---|---|---|---|---|
+  | Gaia BP 17-19 removed | 92.6 | 96.0 | at least 95.4, cleared | 98.3 |
+  | Tarantula crowded flat | 87.9 | 90.4 | at least 92.0, missed | 96.1 |
+
+  - **Guards, all held:** by count clean 99.3 at 100-1000 sigma and 100.0 at 1000 and over; M42 100-1000 93.4; SMC
+    20-100 99.4 and 100-1000 100.0; Andromeda dark flat 98.2, dug 0.9; Tarantula dark flat 95.5; the glow's green
+    median -45.2 on Andromeda and -163.7 on the Tarantula (p90 487.5 and 143.4, share over 22 % and 8 %); the M31
+    nucleus 0.0 % with protection; purity 0.9 %; the Sagittarius crowded flat 97.9.
+  - **All three predictions missed, each on the low side.** BP 17-19 was put at about 94.5 and came to 96.0; the
+    crowded flat was put at under a point and rose 2.5; the dense cells' grain was put as staying and fell by 4 to
+    17 % (below). On this one seed, drawing the stars under the catalogue closes 60 % of the gap to StarXTerminator
+    on the faint stars and 30 % of it on the crowded flat, with the cap in place: the cap is not all that holds the
+    crowded field. Seed 1 is not run. **What one seed is worth on these rows** (the three recipes run twice, with
+    floor3): the crowded flat lay 0.0 to 0.1 apart between seeds (R3v 88.7 and 88.8, R4a 88.5 and 88.5, R3y 89.8 and
+    89.8), so its 2.5 points are far outside a seed; BP 17-19 lay 1.4 to 1.7 apart (R3v 92.9 and 94.3, R4a 94.1 and
+    92.4, R3y 95.1 and 93.6), so its 3.4 points are about two seeds' spread, and 96.0 is above the highest of those
+    six runs by 0.9. Across arms the crowded flat has read 87.9 (R3z), 88.7 (R3v), 89.8 (R3y) and 90.0 (R4b) without
+    any faint star, so R4c's 90.4 is the highest yet by 0.4 and 2.5 over its own base.
+  - **As trained (no floor3, no protection) it digs more than R3z:** Andromeda dark flat 47.2 with 45.9 dug (R3z
+    59.3 and 25.8), Tarantula dark flat 64.9 with 33.1 left (78.5, 15.9), Tarantula crowded 85.2 (83.6), BP 17-19
+    95.5 (91.9), Sagittarius 97.2 (96.2), purity 0.9, the nucleus 24.4 / 37.0 / 29.4 %. By count as trained, 100-1000
+    clean 94.9 (R3v 94.9), 1000 and over 86.7 (87.2); M42 100-1000 clean 61.0, dug 36.8 (R3v 56.6, 42.6); SMC 100-1000
+    clean 81.4, dug 13.6 (R3v 89.8, 8.5). floor3 takes the dig away (the table above), and floor3 is in the product,
+    but this model leans on it harder than R3z does.
+  - **Reported, no bar. The grain in the Tarantula's dense cells** (`band.py`: through a 7 px median, the 9 px box
+    mean less the 41 px one, rms over a 300 px cell in sigma of a 9 px mean; the store's ASI585MC Pro session of
+    2024-10-02, each model as trained; this script's figures, which are not the earlier prototype's), R / G / B:
+
+    | cell | truth plate | R3z | R4c |
+    |---|---|---|---|
+    | 4,4 (1,300 catalogued stars) | 4.8 / 5.0 / 5.2 | 4.8 / 4.3 / 3.6 | 4.6 / 3.8 / 3.0 |
+    | 5,4 (1,153) | 6.9 / 7.2 / 6.2 | 5.0 / 4.7 / 3.8 | 4.7 / 4.2 / 3.3 |
+    | 4,6 (544, the bright nebula) | 78.9 / 101.0 / 104.7 | 60.4 / 65.6 / 48.8 | 64.1 / 76.2 / 61.9 |
+
+    The dense cells' grain is 4 to 17 % under R3z's (red least, blue most), and the bright cell's band is higher than
+    in R3z's output. No level is rescaled: each output's median in a cell is 0.991 to 0.999 of the plate's (the
+    script prints it), R4c's within 0.002 of R3z's, so the bright cell's higher band is structure kept and not light
+    taken. At a 3 px box (`crowd_texture.py`) the dense cells read 1.46 / 1.26 / 0.93 and
+    1.22 / 1.01 / 0.81 against R3z's 1.49 / 1.40 / 1.06 and 1.27 / 1.15 / 0.91. **The cap** dropped faint stars in
+    6.7 % of synth28's 22,080 draws (a median of 119 stars dropped where it acted). StarXTerminator was not run on
+    this session for this read, and the light taken from the field and the faint stars drawn a tile were not read.
+  - **Seed 1 is not launched:** the registration ties it to a cleared question. What follows is the owner's.
+- **The zero-flux case (#1244 point 3), 2026-11-19: a starless plate through the remover comes back as the plate,
+  except where the plate still holds stars.** `zero_flux.py`: a session's stored plate through `image remove-stars`
+  as trained, the output less the plate over the middle three quarters of the frame, in the master's recorded sigma
+  (the manifest's value times the exporter's unit divisor, the larger of 1 and the master's DATAMAX: 1.0255, 1.0362
+  and 1.0135 on the three unit-scale masters, 84,827 on M42's). No level is rescaled: the plate's median over the
+  output's is 0.9998 to 1.0006 in every channel of every run.
+  R3v and R4b (seed 0 each) on Tempel, Lobster and the SMC: no bias over 0.05 sigma, an rms of 0.12 to 0.44, 0.07 to
+  0.74 % of the pixels lowered by over a sigma and at most 0.01 % raised. On M42 (ASI533MC Pro, 2022-12-03) the rms is 9 to 17
+  sigma: the builder left 1,432 catalogued stars unsubtracted there, and 98 to 99 % of the light the models take lies
+  within 40 px of one of them (`zero_flux_where.py`), most of it in one region of about 17 thousand pixels at the
+  nebula's core; whether
+  that region loses nebula too this read cannot tell (protection was off). A plate is a zero-flux input only where
+  it is starless; the synthetic clean tile an export writes beside every draw is the cleaner one and is not read yet.
 
 - **`--bright-measured` (#2192, PR #2193) against real stars, 2026-11-17: it reaches M42's kind and does not move HIP
   80609's or Lobster's.** The eight validation sessions exported as item 5's plate-plain arm with the one option, from
