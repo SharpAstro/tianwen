@@ -6806,7 +6806,7 @@ the first angle is a step after the model and not another arm:
     registration.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
-  (#2243), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
+  (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
   a row could show it, nebula taken with the stars. His words: "im a bit concerned that I have to point these out,
   it means that either training or scoring is not up to the task". It is the scoring.
   - **Why the rows passed them.** The star rows ask whether a star's site is FLAT; a flat patch inside structured
@@ -6965,6 +6965,136 @@ Files (DE1): R3y's Q1 export is made by `training/star-removal/flank-q1-export.p
 `check3-floor2-twin.txt`, `check3-floor2-arms.txt`, the sheets `r3v-floor-m42.png` and `saturated-stars.png`); the outputs are
 `f2-eval-master/<model>+floor`, `+fill`, `+floor2`, `+floor3` and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`, `+floor3`;
 floor3's reads are `check3-floor3-real.txt`, `check3-floor3-twin.txt`, `check3-floor3-r3s.txt` and the sheets `saturated-smc-m42.png` and `caps.png`.
+
+#### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
+
+**Issues:** #2243 (floor3 leaves flat patches where it fills inside bright nebula: the subject here), #2252 (a square
+hole where a bright star sits on a bump of nebula, which floor4 does not reach).
+
+The flat patches the owner marked in 30 Doradus and the Lagoon are floor3's, and they have one cause: inside a core
+the step does not know the sky it fills to.
+
+- **What floor3 does there** (`floor_diag.py`; R4c seed 0, the two 220 px core crops). The set of "removed star"
+  pixels is one blob, 57.5 % of the 30 Doradus crop and 31.3 % of the Lagoon's, since the model takes broad light in
+  a core and the stars are dense. The sky the floor fills to is then spread in across the blob from its far edges
+  (12.2 % and 6.6 % of the crops take the far, 12 px Gaussian), and it is flat where the nebula is not. Two things
+  follow. **A flat lift:** a pixel 2.5 sigma under that sky is set to it, and in a core that is real dark
+  structure; 72 to 89 % of the pixels floor3 lifts by over a sigma there are such pinned pixels, and 2.4 to 4.5 %
+  of the crop ends over the INPUT by a sigma. **A square lowering:** where the nebula stands over that far sky the
+  lowering runs to its cap, and the cap (a twentieth of what the model took, the largest within 2 px) has the
+  square footprint of a bright star's core. Those are the grey patches and the row of squares.
+- **Depth inside the set does not separate it** (`floor_depth.py`). On dark sky 93 to 99 % of the set and 87 to
+  98 % of the lift lie within 6 px of the set's edge, but in nebula so do 59 to 90 % of the lift and 84 to 99 % of
+  the pixels that end over the input.
+- **The scatter of the sky does** (`floor_spread.py`): the scatter of the plate OUTSIDE the set under the very
+  Gaussian that makes the sky (the near one, or the far one where the near one reaches too little), in pixel noise,
+  the largest of the channels. R4c seed 0, Andromeda / Tarantula / Sagittarius:
+
+  | where floor3 acts | median | 95th percentile | 99th percentile |
+  |---|---|---|---|
+  | dark sky, every pixel of the set | 1.14 / 1.02 / 0.95 | 1.40 / 1.30 / 1.14 | 1.73 / 1.93 / 1.83 |
+  | nebula, pixels it pins | 2.03 / 3.71 / 5.33 | 14.1 / 9.1 / 23.4 | |
+  | nebula, pixels left over the input | 3.50 / 3.97 / 5.15 | 17.6 / 9.5 / 22.6 | |
+
+- **floor4** (`whole_floor.py` mode `floor4`, `dig_floor.py --fade 2 4 --tag floor4`, and `DigFill` in the product):
+  floor3 with its whole correction, lift and lowering, multiplied by a trust that is 1 up to a scatter of 2 sigmas,
+  0 from 4, and linear between. The scatter is taken in float64: it is the mean of squares less the squared mean,
+  and in float32 a level of a few thousand sigmas reads as no scatter at all (the masters lie at 77 to 830 sigma,
+  where float32 is exact at the median and within 7 % at the 1st and 99th percentile, so the exploration below
+  stands).
+- **Explored on R4c seed 0, the model the thresholds were read on, so NOT a held-out read.** Three fade ranges
+  (prototype `floor4.py`, scatter in float32). Whole masters:
+
+  | R4c seed 0 | as trained | floor3 | fade 1.25 to 2 | fade 1.5 to 3 | fade 2 to 4 |
+  |---|---|---|---|---|---|
+  | Andromeda dark flat / dug | 47.2 / 45.9 | 98.2 / 0.9 | 98.1 / 1.0 | 98.2 / 0.9 | 98.2 / 0.9 |
+  | Tarantula dark flat / left | 64.9 / 33.1 | 95.5 / 3.6 | 95.3 / 3.8 | 95.5 / 3.7 | 95.5 / 3.6 |
+  | Tarantula crowded / Sagittarius crowded | 85.2 / 97.2 | 90.4 / 97.9 | 90.3 / 97.9 | 90.3 / 97.9 | 90.4 / 97.9 |
+  | M31 nucleus taken, % | 24.4 / 37.0 / 29.4 | 27.5 / 40.2 / 33.1 | as trained | as trained | as trained |
+  | nebula, light added, % | 0.0 / 0.0 / 0.0 | 0.5 / 2.4 / 3.0 | 0.0 / 0.2 / 0.0 | 0.1 / 0.4 / 0.1 | 0.1 / 0.8 / 0.3 |
+  | nebula, broad light taken | 3.04 / 5.39 / 2.64 | 3.10 / 5.89 / 2.82 | 3.07 / 5.55 / 2.63 | 3.07 / 5.58 / 2.63 | 3.07 / 5.63 / 2.63 |
+
+  Real stars on the validation tiles, by star count (`real_star_check3.py --sessions`):
+
+  | R4c seed 0 | as trained | floor3 | fade 1.5 to 3 | fade 2 to 4 | SXT |
+  |---|---|---|---|---|---|
+  | clean, 20-100 / 100-1000 / 1000 and over / saturated | 98.8 / 94.9 / 86.7 / 81.1 | 99.4 / 99.3 / 100.0 / 91.6 | 99.4 / 99.1 / 100.0 / 90.5 | 99.4 / 99.3 / 100.0 / 91.6 | 98.8 / 98.3 / 98.4 / 89.4 |
+  | M42 100-1000, clean / dug | 61.0 / 36.8 | 93.4 / 4.4 | 92.6 / 6.6 | 94.1 / 5.1 | 91.9 / 6.6 |
+  | saturated, left | 5.3 | 2.1 | 5.3 | 4.2 | 8.5 |
+
+  The fill of real digs on M42's nebula survives the fade: the dug stars there sit where the sky is smooth. **2 to
+  4 is taken:** it leaves floor3 whole up to the 99th percentile of dark sky and is level with floor3 on the four
+  clean rows by count (M42's dug rises by one star of 136 and the saturated light left by two of 95), at the price
+  of 0.8 % of the Tarantula's nebula still lit against 0.4.
+- **Looked at** (`D:/temp/tianwen-scratch/r4-look`). `floor4-tarantula-*` and `floor4-sag-*`, the two cores at 3x
+  with what each version changed: the grey patches of 30 Doradus and the Lagoon's squares and round patch are gone
+  with every fade range. `floor4-spots-floor4b-*`, the six strongest corrections left inside each master's nebula at
+  8x: dig fills, and on the Tarantula three holes (below).
+- **What it leaves, #2252: a square hole where a bright star sits on a bump of nebula whose surroundings are
+  smooth.** The Tarantula at (1601, 710), 8 sigma deep, at (1351, 1408) and at (1568, 699); the sky's scatter there
+  is 1.6 to 2.8, so the fade does not reach them. Three rules that stop the lowering at a pedestal (the height the
+  neighbouring pixels of the set are left standing at) were tried on R4c seed 0 and dropped. Carried by every pixel
+  the cap bites: the holes go and the twin error falls (1.044 against floor3's 1.055), but Tarantula dark flat
+  falls from 95.5 to 89.3 and left rises from 3.6 to 10.1. Carried only by light standing over the sky by more
+  than the model took: the rows hold (95.4 / 3.8) and the holes stay. The first rule over 12 px with half its
+  weight as support: 92.3 / 7.2, holes fainter. The rule that removes the holes also stops the floor lowering the
+  residue of dark-sky stars whose wings stand a little over the sky.
+- **Two limits of the measure.** The noise reading (the input less its 5 px median) takes fine structure for
+  noise: a 12 sigma ripple of period 16 to 20 px reads the noise 1.75 times too high, so the scatter in noise units
+  is low exactly where structure is fine. And it is one number per pixel for both the lift and the lowering.
+- **The product is the script, bit for bit.** `dig_fill_parity.py` on R4c seed 0: `tianwen image fill-digs` against
+  `whole_floor.py floor4`, no value different on Andromeda, the Tarantula or the mono Sagittarius master (72.6
+  million values in seven planes, of which the step changed 2.6 to 5.2 million a plane).
+- **Pre-registered for R3v seed 0 and R4d seed 0 (2026-11-20; no floor4 score of either exists, and neither was
+  looked at while the thresholds were set).** floor4 exactly as above (`whole_floor.py <w-tag> floor4`,
+  `dig_floor.py <model> floor --pin 2.5 --cap-up 2 --cap-down 0.05 --fade 2 4 --tag floor4`), each model's own plate
+  as trained, read against the SAME model's floor3 from the same run of each check. On each of the two models:
+  1. **The question, nebula:** light added is at most half of floor3's on the Tarantula and on the Sagittarius
+     master (floor3: R3v 4.2 / 4.0 %, R4d 3.0 / 4.2 %).
+  2. **Guards, whole masters** (floor3's figure less or plus the margin): Andromeda dark flat and Tarantula dark
+     flat not lower by more than 0.5; Andromeda dug and Tarantula left not higher by more than 0.5; Tarantula
+     crowded, BP 17-19 and Sagittarius crowded not lower by more than 0.5; the M31 nucleus row not above the
+     as-trained row in any channel.
+  3. **Guards, tiles by star count:** clean at 20-100, 100-1000 and 1000 and over not lower by more than 0.3;
+     saturated clean not lower by more than 2.1 (two stars of 95); M42 100-1000 dug not higher by more than 3.0
+     (four stars of 136).
+  4. **Guard, truth:** the twin error under the mask (`twin_err.py`, rms) not higher by more than 0.02.
+  5. **Renders first:** the two cores and the six strongest corrections inside each master's nebula, looked at
+     before a row is quoted.
+  A guard missed on either model is reported as missed, and the fade range is not re-tuned on these two models.
+  Adoption (the product's default changing from floor3 to floor4) is the owner's.
+- **Read, 2026-11-20: every bar holds on both models, two of them at their limit.** The renders were looked at first
+  (`floor4-look-<model>.png`, `floor4-spots-final-<model>.png`): on R3v and on R4d the grey patches of 30 Doradus and
+  the Lagoon's patches and squares are gone with floor4, and the strongest corrections left inside nebula are dig
+  fills, the holes of #2252, and one dig in structure that ends part filled (below). The rows, each model's floor3
+  and floor4 from one run of each check (`floor4_read.py` checks every bar):
+
+  | | R3v seed 0: as trained | floor3 | floor4 | R4d seed 0: as trained | floor3 | floor4 |
+  |---|---|---|---|---|---|---|
+  | nebula, light added, %, Tarantula / Sagittarius (the question: at most half of floor3's) | 0.1 / 0.1 | 4.2 / 4.0 | **1.2 / 0.3** | 0.0 / 0.0 | 3.0 / 4.2 | **0.8 / 0.3** |
+  | Andromeda dark flat / dug | 69.5 / 22.4 | 97.6 / 1.0 | 97.6 / 1.0 | 69.4 / 19.5 | 98.5 / 0.7 | 98.5 / 0.7 |
+  | Tarantula dark flat / left | 71.9 / 16.0 | 93.9 / 4.9 | 93.8 / 5.0 | 80.3 / 14.3 | 96.5 / 2.7 | 96.5 / 2.7 |
+  | Tarantula crowded / BP 17-19 / Sagittarius crowded | 83.8 / 92.4 / 93.7 | 88.7 / 92.9 / 95.5 | 88.7 / 92.9 / 95.5 | 86.7 / 95.4 / 96.4 | 91.2 / 96.0 / 97.0 | 91.3 / 96.0 / 97.0 |
+  | M31 nucleus taken, % | -1.0 / 5.1 / 1.2 | -1.0 / 6.0 / 1.6 | as trained | 2.8 / 6.6 / 9.7 | 3.0 / 7.5 / 11.2 | as trained |
+  | tiles by count, clean, 20-100 / 100-1000 / 1000 and over | 98.9 / 94.9 / 87.2 | 99.3 / 99.4 / 100.0 | 99.3 / 99.2 / 100.0 | 98.8 / 95.6 / 91.5 | 99.3 / 99.3 / 100.0 | 99.3 / 99.2 / 100.0 |
+  | tiles by count, saturated clean (bar: at most 2.1 lower) | 78.9 | 91.6 | 89.5 | 85.3 | 93.7 | 93.7 |
+  | M42 100-1000, dug (bar: at most 3.0 higher) | 42.6 | 3.7 | 5.9 | 34.6 | 2.9 | 5.9 |
+  | twin error under the mask, rms (bar: at most 0.02 higher) | 1.920 | 0.989 | 0.992 | 2.260 | 1.080 | 1.073 |
+
+  StarXTerminator on the same tiles: clean 98.8 / 98.3 / 98.4 / 89.4, M42 100-1000 dug 6.6.
+  - **At their limit:** R3v's saturated clean falls by exactly two stars of 95 (and its saturated dug rises from 5.3
+    to 8.4, three stars; not a bar), and R4d's M42 dug rises by exactly four stars of 136. Both are stars inside
+    M42's nebula, where the fade holds the fill back. So floor4 gives up a few fills at bright stars inside nebula
+    for the patches; on M42 it stands at or under StarXTerminator's dug figure.
+  - **Also on R4c, the product's exact step** (`whole_floor.py floor4`, scatter in float64): the rows of the
+    exploration table's "fade 2 to 4" column to the digit, and the twin error 1.049 against floor3's 1.055.
+  - **A dig in structure ends part filled.** The Tarantula at (1363, 1445): under a bright group the model dug a
+    hole of over 20 sigma into structured nebula. floor3 filled it with a flat wedge; floor4 fills only the side
+    where the sky is trusted, and the filled band ends in a stepped edge (5.5 sigma between neighbours on R3v; R4d's
+    plate shows a stepped band at the same place). Where the model digs into structure no fill is right; this is
+    recorded on #2252.
+  - **Cost in time:** `image fill-digs` on the 12.1 megapixel colour Andromeda master takes 14 s on the loaded
+    development machine; floor3 was not timed beside it.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 

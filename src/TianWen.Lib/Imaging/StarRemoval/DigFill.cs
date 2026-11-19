@@ -6,9 +6,10 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <summary>
 /// The classical step after TianWen's own star remover (#2204, adopted 2026-11-18): where the model dug a hole under a star
 /// it removed, the hole is filled to the sky around it, and where it left a little light standing, that is lowered a little.
-/// No model is involved and nothing outside a removed star moves. This is the third version of the step ("floor3" in
-/// docs/plans/star-remover-training.md), ported from <c>training/star-removal/whole_floor.py</c>, with which it agrees to
-/// float rounding on whole masters (<c>training/star-removal/dig_fill_parity.py</c>).
+/// No model is involved and nothing outside a removed star moves. This is the fourth version of the step ("floor4" in
+/// docs/plans/star-remover-training.md; the third, "floor3", drew flat patches inside bright nebula, #2243),
+/// ported from <c>training/star-removal/whole_floor.py</c>, with which it agrees to float rounding on whole masters
+/// (<c>training/star-removal/dig_fill_parity.py</c>).
 /// </summary>
 /// <remarks>
 /// <para><b>What it does, in order.</b></para>
@@ -30,6 +31,12 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <see cref="MaxLiftOfTaken"/> times it, so smooth bright nebula the model barely touched is left alone, and what still
 /// stands ABOVE the sky is lowered by at most <see cref="MaxLoweringOfTaken"/> of it, which reaches the residue at a
 /// saturated core (the removal there is hundreds of sigmas) and not a galaxy's nucleus.</item>
+/// <item><b>Only as far as the sky can be trusted.</b> The sky of step 3 is an interpolation, and inside bright, structured
+/// nebula the set is one large blob, so that sky comes from far away and is flat where the nebula is not: filling to it drew
+/// flat patches over real dark structure. So the scatter of the plate OUTSIDE the set is read under the very Gaussian that
+/// made the sky, in noise sigmas, the largest of the channels: about 1 on flat sky, 3.5 to 5 where the patches were. The
+/// whole correction (lift and lowering) is applied in full up to <see cref="TrustedSkySpread"/>, not at all from
+/// <see cref="UntrustedSkySpread"/>, and in proportion between.</item>
 /// </list>
 /// <para>Absent pixels (NaN in either image, the canvas ring) are held out of every measure and stay absent.</para>
 /// <para><b>The filters are scipy.ndimage's, to the bit.</b> The constants were chosen and scored through scipy, so the
@@ -89,9 +96,17 @@ public static class DigFill
     /// <summary>Light standing above the sky is lowered by at most this share of what the model took there.</summary>
     public const float MaxLoweringOfTaken = 0.05f;
 
+    /// <summary>The scatter of the sky under the set, in noise sigmas, up to which the correction is applied in full: the
+    /// 99th percentile of where the step acts on dark sky is 1.7 to 1.9 on the held-out masters.</summary>
+    public const float TrustedSkySpread = 2f;
+
+    /// <summary>The scatter from which nothing is corrected: about the median of where the third version drew its patches.</summary>
+    public const float UntrustedSkySpread = 4f;
+
     private const float MadToSigma = 1.4826f;
     private const float MinSigma = 1e-9f;
     private const float MinWeight = 1e-6f;
+    private const double MinWideWeight = 1e-6;
 
     /// <summary>
     /// <paramref name="starless"/> (a remover's plate of <paramref name="input"/>, on the input's scale) with its digs filled
@@ -208,15 +223,20 @@ public static class DigFill
             taper[i] = MathF.Min(MathF.Max((2f * taper[i]) - 1f, 0f), 1f);
         }
 
-        var planes = new float[channels][,];
+        // 3. The sky under the set, per channel, and 7. how far it can be trusted: the largest of the channels' scatters.
+        var backgrounds = new float[channels][];
         var work = new float[n];
+        var largestSpread = new double[n];
+        var skyWide = new double[n];
+        for (var i = 0; i < n; i++)
+        {
+            skyWide[i] = sky[i];
+        }
+        var nearTotal = Gaussian(skyWide, width, height, SkyBlurPx);
+        var farTotal = farWeight is null ? null : Gaussian(skyWide, width, height, FarSkyBlurPx);
         for (var c = 0; c < channels; c++)
         {
             var oc = o[c];
-            var xc = x[c];
-            var sig = sigma[c];
-
-            // 3. The sky under the set.
             for (var i = 0; i < n; i++)
             {
                 work[i] = oc[i] * sky[i];
@@ -229,6 +249,36 @@ public static class DigFill
                     ? far[i] / MathF.Max(farWeight[i], MinWeight)
                     : background[i] / MathF.Max(nearWeight[i], MinWeight);
             }
+            backgrounds[c] = background;
+
+            // The scatter is a small difference of two large sums (the mean of squares less the squared mean), so it is
+            // taken in double: in float a level of a few thousand sigmas would read as no scatter at all.
+            var first = new double[n];
+            var second = new double[n];
+            for (var i = 0; i < n; i++)
+            {
+                first[i] = (double)oc[i] * sky[i];
+                second[i] = (double)oc[i] * oc[i] * sky[i];
+            }
+            RaiseToScatter(largestSpread, first, second, nearTotal, sigma[c], width, height, SkyBlurPx, nearWeight, far: false, farTotal is not null);
+            if (farTotal is not null)
+            {
+                RaiseToScatter(largestSpread, first, second, farTotal, sigma[c], width, height, FarSkyBlurPx, nearWeight, far: true, hasFar: true);
+            }
+        }
+        var trust = new float[n];
+        for (var i = 0; i < n; i++)
+        {
+            trust[i] = (float)Math.Clamp((UntrustedSkySpread - largestSpread[i]) / (UntrustedSkySpread - TrustedSkySpread), 0.0, 1.0);
+        }
+
+        var planes = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var oc = o[c];
+            var xc = x[c];
+            var sig = sigma[c];
+            var background = backgrounds[c];
 
             // 4. Pinholes to the sky, then 5. the smooth departure of what is left.
             var pinned = new float[n];
@@ -268,7 +318,7 @@ public static class DigFill
                         var lifted = pinned[i] - (MathF.Min(departure, 0f) * taper[i]);
                         var up = MathF.Min(MathF.Max(lifted - oc[i], 0f), MaxLiftOfTaken * taken[i]);
                         var down = MathF.Min(MathF.Max(departure, 0f) * taper[i], MaxLoweringOfTaken * taken[i]);
-                        plane[y, px] = (oc[i] + up) - down;
+                        plane[y, px] = oc[i] + (trust[i] * (up - down));
                     }
                     else
                     {
@@ -298,6 +348,29 @@ public static class DigFill
             ? new Image(planes, BitDepth.Float32, max, min, starless.Pedestal, starless.ImageMeta)
             : new Image(planes, BitDepth.Float32, starless.MaxValue, starless.MinValue, starless.Pedestal, starless.ImageMeta);
         return (filled, (double)masked / n);
+    }
+
+    // Raises largest[i] to this channel's scatter of the plate outside the set under the Gaussian of the given width, in
+    // noise sigmas: the square root of the weighted mean of squares less the squared weighted mean. total is that Gaussian of
+    // the sky's 0/1 weight. The near Gaussian answers where it reaches enough sky, the far one where it does not (as the sky
+    // itself is chosen).
+    private static void RaiseToScatter(
+        double[] largest, double[] first, double[] second, double[] total, float[] sigma, int width, int height, double blurPx,
+        float[] nearWeight, bool far, bool hasFar)
+    {
+        var sum = Gaussian(first, width, height, blurPx);
+        var squares = Gaussian(second, width, height, blurPx);
+        for (var i = 0; i < largest.Length; i++)
+        {
+            var thin = hasFar && nearWeight[i] < ThinSkyWeight;
+            if (thin == far)
+            {
+                var share = Math.Max(total[i], MinWideWeight);
+                var mean = sum[i] / share;
+                var spread = Math.Sqrt(Math.Max((squares[i] / share) - (mean * mean), 0.0)) / sigma[i];
+                largest[i] = Math.Max(largest[i], spread);
+            }
+        }
     }
 
     // The local noise sigma at every pixel (step 1), or null when the frame has no present pixel to read it from.
@@ -489,6 +562,57 @@ public static class DigFill
                     sum += (line[at - j] + line[at + j]) * kernel[radius - j];
                 }
                 result[px] = (float)sum;
+            }
+            return line;
+        }, static _ => { });
+        return dst;
+    }
+
+    // The same filter on a double plane, as scipy runs it on float64: nothing is rounded to float between the two passes.
+    private static double[] Gaussian(double[] src, int width, int height, double sigma)
+    {
+        var kernel = GaussianKernel(sigma);
+        var radius = kernel.Length / 2;
+        var centre = kernel[radius];
+        var mid = new double[src.Length];
+        Parallel.For(0, height, y =>
+        {
+            var own = src.AsSpan(y * width, width);
+            var row = mid.AsSpan(y * width, width);
+            for (var px = 0; px < width; px++)
+            {
+                row[px] = own[px] * centre;
+            }
+            for (var j = radius; j >= 1; j--)
+            {
+                var above = src.AsSpan(Mirror(y - j, height) * width, width);
+                var below = src.AsSpan(Mirror(y + j, height) * width, width);
+                var weight = kernel[radius - j];
+                for (var px = 0; px < width; px++)
+                {
+                    row[px] += (above[px] + below[px]) * weight;
+                }
+            }
+        });
+
+        var dst = new double[src.Length];
+        Parallel.For(0, height, () => new double[width + (2 * radius)], (y, _, line) =>
+        {
+            var row = mid.AsSpan(y * width, width);
+            for (var k = 0; k < line.Length; k++)
+            {
+                line[k] = row[Mirror(k - radius, width)];
+            }
+            var result = dst.AsSpan(y * width, width);
+            for (var px = 0; px < width; px++)
+            {
+                var at = px + radius;
+                var sum = line[at] * centre;
+                for (var j = radius; j >= 1; j--)
+                {
+                    sum += (line[at - j] + line[at + j]) * kernel[radius - j];
+                }
+                result[px] = sum;
             }
             return line;
         }, static _ => { });

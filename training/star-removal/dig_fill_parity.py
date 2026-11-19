@@ -1,10 +1,10 @@
-"""Parity of the C# dig-fill step (DigFill, `tianwen image fill-digs`) with whole_floor.py's floor3. Glue only.
+"""Parity of the C# dig-fill step (DigFill, `tianwen image fill-digs`) with whole_floor.py's floor4. Glue only.
 
     python -I dig_fill_parity.py <w-tag> <cli> <out-dir> [scorecard.json]
 
 For each whole master (andromeda, tarantula, sag) it runs `<cli> image fill-digs` on the scorecard's input master and
 f2-whole-master/<w-tag>/<name>_starless.fits, writing <out-dir>/<name>_starless.filled.fits, and compares that with
-f2-whole-master/<w-tag>+floor3/<name>_starless.post.fits (whole_floor.py <w-tag> floor3). Nothing is written under the
+f2-whole-master/<w-tag>+floor4/<name>_starless.post.fits (whole_floor.py <w-tag> floor4). Nothing is written under the
 scratch root's own folders. Per master and channel it prints, in units of the input's noise sigma (1.4826 MAD of the input
 less its 5 px median, over the pixels present in both): the largest and the median absolute difference, the share of pixels
 that differ by more than 0.01 sigma, and how many pixels are not bit for bit the same. It exits 1 when a pixel is absent in
@@ -26,7 +26,7 @@ for name in ("andromeda", "tarantula", "sag"):
     master = cfg["masters"][name]; plate = f"{S}/f2-whole-master/{tag}/{name}_starless.fits"
     ours = f"{out_dir}/{name}_starless.filled.fits"
     subprocess.run([cli, "image", "fill-digs", "--input", master, "--starless", plate, "-o", ours], check=True, stdout=subprocess.DEVNULL)
-    a = np.asarray(fits.getdata(ours), np.float32); b = np.asarray(fits.getdata(f"{S}/f2-whole-master/{tag}+floor3/{name}_starless.post.fits"), np.float32)
+    a = np.asarray(fits.getdata(ours), np.float32); b = np.asarray(fits.getdata(f"{S}/f2-whole-master/{tag}+floor4/{name}_starless.post.fits"), np.float32)
     x = np.asarray(fits.getdata(master), np.float32); o = np.asarray(fits.getdata(plate), np.float32)
     if a.ndim == 2: a, b, x, o = a[None], b[None], x[None], o[None]
     assert a.shape == b.shape == x.shape, (name, a.shape, b.shape, x.shape)

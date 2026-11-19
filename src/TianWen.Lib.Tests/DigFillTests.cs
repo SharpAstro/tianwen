@@ -184,6 +184,83 @@ public class DigFillTests
         plate[2, 20, 20].ShouldBe(models[2][20, 20]);
     }
 
+    // Scene's star and dig on a ground that carries real structure: a ripple of `ripple` noise sigmas (its scatter is half
+    // that), in the frame and in the model alike, so the model took the star and dug under it and nothing else. The
+    // ripple's periods are 24 and 30 px: coarse enough that the noise reading (a 5 px high-pass) does not take it for noise
+    // (at 16 and 20 px it read the noise 1.75 times too high, and the scatter in noise units fell under the bar), fine enough
+    // that the 4 px Gaussian of the sky still sees its swing (a scatter of 4.5 to 6.9 sigmas over the star's pixels).
+    private static (float[,] Frame, float[,] Model) StructuredScene(float ripple, float level, float noise, float dig = 6f, int seed = 5)
+    {
+        var rng = new Random(seed);
+        var frame = new float[Size, Size];
+        var model = new float[Size, Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var r2 = ((x - Cx) * (x - Cx)) + ((y - Cy) * (y - Cy));
+                var star = (float)(50 * noise * Math.Exp(-r2 / (2.0 * 2 * 2)));
+                var hole = (float)(dig * noise * Math.Exp(-r2 / (2.0 * 3 * 3)));
+                var structure = (float)(ripple * noise * Math.Sin(2 * Math.PI * x / 24.0) * Math.Sin(2 * Math.PI * y / 30.0));
+                var ground = level + structure + (float)(noise * StarInjection.Gaussian(rng));
+                frame[y, x] = ground + star;
+                model[y, x] = ground - hole;
+            }
+        }
+        return (frame, model);
+    }
+
+    private static int PixelsChanged(Image plate, float[,] model)
+    {
+        var changed = 0;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (plate[0, y, x] != model[y, x])
+                {
+                    changed++;
+                }
+            }
+        }
+        return changed;
+    }
+
+    [Fact]
+    public void ADigInStructureTheSkyCannotBeTrustedOnIsLeftAlone()
+    {
+        // #2243: inside bright, structured nebula the sky under a removed star is not known, and filling to an interpolated
+        // one drew flat patches over real dark structure. The same dig is filled on flat sky and left alone here.
+        var (flatFrame, flatModel) = StructuredScene(ripple: 0f, level: Sky, noise: Noise);
+        var (flat, _) = DigFill.Apply(ImageOf(flatFrame), ImageOf(flatModel));
+        PixelsChanged(flat, flatModel).ShouldBeGreaterThan(20, "the premise: on flat sky this dig is filled");
+
+        // A ripple of 12 sigmas scatters by 6: over the bar at which nothing is corrected.
+        var (frame, model) = StructuredScene(ripple: 3 * DigFill.UntrustedSkySpread, level: Sky, noise: Noise);
+        var (plate, share) = DigFill.Apply(ImageOf(frame), ImageOf(model));
+
+        share.ShouldBeGreaterThan(0, "the star was taken, so its pixels could have changed");
+        PixelsChanged(plate, model).ShouldBe(0, "where the sky cannot be trusted the plate is the model's, bit for bit");
+    }
+
+    [Fact]
+    public void TheSkysScatterIsReadRightOnAVeryBrightGround()
+    {
+        // The scatter is the mean of squares less the squared mean. At a level of 25,000 noise sigmas those two differ in
+        // the ninth digit, so in single precision the structure reads as none and the dig would be filled as on flat sky.
+        const float noise = 2e-5f;
+        var (frame, model) = StructuredScene(ripple: 3 * DigFill.UntrustedSkySpread, level: 0.5f, noise: noise);
+
+        var (plate, _) = DigFill.Apply(ImageOf(frame), ImageOf(model));
+
+        PixelsChanged(plate, model).ShouldBe(0, "the structure is seen at any level");
+
+        // And flat sky at that level is still trusted, so its dig is still filled.
+        var (flatFrame, flatModel) = StructuredScene(ripple: 0f, level: 0.5f, noise: noise);
+        var (flat, _) = DigFill.Apply(ImageOf(flatFrame), ImageOf(flatModel));
+        PixelsChanged(flat, flatModel).ShouldBeGreaterThan(20);
+    }
+
     /// <summary>Returns a fixed plate on whatever scale it is handed the input on; takes the dig-fill step or does not.</summary>
     private sealed class FixedRemover(float[,] model, float inputPeak, bool takesDigFill) : IStarRemover
     {
