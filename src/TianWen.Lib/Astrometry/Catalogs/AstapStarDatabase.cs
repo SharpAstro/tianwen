@@ -168,7 +168,7 @@ public sealed partial class AstapStarDatabase
     }
 
     /// <summary>
-    /// The databases a folder holds, the densest first (by the header's density cap, then by the number of cells). A file
+    /// The readable (5-byte record) databases a folder holds, the densest first (by the header's density cap, then by the number of cells). A file
     /// belongs to a database by its name alone: three characters, an underscore, two digits of ring and two of cell, and the
     /// number of cells as its extension.
     /// </summary>
@@ -199,7 +199,8 @@ public sealed partial class AstapStarDatabase
         foreach (var ((name, areas), rings) in families)
         {
             var ordered = rings.Select(static r => (r.Key, r.Value.Order(StringComparer.OrdinalIgnoreCase).ToImmutableArray())).ToImmutableArray();
-            if (TryReadDescription(ordered[0].Item2[0]) is { } description)
+            // A family whose records are not the 5-byte kind (a 6-byte d80, the 11-byte kind) cannot be read, so it is not offered.
+            if (TryReadDescription(ordered[0].Item2[0], out var recordSize) is { } description && recordSize == Records.RecordSize)
             {
                 found.Add(new AstapStarDatabase(folder, name, areas, description, ordered));
             }
@@ -385,13 +386,18 @@ public sealed partial class AstapStarDatabase
             : new Cell("", raMin * RaHoursPerUnit, raMax * RaHoursPerUnit, decMin * DecDegreesPerUnit, decMax * DecDegreesPerUnit);
     }
 
-    private static string? TryReadDescription(string path)
+    private static string? TryReadDescription(string path, out int recordSize)
     {
+        recordSize = 0;
         Span<byte> header = stackalloc byte[HeaderLength];
         using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        return file.ReadAtLeast(header, HeaderLength, throwOnEndOfStream: false) == HeaderLength
-            ? Encoding.Latin1.GetString(header[..(HeaderLength - 1)]).TrimEnd(' ', '\0')
-            : null;
+        if (file.ReadAtLeast(header, HeaderLength, throwOnEndOfStream: false) != HeaderLength)
+        {
+            return null;
+        }
+        // Byte 109 is the record size (a space means 11), the same rule the record reader applies.
+        recordSize = header[HeaderLength - 1] == (byte)' ' ? 11 : header[HeaderLength - 1];
+        return Encoding.Latin1.GetString(header[..(HeaderLength - 1)]).TrimEnd(' ', '\0');
     }
 
     // name_RRNN.areas: three characters, an underscore, the ring and the cell as two digits each, the cell count as extension.
@@ -466,7 +472,7 @@ public sealed partial class AstapStarDatabase
     /// <summary>Walks a file's star records, carrying the declination's high byte and the magnitude of the last section header.</summary>
     private ref struct Records
     {
-        private const int RecordSize = 5;
+        internal const int RecordSize = 5;
         private readonly ReadOnlySpan<byte> _file;
         private int _next;
         private int _decHigh;

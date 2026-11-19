@@ -261,29 +261,47 @@ internal sealed class SolveSubCommand(
                 consoleHost.WriteScrollable("[solve] no solution");
             }
 
-            if (parseResult.GetValue(exportGaiaOpt) is { } gaiaPath && result.Solution is { } gaiaWcs)
-            {
-                if (AstapStarDatabase.FindInstalled() is not { } database)
-                {
-                    consoleHost.WriteError($"[gaia] no ASTAP star database found in {string.Join(", ", AstapStarDatabase.InstallFolders())}; install one with ASTAP or name its folder in {AstapStarDatabase.FolderVariable}");
-                    return 3;
-                }
-                if (await database.ReadFrameAsync(gaiaWcs, width, height, parseResult.GetValue(gaiaMaxMagOpt), ct) is not { } gaia)
-                {
-                    consoleHost.WriteError("[gaia] the solution does not place the frame on the sky");
-                    return 3;
-                }
-                await ExportGaiaAsync(gaia, gaiaPath, ct);
-                consoleHost.WriteScrollable($"[gaia] {gaia.Stars.Length} stars -> {gaiaPath} ({database.Name} in {database.Folder}: {database.Description})");
-                consoleHost.WriteScrollable(gaia.Field.DensityLimited
-                    ? $"[gaia] the database is at its density cap here ({gaia.Field.StarsInCone} stars in {gaia.Field.AreaSquareDegrees:F2} square degrees): its faintest star here is magnitude {gaia.Field.FaintestMagnitude:F1}, fainter stars are missing, and where the field is densest the cut is brighter"
-                    : $"[gaia] faintest magnitude in the field {gaia.Field.FaintestMagnitude:F1}; the database is under its density cap here");
-            }
-
             if (exportPath is not null)
             {
                 await ExportStarsAsync(stars, result.Solution, exportPath, exportFormat, ct);
                 consoleHost.WriteScrollable($"[export] {stars.Count} stars -> {exportPath}");
+            }
+
+            // The Gaia export is an extra: whatever stops it is reported and ends the run with 3, after --export-stars is written.
+            var gaiaFailed = false;
+            if (parseResult.GetValue(exportGaiaOpt) is { } gaiaPath && result.Solution is { } gaiaWcs)
+            {
+                try
+                {
+                    if (AstapStarDatabase.FindInstalled() is not { } database)
+                    {
+                        consoleHost.WriteError($"[gaia] no ASTAP star database found in {string.Join(", ", AstapStarDatabase.InstallFolders())}; install one with ASTAP or name its folder in {AstapStarDatabase.FolderVariable}");
+                        gaiaFailed = true;
+                    }
+                    else if (await database.ReadFrameAsync(gaiaWcs, width, height, parseResult.GetValue(gaiaMaxMagOpt), ct) is not { } gaia)
+                    {
+                        consoleHost.WriteError("[gaia] the solution does not place the frame on the sky");
+                        gaiaFailed = true;
+                    }
+                    else
+                    {
+                        await ExportGaiaAsync(gaia, gaiaPath, ct);
+                        consoleHost.WriteScrollable($"[gaia] {gaia.Stars.Length} stars -> {gaiaPath} ({database.Name} in {database.Folder}: {database.Description})");
+                        consoleHost.WriteScrollable(gaia.Field.DensityLimited
+                            ? $"[gaia] the database is at its density cap here ({gaia.Field.StarsInCone} stars in {gaia.Field.AreaSquareDegrees:F2} square degrees): its faintest star here is magnitude {gaia.Field.FaintestMagnitude:F1}, fainter stars are missing, and where the field is densest the cut is brighter"
+                            : $"[gaia] faintest magnitude in the field {gaia.Field.FaintestMagnitude:F1}; the database is under its density cap here");
+                    }
+                }
+                catch (Exception e) when (e is NotSupportedException or InvalidDataException or IOException)
+                {
+                    consoleHost.WriteError($"[gaia] {e.Message}");
+                    gaiaFailed = true;
+                }
+            }
+
+            if (gaiaFailed)
+            {
+                return 3;
             }
 
             return result.Solution is not null ? 0 : 2;
@@ -332,10 +350,8 @@ internal sealed class SolveSubCommand(
     }
 
     /// <summary>
-    /// Parses an "<ra-hours>,<dec-deg>" hint into a sparse WCS struct that
-    /// carries only RA/Dec for the search-origin pass. The solver uses these
-    /// fields to narrow its candidate space; CD-matrix entries stay zero
-    /// because the solve itself produces those.
+    /// Writes the Gaia stars of a solved frame to <paramref name="path"/> as CSV: pixel position, sky position (degrees)
+    /// and magnitude.
     /// </summary>
     private static async Task ExportGaiaAsync(AstapFrameStars gaia, string path, CancellationToken ct)
     {
@@ -350,6 +366,12 @@ internal sealed class SolveSubCommand(
         await File.WriteAllTextAsync(path, text.ToString(), ct);
     }
 
+    /// <summary>
+    /// Parses an "<ra-hours>,<dec-deg>" hint into a sparse WCS struct that
+    /// carries only RA/Dec for the search-origin pass. The solver uses these
+    /// fields to narrow its candidate space; CD-matrix entries stay zero
+    /// because the solve itself produces those.
+    /// </summary>
     private static WCS? TryParseSearchOrigin(string text, out WCS wcs)
     {
         wcs = default;

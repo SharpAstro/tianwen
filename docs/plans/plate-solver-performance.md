@@ -1264,7 +1264,7 @@ Gaia band is the offline answer and a later option** (the owner, 2026-10-19: #16
 ### The installed rung of the Gaia ladder: ASTAP's star database, read in place (2026-11-19, #1685)
 
 The owner's wish for the Gaia stars of a field is a ladder of sources, the one already on the machine first: an
-installed ASTAP keeps a Gaia DR3 extract beside `astap_cli` (`d50_*.1476`, 933 MB), so nothing has to be downloaded.
+installed ASTAP keeps a Gaia DR3 extract beside `astap_cli` (`d50_*.1476`, 951 MB), so nothing has to be downloaded.
 `AstapStarDatabase` (`TianWen.Lib.Astrometry.Catalogs`) reads it: `FindInstalled()` looks in the folder
 `TIANWEN_ASTAP_FOLDER` names, then the installer's folder on Windows and `/opt/astap` on Linux; `ReadConeAsync` gives
 the stars of a cone and `ReadFrameAsync` those of a plate-solved frame with their pixel positions. `tianwen solve

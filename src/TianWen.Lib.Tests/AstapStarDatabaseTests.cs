@@ -146,7 +146,29 @@ public sealed class AstapStarDatabaseTests : IDisposable
         // North is up in the sky and CD2_2 is positive, so half a degree north is 40 px along +y; east is towards -x.
         (frame.Stars[1].Y - frame.Stars[0].Y).ShouldBe(40.0, 0.05);
         (frame.Stars[2].X - frame.Stars[0].X).ShouldBe(-90.0, 0.5);
-        frame.Field.StarsInCone.ShouldBeGreaterThanOrEqualTo(3);
+        frame.Field.StarsInCone.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task AWcsWithNoCdMatrixPlacesNoFrameOnTheSky()
+    {
+        var folder = _temp.Create("astapdb").FullName;
+        Write(folder, "t50_0101.1", FileOf(Gaia, (5.0f, [(2.0, 30.0)])));
+
+        var database = AstapStarDatabase.Discover(folder).ShouldHaveSingleItem();
+        (await database.ReadFrameAsync(new WCS(2.0, 30.0), 200, 100, 99f, TestContext.Current.CancellationToken)).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ADatabaseOfSixByteRecordsIsNotOfferedBesideAFiveByteOne()
+    {
+        var folder = _temp.Create("astapdb").FullName;
+        var wide = FileOf("GAIA DR3, density<=900 stars/sqr(degree), Epoch=2025. Magnitude is BP", (9.0f, [(1.0, 10.0)]));
+        wide[AstapStarDatabase.HeaderLength - 1] = 6;
+        Write(folder, "d80_0101.1", wide);
+        Write(folder, "d50_0101.1", FileOf(Gaia, (9.0f, [(1.0, 10.0)])));
+
+        AstapStarDatabase.Discover(folder).Select(static d => d.Name).ShouldBe(["d50"]);
     }
 
     [Fact]
