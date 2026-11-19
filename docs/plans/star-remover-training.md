@@ -2869,6 +2869,78 @@ python training/star-removal/coremask-probe/sheet.py <out dir>/survey.jsonl <ses
 `classify.py` reports the kept cores against the bounds the probe recorded and, given an earlier survey, lists what was
 dropped. The classification itself is the library's: the scripts only read the probe's JSON.
 
+#### Core protection without the stars: the catalogued stars inside a core stay removed (2026-11-20)
+
+**Issue:** #2242 (core protection puts back the stars inside a core: 30 Doradus's cluster, M31, the Lagoon).
+
+Protection puts the INPUT back in a core, so every star that sits there comes back with the nucleus or knot. The
+owner saw it on the first renders he asked for (2026-11-19): 30 Doradus's cluster whole, a handful of stars beside
+M31's nucleus, the Lagoon's two bright ones, on every model alike, since it is the input that returns.
+
+- **Neither the peak's width nor the model's own take tells a nucleus from a star.** Putting back only the smooth
+  part of what protection restores (a median of 9, 15 or 25 px) loses 10 to 23 % of M31's nucleus, which is as
+  narrow as a star (`pc_smooth_proto.py`). The share of a compact peak the model took (`pc_ratio.py`) reads 111 %
+  for M31's nucleus on R4c and 99 % on R3z, exactly as for the 16 stars in the same core (100 to 174 %); only R4d
+  takes it differently (22 %). The models that need protection most take the nucleus as they take a star.
+- **A star catalogue does** (`pc_gaia.py`, the installed ASTAP database through `tianwen solve --export-gaia`). M31:
+  17 compact peaks over 30 sigma inside the core, 16 with a catalogued star within 0.7 px, and the one with none is
+  the nucleus. Lagoon: the two bright stars are catalogued (BP 5.9 and 7.0); the Hourglass knot has only a BP 15.6
+  star on it against a peak reading 8.8. 30 Doradus: 40 of 110 peaks over 10 sigma are catalogued; the database is
+  at its density cap there and R136's centre is unresolved at 2.87 arcsec/px.
+- **The step** (`CoreStars` in TianWen.Lib, beside `ExtendedCoreMask`; prototype `pc_catalog.py`). The compact light
+  is the luminance smoothed by 1 px less its 15 px median. A local peak of it inside a core, over 10 sky sigmas, is
+  a star when a catalogued star lies within 1.5 px AND carries at least a tenth of the peak's light: the peak may
+  read at most 2.5 magnitudes brighter than that star on the frame's own zero point (the median of magnitude plus
+  2.5 log of the compact peak over the catalogued stars the frame shows away from the cores; scatter 0.14 to 0.22
+  mag). The star's footprint is a disc of the frame's own reach for its magnitude (the radius where ring medians
+  of isolated catalogued stars sink to one sigma, a straight line by magnitude), grown by the feather and
+  feathered 1.5 px; where it meets a peak the catalogue has no star for that stands at least as high, each pixel
+  goes to the nearer of the two in units of their reach. Inside the footprint the mask's weight is taken out, so
+  the remover's plate stands; everywhere else protection is as before. With too few stars to read a zero point (20)
+  the mask is left as it was.
+- **Two footprint rules that failed first.** A fixed small radius left the bright stars' halos to come back. The
+  model's take about each peak ran every radius to its cap, since inside a core the model takes broad light too,
+  and a neighbour's disc then covered M31's nucleus (5.8 to 9.3 % of it lost).
+- **Where the stars come from** (`CatalogFrameStars`): a plate-solved frame, and the star database ASTAP installs
+  where there is one (Gaia, to about magnitude 17 at its cap), else the embedded Tycho-2, which holds the Lagoon's
+  two stars (a test reads them at 5.97 and 7.09). With no solution or no catalogue, protection is as before and
+  says so. `image remove-stars` and `image combine` ask on their own (`--core-catalogue none` turns it off, `embedded` asks Tycho-2 alone), and
+  `image protect-cores --input <master> --starless <plate>` is the step alone, with no remover run; without a
+  catalogue it writes the plate the old step wrote, bit for bit, on the three masters.
+- **Read on three models' plates, the product's own step** (`tianwen image protect-cores` on solved copies of the three
+  masters, 2 s a master; the footprint depends on the input and the catalogue alone, so it is the same for every
+  model: 54 of 76 compact peaks in M31's core, 39 of 114 in 30 Doradus's, 23 of 94 in the Lagoon's). Protection
+  as it was against protection with the catalogued stars left removed:
+
+  | | R4c seed 0 | R4d seed 0 | R3z seed 0 | StarXTerminator |
+  |---|---|---|---|---|
+  | M31 nucleus, light taken in the central 15 px box, R / G / B, % | 0.0 / 0.0 / 0.0, as before | 0.0 / 0.0 / 0.0, as before | 0.0 / 0.0 / 0.0, as before | 0.1 / 0.2 / 0.1 |
+  | scorecard's nucleus row, % | 0.0 / 0.0 / 0.0, as before | as before | as before | |
+  | Lagoon, brightest tenth of the peaks standing (18 peaks) | 3 to 1 | 3 to 1 | 3 to 1 | 1 |
+  | Tarantula, brightest tenth of the peaks standing (77 peaks) | 21 to 12 | 21 to 17 | 21 to 17 | 17 |
+  | Andromeda, all peaks standing, % | 1.0 to 0.3 | 1.2 to 0.3 | 1.1 to 0.3 | 0.1 |
+  | Lagoon, light taken in the central box, % | 0.0 to 3.1 | 0.0 to 5.8 | 0.0 to 1.7 | 5.6 |
+  | broad light taken, Tarantula / Sagittarius | 4.35 to 5.06 / 1.64 to 1.92 | 4.87 to 5.54 / 1.73 to 2.06 | 3.87 to 4.21 / 2.43 to 2.57 | 5.99 / 0.42 |
+
+  Every other scorecard row is the as-trained row before and after. The cost is in the last two rows: inside a
+  star's footprint the model's plate stands, so the broad light it took there is no longer given back.
+- **With the embedded catalogue alone** (`--core-catalogue embedded`, R4c's plates, as a machine without ASTAP runs
+  it; zero points 7.66, 8.57 and 5.73 over 369 to 3,000 Tycho-2 stars, scatter 0.23 to 0.29 mag): 3 of 76, 3 of 114
+  and 2 of 94 peaks are taken as stars. The Lagoon's two bright stars stay removed and the Hourglass comes back
+  whole, so its brightest tenth standing falls from 3 to 1 of 18 as with the database; the Tarantula's from 21 to
+  16 of 77; M31's nucleus is whole and the fainter stars beside it come back as before, being past Tycho-2's reach.
+- **Looked at** (`D:/temp/tianwen-scratch/r4-look/pc-zoom-<model>-pcs.png`, the three cores at 6x). M31: the nucleus
+  whole, the stars beside it gone, as on StarXTerminator's plate. Lagoon: the two bright stars gone with no ring
+  where they were, the Hourglass kept. 30 Doradus: the stars around R136 gone; the unresolved centre stands as the
+  model leaves it (StarXTerminator leaves a clump there too), and cluster members the catalogue does not list come
+  back as before.
+- **Limits.** It needs a solved frame; the two held-out masters without a solution were solved as copies. The star
+  test rests on three objects (magnitudes as the prototype read them): R136's centre reads 1.9 magnitudes brighter
+  than its catalogued star and goes with the stars, the Hourglass 6.8 and stays, M31's nucleus has no star within 1.5 px (the nearest is 2.7 px off, so a
+  coarser frame than 6.9 arcsec/px would put it inside, where only the magnitude test stands). A catalogued star as
+  bright as a nucleus, on it, takes it; no such case is in hand. Adoption is the owner's.
+
+
 #### Kept cores: bright galaxy-like cores the synthetic target keeps (2026-10-23)
 
 Tracked by #1658, its training half: `degrade --kept-cores` (with `--background synthetic`) draws a bright extended core

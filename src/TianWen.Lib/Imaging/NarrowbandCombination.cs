@@ -57,9 +57,20 @@ public static class NarrowbandCombination
     /// (<see cref="DigFill"/>, #2204). Also the share of each plate's pixels the step could change; null when it did not run.</para>
     /// <para>The stars are the plane less the FINISHED plate, so plate plus stars is the plane whatever ran.</para>
     /// </summary>
-    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+    public static Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
         CancellationToken cancellationToken = default)
+        => SplitStarsAsync(planes, remover, protectCores, fillDigs, catalogStars: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="SplitStarsAsync(IReadOnlyList{Image}, IStarRemover, ExtendedCoreMask.Options?, bool, CancellationToken)"/>
+    /// with the frame's catalogued stars (<see cref="CatalogFrameStars"/>): those the planes show inside a protected core
+    /// stay removed instead of coming back with the core (<see cref="CoreStars"/>, #2242). All planes are on one grid, so
+    /// one list serves them all; null is the split without it.
+    /// </summary>
+    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
+        IReadOnlyList<FrameStar>? catalogStars, CancellationToken cancellationToken = default)
     {
         var starless = await StarlessAsync(planes, remover, cancellationToken);
         var cores = protectCores is null ? null : new ExtendedCoreMask[planes.Count];
@@ -69,7 +80,7 @@ public static class NarrowbandCombination
         {
             if (cores is not null)
             {
-                cores[i] = ExtendedCoreMask.Find(planes[i], protectCores);
+                cores[i] = ExtendedCoreMask.Find(planes[i], protectCores, catalogStars);
                 if (cores[i].Cores.Length > 0)
                 {
                     var plate = starless[i];

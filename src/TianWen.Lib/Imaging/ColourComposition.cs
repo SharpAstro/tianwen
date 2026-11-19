@@ -32,6 +32,11 @@ public sealed record ColourCompositionOptions
     /// <summary>Stars out before the line goes in, and back last (<c>image remove-stars</c>, <c>image add-stars</c>).</summary>
     public bool Starless { get; init; }
 
+    /// <summary>The catalogued stars of the masters' frame (<see cref="StarRemoval.CatalogFrameStars"/>), as
+    /// <c>image remove-stars</c> asks for them on a plate-solved master: those inside a protected core stay removed instead
+    /// of coming back with it (#2242). Null where the frame is not solved or no catalogue is at hand.</summary>
+    public IReadOnlyList<StarRemoval.FrameStar>? CatalogStars { get; init; }
+
     /// <summary>The continuum scale against red as given (<c>image continuum</c>); null measures it.</summary>
     public double? LineScale { get; init; }
 
@@ -231,7 +236,7 @@ public static class ColourComposition
                 // Protected: the starless luminance carries the detail into every channel, so a nucleus a remover took as a star
                 // would be dug out of all three; the cores stay in it and out of the stars plate, which WithStars puts back whole.
                 var (starlessLuminances, luminanceStars, _, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover,
-                    ExtendedCoreMask.Options.Default, fillDigs: true, cancellationToken);
+                    ExtendedCoreMask.Options.Default, fillDigs: true, options.CatalogStars, cancellationToken);
                 starlessLuminance = starlessLuminances[0];
                 if (options.Denoise)
                 {
@@ -281,7 +286,7 @@ public static class ColourComposition
                 // Protected: the channels' starless plates feed the picture's look (emission, denoise, detail), and a core a remover
                 // dug out of one would show as a hole in the final colour; cores stay in the plate, out of the stars.
                 var (starless, stars, _, _) = await NarrowbandCombination.SplitStarsAsync(source, remover,
-                    ExtendedCoreMask.Options.Default, fillDigs: true, cancellationToken);
+                    ExtendedCoreMask.Options.Default, fillDigs: true, options.CatalogStars, cancellationToken);
                 layerStars = stars;
                 split = starless;
             }
