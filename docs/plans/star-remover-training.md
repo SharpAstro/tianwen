@@ -6907,6 +6907,108 @@ the first angle is a step after the model and not another arm:
     4 to 10 % under the real plate at 8 px) is the next thing to correct.
   - **Nothing is adopted;** adoption is the owner's. R4d (the cap lifted) is still training and is read on its own
     registration.
+  - **R4e's read, 2026-11-20 (seed 0, `r4e_synth30_s0`): KILLED. The Tarantula's crowded flat reads 89.1, under
+    R4c's 90.4; every guard held.** The trainer stopped itself at step 194,500 of 480,000 (best at 170,500) and the
+    Batch pool removed itself. The check asked for before the export held: `bh-bin10` with `--noise-as-recorded`
+    wrote one session's 400 tile files (10P/Tempel) byte for byte as synth28 holds them, and none of its 160 rows
+    carries a `PlateNoiseRatio`, so the bound is the binary's one difference. With floor3 and core protection
+    (the chain the registration names; the tile rows are floor3 alone, as R4c's were):
+
+    | row | R4c | R4e | bar | read |
+    |---|---|---|---|---|
+    | Tarantula crowded flat | 90.4 (left 7.7 %, dug 1.9 %) | **89.1** (left 8.9 %, dug 2.0 %) | at least 92.4, kill under 90.4 | **killed** |
+    | by count clean, 100-1000 and 1000 and over | 99.3, 100.0 | 99.3, 100.0 | at least 98.5, 98 | held |
+    | M42 100-1000 by count clean | 93.4 | 94.1 | at least 88 | held |
+    | SMC 20-100 and 100-1000 by count clean | 99.4, 100.0 | 99.4, 100.0 | at least 97 | held |
+    | Andromeda dark flat, dug | 98.2, 0.9 | 98.2, 0.9 | at least 95, at most 3 | held |
+    | Tarantula dark flat | 95.5 | 95.1 | at least 91 | held |
+    | glow green median, Andromeda and Tarantula | -45.2, -163.7 | -124.3, +143.3 | within 450, 500 | held |
+    | M31 nucleus with protection | 0.0 % | 0.0 % | under 10 % | held |
+    | purity | 0.9 | 0.9 | at most 1.0 | held |
+    | Sagittarius crowded flat | 97.9 | 97.6 | at least 96.3 | held |
+    | Gaia BP 17-19 | 96.0 | 94.7 | reported | |
+
+  - **The renders, looked at before the rows** (`r4e_look.py`: 300 px crops at 2x, one stretch a region; input,
+    StarXTerminator, R4c as trained, R4e as trained, R4e through the registered chain, R4e through the product's
+    chain of 2026-11-20, which is protection without the stars and floor5). **30 Doradus's core:** as trained R4e
+    reads as R4c does and close to StarXTerminator, R136 kept by all three, with dark pits where the cluster at the
+    upper left stood, as R4c has. **The Lagoon's core:** as trained no star is left and the lanes are
+    StarXTerminator's. **M31's nucleus:** R4c as trained shows a pink dent in it; R4e's is whole to the eye.
+    **The Tarantula's crowded field** (320, 1435): StarXTerminator's plate is smooth and dark; R4c's and R4e's are
+    mottled at 5 to 15 px, in colour, as trained and through both chains, and R4e's mottle is not less than R4c's.
+    That picture is the crowded gap.
+    **The Tarantula's knots** (1585, 705): StarXTerminator leaves the compact bright peaks standing, R4c takes
+    them (smooth pink where they stood), R4e keeps more of the upper knot and takes the lower ones. **A bright
+    star on Andromeda's dark sky:** gone in every column; R4e as trained leaves a faint dark disc that the fill
+    evens. The registered chain shows its two known defects on R4e as on every model: floor3's flat patches and
+    square holes, which floor4 and floor5 were made for (#2243, #2252), and the old protection's stars back in the
+    Lagoon's core and round M31's nucleus (#2242). The product's chain shows neither on these six crops; it leaves
+    the stepped edge of one fill at 30 Doradus's upper left, which floor5's section records.
+  - **Reported, no bar: as trained (no floor3, no protection), against R4c.** Andromeda dark flat 85.4 with 10.5 dug
+    (R4c 47.2 and 45.9); Tarantula dark flat 60.6 with 34.4 left (64.9, 33.1); Tarantula crowded 82.1 with 14.3
+    left and 3.6 dug (85.2, 11.8, 3.0); BP 17-19 94.1 (95.5); Sagittarius 96.9 (97.2); purity 1.0 (0.9); the
+    nucleus 6.0 / 21.2 / 9.9 % (24.4 / 37.0 / 29.4). By count as trained: 100-1000 clean 95.6 with 4.1 dug (94.9
+    clean), 1000 and over 93.6 (86.7), saturated 78.9; M42 100-1000 clean 61.0 with 37.5 dug (61.0, 36.8); SMC
+    100-1000 clean 86.4 with 11.9 dug (81.4, 13.6). **The glow:** the Tarantula's with floor3 has a p90 of 450.5
+    and 38 % of it over the bound (R4c 143.4 and 8 %, R4d 443.5 and 31 %), inside its guard and now the largest of
+    the recent arms; as trained its median is -2.8 and its p90 696.3. Andromeda's with floor3: p90 360.6, 20 % over
+    (R4c 487.5, 22 %). **The light taken from the Tarantula field,** green, with the chain: 79 % in the densest
+    tenth of cells and 81 % over the frame (R4c 80 % and 82 %). **The twin** (`twin_err.py`, the truth known, rms
+    inside the stars' mask in sigma): 2.806 as trained and 1.086 with floor3 (R4c 2.592 and 1.055); on R3v's mask
+    2.790 where R3v reads 1.920 and R4c 2.560.
+  - **Reported, no bar: the nebula rows** (the arm was registered before the rule that gives every arm nebula
+    guards; Andromeda / Tarantula / Sagittarius). As trained: added 0.0 / 0.5 / 0.0 %; broad light taken 2.94 /
+    3.98 / 4.47 (R4c 3.04 / 5.39 / 2.64, StarXTerminator 2.88 / 5.99 / 0.42); of the brightest tenth of the peaks
+    18 of 77 stand on the Tarantula and 0 of 18 on the Lagoon (R4c 11 and 0, StarXTerminator 17 and 1). With
+    floor3: added 0.5 / 3.8 / 1.8 %, broad 3.01 / 4.26 / 4.91. With protection alone: added nothing, broad 2.79 /
+    3.77 / 3.59, standing 21 and 3. **The Lagoon's 4.47 is the highest any arm of the table reads** (R4b 3.50), 1.83
+    over R4c where two seeds of one recipe have stood up to 1.3 apart, and over the brightest tenth of the Lagoon's
+    nebula it reads 11.53. The crops above do not show it at their stretch; the row says this model takes more of
+    the Lagoon's broad light than R4c, and the Tarantula's row says less.
+  - **Reported, no bar: the grain in the Tarantula's cells** (`band.py`, the same session and script as R4c's
+    table, each model as trained, R / G / B):
+
+    | cell | truth plate | R4c | R4e |
+    |---|---|---|---|
+    | 4,4 (dense) | 4.8 / 5.0 / 5.2 | 4.6 / 3.8 / 3.0 | 4.5 / 4.1 / 3.5 |
+    | 5,4 (dense) | 6.9 / 7.2 / 6.2 | 4.7 / 4.2 / 3.3 | 4.7 / 4.4 / 3.7 |
+    | 4,6 (30 Doradus's core) | 78.9 / 101.0 / 104.7 | 64.1 / 76.2 / 61.9 | 76.0 / 83.9 / 71.2 |
+
+    Against R4c the dense cells' grain is not lower: red is level, green 5 to 8 % higher and blue 12 to 17 %
+    higher. The bright cell's band is 10 to 19 % higher, nearer the plate's. The pairs of seeds measured on these
+    rows (the table of R3v's and R4a's above) stand up to 0.4 apart on cell 4,4, 1.1 on 5,4 and 39 on 4,6, so only
+    the blue of cell 4,4 (0.5 over R4c) is outside a measured pair, by 0.1; none of these differences is shown to
+    be the arm's. Each level is 0.993 to 0.999 of the plate's.
+  - **Reported, no bar: the ratios the export took** (`PlateNoiseRatio` in synth30's `degradations.jsonl`, one
+    value a channel a session, the level drawn over the master's record). **The bound reached far wider than this
+    registration said.** Of the 113 sessions the trainer draws from, the level fell by over half a percent on 111,
+    by over 5 % in some channel on 97, and by over 10 % in some channel on 51 (in every channel on 29); the
+    sessions' mean ratio has a median of 0.92 and a lowest of 0.59 (an eta Carinae session, 0.59 / 0.55 / 0.64).
+    The crowded fields of the scored kind are among them: the store's Tarantula session of 2024-10-02 drew at
+    0.86 / 0.84 / 0.91, the SMC session of the same night at 0.88 / 0.88 / 0.92, the Sagittarius star cloud at
+    0.90 / 0.90 / 0.93 and the five LMC colour sessions at 0.82 to 0.96. The registration's 0.97 for "the SMC
+    session" is the narrowband one of 2024-09-27 (0.97 / 0.97 / 0.98), a validation session. Its count of 29 of the
+    store's 199 sessions under 0.90 does not say how a session of three channels was counted; the export has every
+    channel under 0.90 on 39 of its 138 sessions and some channel on 62. Lobster's 0.81 / 0.80 / 0.87 is as
+    registered.
+  - **The predictions.** The question missed: held. The crowded flat moving by under a point: missed, it fell 1.3
+    with the chain and 3.1 as trained, on a row whose seeds lay 0.0 to 0.1 apart on the three recipes run twice.
+    BP 17-19 inside a seed's spread of 96.0: held (94.7; seeds lay 1.4 to 1.7 apart). The dig as trained changing
+    little: held on the M42 and SMC tiles (37.5 against 36.8 dug, 11.9 against 13.6), missed on Andromeda's master,
+    where the dug share fell from 45.9 to 10.5, a difference of 35 points where the measured seed pairs of that row
+    stand 9.6 and 6.4 apart and R4d less R4c was 26.4. And the prediction's reason was wrong: the bound did lower
+    the training sessions of the scored fields, by 4 to 18 % (the ratios above), and the crowded flat fell all the
+    same.
+  - **What the read says, on one seed.** Drawing the noise at the plate's own level, a median of 8 % under the
+    record, does not move the crowded rows toward StarXTerminator: more crowded stars are left (14.3 % against
+    11.8 % as trained, 8.9 % against 7.7 % with the chain) and BP 17-19 is 1.3 lower. What it does change is on dark
+    sky and in cores: less dug under Andromeda's bright stars and less of M31's nucleus taken as trained, both
+    of which the product's post steps already cover. The Lagoon's broad light and the Tarantula's glow read worse.
+    So the level of the training noise is not what holds the crowded fields, as the cap was not (R4d) and the
+    faint stars were only in part (R4c). The cause the plan holds is still the one no arm has changed: the grain in
+    the truth plate ("The crowded gap is in the truth plate" and "#2203 step 2" above). **The arm stops here.
+    Nothing is adopted;** the bound stays the export's default, which is #1786's decision and not this arm's, and
+    whether it should is the owner's to weigh from the rows above.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
@@ -8165,7 +8267,7 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   while the two agree in the estimator's band (the frame less its 4 px low-pass). So the real noise holds more power
   at 8 px and beyond than the drawn noise does at equal fine-scale noise, which is the shape #1847 names (the drawn
   field's lag-1 is under real's too). The level is right where the estimator reads it; the shape is #1847's.
-- **R4e is the arm registered on it** ("R4e, pre-registered 2026-11-19" in the arms above): R4c's recipe exported with the default bound and `--faint-stars 3`, the export this section measured. Whether a model trained on it does better on the crowded rows is R4e's question.
+- **R4e is the arm registered on it** ("R4e, pre-registered 2026-11-19" in the arms above): R4c's recipe exported with the default bound and `--faint-stars 3`, the export this section measured. Whether a model trained on it does better on the crowded rows is R4e's question. Answered 2026-11-20: it does not ("R4e's read" under that registration: the Tarantula's crowded flat 89.1 against R4c's 90.4, killed).
 
 ##### S4b: the read
 
