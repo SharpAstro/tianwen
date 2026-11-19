@@ -55,7 +55,8 @@ function Get-DefaultOutputDir {
 }
 
 function Get-DefaultGraXpertDir {
-    # GraXpert (Steffenhir/GraXpert; GPL-3.0 code, CC-BY-NC-SA-4.0 models) stores its ONNX models under
+    # GraXpert (Steffenhir/GraXpert, maintained since 4.0 as the fork Dark-Matters-Astro/GraXpert; GPL-3.0 code,
+    # CC-BY-NC-SA-4.0 models; docs/plans/background-extraction.md "GraXpert 4.0") stores its ONNX models under
     # %LOCALAPPDATA%/GraXpert/GraXpert/<bucket>/<version>/model.onnx -- one
     # subdir per model kind (bge-ai-models, denoise-ai-models, etc.) with
     # one semver-named version dir each. Only the BGE bucket is consumed
@@ -97,7 +98,7 @@ function Materialize-GraXpertBge {
     $bgeRoot = Join-Path $GraXpertRoot 'bge-ai-models'
     if (-not (Test-Path -LiteralPath $bgeRoot)) {
         Write-Host ("  GraXpert BGE dir not found: {0}" -f $bgeRoot) -ForegroundColor DarkGray
-        Write-Host "  -> install GraXpert (https://github.com/Steffenhir/GraXpert) and run it at least once to populate the model cache, then re-run this script." -ForegroundColor DarkGray
+        Write-Host "  -> install GraXpert (https://github.com/Dark-Matters-Astro/GraXpert/releases) and run it at least once to populate the model cache, then re-run this script." -ForegroundColor DarkGray
         return $false
     }
 
