@@ -22,8 +22,8 @@ a core's few stars vanish in the count. These rows take the INPUT as their refer
              it, or a halo taken with it, does, and so does the skirt of a bright star rightly taken (a star 1.3 px
              wide leaves 2 % of its peak at the median's centre; 40 stars up to 3000 sigma on a synthetic nebula read
              0.08). So the figure has a floor, and it is read beside a judge's figure.
-  standing   of the INPUT's compact peaks on the nebula (local maxima of the 1 px less 4 px band over 14 pixel sigmas,
-             which is 54 sigmas of that band's own noise), the share that keeps over half its height in the starless
+  standing   of the INPUT's compact peaks on the nebula (local maxima of the 1 px less 4 px band over 14 pixel sigmas;
+             see STRONG for what that is in the band's own sigmas), the share that keeps over half its height in the starless
              image, and the same for the brightest tenth of them, with the counts: the tenth is 18 peaks on the Lagoon
              and 77 on the Tarantula, so a figure of the Lagoon moves in steps of 5.6 %. A nebula knot is such a peak
              too and no remover takes it, so the figure has a floor that a judge's output shows; a star put back inside
@@ -42,10 +42,14 @@ from astropy.io import fits
 from scipy.ndimage import gaussian_filter, maximum_filter, median_filter, uniform_filter
 
 BLOCK, FILTER, NEBULA_SIGMA, BORDER = 8, 7, 20.0, 32
-# A compact peak counts from STRONG pixel sigmas in the band (gauss 1 px - gauss 4 px). White pixel noise of 1 leaves
-# BAND_NOISE in that band (0.2567 measured on 2048 x 2048, 0.257 by the kernels' sums), so the bar is 54.5 sigmas of the
-# band's own noise. The first version took the band's noise for 0.28 and called this bar 50 sigma (#2247); the bar itself
-# is unchanged, 50 x 0.28, so every figure made with it stays comparable.
+# A compact peak counts from STRONG pixel sigmas in the band (gauss 1 px - gauss 4 px), the pixel sigma being the one
+# rows() reads off the differences of neighbouring pixels. That is the bar's only true name. In the band's own sigmas it
+# depends on the frame: WHITE pixel noise of 1 leaves BAND_NOISE in the band (0.2567 measured on 2048 x 2048), which would
+# make it 54.5; but a stacked master's noise is correlated, so the difference reading is low, and its band holds faint
+# stars as well. On the three masters the band scatters by 1.46, 1.30 and 0.65 pixel sigmas (1.4826 MAD: Andromeda,
+# Tarantula, Sagittarius), so the bar is 9.6, 10.8 and 21.6 of the band's own sigmas there (#2262). The first version
+# took the band's noise for 0.28 and called the bar 50 sigma (#2247). The bar itself is unchanged, 50 x 0.28, so every
+# figure made with it stays comparable.
 STRONG, BAND_NOISE = 50.0 * 0.28, 0.257
 
 
@@ -107,8 +111,8 @@ def line(name, r):
         return f"neb {name}: no bright extended light; added over the frame {r['added_frame']:.2f} %"
     return (f"neb {name}: nebula {r['nebula_px']} px ({r['nebula_share']:.1f} % of the frame) | added {r['added']:.2f} % "
             f"(brightest tenth {r['added_bright']:.2f} %, frame {r['added_frame']:.2f} %) | broad taken {r['broad']:.2f} "
-            f"(brightest tenth {r['broad_bright']:.2f}) | of {r['peaks']} compact peaks of the input over {STRONG / BAND_NOISE:.0f} sigma "
-            f"of their band, standing {r['standing']:.1f} %, of the brightest tenth {r['standing_top']:.1f} % ({r['top_standing']} of {r['top']})")
+            f"(brightest tenth {r['broad_bright']:.2f}) | of {r['peaks']} compact peaks of the input over {STRONG:.0f} pixel sigmas "
+            f"in their band, standing {r['standing']:.1f} %, of the brightest tenth {r['standing_top']:.1f} % ({r['top_standing']} of {r['top']})")
 
 
 def short(name, r):

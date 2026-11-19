@@ -43,7 +43,7 @@ def test_the_bar_is_what_its_comment_says():
     band = gaussian_filter(noise, 1) - gaussian_filter(noise, 4)
     assert abs(band.std() - n.BAND_NOISE) < 0.004, band.std()
     assert n.STRONG == 50.0 * 0.28                      # the bar every figure so far was made with
-    assert 54 < n.STRONG / n.BAND_NOISE < 55
+    assert 54 < n.STRONG / n.BAND_NOISE < 55            # in the band's own sigmas for WHITE noise only; a master's differ
 
 
 def test_a_clean_removal_adds_nothing_and_leaves_no_peak():
@@ -102,7 +102,7 @@ def test_the_command_line():
         r = subprocess.run([sys.executable, "-I", str(HERE / "nebula_rows.py"), str(a), str(b), "--name", "Syn"], capture_output=True, text=True)
         assert r.returncode == 0, r.stderr
         assert re.search(r"^short: Syn neb added 0\.0% broad 0\.\d\d peaks standing 0\.0/0\.0 \(0 of 4\)$", r.stdout, re.M), r.stdout
-        assert "compact peaks of the input over 54 sigma of their band" in r.stdout, r.stdout
+        assert "compact peaks of the input over 14 pixel sigmas in their band" in r.stdout, r.stdout
         # --dir with a scorecard that is not there is an error that says so, not a TypeError.
         r = subprocess.run([sys.executable, "-I", str(HERE / "nebula_rows.py"), "--dir", d, "--config", str(Path(d) / "none.json")], capture_output=True, text=True)
         assert r.returncode == 2 and "does not exist" in r.stderr, (r.returncode, r.stderr)

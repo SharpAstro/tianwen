@@ -1,13 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
 
 /// <summary>
 /// The classical step after TianWen's own star remover (#2204, adopted 2026-11-18): where the model dug a hole under a star
 /// it removed, the hole is filled to the sky around it, and where it left a little light standing, that is lowered a little.
-/// No model is involved and nothing outside a removed star moves. This is the fourth version of the step ("floor4" in
-/// docs/plans/star-remover-training.md; the third, "floor3", drew flat patches inside bright nebula, #2243),
+/// No model is involved and nothing outside a removed star moves. This is the fifth version of the step ("floor5" in
+/// docs/plans/star-remover-training.md; the third, "floor3", drew flat patches inside bright nebula, #2243, and the fourth,
+/// "floor4", still cut square holes into nebula knots under crowded stars and lifted dark globules, #2252),
 /// ported from <c>training/star-removal/whole_floor.py</c>, with which it agrees to float rounding on whole masters
 /// (<c>training/star-removal/dig_fill_parity.py</c>).
 /// </summary>
@@ -37,6 +40,15 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// made the sky, in noise sigmas, the largest of the channels: about 1 on flat sky, 3.5 to 5 where the patches were. The
 /// whole correction (lift and lowering) is applied in full up to <see cref="TrustedSkySpread"/>, not at all from
 /// <see cref="UntrustedSkySpread"/>, and in proportion between.</item>
+/// <item><b>Only where the set as a whole is near that sky</b> (#2252). The far pixels can agree with one another, so the
+/// sky is trusted, and still not be the level under a large blob: a nebula knot between the star cores was lowered to the far
+/// sky in the square footprint of step 6's cap, and a dark globule was lifted toward it. So the plate less the sky is averaged
+/// over the set under the near sky's Gaussian, in noise sigmas, per channel. On dark sky it is a few tenths of a sigma where
+/// the step lowers (99 % under 1.0 to 1.7) and never 2 under where it fills; on a knot under crowded stars it is tens of
+/// sigmas. The lowering is applied in full while the highest channel stands under <see cref="NearSetLevel"/> over the sky
+/// and not at all from <see cref="FarSetLevel"/>. The fill is held back the same way where the lowest channel lies that far
+/// under the sky AND the input is as dark there itself, read as the input's own floor about the pixel
+/// (<see cref="InputFloorWindowPx"/>, <see cref="InputFloorRank"/>): a globule is in the input, a dig is the model's.</item>
 /// </list>
 /// <para>Absent pixels (NaN in either image, the canvas ring) are held out of every measure and stay absent.</para>
 /// <para><b>The filters are scipy.ndimage's, to the bit.</b> The constants were chosen and scored through scipy, so the
@@ -102,6 +114,24 @@ public static class DigFill
 
     /// <summary>The scatter from which nothing is corrected: about the median of where the third version drew its patches.</summary>
     public const float UntrustedSkySpread = 4f;
+
+    /// <summary>How far the set as a whole may stand from its sky, in noise sigmas, for a correction toward that sky to be
+    /// applied in full: under a hundredth of the pixels the step lowers on dark sky stand further over it, and none it fills
+    /// lies further under.</summary>
+    public const float NearSetLevel = 2f;
+
+    /// <summary>The distance from which the lowering is nothing, and the fill where the input is that dark too.</summary>
+    public const float FarSetLevel = 4f;
+
+    /// <summary>The blur of the input before its own floor is read, pixels.</summary>
+    public const double InputFloorBlurPx = 1.0;
+
+    /// <summary>The window the input's own floor is read in, pixels a side: wide enough that a star's core may cover most of
+    /// it and the floor is still the scene's.</summary>
+    public const int InputFloorWindowPx = 15;
+
+    /// <summary>The input's floor is the value this share of the way up the window's present pixels (no interpolation).</summary>
+    public const double InputFloorRank = 0.2;
 
     private const float MadToSigma = 1.4826f;
     private const float MinSigma = 1e-9f;
@@ -247,6 +277,10 @@ public static class DigFill
         // 7. How far that sky can be trusted: the largest of the channels' scatters.
         var trust = SkyTrust(o, sky, sigma, set, nearWeight, farWeight is not null, width, height);
 
+        // 8. How far the set as a whole stands from that sky: what the lowering and the fill each keep. The step is done with
+        // strongest and nearWeight, so those two planes carry the answer, and work is its scratch as it is everyone's.
+        var (stands, lies) = SetLevel(o, x, backgrounds, sigma, set, inside, present, work, strongest, nearWeight, width, height);
+
         var planes = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
@@ -293,7 +327,7 @@ public static class DigFill
                         var lifted = pinned[i] - (MathF.Min(departure, 0f) * taper[i]);
                         var up = MathF.Min(MathF.Max(lifted - oc[i], 0f), MaxLiftOfTaken * taken[i]);
                         var down = MathF.Min(MathF.Max(departure, 0f) * taper[i], MaxLoweringOfTaken * taken[i]);
-                        plane[y, px] = oc[i] + (trust[i] * (up - down));
+                        plane[y, px] = oc[i] + (trust[i] * ((lies[i] * up) - (stands[i] * down)));
                     }
                     else
                     {
@@ -323,6 +357,95 @@ public static class DigFill
             ? new Image(planes, BitDepth.Float32, max, min, starless.Pedestal, starless.ImageMeta)
             : new Image(planes, BitDepth.Float32, starless.MaxValue, starless.MinValue, starless.Pedestal, starless.ImageMeta);
         return (filled, (double)masked / n);
+    }
+
+    // Step 8, what the lowering (stands) and the fill (lies) each keep of their correction. The plate less its sky is averaged
+    // over the set under the near sky's Gaussian, in noise sigmas, per channel: the highest channel answers for the lowering,
+    // the lowest for the fill. A dig lies under its sky as a dark globule does, and only the globule is dark in the input
+    // too, so where the plate says far under, the input's own floor about the pixel is read against the same sky and the
+    // fill keeps the larger of the two weights. That floor is read at a few thousand pixels of a master.
+    //
+    // work is scratch; highest and lowest are planes the caller is done with, and come back as the two weights. Two planes
+    // are made here (the set's weight and the Gaussian's first pass) and every Gaussian runs through them. With a new plane
+    // per Gaussian this step added 233 MB to the peak of a 12 megapixel colour master and a gigabyte at 24, where the
+    // planes went uncollected; this way it adds 140 MB and under 30 MB.
+    private static (float[] Stands, float[] Lies) SetLevel(
+        float[][] plates, float[][] inputs, float[][] backgrounds, float[][] sigma, bool[] set, float[] inside, bool[] present,
+        float[] work, float[] highest, float[] lowest, int width, int height)
+    {
+        var n = width * height;
+        var between = new float[n];
+        var setWeight = Gaussian(inside, width, height, SkyBlurPx, between: between);
+        Array.Fill(highest, float.NegativeInfinity);
+        Array.Fill(lowest, float.PositiveInfinity);
+        for (var c = 0; c < plates.Length; c++)
+        {
+            var (plate, background, noise) = (plates[c], backgrounds[c], sigma[c]);
+            for (var i = 0; i < n; i++)
+            {
+                work[i] = (plate[i] - background[i]) * inside[i];
+            }
+            var level = Gaussian(work, width, height, SkyBlurPx, into: work, between: between);
+            for (var i = 0; i < n; i++)
+            {
+                var inSigmas = level[i] / MathF.Max(setWeight[i], MinWeight) / noise[i];
+                highest[i] = MathF.Max(highest[i], inSigmas);
+                lowest[i] = MathF.Min(lowest[i], inSigmas);
+            }
+        }
+
+        // The weights are made in place: highest becomes what the lowering keeps, lowest what the fill keeps.
+        var asked = new List<int>();
+        for (var i = 0; i < n; i++)
+        {
+            highest[i] = Math.Clamp((FarSetLevel - highest[i]) / (FarSetLevel - NearSetLevel), 0f, 1f);
+            lowest[i] = Math.Clamp((FarSetLevel + lowest[i]) / (FarSetLevel - NearSetLevel), 0f, 1f);
+            if (set[i] && lowest[i] < 1f)
+            {
+                asked.Add(i);
+            }
+        }
+        if (asked.Count == 0)
+        {
+            return (highest, lowest);
+        }
+
+        // The input's own floor at the asked pixels: the lowest channel's, each against its own sky and noise.
+        var half = InputFloorWindowPx / 2;
+        var floor = new float[asked.Count];
+        Array.Fill(floor, float.PositiveInfinity);
+        for (var c = 0; c < inputs.Length; c++)
+        {
+            var smooth = Gaussian(inputs[c], width, height, InputFloorBlurPx, into: work, between: between);
+            var (background, noise) = (backgrounds[c], sigma[c]);
+            Parallel.For(0, asked.Count, () => new float[InputFloorWindowPx * InputFloorWindowPx], (at, _, window) =>
+            {
+                var i = asked[at];
+                var (row, column) = (i / width, i % width);
+                var count = 0;
+                for (var y = Math.Max(0, row - half); y <= Math.Min(height - 1, row + half); y++)
+                {
+                    for (var px = Math.Max(0, column - half); px <= Math.Min(width - 1, column + half); px++)
+                    {
+                        var j = (y * width) + px;
+                        if (present[j])
+                        {
+                            window[count++] = smooth[j];
+                        }
+                    }
+                }
+                // The asked pixel is of the set, so present, and the window holds it at least.
+                var value = StatisticsHelper.NthSmallest(window.AsSpan(0, count), (int)(InputFloorRank * (count - 1)));
+                floor[at] = MathF.Min(floor[at], (value - background[i]) / noise[i]);
+                return window;
+            }, static _ => { });
+        }
+        for (var at = 0; at < asked.Count; at++)
+        {
+            var i = asked[at];
+            lowest[i] = MathF.Max(lowest[i], Math.Clamp((FarSetLevel + floor[at]) / (FarSetLevel - NearSetLevel), 0f, 1f));
+        }
+        return (highest, lowest);
     }
 
     // Step 7, the trust per pixel: 1 where the largest of the channels' scatters of the plate outside the set is under
@@ -471,8 +594,8 @@ public static class DigFill
                         {
                             var share = Math.Max(r.Total[px], MinWideWeight);
                             var mean = r.Sum[px] / share;
-                            var spread = Math.Sqrt(Math.Max((r.Squares[px] / share) - (mean * mean), 0.0)) / noise[own + px];
-                            r.Largest[px] = Math.Max(r.Largest[px], spread);
+                            var scatter = Math.Sqrt(Math.Max((r.Squares[px] / share) - (mean * mean), 0.0)) / noise[own + px];
+                            r.Largest[px] = Math.Max(r.Largest[px], scatter);
                         }
                     }
                 }
@@ -663,12 +786,15 @@ public static class DigFill
     // scipy's gaussian_filter on a float32 plane: the kernel truncated at four sigmas and normalised, the border mirrored,
     // rows first and then columns with the result rounded to float between, each sum taken in double from the centre tap
     // and then the pairs from the farthest in, which is the order scipy's symmetric correlation adds in.
-    private static float[] Gaussian(float[] src, int width, int height, double sigma)
+    //
+    // into, where given, takes the result in place of a new plane, and may be src itself (src is read whole before the
+    // result is written). between, where given, is the plane the first pass is held in, and may not be src.
+    private static float[] Gaussian(float[] src, int width, int height, double sigma, float[]? into = null, float[]? between = null)
     {
         var kernel = GaussianKernel(sigma);
         var radius = kernel.Length / 2;
         var centre = kernel[radius];
-        var mid = new float[src.Length];
+        var mid = between ?? new float[src.Length];
         Parallel.For(0, height, () => new double[width], (y, _, sum) =>
         {
             var own = src.AsSpan(y * width, width);
@@ -694,7 +820,7 @@ public static class DigFill
             return sum;
         }, static _ => { });
 
-        var dst = new float[src.Length];
+        var dst = into ?? new float[src.Length];
         Parallel.For(0, height, () => new double[width + (2 * radius)], (y, _, line) =>
         {
             var row = mid.AsSpan(y * width, width);

@@ -6922,10 +6922,12 @@ the first angle is a step after the model and not another arm:
     (its large-scale map 20 sigma over the sky): **added**, the share of it where the starless image stands over
     the input by 3 sigma of a 3 px mean, which no removal can justify; **broad taken**, the 9 px median of input
     less starless, averaged in sigma; **peaks standing**, the share of the input's compact peaks over 14 pixel
-    sigmas in their band that keep half their height, and of the brightest tenth of them. (That bar is 54 sigmas of
-    the band's own noise; it was first written as 50, the band's noise having been taken for 0.28 where it is 0.257.
-    The bar itself has not moved, #2247.) The tenth is few peaks, 77 on the Tarantula and 18 on the Lagoon, so it
-    is given as a count: one peak of the Lagoon is 5.6 %.
+    sigmas in their band that keep half their height, and of the brightest tenth of them. (The bar was first
+    written as 50 sigma, the band's noise having been taken for 0.28 of the pixel's. For white noise it is 0.257,
+    which would make the bar 54.5 of the band's own sigmas; on these masters, whose noise is correlated and whose
+    band holds faint stars too, the band scatters by 1.46, 1.30 and 0.65 pixel sigmas, so the bar is 9.6, 10.8 and
+    21.6 of them. Its one true name is 14 pixel sigmas, and it has not moved, #2247, #2262.) The tenth is few
+    peaks, 77 on the Tarantula and 18 on the Lagoon, so it is given as a count: one peak of the Lagoon is 5.6 %.
   - **Every scored folder on disk re-read, 68 of them, no training** (Andromeda / Tarantula / Sagittarius):
 
     | image | Andromeda dug % | added % | broad taken | brightest tenth of the peaks standing, of 77 on the Tarantula / of 18 on the Lagoon |
@@ -7155,7 +7157,8 @@ and the sheets are in `D:/temp/tianwen-scratch/r4-look`.
   falls from 95.5 to 89.3 and left rises from 3.6 to 10.1. Carried only by light standing over the sky by more
   than the model took: the rows hold (95.4 / 3.8) and the holes stay. The first rule over 12 px with half its
   weight as support: 92.3 / 7.2, holes fainter. The rule that removes the holes also stops the floor lowering the
-  residue of dark-sky stars whose wings stand a little over the sky.
+  residue of dark-sky stars whose wings stand a little over the sky. What does tell a knot from that residue, and
+  the step that uses it, is the next section (floor5).
 - **Two limits of the measure.** The noise reading (the input less its 5 px median) takes fine structure for
   noise: a 12 sigma ripple of period 16 to 20 px reads the noise 1.75 times too high, so the scatter in noise units
   is low exactly where structure is fine. And it is one number per pixel for both the lift and the lowering.
@@ -7222,6 +7225,151 @@ and the sheets are in `D:/temp/tianwen-scratch/r4-look`.
     |---|---|---|---|
     | 12.2 megapixel colour (the Andromeda master) | 2,405 MB, 7.4 s | 4,545 MB, 11.1 s | 2,738 MB, 8.5 s |
     | 24.4 megapixel colour (that master joined to its mirror image) | 5,509 MB, 14.8 s | 12,393 MB, 24.0 s | 5,143 MB, 16.5 s |
+
+#### The dig floor where the set stands far from its sky: floor5 (2026-11-20)
+
+**Issue:** #2252 (a square hole where a bright star sits on a bump of nebula, which floor4 does not reach).
+
+floor4 trusts the sky it corrects to when the plate outside the removed-star set is smooth there. Inside a set that is
+one large blob (crowded stars, or a model that takes broad light) that sky is spread in from the blob's far edges, and
+the far pixels can agree with one another without being the level under the blob. Two things floor4 still does there,
+both found by looking at its plates: it **lowers a nebula knot** between the star cores to the far sky, and it **lifts
+a dark globule** toward it. The instruments named below (`holes_look.py`, `floor5.py`, `floor5_diag.py`,
+`floor5_squares.py`, `floor5_left.py`, `floor5-final.sh`, `floor5_read.py`, `digfill-bench5.ps1`) are working files in
+`C:/temp/e2/explore` on the development machine, and the sheets are in `D:/temp/tianwen-scratch/r4-look`.
+
+- **What the holes are** (`holes_look.py`; R4c seed 0, the Tarantula, each spot at 10x beside the input, the plate as
+  trained and StarXTerminator's). At (1601, 710), (1351, 1408) and (1568, 699) the model took a star of 523, 561 and
+  945 sigma and left the knot it sat on: the plate under the star stands 14.1, 9.5 and 1.2 sigma over its
+  surroundings as trained (StarXTerminator 18.5, 11.1 and 22.7), and floor4 takes it to 5.6, 5.1 and -1.3, lowering
+  by up to 10.9, 7.0 and 12.8 sigma. The light it lowers is the nebula's: its colour is R:G:B 3.8:1:0.6, 2.9:1:0.7 and
+  4.8:1:1.1 against 1.3:1:0.9, 1.6:1:0.8 and 1.7:1:0.8 for what the model took as the star. The lowering is cut by its
+  cap (a twentieth of what the model took, the largest within 2 px), per channel, so it shows as a 5 px square of
+  another colour. Every star on the knot gets one; most are 2 to 3 sigma deep.
+- **The other side, the fill.** At (1088, 1339) a dark globule with bright stars on it lies 3.9 sigma under its
+  surroundings as trained and 4.2 on StarXTerminator's plate; floor4 lifts it to 2.7 under, a grey patch with a bright
+  spot of 8 sigma. At (1363, 1445), which the floor4 section records, the hole is the model's (StarXTerminator fills
+  that place) and the fill is right; its stepped edge is the trust's, and stays.
+- **Size does not separate a knot from residue** (`floor5.py` variants `lf3`, `lf4`: the lowering stops at the plate's
+  own floor about the pixel, its opening with a disc of 3 or 4 px). The floor stands over the sky on 58 to 84 % of the
+  set and 57 to 78 % of floor4's lowering is given up, on dark sky too: Tarantula dark flat falls from 95.5 to 68.2
+  and 71.7 (left 31.3 and 27.8), Andromeda dark flat to 90.8 and 94.6. The light a model leaves under a dark-sky
+  star is as broad as a knot. This is the pedestal rules' failure again (floor4 section), reached another way.
+- **How far the set as a whole stands from its sky does** (`floor5_diag.py`). The plate less the sky, averaged over
+  the set under the Gaussian of the near sky (4 px), in pixel noise, per channel. Where floor4 lowers by over 0.3
+  sigma, the highest channel (R4c seed 0; dark sky is where the input's large-scale map stands under 5 sigma over
+  the frame's sky, bright extended light over 20):
+
+  | where floor4 lowers | Andromeda | Tarantula | Sagittarius |
+  |---|---|---|---|
+  | dark sky, 10th / 50th / 90th / 99th percentile | 0.19 / 0.42 / 0.77 / 1.68 | 0.26 / 0.52 / 0.89 / 1.61 | 0.06 / 0.21 / 0.41 / 1.01 |
+  | dark sky, share over 2 sigma: of the pixels / of the lowering | 0.6 / 2.3 % | 0.6 / 1.1 % | 0.2 / 0.5 % |
+  | bright extended light, 10th / 50th / 90th / 99th | 0.43 / 1.31 / 78 / 674 | 5.6 / 22.9 / 117 / 178 | 0.30 / 9.0 / 46 / 100 |
+  | bright extended light, share over 2 sigma: of the pixels / of the lowering | 31 / 68 % | 99.1 / 99.7 % | 77 / 88 % |
+
+  At the three holes it reads 29.4, 15.8 and 5.6.
+- **The same measure for the fill, and why it needs the input.** Where floor4 lifts by over 0.3 sigma on dark sky the
+  lowest channel lies 0.2 to 0.4 sigma under the sky at the median and 0.6 to 1.2 at the 1st percentile; not one
+  pixel in a thousand lies 2 under. On bright extended light 13, 16 and 37 % of the lifted pixels do (38, 21 and 67 %
+  of the lift), and the globule reads -4.9. Eight of those places were looked at: M31's dust lanes, the Lagoon's
+  lanes and globule, the two Tarantula spots. But a real dig on bright nebula lies as far under: a gate on the
+  plate's level alone (`lw`) left one more M42 star dug in two bands of the tiles (100-1000: 5.1 to 5.9 %, saturated:
+  6.3 to 7.4 %). What tells the two apart is the input: a globule is dark there too, a dig is the model's. So where
+  the plate says far under, the input's own floor about the pixel is read against the same sky: the value a fifth of the way up its 1
+  px-smoothed values, over a 15 px window, so that a star may cover most of the window. The globule
+  stays dark and the dig at (1363, 1445) is filled as before.
+- **floor5** (`whole_floor.py` mode `floor5`, `dig_floor.py --level 2 4` with `--fade 2 4`): floor4, and
+  1. the lowering is multiplied by a weight that is 1 while the set's highest channel stands under 2 sigma over its
+     sky, 0 from 4, linear between;
+  2. the fill (pinholes and lift) is multiplied by a weight that is 1 unless the set's lowest channel lies 2 to 4
+     sigma under its sky AND the input's own floor does: the larger of the two weights.
+
+  It changes 0.05 % of Andromeda's values against floor4, 0.5 % of the Tarantula's and 0.05 % of Sagittarius's.
+- **Explored on R4c seed 0, the model the rule was read on, so NOT a held-out read** (`floor5-final.sh`: the repo's
+  two scripts, the scorecard, the nebula rows, the tiles). The count in the middle is `floor5_squares.py`: pixels of
+  extended light (the input's large-scale map over 5 sigma above the sky) that a step moves by over 3 pixel-noise
+  sigmas against the plate as trained, in any channel.
+
+  | R4c seed 0 | as trained | floor4 | floor5 |
+  |---|---|---|---|
+  | Andromeda dark flat / dug | 47.2 / 45.9 | 98.2 / 0.9 | 98.2 / 0.9 |
+  | Tarantula dark flat / left | 64.9 / 33.1 | 95.5 / 3.6 | 95.5 / 3.7 |
+  | Tarantula crowded / BP 17-19 / Sagittarius crowded | 85.2 / 95.5 / 97.2 | 90.4 / 96.0 / 97.9 | 90.3 / 96.0 / 97.9 |
+  | M31 nucleus taken, % | 24.4 / 37.0 / 29.4 | as trained | as trained |
+  | nebula, light added, % | 0.0 / 0.0 / 0.0 | 0.1 / 0.8 / 0.3 | 0.1 / 0.7 / 0.3 |
+  | nebula, broad light taken | 3.04 / 5.39 / 2.64 | 3.07 / 5.63 / 2.63 | 3.07 / 5.49 / 2.61 |
+  | extended light LOWERED by over 3 sigma, px (floor3: 1,546 / 5,206 / 1,164) | | 244 / 2,078 / 60 | 23 / 22 / 0 |
+  | extended light lifted by over 3 sigma, px | | 102,005 / 8,221 / 428 | 101,956 / 7,954 / 429 |
+  | tiles by count, clean, 20-100 / 100-1000 / 1000 and over / saturated | 98.8 / 94.9 / 86.7 / 81.1 | 99.4 / 99.3 / 100.0 / 91.6 | 99.4 / 99.3 / 100.0 / 91.6 |
+  | M42 100-1000, clean / dug | 61.0 / 36.8 | 94.1 / 5.1 | 94.1 / 5.1 |
+  | saturated, dug / left | 16.8 / 5.3 | 6.3 / 4.2 | 7.4 / 4.2 |
+  | twin error under the mask, rms | 2.592 | 1.049 | 1.053 |
+
+  One more saturated star of M42 reads dug (one of 95); it is the lowering's gate that does it, not the fill's (the
+  tiles with the lowering's gate alone read the same 7.4).
+- **Looked at** (`holes-r4c_synth28_s0-lx.png` and `-lv.png`, 10x; `fills-r4c_synth28_s0-a.png` and `-b.png`). The
+  three knots keep their light and no square is left on them; the globule at (1088, 1339) stays as dark as the model
+  left it, with the pits the model dug where its stars were; the dig at (1363, 1445) is filled as floor4 fills it,
+  stepped edge included; M31's dust lanes and the Lagoon's globule are unchanged.
+- **Pre-registered for R3v seed 0 and R4d seed 0 (2026-11-20; no floor5 score of either exists, and neither was
+  looked at while the rule was made).** floor5 exactly as above (`whole_floor.py <w-tag> floor5`,
+  `dig_floor.py <model> floor --pin 2.5 --cap-up 2 --cap-down 0.05 --fade 2 4 --level 2 4 --tag floor5`), each
+  model's own plate as trained, read against the SAME model's floor4 from the same run of each check. The sheets at
+  the five places above and at each model's three strongest lowerings left on extended light are looked at before
+  the rows. On each of the two models:
+  1. **The question:** the pixels of extended light lowered by over 3 sigma are at most a fifth of floor4's, on
+     every master where floor4 has 100 or more.
+  2. **Guards, whole masters** (floor4's figure less or plus the margin): Andromeda dark flat and Tarantula dark
+     flat not lower by more than 0.5; Andromeda dug and Tarantula left not higher by more than 0.5; Tarantula
+     crowded, BP 17-19 and Sagittarius crowded not lower by more than 0.5; the M31 nucleus row not above the
+     as-trained row in any channel; nebula light added not higher than floor4's by more than 0.1 on any master, and
+     broad light taken not higher than floor4's by more than 0.02.
+  3. **Guards, tiles by star count:** clean at 20-100, 100-1000 and 1000 and over not lower by more than 0.3;
+     saturated clean not lower by more than 1.1 (one star of 95) and saturated dug not higher by more than 2.1
+     (two stars); M42 100-1000 dug not higher by more than 0.8 (one star of 136); the twin error under the mask not
+     higher by more than 0.02.
+- **Read (2026-11-20): every bar holds on both models** (`floor5_read.py`). The sheets first
+  (`floor5-spots-<model>.png`, `floor5-left-<model>.png`). On both models the three knots keep their light and no
+  square is left on them, where floor4's plates show squares at two of the three (red on R4d and faint on R3v at
+  (1601, 710), dark on both at (1568, 699)); the globule stays dark; the dig at (1363, 1445) is filled as floor4 fills it, stepped edge
+  included, and on R4d a grey triangle of fill beside it stays as well. The strongest lowerings left on extended
+  light, 3.4 to 4.0 sigma, lie on the residue of bright stars (the Tarantula at (600, 1390) and (528, 380) on R3v,
+  at (1401, 1495) on R4d), not on nebula. Then the rows:
+
+  | | R3v seed 0: as trained | floor4 | floor5 | R4d seed 0: as trained | floor4 | floor5 |
+  |---|---|---|---|---|---|---|
+  | extended light lowered by over 3 sigma, px, And / Tar / Sag (the question: at most a fifth of floor4's where that is 100 or more) | | 571 / 3,344 / 21 | **94 / 127** / 0 | | 213 / 1,863 / 13 | **23 / 21** / 0 |
+  | extended light lifted by over 3 sigma, px | | 120,921 / 19,677 / 274 | 120,893 / 19,240 / 271 | | 101,485 / 11,913 / 450 | 101,414 / 11,468 / 425 |
+  | Andromeda dark flat / dug | 69.5 / 22.4 | 97.6 / 1.0 | 97.6 / 1.0 | 69.4 / 19.5 | 98.5 / 0.7 | 98.5 / 0.7 |
+  | Tarantula dark flat / left | 71.9 / 16.0 | 93.8 / 5.0 | 93.7 / 5.1 | 80.3 / 14.3 | 96.5 / 2.7 | 96.5 / 2.7 |
+  | Tarantula crowded / BP 17-19 / Sagittarius crowded | 83.8 / 92.4 / 93.7 | 88.7 / 92.9 / 95.5 | 88.7 / 92.8 / 95.5 | 86.7 / 95.4 / 96.4 | 91.3 / 96.0 / 97.0 | 91.3 / 96.0 / 97.0 |
+  | M31 nucleus taken, % | -1.0 / 5.1 / 1.2 | as trained | as trained | 2.8 / 6.6 / 9.7 | as trained | as trained |
+  | nebula, light added, % | 0.0 / 0.1 / 0.1 | 0.1 / 1.2 / 0.3 | 0.1 / 1.1 / 0.3 | 0.0 / 0.0 / 0.0 | 0.1 / 0.8 / 0.3 | 0.1 / 0.7 / 0.3 |
+  | nebula, broad light taken | 2.73 / 3.56 / 0.56 | 2.77 / 3.55 / 0.57 | 2.77 / 3.45 / 0.56 | 2.88 / 5.86 / 2.67 | 2.90 / 6.03 / 2.67 | 2.90 / 5.91 / 2.65 |
+  | tiles by count, clean, 20-100 / 100-1000 / 1000 and over / saturated | 98.9 / 94.9 / 87.2 / 78.9 | 99.3 / 99.2 / 100.0 / 89.5 | 99.3 / 99.2 / 100.0 / 90.5 | 98.8 / 95.6 / 91.5 / 85.3 | 99.3 / 99.2 / 100.0 / 93.7 | 99.4 / 99.2 / 100.0 / 93.7 |
+  | M42 100-1000, dug | 42.6 | 5.9 | 5.9 | 34.6 | 5.9 | 5.9 |
+  | saturated, dug (bar: at most 2.1 higher) | 16.8 | 8.4 | 7.4 | 10.5 | 4.2 | 5.3 |
+  | twin error under the mask, rms (bar: at most 0.02 higher) | 1.920 | 0.992 | 1.006 | 2.260 | 1.073 | 1.078 |
+
+  - **Nearest their bars:** R3v's Andromeda count, 94 of 571 (16 %, the bar a fifth), and R3v's twin error, 0.014
+    higher of the 0.02 allowed: where a twin's star was drawn on bright structure, the residue the model leaves under
+    it is no longer lowered. One saturated star more reads dug on R4d and one fewer on R3v.
+  - **What floor5 does not do.** A fill that the trust lets through in part still ends in a stepped edge (the wedge
+    at (1363, 1445), R4d's triangle beside it). Inside a globule the fill is held back as a whole, so the pits the
+    model dug where its stars were stay as dug. A knot narrower than the core of the star on it reads as residue and
+    is lowered. And the lowering is still cut per channel, so what it does take can change a colour.
+  - **The product is the script, bit for bit.** `dig_fill_parity.py` on R4c seed 0: `tianwen image fill-digs` against
+    `whole_floor.py floor5`, no value different on the three masters (seven planes). Two tests hold the two gates:
+    a knot under stars 5 px apart is left bit for bit where a faint one is lowered, and one plate with a dip of 14
+    sigmas is left alone where the input holds the dip and filled where the input is level.
+  - **Cost** (`digfill-bench5.ps1`, each case run alone three times; peak working set the largest of the three,
+    time the fastest). The step reuses two planes it is done with and runs its Gaussians through two of its own;
+    with a new plane per Gaussian it added 233 MB at 12.2 megapixels and a gigabyte at 24.4.
+
+    | frame | floor4 | floor5 |
+    |---|---|---|
+    | 12.2 megapixel colour (the Andromeda master) | 2,738 MB, 8.5 s | 2,878 MB, 9.3 s |
+    | 24.4 megapixel colour (that master joined to its mirror image) | 5,054 MB, 16.3 s | 5,081 MB, 18.2 s |
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
