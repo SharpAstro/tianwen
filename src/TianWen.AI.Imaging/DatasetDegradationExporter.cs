@@ -223,9 +223,11 @@ namespace TianWen.AI.Imaging
         /// cross-correlations were drawn at, 1 when the fit reached them, below it when they were shrunk toward independent.</param>
         /// <param name="NoiseScale">Stars mode: the times the master's noise the pair's plate carries (<see cref="Options.NoiseScale"/>,
         /// #1947); null when it carries the master's own.</param>
-        /// <param name="PlateNoiseRatio">Stars mode without <see cref="Options.NoiseAsRecorded"/> (#1786): per channel, the starless
-        /// plate's noise over the master's recorded one, as read; a channel under 1 was drawn at that share of the recorded level.
-        /// Null without the option.</param>
+        /// <param name="PlateNoiseRatio">Stars mode (#1786): per channel, the starless plate's noise over the master's recorded
+        /// one, AS READ. A channel from <c>StretchedNoise.MinPlateNoiseRatio</c> to under 1 was drawn at that share of the
+        /// recorded level; a channel at 1 or more, or under the minimum (a plate too quiet to be the master less its stars),
+        /// was drawn at the recorded level. Null where nothing was read: with <see cref="Options.NoiseAsRecorded"/>, under
+        /// a <see cref="Options.NoiseScale"/>, and for a plate with no block to read.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
