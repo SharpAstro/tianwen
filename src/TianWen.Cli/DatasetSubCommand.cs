@@ -1955,8 +1955,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "read off the master with its stars in, which in a crowded field overstates the noise between the stars " +
                           "(1.11 to 1.17 times on the Lobster master). The bounded level is the noise draw's, the injection floor's, a " +
                           "star's significance's and the conditioning plane's; a synthetic background's knots and kept cores and the " +
-                          "faint stars' cap keep the recorded level. The log and each row's PlateNoiseRatio carry the ratio. With " +
-                          "--noise-scale the level is not bounded.",
+                          "faint stars' cap keep the recorded level. The log and each row's PlateNoiseRatio carry the ratio. A " +
+                          "plate that cannot be read, or reads under half its master, keeps the recorded level. With --noise-scale " +
+                          "the level is not bounded (it stays comparable with the earlier noise-scale exports).",
         };
         var haloOverPlateOpt = new Option<bool>("--halo-over-plate")
         {

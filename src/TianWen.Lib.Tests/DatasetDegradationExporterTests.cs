@@ -1845,8 +1845,19 @@ namespace TianWen.Lib.Tests
             lowered.ShouldBeGreaterThan(0, "no channel of the fixture's plate reads under its record, so the lowering was not exercised");
 
             var scaled = bounded with { OutDir = Path.Combine(_root, "stars-from-plate-scaled"), SyntheticBackground = false, KeptCores = false, NoiseScale = 4.0 };
+            var scaledRecorded = scaled with { OutDir = Path.Combine(_root, "stars-recorded-scaled"), NoiseAsRecorded = true };
             (await DatasetDegradationExporter.RunAsync(scaled, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
-            ReadDegradationRows(scaled.OutDir).ShouldAllBe(static r => r.PlateNoiseRatio == null);
+            (await DatasetDegradationExporter.RunAsync(scaledRecorded, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var scaledRows = ReadDegradationRows(scaled.OutDir);
+            var scaledRecordedRows = ReadDegradationRows(scaledRecorded.OutDir);
+            scaledRows.Length.ShouldBeGreaterThan(0);
+            scaledRows.Length.ShouldBe(scaledRecordedRows.Length);
+            scaledRows.ShouldAllBe(static r => r.PlateNoiseRatio == null);
+            foreach (var row in scaledRows)
+            {
+                row.OneSubSigmaPerChannel.ShouldNotBeNull().ShouldBe(scaledRecordedRows.Single(r => r.Tile == row.Tile).OneSubSigmaPerChannel.ShouldNotBeNull(),
+                    "under a noise scale the level is the recorded one");
+            }
         }
 
         /// <summary>

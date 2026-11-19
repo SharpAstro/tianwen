@@ -570,10 +570,16 @@ public static partial class DatasetDegradationExporter
                 }
                 if (!StretchedNoise.TryEstimateCalibration(unitPlate, stretches, absent, out plateNoise))
                 {
-                    throw new InvalidOperationException($"{sessionId}: the starless plate has no block to read its noise from");
+                    // As a plate too quiet to believe: the session is drawn at the recorded level, and says so.
+                    logger?.LogWarning("[degrade] {Session}: the starless plate has no block to read its noise from; the session keeps the recorded level", sessionId);
                 }
             }
+            else if (options.NoiseScale is not null && !options.NoiseAsRecorded)
+            {
+                logger?.LogInformation("[degrade] {Session}: under a noise scale the level is the recorded one, not bounded by the plate's", sessionId);
+            }
             double[]? plateNoiseRatio = null;
+            var plateNoiseUnbelieved = false;
             // Synthetics S4: the plate is the master less its fitted stars, so its noise is the master's own, with most of the
             // shared light a faint star would add to a correlation taken out with the stars.
             var noiseCorrelation = options.ChannelNoiseCorrelation && channels > 1 ? ChannelNoiseCorrelation.Measure(unitPlate, absent) : null;
@@ -723,13 +729,14 @@ public static partial class DatasetDegradationExporter
                     calibrations = StretchedNoise.BoundedByPlate(calibrations, plateNoise, masterDepth, out var ratios);
                     if (plateNoiseRatio is null)
                     {
-                        logger?.LogInformation("[degrade] {Session}: the plate's noise over the master's recorded {Ratio}; a channel under 1 is drawn at that share",
-                            sessionId, string.Join(" / ", ratios.Select(static r => r.ToString("F3", CultureInfo.InvariantCulture))));
-                        if (ratios.Any(static r => r < StretchedNoise.MinPlateNoiseRatio))
-                        {
-                            logger?.LogWarning("[degrade] {Session}: a channel of the plate reads under {Min} of its master's noise, which no master less its stars does; that channel keeps the recorded level",
-                                sessionId, StretchedNoise.MinPlateNoiseRatio);
-                        }
+                        logger?.LogInformation("[degrade] {Session}: the plate's noise over the master's recorded {Ratio}; a channel from {Min} to under 1 is drawn at that share, any other at the recorded level",
+                            sessionId, string.Join(" / ", ratios.Select(static r => r.ToString("F3", CultureInfo.InvariantCulture))), StretchedNoise.MinPlateNoiseRatio);
+                    }
+                    if (!plateNoiseUnbelieved && ratios.Any(static r => r < StretchedNoise.MinPlateNoiseRatio))
+                    {
+                        plateNoiseUnbelieved = true;
+                        logger?.LogWarning("[degrade] {Session}: a channel of the plate reads under {Min} of its master's noise ({Ratio}, cell x{X} y{Y}), which no master less its stars does; that channel keeps the recorded level",
+                            sessionId, StretchedNoise.MinPlateNoiseRatio, string.Join(" / ", ratios.Select(static r => r.ToString("F3", CultureInfo.InvariantCulture))), cell.X, cell.Y);
                     }
                     plateNoiseRatio = ratios;
                 }
