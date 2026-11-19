@@ -496,7 +496,11 @@ per rule and points here.
   `N2nLinearRunner`, whose `RestoreLevel` would put the removed starlight back as a haze.
   `docs/plans/star-remover-training.md`, "A whole-frame runner". **Core protection (on by default, `--no-protect-cores` turns it off, `ExtendedCoreMask`,
   #1658) is applied in the split, `NarrowbandCombination.SplitStarsAsync`, never inside a remover**, so a galaxy's nucleus
-  is kept from RC-Astro's remover as from ours.
+  is kept from RC-Astro's remover as from ours. **On a plate-solved master the catalogued stars inside a core stay
+  removed** (`CoreStars`, #2242): a compact peak there is a star when a catalogued star lies on it and can carry its
+  light, and its footprint is left out of what the mask puts back. The stars come from the star database ASTAP installs
+  where there is one, else from the embedded Tycho-2 (`CatalogFrameStars`); with no solution or no catalogue the core
+  takes its stars back as before. `image protect-cores` is the step alone.
 - **TianWen's own remover's plate has its digs filled, by default** (`DigFill`, #2204, adopted 2026-11-18). Our models
   dig a hole under many of the stars they take, which is most of their gap to StarXTerminator. `DigFill.Apply` is a
   classical step with no model in it: where a star was taken (input less plate over 1.5 noise sigmas, grown 2 px) it

@@ -245,7 +245,8 @@ var rootCommand = new RootCommand
             // `deblur` / `denoise` verbs say so themselves; every other verb must still work.
             services.GetService<IImageDeblurrer>(),
             services.GetService<IDenoiseEnhancer>(),
-            services.GetService<ILogger<ImageSubCommand>>()).Build(),
+            services.GetService<ILogger<ImageSubCommand>>(),
+            services.GetService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
         new DatasetSubCommand(
             consoleHost,
             // GetService: only gradient-report solves anything, and a host with no catalog must still build a dataset.
