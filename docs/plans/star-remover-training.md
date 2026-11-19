@@ -7001,16 +7001,84 @@ the first angle is a step after the model and not another arm:
     the training sessions of the scored fields, by 4 to 18 % (the ratios above), and the crowded flat fell all the
     same.
   - **What the read says, on one seed.** Drawing the noise at the plate's own level, a median of 8 % under the
-    record, does not move the crowded rows toward StarXTerminator: more crowded stars are left (14.3 % against
-    11.8 % as trained, 8.9 % against 7.7 % with the chain; the crowded flat itself lay 0.0 to 0.1 apart between
-    seeds on the three recipes run twice). BP 17-19 is 1.3 lower, which is inside a seed's spread and is not
-    counted here. What it does change is on dark sky and in cores: less dug under Andromeda's bright stars and less of M31's nucleus taken as trained, both
+    record, does not move the crowded rows toward StarXTerminator: more crowded stars are left, 8.9 % against 7.7 %
+    with the chain (the crowded flat lay 0.0 to 0.1 apart between seeds with floor3, on the three recipes run twice,
+    none of which draws faint stars) and 14.3 % against 11.8 % as trained, where no seed spread is measured. BP
+    17-19 is 1.3 lower, which is inside a seed's spread and is not counted here. What it does change is on dark sky
+    and in cores: less dug under Andromeda's bright stars and less of M31's nucleus taken as trained, both
     of which the product's post steps already cover. The Lagoon's broad light and the Tarantula's glow read worse.
     So the level of the training noise is not what holds the crowded fields, as the cap was not (R4d) and the
     faint stars were only in part (R4c). The cause the plan holds is still the one no arm has changed: the grain in
     the truth plate ("The crowded gap is in the truth plate" and "#2203 step 2" above). **The arm stops here.
     Nothing is adopted;** the bound stays the export's default, which is #1786's decision and not this arm's, and
     whether it should is the owner's to weigh from the rows above.
+- **R4f, pre-registered 2026-11-20 before any export or score of it. One change from R4d: the plates the targets are
+  drawn from have the grain of unresolved stars taken out of crowded sky (#2203).** The owner, 2026-11-20, asked
+  which arm comes next after R4e's read: the grain-free targets on Azure, and a second arm on the 1070 (its own
+  registration). Three arms changed the INPUT (R4c the stars under the catalogue, R4d their cap, R4e the noise's
+  level) and none closed the crowded flat; this one changes the TARGET. synth31 = synth29's line exactly (R4d's:
+  `bh-bin8`, `--faint-stars 3,1`, `--star-beta-draw 0.3,1.3,6,3`, `--saturated-own-share --saturated-measured
+  --halo-over-plate`), with `export-synth.ps1 -PlatesRoot` naming the starless root whose plates went through
+  `plate_grain.py` (T = 2, run over all 201 stored plates on 2026-11-18, the prototype of "#2203 step 2" above) and
+  whose side files are the store's own, hard-linked beside them (`grain_store.py`). R3v's model and recipe, seed 0, a
+  Batch job that removes itself (tag `r4faz`). The upload is capped at 10 Mb/s.
+  - **What the plates are, looked at first** (`grain_look.py`, six plates at 1:1, stored beside the rule's). 160 of
+    the 201 plates are changed and 41 left as they are (under eight crowded blocks). On a changed plate the rule
+    smooths a median of 51 % of the pixels, and 92 to 98 % on the most crowded (eta Carinae at 135 mm, the Rosette,
+    Vela, the Lagoon and Trifid, Omega Centauri). The pepper of faint stars the stored plates carry across such a
+    frame is gone, the broad glow and the dark lanes stay, and a bright compact knot is kept whole. Two things to
+    know: where a nebula's detail between 7 and 31 px is weak it is smoothed with the grain (the thin dark lanes of
+    the Lagoon and Trifid plate come back softer), and the bright and dark pairs the builder left at bright stars are
+    kept and now stand out of a smooth field. One pixel of one plate is newly absent (a Centaurus A plate's red, at
+    its right edge); no other plate gained an absent pixel.
+  - **What that changes in the tiles, checked before the export** (`r4f-check.ps1`: the store's Tarantula session
+    of 2024-10-02 and the three Helix sessions of 2025-08-09, exported with this line from both roots;
+    `tile_grain.py`). The sparse sessions' 120 target tiles are the same bytes from either root. The Tarantula's 40
+    all differ: their texture between a 3 px and a 31 px box, in the tile's pixel noise, has a median of 0.78 /
+    0.83 / 0.67 from the stored plate and 0.63 / 0.63 / 0.58 from the rule's (R / G / B), and a 90th percentile of
+    3.73 / 3.75 / 4.45 against 1.27 / 1.60 / 1.20; the mean level is the same to two decimals. So the targets of a
+    crowded session lose little in most cells and two thirds of their texture in the most textured ones.
+  - **Two more differences from R4d, both small, neither chosen.** (1) The export draws its nebula knots where the
+    plate's fine scales hold signal, so with the grain gone fewer are drawn in crowded sky: 27 knots over the
+    Tarantula session's 40 cells from the stored plate, 19 from the rule's. (2) R4d trained on the GTX 1070 and
+    this arm trains on the T4. R4a's two seeds, one on each machine, read 88.5 and 88.5 on the crowded flat.
+  - **A defect of the exporter found on the way** (read on synth29 and synth30; by the code it is in every export
+    that lays its nebula knots along a steer): an elongated nebula knot laid along an orientation that is not a
+    number is drawn as a square of NaN, 29 to 43 px, which the tile carries as zeros in the target and in all four
+    input draws (`knot_angles.py`, `tile_holes.py`). synth29 and synth30 each hold 64 such knots of 1,052 elongated
+    ones, in 54 of 5,520 cells (1.0 %) and 16 sessions, 11 of the cells on the Tarantula session. With the rule's
+    plates that session has none. It is fixed apart from this arm; `bh-bin8` keeps it, so the other sessions'
+    squares are in synth31 as they are in synth29.
+  - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
+    through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
+    91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
+  - **Guards, through the same chain,** R4c's: by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and
+    over (the tiles with floor5); M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat
+    at least 95 and dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 of zero on
+    Andromeda and within 500 on the Tarantula; the M31 nucleus under 10 %; purity at most 1.0 %; the Sagittarius
+    crowded flat at least 96.3. R4d's own: the light taken from the Tarantula field (green, the densest tenth of
+    cells and the whole frame) at most 83 % and 84 % (R4d 81 and 82).
+  - **Nebula guards, as trained** (the rule since 2026-11-19; R4d reads added 0.0 / 0.0 / 0.0, broad 2.88 / 5.86 /
+    2.67, 17 of 77 and 0 of 18 standing): light added on at most 1.0 % of each master's nebula; the Lagoon's broad
+    light taken at most 4.0 (seeds of one recipe have stood up to 1.3 apart on it); of the brightest tenth of the
+    Tarantula's peaks at least 11 of 77 standing (R4c's, the fewest of the faint-star arms; StarXTerminator 17).
+  - **Kill:** a guard fails, or the crowded flat under R4d's 91.3. Between 91.3 and 93.3 with every guard held it
+    neither passes nor is killed; the rows go to the owner.
+  - **Reported, no bar:** every row as trained (R4d: Andromeda dark flat 69.4 with 19.5 dug, Tarantula dark flat
+    80.3, Tarantula crowded 86.7, BP 17-19 95.4); Gaia BP 17-19 through the chain (R4d 96.0); the grain in the
+    Tarantula's dense cells 4,4 and 5,4 (`band.py`, R4d 4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6); the band of 30
+    Doradus's core, cell 4,6, which carries no bar because two seeds of one recipe have stood 39 to 75 % apart on
+    it (R4d 44.4 / 49.4 / 39.7, R4e 76.0 / 83.9 / 71.2); the twin error.
+  - **Looked at before the rows are quoted:** the Lagoon's core, 30 Doradus's core, the Tarantula's knots, a
+    crowded Tarantula field, M31's nucleus and a bright star on dark sky, as trained and through the product's
+    chain, beside R4d and StarXTerminator. The crowded field is where a pass should show (StarXTerminator's is
+    smooth, ours mottled); the Lagoon's lanes are where the rule's smoothing would show as a cost.
+  - **Prediction:** the dense cells' grain as trained falls by a quarter to a half, since the target no longer
+    holds it, and the crowded flat rises by 1 to 3 points, short of the bar or just at it. The Lagoon's broad
+    light taken rises toward its guard, because a model taught that crowded sky is smooth has less reason to keep
+    weak detail there. If the crowded flat does not move, the grain in the target is not what holds the crowded
+    fields either, and what is left is the model's capacity or the judge's own smoothing of the glow.
+  - **Nothing is adopted;** adoption is the owner's.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
