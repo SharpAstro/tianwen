@@ -21,8 +21,16 @@ public static class CatalogFrameStars
     public sealed record Result(IReadOnlyList<FrameStar> Stars, string Source);
 
     /// <summary>
+    /// Whether <paramref name="wcs"/> is a plate solution, which alone places a catalogued star on the frame to the pixel a
+    /// peak is matched within. What a header gives without one is not: the pointing alone has no matrix, and a matrix made
+    /// up from a pixel scale and an angle (<see cref="WCS.IsApproximate"/>) puts the stars pixels off.
+    /// </summary>
+    public static bool IsSolved(WCS wcs) => wcs is { HasCDMatrix: true, IsApproximate: false };
+
+    /// <summary>
     /// The catalogued stars on a frame of <paramref name="width"/> by <paramref name="height"/> pixels solved as
-    /// <paramref name="wcs"/>. Null with the reason when the solution cannot place the frame or no catalogue is at hand.
+    /// <paramref name="wcs"/>. Null with the reason when <paramref name="wcs"/> is no plate solution
+    /// (<see cref="IsSolved"/>), the solution cannot place the frame, or no catalogue is at hand.
     /// </summary>
     /// <param name="installed">The star database ASTAP installed (<see cref="AstapStarDatabase.FindInstalled"/>), asked
     /// first; null where there is none.</param>
@@ -30,6 +38,10 @@ public static class CatalogFrameStars
     public static async ValueTask<(Result? Stars, string? Why)> ReadAsync(
         WCS wcs, int width, int height, AstapStarDatabase? installed, ICelestialObjectDB? embedded, CancellationToken cancellationToken = default)
     {
+        if (!IsSolved(wcs))
+        {
+            return (null, "the frame carries no plate solution");
+        }
         if (wcs.PixelToSky((width - 1) / 2.0, (height - 1) / 2.0) is not { } centre)
         {
             return (null, "the plate solution cannot place the frame on the sky");
@@ -49,7 +61,8 @@ public static class CatalogFrameStars
         }
         if (embedded is not { } objectDb)
         {
-            return (null, "no ASTAP star database is installed");
+            // What was installed is the caller's to know; this only knows that neither was handed to it.
+            return (null, "no star catalogue to ask: neither an installed ASTAP star database nor the embedded catalogue");
         }
         // The frame's reach on the sky: its centre to its farthest corner.
         var radius = 0.0;

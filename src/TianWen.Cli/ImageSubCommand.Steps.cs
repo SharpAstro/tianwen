@@ -295,10 +295,17 @@ internal sealed partial class ImageSubCommand
         {
             return null;
         }
-        if (wcs is not { } solution)
+        // A header's pointing, or the matrix made up from its pixel scale and angle, is read as a WCS too and is no solution.
+        if (wcs is not { } solution || !CatalogFrameStars.IsSolved(solution))
         {
             consoleHost.WriteScrollable($"[{verb}] the master carries no plate solution, so stars inside a protected core stay with it "
                 + "(tianwen solve writes one)");
+            return null;
+        }
+        if (choice == "embedded" && objectDb is null)
+        {
+            // Only where this command was built without the catalogue; the program always hands it one.
+            consoleHost.WriteScrollable($"[{verb}] the embedded catalogue is not at hand here, so stars inside a protected core stay with it");
             return null;
         }
         var installed = choice == "embedded" ? null : TianWen.Lib.Astrometry.Catalogs.AstapStarDatabase.FindInstalled();

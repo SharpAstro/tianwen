@@ -19,13 +19,13 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class CoreStarsTests(ITestOutputHelper output)
 {
-    private const int Size = 512;
+    internal const int Size = 512;
     private const float Sky = 0.02f;
     private const float Noise = 1e-4f;
-    private const int Cx = 256, Cy = 240;
+    internal const int Cx = 256, Cy = 240;
     private const double StarWidth = 1.2;
     private const double NucleusPeak = 600;
-    private static readonly (int X, int Y, double Peak)[] CoreStarsAt = [(Cx + 10, Cy - 6, 300), (Cx - 12, Cy + 8, 150)];
+    internal static readonly (int X, int Y, double Peak)[] CoreStarsAt = [(Cx + 10, Cy - 6, 300), (Cx - 12, Cy + 8, 150)];
 
     // The catalogue's magnitude of a star whose peak stands `peak` noise sigmas high: 15 at 100, a magnitude per factor 2.512.
     private static float MagnitudeOf(double peak) => (float)(15 - (2.5 * Math.Log10(peak / 100)));
@@ -33,7 +33,7 @@ public class CoreStarsTests(ITestOutputHelper output)
     // A galaxy (a Gaussian of 60 px, 400 sigmas high) with a nucleus as narrow as a star, two stars inside its core and a
     // grid of field stars of four brightnesses; the plate of a remover that took every compact thing, nucleus included;
     // and the catalogue: every star, and nothing for the nucleus.
-    private static (float[,] Frame, float[,] Model, List<FrameStar> Catalogue) Scene()
+    internal static (float[,] Frame, float[,] Model, List<FrameStar> Catalogue) Scene()
     {
         var rng = new Random(11);
         var blobs = new List<(double X, double Y, double Peak)> { (Cx, Cy, NucleusPeak) };
@@ -82,11 +82,115 @@ public class CoreStarsTests(ITestOutputHelper output)
         return (frame, model, catalogue);
     }
 
-    private static Image ImageOf(float[,] plane) => new([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+    internal static Image ImageOf(float[,] plane) => new([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
 
     // How much of what the remover took at (x, y) the plate holds again: 1 is the input's pixel, 0 the remover's.
-    private static double Restored(Image plate, float[,] frame, float[,] model, int x, int y)
+    internal static double Restored(Image plate, float[,] frame, float[,] model, int x, int y)
         => (plate[0, y, x] - model[y, x]) / (frame[y, x] - model[y, x]);
+
+    // The galaxy and the grid of field stars of Scene(), every star with wings (a Moffat profile of width 2 and index 1.5),
+    // so a brighter one reaches further as a real one does; a nucleus of the given height, and one star 11.7 px from it.
+    private static (float[,] Frame, List<FrameStar> Catalogue, (int X, int Y) Star) WingedScene(double nucleusPeak, double starPeak)
+    {
+        var rng = new Random(11);
+        (int X, int Y) star = (Cx + 10, Cy - 6);
+        var blobs = new List<(int X, int Y, double Peak)> { (Cx, Cy, nucleusPeak), (star.X, star.Y, starPeak) };
+        var catalogue = new List<FrameStar> { new(star.X, star.Y, MagnitudeOf(starPeak)) };
+        double[] peaks = [100, 250, 630, 1600];
+        var k = 0;
+        for (var y = 60; y <= 460; y += 50)
+        {
+            for (var x = 60; x <= 460; x += 50)
+            {
+                if (Math.Abs(x - Cx) < 70 && Math.Abs(y - Cy) < 70)
+                {
+                    continue;
+                }
+                var peak = peaks[k++ % peaks.Length];
+                blobs.Add((x, y, peak));
+                catalogue.Add(new FrameStar(x, y, MagnitudeOf(peak)));
+            }
+        }
+        var frame = new float[Size, Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var r2 = ((x - Cx) * (x - Cx)) + ((y - Cy) * (y - Cy));
+                frame[y, x] = Sky + (float)(400 * Noise * Math.Exp(-r2 / (2.0 * 60 * 60))) + (float)(Noise * StarInjection.Gaussian(rng));
+            }
+        }
+        const int reach = 55;
+        foreach (var (bx, by, peak) in blobs)
+        {
+            for (var y = Math.Max(0, by - reach); y <= Math.Min(Size - 1, by + reach); y++)
+            {
+                for (var x = Math.Max(0, bx - reach); x <= Math.Min(Size - 1, bx + reach); x++)
+                {
+                    var d2 = ((x - bx) * (x - bx)) + ((y - by) * (y - by));
+                    frame[y, x] += (float)(peak * Noise * Math.Pow(1 + (d2 / 4.0), -1.5));
+                }
+            }
+        }
+        return (frame, catalogue, star);
+    }
+
+    // What the rival rule leaves a star 11.7 px from a nucleus of the given height: the two radii, how much of the star's
+    // disc is its own, and the footprint at the star's centre and at the nucleus.
+    private (int StarRadius, int NucleusRadius, double ShareKept, float AtStar, float AtNucleus) BesideANucleus(double nucleusPeak, double starPeak)
+    {
+        var (frame, catalogue, star) = WingedScene(nucleusPeak, starPeak);
+        var input = ImageOf(frame);
+        var mask = ExtendedCoreMask.Find(input);
+        mask.Cores.Length.ShouldBe(1);
+        var peaks = new List<CoreStars.CorePeak>();
+
+        var (footprint, report) = CoreStars.Find(input, mask, catalogue, options: null, peaks);
+
+        output.WriteLine($"nucleus {nucleusPeak} sigma, star {starPeak} sigma: {report}");
+        var own = footprint.ShouldNotBeNull();
+        var starPeakFound = peaks.Single(p => p.IsStar);
+        (Math.Abs(starPeakFound.X - star.X) <= 1 && Math.Abs(starPeakFound.Y - star.Y) <= 1).ShouldBeTrue($"the star's peak is found where it was drawn, not at ({starPeakFound.X}, {starPeakFound.Y})");
+        var nucleus = peaks.Where(p => !p.IsStar).MaxBy(p => p.Height);
+        (Math.Abs(nucleus.X - Cx) <= 1 && Math.Abs(nucleus.Y - Cy) <= 1).ShouldBeTrue($"the highest kept peak is the nucleus, not ({nucleus.X}, {nucleus.Y})");
+        var (disc, kept) = (0, 0);
+        var radius = starPeakFound.Radius;
+        for (var dy = -radius; dy <= radius; dy++)
+        {
+            for (var dx = -radius; dx <= radius; dx++)
+            {
+                if ((dx * dx) + (dy * dy) <= radius * radius)
+                {
+                    disc++;
+                    kept += own[((starPeakFound.Y + dy) * Size) + starPeakFound.X + dx] > 0.5f ? 1 : 0;
+                }
+            }
+        }
+        output.WriteLine($"  the star holds {radius} px and the nucleus {nucleus.Radius} px; {kept} of the {disc} px of the star's disc are its own; "
+            + $"the footprint is {own[(starPeakFound.Y * Size) + starPeakFound.X]:F3} at the star and {own[(nucleus.Y * Size) + nucleus.X]:G3} at the nucleus");
+        return (radius, nucleus.Radius, (double)kept / disc, own[(starPeakFound.Y * Size) + starPeakFound.X], own[(nucleus.Y * Size) + nucleus.X]);
+    }
+
+    [Fact]
+    public void AStarCloseBesideAPeakThatReachesFarKeepsItsCentreOnly()
+    {
+        // The rival rule's limit, stated so it is not mistaken for a guarantee (#2257). A star's disc gives way to a kept
+        // peak in units of each one's reach, so beside a nucleus that reaches three times as far a faint star keeps its
+        // centre and loses its outskirts to the core, where the input comes back as it did before there was a catalogue.
+        // The masters read stay far from this: M31's nucleus holds 14 px beside stars of 5 to 12.
+        var far = BesideANucleus(nucleusPeak: 2500, starPeak: 30);
+        var near = BesideANucleus(nucleusPeak: 60, starPeak: 30);
+
+        ((double)far.NucleusRadius / far.StarRadius).ShouldBeGreaterThan(2.5, "the scene's premise: the nucleus reaches about three times as far as the star");
+        // A thousandth: the feather's tail may touch it, nothing more.
+        far.AtNucleus.ShouldBeLessThan(1e-3f, "whatever stands beside it, the kept peak itself is not in a star's footprint");
+        far.AtStar.ShouldBeGreaterThan(0.8f, "the star's own centre stays removed");
+        far.ShareKept.ShouldBeLessThan(0.4, "most of its disc goes to the nucleus");
+
+        ((double)near.NucleusRadius / near.StarRadius).ShouldBeLessThan(1.5);
+        near.AtNucleus.ShouldBeLessThan(1e-3f);
+        near.ShareKept.ShouldBeGreaterThan(0.75, "beside a peak that reaches little further than itself a star keeps most of its disc");
+    }
 
     [Fact]
     public void CataloguedStarsInsideACoreStayRemovedAndTheNucleusComesBack()
@@ -201,6 +305,8 @@ public class CoreStarsTests(ITestOutputHelper output)
         // With no ASTAP database installed the embedded Tycho-2 is asked. It holds the two bright stars a protected Lagoon
         // core put back (#2242): 9 Sagittarii and HD 164816.
         var ct = TestContext.Current.CancellationToken;
+        // A catalogue of its own, never initialised, and not the shared loaded one (SharedCatalogDB): the read has to load
+        // it itself, as it does for a host that has not asked the catalogue anything yet.
         var db = new CelestialObjectDB();
         const int side = 600;
         const double scale = 6.0 / 3600;
