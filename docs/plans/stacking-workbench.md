@@ -362,9 +362,10 @@ The owner: an optional MDI mode behind a switch, the guided view staying single-
   2. **Tiles.** Two or four images side by side with linked zoom and pan, which is what comparing a starless plate with its
      stars needs. Each pane is a viewer with its own state; the active pane is the one a process applies to, and it is named in
      words, not only outlined. One focus owner per window still holds.
-  3. **Free-floating, overlapping windows** (DSN-1's Cascade) are **not planned**. DIR.Lib has tab strips and no dock, splitter or overlapping
-     child window, and adding them is a library change that every framework consumer meets (`.github/docs/framework-consumers.md`). Tiles and tabs
-     cover what was asked for.
+  3. **Free-floating, overlapping windows** (DSN-1's Cascade) come last and are **DIR.Lib's work, not this plan's**. DIR.Lib has
+     tab strips and no dock, splitter or overlapping child window; the widget is SharpAstro/DIR.Lib#276 (the owner, 2026-11-19:
+     "adding cascade to DIR.Lib can be a flight on its own"). The workspace takes it as a third arrangement once it exists and
+     waits on it for nothing.
 
 ## Live stacking is the session's, as a switch on the frame preview
 
@@ -543,9 +544,10 @@ Each with a recommendation. The first is W0's; the rest came out of DSN-1's ques
    item 2); the fractions are W11's to measure. The store's folder is still open. `ScratchSpace`'s 109 GB is the planetary verbs'
    reserve on one drive and is not a default for an app.
 7. **Reordering edits by dragging**: recommended not in the first version.
-8. **The windowed mode**: tabs and tiles, no overlapping windows (windows that float over one another and are dragged about,
+8. **The windowed mode**: tabs and tiles, overlapping windows left out (windows that float over one another and are dragged about,
    PixInsight's way, which DSN-1 offers as "Cascade"); the switch in the workspace only, the guided view always one image (the
-   owner's word). Asked 2026-11-19, not yet answered.
+   owner's word). **Decided 2026-11-19:** tabs and tiles here; the overlapping kind is a piece of work of its own in DIR.Lib
+   (SharpAstro/DIR.Lib#276), taken up by the workspace when it exists.
 9. **Pixel math as typed expressions** (DSN-1 draws "starless + 0.8 * stars"): recommended fixed-form blends only.
 10. **XISF reading**, the first door a PixInsight user meets ([pixinsight-parity.md](pixinsight-parity.md) "DSPX"): not in this
     plan; it needs its own.
@@ -557,5 +559,5 @@ Mosaics, live stacking during a session (the session's own path, `stacking.md` P
 `tianwen stack --comet` already does, and lunar or solar surfaces (Strata's other half) until the planetary steps stand.
 
 Since the re-cut, also: a scripting language and typed pixel-math expressions (DSPX ships Python; a workflow here is a JSON tree
-of processes), photo-editor tools (layers, clone stamp, text, PSD), overlapping child windows, XISF, and running a workflow on a
-node.
+of processes), photo-editor tools (layers, clone stamp, text, PSD), XISF, and running a workflow on a node. Overlapping child windows are
+DIR.Lib's (SharpAstro/DIR.Lib#276).
