@@ -176,9 +176,8 @@ public static class CoreStars
         {
             magnitudes[k] = stars[calibration[k].Index].Magnitude;
         }
-        var sorted = magnitudes.AsSpan().ToArray();
-        Array.Sort(sorted);
-        var visible = sorted[Math.Min(sorted.Length - 1, (int)(0.9 * sorted.Length))] + 1f;
+        // A magnitude past the faintest tenth of the stars the frame shows: a neighbour brighter than this is one it shows.
+        var visible = StatisticsHelper.NthSmallest(magnitudes.AsSpan().ToArray(), Math.Min(magnitudes.Length - 1, (int)(0.9 * magnitudes.Length))) + 1f;
         var rings = Rings(reach);
         var reaches = new List<(float Magnitude, int Radius)>();
         Span<float> ring = stackalloc float[8 * (reach + 1)];
