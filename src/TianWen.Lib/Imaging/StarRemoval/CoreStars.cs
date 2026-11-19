@@ -71,6 +71,14 @@ public static class CoreStars
     public readonly record struct Report(
         int Peaks, int Stars, int CalibrationStars, double ZeroPoint, double ZeroPointScatter, double ReachPerMagnitude, double ReachAtMagnitude10);
 
+    /// <summary>One compact peak inside a core, as <see cref="Find(Image, ExtendedCoreMask, IReadOnlyList{FrameStar}, Options?)"/>
+    /// judged it, for a test to read.</summary>
+    /// <param name="Height">Its compact light.</param>
+    /// <param name="IsStar">Whether the catalogue has a star that can be it.</param>
+    /// <param name="Radius">The radius it holds, feather included: a star's disc, or for a kept peak the reach it holds its
+    /// side with against the discs of the stars beside it.</param>
+    internal readonly record struct CorePeak(int X, int Y, float Height, bool IsStar, int Radius);
+
     private const int IsolationPx = 8;
     private const int ReachIsolationPx = 12;
     private const float CompanionMagnitudes = 2.5f;
@@ -84,6 +92,12 @@ public static class CoreStars
     /// zero point could be read (see <see cref="Report.CalibrationStars"/>).
     /// </summary>
     public static (float[]? Footprint, Report Report) Find(Image input, ExtendedCoreMask mask, IReadOnlyList<FrameStar> stars, Options? options = null)
+        => Find(input, mask, stars, options, peaks: null);
+
+    /// <summary><see cref="Find(Image, ExtendedCoreMask, IReadOnlyList{FrameStar}, Options?)"/>, also adding each compact
+    /// peak it judged to <paramref name="peaks"/>.</summary>
+    internal static (float[]? Footprint, Report Report) Find(
+        Image input, ExtendedCoreMask mask, IReadOnlyList<FrameStar> stars, Options? options, List<CorePeak>? peaks)
     {
         options ??= Options.Default;
         var (channels, width, height) = input.Shape;
@@ -284,12 +298,21 @@ public static class CoreStars
         // The peaks the catalogue has no star for, each with the reach a star of its height would have. Where a star's
         // disc meets one that stands at least as high, a pixel goes to the nearer of the two in units of their reach: the
         // nucleus beside a bright star keeps its own side whole, a faint blip in a bright star's disc stays out with it.
+        // The rule gives way to the kept peak, so a star close beside one that reaches several times as far keeps its
+        // centre only and mostly comes back with the core, as it did before there was a catalogue. On the three masters
+        // read (2026-11-20) a kept peak reaches at most twice as far as a star beside it (M31's nucleus holds 14 px, the
+        // stars 5 to 12) and no star keeps under 55 % of its disc.
         var kept = new List<(int X, int Y, float Height, int Radius)>();
-        foreach (var (x, y, peakHeight, isStar, _) in found)
+        foreach (var (x, y, peakHeight, isStar, reached) in found)
         {
             if (!isStar)
             {
                 kept.Add((x, y, peakHeight, (int)Math.Round(Reach(zeroPoint - (2.5 * Math.Log10(peakHeight)))) + 1 + grow));
+                peaks?.Add(new CorePeak(x, y, peakHeight, false, kept[^1].Radius));
+            }
+            else
+            {
+                peaks?.Add(new CorePeak(x, y, peakHeight, true, reached + grow));
             }
         }
         var footprint = new float[n];
