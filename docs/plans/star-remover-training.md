@@ -6804,6 +6804,59 @@ the first angle is a step after the model and not another arm:
     4 to 10 % under the real plate at 8 px) is the next thing to correct.
   - **Nothing is adopted;** adoption is the owner's. R4d (the cap lifted) is still training and is read on its own
     registration.
+- **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
+  rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
+  (#2243), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
+  a row could show it, nebula taken with the stars. His words: "im a bit concerned that I have to point these out,
+  it means that either training or scoring is not up to the task". It is the scoring.
+  - **Why the rows passed them.** The star rows ask whether a star's site is FLAT; a flat patch inside structured
+    nebula is flat, so the dig floor's fill counts as a success (it takes R4c's Andromeda dark flat from 47.2 to
+    98.2). The nucleus row measures the core's light kept, and protection scores 0.0 % taken by putting the input
+    back, stars included. The stars over bright background are a class of the detailed log only, pooled over the
+    whole frame, never in the one-line row and never under a bar. Nothing read the nebula itself.
+  - **The rows added, on every score from now on** (`nebula_rows.py`, run by `score_whole.py` on each master and
+    carried in its row; the reference is the INPUT, not another remover). On the master's bright extended light
+    (its large-scale map 20 sigma over the sky): **added**, the share of it where the starless image stands over
+    the input by 3 sigma of a 3 px mean, which no removal can justify; **broad taken**, the 9 px median of input
+    less starless, averaged in sigma; **peaks standing**, the share of the input's compact peaks over 50 sigma
+    that keep half their height, and of the brightest tenth of them.
+  - **Every scored folder on disk re-read, 68 of them, no training** (Andromeda / Tarantula / Sagittarius):
+
+    | image | Andromeda dug % | added % | broad taken | brightest peaks standing %, Tar / Sag |
+    |---|---|---|---|---|
+    | StarXTerminator | 1.4 | 0.0 / 0.0 / 0.0 | 2.88 / 5.99 / 0.42 | 22.1 / 5.6 |
+    | R3v seed 0, as trained | 22.4 | 0.0 / 0.1 / 0.1 | 2.73 / 3.56 / 0.56 | 24.7 / 5.6 |
+    | R3v seed 0 + floor3 | 1.0 | 0.6 / 4.2 / 4.0 | 2.78 / 3.68 / 0.63 | 24.7 / 5.6 |
+    | R3z, as trained | 25.8 | 0.0 / 0.0 / 0.0 | 2.89 / 4.35 / 2.79 | 20.8 / 0.0 |
+    | R4a seed 0, seed 1, as trained | 34.8, 28.4 | 0.0 / 0.0 to 0.3 / 0.0 | 3.20 / 4.24 / 1.80, 2.87 / 4.19 / 1.49 | 23.4 / 5.6, 23.4 / 0.0 |
+    | R4b, as trained | 24.4 | 0.0 / 0.1 / 0.0 | 3.01 / 5.58 / 3.50 | 15.6 / 0.0 |
+    | R4c, as trained | 45.9 | 0.0 / 0.0 / 0.0 | 3.04 / 5.39 / 2.64 | 14.3 / 0.0 |
+    | R4c + floor3 | 0.9 | 0.5 / 2.4 / 3.0 | 3.10 / 5.89 / 2.82 | 14.3 / 0.0 |
+    | R4c + core protection | 45.9 | 0.0 / 0.0 / 0.0 | 2.83 / 4.35 / 1.64 | 27.3 / 16.7 |
+    | R4d, as trained | 19.5 | 0.0 / 0.0 / 0.0 | 2.88 / 5.86 / 2.67 | 22.1 / 0.0 |
+    | R4d + core protection | 19.5 | 0.0 / 0.0 / 0.0 | 2.81 / 4.87 / 1.73 | 27.3 / 16.7 |
+
+  - **What the re-read says.** (1) **floor3 puts light in:** every floored plate is brighter than its input on
+    2.4 to 5.0 % of the Tarantula's and the Lagoon's nebula and 0.5 to 0.8 % of M31's; as trained, with protection
+    alone and from StarXTerminator the figure is 0.0 to 0.1. The dark rows that stood level with StarXTerminator
+    (Andromeda dark flat 97.5 to 98.5) were bought with that fill; as trained every model of ours digs under 19.5
+    to 56 % of Andromeda's bright dark-sky stars against StarXTerminator's 1.4, and no data recipe since R2w has
+    closed that. (2) **Protection puts stars back:** the brightest peaks standing rise to the same 27.3 % on the
+    Tarantula and 16.7 % on the Lagoon for every model, since it is the input that returns. (3) **The models since
+    R3z take nebula:** on the Lagoon the broad light taken is 0.55 to 1.11 for R3v, R3w and R3y (five runs) and
+    1.49 to 3.50 for R3z, R4a, R4b, R4c and R4d (six runs), against StarXTerminator's 0.42; the picture
+    (`r4_taken.py`) shows the Lagoon's bright core in what R4c and R4d removed. Seeds of one recipe differ by up
+    to 1.3 on this row (R3s 1.18 and 2.44), so this is read by family, and which change brought it (R3z's
+    `--halo-over-plate` is the first of that family) is being checked on the training pairs. R4c's read above
+    says "every guard held"; that is true of its registered guards and none of them read the nebula.
+  - **What the rows do not do.** The broad row counts a real halo too: on the Tarantula StarXTerminator takes the
+    most (5.99), so the row is read beside a judge's figure and with a picture, never alone. **Faint stars left
+    on bright nebula are not read by anything yet:** peaks under 50 sigma cannot be told from nebula knots this
+    way, and the detector's list holds too few of them there (two in the Lagoon's brightest tenth). Until a row
+    does, that is an eye check on the comparison page. Two attempts that did not discriminate are on #2245.
+  - **The rule from here.** Every arm's registration carries nebula guards (added, broad taken on the Lagoon,
+    peaks standing) beside its star rows; a model is read AS TRAINED, with each post step as a column of its own;
+    and every read comes with 1:1 renders of the cores and bright nebula, looked at before the rows are quoted.
 - **The zero-flux case (#1244 point 3), 2026-11-19: a starless plate through the remover comes back as the plate,
   except where the plate still holds stars.** `zero_flux.py`: a session's stored plate through `image remove-stars`
   as trained, the output less the plate over the middle three quarters of the frame, in the master's recorded sigma

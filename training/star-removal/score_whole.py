@@ -8,6 +8,9 @@ blue's shoulder under Andromeda's bright stars and leave light in the Tarantula'
   - every master: the glow left around bright clipped stars (glow_ring.py: median, p90 and the share above the config's
     glow_threshold, in the export's stretch and the master's noise sigma; Sagittarius is in score.json only);
   - the Sagittarius Triplet's crowded stars flat (mono, as three planes), and M31's nucleus taken (the guard, at most 5 %).
+  - every master's bright extended light (nebula_rows.py, #2245): the share of it a fill made BRIGHTER than the input, the
+    broad light taken, and the input's bright compact peaks left standing. The star rows above pass a flat patch, a star
+    put back inside a protected core and nebula taken with the stars; these do not. No faint star left on nebula is read.
 Plates are made at one view (how a model ships) into <out root>/<tag>/ and reused when present; a judge's existing
 plates are linked in with --plates. Glue only: every number is parsed from the checks' own output.
     python score_whole.py <tag> --config scorecard.local.json --model a.onnx [b.onnx ...] [--views 1]
@@ -149,6 +152,14 @@ for k, master, plate in (('andromeda', MASTERS['andromeda'], plates['andromeda']
 nuc = run([py, HERE / 'm31_nucleus.py', MASTERS['andromeda'], plates['andromeda']]).strip().splitlines()[-1]
 m = re.search(r'nucleus 0-6 px\s+([+-][\d.]+)% /\s+([+-][\d.]+)% /\s+([+-][\d.]+)%', nuc)
 score['nucleus'] = [float(x) for x in m.groups()]
+# What the star rows cannot see on bright extended light (#2245): light a fill ADDED over the input, broad light taken, the
+# input's bright peaks left standing. Read on EVERY score, and carried in the row, since the owner found by eye on 2026-11-19
+# flat patches, stars put back in cores and nebula taken that every star row had passed.
+nebula = {}
+for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
+    lines = run([py, '-I', HERE / 'nebula_rows.py', MASTERS[k], plates[k], '--name', label]).splitlines()
+    score[k]['nebula'] = lines[0]
+    nebula[k] = next(x for x in lines if x.startswith('short: '))[len('short: '):]
 (out / 'score.json').write_text(json.dumps(score, indent=1))
 
 def glow_field(d):
@@ -162,6 +173,7 @@ row = (f"{a.tag:>10} | And dark flat {A['dark_flat']:5.1f} dug {A['dark_dug']:5.
        f"3-4.5 {A['profile']['B'][2]:+.2f} | Tar dark flat {T['dark_flat']:5.1f} left {T['dark_left']:5.1f} core "
        f"{T['profile']['R'][0]:+.2f}/{T['profile']['G'][0]:+.2f}/{T['profile']['B'][0]:+.2f} | Tar crowded {T['crowded_flat']:5.1f} "
        f"BP17-19 {T['bp1719']:5.1f} purity {T['purity']:.1f} | Sag crowded {S['crowded_flat']:5.1f} | nucleus "
-       f"{'/'.join(f'{x:.1f}' for x in score['nucleus'])} % | And glow {glow_field(A)} | Tar glow {glow_field(T)}")
+       f"{'/'.join(f'{x:.1f}' for x in score['nucleus'])} % | And glow {glow_field(A)} | Tar glow {glow_field(T)}"
+       f" | {nebula['andromeda']} | {nebula['tarantula']} | {nebula['sag']}")
 (out / 'row.txt').write_text(row + '\n')
 print(row)
