@@ -6677,8 +6677,11 @@ the first angle is a step after the model and not another arm:
     R gap (7 %) and outside R3v's (2 %). On 4,6 (the bright cell), R3v's seeds stand 4 / 4 / 17 % apart (82.5 /
     105.0 / 101.7 against 79.2 / 100.8 / 87.1) and R4a's 39 to 75 %. R4c's rise over R3z (64.1 / 76.2 / 61.9
     against 60.4 / 65.6 / 48.8) is 6 / 16 / 27 %: inside R4a's spread on every channel, outside R3v's on G and B
-    (and on R, 6 against 4). R4d's fall from R4c (to 44.4 / 49.4 / 39.7) is 31 / 35 / 36 %: outside R3v's gap on
-    every channel and inside R4a's. Which gap a faint-star recipe should be read against is not measured: R4d's
+    (and on R, 6 against 4). R4d's fall from R4c (to 44.4 / 49.4 / 39.7) is 31 / 35 / 36 % of R4c's level, outside
+    R3v's gap on every channel. Against R4a it is read on one basis: R4a's 39 / 53 / 75 % is the higher seed over the
+    lower, so R4c over R4d (64.1 / 76.2 / 61.9 over 44.4 / 49.4 / 39.7) is 44 / 54 / 56 %, past R4a's gap on R by 5
+    points and on G by 1, inside only on B. On the fall basis R4a's gaps are 28 / 35 / 43 % against R4d's 31 / 35 /
+    36 %, the same picture. So R and G sit at the edge of R4a's gap and B well inside it. Which gap a faint-star recipe should be read against is not measured: R4d's
     data is synth25 plus faint stars, R4a's is synth25 plus cluster scenes and R3v's is synth22, so "not shown"
     above is against the widest gap read (R4a's). What one seed does carry here: the crowded flat (0.0 to 0.1
     between seeds), so the question's miss is firm.
@@ -6694,8 +6697,10 @@ the first angle is a step after the model and not another arm:
     the same proxy as the band rows. Andromeda dig: R3y 9.6 points apart, R4a 6.4; M42 100-1000 clean: R3y 21.4,
     R4a 17; R4d less R4c on the dig is 26.4, larger than any. Tarantula dark flat left: R3y 18.3 / 23.3, R3v 16.0 /
     13.8 (gaps 5.0 and 2.2) against a difference of 18.8, larger than both. SMC 100-1000 clean: R3y 84.7 / 91.5,
-    R3v 89.8 / 91.5 (gaps 6.8 and 1.7) against 10.1, larger than both. So these three rows exceed every measured
-    pair; the by-count clean rows are not paired here. The row the cap exists to protect goes the other way: the
+    R3v 89.8 / 91.5 (gaps 6.8 and 1.7) against 10.1, larger than both. So each of these three rows exceeds every
+    measured pair of its own row. Gaps of 17 to 21 points do occur between seeds on a row that spreads widely (the
+    M42 pairs above), so a difference of that size on the left and SMC rows is beyond their own pairs but not beyond
+    what a seed has moved on another row. The by-count clean rows are not paired here. The row the cap exists to protect goes the other way: the
     Tarantula's glow with floor3 reads p90 443.5 and 31 % over the bound against R4c's 143.4 and 8 % (inside its
     guard, the largest of the recent arms). R3v's pair for it (floor3, green, p90 1726.2 / 1436.5, over the bound
     92 / 85 %, a no-faint-star spread) gaps 290 and 7 points; R4d less R4c is +300 and +23 points, so the p90 rise
