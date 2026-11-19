@@ -38,11 +38,11 @@ public static class MasterCrop
         }
         if (rect.Right > width)
         {
-            return $"{what} reaches x={rect.Right}, past the image width {width}";
+            return $"{what} reaches x={rect.Right}, past the image width {width} (the image is {width}x{height})";
         }
         if (rect.Bottom > height)
         {
-            return $"{what} reaches y={rect.Bottom}, past the image height {height}";
+            return $"{what} reaches y={rect.Bottom}, past the image height {height} (the image is {width}x{height})";
         }
         return null;
     }
