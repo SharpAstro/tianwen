@@ -7500,7 +7500,7 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
 
   The faint stars add 0.3 to 3 % to a draw (most on Lobster), and with them the draws stand 1 to 7 % under the real
   tiles, 4 to 6 % on most rows, where the recorded level stood 10 % over on Lobster. The rest is not stars: the clean
-  tile (no star at all) reads 4 to 9 % under the real PLATE at this lag on every session, the sparse Tempel included,
+  tile (no star at all) reads 4 to 10 % under the real PLATE at this lag on every session, the sparse Tempel included,
   while the two agree in the estimator's band (the frame less its 4 px low-pass). So the real noise holds more power
   at 8 px and beyond than the drawn noise does at equal fine-scale noise, which is the shape #1847 names (the drawn
   field's lag-1 is under real's too). The level is right where the estimator reads it; the shape is #1847's.
