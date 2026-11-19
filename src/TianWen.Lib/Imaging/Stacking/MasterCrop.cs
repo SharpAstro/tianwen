@@ -13,7 +13,9 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// rectangle and the image size.</param>
 /// <param name="Width">Width of the written crop, 0 on a refusal.</param>
 /// <param name="Height">Height of the written crop, 0 on a refusal.</param>
-public readonly record struct MasterCropResult(bool Succeeded, string Message, int Width, int Height);
+/// <param name="SourceWidth">Width of the master that was cropped.</param>
+/// <param name="SourceHeight">Height of the master that was cropped.</param>
+public readonly record struct MasterCropResult(bool Succeeded, string Message, int Width, int Height, int SourceWidth = 0, int SourceHeight = 0);
 
 /// <summary>
 /// Crops a FITS master to a caller's rectangle. Unlike <see cref="Image.Crop(PixelRect)"/>, which clamps
@@ -123,7 +125,7 @@ public static class MasterCrop
     {
         if (Validate(rect, image.Width, image.Height) is { } refusal)
         {
-            return new MasterCropResult(false, refusal, 0, 0);
+            return new MasterCropResult(false, refusal, 0, 0, image.Width, image.Height);
         }
 
         var cropped = image.Crop(rect);
@@ -137,6 +139,6 @@ public static class MasterCrop
         }
         provenance?.ForCrop(rect.X, rect.Y).AddHeaderCards(extras);
         cropped.WriteToFitsFile(outputPath, wcs?.CroppedTo(rect.X, rect.Y), extras);
-        return new MasterCropResult(true, string.Empty, cropped.Width, cropped.Height);
+        return new MasterCropResult(true, string.Empty, cropped.Width, cropped.Height, image.Width, image.Height);
     }
 }

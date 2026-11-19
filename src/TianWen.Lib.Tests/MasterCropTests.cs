@@ -54,9 +54,9 @@ public class MasterCropTests : IDisposable
     {
         var path = Path.Combine(CreateTempDir(), "master.fits");
         var result = Integrator.Integrate(
-            new List<Image> { Frame(), Frame() },
-            new IntegrationOptions(ApplyNormalization: false));
-        IntegrationFitsWriter.Write(path, result, TestWcs(), alignment: alignment);
+            new List<Image> { Frame(), Frame(), Frame() },
+            new IntegrationOptions(Rejector: new MinMaxClipRejector(0, 1), ApplyNormalization: false));
+        IntegrationFitsWriter.Write(path, result, TestWcs(), IntegrationStrategyKind.InRamAllFrames, alignment: alignment);
         return path;
     }
 
@@ -79,6 +79,8 @@ public class MasterCropTests : IDisposable
         result.Succeeded.ShouldBeTrue(result.Message);
         result.Width.ShouldBe(20);
         result.Height.ShouldBe(15);
+        result.SourceWidth.ShouldBe(40);
+        result.SourceHeight.ShouldBe(30);
 
         Image.TryReadFitsFile(input, out var before, out var wcsBefore).ShouldBeTrue();
         Image.TryReadFitsFile(output, out var after, out var wcsAfter).ShouldBeTrue();
@@ -98,8 +100,10 @@ public class MasterCropTests : IDisposable
 
         // The integration cards describe the stack, which a crop does not change.
         var source = ReadHeader(input);
-        header.GetIntValue("STACK_N", -1).ShouldBe(2);
-        header.GetIntValue("SNAPSHOT", -1).ShouldBe(2);
+        header.GetIntValue("STACK_N", -1).ShouldBe(3);
+        header.GetIntValue("SNAPSHOT", -1).ShouldBe(3);
+        source.GetLongValue("REJ_TOT", -1L).ShouldBeGreaterThan(0L);
+        header.GetStringValue("STRATEGY").ShouldBe("InRamAllFrames");
         header.GetLongValue("REJ_TOT", -1L).ShouldBe(source.GetLongValue("REJ_TOT", -2L));
         header.GetDoubleValue("REJ_RATE", -1.0).ShouldBe(source.GetDoubleValue("REJ_RATE", -2.0));
 

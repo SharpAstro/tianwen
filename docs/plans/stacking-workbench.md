@@ -206,8 +206,8 @@ What exists, read from the code on 2026-11-19:
 - The rectangle comes from `ViewerActions.ScanForCrop`: the master's coverage plane where the sidecar has one
   (`Image.CoverageCropRectangle`), else the edge walk over the pixels (`Image.LargestCoveredRectangle`).
 - `image autocrop` is the CLI verb, and **it calls `ViewerActions.ScanForCrop`**, a routine in
-  `TianWen.UI.Abstractions`. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244; the
-  owner, 2026-11-19: "we can add a crop verb, takes in four parameters, but that is a seperate thing"). It calls
+  `TianWen.UI.Abstractions`. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244;
+  the owner, 2026-11-19: "we can add a crop verb, takes in four parameters, but that is a seperate thing"). It calls
   `MasterCrop` in Lib, which refuses a rectangle not wholly inside the image in words and writes nothing, moves the WCS
   (`WCS.CroppedTo`) and carries the alignment provenance (`AlignmentProvenance.ForCrop`) and the stack cards (`STACK_N`,
   `SNAPSHOT`, `REJ_TOT`, `REJ_RATE`, `STRATEGY`; the two rejection cards stay those of the uncropped master). `image

@@ -780,7 +780,7 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(2);
             }
             consoleHost.WriteScrollable(
-                $"[crop] {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) -> {dst}");
+                $"[crop] {result.SourceWidth}x{result.SourceHeight} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) -> {dst}");
             return Task.FromResult(0);
         });
 
