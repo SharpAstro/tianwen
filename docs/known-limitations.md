@@ -1506,3 +1506,13 @@ the 10P set. The scan needs the narrower "we produced these PIXELS, do not re-in
 to collide because header surgery writes no `SW*` card, which is a convention rather than a guarantee:
 the day tagging stamps `SWMODIFY` honestly, every frame it touched drops out of its own stack. A
 dedicated "derived pixel product" card would make the guard a fact instead of an accident.
+
+## A `--noise-scale` stars export is sized against the recorded noise, which a crowded master overstates
+
+`dataset degrade --mode stars --noise-scale S` carries each plate cell at S times the master's noise by adding
+sqrt(S^2 - 1) times the master's RECORDED sigma. The record is read off the master with its stars in, and in a crowded
+field it overstates the noise between the stars (#1786: 1.11 to 1.17 times on the Lobster master, up to 1.5 on an eta
+Carinae one). A plain stars export has held its level to the starless plate's reading since 2026-11-19; under a noise
+scale it is left at the record on purpose, so such an export still compares with the #1947 noise-check arms. On Lobster
+(the plate reads 0.8 of the record) a scale of 4 gives a cell at 3.96 of the record, about 24 % over four times the
+noise that is really there. Bounding it would change what those arms measured; nobody has needed it yet.

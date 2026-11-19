@@ -473,8 +473,11 @@ namespace TianWen.AI.Imaging
         /// bounded level is the one the noise is drawn at and everything read in noise units against it: the injection floor, a
         /// star's significance and the conditioning plane. A synthetic background's knots and kept cores and the faint stars' cap
         /// keep the recorded level, which their ranges were set against. The session's log line and each row's
-        /// <c>PlateNoiseRatio</c> carry the ratio. With a <paramref name="NoiseScale"/> the level is not bounded: that export
-        /// carries the plate's own cell, whose noise is what it is. Draws no random number.</param>
+        /// <c>PlateNoiseRatio</c> carry the ratio. A plate with no block to read its noise from keeps the recorded level, and the log
+        /// warns. With a <paramref name="NoiseScale"/> the level is not bounded: that export carries the plate's own cell,
+        /// whose noise is what it is, and the noise added to it stays sized against the record so that it compares with the
+        /// #1947 noise-check arms; on a crowded master such a cell therefore still carries the overstated level
+        /// (docs/known-limitations.md). Draws no random number.</param>
         /// <param name="HaloOverPlate">Stars mode, with <paramref name="SaturatedMeasured"/> and without <paramref name="OuterHaloPath"/>:
         /// the halo the starless plate keeps round a saturated star is drawn too
         /// (<c>InjectionPopulation.HaloOverPlate</c>): a measured star's table gains the session's

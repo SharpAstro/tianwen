@@ -7475,7 +7475,10 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   (`export-synth.ps1 -Extra '--noise-as-recorded'`); the arms then running export from frozen binaries and are not touched.
   With `--noise-scale` nothing is bounded. The bound is `StretchedNoise.BoundedByPlate`; a plate that reads more changes
   nothing, and neither does one that reads under half its master (no real plate does, the store's lowest is 0.65; the log
-  warns). The noise is drawn at the bounded level, and the injection floor, a star's significance and the conditioning plane
+  warns) or one with no 32 px block to read (the log warns; the session is not failed). Under `--noise-scale` the level
+  stays the recorded one on purpose: the cell is the plate's own, and the noise added to it stays sized against the record
+  so the export compares with the #1947 noise-check arms. On a crowded master such a cell therefore still carries the
+  overstated level (`docs/known-limitations.md`). The noise is drawn at the bounded level, and the injection floor, a star's significance and the conditioning plane
   are read against it; a synthetic background's knots and kept cores and the faint stars' cap keep the recorded level their
   ranges were set against, so the scene is the one an export at the recorded level draws. The session's log line and each
   row's `PlateNoiseRatio` carry the ratio.
