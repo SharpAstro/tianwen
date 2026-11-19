@@ -9,6 +9,7 @@
         "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
         "children": [
           {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Guided", "align": "center", "color": "BodyText", "action": "goto:guided"},
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
           {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},

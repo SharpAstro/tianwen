@@ -9,6 +9,7 @@
         "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
         "children": [
           {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Guided", "align": "center", "color": "BodyText", "action": "goto:guided"},
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
           {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
@@ -20,6 +21,7 @@
         "kind": "vstack", "side": "left", "size": 220, "gap": 4, "padding": 8, "background": "PanelBg",
         "children": [
           {"kind": "text", "text": "Workflows", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "text", "text": "tianwen viewer (guided)", "color": "BodyText", "padding": 2, "action": "goto:guided"},
           {"kind": "text", "text": "Deep sky (auto)", "color": "SelectionText", "background": "Selection", "padding": 2},
           {"kind": "text", "text": "Mono LRGB", "color": "BodyText", "padding": 2},
           {"kind": "text", "text": "Narrowband SHO", "color": "BodyText", "padding": 2},
