@@ -128,6 +128,12 @@ would only add a package hop to each change. Running its jobs on the node (`Node
 is later and optional: the node has no stacking endpoint today, and its enhance endpoint is not on the job model yet
 (`server-enhance-job-model.md`).
 
+**The owner's direction, 2026-11-19** (after DSPX was looked at, [pixinsight-parity.md](pixinsight-parity.md) "DSPX"): the
+processing application is likely a **stand-alone app**, and **`tianwen-gui` as it is gets at most a live stacking view**, so C
+is out as the home of the workbench. That leans to B; the final pick and the name stay open in #1640. If it becomes the
+full processing application DSPX points at (the whole chain with history, not a stacker plus an enhancer), this plan's
+scope widens past W6 and is re-cut then, not now.
+
 ## Phasing
 
 | Phase | Scope | Depends on | Issue |

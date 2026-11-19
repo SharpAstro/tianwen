@@ -315,6 +315,58 @@ weights from the user's own GraXpert install and never redistribute them, which 
 permits; shipping them inside a release asset would not be, for the reason
 [ai-denoise-deconv.md](ai-denoise-deconv.md) section 2.6 gives for the Falchi atlas.
 
+### GraXpert 4.0 "Charon" and its Siril sample-free extraction (read 2026-11-19)
+
+**Where GraXpert lives now.** [`Dark-Matters-Astro/GraXpert`](https://github.com/Dark-Matters-Astro/GraXpert)
+is a GitHub fork of `Steffenhir/GraXpert` (GitHub API: `fork: true`, parent `Steffenhir/GraXpert`) and is the line
+being maintained. It is run by David Schmelter (`schmelly`), the original's second contributor (228 commits to
+Steffenhir's 425) and the author of its last releases (3.1.0rc1, rc2). The original's last commit is 2025-01-01 and
+its last release is still 3.1.0rc2; it is not archived, and its README does not point at the fork. On 2026-11-19 the
+fork was 34 commits ahead of the original's `main` and 0 behind, and it released **4.0.0 "Charon" on 2026-10-11**
+(deconvolution switched off in that release). Licences are unchanged: GPL-3.0 code, CC-BY-NC-SA-4.0 models.
+
+**Where our weights come from: not from the fork.** `ModelResolver` and `tools/tianwen-ai-models-fetch.ps1` read
+the copy GraXpert's own model download left in the user's data directory. On the development machine that is
+`%LOCALAPPDATA%\GraXpert\GraXpert\bge-ai-models\1.0.1\model.onnx`, fetched on 2025-02-10 by **GraXpert 3.0.2** (the
+original project's release; `preferences.json` records `bge_ai_version: 1.0.1`). 4.0.0 ships **no new BGE model**: its
+`ai_model_handling.py` diff is a line-ending renormalisation, and it downloads from the same model storage bucket, so
+BGE 1.0.1 is still current and `GraXpertBackgroundExtractor` needs no change.
+
+**What 4.0 adds: Siril's automatic sample-free extraction, ported to numpy** (`graxpert/sample_free_background.py`,
+Frank Sackenheim, 2026-09-09; `licenses/SIRIL_SAMPLE_FREE_NOTICE.md`). It follows Siril's
+`src/algos/background_extraction.c`, including Siril's "simplified" mode of 2026-09-03 (commit `5555df29` in
+free-astro/siril). **It is not a learned model**: the `models/sample_free_gaussian.onnx` it ships is the three-pass
+box-blur Gaussian written as an ONNX graph for speed (`_ag_gauss_numpy` is the reference). It is the same family as
+`ClassicalBackgroundExtractor`, which came from the same author's `AutoGradientRemoval.py` (section above): 2/4-sigma
+asymmetric MAD rejection, a grown structure-protection mask, a masked low-pass inpainting surface, the model's median
+added back per plane, subtract or divide. Its defaults against ours:
+
+| | GraXpert 4 / Siril sample-free | `ClassicalBackgroundExtractor` |
+|---|---|---|
+| Polynomial | degree 1 (simplified mode), then the surface fitted on its residual | degree 2 |
+| Surface | always on, **refitted on every rejection pass** (up to 20) on the residual, then smoothed at radius x `smoothness` | off by default (`SurfaceRefinement`); one pass when on |
+| Structure protection | residual above **0.05 in image units**, grown by the model radius x (0.5 + 0.5) | in noise units of the working grid |
+| Working grid | 4x area downsample; model radius 5 % of the short side | block-mean grid |
+| Upsample | corner-aligned bilinear | pixel-centre bilinear (`Image.BilinearResize`) |
+
+**Two of its choices are ones this plan measured and rejected** (section "Three findings" and "The two thresholds"):
+
+1. **The per-pass surface refit.** Iterating the surface stage feeds on itself: its residual is a high-pass, so a
+   smooth feature leaks into it, gets rejected, and the hole widens each pass (synthetic dome: 7.1e-4 RMS model
+   error iterated against 1.1e-4 single-pass). On 118 real masters even one surface pass moved the model 0.40 sigma
+   p50 / 1.72 p95 against a median gradient of 2.32 sigma, which is why ours stays off. Expect the sample-free mode
+   to take faint nebulosity and galaxy halos into the background on the fields this archive is full of.
+2. **An absolute protection threshold.** On a linear master whose sky sits near 0.01, a faint nebula rarely stands
+   0.05 above the model, so the mask that is meant to stop (1) seldom switches on. Rule 2 of "What the review
+   changes" (every threshold in noise units) is the reason ours does not.
+
+These are read from the code, not measured. **The measurement, if wanted:** run `estimate_channel_background` (numpy
+only, no GraXpert install) beside `ClassicalBackgroundExtractor` (surface off and on) and GraXpert BGE 1.0.1 over the
+flatten-and-inject scenes of [gradient-remover-training.md](gradient-remover-training.md) (model error, truth exact by
+construction) and real masters with large faint structure (the two-night Sculptor of 2026-10-17, a wide Ha field such
+as Carina or Vela), scoring model RMS against the injected truth and the flux kept in the structure. Its GPL-3.0-or-later
+licence permits a port, as with the Siril scripts (open question 6); nothing is to be ported before it measures better.
+
 ### What the review changes in this plan
 
 1. **Sample placement is optional, not foundational.** AutoGradientRemoval shows that robust
