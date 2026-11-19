@@ -2948,6 +2948,28 @@ M31's nucleus, the Lagoon's two bright ones, on every model alike, since it is t
   than its catalogued star and goes with the stars, the Hourglass 6.8 and stays, M31's nucleus has no star within 1.5 px (the nearest is 2.7 px off, so a
   coarser frame than 6.9 arcsec/px would put it inside, where only the magnitude test stands). A catalogued star as
   bright as a nucleus, on it, takes it; no such case is in hand. Adoption is the owner's.
+- **What the review left, measured after the merge (#2257).**
+  - **How far a kept peak pushes into the stars beside it** (the peaks the step judged, printed by a one-off build;
+    `pcs_rivals.py` in `C:/temp/e2/explore`). M31's nucleus stands 2,898 sigma in compact light and reads magnitude
+    9.89 on the frame's zero point; it holds 14 px: the 11 px the frame's reach line gives that magnitude (25.5 px
+    less 1.50 px a magnitude), 1 more, and 2 of feather. Over the three cores the stars hold 5 to 13 px and the
+    kept peaks 5 to 14. A kept peak reaches at most 2.0, 1.4 and 1.5 times as far as a star it meets (M31, 30
+    Doradus, the Lagoon); of the stars that meet one (15 of 54, 21 of 39, 12 of 23) none keeps under 55 % of its
+    disc, and the medians are 91, 85 and 88 %. The review's case (a star of 8 px, 10 px from a kept peak of 51 px,
+    keeps 9 of its 197 px) needs a peak at the 48 px cap, 15 magnitudes brighter than these lines put it. It is
+    written down as the rule's limit in a test: beside a nucleus that reaches three times as far (22 px against 7,
+    11.7 px apart) a star keeps its centre (footprint 0.93 there) and 48 of the 149 px of its disc; the rest comes
+    back with the core, as all of it did before there was a catalogue.
+  - **One defect, found by the tests of the wiring.** A FITS header gives a WCS without a plate solution too: its
+    pointing alone, or a matrix made up from a pixel scale and an angle. The verbs asked the catalogue with either.
+    An unsolved master was told "the plate solution cannot place the frame on the sky" where it should be pointed
+    at `tianwen solve`, and a made-up matrix would have put the stars pixels off their peaks. The read and the
+    verbs now ask `CatalogFrameStars.IsSolved` first. The three solved masters give the plates they gave, no value
+    different.
+  - **The wiring is tested**: the star split with the catalogue handed over, the recipe (a star left in the
+    starless plate with its core is denoised and loses 35 % of its peak to a 3 px mean; one in the stars loses
+    nothing), and `image protect-cores` and `image remove-stars` on a frame of real sky drawn from the embedded
+    Tycho-2 (290 stars about the Lagoon, a galaxy drawn beside one of them).
 
 
 #### Kept cores: bright galaxy-like cores the synthetic target keeps (2026-10-23)
