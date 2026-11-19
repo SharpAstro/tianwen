@@ -7063,6 +7063,38 @@ the step does not know the sky it fills to.
      before a row is quoted.
   A guard missed on either model is reported as missed, and the fade range is not re-tuned on these two models.
   Adoption (the product's default changing from floor3 to floor4) is the owner's.
+- **Read, 2026-11-20: every bar holds on both models, two of them at their limit.** The renders were looked at first
+  (`floor4-look-<model>.png`, `floor4-spots-final-<model>.png`): on R3v and on R4d the grey patches of 30 Doradus and
+  the Lagoon's patches and squares are gone with floor4, and the strongest corrections left inside nebula are dig
+  fills, the holes of #2252, and one dig in structure that ends part filled (below). The rows, each model's floor3
+  and floor4 from one run of each check (`floor4_read.py` checks every bar):
+
+  | | R3v seed 0: as trained | floor3 | floor4 | R4d seed 0: as trained | floor3 | floor4 |
+  |---|---|---|---|---|---|---|
+  | nebula, light added, %, Tarantula / Sagittarius (the question: at most half of floor3's) | 0.1 / 0.1 | 4.2 / 4.0 | **1.2 / 0.3** | 0.0 / 0.0 | 3.0 / 4.2 | **0.8 / 0.3** |
+  | Andromeda dark flat / dug | 69.5 / 22.4 | 97.6 / 1.0 | 97.6 / 1.0 | 69.4 / 19.5 | 98.5 / 0.7 | 98.5 / 0.7 |
+  | Tarantula dark flat / left | 71.9 / 16.0 | 93.9 / 4.9 | 93.8 / 5.0 | 80.3 / 14.3 | 96.5 / 2.7 | 96.5 / 2.7 |
+  | Tarantula crowded / BP 17-19 / Sagittarius crowded | 83.8 / 92.4 / 93.7 | 88.7 / 92.9 / 95.5 | 88.7 / 92.9 / 95.5 | 86.7 / 95.4 / 96.4 | 91.2 / 96.0 / 97.0 | 91.3 / 96.0 / 97.0 |
+  | M31 nucleus taken, % | -1.0 / 5.1 / 1.2 | -1.0 / 6.0 / 1.6 | as trained | 2.8 / 6.6 / 9.7 | 3.0 / 7.5 / 11.2 | as trained |
+  | tiles by count, clean, 20-100 / 100-1000 / 1000 and over | 98.9 / 94.9 / 87.2 | 99.3 / 99.4 / 100.0 | 99.3 / 99.2 / 100.0 | 98.8 / 95.6 / 91.5 | 99.3 / 99.3 / 100.0 | 99.3 / 99.2 / 100.0 |
+  | tiles by count, saturated clean (bar: at most 2.1 lower) | 78.9 | 91.6 | 89.5 | 85.3 | 93.7 | 93.7 |
+  | M42 100-1000, dug (bar: at most 3.0 higher) | 42.6 | 3.7 | 5.9 | 34.6 | 2.9 | 5.9 |
+  | twin error under the mask, rms (bar: at most 0.02 higher) | 1.920 | 0.989 | 0.992 | 2.260 | 1.080 | 1.073 |
+
+  StarXTerminator on the same tiles: clean 98.8 / 98.3 / 98.4 / 89.4, M42 100-1000 dug 6.6.
+  - **At their limit:** R3v's saturated clean falls by exactly two stars of 95 (and its saturated dug rises from 5.3
+    to 8.4, three stars; not a bar), and R4d's M42 dug rises by exactly four stars of 136. Both are stars inside
+    M42's nebula, where the fade holds the fill back. So floor4 gives up a few fills at bright stars inside nebula
+    for the patches; on M42 it stands at or under StarXTerminator's dug figure.
+  - **Also on R4c, the product's exact step** (`whole_floor.py floor4`, scatter in float64): the rows of the
+    exploration table's "fade 2 to 4" column to the digit, and the twin error 1.049 against floor3's 1.055.
+  - **A dig in structure ends part filled.** The Tarantula at (1363, 1445): under a bright group the model dug a
+    hole of over 20 sigma into structured nebula. floor3 filled it with a flat wedge; floor4 fills only the side
+    where the sky is trusted, and the filled band ends in a stepped edge (5.5 sigma between neighbours on R3v; R4d's
+    plate shows a stepped band at the same place). Where the model digs into structure no fill is right; this is
+    recorded on #2252.
+  - **Cost in time:** `image fill-digs` on the 12.1 megapixel colour Andromeda master takes 14 s on the loaded
+    development machine; floor3 was not timed beside it.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
