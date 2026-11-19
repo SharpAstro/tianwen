@@ -1,6 +1,6 @@
 {
   "id": "live",
-  "title": "Live stack",
+  "title": "Session preview: live stack",
   "root": {
     "kind": "dock",
     "background": "ContentBg",
@@ -8,59 +8,17 @@
       {
         "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
         "children": [
-          {"kind": "text", "side": "left", "size": 180, "text": "Live · M42", "fontSize": 16, "color": "HeaderText"},
-          {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
-          {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
-          {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
-          {"kind": "text", "side": "left", "size": 80, "text": "Live", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
-          {"kind": "text", "text": "Stacking · frame 48 exposing", "color": "Success", "align": "far"}
+          {"kind": "text", "side": "left", "size": 260, "text": "tianwen · session M42", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "right", "size": 160, "text": "Back to the app", "align": "far", "color": "Accent", "action": "goto:home"},
+          {"kind": "text", "text": "Imaging · frame 47 of 60 · 120 s", "color": "BodyText", "align": "far"}
         ]
       },
       {
-        "kind": "vstack", "side": "right", "size": 300, "gap": 8, "padding": 10, "background": "PanelBg",
+        "kind": "dock", "side": "bottom", "size": 40, "padding": 8, "background": "PanelBg",
         "children": [
-          {"kind": "text", "text": "Session", "fontSize": 15, "color": "HeaderText"},
-          {"kind": "grid", "columns": 2, "gap": 4, "children": [
-            {"kind": "text", "text": "Stacked", "color": "DimText"},
-            {"kind": "text", "text": "46 of 47", "color": "BodyText"},
-            {"kind": "text", "text": "Integration", "color": "DimText"},
-            {"kind": "text", "text": "1 h 32 m", "color": "BodyText"},
-            {"kind": "text", "text": "Rejected", "color": "DimText"},
-            {"kind": "text", "text": "1 (trailed)", "color": "Warn"},
-            {"kind": "text", "text": "SNR gain", "color": "DimText"},
-            {"kind": "text", "text": "×6.8", "color": "BodyText"},
-            {"kind": "text", "text": "Mean FWHM", "color": "DimText"},
-            {"kind": "text", "text": "2.4″", "color": "BodyText"}
-          ]},
-          {"kind": "text", "text": "Last frame", "fontSize": 15, "color": "HeaderText", "padding": 2},
-          {"kind": "progress", "value": 0.62, "label": "Exposing 74 of 120 s", "color": "Info"},
-          {"kind": "text", "text": "Stacking", "fontSize": 15, "color": "HeaderText", "padding": 2},
-          {"kind": "checkbox", "bind": "liveCalibrate", "label": "Calibrate with library darks"},
-          {"kind": "checkbox", "bind": "liveReject", "label": "Reject frames over 1.5× FWHM"},
-          {"kind": "dropdown", "bind": "liveMode", "label": "Mode", "options": ["Running mean", "Running σ-clip"]},
-          {"kind": "dock", "height": 34, "children": [
-            {"kind": "text", "side": "right", "size": 120, "text": "Save stack", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
-            {"kind": "text", "side": "right", "size": 90, "text": "Pause", "padding": 8, "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "align": "center"},
-            {"kind": "spacer"}
-          ]}
-        ]
-      },
-      {
-        "kind": "dock", "side": "bottom", "size": 64, "padding": 8, "background": "PanelBg",
-        "children": [
-          {"kind": "text", "side": "top", "size": 20, "text": "Last 10 frames, newest right · red: frame 41 rejected (trailed)", "color": "DimText"},
-          {"kind": "wrap", "gap": 3, "children": [
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Error", "width": 14, "height": 22, "tooltip": "Frame 41 rejected: trailed stars"},
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Success", "width": 14, "height": 22},
-            {"kind": "box", "color": "Info", "width": 14, "height": 22, "tooltip": "Frame 48 exposing"}
-          ]}
+          {"kind": "text", "side": "right", "size": 110, "text": "Save stack", "padding": 4, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
+          {"kind": "text", "side": "right", "size": 90, "text": "Restart", "padding": 4, "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "align": "center", "tooltip": "Throw away the running stack and start again from the next frame"},
+          {"kind": "text", "text": "46 frames · 1 h 32 m · 1 left out (frame 41, trailed) · SNR ×6.8", "color": "BodyText"}
         ]
       },
       {
@@ -69,10 +27,12 @@
           {"kind": "box", "color": "#0b0d12"},
           {"kind": "dock", "padding": 10, "children": [
             {"kind": "dock", "side": "top", "size": 32, "children": [
-              {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "liveView", "options": ["Stack", "Last frame"]},
-              {"kind": "text", "text": "Live stack: 46 frames, auto-stretched", "color": "#c8ccd4"}
+              {"kind": "text", "side": "left", "size": 90, "text": "Frame", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "action": "goto:session", "tooltip": "Show the last frame as it came off the camera"},
+              {"kind": "text", "side": "left", "size": 110, "text": "Live stack", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+              {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "stretch", "options": ["Linear", "Auto STF", "Histogram"]},
+              {"kind": "spacer"}
             ]},
-            {"kind": "text", "text": "image canvas", "align": "center", "color": "#8a90a0"}
+            {"kind": "text", "text": "image canvas: the stack of 46 frames", "align": "center", "color": "#8a90a0"}
           ]}
         ]
       }

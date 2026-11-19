@@ -1,6 +1,6 @@
 # Stacking and processing app
 
-**Objective:** A stand-alone app to calibrate, stack and post-process astro images, in the spirit of PixInsight; its live stacking view is the one piece the tianwen GUI would embed.
+**Objective:** A stand-alone app to calibrate, stack and post-process astro images, in the spirit of PixInsight; tianwen's GUI gets live stacking only, as a mode of its frame preview.
 
 ## Stack
 
@@ -10,7 +10,7 @@
 Stack workspace: frames, pipeline, preview
 ```
 
-**Notes:** One workspace switch (Stack · Process · Workflow · Live) in the header instead of a menu tree. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
+**Notes:** One workspace switch (Stack · Process · Workflow) in the header instead of a menu tree. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
 
 ## Process
 
@@ -32,12 +32,16 @@ Workflow editor: Deep sky (auto), gate 3 selected
 
 **Notes:** A simple workflow is just a list of process steps; gates are the optional extra. Each gate tests one fact of the session (sensor, filters present, frame count, image scale, focal length) and has a Yes and a No branch. The path this session would take is highlighted and marked ✓, so a dry run answers "what will it do with my data" before anything runs. Gates are outlined in amber and start with ◆, so shape and words carry the meaning, not colour alone.
 
-## Live
+## Live stack in the frame preview
 
-**Objective:** Shows a live stack growing during a session: the stack so far, the frame being exposed, and which frames were kept or rejected.
+**Objective:** Shows live stacking as a mode of tianwen's frame preview during a session: one switch flips the same canvas between the last frame and the running stack.
 
-```screen id=live
-Live stack: the view the tianwen GUI would embed
+```screen id=session
+Frame mode: the last frame and its numbers
 ```
 
-**Notes:** This is the screen to share with the tianwen GUI; its right panel and frame strip should work on their own without the Stack and Process workspaces.
+```screen id=live
+Live stack mode: the running stack, what was left out, save or restart
+```
+
+**Notes:** Live stacking is no longer a workspace of its own: it is a Frame / Live stack switch on the preview tianwen already has, with the same stretch control in both modes. The bottom strip changes with the mode: the frame's exposure and quality in Frame, the stack's count, time, frames left out (with the reason) and SNR gain in Live stack. Stacking settings (calibration, rejection) come from the workflow, so the preview has no settings panel. The stand-alone app keeps only Stack · Process · Workflow; the "tianwen preview ↗" link in its header exists only to reach this mock-up.

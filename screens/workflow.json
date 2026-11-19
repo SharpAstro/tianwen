@@ -12,7 +12,7 @@
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
           {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
-          {"kind": "text", "side": "left", "size": 80, "text": "Live", "align": "center", "color": "BodyText", "action": "goto:live"},
+          {"kind": "text", "side": "left", "size": 160, "text": "tianwen preview ↗", "align": "center", "color": "Accent", "action": "goto:session", "tooltip": "How the live stack looks inside the tianwen GUI's frame preview"},
           {"kind": "text", "text": "OSC · 311 lights · no luminance", "color": "DimText", "align": "far"}
         ]
       },

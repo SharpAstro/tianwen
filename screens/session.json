@@ -1,0 +1,39 @@
+{
+  "id": "session",
+  "title": "Session preview: frame",
+  "root": {
+    "kind": "dock",
+    "background": "ContentBg",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
+        "children": [
+          {"kind": "text", "side": "left", "size": 260, "text": "tianwen · session M42", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "right", "size": 160, "text": "Back to the app", "align": "far", "color": "Accent", "action": "goto:home"},
+          {"kind": "text", "text": "Imaging · frame 47 of 60 · 120 s", "color": "BodyText", "align": "far"}
+        ]
+      },
+      {
+        "kind": "dock", "side": "bottom", "size": 40, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "L_0047 · 120 s · gain 100 · −10 °C · FWHM 2.3″ · 1 842 stars", "color": "BodyText"}
+        ]
+      },
+      {
+        "kind": "overlay",
+        "children": [
+          {"kind": "box", "color": "#0b0d12"},
+          {"kind": "dock", "padding": 10, "children": [
+            {"kind": "dock", "side": "top", "size": 32, "children": [
+              {"kind": "text", "side": "left", "size": 90, "text": "Frame", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+              {"kind": "text", "side": "left", "size": 110, "text": "Live stack", "align": "center", "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "action": "goto:live", "tooltip": "Show the running stack of this session's frames"},
+              {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "stretch", "options": ["Linear", "Auto STF", "Histogram"]},
+              {"kind": "spacer"}
+            ]},
+            {"kind": "text", "text": "image canvas: the last frame", "align": "center", "color": "#8a90a0"}
+          ]}
+        ]
+      }
+    ]
+  }
+}
