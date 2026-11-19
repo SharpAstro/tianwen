@@ -223,17 +223,9 @@ public static class DigFill
             taper[i] = MathF.Min(MathF.Max((2f * taper[i]) - 1f, 0f), 1f);
         }
 
-        // 3. The sky under the set, per channel, and 7. how far it can be trusted: the largest of the channels' scatters.
+        // 3. The sky under the set, per channel.
         var backgrounds = new float[channels][];
         var work = new float[n];
-        var largestSpread = new double[n];
-        var skyWide = new double[n];
-        for (var i = 0; i < n; i++)
-        {
-            skyWide[i] = sky[i];
-        }
-        var nearTotal = Gaussian(skyWide, width, height, SkyBlurPx);
-        var farTotal = farWeight is null ? null : Gaussian(skyWide, width, height, FarSkyBlurPx);
         for (var c = 0; c < channels; c++)
         {
             var oc = o[c];
@@ -250,27 +242,10 @@ public static class DigFill
                     : background[i] / MathF.Max(nearWeight[i], MinWeight);
             }
             backgrounds[c] = background;
+        }
 
-            // The scatter is a small difference of two large sums (the mean of squares less the squared mean), so it is
-            // taken in double: in float a level of a few thousand sigmas would read as no scatter at all.
-            var first = new double[n];
-            var second = new double[n];
-            for (var i = 0; i < n; i++)
-            {
-                first[i] = (double)oc[i] * sky[i];
-                second[i] = (double)oc[i] * oc[i] * sky[i];
-            }
-            RaiseToScatter(largestSpread, first, second, nearTotal, sigma[c], width, height, SkyBlurPx, nearWeight, far: false, farTotal is not null);
-            if (farTotal is not null)
-            {
-                RaiseToScatter(largestSpread, first, second, farTotal, sigma[c], width, height, FarSkyBlurPx, nearWeight, far: true, hasFar: true);
-            }
-        }
-        var trust = new float[n];
-        for (var i = 0; i < n; i++)
-        {
-            trust[i] = (float)Math.Clamp((UntrustedSkySpread - largestSpread[i]) / (UntrustedSkySpread - TrustedSkySpread), 0.0, 1.0);
-        }
+        // 7. How far that sky can be trusted: the largest of the channels' scatters.
+        var trust = SkyTrust(o, sky, sigma, set, nearWeight, farWeight is not null, width, height);
 
         var planes = new float[channels][,];
         for (var c = 0; c < channels; c++)
@@ -350,27 +325,194 @@ public static class DigFill
         return (filled, (double)masked / n);
     }
 
-    // Raises largest[i] to this channel's scatter of the plate outside the set under the Gaussian of the given width, in
-    // noise sigmas: the square root of the weighted mean of squares less the squared weighted mean. total is that Gaussian of
-    // the sky's 0/1 weight. The near Gaussian answers where it reaches enough sky, the far one where it does not (as the sky
-    // itself is chosen).
-    private static void RaiseToScatter(
-        double[] largest, double[] first, double[] second, double[] total, float[] sigma, int width, int height, double blurPx,
-        float[] nearWeight, bool far, bool hasFar)
+    // Step 7, the trust per pixel: 1 where the largest of the channels' scatters of the plate outside the set is under
+    // TrustedSkySpread noise sigmas, 0 from UntrustedSkySpread, linear between. The scatter is the square root of the
+    // weighted mean of squares less the squared weighted mean, under the Gaussian that makes the sky there (the near one
+    // where it reaches enough sky, the far one where it does not). It is a small difference of two large sums, so it is
+    // taken in double: in float a level of a few thousand sigmas would read as no scatter at all.
+    //
+    // Read row by row, each row's sums held in a few lines of doubles, so no whole-frame plane is held in double (#2254:
+    // as whole planes they were about 2 GB on a 26 megapixel colour master). The sums and their order are those of scipy's
+    // gaussian_filter on float64: down the column first (the centre tap, then the pairs from the farthest in), then along
+    // the row the same way, both mirrored at the border. Only the set's pixels are read off it, so only they are worked
+    // out: a row with none is skipped, and so is a Gaussian a row has no pixel for, which the far one is on most rows.
+    internal static float[] SkyTrust(float[][] plates, float[] sky, float[][] sigma, bool[] set, float[] nearWeight, bool hasFar, int width, int height)
     {
-        var sum = Gaussian(first, width, height, blurPx);
-        var squares = Gaussian(second, width, height, blurPx);
-        for (var i = 0; i < largest.Length; i++)
+        var trust = new float[width * height];
+        var near = GaussianKernel(SkyBlurPx);
+        var far = hasFar ? GaussianKernel(FarSkyBlurPx) : null;
+        var reach = (far ?? near).Length / 2;
+        Parallel.For(0, height, () => new ScatterRow(width, reach), (y, _, row) =>
         {
-            var thin = hasFar && nearWeight[i] < ThinSkyWeight;
-            if (thin == far)
+            var (anyNear, anyFar) = (false, false);
+            for (var px = 0; px < width; px++)
             {
-                var share = Math.Max(total[i], MinWideWeight);
-                var mean = sum[i] / share;
-                var spread = Math.Sqrt(Math.Max((squares[i] / share) - (mean * mean), 0.0)) / sigma[i];
-                largest[i] = Math.Max(largest[i], spread);
+                var i = (y * width) + px;
+                var thin = hasFar && nearWeight[i] < ThinSkyWeight;
+                row.Near[px] = set[i] && !thin;
+                row.Far[px] = set[i] && thin;
+                anyNear |= row.Near[px];
+                anyFar |= row.Far[px];
             }
+            if (!anyNear && !anyFar)
+            {
+                return row;
+            }
+            Array.Clear(row.Largest);
+            if (anyNear)
+            {
+                RaiseToScatter(row, near, row.Near);
+            }
+            if (anyFar && far is not null)
+            {
+                RaiseToScatter(row, far, row.Far);
+            }
+            for (var px = 0; px < width; px++)
+            {
+                if (row.Near[px] || row.Far[px])
+                {
+                    trust[(y * width) + px] = (float)Math.Clamp((UntrustedSkySpread - row.Largest[px]) / (UntrustedSkySpread - TrustedSkySpread), 0.0, 1.0);
+                }
+            }
+            return row;
+
+            // Raises row.Largest to each channel's scatter under this Gaussian, at the pixels this Gaussian answers for,
+            // one run of them at a time: a run is wanted pixels no further apart than the kernel is wide, and only the
+            // columns within the kernel's reach of it are summed.
+            void RaiseToScatter(ScatterRow r, double[] kernel, bool[] wanted)
+            {
+                var radius = kernel.Length / 2;
+                var px = 0;
+                while (px < width)
+                {
+                    if (!wanted[px])
+                    {
+                        px++;
+                        continue;
+                    }
+                    var last = px;
+                    for (var next = px + 1; next < width && next - last <= 2 * radius; next++)
+                    {
+                        if (wanted[next])
+                        {
+                            last = next;
+                        }
+                    }
+                    RaiseRun(r, kernel, wanted, px, last);
+                    px = last + 1;
+                }
+            }
+
+            void RaiseRun(ScatterRow r, double[] kernel, bool[] wanted, int first, int last)
+            {
+                var radius = kernel.Length / 2;
+                var centre = kernel[radius];
+                var own = y * width;
+                var (from, to) = (Math.Max(0, first - radius), Math.Min(width - 1, last + radius));
+
+                // The Gaussian of the sky's own 0/1 weight on this row.
+                for (var px = from; px <= to; px++)
+                {
+                    r.First[px] = sky[own + px] * centre;
+                }
+                for (var j = radius; j >= 1; j--)
+                {
+                    var above = Mirror(y - j, height) * width;
+                    var below = Mirror(y + j, height) * width;
+                    var weight = kernel[radius - j];
+                    for (var px = from; px <= to; px++)
+                    {
+                        r.First[px] += ((double)sky[above + px] + sky[below + px]) * weight;
+                    }
+                }
+                AlongTheRow(r.First, r.Total, r.Line, kernel, wanted, first, last, width);
+
+                for (var c = 0; c < plates.Length; c++)
+                {
+                    // The plate's first and second moments outside the set, down the column.
+                    var plate = plates[c];
+                    for (var px = from; px <= to; px++)
+                    {
+                        double value = plate[own + px];
+                        double on = sky[own + px];
+                        r.First[px] = (value * on) * centre;
+                        r.Second[px] = (value * value * on) * centre;
+                    }
+                    for (var j = radius; j >= 1; j--)
+                    {
+                        var above = Mirror(y - j, height) * width;
+                        var below = Mirror(y + j, height) * width;
+                        var weight = kernel[radius - j];
+                        for (var px = from; px <= to; px++)
+                        {
+                            double valueAbove = plate[above + px];
+                            double onAbove = sky[above + px];
+                            double valueBelow = plate[below + px];
+                            double onBelow = sky[below + px];
+                            r.First[px] += ((valueAbove * onAbove) + (valueBelow * onBelow)) * weight;
+                            r.Second[px] += ((valueAbove * valueAbove * onAbove) + (valueBelow * valueBelow * onBelow)) * weight;
+                        }
+                    }
+                    AlongTheRow(r.First, r.Sum, r.Line, kernel, wanted, first, last, width);
+                    AlongTheRow(r.Second, r.Squares, r.Line, kernel, wanted, first, last, width);
+
+                    var noise = sigma[c];
+                    for (var px = first; px <= last; px++)
+                    {
+                        if (wanted[px])
+                        {
+                            var share = Math.Max(r.Total[px], MinWideWeight);
+                            var mean = r.Sum[px] / share;
+                            var spread = Math.Sqrt(Math.Max((r.Squares[px] / share) - (mean * mean), 0.0)) / noise[own + px];
+                            r.Largest[px] = Math.Max(r.Largest[px], spread);
+                        }
+                    }
+                }
+            }
+        }, static _ => { });
+        return trust;
+    }
+
+    // The second pass of the Gaussian on one row, at the wanted pixels of a run: the row's part within the kernel's reach
+    // of the run mirrored into a line, then the centre tap and the pairs from the farthest in. A column past the frame's
+    // edge mirrors onto one within that reach, which the first pass summed.
+    private static void AlongTheRow(double[] row, double[] result, double[] line, double[] kernel, bool[] wanted, int first, int last, int width)
+    {
+        var radius = kernel.Length / 2;
+        var centre = kernel[radius];
+        for (var k = first; k <= last + (2 * radius); k++)
+        {
+            line[k] = row[Mirror(k - radius, width)];
         }
+        for (var px = first; px <= last; px++)
+        {
+            if (!wanted[px])
+            {
+                continue;
+            }
+            var at = px + radius;
+            var sum = line[at] * centre;
+            for (var j = radius; j >= 1; j--)
+            {
+                sum += (line[at - j] + line[at + j]) * kernel[radius - j];
+            }
+            result[px] = sum;
+        }
+    }
+
+    // One thread's lines for SkyTrust: a row's sums down the column, the same after the pass along the row, the largest
+    // scatter found on the row so far, and which of the row's pixels each Gaussian answers for.
+    private sealed class ScatterRow(int width, int reach)
+    {
+        public readonly double[] First = new double[width];
+        public readonly double[] Second = new double[width];
+        public readonly double[] Total = new double[width];
+        public readonly double[] Sum = new double[width];
+        public readonly double[] Squares = new double[width];
+        public readonly double[] Largest = new double[width];
+        public readonly double[] Line = new double[width + (2 * reach)];
+        public readonly bool[] Near = new bool[width];
+        public readonly bool[] Far = new bool[width];
     }
 
     // The local noise sigma at every pixel (step 1), or null when the frame has no present pixel to read it from.
@@ -568,60 +710,9 @@ public static class DigFill
         return dst;
     }
 
-    // The same filter on a double plane, as scipy runs it on float64: nothing is rounded to float between the two passes.
-    private static double[] Gaussian(double[] src, int width, int height, double sigma)
-    {
-        var kernel = GaussianKernel(sigma);
-        var radius = kernel.Length / 2;
-        var centre = kernel[radius];
-        var mid = new double[src.Length];
-        Parallel.For(0, height, y =>
-        {
-            var own = src.AsSpan(y * width, width);
-            var row = mid.AsSpan(y * width, width);
-            for (var px = 0; px < width; px++)
-            {
-                row[px] = own[px] * centre;
-            }
-            for (var j = radius; j >= 1; j--)
-            {
-                var above = src.AsSpan(Mirror(y - j, height) * width, width);
-                var below = src.AsSpan(Mirror(y + j, height) * width, width);
-                var weight = kernel[radius - j];
-                for (var px = 0; px < width; px++)
-                {
-                    row[px] += (above[px] + below[px]) * weight;
-                }
-            }
-        });
-
-        var dst = new double[src.Length];
-        Parallel.For(0, height, () => new double[width + (2 * radius)], (y, _, line) =>
-        {
-            var row = mid.AsSpan(y * width, width);
-            for (var k = 0; k < line.Length; k++)
-            {
-                line[k] = row[Mirror(k - radius, width)];
-            }
-            var result = dst.AsSpan(y * width, width);
-            for (var px = 0; px < width; px++)
-            {
-                var at = px + radius;
-                var sum = line[at] * centre;
-                for (var j = radius; j >= 1; j--)
-                {
-                    sum += (line[at - j] + line[at + j]) * kernel[radius - j];
-                }
-                result[px] = sum;
-            }
-            return line;
-        }, static _ => { });
-        return dst;
-    }
-
     // scipy's kernel: exp(-x^2 / 2 sigma^2) over [-4 sigma, 4 sigma], divided by its sum taken as numpy takes it (eight
     // running sums, combined in pairs, then the rest), so the weights are numpy's to the last bit.
-    private static double[] GaussianKernel(double sigma)
+    internal static double[] GaussianKernel(double sigma)
     {
         var radius = (int)((4.0 * sigma) + 0.5);
         var kernel = new double[(2 * radius) + 1];
@@ -765,7 +856,7 @@ public static class DigFill
     }
 
     // scipy's "reflect" border: the edge sample is repeated (d c b a | a b c d | d c b a).
-    private static int Mirror(int i, int n)
+    internal static int Mirror(int i, int n)
     {
         if ((uint)i < (uint)n)
         {
