@@ -136,18 +136,30 @@ public class ScaleLadderTests(ITestOutputHelper output)
 
         output.WriteLine($"of {pointedAway} panels pointed at a field that shares no sky with them, {declined} were declined");
         pointedAway.ShouldBeGreaterThanOrEqualTo(4, "premise: the mosaic holds panels a frame diagonal apart");
+
+        // The figure the plan quotes, pinned so it is a tested one. The invariant is the bar above (never a wrong
+        // scale): an answer here would not be wrong if it were the frame's own scale, which a wide rung's frame can
+        // reach the panel's stars for. So a change that moves this count is re-read against that bar, not reverted.
+        declined.ShouldBe(pointedAway, "every panel pointed at another field was declined when this was measured (2026-11-20)");
     }
 
     [Fact]
-    public void AFieldWithTooFewCatalogueStarsIsDeclinedWithoutAsking()
+    public void AFieldWithTooFewStarsIsDeclinedBeforeAnyRungIsAsked()
     {
         var manifest = VelaMosaicStarLists.Manifest;
         var panel = manifest.Panels[0];
         var frame = panel.Frames[0];
         var few = manifest.CatalogTuples().GetRange(0, QuadScaleRecovery.MinStars - 1);
 
-        ScaleLadder.TryFind(frame.DetectedPoints(), few, frame.Hint, panel.Width, panel.Height).ShouldBeNull();
-        ScaleLadder.TryFind(frame.DetectedPoints(QuadScaleRecovery.MinStars - 1), manifest.CatalogTuples(), frame.Hint, panel.Width, panel.Height).ShouldBeNull();
+        // The ladder says a line for every rung it ends on or that answers, so no line is no rung asked.
+        var fewCatalogue = new LinesLogger();
+        ScaleLadder.TryFind(frame.DetectedPoints(), few, frame.Hint, panel.Width, panel.Height, fewCatalogue).ShouldBeNull();
+        fewCatalogue.Lines.ShouldBeEmpty();
+
+        var fewDetections = new LinesLogger();
+        ScaleLadder.TryFind(frame.DetectedPoints(QuadScaleRecovery.MinStars - 1), manifest.CatalogTuples(), frame.Hint, panel.Width, panel.Height, fewDetections)
+            .ShouldBeNull();
+        fewDetections.Lines.ShouldBeEmpty();
     }
 
     /// <summary>
