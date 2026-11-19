@@ -6805,7 +6805,7 @@ the first angle is a step after the model and not another arm:
     M42 pairs above), so a difference of that size on the left and SMC rows is beyond their own pairs but not beyond
     what a seed has moved on another row. The by-count clean rows are not paired here. The row the cap exists to protect goes the other way: the
     Tarantula's glow with floor3 reads p90 443.5 and 31 % over the bound against R4c's 143.4 and 8 % (inside its
-    guard, the largest of the recent arms). R3v's pair for it (floor3, green, p90 1726.2 / 1436.5, over the bound
+    guard, and the larger of the two faint-star arms). R3v's pair for it (floor3, green, p90 1726.2 / 1436.5, over the bound
     92 / 85 %, a no-faint-star spread) gaps 290 and 7 points; R4d less R4c is +300 and +23 points, so the p90 rise
     is about one R3v seed's gap and the share over about three times its gap. R3v reads at a far higher level, so
     the pair bounds a seed gap only roughly. So the ledger is mixed: the dig, the dark-flat left and SMC rows are
@@ -6816,8 +6816,8 @@ the first angle is a step after the model and not another arm:
     (R4c 47.2 and 45.9), Tarantula dark flat 80.3 left 14.3, Tarantula crowded 86.7, BP 17-19 95.4, Sagittarius 96.4,
     the nucleus without protection 2.8 / 6.6 / 9.7 %, by count clean 95.6 at 100-1000 and 91.5 at 1000 and over, M42
     100-1000 clean 63.2 dug 34.6, SMC 100-1000 clean 91.5 dug 6.8; the Tarantula's glow with floor3 has a p90 of 443.5
-    and 31 % of it over the bound (R4c 143.4 and 8 %), inside its guard and the largest of the recent arms. Nothing
-    is adopted.
+    and 31 % of it over the bound (R4c 143.4 and 8 %), inside its guard and the larger of the two faint-star arms,
+    R4c and R4d (R3v, which draws no faint star, reads 92 and 85 % over on its two seeds). Nothing is adopted.
 - **R4c's read, 2026-11-19 (seed 0, `r4c_synth28_s0`): one bar of the question cleared, the other missed, every
   guard held. Not killed and not passed; the rows go to the owner.** With floor3 and core protection:
 
@@ -6950,8 +6950,9 @@ the first angle is a step after the model and not another arm:
     nucleus 6.0 / 21.2 / 9.9 % (24.4 / 37.0 / 29.4). By count as trained: 100-1000 clean 95.6 with 4.1 dug (94.9
     clean), 1000 and over 93.6 (86.7), saturated 78.9; M42 100-1000 clean 61.0 with 37.5 dug (61.0, 36.8); SMC
     100-1000 clean 86.4 with 11.9 dug (81.4, 13.6). **The glow:** the Tarantula's with floor3 has a p90 of 450.5
-    and 38 % of it over the bound (R4c 143.4 and 8 %, R4d 443.5 and 31 %), inside its guard and now the largest of
-    the recent arms; as trained its median is -2.8 and its p90 696.3. Andromeda's with floor3: p90 360.6, 20 % over
+    and 38 % of it over the bound (R4c 143.4 and 8 %, R4d 443.5 and 31 %), inside its guard and the largest of
+    the three faint-star arms (R3v, which draws none, reads p90 1726.2 and 1436.5 with 92 and 85 % over on its two
+    seeds); as trained its median is -2.8 and its p90 696.3. Andromeda's with floor3: p90 360.6, 20 % over
     (R4c 487.5, 22 %). **The light taken from the Tarantula field,** green, with the chain: 79 % in the densest
     tenth of cells and 81 % over the frame (R4c 80 % and 82 %). **The twin** (`twin_err.py`, the truth known, rms
     inside the stars' mask in sigma): 2.806 as trained and 1.086 with floor3 (R4c 2.592 and 1.055); on R3v's mask
@@ -7001,8 +7002,9 @@ the first angle is a step after the model and not another arm:
     same.
   - **What the read says, on one seed.** Drawing the noise at the plate's own level, a median of 8 % under the
     record, does not move the crowded rows toward StarXTerminator: more crowded stars are left (14.3 % against
-    11.8 % as trained, 8.9 % against 7.7 % with the chain) and BP 17-19 is 1.3 lower. What it does change is on dark
-    sky and in cores: less dug under Andromeda's bright stars and less of M31's nucleus taken as trained, both
+    11.8 % as trained, 8.9 % against 7.7 % with the chain; the crowded flat itself lay 0.0 to 0.1 apart between
+    seeds on the three recipes run twice). BP 17-19 is 1.3 lower, which is inside a seed's spread and is not
+    counted here. What it does change is on dark sky and in cores: less dug under Andromeda's bright stars and less of M31's nucleus taken as trained, both
     of which the product's post steps already cover. The Lagoon's broad light and the Tarantula's glow read worse.
     So the level of the training noise is not what holds the crowded fields, as the cap was not (R4d) and the
     faint stars were only in part (R4c). The cause the plan holds is still the one no arm has changed: the grain in
