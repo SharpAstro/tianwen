@@ -3,6 +3,10 @@
 **Status: NOT STARTED.** A plan for the owner to decide on before any code (the owner, 2026-10-17: "do we already have a milestone
 for a GUI based stacking app? not just planetary etc", then "yeah lets do that"). Milestone `stacking-workbench`.
 
+**Re-cut 2026-11-19** from a stacker into the processing application: image editing as processes, a non-destructive edit list,
+workflows with gates, a guided view and a windowed one. What changed and why is in
+[The re-cut of 2026-11-19](#the-re-cut-of-2026-11-19); W0 to W8 keep their numbers and W9 to W13 are new.
+
 ## Why, and what changes from before
 
 The engines are done and measured, and almost all of them are reachable only from the command line:
@@ -113,6 +117,286 @@ A project is a folder: `project.json` (the inputs, each step's settings, each st
 the step outputs. A **processing profile** is a project's settings without its inputs; a batch replays one over many inputs, headless
 first (`tianwen workbench run <profile> <inputs>`), so a night of captures runs unattended and the window shows the queue.
 
+## The re-cut of 2026-11-19
+
+The owner, in one sitting on 2026-11-19, after DSPX was looked at ([pixinsight-parity.md](pixinsight-parity.md) "DSPX"):
+
+- "we might have this as a stand-alone app as well. at most the tianwen gui as is will get a live stacking view."
+- "in addition to processes, it would be good if we also support workflows (a combination of processes, simple version is just a
+  step by step apply of processes, but it could also include gates, like if mono/narrowband/... if luminance data present, .... if
+  >60 frames do bayer drizzle, ..."
+- "i wonder if the live stacking is just a switch mode in the frame preview (during session)"
+- "Astro pixel processor has a per step view which I very much like, but the PIxinsight/this new thing is a lot more flexible, so
+  maybe if we have a pre-build workflow that is a bit modelled for what we do in the viewer, with plate solving, spcc (plus of
+  course the registration and whatnot)"
+- "should we also have an optional MDI mode? happy to have a switch somewhere for that (guided view would be SDI)"
+- "remember there's also an image editing component to this. so one of the processes is crop, and an auto-crop (currently we have
+  this in gpu int he viewer but I feel this might not be enough, probably okay in guided view). one of the guiding principles are
+  non-destructive editing (Image class), but I do see if you open 5 masters etc we might have to put intermediate files to
+  hard-disk. I feel we already have some support for this."
+
+So the plan is no longer a stacker plus an enhancer. It is four things, each built on the one below it:
+
+| Thing | What it is | Where it is planned |
+|---|---|---|
+| **Process** | One operation with typed settings, one routine in Lib, one CLI verb. Crop, gradient, SPCC, denoise, register, integrate | [A process](#a-process), W1, W10 |
+| **Edit list** | An image is its original file plus an ordered list of process instances. Nothing is written over the original | [The edit list](#the-edit-list-non-destructive-by-construction), W1 |
+| **Workflow** | An edit list without its inputs, plus gates and per-group loops. A guided view is a workflow drawn as a step bar | [Workflows](#workflows-processes-in-order-with-gates), W9 |
+| **Project** | A folder: the inputs, the edit lists, the store of step outputs | [The project](#the-project-and-a-processing-profile), W1 |
+
+**The drawing.** The design is DSN-1, kept in #1640 with its renders on the branch `design/1640` (six versions on 2026-11-19: the
+Guided, Stack, Process and Workflow screens, crop, the windowed mode, the edit list). It is a drawing made without reading the
+code. Where it and this plan disagree, the plan says so in the section concerned, and the code decides.
+
+### A process
+
+A process is described once, in Lib, and everything else reads the description: the panel in the window, the workflow file, the
+edit list, the command line shown under a step (rule 3).
+
+| Part of the description | What it is for |
+|---|---|
+| Id and version | The digest of a step (rule 2). A retrained model or a changed algorithm is a new version, so an old output is never taken for a new one |
+| Settings | A record, serialised to JSON through a source-generated context (AOT). Each setting carries its default and, where there is one, the measurement behind it (rule 4) |
+| Inputs | How many images, and of what kind: one image, several (combine, LRGB), or a set of frames (calibrate, register, integrate) |
+| Preconditions | Facts the input must have: linear, plate-solved, three channels, a coverage plane. The same facts a workflow gate tests ([The facts](#the-facts-a-gate-may-test)), so a process the image is not ready for is shown as such, with the reason |
+| How its output is kept | **Stored** (a file in the step store: denoise, gradient, integrate), **derived** (recomputed from its input when asked, in milliseconds, never stored: crop, a flip, white-balance gains, a stretch) or **metadata** (it writes no pixels: plate solve, star detection, statistics) |
+| How it previews | **In the shader** (stretch, white balance, crop: free while dragging), **on a region** (run on the visible part of the image and shown split: denoise, deblur) or **not at all** (a whole-frame fit such as gradient or SPCC, whose answer for a region is a different answer) |
+| Progress and cancel | The engine's own `IProgress`, as rule 6 |
+
+**There is one description, not two.** `SharpenStep` and its records (`DeblurStep`, `GradientCorrectionStep`, `RemoveStarsStep`,
+the stretch steps, `RecombineStep`) are already a typed list of process settings that `SharpenPipeline` runs; they are not
+serialisable today. W1 decides whether those records become the process settings or are wrapped by them, and whichever it picks
+there is no second hierarchy beside them.
+
+**A preview on a region is honest about what it is.** A process whose thresholds are in noise units of the whole frame, or whose
+model normalises over the whole input, does not give the same pixels on a crop as on the frame. The description says which
+processes preview faithfully on a region; the others show the region preview labelled as approximate, or none.
+
+### The edit list: non-destructive by construction
+
+`Image` is already logically immutable ([image-pipeline.md](../architecture/image-pipeline.md), "Image mutability"): every
+operation returns a new image, and the five in-place exceptions are named `Adopt*` or pinned by a test. The edit list is that
+rule taken to the file level:
+
+- **The original file is never written.** An edit list names it and its digest. Every output goes to the step store.
+- **A step's key is a digest** of its input's key, the process id and version, its settings, and what served it (the backend and
+  model of an AI step, rule 7). The key is computed from keys, so a stored output is never hashed.
+- **The step store is addressed by that key.** Switching an edit off and on again, or going back and forward, finds the file and
+  runs nothing. Changing edit 3 of 7 re-runs 4 to 7 and nothing before (rule 2).
+- **An edit has an on/off switch and its settings can be reopened.** That is DSN-1's "Edits (original untouched)" panel, and its
+  button reads Keep rather than Apply.
+- **One image can feed several lists.** Star removal makes two images (starless and stars) from one; a combine takes several
+  lists' heads as its inputs by key. So the structure is a graph of keys, drawn per image as a list.
+- **Reordering edits** is possible wherever the preconditions still hold, and costs a re-run from the first moved edit. It is not
+  in the first version ([Decisions for the owner](#decisions-for-the-owner), 7).
+
+The viewer already remembers a display per file (`ViewerDisplayMemory`, #1814) and already chooses between keeping a pre-enhance
+image and re-reading it (`EnhanceRevertPolicy`). The edit list replaces neither: it is the workbench's, and the viewer stays a
+viewer.
+
+### Crop and auto-crop
+
+What exists, read from the code on 2026-11-19:
+
+- `Image.Crop(PixelRect)` makes the cropped image, `WCS.CroppedTo` moves the solution with it, and
+  `AlignmentProvenance.ForCrop` carries the provenance.
+- **The viewer's auto-crop is a display clip.** `ViewerState.DisplayCrop` hides pixels in the draw; the comment at the toggle
+  says "the crop only ever hid pixels that were there the whole time". It is passed to Enhance as a rectangle, so the pipeline
+  does see it.
+- The rectangle comes from `ViewerActions.ScanForCrop`: the master's coverage plane where the sidecar has one
+  (`Image.CoverageCropRectangle`), else the edge walk over the pixels (`Image.LargestCoveredRectangle`).
+- `image autocrop` is the CLI verb, and **it calls `ViewerActions.ScanForCrop`**, a routine in `TianWen.UI.Abstractions`. There
+  is no verb that crops to a rectangle the user gives. That verb is its own issue, #2244 (the owner, 2026-11-19: "we can add
+  a crop verb, takes in four parameters, but that is a seperate thing").
+
+What the workbench needs, and why the display clip is not enough for it: a process after the crop must be handed the cropped
+pixels (a gradient fit must not see the ragged edge), an export must be the cropped image with a moved WCS, and the user must be
+able to set the rectangle by hand.
+
+- **Crop is one process**, and auto-crop is not a second one. Its setting is either a rectangle or a rule ("where every frame
+  covers", "the largest covered rectangle"), resolved against the input when the step runs, so a workflow carries the rule from
+  one master to the next. By hand: drag the frame, fix an aspect ratio, type the four edges.
+- **Its output is derived, not stored.** The edit holds the rectangle; `Image.Crop` on its input takes milliseconds and no file
+  is written. Widening the crop later is a changed setting, as DSN-1 v6 draws it.
+- **While the frame is dragged the display clip draws it**, over the uncropped texture, so nothing is uploaded again. The clip
+  and `Image.Crop` are given the same rectangle from one place; that they agree to the pixel is a test.
+- **The rectangle solver moves to Lib** before anything else (rule 1, and the repo's rule that pure math lives in
+  `TianWen.Lib`). The viewer, `image autocrop`, `tianwen stack` and the workbench then call one routine. W10.
+- **Guided uses the automatic rectangle** with no handles shown unless asked for, which is the viewer's behaviour and what the
+  owner judged enough there.
+- DSN-1 says "cuts where fewer than 90 % of frames overlap". That number is the drawing's. `CoverageCropRectangle` has no such
+  threshold today; if one is wanted it is a setting with a measured default, not a constant in a panel.
+
+Rotation and flips are a separate process (`Image.Affine` exists; no verb). A quarter turn and a flip lose nothing; any other
+angle resamples, and "north up" needs a plate solve first, which is a precondition.
+
+### Where the pixels live: memory, the GPU, the disk
+
+The owner's case is five masters open at once, each with intermediates. A three-channel 6000 x 4000 float master is about 275 MB of
+planes; five of them, each with six stored edits beside the original, are 35 files and about 9.4 GB.
+
+**What already exists** (all of it built for the viewer, [viewer-memory-footprint.md](viewer-memory-footprint.md)):
+
+| Piece | What it does today |
+|---|---|
+| `DocumentCache.TotalBudgetBytes` | A total across open documents, 384 MB by default (three times `EnhanceRevertPolicy.RetainBudgetBytes`), a settable number and never an OS memory reading |
+| `DocumentCache.Admit` | When a document opens over the budget, the least recently used document the file can give back releases its planes |
+| `AstroImageDocument.EnsurePlanesAsync`, `PlanesPin` | A consumer reads the planes back from the file, off the render thread, and holds a pin while it reads; a pinned document is never released |
+| `IReadoutTileSource` (`FitsReadoutTiles`, `FpackReadoutTiles`, `TiffReadoutTiles`) | The cursor readout without planes: 64 x 64 tiles read from the file |
+| `EnhanceRevertPolicy.Decide` | Keep the pre-enhance image (instant revert) or re-read it (no memory), by its size |
+| `ScratchSpace.Refusal` | A write that would leave less than a reserve free on its drive is refused in words before a byte is written |
+| The verbs | Every step already writes a FITS, and `tianwen stack` writes the master beside its `.rejection`, `.coverage`, `.badpixels` and `.stderr` sidecars |
+
+**What is missing for the workbench:**
+
+1. **A result that exists only in memory can never be released.** `DocumentCache` skips "an in-memory frame, a crop", because
+   nothing can give the planes back, and an Enhance result looks to be such a document (W11 confirms it first). Rule 2 closes this without new machinery: a stored
+   step's output is written to the step store by the job that made it, the document then takes that file as its readout source,
+   and from there it is an ordinary file-backed document the cache can release. What is new is small: attaching a readout source
+   to a document after its file is written.
+2. **The budget is the viewer's.** 384 MB holds one large master, and it is a constant: the viewer measures nothing.
+   **The owner, 2026-11-19:** "maybe we measure the free space on program start, page size etc, and basically try to avoid
+   swapping". The stacker already measures: `HostSnapshot.Take` reads the memory the process can still grow into without paging
+   (`GC.GetGCMemoryInfo`) and the free space of a drive, and `IntegrationProbe` sizes a stack from it. So the workbench takes
+   **one snapshot when it starts** and sets `TotalBudgetBytes` and the step store's reserve from it, with a setting to override
+   each. Once per run keeps what `EnhanceRevertPolicy` protects (a decision does not flip because another program allocated
+   between two clicks) and still fits the machine. What fraction of the free memory is the budget is measured in W11 against the
+   one thing asked for, no swapping, and is not guessed here. DSN-1's bar ("12.5 of 16 GB in use") shows resident planes against
+   that budget, not the machine's memory.
+3. **Release happens only when a document opens** (the owner's answer on #1852). In the workbench a finished step is a new
+   document, so the same trigger fires after every step; nothing to add until a measurement says otherwise.
+4. **The GPU has no budget at all.** A released document keeps its texture. With several images tiled that is the next thing to
+   run out, and its size depends on the texture format and the mips, so it is **measured before it is designed** (the pipeline's
+   own image sizes, the `StagingBufferSize` pattern, never working set). The likely answer is that only a visible image holds a
+   full texture.
+5. **The step store grows.** It is a cache, since everything in it can be made again from the originals and the edit lists:
+   - Every write asks `ScratchSpace.Refusal` first, against a reserve that is a setting.
+   - When the store passes its own size limit, the least recently used outputs go first. An output that is the current head of an
+     open edit list is kept. An evicted edit is shown as "will be recomputed".
+   - **It deletes only files it wrote**, found through its own index of keys, inside its own folder. Never an original, never a
+     file by pattern.
+   - Outputs are plain float FITS. FITS.Lib cannot write a compressed file, so the store is not compressed.
+6. **Where the store is.** A project's is its folder. An image opened with no project gets a store under the app's data folder
+   until it is saved as a project; the folder is a setting, because a system drive is often the small one. A new directory goes
+   into the tree in `docs/architecture/runtime-data.md` in the same change.
+
+Derived edits (crop, flips, white balance, stretch) store nothing, and their pixels exist only while a consumer reads them, so an
+image that has only been cropped and stretched costs what its original costs.
+
+## Workflows: processes in order, with gates
+
+A workflow is an edit list with the inputs taken out and three things added.
+
+- **A step**: a process and its settings.
+- **A gate**: one fact, a comparison, and two branches. A branch is a list of steps and may hold another gate, so a workflow is a
+  tree and never a loop.
+- **For each**: a body run once per group of the inputs (per filter, per target, per session). "Stack each filter" is this, and
+  it is what makes a mono workflow one workflow.
+
+It is a JSON file. There is no expression language and no scripting in it ([Not in it](#not-in-it)).
+
+### The facts a gate may test
+
+A closed list, each one a function in Lib with a test, shared with the processes' preconditions:
+
+| Fact | Known when |
+|---|---|
+| Sensor is mono or colour (and its Bayer pattern) | After the scan |
+| The filters present: luminance, RGB, which narrowband lines | After the scan |
+| The number of lights, per group | After the scan, and again after grading removes some |
+| Calibration frames present: darks, flats, bias, for which groups | After the scan |
+| The kind of target: deep sky, planetary, a comet | After the scan (`PlanetaryIdentification`, the session's target) |
+| Sampling: pixel scale against the measured FWHM | After grading |
+| The frames are dithered | After registration |
+| The image is linear, is plate-solved, has a coverage plane, has three channels | Per image, at the step |
+| An enhancer serves this role (`IEnhancerAvailability.Serves`) | At the step |
+
+A fact not yet known when a workflow is looked at is drawn as "decided after step N". DSN-1's **dry run** evaluates what can be
+known from the scan and marks the branch the data would take.
+
+### A gate shows a decision, it does not replace one
+
+The owner's example is "if >60 frames do bayer drizzle". Today that choice is not a frame count: `IntegrationStrategySelector`
+gates each strategy on whether it fits and ranks the survivors on fidelity and speed. A built-in workflow's gate **calls the
+decider the pipeline already has** and shows its answer and its reason; it never carries a second threshold beside it (rule 4:
+the defaults are the measured best). A user's own gate may test any fact against any number, and that is the user's choice,
+labelled as theirs.
+
+### The built-in workflows, and what makes one correct
+
+- **Deep sky, as `tianwen stack` and the viewer do it**: scan, grade, calibrate, register, integrate, crop, plate solve, white
+  balance by SPCC, gradient, deblur, denoise, stretch, export. This is the "pre-build workflow modelled for what we do in the
+  viewer". Its order is **read off the code** when W9 writes it (`StackingPipeline`, `MasterPostProcessor.WriteMasterAsync`,
+  `LinearEnhanceProgram.For`), not off the drawing, whose ten steps put crop before the solve.
+- **Its test is parity**: run headless on a fixture, it leaves the same files, to the bit, as `tianwen stack --enhance` on the
+  same input. A built-in workflow that drifts from the pipeline is a bug in the workflow.
+- **Mono LRGB** and **narrowband** follow from `ColourComposition.RunAsync` the same way (the palettes wait on
+  [narrowband-colour.md](narrowband-colour.md) P1). **Planetary** follows from `PlanetaryBestStack` and `PlanetaryAuto`.
+- A user's edit list can be **saved as a workflow**, which is how a reusable one is made without an editor.
+
+### The guided view is a workflow drawn as steps
+
+Astro Pixel Processor's per-step view, which the owner likes, is one fixed workflow. Here the step bar is drawn from whichever
+workflow is open: its top-level steps left to right, a gate drawn as the branch the data took. The guided view is the easy road
+and always shows one image.
+
+**Any step can be started directly, as in APP** (the owner, 2026-11-19: "you can just go straight to 6. Integrate and start
+integration and it will run (or re-run if required) all previous steps unless they are compatible"). That is rule 2 read
+forwards: starting step 6 computes the key of every step before it, takes from the step store each one whose key is there, and
+runs the rest in order. So there is no separate "run all" and no way to integrate over stale calibration. The bar says, before
+anything starts, which earlier steps will run and which are kept.
+
+**It runs until a step needs the user** (a failed solve, frames to look at), with a switch to stop at every step (the owner,
+2026-11-19: yes). "Open as workflow" leads to the editor, where gates and extra steps are. W2 builds the bar; it needs
+W9 for anything but a fixed list.
+
+## Two views: guided (one image) and the workspace (several)
+
+The owner: an optional MDI mode behind a switch, the guided view staying single-document.
+
+- **Guided**: one image, the step bar, one step's panel. No switch.
+- **Workspace**: the process list, the edit list of the active image, and several images open. Built in this order, each usable
+  without the next:
+  1. **Tabs.** One image visible at a time. DIR.Lib has the tab strip (`TabBar`, `TabStripLayout`); the documents are already
+     many (`DocumentCache`). Nothing new in the library.
+  2. **Tiles.** Two or four images side by side with linked zoom and pan, which is what comparing a starless plate with its
+     stars needs. Each pane is a viewer with its own state; the active pane is the one a process applies to, and it is named in
+     words, not only outlined. One focus owner per window still holds.
+  3. **Free-floating, overlapping windows** (DSN-1's Cascade) come last and are **DIR.Lib's work, not this plan's**. DIR.Lib has
+     tab strips and no dock, splitter or overlapping child window; the widget is SharpAstro/DIR.Lib#276 (the owner, 2026-11-19:
+     "adding cascade to DIR.Lib can be a flight on its own"). The workspace takes it as a third arrangement once it exists and
+     waits on it for nothing.
+
+## Live stacking is the session's, as a switch on the frame preview
+
+The owner's direction is that `tianwen-gui` gets at most a live stacking view, and that it may be "just a switch mode in the frame
+preview (during session)". That is what [stacking.md](stacking.md) already plans in its Phase 15 (a live-preview toggle, "No new
+Stacking tab needed"), tracked as #899, and DSN-1 v3 draws it: a Frame / Live stack switch on the Live Session tab's preview, the
+strip below reporting the stack. It is not part of this app and not in this milestone. DSN-1's two questions about it (which
+workflow a live stack uses, and whether the preview switches to the stack by itself) are #899's.
+
+## The processes: what exists, and what is missing
+
+From the verbs in `TianWen.Cli` and the public methods of `Image` on 2026-11-19. W10's first task is to check this list against
+the code line by line; it is here to size the work, not to settle it.
+
+| Group | Process | Routine | Verb | Missing |
+|---|---|---|---|---|
+| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `ViewerActions.ScanForCrop` | `image autocrop` | The solver in Lib (W10); a crop to a given rectangle (#2244) |
+| Geometry | Rotate, flip, resample, bin | `Image.Affine`, `BilinearResize`, `Downsample` | none | The verbs; the WCS carried through each |
+| Geometry | Align to a reference | `FrameRegistration` | `image align` | |
+| Astrometry | Plate solve | the solver | `tianwen solve` | |
+| Background | Gradient | `ClassicalBackgroundExtractor`, the GraXpert backend | `image flatten` | |
+| Colour | White balance by SPCC | `ColourCalibration`, `WhiteBalanceStep` | inside `stack`, `image sharpen`, `image render` | A verb of its own, to be checked |
+| Colour | Linear fit, LRGB, combine, continuum | `ColourComposition` and its steps | `image linear-fit`, `lrgb`, `combine`, `continuum`, `luminance` | |
+| Colour | Saturation, SCNR, highlight compression, background reduction | `Image.Saturate`, `SubtractiveChromaticNoise`, `CompressHighlights`, `ReduceBackground` | none of their own | The verbs |
+| Restoration | Deblur, denoise, PSF match | the enhancer roles | `image deblur`, `denoise`, `match-psf`, `sharpen` | |
+| Stars | Remove, add back, fill digs | `NarrowbandCombination.SplitStarsAsync`, `DigFill.Apply` | `image remove-stars`, `add-stars`, `fill-digs` | |
+| Tone | Stretch (MTF, GHS, asinh, star stretch) | `Image.MtfStretch`, `GeneralizedHyperbolicStretch`, `AsinhStretch`, `StarStretch` | `image render` | A stretch as a step that writes a FITS, to be checked |
+| Combining | Add, subtract, multiply, blend, screen | `Image.Add`, `Subtract`, `Multiply`, `Lerp`, `Screen`, `Unscreen` | `add-stars` only | Fixed-form blends as a verb. An expression language ("pixel math") is not planned |
+| Masks | Range mask, blend through a mask | `Image.LuminanceRangeMask`, `Binarize`, `BlendThroughMask` | none | A mask as an image a process takes (W13) |
+| Analysis | Statistics, sources | `Image.GetStats`, the detector | `image stats`, `image sources` | |
+
 ## Where it lives (W0, the owner's decision)
 
 - **A. A mode of `tianwen-fits`** (Astro Photo Viewer): already in the Store and on macOS, already stacks a SER. But the viewer is a
@@ -128,25 +412,36 @@ would only add a package hop to each change. Running its jobs on the node (`Node
 is later and optional: the node has no stacking endpoint today, and its enhance endpoint is not on the job model yet
 (`server-enhance-job-model.md`).
 
+**The viewer stays a viewer.** `tianwen-fits` keeps its Enhance toggle and its auto-crop as they are and gains "Open in the
+workbench". What the two share (the renderer, the popovers, the compare slider, the crop solver once it is in Lib) lives in
+`TianWen.UI.Abstractions` and Lib, so a master looks the same in both.
+
 **The owner's direction, 2026-11-19** (after DSPX was looked at, [pixinsight-parity.md](pixinsight-parity.md) "DSPX"): the
 processing application is likely a **stand-alone app**, and **`tianwen-gui` as it is gets at most a live stacking view**, so C
-is out as the home of the workbench. That leans to B; the final pick and the name stay open in #1640. If it becomes the
-full processing application DSPX points at (the whole chain with history, not a stacker plus an enhancer), this plan's
-scope widens past W6 and is re-cut then, not now.
+is out as the home of the workbench. That leans to B; the final pick and the name stay open in #1640. The same day the scope
+widened to the full processing application DSPX points at, and the plan was re-cut
+([The re-cut of 2026-11-19](#the-re-cut-of-2026-11-19)).
 
 ## Phasing
 
 | Phase | Scope | Depends on | Issue |
 |---|---|---|---|
 | W0 | The owner picks where it lives (A, B or C) and its name | | #1640 |
-| W1 | The step runner and the project, headless | W0 | #1641 |
-| W2 | The app's shell: the step bar, the views, jobs | W1 | #1642 |
+| W1 | The process contract, the edit list, the step store and the project, headless | W0 | #1641 |
+| W2 | The app's shell: the guided view's step bar, the views, jobs | W1, and W9 for a workflow with gates | #1642 |
 | W3 | The planetary steps | W2 | #1643 |
 | W4 | Deep sky: import, inspect, calibrate | W2 | #1644 |
 | W5 | Deep sky: register and integrate | W4 | #1645 |
 | W6 | Processing and colour, both kinds | W3, W5 | #1646 |
-| W7 | Profiles and batches | W6 | #1647 |
+| W7 | Saved workflows and batches | W6, W9 | #1647 |
 | W8 | Packaging and release | W7 | #1648 |
+| W9 | Workflows and gates, headless | W1 | #2236 |
+| W10 | The missing process verbs, Lib and CLI first | none: it can start today | #2237 |
+| W11 | Memory, GPU and disk for many open images | W1 | #2238 |
+| W12 | The workspace view: tabs, then tiles | W2, W11 | #2239 |
+| W13 | Masks | W12 | #2240 |
+
+W10 waits on nothing, the owner's W0 included: its verbs are useful from the command line whether or not the app is ever built.
 
 ### W0 Where it lives
 
@@ -155,7 +450,9 @@ Tracked as #1640. Decided by the owner from the three choices above, with the na
 ### W1 The step runner and the project, headless
 
 Tracked as #1641. A step contract in Lib (inputs, settings, the routine, its output, the digest), the project file, and invalidation by digest; every step
-listed above wrapped around its existing routine, with no logic of its own. `tianwen workbench run|status` drives it, so the whole
+listed above wrapped around its existing routine, with no logic of its own. Since the re-cut the contract is
+[A process](#a-process), the project holds [edit lists](#the-edit-list-non-destructive-by-construction), and step outputs go to a
+store addressed by the step's key, so a step run before is found and not run again. Derived steps (crop) store nothing. `tianwen workbench run|status` drives it, so the whole
 contract is tested in CI with no window: a project run twice re-runs nothing, a changed setting re-runs only the steps after it, and
 each step's output is bit-identical to its CLI verb's.
 
@@ -186,13 +483,81 @@ and looks. Star removal's core protection (#1658) is drawn on the image there, i
 
 ### W7 Profiles and batches
 
-Tracked as #1647. A profile saved from a project, replayed over a folder headless and in the window's queue.
+Tracked as #1647. A profile saved from a project, replayed over a folder headless and in the window's queue. Since the re-cut a
+profile is a [workflow](#workflows-processes-in-order-with-gates) (W9 runs one headless); what is left here is saving one from the
+window, the queue, and a night of captures run unattended.
 
 ### W8 Packaging and release
 
 Tracked as #1648. The binary in the release assets, a `.dmg`, and the Store question if W0 chose B.
 
+### W9 Workflows and gates, headless
+
+Tracked as #2236. The workflow file (steps, gates, for each), the facts in Lib each with its test
+([The facts](#the-facts-a-gate-may-test)), the dry run, and `tianwen workbench run <workflow> <inputs>`. The built-in deep-sky
+workflow, with its parity test against `tianwen stack --enhance`. A built-in gate calls the pipeline's own decider
+([A gate shows a decision](#a-gate-shows-a-decision-it-does-not-replace-one)). No window.
+
+### W10 The missing process verbs
+
+Tracked as #2237. First the audit of [the process table](#the-processes-what-exists-and-what-is-missing) against the code. Then, each as a
+Lib routine with a verb and tests: the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib with the viewer,
+`image autocrop` and `tianwen stack` calling it; the crop rule as a setting (`image crop` to four given numbers is #2244, on
+its own); rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
+PR, and none needs the app.
+
+### W11 Memory, GPU and disk for many open images
+
+Tracked as #2238. [Where the pixels live](#where-the-pixels-live-memory-the-gpu-the-disk), items 1 to 6: a stored step's document takes its
+file as its readout source and becomes releasable; the budget as a setting; the step store's size limit, its reserve
+(`ScratchSpace.Refusal`) and its eviction, which deletes only what its index says it wrote; and the GPU measurement that decides
+whether a hidden image keeps its texture. Tested as `ViewerMemoryReleaseTests` are: by counting reads and bytes, never by
+working set.
+
+### W12 The workspace view
+
+Tracked as #2239. [Two views](#two-views-guided-one-image-and-the-workspace-several): the process list, the active image's edit list with
+on/off and reopen, a process's panel with its region preview, several images as tabs, then as tiles with linked zoom and pan.
+Captures at narrow and wide sizes in the PR, as `.github/docs/ui-changes.md` asks.
+
+### W13 Masks
+
+Tracked as #2240. A mask is an image. Any process may take one, and its result is the input and the processed image blended
+through it (`Image.BlendThroughMask`), so every process gains masking from one wrapper and none grows a mask option of its own.
+Making masks: a range mask (`Image.LuminanceRangeMask`), a star mask from the stars layer a remover already makes, and the cores
+star removal protects (#1658). Last, because nothing before it depends on it.
+
+## Decisions for the owner
+
+Each with a recommendation. The first is W0's; the rest came out of DSN-1's questions and this plan.
+
+1. **The name**, and B confirmed as where it lives (#1640).
+2. **Does the guided view stop at every step, or run until a step needs you** (a failed solve, frames to review)?
+   **Decided 2026-11-19: run until needed, with a switch, and any step can be started directly**, which runs or re-runs what is
+   before it ([The guided view](#the-guided-view-is-a-workflow-drawn-as-steps)).
+3. **Does a workflow with gates open in the guided view?** Recommended: yes, the bar showing the branch taken.
+4. **May a gate's branch hold several steps, or another gate?** Recommended: yes; a workflow is a tree.
+5. **Does the Stack screen simply run a workflow?** **Decided 2026-11-19: yes.** One path: its panel becomes the workflow's
+   steps.
+6. **The memory budget, the step store's folder, its size limit and the disk reserve**: the defaults. **Direction
+   2026-11-19: measured once at start, to avoid swapping** ([Where the pixels live](#where-the-pixels-live-memory-the-gpu-the-disk),
+   item 2); the fractions are W11's to measure. The store's folder is still open. `ScratchSpace`'s 109 GB is the planetary verbs'
+   reserve on one drive and is not a default for an app.
+7. **Reordering edits by dragging**: recommended not in the first version.
+8. **The windowed mode**: tabs and tiles, overlapping windows left out (windows that float over one another and are dragged about,
+   PixInsight's way, which DSN-1 offers as "Cascade"); the switch in the workspace only, the guided view always one image (the
+   owner's word). **Decided 2026-11-19:** tabs and tiles here; the overlapping kind is a piece of work of its own in DIR.Lib
+   (SharpAstro/DIR.Lib#276), taken up by the workspace when it exists.
+9. **Pixel math as typed expressions** (DSN-1 draws "starless + 0.8 * stars"): recommended fixed-form blends only.
+10. **XISF reading**, the first door a PixInsight user meets ([pixinsight-parity.md](pixinsight-parity.md) "DSPX"): not in this
+    plan; it needs its own.
+
 ## Not in it
 
-Mosaics, live stacking during a session (the session's own path, `stacking.md` Phase 15), comet-specific integration beyond what
+Mosaics, live stacking during a session (the session's own path, `stacking.md` Phase 15, #899;
+[above](#live-stacking-is-the-sessions-as-a-switch-on-the-frame-preview)), comet-specific integration beyond what
 `tianwen stack --comet` already does, and lunar or solar surfaces (Strata's other half) until the planetary steps stand.
+
+Since the re-cut, also: a scripting language and typed pixel-math expressions (DSPX ships Python; a workflow here is a JSON tree
+of processes), photo-editor tools (layers, clone stamp, text, PSD), XISF, and running a workflow on a node. Overlapping child windows are
+DIR.Lib's (SharpAstro/DIR.Lib#276).
