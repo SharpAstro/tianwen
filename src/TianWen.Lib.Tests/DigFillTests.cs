@@ -261,6 +261,140 @@ public class DigFillTests
         PixelsChanged(flat, flatModel).ShouldBeGreaterThan(20);
     }
 
+    // The light of a grid of stars about the scene's centre at (x, y), in noise sigmas: each a Gaussian of 1.5 px and 60
+    // sigmas, `pitch` px apart, out to `reach` px from the centre along each axis.
+    private static double Cluster(int x, int y, int pitch, int reach)
+    {
+        var sum = 0.0;
+        for (var sy = Cy - reach; sy <= Cy + reach; sy += pitch)
+        {
+            for (var sx = Cx - reach; sx <= Cx + reach; sx += pitch)
+            {
+                var d2 = ((x - sx) * (x - sx)) + ((y - sy) * (y - sy));
+                if (d2 < 100)
+                {
+                    sum += 60 * Math.Exp(-d2 / (2.0 * 1.5 * 1.5));
+                }
+            }
+        }
+        return sum;
+    }
+
+    // The largest fall and the largest rise of the plate against the model within `radius` px of the centre, noise sigmas.
+    private static (double Lowered, double Lifted) MostMoved(Image plate, float[,] model, int radius)
+    {
+        var (lowered, lifted) = (0.0, 0.0);
+        for (var y = Cy - radius; y <= Cy + radius; y++)
+        {
+            for (var x = Cx - radius; x <= Cx + radius; x++)
+            {
+                if (((x - Cx) * (x - Cx)) + ((y - Cy) * (y - Cy)) <= radius * radius)
+                {
+                    lowered = Math.Max(lowered, (model[y, x] - plate[0, y, x]) / Noise);
+                    lifted = Math.Max(lifted, (plate[0, y, x] - model[y, x]) / Noise);
+                }
+            }
+        }
+        return (lowered, lifted);
+    }
+
+    [Fact]
+    public void AKnotUnderCrowdedStarsIsNotLoweredToTheFarSky()
+    {
+        // #2252: stars 5 px apart make one set, so the sky under it is spread in from its far edge, where it is flat and so
+        // trusted. A knot of nebula between the star cores stands over that sky and was lowered toward it in the squares of
+        // the cap. The set as a whole standing far over its sky is what says the light is the scene's.
+        (float[,] Frame, float[,] Model) Knot(double height)
+        {
+            var rng = new Random(9);
+            var frame = new float[Size, Size];
+            var model = new float[Size, Size];
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    var r2 = ((x - Cx) * (x - Cx)) + ((y - Cy) * (y - Cy));
+                    // The model took the stars whole and left the knot: a Gaussian of 6 px, well inside the set's 17 px.
+                    var ground = Sky + (float)(Noise * (StarInjection.Gaussian(rng) + (height * Math.Exp(-r2 / (2.0 * 6 * 6)))));
+                    frame[y, x] = ground + (float)(Noise * Cluster(x, y, pitch: 5, reach: 15));
+                    model[y, x] = ground;
+                }
+            }
+            return (frame, model);
+        }
+
+        // The premise: light standing a sigma and a half over the sky is taken for residue and lowered.
+        var (faintFrame, faintModel) = Knot(height: 1.5);
+        var (faint, share) = DigFill.Apply(ImageOf(faintFrame), ImageOf(faintModel));
+        share.ShouldBeGreaterThan(0.05, "the stars make one set of over a thousand pixels");
+        MostMoved(faint, faintModel, radius: 8).Lowered.ShouldBeGreaterThan(0.75, "a set that stands near its sky is lowered to it");
+
+        // A knot of 20 sigmas: the set stands 14 sigmas over its sky at the centre and still over 7 at 8 px.
+        var (frame, model) = Knot(height: 20);
+        var (plate, _) = DigFill.Apply(ImageOf(frame), ImageOf(model));
+        for (var y = Cy - 8; y <= Cy + 8; y++)
+        {
+            for (var x = Cx - 8; x <= Cx + 8; x++)
+            {
+                if (((x - Cx) * (x - Cx)) + ((y - Cy) * (y - Cy)) <= 64)
+                {
+                    plate[0, y, x].ShouldBe(model[y, x], $"the knot is the model's, bit for bit, at ({x}, {y})");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void ADarkGlobuleUnderStarsIsNotFilledAndADigOfTheSameShapeIs()
+    {
+        // #2252, the fill's side. One plate, two inputs. The plate lies under its far sky in a dip of 14 sigmas (a Gaussian
+        // of 6 px) inside a set made one by a broad take of 2.5 sigmas and the stars on it. Where the INPUT holds that dip
+        // between its stars it is a globule and stays; where the input is level it is a hole the model dug and is filled.
+        // (At 8 sigmas the input's floor about the centre star reads 3.6 under the sky, inside the fade, and a fifth of
+        // the fill comes through: the dip is made deep enough to be clear of the bars.)
+        (float[,] Frame, float[,] Model) Dip(bool inTheInput)
+        {
+            var rng = new Random(13);
+            var frame = new float[Size, Size];
+            var model = new float[Size, Size];
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    var r2 = ((x - Cx) * (x - Cx)) + ((y - Cy) * (y - Cy));
+                    var r = Math.Sqrt(r2);
+                    var dip = 14 * Math.Exp(-r2 / (2.0 * 6 * 6));
+                    var broadTake = 2.5 * (r <= 18 ? 1.0 : Math.Exp(-((r - 18) * (r - 18)) / (2.0 * 2 * 2)));
+                    var ground = Sky + (float)(Noise * StarInjection.Gaussian(rng));
+                    // Stars 10 px apart: over two fifths of a 15 px window lies between them.
+                    frame[y, x] = ground + (float)(Noise * (Cluster(x, y, pitch: 10, reach: 20) - (inTheInput ? dip : 0)));
+                    model[y, x] = ground - (float)(Noise * (dip + broadTake));
+                }
+            }
+            return (frame, model);
+        }
+
+        var (globuleFrame, model) = Dip(inTheInput: true);
+        var (dugFrame, sameModel) = Dip(inTheInput: false);
+        sameModel.ShouldBe(model, "the two scenes share one plate");
+
+        var (globule, _) = DigFill.Apply(ImageOf(globuleFrame), ImageOf(model));
+        var (dug, _) = DigFill.Apply(ImageOf(dugFrame), ImageOf(model));
+
+        MostMoved(globule, model, radius: 4).Lifted.ShouldBe(0.0, "a globule the input shows too is left as dark as it is");
+        double sum = 0;
+        var count = 0;
+        for (var y = Cy - 4; y <= Cy + 4; y++)
+        {
+            for (var x = Cx - 4; x <= Cx + 4; x++)
+            {
+                sum += (dug[0, y, x] - Sky) / Noise;
+                count++;
+            }
+        }
+        (sum / count).ShouldBeInRange(-1.5, 1.5, "the same dip, where the input is level, is a dig and is filled to the sky");
+    }
+
     /// <summary>Returns a fixed plate on whatever scale it is handed the input on; takes the dig-fill step or does not.</summary>
     private sealed class FixedRemover(float[,] model, float inputPeak, bool takesDigFill) : IStarRemover
     {

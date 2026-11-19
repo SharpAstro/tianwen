@@ -516,8 +516,8 @@ per rule and points here.
     scripts (`score-arm.ps1`, `score_whole.py`) pass it, beside `--no-protect-cores`, so their rows stay the model
     alone. `image fill-digs --input <master> --starless <plate>` is the step on its own, with no model run.
   - **It is the Python step, to the bit.** It was chosen and scored as "floor3" of
-    `training/star-removal/whole_floor.py` and is "floor4" since 2026-11-20 (#2243; the reasons for each rule and the
-    scores: `docs/plans/star-remover-training.md`), so `DigFill` reproduces scipy's filters exactly (the Gaussian's
+    `training/star-removal/whole_floor.py`, became "floor4" (#2243) and is "floor5" since 2026-11-20 (#2252; the
+    reasons for each rule and the scores: `docs/plans/star-remover-training.md`), so `DigFill` reproduces scipy's filters exactly (the Gaussian's
     truncation, border and summing order, the median, the maximum, the dilation, the linear zoom). On the three whole
     masters of the scorecard (two colour, one mono) its output equals the Python's bit for bit at every pixel;
     `training/star-removal/dig_fill_parity.py` is that comparison. A change to a constant or a filter there is a
@@ -527,3 +527,11 @@ per rule and points here.
     real dark structure. So the scatter of the plate outside those pixels is read under the Gaussian that made the
     sky, in noise sigmas, and the whole correction is applied in full up to `TrustedSkySpread` (2), not at all from
     `UntrustedSkySpread` (4), in proportion between. On dark sky the scatter is about 1 and the step is floor3's.
+  - **It fades where the removed stars' pixels as a whole stand far from that sky (floor5).** The far sky can be
+    smooth, so trusted, and still not be the level under the blob: a nebula knot between crowded stars was lowered to
+    it in 5 px squares, and a dark globule lifted toward it. The plate less the sky, averaged over those pixels under
+    the near sky's Gaussian, is a few tenths of a noise sigma on dark sky and tens of sigmas on such a knot. The
+    lowering is applied in full while the highest channel stands under `NearSetLevel` (2) over the sky and not at all
+    from `FarSetLevel` (4). The fill is held back the same way where the lowest channel lies that far under the sky
+    and the input is as dark there itself (its own floor in a 15 px window): a globule is in the input, a dig is the
+    model's and is still filled.

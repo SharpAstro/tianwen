@@ -261,7 +261,8 @@ internal sealed class SolveSubCommand(
                 consoleHost.WriteScrollable("[solve] no solution");
             }
 
-            // A path that cannot be written is said, not thrown, and ends the run with 3 as a failed Gaia export does.
+            // A path that cannot be written, or is no path at all, is said, not thrown, and ends a solved run with 3 as a
+            // failed Gaia export does.
             var exportFailed = false;
             if (exportPath is not null)
             {
@@ -270,7 +271,7 @@ internal sealed class SolveSubCommand(
                     await ExportStarsAsync(stars, result.Solution, exportPath, exportFormat, ct);
                     consoleHost.WriteScrollable($"[export] {stars.Count} stars -> {exportPath}");
                 }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
                 {
                     consoleHost.WriteError($"[export] {e.Message}");
                     exportFailed = true;
@@ -309,12 +310,14 @@ internal sealed class SolveSubCommand(
                 }
             }
 
-            if (gaiaFailed || exportFailed)
+            // No solution is the run's first answer and keeps its code, whatever an export did; 3 is a solved run whose
+            // export failed.
+            if (result.Solution is null)
             {
-                return 3;
+                return 2;
             }
 
-            return result.Solution is not null ? 0 : 2;
+            return gaiaFailed || exportFailed ? 3 : 0;
         });
         return solveCommand;
     }
