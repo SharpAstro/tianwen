@@ -114,6 +114,7 @@ above. The claims of speed ("3x up to 10x" stacking, "up to 20x" deconvolution) 
 
 1. If TianWen grows a processing application, DSPX shows the bar for 2026 is the WHOLE chain in one window with
    history, not a stacker plus an enhancer. The stacking workbench's W0 (#1640) is where that scope is chosen.
+   **The owner, 2026-11-19:** likely a stand-alone app; `tianwen-gui` gets at most a live stacking view.
 2. An XISF reader is the cheapest, most visible gap; it is a file format, not a product decision.
 3. An agent-facing scripting guide, checked by tests, is new and fits this repo's own way of working (MCP, Claude);
    `tianwen-mcp` plus a tested guide to the `image` verbs would be our equivalent.
