@@ -89,8 +89,10 @@ pipeline -- point there rather than re-deriving it here.
 PixInsight*) processing workspace, begun June 2026, at 1.0 beta 10 on 2026-11-18. Read from its page and from the
 unpacked Linux beta (`DSPX-1.0.0-beta.10-linux-x64.tar.xz`, 395 MB, never run): the bundled manual's process folders,
 the licence files and the shipped models. Our `stacking-workbench` and `pixinsight-parity` are the nearest things this
-repo has to a "full editing application"; **there is no milestone for one**, and the stacking workbench's W0 (where
-it lives and what it is called, #1640) is still the owner's open decision.
+repo has to a "full editing application"; **there was no milestone for one** when this was read, and the stacking
+workbench's W0 (where it lives and what it is called, #1640) is still the owner's open decision. The same day the
+workbench plan was re-cut into that application (processes, a non-destructive edit list, workflows with gates, a guided
+and a windowed view): [stacking-workbench.md](stacking-workbench.md), "The re-cut of 2026-11-19".
 
 What DSPX is, and what each point means for us:
 
@@ -114,7 +116,8 @@ above. The claims of speed ("3x up to 10x" stacking, "up to 20x" deconvolution) 
 
 1. If TianWen grows a processing application, DSPX shows the bar for 2026 is the WHOLE chain in one window with
    history, not a stacker plus an enhancer. The stacking workbench's W0 (#1640) is where that scope is chosen.
-   **The owner, 2026-11-19:** likely a stand-alone app; `tianwen-gui` gets at most a live stacking view.
+   **The owner, 2026-11-19:** likely a stand-alone app; `tianwen-gui` gets at most a live stacking view. The scope
+   was then chosen as the whole chain, and the workbench plan re-cut to it.
 2. An XISF reader is the cheapest, most visible gap; it is a file format, not a product decision.
 3. An agent-facing scripting guide, checked by tests, is new and fits this repo's own way of working (MCP, Claude);
    `tianwen-mcp` plus a tested guide to the `image` verbs would be our equivalent.
