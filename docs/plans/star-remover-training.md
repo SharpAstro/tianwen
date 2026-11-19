@@ -6621,6 +6621,41 @@ the first angle is a step after the model and not another arm:
     section above gives for 30 Doradus's core). The name was wrong, not the guard: the guard is read on the bright
     cell, 4,6, as its words say (30 Doradus's core keeping at least 95 % of its band), and the question's two dense
     cells are 4,4 and 5,4. Read on 4,4 the guard would contradict the arm's own question.
+  - **R4d's read, 2026-11-19 (seed 0, `r4d_synth29_s0`): KILLED on the guard for 30 Doradus's core, and the question
+    missed on both halves.** The trainer stopped itself at step 245,000 (best at 233,000). With floor3 and core
+    protection:
+
+    | row | R4c | R4d | bar | read |
+    |---|---|---|---|---|
+    | Tarantula crowded flat | 90.4 | **91.2** (left 6.9 %, dug 1.8 %) | at least 92.4 | missed |
+    | grain in dense cell 4,4, as trained, R / G / B | 4.6 / 3.8 / 3.0 | 4.3 / 3.8 / 3.1 | at most two thirds of R4c's | missed, unchanged |
+    | grain in dense cell 5,4, as trained | 4.7 / 4.2 / 3.3 | 4.7 / 4.6 / 3.6 | at most two thirds of R4c's | missed, not lower |
+    | 30 Doradus's core (bright cell 4,6), band as trained | 64.1 / 76.2 / 61.9 | **44.4 / 49.4 / 39.7** | at least 95 % of R3z's 60.4 / 65.6 / 48.8 | **failed: 74 / 75 / 81 %** |
+    | light taken from the Tarantula field, green: densest tenth of cells, whole frame | 80 %, 82 % | 81 %, 82 % | at most 83 %, 84 % (R3z 78 %, 79 %) | held |
+    | Gaia BP 17-19 | 96.0 | 96.0 | reported | |
+    | by count clean, 100-1000 and 1000 and over | 99.3, 100.0 | 99.3, 100.0 | at least 98.5, 98 | held |
+    | M42 100-1000 by count clean | 93.4 | 95.6 | at least 88 | held |
+    | SMC 20-100 and 100-1000 by count clean | 99.4, 100.0 | 98.9, 100.0 | at least 97 | held |
+    | Andromeda dark flat, dug | 98.2, 0.9 | 98.5, 0.7 | at least 95, at most 3 | held |
+    | Tarantula dark flat | 95.5 | 96.5 | at least 91 | held |
+    | glow green median, Andromeda and Tarantula | -45.2, -163.7 | -8.5, +106.5 | within 450, 500 | held |
+    | M31 nucleus with protection | 0.0 % | 0.0 % | under 10 % | held |
+    | purity | 0.9 | 0.8 | at most 1.0 | held |
+    | Sagittarius crowded flat | 97.9 | 97.0 | at least 96.3 | held |
+
+    So lifting the cap buys 0.8 of a point on the crowded flat, no less grain in the dense cells, and it costs a
+    quarter of the structure in 30 Doradus's core, which is what the cap was set to protect. The band is read on the
+    remover's output as trained, without core protection, as R4c's and R3z's were; the cell's level is 0.994 to 0.995
+    of the plate's, so this is structure flattened and not light taken. At a 3 px box (`crowd_texture.py`) the bright
+    cell reads 14.1 / 15.0 / 12.5 against R4c's 24.4 / 26.9 / 20.3 and the plate's 32.1 / 40.4 / 37.4. **The cap is
+    not what holds the crowded fields; it stays the default, and the arm stops here.** Predictions: the grain falling
+    by a third, missed (unchanged); the crowded flat rising 2 to 3, missed (0.8); the light taken from the densest
+    cells rising, hardly (81 % against R4c's 80 %). Reported, no bar, as trained: Andromeda dark flat 69.4 dug 19.5
+    (R4c 47.2 and 45.9), Tarantula dark flat 80.3 left 14.3, Tarantula crowded 86.7, BP 17-19 95.4, Sagittarius 96.4,
+    the nucleus without protection 2.8 / 6.6 / 9.7 %, by count clean 95.6 at 100-1000 and 91.5 at 1000 and over, M42
+    100-1000 clean 63.2 dug 34.6, SMC 100-1000 clean 91.5 dug 6.8; the Tarantula's glow with floor3 has a p90 of 443.5
+    and 31 % of it over the bound (R4c 143.4 and 8 %), inside its guard and the largest of the recent arms. Nothing
+    is adopted.
 - **R4c's read, 2026-11-19 (seed 0, `r4c_synth28_s0`): one bar of the question cleared, the other missed, every
   guard held. Not killed and not passed; the rows go to the owner.** With floor3 and core protection:
 
