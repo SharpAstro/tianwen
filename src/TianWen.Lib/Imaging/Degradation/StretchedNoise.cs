@@ -295,7 +295,9 @@ public static class StretchedNoise
     /// <param name="masterDepth">The master's depth as a multiple of <paramref name="master"/>'s (1 when
     /// <paramref name="master"/> is at the master's own depth, 1/sqrt(N) when it is one sub's).</param>
     /// <param name="ratios">Per channel, the plate's sigma over the master's at the master's background, AS READ, whatever
-    /// it is: the calibration is lowered by it only where it lies from <see cref="MinPlateNoiseRatio"/> to under 1.</param>
+    /// it is: the calibration is lowered by it only where it lies from <see cref="MinPlateNoiseRatio"/> to under 1. One case
+    /// is not a reading: a master whose own sigma at its background is not positive has nothing to take a ratio against,
+    /// and its channel answers 1 (unchanged).</param>
     public static LinearDegradation.NoiseCalibration[] BoundedByPlate(
         IReadOnlyList<LinearDegradation.NoiseCalibration> master, IReadOnlyList<LinearDegradation.NoiseCalibration> plateOwn,
         double masterDepth, out double[] ratios)
