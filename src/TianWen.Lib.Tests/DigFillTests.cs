@@ -446,8 +446,11 @@ public class DigFillTests
     public void TheTrustReadInRunsOfPixelsIsThePlainWholeFrameOne()
     {
         // #2254: the scatter is summed row by row and only over runs of the set's pixels, to hold no whole plane in double.
-        // It has to be, to the bit, what whole planes give. The frame is narrower than the far Gaussian reaches (48 px), so
-        // every run mirrors at both edges, and the set has pixels on the border, lone ones and wide blocks.
+        // It has to be, to the bit, what whole planes give, and the sums are compared as the doubles they are: the trust
+        // made of them is clamped and narrowed to float, which would hide a last digit. The frame is narrower than the far
+        // Gaussian reaches to either side (48 px), so that one's single run on a row mirrors at both edges; the near one
+        // (16 px) is the one that splits a row into runs, on the rows whose set pixels lie over 32 px apart. The set has
+        // pixels on the border, lone ones and wide blocks.
         const int width = 70, height = 90, n = width * height, channels = 2;
         var rng = new Random(21);
         var plates = new float[channels][];
@@ -478,7 +481,8 @@ public class DigFillTests
             nearWeight[i] = x is >= 28 and < 42 && y is >= 38 and < 52 ? 0.001f : 0.5f;
         }
 
-        var trust = DigFill.SkyTrust(plates, sky, sigma, set, nearWeight, hasFar: true, width, height);
+        var spread = new double[n];
+        var trust = DigFill.SkyTrust(plates, sky, sigma, set, nearWeight, hasFar: true, width, height, spread);
 
         var expected = new double[n];
         var wideSky = Array.ConvertAll(sky, v => (double)v);
@@ -509,12 +513,31 @@ public class DigFillTests
         }
         var checkedPixels = 0;
         var between = 0;
+        var splitRows = 0;
+        for (var y = 0; y < height; y++)
+        {
+            // A row the near Gaussian reads in more than one run: two of its pixels over 32 px apart with none between.
+            var last = -1;
+            var split = false;
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                if (set[i] && nearWeight[i] >= DigFill.ThinSkyWeight)
+                {
+                    split |= last >= 0 && x - last > 32;
+                    last = x;
+                }
+            }
+            splitRows += split ? 1 : 0;
+        }
+        splitRows.ShouldBeGreaterThan(10, "the scene holds rows that are read in several runs");
         for (var i = 0; i < n; i++)
         {
             if (!set[i])
             {
                 continue;
             }
+            spread[i].ShouldBe(expected[i], $"the scatter itself, to the bit, at pixel ({i % width}, {i / width})");
             var plain = (float)Math.Clamp((DigFill.UntrustedSkySpread - expected[i]) / (DigFill.UntrustedSkySpread - DigFill.TrustedSkySpread), 0.0, 1.0);
             trust[i].ShouldBe(plain, $"pixel ({i % width}, {i / width})");
             checkedPixels++;

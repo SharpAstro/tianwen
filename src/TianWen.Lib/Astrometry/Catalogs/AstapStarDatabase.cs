@@ -395,10 +395,13 @@ public sealed partial class AstapStarDatabase
         {
             return null;
         }
-        // Byte 109 is the record size (a space means 11), the same rule the record reader applies.
-        recordSize = header[HeaderLength - 1] == (byte)' ' ? 11 : header[HeaderLength - 1];
+        recordSize = RecordSizeOf(header);
         return Encoding.Latin1.GetString(header[..(HeaderLength - 1)]).TrimEnd(' ', '\0');
     }
+
+    // The record size a file's header states: its last byte, where a space stands for the 11 bytes of the oldest format.
+    // One rule for finding a database and for reading it.
+    private static int RecordSizeOf(ReadOnlySpan<byte> header) => header[HeaderLength - 1] == (byte)' ' ? 11 : header[HeaderLength - 1];
 
     // name_RRNN.areas: three characters, an underscore, the ring and the cell as two digits each, the cell count as extension.
     private static bool TryParseName(ReadOnlySpan<char> fileName, out ReadOnlySpan<char> name, out int areas, out int ring)
@@ -484,8 +487,7 @@ public sealed partial class AstapStarDatabase
             {
                 throw new InvalidDataException($"An ASTAP star database file holds a {HeaderLength}-byte header; this one is {file.Length} bytes.");
             }
-            // The header's last byte is the record size; a space stands for the 11 bytes of the oldest format.
-            var size = file[HeaderLength - 1] == (byte)' ' ? 11 : file[HeaderLength - 1];
+            var size = RecordSizeOf(file);
             if (size != RecordSize)
             {
                 throw new NotSupportedException($"This ASTAP star database has {size}-byte records; only the {RecordSize}-byte kind is read.");
