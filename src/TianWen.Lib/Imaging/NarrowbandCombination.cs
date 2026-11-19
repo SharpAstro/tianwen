@@ -89,10 +89,13 @@ public static class NarrowbandCombination
                 }
             }
             // Cores first, digs second, the fill read against the ORIGINAL plane: the order the step was scored in (the
-            // whole masters went through the model with core protection, then through floor3 against their inputs). It is
-            // also the order that keeps the two apart: inside a protected core the plate IS the plane, so the fill sees
-            // nothing taken there and leaves the nucleus alone, where filling first would work on a nucleus the model dug
-            // into and the core's feathered edge would then blend that work back in.
+            // whole masters went through the model with core protection, then through the dig fill against their inputs).
+            // It is also the order that keeps the two apart: inside a protected core the plate IS the plane, so the fill
+            // sees nothing taken there and leaves the nucleus alone, where filling first would work on a nucleus the model
+            // dug into and the core's feathered edge would then blend that work back in. The one place inside a core where
+            // the plate is NOT the plane is the footprint of a catalogued star (catalogStars, #2242): there the remover's
+            // plate stands, and the fill treats it as it treats a removed star anywhere, fading out where the sky around it
+            // cannot be trusted.
             if (filled is not null)
             {
                 cancellationToken.ThrowIfCancellationRequested();

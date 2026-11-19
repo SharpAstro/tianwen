@@ -2929,7 +2929,16 @@ M31's nucleus, the Lagoon's two bright ones, on every model alike, since it is t
   and 2 of 94 peaks are taken as stars. The Lagoon's two bright stars stay removed and the Hourglass comes back
   whole, so its brightest tenth standing falls from 3 to 1 of 18 as with the database; the Tarantula's from 21 to
   16 of 77; M31's nucleus is whole and the fainter stars beside it come back as before, being past Tycho-2's reach.
-- **Looked at** (`D:/temp/tianwen-scratch/r4-look/pc-zoom-<model>-pcs.png`, the three cores at 6x). M31: the nucleus
+- **The product's chain, protection and then the dig fill** (R4c's plates, `whole_floor.py floor4` on the protected
+  plate, the order `SplitStarsAsync` runs them in). Every scorecard row equals the old chain's (protection as it
+  was, then floor3): Andromeda dark flat 98.2 and dug 0.9, Tarantula dark flat 95.5 and crowded 90.4, the nucleus
+  0.0. The nebula rows: light added 0.5 / 2.6 / 3.2 % with the old chain and 0.1 / 0.8 / 0.3 % with the new one;
+  brightest peaks standing 21 of 77 and 3 of 18 against 12 and 1. Inside a core the fill now meets the model's plate
+  in the star footprints: in the 100 px crops it changes 39 pixels on M31 (0.1 sigma at most), 94 on the Lagoon
+  (one inside a footprint) and 914 on 30 Doradus (716 inside footprints, up to 9.9 sigma, 87 pixels left over the
+  input by a sigma).
+- **Looked at** (`D:/temp/tianwen-scratch/r4-look/pc-zoom-<model>-pcs.png`, the three cores at 6x, on three models; R4c's
+  sheet carries the chain's plate as a sixth column, which shows no patch on any of the three). M31: the nucleus
   whole, the stars beside it gone, as on StarXTerminator's plate. Lagoon: the two bright stars gone with no ring
   where they were, the Hourglass kept. 30 Doradus: the stars around R136 gone; the unresolved centre stands as the
   model leaves it (StarXTerminator leaves a clump there too), and cluster members the catalogue does not list come
