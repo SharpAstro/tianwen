@@ -10,7 +10,9 @@ scale. Printed: the ratio of the plate's median to the output's (the model's own
 mean, the median and the rms of the change, the share of pixels moved by over 1 and over 3 sigma down and up, and the
 rms after a 2 px Gaussian (what is left of the change at the scale of a star).
 
-An output is kept per session, model and flag set under <out dir> and reused. TIANWEN_SR_STORE and TIANWEN_SR_CLI
+An output is kept per session, model file name and flag set under <out dir> and reused; it is NOT keyed by the CLI
+build, so give a new build a new <out dir>. Keep <out dir> short: the longest session stem leaves about 40 characters
+of it under Windows' 260. TIANWEN_SR_STORE and TIANWEN_SR_CLI
 override the store and the CLI, as in crowd_texture.py.
 """
 import json, os, subprocess, sys

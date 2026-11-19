@@ -6674,7 +6674,7 @@ the first angle is a step after the model and not another arm:
   and 1.0135 on the three unit-scale masters, 84,827 on M42's). No level is rescaled: the plate's median over the
   output's is 0.9998 to 1.0006 in every channel of every run.
   R3v and R4b (seed 0 each) on Tempel, Lobster and the SMC: no bias over 0.05 sigma, an rms of 0.12 to 0.44, 0.07 to
-  0.74 % of the pixels lowered by over a sigma and none raised. On M42 (ASI533MC Pro, 2022-12-03) the rms is 9 to 17
+  0.74 % of the pixels lowered by over a sigma and at most 0.01 % raised. On M42 (ASI533MC Pro, 2022-12-03) the rms is 9 to 17
   sigma: the builder left 1,432 catalogued stars unsubtracted there, and 98 to 99 % of the light the models take lies
   within 40 px of one of them (`zero_flux_where.py`), most of it in one region of about 17 thousand pixels at the
   nebula's core; whether
