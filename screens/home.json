@@ -1,0 +1,90 @@
+{
+  "id": "home",
+  "title": "Stack",
+  "root": {
+    "kind": "dock",
+    "background": "ContentBg",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
+        "children": [
+          {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+          {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Live", "align": "center", "color": "BodyText", "action": "goto:live"},
+          {"kind": "text", "text": "312 lights · 40 darks · 30 flats", "color": "DimText", "align": "far"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "left", "size": 380, "gap": 6, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Frames", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "dock", "height": 30, "children": [
+            {"kind": "dropdown", "side": "left", "size": 110, "bind": "frameFilter", "label": "Lights", "options": ["Lights", "Darks", "Flats", "Bias"]},
+            {"kind": "textInput", "bind": "frameSearch", "placeholder": "Filter by name"}
+          ]},
+          {"kind": "dock", "height": 20, "children": [
+            {"kind": "text", "side": "left", "size": 130, "text": "Frame", "color": "DimText"},
+            {"kind": "text", "side": "left", "size": 70, "text": "FWHM", "color": "DimText"},
+            {"kind": "text", "side": "left", "size": 70, "text": "Stars", "color": "DimText"},
+            {"kind": "text", "text": "Weight", "color": "DimText"}
+          ]},
+          {"kind": "dock", "height": 22, "children": [
+            {"kind": "checkbox", "side": "left", "size": 130, "bind": "f1", "label": "L_0001"},
+            {"kind": "text", "side": "left", "size": 70, "text": "2.31", "color": "BodyText"},
+            {"kind": "text", "side": "left", "size": 70, "text": "1 842", "color": "BodyText"},
+            {"kind": "text", "text": "0.94", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 22, "background": "Selection", "children": [
+            {"kind": "checkbox", "side": "left", "size": 130, "bind": "f2", "label": "L_0002"},
+            {"kind": "text", "side": "left", "size": 70, "text": "2.28", "color": "SelectionText"},
+            {"kind": "text", "side": "left", "size": 70, "text": "1 870", "color": "SelectionText"},
+            {"kind": "text", "text": "0.96", "color": "SelectionText"}
+          ]},
+          {"kind": "dock", "height": 22, "children": [
+            {"kind": "checkbox", "side": "left", "size": 130, "bind": "f3", "label": "L_0003"},
+            {"kind": "text", "side": "left", "size": 70, "text": "4.90", "color": "Warn"},
+            {"kind": "text", "side": "left", "size": 70, "text": "611", "color": "Warn"},
+            {"kind": "text", "text": "0.21", "color": "Warn"}
+          ]},
+          {"kind": "dock", "height": 22, "children": [
+            {"kind": "checkbox", "side": "left", "size": 130, "bind": "f4", "label": "L_0004"},
+            {"kind": "text", "side": "left", "size": 70, "text": "2.35", "color": "BodyText"},
+            {"kind": "text", "side": "left", "size": 70, "text": "1 815", "color": "BodyText"},
+            {"kind": "text", "text": "0.92", "color": "BodyText"}
+          ]},
+          {"kind": "text", "text": "… 308 more", "color": "DimText"},
+          {"kind": "text", "text": "L_0003 left out: FWHM 4.90 is over 2σ", "color": "Warn"},
+          {"kind": "text", "text": "Pipeline", "fontSize": 15, "color": "HeaderText", "padding": 4},
+          {"kind": "checkbox", "bind": "calibrate", "label": "Calibrate (master dark, flat)"},
+          {"kind": "checkbox", "bind": "debayer", "label": "Debayer (RGGB)"},
+          {"kind": "checkbox", "bind": "register", "label": "Register (star alignment)"},
+          {"kind": "dropdown", "bind": "rejection", "label": "Rejection", "options": ["Winsorized σ-clip", "Linear fit", "ESD", "None"]},
+          {"kind": "dropdown", "bind": "weighting", "label": "Weighting", "options": ["PSF signal", "SNR", "Noise", "Equal"]},
+          {"kind": "text", "text": "Integrate 311 frames", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"}
+        ]
+      },
+      {
+        "kind": "dock", "side": "bottom", "size": 36, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "side": "left", "size": 90, "text": "Histogram", "color": "DimText"},
+          {"kind": "text", "side": "right", "size": 300, "text": "x 2104  y 1388  R 0.071 G 0.083 B 0.064", "color": "DimText", "align": "far"},
+          {"kind": "progress", "value": 0.18, "label": "Median 0.18"}
+        ]
+      },
+      {
+        "kind": "overlay",
+        "children": [
+          {"kind": "box", "color": "#0b0d12"},
+          {"kind": "dock", "padding": 10, "children": [
+            {"kind": "dock", "side": "top", "size": 32, "children": [
+              {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "stretch", "options": ["Linear", "Auto STF", "Histogram"]},
+              {"kind": "text", "text": "Preview: L_0002 (auto-stretched)", "color": "#c8ccd4"}
+            ]},
+            {"kind": "text", "text": "image canvas", "align": "center", "color": "#8a90a0"}
+          ]}
+        ]
+      }
+    ]
+  }
+}
