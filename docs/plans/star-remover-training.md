@@ -7541,7 +7541,10 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   (`export-synth.ps1 -Extra '--noise-as-recorded'`); the arms then running export from frozen binaries and are not touched.
   With `--noise-scale` nothing is bounded. The bound is `StretchedNoise.BoundedByPlate`; a plate that reads more changes
   nothing, and neither does one that reads under half its master (no real plate does, the store's lowest is 0.65; the log
-  warns). The noise is drawn at the bounded level, and the injection floor, a star's significance and the conditioning plane
+  warns) or one with no 32 px block to read (the log warns; the session is not failed). Under `--noise-scale` the level
+  stays the recorded one on purpose: the cell is the plate's own, and the noise added to it stays sized against the record
+  so the export compares with the #1947 noise-check arms. On a crowded master such a cell therefore still carries the
+  overstated level (`docs/known-limitations.md`). The noise is drawn at the bounded level, and the injection floor, a star's significance and the conditioning plane
   are read against it; a synthetic background's knots and kept cores and the faint stars' cap keep the recorded level their
   ranges were set against, so the scene is the one an export at the recorded level draws. The session's log line and each
   row's `PlateNoiseRatio` carry the ratio.
@@ -7549,10 +7552,24 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   taken were 0.81, 0.80, 0.87 on Lobster, 0.96 on Tempel and 0.97 on the SMC. Lobster's draws went from 1.30, 1.24, 1.19 to 1.08,
   1.01, 1.04 against real's 1.18, 1.11, 1.10 at a lag of 8 px: from 10 % over to 8 % under. Tempel's and the SMC's draws went
   from 1 to 2 % under real to 5 % under.
-- **What is left under real at 8 px is not noise by the estimator's statistic.** The clean tiles now match the plate in the
-  estimator's band, and the draws of this check held no star under 5 sigma, which the real tiles do
-  (the cause R4c and R4d were registered on). That
-  reading is SUSPECTED, not measured: an export with `--faint-stars` and this option together would say.
+- **What is left under real at 8 px, measured 2026-11-19: a third of it is the stars under 5 sigma, the rest is the
+  noise's shape.** The same five sessions exported with the default bound and `--faint-stars 3`, read at the same
+  cells (`noise_paired.py`; difference noise at a lag of 8 px over the recorded sigma, R / G / B):
+
+  | session | real master | draw, bounded | draw, bounded and faint stars | real plate | clean tile |
+  |---|---|---|---|---|---|
+  | Lobster Nebula | 1.18 / 1.11 / 1.10 | 1.08 / 1.01 / 1.04 | 1.11 / 1.04 / 1.05 | 0.90 / 0.85 / 0.91 | 0.82 / 0.78 / 0.86 |
+  | the same, flip a | 1.13 / 1.09 / 1.09 | 1.09 / 1.03 / 1.03 | 1.11 / 1.05 / 1.04 | 0.96 / 0.92 / 0.96 | 0.89 / 0.85 / 0.90 |
+  | the same, flip b | 1.14 / 1.11 / 1.11 | 1.06 / 1.01 / 1.03 | 1.09 / 1.03 / 1.03 | 0.92 / 0.88 / 0.95 | 0.85 / 0.82 / 0.88 |
+  | 10P/Tempel 2 | 1.07 / 1.07 / 1.06 | 1.02 / 1.01 / 1.01 | 1.03 / 1.01 / 1.01 | 1.02 / 1.01 / 1.01 | 0.97 / 0.95 / 0.96 |
+  | SMC (2024-09-27) | 1.14 / 1.19 / 1.12 | 1.08 / 1.13 / 1.09 | 1.10 / 1.14 / 1.10 | 1.05 / 1.06 / 1.04 | 0.99 / 1.00 / 1.01 |
+
+  The faint stars add 0.3 to 3 % to a draw (most on Lobster), and with them the draws stand 1 to 7 % under the real
+  tiles, 4 to 6 % on most rows, where the recorded level stood 10 % over on Lobster. The rest is not stars: the clean
+  tile (no star at all) reads 4 to 10 % under the real PLATE at this lag on every session, the sparse Tempel included,
+  while the two agree in the estimator's band (the frame less its 4 px low-pass). So the real noise holds more power
+  at 8 px and beyond than the drawn noise does at equal fine-scale noise, which is the shape #1847 names (the drawn
+  field's lag-1 is under real's too). The level is right where the estimator reads it; the shape is #1847's.
 - **No arm is registered on it.** Whether a model trained on such an export does better on the crowded rows is an arm's question.
 
 ##### S4b: the read

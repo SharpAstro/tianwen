@@ -223,9 +223,12 @@ namespace TianWen.AI.Imaging
         /// cross-correlations were drawn at, 1 when the fit reached them, below it when they were shrunk toward independent.</param>
         /// <param name="NoiseScale">Stars mode: the times the master's noise the pair's plate carries (<see cref="Options.NoiseScale"/>,
         /// #1947); null when it carries the master's own.</param>
-        /// <param name="PlateNoiseRatio">Stars mode without <see cref="Options.NoiseAsRecorded"/> (#1786): per channel, the starless
-        /// plate's noise over the master's recorded one, as read; a channel under 1 was drawn at that share of the recorded level.
-        /// Null without the option.</param>
+        /// <param name="PlateNoiseRatio">Stars mode (#1786): per channel, the starless plate's noise over the master's recorded
+        /// one, AS READ. A channel from <c>StretchedNoise.MinPlateNoiseRatio</c> to under 1 was drawn at that share of the
+        /// recorded level; a channel at 1 or more, or under the minimum (a plate too quiet to be the master less its stars),
+        /// was drawn at the recorded level. A channel whose recorded sigma is not positive has no ratio to take and says 1.
+        /// Null where nothing was read: with <see cref="Options.NoiseAsRecorded"/>, under
+        /// a <see cref="Options.NoiseScale"/>, and for a plate with no block to read.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -471,8 +474,11 @@ namespace TianWen.AI.Imaging
         /// bounded level is the one the noise is drawn at and everything read in noise units against it: the injection floor, a
         /// star's significance and the conditioning plane. A synthetic background's knots and kept cores and the faint stars' cap
         /// keep the recorded level, which their ranges were set against. The session's log line and each row's
-        /// <c>PlateNoiseRatio</c> carry the ratio. With a <paramref name="NoiseScale"/> the level is not bounded: that export
-        /// carries the plate's own cell, whose noise is what it is. Draws no random number.</param>
+        /// <c>PlateNoiseRatio</c> carry the ratio. A plate with no block to read its noise from keeps the recorded level, and the log
+        /// warns. With a <paramref name="NoiseScale"/> the level is not bounded: that export carries the plate's own cell,
+        /// whose noise is what it is, and the noise added to it stays sized against the record so that it compares with the
+        /// #1947 noise-check arms; on a crowded master such a cell therefore still carries the overstated level
+        /// (docs/known-limitations.md). Draws no random number.</param>
         /// <param name="HaloOverPlate">Stars mode, with <paramref name="SaturatedMeasured"/> and without <paramref name="OuterHaloPath"/>:
         /// the halo the starless plate keeps round a saturated star is drawn too
         /// (<c>InjectionPopulation.HaloOverPlate</c>): a measured star's table gains the session's
