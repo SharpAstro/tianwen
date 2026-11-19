@@ -10,7 +10,7 @@
 Stack workspace: frames, pipeline, preview
 ```
 
-**Notes:** One workspace switch (Stack · Process · Live) in the header instead of a menu tree. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
+**Notes:** One workspace switch (Stack · Process · Workflow · Live) in the header instead of a menu tree. Frames over 2σ on FWHM are unticked automatically and the reason is said in words, not only by the amber colour. The image canvas is a placeholder.
 
 ## Process
 
@@ -21,6 +21,16 @@ Process workspace: hyperbolic stretch on the master
 ```
 
 **Notes:** One process open at a time, docked, instead of PixInsight's floating windows. History is a plain list; clicking a step would roll the preview back to it.
+
+## Workflow
+
+**Objective:** Shows a workflow: process steps run in order, with gates (if mono, if luminance present, if more than 60 frames) that pick a branch from the session's own data.
+
+```screen id=workflow
+Workflow editor: Deep sky (auto), gate 3 selected
+```
+
+**Notes:** A simple workflow is just a list of process steps; gates are the optional extra. Each gate tests one fact of the session (sensor, filters present, frame count, image scale, focal length) and has a Yes and a No branch. The path this session would take is highlighted and marked ✓, so a dry run answers "what will it do with my data" before anything runs. Gates are outlined in amber and start with ◆, so shape and words carry the meaning, not colour alone.
 
 ## Live
 

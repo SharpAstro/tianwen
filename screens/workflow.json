@@ -1,0 +1,114 @@
+{
+  "id": "workflow",
+  "title": "Workflow",
+  "root": {
+    "kind": "dock",
+    "background": "ContentBg",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
+        "children": [
+          {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
+          {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+          {"kind": "text", "side": "left", "size": 80, "text": "Live", "align": "center", "color": "BodyText", "action": "goto:live"},
+          {"kind": "text", "text": "OSC · 311 lights · no luminance", "color": "DimText", "align": "far"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "left", "size": 220, "gap": 4, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Workflows", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "text", "text": "Deep sky (auto)", "color": "SelectionText", "background": "Selection", "padding": 2},
+          {"kind": "text", "text": "Mono LRGB", "color": "BodyText", "padding": 2},
+          {"kind": "text", "text": "Narrowband SHO", "color": "BodyText", "padding": 2},
+          {"kind": "text", "text": "Quick look", "color": "BodyText", "padding": 2},
+          {"kind": "text", "text": "+ New workflow", "color": "Accent", "padding": 2},
+          {"kind": "text", "text": "Add to workflow", "fontSize": 15, "color": "HeaderText", "padding": 4},
+          {"kind": "text", "text": "+ Process step", "color": "Accent", "padding": 2},
+          {"kind": "text", "text": "+ Gate (if / else)", "color": "Accent", "padding": 2},
+          {"kind": "text", "text": "A gate tests one fact", "color": "DimText"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "right", "size": 320, "gap": 8, "padding": 10, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Gate 3: frame count", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "dropdown", "bind": "gateFact", "label": "Light frames", "options": ["Sensor", "Filters present", "Light frames", "Image scale", "Focal length"]},
+          {"kind": "dock", "height": 30, "children": [
+            {"kind": "dropdown", "side": "left", "size": 80, "bind": "gateOp", "label": ">", "options": [">", "≥", "=", "<"]},
+            {"kind": "textInput", "bind": "gateValue", "placeholder": "60"}
+          ]},
+          {"kind": "text", "text": "Yes", "color": "DimText"},
+          {"kind": "dropdown", "bind": "gateYes", "label": "Bayer drizzle 2×", "options": ["Bayer drizzle 2×", "Bayer drizzle 1×", "Debayer (VNG)"]},
+          {"kind": "text", "text": "No", "color": "DimText"},
+          {"kind": "dropdown", "bind": "gateNo", "label": "Debayer (VNG)", "options": ["Debayer (VNG)", "Debayer (bilinear)"]},
+          {"kind": "text", "text": "This session: 311 > 60, so Yes", "color": "BodyText"},
+          {"kind": "dock", "height": 34, "children": [
+            {"kind": "text", "side": "right", "size": 150, "text": "Run on M42", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
+            {"kind": "text", "side": "right", "size": 90, "text": "Dry run", "padding": 8, "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "align": "center"},
+            {"kind": "spacer"}
+          ]}
+        ]
+      },
+      {
+        "kind": "dock", "side": "bottom", "size": 36, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Dry run on M42: 7 steps would run, 3 gates decided; about 25 min", "color": "BodyText"}
+        ]
+      },
+      {
+        "kind": "vstack", "gap": 6, "padding": 12,
+        "children": [
+          {"kind": "text", "text": "Deep sky (auto): the path this session takes is highlighted", "color": "DimText"},
+          {"kind": "dock", "height": 28, "padding": 4, "background": "PanelBg", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 28, "text": "1", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "runs", "color": "Success", "align": "far"},
+            {"kind": "text", "text": "Calibrate (darks, flats, bias)", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 64, "padding": 6, "border": "Warn", "borderWidth": 1, "borderRadius": 4, "children": [
+            {"kind": "text", "side": "top", "size": 24, "text": "◆ 2  If sensor is mono", "color": "Warn"},
+            {"kind": "text", "side": "left", "size": 210, "text": "Yes: stack each filter", "color": "DimText", "padding": 4},
+            {"kind": "text", "text": "No: colour (OSC) ✓", "color": "SelectionText", "background": "Selection", "padding": 4}
+          ]},
+          {"kind": "dock", "height": 64, "padding": 6, "border": "Warn", "borderWidth": 2, "borderRadius": 4, "background": "HeaderBg", "children": [
+            {"kind": "text", "side": "top", "size": 24, "text": "◆ 3  If light frames > 60 (selected)", "color": "Warn"},
+            {"kind": "text", "side": "left", "size": 210, "text": "Yes: Bayer drizzle 2× ✓", "color": "SelectionText", "background": "Selection", "padding": 4},
+            {"kind": "text", "text": "No: debayer, register", "color": "DimText", "padding": 4}
+          ]},
+          {"kind": "dock", "height": 28, "padding": 4, "background": "PanelBg", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 28, "text": "4", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "runs", "color": "Success", "align": "far"},
+            {"kind": "text", "text": "Integrate (Winsorized σ-clip)", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 28, "padding": 4, "background": "PanelBg", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 28, "text": "5", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "runs", "color": "Success", "align": "far"},
+            {"kind": "text", "text": "Gradient removal", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 28, "padding": 4, "background": "PanelBg", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 28, "text": "6", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "runs", "color": "Success", "align": "far"},
+            {"kind": "text", "text": "Colour calibration (SPCC)", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 64, "padding": 6, "border": "Warn", "borderWidth": 1, "borderRadius": 4, "children": [
+            {"kind": "text", "side": "top", "size": 24, "text": "◆ 7  If luminance present", "color": "Warn"},
+            {"kind": "text", "side": "left", "size": 210, "text": "Yes: LRGB combine", "color": "DimText", "padding": 4},
+            {"kind": "text", "text": "No: skip ✓", "color": "SelectionText", "background": "Selection", "padding": 4}
+          ]},
+          {"kind": "dock", "height": 28, "padding": 4, "background": "PanelBg", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 28, "text": "8", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "runs", "color": "Success", "align": "far"},
+            {"kind": "text", "text": "Noise reduction (linear)", "color": "BodyText"}
+          ]},
+          {"kind": "dock", "height": 28, "padding": 4, "background": "PanelBg", "borderRadius": 4, "children": [
+            {"kind": "text", "side": "left", "size": 28, "text": "9", "color": "DimText"},
+            {"kind": "text", "side": "right", "size": 50, "text": "runs", "color": "Success", "align": "far"},
+            {"kind": "text", "text": "Hyperbolic stretch", "color": "BodyText"}
+          ]}
+        ]
+      }
+    ]
+  }
+}

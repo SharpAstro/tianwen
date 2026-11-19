@@ -11,6 +11,7 @@
           {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "color": "BodyText", "action": "goto:process"},
+          {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
           {"kind": "text", "side": "left", "size": 80, "text": "Live", "align": "center", "color": "BodyText", "action": "goto:live"},
           {"kind": "text", "text": "312 lights · 40 darks · 30 flats", "color": "DimText", "align": "far"}
         ]
