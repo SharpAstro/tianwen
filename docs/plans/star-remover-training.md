@@ -6643,12 +6643,71 @@ the first angle is a step after the model and not another arm:
     | purity | 0.9 | 0.8 | at most 1.0 | held |
     | Sagittarius crowded flat | 97.9 | 97.0 | at least 96.3 | held |
 
-    So lifting the cap buys 0.8 of a point on the crowded flat, no less grain in the dense cells, and it costs a
-    quarter of the structure in 30 Doradus's core, which is what the cap was set to protect. The band is read on the
-    remover's output as trained, without core protection, as R4c's and R3z's were; the cell's level is 0.994 to 0.995
-    of the plate's, so this is structure flattened and not light taken. At a 3 px box (`crowd_texture.py`) the bright
-    cell reads 14.1 / 15.0 / 12.5 against R4c's 24.4 / 26.9 / 20.3 and the plate's 32.1 / 40.4 / 37.4. **The cap is
-    not what holds the crowded fields; it stays the default, and the arm stops here.** Predictions: the grain falling
+    So lifting the cap buys 0.8 of a point on the crowded flat and no less grain in the dense cells, and the arm
+    fails its guard on 30 Doradus's core. The band is read on the remover's output as trained, without core
+    protection, as R4c's and R3z's were; the cell's level is 0.994 to 0.995 of the plate's, so a lower band is
+    structure flattened and not light taken. At a 3 px box (`crowd_texture.py`) the bright cell reads
+    14.1 / 15.0 / 12.5 against R4c's 24.4 / 26.9 / 20.3 and the plate's 32.1 / 40.4 / 37.4. R4c's 80 % and 82 % for
+    the light taken from the field were read on 2026-11-19 beside R4d's, from the same scorecard log; R4c's own
+    read below was written before that. **The cap is not what holds the crowded fields; it stays the default, and
+    the arm stops here.**
+  - **What one seed carries of this read (measured 2026-11-19 after the read, on the review's question).** The band
+    rows' spread between seeds had never been read. `band.py` on the two recipes with both seeds at hand, the same
+    session, as trained, R / G / B:
+
+    | cell | R3v seed 0 | R3v seed 1 | R4a seed 0 | R4a seed 1 |
+    |---|---|---|---|---|
+    | 4,4 (dense) | 5.1 / 4.7 / 3.9 | 5.2 / 5.0 / 4.1 | 4.6 / 4.2 / 3.4 | 4.3 / 3.8 / 3.3 |
+    | 5,4 (dense) | 5.5 / 5.3 / 4.2 | 5.5 / 5.2 / 4.2 | 4.7 / 4.4 / 3.7 | 3.8 / 3.3 / 3.0 |
+    | 4,6 (30 Doradus's core) | 82.5 / 105.0 / 101.7 | 79.2 / 100.8 / 87.1 | 59.4 / 70.5 / 51.9 | 82.7 / 107.8 / 90.8 |
+
+    R4a's two seeds stand 39 to 75 % apart on the bright cell and 23 to 33 % apart on dense cell 5,4, on the same
+    data and recipe but NOT the same machine: seed 0 trained on the T4 (tag `r4aaz`) and seed 1 on the GTX 1070
+    (registration of R4a's seed 1). So these are a seed-and-machine spread, the confound no pair of runs
+    separates (below). The R3v columns are no cleaner: seed 0 trained on the 1070, and the plan does not record
+    where seed 1 trained, so they are read as a seed spread only if that is checked. Either way the bright cell's band is not a property of a recipe that one seed can show: R4d's
+    44.4 / 49.4 / 39.7 is lower than any of the six other models read, which is as much as can be said, and "the
+    cap lifted costs a quarter of the core" is NOT shown. The kill stands on the registered rule (a guard failed);
+    the guard itself was badly chosen, since R4a's seed 0 would fail it against R4a's own seed 1.
+  - **What is inside this spread and what is not, per cell and channel.** R4c's dense-cell grain under R3z's
+    (4.6 / 3.8 / 3.0 against 4.8 / 4.3 / 3.6, so 4 / 12 / 17 % on 4,4) is judged cell by cell. On 5,4 R4c's
+    6 / 11 / 13 % is inside R4a's 23 to 33 % and outside R3v's 0 to 2 %. On 4,4 the pairs differ by 3 to 10.5 %
+    (R4a: 4.6/4.3, 4.2/3.8, 3.4/3.3) and 2 to 6 % (R3v). Read to one decimal, G's 12 % sits inside the rounding of
+    R4a's 10.5 %, so only B (17 %, clear of every spread read) is outside the 4,4 spreads; R (4 %) is inside R4a's
+    R gap (7 %) and outside R3v's (2 %). On 4,6 (the bright cell), R3v's seeds stand 4 / 4 / 17 % apart (82.5 /
+    105.0 / 101.7 against 79.2 / 100.8 / 87.1) and R4a's 39 to 75 %. R4c's rise over R3z (64.1 / 76.2 / 61.9
+    against 60.4 / 65.6 / 48.8) is 6 / 16 / 27 %: inside R4a's spread on every channel, outside R3v's on G and B
+    (and on R, 6 against 4). R4d's fall from R4c (to 44.4 / 49.4 / 39.7) is 31 / 35 / 36 % of R4c's level, outside
+    R3v's gap on every channel. Against R4a it is read on one basis: R4a's 39 / 53 / 75 % is the higher seed over the
+    lower, so R4c over R4d (64.1 / 76.2 / 61.9 over 44.4 / 49.4 / 39.7) is 44 / 54 / 56 %, past R4a's gap on R by 5
+    points and on G by 1, inside only on B. On the fall basis R4a's gaps are 28 / 35 / 43 % against R4d's 31 / 35 /
+    36 %, the same picture. So R and G sit at the edge of R4a's gap and B well inside it. Which gap a faint-star recipe should be read against is not measured: R4d's
+    data is synth25 plus faint stars, R4a's is synth25 plus cluster scenes and R3v's is synth22, so "not shown"
+    above is against the widest gap read (R4a's). What one seed does carry here: the crowded flat (0.0 to 0.1
+    between seeds), so the question's miss is firm.
+  - **These spreads are of recipes without faint stars.** R3v and R4a draw none; R4c and R4d draw them, and R4c
+    ran one seed and R4d one, so the faint-star recipe's own spread is not measured (the R4e registration says the
+    same of R3v, R4a and R3y). "Inside this spread" reads as inside the spread of a recipe without faint stars,
+    and the R3v columns read as a seed spread only if where its seed 1 trained is checked (the plan does not
+    record it).
+    R4d also trained on the GTX 1070 where R4c trained on a T4; no pair of runs separates the machine from the seed.
+  - **The other side of the ledger, as trained.** R4d leans less on floor3 than R4c: Andromeda dark flat dug 19.5
+    against 45.9, Tarantula dark flat left 14.3 against 33.1, by count clean 95.6 and 91.5 against 94.9 and 86.7,
+    SMC 100-1000 clean 91.5 against 81.4. The plan holds seed pairs for these rows on recipes without faint stars,
+    the same proxy as the band rows. Andromeda dig: R3y 9.6 points apart, R4a 6.4; M42 100-1000 clean: R3y 21.4,
+    R4a 17; R4d less R4c on the dig is 26.4, larger than any. Tarantula dark flat left: R3y 18.3 / 23.3, R3v 16.0 /
+    13.8 (gaps 5.0 and 2.2) against a difference of 18.8, larger than both. SMC 100-1000 clean: R3y 84.7 / 91.5,
+    R3v 89.8 / 91.5 (gaps 6.8 and 1.7) against 10.1, larger than both. So each of these three rows exceeds every
+    measured pair of its own row. Gaps of 17 to 21 points do occur between seeds on a row that spreads widely (the
+    M42 pairs above), so a difference of that size on the left and SMC rows is beyond their own pairs but not beyond
+    what a seed has moved on another row. The by-count clean rows are not paired here. The row the cap exists to protect goes the other way: the
+    Tarantula's glow with floor3 reads p90 443.5 and 31 % over the bound against R4c's 143.4 and 8 % (inside its
+    guard, the largest of the recent arms). R3v's pair for it (floor3, green, p90 1726.2 / 1436.5, over the bound
+    92 / 85 %, a no-faint-star spread) gaps 290 and 7 points; R4d less R4c is +300 and +23 points, so the p90 rise
+    is about one R3v seed's gap and the share over about three times its gap. R3v reads at a far higher level, so
+    the pair bounds a seed gap only roughly. So the ledger is mixed: the dig, the dark-flat left and SMC rows are
+    beyond measured seed gaps, the glow's p90 is not and its share over probably is. This counts for the cap lifted only as the owner weighs it; it does not change the default.
+  - Predictions: the grain falling
     by a third, missed (unchanged); the crowded flat rising 2 to 3, missed (0.8); the light taken from the densest
     cells rising, hardly (81 % against R4c's 80 %). Reported, no bar, as trained: Andromeda dark flat 69.4 dug 19.5
     (R4c 47.2 and 45.9), Tarantula dark flat 80.3 left 14.3, Tarantula crowded 86.7, BP 17-19 95.4, Sagittarius 96.4,
@@ -6700,7 +6759,7 @@ the first angle is a step after the model and not another arm:
     taken. At a 3 px box (`crowd_texture.py`) the dense cells read 1.46 / 1.26 / 0.93 and
     1.22 / 1.01 / 0.81 against R3z's 1.49 / 1.40 / 1.06 and 1.27 / 1.15 / 0.91. **The cap** dropped faint stars in
     6.7 % of synth28's 22,080 draws (a median of 119 stars dropped where it acted). StarXTerminator was not run on
-    this session for this read, and the light taken from the field and the faint stars drawn a tile were not read.
+    this session for this read, and the light taken from the field and the faint stars drawn a tile were not read (the light taken was read later, with R4d's: 80 % and 82 %).
   - **Seed 1 is not launched:** the registration ties it to a cleared question. What follows is the owner's.
 - **R4e, pre-registered 2026-11-19 before any export or score. One change from R4c: each session's noise is drawn at
   the level its starless plate reads, not at the master's record.** The owner, 2026-11-19, on R4c's read and the
