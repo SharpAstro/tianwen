@@ -11,6 +11,8 @@ noise under the star is kept: only the smooth part moves.
 first (a pinhole at a star's core), and the smooth lift is tapered to nothing at the mask's edge.
 --cap-up U --cap-down D with --pin (the third version, 'floor3'): a lift is at most U of what the model took at that
 pixel, and what stands above the sky is lowered by at most D of it.
+--fade T U with the caps (the fourth version, 'floor4', #2243): the correction is whole where the sky it fills to scatters
+by under T pixel-noise sigmas, nothing over U, in proportion between (registered: --fade 2 4 --tag floor4).
 
 Reads f2-eval-master/<model>/on-real-val and on-random, writes f2-eval-master/<model>+<tag>/ the same way, so
 real_star_check3.py (real and --twin) scores it as a model. Glue only.
@@ -38,6 +40,18 @@ def post(inp, out, mode, thr, grow, s_bg, s_lo):
     m = binary_dilation(m, iterations=grow)
     w = (~m).astype(np.float32); mf = m.astype(np.float32)
     res = out.copy()
+    trust = 1.0
+    if FADE:
+        # floor4: how far the sky under the mask can be trusted. The scatter of the output OUTSIDE the mask under the very
+        # Gaussian that makes bg, in pixel noise, the largest of the channels; in float64, since it is a small difference of
+        # two large sums. Inside bright, structured nebula the mask is one large blob and the sky comes from far away.
+        w64 = w.astype(np.float64); dn = np.maximum(gaussian_filter(w64, s_bg), 1e-6); df = np.maximum(gaussian_filter(w64, 3 * s_bg), 1e-6)
+        far_only = gaussian_filter(w, s_bg) < 0.02; spread = np.zeros(out.shape[1:], np.float64)
+        for c in range(CH):
+            o64 = out[c].astype(np.float64); near = gaussian_filter(o64 * w64, s_bg) / dn; far = gaussian_filter(o64 * w64, 3 * s_bg) / df
+            v = np.where(far_only, gaussian_filter(o64 * o64 * w64, 3 * s_bg) / df - far * far, gaussian_filter(o64 * o64 * w64, s_bg) / dn - near * near)
+            spread = np.maximum(spread, np.sqrt(np.maximum(v, 0)) / sig[c, 0, 0])
+        trust = np.clip((FADE[1] - spread) / (FADE[1] - FADE[0]), 0, 1).astype(np.float32)
     for c in range(CH):
         den = gaussian_filter(w, s_bg); bg = gaussian_filter(out[c] * w, s_bg) / np.maximum(den, 1e-6)
         thin = den < 0.02                      # deep inside a large mask: reach further
@@ -63,23 +77,27 @@ def post(inp, out, mode, thr, grow, s_bg, s_lo):
                 up = np.clip(res[c] - out[c], 0, CAP_UP * took)
                 s2 = gaussian_filter((o - bg) * mf, s_lo) / np.maximum(gaussian_filter(mf, s_lo), 1e-6)
                 down = np.minimum(np.maximum(s2, 0) * taper, CAP_DOWN * took)
-                res[c] = np.where(m, out[c] + up - down, out[c])
+                res[c] = np.where(m, out[c] + trust * (up - down), out[c]) if FADE else np.where(m, out[c] + up - down, out[c])
         else:
             res[c] = np.where(m, out[c] - s, out[c])
     return res, float(m.mean())
 
 PIN = arg('--pin', 0.0); CAP_UP = arg('--cap-up', 0.0); CAP_DOWN = arg('--cap-down', 0.0)
+FADE = (float(sys.argv[sys.argv.index('--fade') + 1]), float(sys.argv[sys.argv.index('--fade') + 2])) if '--fade' in sys.argv else None
 
 def main():
     model, mode = sys.argv[1], sys.argv[2]
     if mode not in ("floor", "fill"):
-        sys.exit(f"mode must be floor or fill, got '{mode}' (the plan's 'floor2' is mode floor with --pin 2.5 --tag floor2; 'floor3' adds --cap-up 2 --cap-down 0.05 --tag floor3)")
+        sys.exit(f"mode must be floor or fill, got '{mode}' (the plan's 'floor2' is mode floor with --pin 2.5 --tag floor2; 'floor3' adds --cap-up 2 --cap-down 0.05 --tag floor3; 'floor4' adds --fade 2 4 --tag floor4)")
+    if FADE and not (CAP_UP > 0 and FADE[1] > FADE[0] > 0):
+        sys.exit("--fade is floor4: give it with mode floor, --pin and the caps, as two rising sigmas "
+                 "(registered: <model> floor --pin 2.5 --cap-up 2 --cap-down 0.05 --fade 2 4 --tag floor4)")
     if (CAP_UP > 0 or CAP_DOWN > 0) and not (PIN > 0 and CAP_UP > 0 and CAP_DOWN > 0 and mode == "floor"):
         sys.exit("the caps are floor3: give mode floor with --pin, --cap-up and --cap-down together "
                  "(registered: <model> floor --pin 2.5 --cap-up 2 --cap-down 0.05 --tag floor3)")
     thr, grow, s_bg, s_lo = arg("--thr", 1.5), arg("--grow", 2), arg("--bg", 4.0), arg("--lo", 1.5)
     if (PIN > 0 or CAP_UP > 0) and "--tag" not in sys.argv:
-        sys.exit("--pin or the caps need --tag (floor2 or floor3): the default tag is the mode, and would overwrite the first version's tiles")
+        sys.exit("--pin or the caps need --tag (floor2, floor3 or floor4): the default tag is the mode, and would overwrite the first version's tiles")
     tag = arg("--tag", mode)
     if not any(os.path.exists(f"{EVAL}/{model}/{sub}/outputs.jsonl") for sub in SETS):
         sys.exit(f"no outputs.jsonl under {EVAL}/{model}/on-real-val or on-random: nothing to do")
