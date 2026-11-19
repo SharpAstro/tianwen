@@ -310,17 +310,14 @@ internal sealed class SolveSubCommand(
                 }
             }
 
-            // No solution is the run's first answer and keeps its code, whatever an export did; 3 is a solved run whose
-            // export failed.
-            if (result.Solution is null)
-            {
-                return 2;
-            }
-
-            return gaiaFailed || exportFailed ? 3 : 0;
+            return ExitCode(result.Solution is not null, gaiaFailed || exportFailed);
         });
         return solveCommand;
     }
+
+    /// <summary>The code a solve ends with. No solution is the run's first answer and keeps its code, 2, whatever an
+    /// export did; 3 is a solved run of which an export failed; 0 a solved run with every export written.</summary>
+    internal static int ExitCode(bool solved, bool anExportFailed) => !solved ? 2 : anExportFailed ? 3 : 0;
 
     // -------------------------------------------------------------------- helpers
 
