@@ -294,6 +294,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     internal readonly record struct DetectionBinning(int Proposed, int Used);
 
     /// <summary>
+    /// Test seam: what the scale ladder answered on the most recent solve, or null where it was not asked (the frame
+    /// stated a scale) or gave none. The emitted WCS cannot show where its scale prior came from.
+    /// </summary>
+    internal ScaleLadder.Found? LastScaleLadder { get; private set; }
+
+    /// <summary>
     /// Test seam: what the quad seed did on the most recent solve (the top-level pass; a relocation
     /// retry's own quad seed is not reported). Like <see cref="LastParityRace"/>, its effect is the
     /// parity race STARTING where the frame is rather than where the header says, which the emitted
@@ -509,6 +515,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             _seedHypothesesMirror = 0;
             LastQuadSeed = null;
             LastOriginSource = OriginSource.Hint;
+            LastScaleLadder = null;
         }
 
         var empty = new SolveAttempt(null, 0, 0, 0, 0, 0);
@@ -517,19 +524,6 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         {
             return Result(empty);
         }
-
-        // The search origin doubles as a scale source. A frame that carries a solved CD matrix but no
-        // FOCALLEN -- which is every master TianWen writes -- otherwise fails HERE, in a few ms,
-        // before detecting a star, with its own pixel scale sitting unread in the same header.
-        if ((imageDim ?? image.GetImageDim(searchOrigin)) is not { } dim)
-        {
-            _logger.LogWarning(
-                "CatalogPlateSolver: no pixel scale available -- the frame states no PIXSCALE, no FOCALLEN + pixel size, and the search origin carries no CD matrix. Pass an explicit ImageDim.");
-            return Result(empty);
-        }
-
-        var fov = dim.FieldOfView;
-        var searchRadiusDeg = searchRadius ?? Math.Max(fov.width, fov.height) * 0.75;
 
         // Self-init the celestial-object DB so any caller works regardless of whether
         // they remembered to InitDBAsync upstream. Idempotent: after the first call
@@ -544,6 +538,33 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // than catastrophically applying a ~-2000yr shift.
         var exposureStart = image.ImageMeta.ExposureStartTime;
         var dtYr = exposureStart.Year > 1900 ? exposureStart.JulianYearsSinceJ2000() : 0.0;
+
+        // The search origin doubles as a scale source. A frame that carries a solved CD matrix but no
+        // FOCALLEN -- which is every master TianWen writes -- otherwise fails HERE, in a few ms,
+        // before detecting a star, with its own pixel scale sitting unread in the same header.
+        //
+        // A frame that states no scale anywhere is asked of its stars (ScaleLadder, #2249). The seed
+        // already found such a frame's scale from a stated one twice wrong and refused only when told
+        // nothing, which left the frame to an external solver or to no solver at all.
+        ImageDim dim;
+        if ((imageDim ?? image.GetImageDim(searchOrigin)) is { } stated)
+        {
+            dim = stated;
+        }
+        else if (await TryFindScaleFromStarsAsync(image, origin, dtYr, cancellationToken) is { } fromStars)
+        {
+            dim = fromStars;
+        }
+        else
+        {
+            _logger.LogWarning(
+                "CatalogPlateSolver: no pixel scale available -- the frame states no PIXSCALE, no FOCALLEN + pixel size, the search origin carries no CD matrix, and its stars gave none ({Detected} detected, {Catalog} catalogue stars within {Radius:F1} deg of the hint). Pass an explicit ImageDim.",
+                _detectedStars, _catalogStars, ScaleLadder.QueryRadiusDeg(image.Width, image.Height));
+            return Result(empty);
+        }
+
+        var fov = dim.FieldOfView;
+        var searchRadiusDeg = searchRadius ?? Math.Max(fov.width, fov.height) * 0.75;
 
         // Query catalog stars within search radius
         var stageSw = Stopwatch.StartNew();
@@ -986,6 +1007,39 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         }
 
         return Result(winner);
+    }
+
+    /// <summary>
+    /// The scale of a frame that states none, asked of its stars (<see cref="ScaleLadder"/>, #2249), or null when
+    /// they give none. It answers a prior for the solve that follows, never a solution.
+    /// </summary>
+    /// <remarks>
+    /// The detection runs on the whole frame: the bin the solve proposes is read off the scale, which is what is
+    /// missing here. Where the solve then does not bin, it reads this same detection back from the image's cache.
+    /// </remarks>
+    private async Task<ImageDim?> TryFindScaleFromStarsAsync(Image image, WCS origin, double dtJulianYears, CancellationToken cancellationToken)
+    {
+        var stageSw = Stopwatch.StartNew();
+        var detected = new List<ImagedStar>(await DetectStarsAsync(image, cancellationToken));
+        _detectedStars = detected.Count;
+        detected.Sort(static (a, b) => b.Flux.CompareTo(a.Flux));
+        var points = new Vector2[detected.Count];
+        for (var i = 0; i < points.Length; i++)
+        {
+            points[i] = new Vector2(detected[i].XCentroid, detected[i].YCentroid);
+        }
+
+        var catalogue = QueryCatalogStarsInRegion(origin, ScaleLadder.QueryRadiusDeg(image.Width, image.Height), dtJulianYears);
+        _catalogStars = catalogue.Count;
+
+        var found = ScaleLadder.TryFind(points, catalogue, origin, image.Width, image.Height, _logger, cancellationToken);
+        LastScaleLadder = found;
+        _logger.LogDebug("CatalogPlateSolver: the frame states no scale; the scale ladder {Outcome} in {Ms}ms ({Detected} detected, {Catalog} catalogue stars)",
+            found is { } f
+                ? $"answers {f.ScaleArcsec:F4}\"/px (rung {f.RungsAsked} at {f.RungScaleArcsec:F3}\"/px, {f.Candidates} candidates, confirmed by {f.ConfirmCandidates})"
+                : "gives none",
+            stageSw.Elapsed.TotalMilliseconds, detected.Count, catalogue.Count);
+        return found is { } answered ? new ImageDim(answered.ScaleArcsec, image.Width, image.Height) : null;
     }
 
     /// <summary>

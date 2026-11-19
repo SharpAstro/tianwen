@@ -97,6 +97,65 @@ public class RealFrameSolveTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The same frame with no scale stated anywhere still solves (#2249): told only where it points, the solver asks
+    /// the stars for the scale (<see cref="ScaleLadder"/>) and solves from what they say. Before, it refused such a
+    /// frame without detecting a star, and only an external solver could take it.
+    /// </summary>
+    /// <remarks>
+    /// The three assertions are one claim each: it solves; the scale it lands on is the frame's (the solve with the
+    /// header's scale gives the figure it is held to); and the scale came from the ladder, which is what fails if the
+    /// frame is ever given a scale by another route and the ladder is no longer what is under test.
+    /// </remarks>
+    [Fact(Timeout = 600_000)]
+    public async Task TheRealFrameSolvesWithNoScaleStatedAnywhere()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(FixtureName, isReadOnly: false, cancellationToken: ct);
+        var stated = image.GetImageDim();
+        Assert.NotNull(stated);
+
+        // The same pixels under a header that names no focal length: nothing derives a scale from it.
+        var planes = new float[image.ChannelCount][,];
+        for (var c = 0; c < planes.Length; c++)
+        {
+            planes[c] = image.GetChannelArray(c);
+        }
+
+        var unscaled = new Image(planes, image.BitDepth, image.MaxValue, image.MinValue, image.Pedestal,
+            image.ImageMeta with { FocalLength = -1 }, image.SamplesAreUnitReferred);
+        var hint = new Astrometry.WCS(image.ImageMeta.TargetRA, image.ImageMeta.TargetDec);
+        Assert.Null(unscaled.GetImageDim(hint));
+
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        var solver = new CatalogPlateSolver(db, NullLogger<CatalogPlateSolver>.Instance);
+
+        var withScale = await _AssertSolves(solver, image, stated.Value, hint, ct);
+
+        var sw = Stopwatch.StartNew();
+        var result = await solver.SolveImageAsync(unscaled, imageDim: null, searchOrigin: hint, cancellationToken: ct);
+        sw.Stop();
+        output.WriteLine(result.Solution is { } s
+            ? $"no scale stated: SOLVED in {sw.ElapsedMilliseconds} ms at {s.PixelScaleArcsec:F4} arcsec/px (with the header's scale {withScale.PixelScaleArcsec:F4}); "
+                + $"ladder: {(solver.LastScaleLadder is { } l ? $"{l.ScaleArcsec:F4} at rung {l.RungsAsked}, {l.Candidates} candidates, confirmed by {l.ConfirmCandidates}" : "not asked")}"
+            : $"no scale stated: NO SOLUTION after {sw.ElapsedMilliseconds} ms");
+
+        Assert.NotNull(result.Solution);
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(
+            Math.Abs(result.Solution.Value.PixelScaleArcsec - withScale.PixelScaleArcsec) / withScale.PixelScaleArcsec, 0.001,
+            "told no scale, the solve must land on the scale the same frame solves at when told one");
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(
+            Math.Abs(result.Solution.Value.CenterDec - withScale.CenterDec), 0.01,
+            "and on the same field");
+        Assert.NotNull(solver.LastScaleLadder);
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(
+            Math.Abs(solver.LastScaleLadder.Value.ScaleArcsec - withScale.PixelScaleArcsec) / withScale.PixelScaleArcsec, 0.0025,
+            "the ladder's answer must be inside the window the seed gives a scale read off the stars");
+
+        image.Release();
+    }
+
+    /// <summary>
     /// A frame whose header points somewhere else entirely still solves. The Vela panel 10 crop
     /// carries its PARENT panel's pointing -- <c>OBJECT = HD 72800</c> is accurate to 0.4 arcmin, but
     /// the pixels are 93 arcmin from it, on a 2.17 deg field -- so the anchor pool the seed projects
