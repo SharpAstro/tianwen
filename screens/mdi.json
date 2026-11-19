@@ -1,0 +1,98 @@
+{
+  "id": "mdi",
+  "title": "Process: windows",
+  "root": {
+    "kind": "dock",
+    "background": "ContentBg",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
+        "children": [
+          {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Guided", "align": "center", "color": "BodyText", "action": "goto:guided"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
+          {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
+          {"kind": "spacer", "side": "left", "size": 24},
+          {"kind": "text", "side": "left", "size": 100, "text": "One image", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 4, "action": "goto:process", "tooltip": "One image at a time, full size (SDI)"},
+          {"kind": "text", "side": "left", "size": 100, "text": "Windows", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4, "tooltip": "Several images side by side, each in its own window (MDI)"},
+          {"kind": "text", "text": "4 windows open", "color": "DimText", "align": "far"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "left", "size": 220, "gap": 4, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Processes", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "textInput", "bind": "processSearch", "placeholder": "Find a process"},
+          {"kind": "text", "text": "Geometry", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Crop", "color": "BodyText", "action": "goto:crop"},
+          {"kind": "text", "text": "Rotate / flip", "color": "BodyText"},
+          {"kind": "text", "text": "Masks", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Star mask", "color": "BodyText"},
+          {"kind": "text", "text": "Range mask", "color": "BodyText"},
+          {"kind": "text", "text": "Combine", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Pixel math", "color": "SelectionText", "background": "Selection", "padding": 2},
+          {"kind": "text", "text": "Channel combine", "color": "BodyText"},
+          {"kind": "text", "text": "Stretch", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Hyperbolic stretch", "color": "BodyText", "action": "goto:process"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "right", "size": 320, "gap": 8, "padding": 10, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Pixel math", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "text", "text": "Target: master_M42 (active window)", "color": "BodyText"},
+          {"kind": "textInput", "bind": "pixelMath", "placeholder": "starless + 0.8 * stars"},
+          {"kind": "dropdown", "bind": "pmOutput", "label": "Output: new window", "options": ["Replace target", "New window"]},
+          {"kind": "text", "text": "Uses: starless, stars", "color": "DimText"},
+          {"kind": "dock", "height": 34, "children": [
+            {"kind": "text", "side": "right", "size": 90, "text": "Apply", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
+            {"kind": "spacer"}
+          ]},
+          {"kind": "text", "text": "Windows", "fontSize": 15, "color": "HeaderText", "padding": 2},
+          {"kind": "dropdown", "bind": "arrange", "label": "Arrange: tile", "options": ["Tile", "Cascade", "Tabs"]},
+          {"kind": "checkbox", "bind": "linkZoom", "label": "Link zoom and pan"}
+        ]
+      },
+      {
+        "kind": "dock", "side": "bottom", "size": 36, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Active: master_M42 · processes apply to the window with the blue outline", "color": "BodyText"}
+        ]
+      },
+      {
+        "kind": "grid", "columns": 2, "gap": 6, "padding": 6,
+        "children": [
+          {"kind": "dock", "height": 290, "border": "Accent", "borderWidth": 2, "children": [
+            {"kind": "dock", "side": "top", "size": 26, "padding": 4, "background": "HeaderBg", "children": [
+              {"kind": "text", "side": "right", "size": 20, "text": "×", "color": "BodyText", "align": "center", "tooltip": "Close window"},
+              {"kind": "text", "text": "master_M42", "color": "HeaderText"}
+            ]},
+            {"kind": "box", "color": "#0b0d12"}
+          ]},
+          {"kind": "dock", "height": 290, "border": "Separator", "borderWidth": 1, "children": [
+            {"kind": "dock", "side": "top", "size": 26, "padding": 4, "background": "HeaderBg", "children": [
+              {"kind": "text", "side": "right", "size": 20, "text": "×", "color": "BodyText", "align": "center", "tooltip": "Close window"},
+              {"kind": "text", "text": "starless", "color": "BodyText"}
+            ]},
+            {"kind": "box", "color": "#0b0d12"}
+          ]},
+          {"kind": "dock", "height": 290, "border": "Separator", "borderWidth": 1, "children": [
+            {"kind": "dock", "side": "top", "size": 26, "padding": 4, "background": "HeaderBg", "children": [
+              {"kind": "text", "side": "right", "size": 20, "text": "×", "color": "BodyText", "align": "center", "tooltip": "Close window"},
+              {"kind": "text", "text": "stars", "color": "BodyText"}
+            ]},
+            {"kind": "box", "color": "#0b0d12"}
+          ]},
+          {"kind": "dock", "height": 290, "border": "Separator", "borderWidth": 1, "children": [
+            {"kind": "dock", "side": "top", "size": 26, "padding": 4, "background": "HeaderBg", "children": [
+              {"kind": "text", "side": "right", "size": 20, "text": "×", "color": "BodyText", "align": "center", "tooltip": "Close window"},
+              {"kind": "text", "text": "star mask", "color": "BodyText"}
+            ]},
+            {"kind": "box", "color": "#0b0d12"}
+          ]}
+        ]
+      }
+    ]
+  }
+}

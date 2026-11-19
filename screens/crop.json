@@ -1,0 +1,96 @@
+{
+  "id": "crop",
+  "title": "Process: crop",
+  "root": {
+    "kind": "dock",
+    "background": "ContentBg",
+    "children": [
+      {
+        "kind": "dock", "side": "top", "padding": 8, "background": "HeaderBg", "size": 44,
+        "children": [
+          {"kind": "text", "side": "left", "size": 180, "text": "M42 · 2026-11-18", "fontSize": 16, "color": "HeaderText"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Guided", "align": "center", "color": "BodyText", "action": "goto:guided"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
+          {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4, "action": "goto:process"},
+          {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
+          {"kind": "spacer", "side": "left", "size": 24},
+          {"kind": "text", "side": "left", "size": 100, "text": "One image", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4, "tooltip": "One image at a time, full size (SDI)"},
+          {"kind": "text", "side": "left", "size": 100, "text": "Windows", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 4, "action": "goto:mdi", "tooltip": "Several images side by side, each in its own window (MDI)"},
+          {"kind": "text", "text": "master_M42.fits · 6248×4176 · 32-bit", "color": "DimText", "align": "far"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "left", "size": 220, "gap": 4, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Processes", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "textInput", "bind": "processSearch", "placeholder": "Find a process"},
+          {"kind": "text", "text": "Geometry", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Crop", "color": "SelectionText", "background": "Selection", "padding": 2},
+          {"kind": "text", "text": "Rotate / flip", "color": "BodyText"},
+          {"kind": "text", "text": "Background", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Gradient removal", "color": "BodyText"},
+          {"kind": "text", "text": "Colour", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Colour calibration", "color": "BodyText"},
+          {"kind": "text", "text": "Noise", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Noise reduction", "color": "BodyText"},
+          {"kind": "text", "text": "Stretch", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Hyperbolic stretch", "color": "BodyText", "action": "goto:process"},
+          {"kind": "text", "text": "Curves", "color": "BodyText"},
+          {"kind": "text", "text": "Detail", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Deconvolution", "color": "BodyText"},
+          {"kind": "text", "text": "Star reduction", "color": "BodyText"}
+        ]
+      },
+      {
+        "kind": "vstack", "side": "right", "size": 320, "gap": 8, "padding": 10, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "text": "Crop", "fontSize": 15, "color": "HeaderText"},
+          {"kind": "checkbox", "bind": "autoCrop", "label": "Cut off the stacking edges"},
+          {"kind": "text", "text": "Edges under 90 % frame cover", "color": "DimText"},
+          {"kind": "dropdown", "bind": "aspect", "label": "Aspect: free", "options": ["Free", "Keep original (3:2)", "1:1", "4:5", "16:9"]},
+          {"kind": "grid", "columns": 4, "gap": 6, "children": [
+            {"kind": "text", "text": "Left", "color": "DimText"},
+            {"kind": "text", "text": "Right", "color": "DimText"},
+            {"kind": "text", "text": "Top", "color": "DimText"},
+            {"kind": "text", "text": "Bottom", "color": "DimText"},
+            {"kind": "textInput", "bind": "cropL", "placeholder": "24"},
+            {"kind": "textInput", "bind": "cropR", "placeholder": "31"},
+            {"kind": "textInput", "bind": "cropT", "placeholder": "18"},
+            {"kind": "textInput", "bind": "cropB", "placeholder": "22"}
+          ]},
+          {"kind": "checkbox", "bind": "northUp", "label": "Rotate north up (plate solve)"},
+          {"kind": "text", "text": "6248×4176 → 6193×4136 px", "color": "BodyText"},
+          {"kind": "dock", "height": 34, "children": [
+            {"kind": "text", "side": "right", "size": 90, "text": "Apply", "padding": 8, "background": "Accent", "color": "SelectionText", "borderRadius": 4, "align": "center"},
+            {"kind": "text", "side": "right", "size": 90, "text": "Reset", "padding": 8, "background": "HeaderBg", "color": "BodyText", "borderRadius": 4, "align": "center"},
+            {"kind": "spacer"}
+          ]},
+          {"kind": "text", "text": "Drag the frame or its corners", "color": "DimText"}
+        ]
+      },
+      {
+        "kind": "dock", "side": "bottom", "size": 36, "padding": 8, "background": "PanelBg",
+        "children": [
+          {"kind": "text", "side": "right", "size": 160, "text": "Zoom 15 %", "color": "DimText", "align": "far"},
+          {"kind": "text", "text": "Crop keeps 98.1 % of the image", "color": "BodyText"}
+        ]
+      },
+      {
+        "kind": "overlay",
+        "children": [
+          {"kind": "box", "color": "#0b0d12"},
+          {"kind": "dock", "padding": 10, "children": [
+            {"kind": "dock", "side": "top", "size": 32, "children": [
+              {"kind": "buttonGroup", "side": "right", "size": 260, "bind": "cropGuides", "options": ["No guides", "Thirds", "Cover map"]},
+              {"kind": "text", "text": "Whole master, crop frame shown", "color": "#c8ccd4"}
+            ]},
+            {"kind": "overlay", "padding": 30, "children": [
+              {"kind": "box", "color": "#00000000", "border": "Accent", "borderWidth": 2},
+              {"kind": "text", "text": "image inside the crop frame", "align": "center", "color": "#8a90a0"}
+            ]}
+          ]}
+        ]
+      }
+    ]
+  }
+}

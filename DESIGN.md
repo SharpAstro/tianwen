@@ -4,13 +4,13 @@
 
 ## Guided
 
-**Objective:** Shows the pre-built "tianwen viewer" workflow one step at a time, like Astro Pixel Processor: load, calibrate, analyse, register, integrate, plate solve, SPCC, gradient, stretch.
+**Objective:** Shows the pre-built "tianwen viewer" workflow one step at a time, like Astro Pixel Processor: load, calibrate, analyse, register, integrate, crop, plate solve, SPCC, gradient, stretch.
 
 ```screen id=guided
-Step 6 of 9: plate solve the master
+Step 7 of 10: plate solve the cropped master
 ```
 
-**Notes:** The step bar is the workflow itself, laid out flat: done steps carry ✓, the current one is selected, later ones are dim, so the state is in words and marks, not colour alone. Each step has one panel (what it does, its few settings, its result) and Back / Next; the canvas shows that step's output (here the solved sky grid). Plate solve and SPCC use the same code as the tianwen viewer so a master looks the same in both. "Open as workflow" leads to the Workflow editor, where gates and extra steps live: Guided is the easy road, Workflow and Process the flexible ones.
+**Notes:** The step bar is the workflow itself, laid out flat: done steps carry ✓, the current one is selected, later ones are dim, so the state is in words and marks, not colour alone. Each step has one panel (what it does, its few settings, its result) and Back / Next; the canvas shows that step's output (here the solved sky grid). Plate solve and SPCC use the same code as the tianwen viewer so a master looks the same in both. "Open as workflow" leads to the Workflow editor, where gates and extra steps live: Guided is the easy road, Workflow and Process the flexible ones. Guided is always one image (SDI); it has no Windows switch. Crop sits before plate solving so the solve and SPCC never see the ragged stacking edges.
 
 ## Stack
 
@@ -30,7 +30,27 @@ Stack workspace: frames, pipeline, preview
 Process workspace: hyperbolic stretch on the master
 ```
 
-**Notes:** One process open at a time, docked, instead of PixInsight's floating windows. History is a plain list; clicking a step would roll the preview back to it.
+**Notes:** One process open at a time, docked, instead of PixInsight's floating windows. History is a plain list; clicking a step would roll the preview back to it. The header's One image / Windows switch picks SDI or MDI; One image is the default.
+
+## Crop
+
+**Objective:** Shows cropping the master: cut off the stacking edges automatically, or set the sides, aspect ratio and north-up rotation by hand, with the frame drawn on the whole image.
+
+```screen id=crop
+Process: Crop, auto-cropping the stacking edges
+```
+
+**Notes:** Auto-crop uses the integration's cover map (where fewer than 90 % of frames overlap), so it is exact rather than guessed from the pixels; "Cover map" in the canvas toolbar shows it. The side fields show the auto values and can be overwritten; dragging the frame does the same. North-up needs a plate solve and says so. Crop is also step 6 of Guided and a step a workflow can hold.
+
+## Windows (MDI)
+
+**Objective:** Shows the optional MDI mode: several images (master, starless, stars, a mask) open side by side as windows, with the process applying to the active one.
+
+```screen id=mdi
+Process in Windows mode: pixel math across four windows
+```
+
+**Notes:** MDI earns its keep where a process needs more than one image: pixel math, masks, channel combine. Windows tile by default (Cascade and Tabs on offer) so nothing hides another; zoom and pan can be linked. The active window has a thick blue outline and is named in the panel and the status line, so it is not shown by colour alone. The switch lives in the Process header and is remembered; Stack and Guided stay single-image.
 
 ## Workflow
 

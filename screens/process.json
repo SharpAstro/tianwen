@@ -13,7 +13,9 @@
           {"kind": "text", "side": "left", "size": 80, "text": "Stack", "align": "center", "color": "BodyText", "action": "goto:home"},
           {"kind": "text", "side": "left", "size": 80, "text": "Process", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4},
           {"kind": "text", "side": "left", "size": 90, "text": "Workflow", "align": "center", "color": "BodyText", "action": "goto:workflow"},
-          {"kind": "text", "side": "left", "size": 160, "text": "tianwen preview ↗", "align": "center", "color": "Accent", "action": "goto:session", "tooltip": "How the live stack looks inside the tianwen GUI's frame preview"},
+          {"kind": "spacer", "side": "left", "size": 24},
+          {"kind": "text", "side": "left", "size": 100, "text": "One image", "align": "center", "background": "Selection", "color": "SelectionText", "borderRadius": 4, "tooltip": "One image at a time, full size (SDI)"},
+          {"kind": "text", "side": "left", "size": 100, "text": "Windows", "align": "center", "background": "PanelBg", "color": "BodyText", "borderRadius": 4, "action": "goto:mdi", "tooltip": "Several images side by side, each in its own window (MDI)"},
           {"kind": "text", "text": "master_M42.fits · 6248×4176 · 32-bit", "color": "DimText", "align": "far"}
         ]
       },
@@ -22,6 +24,9 @@
         "children": [
           {"kind": "text", "text": "Processes", "fontSize": 15, "color": "HeaderText"},
           {"kind": "textInput", "bind": "processSearch", "placeholder": "Find a process"},
+          {"kind": "text", "text": "Geometry", "color": "DimText", "padding": 2},
+          {"kind": "text", "text": "Crop", "color": "BodyText", "action": "goto:crop"},
+          {"kind": "text", "text": "Rotate / flip", "color": "BodyText"},
           {"kind": "text", "text": "Background", "color": "DimText", "padding": 2},
           {"kind": "text", "text": "Gradient removal", "color": "BodyText"},
           {"kind": "text", "text": "Colour", "color": "DimText", "padding": 2},
@@ -54,7 +59,7 @@
             {"kind": "spacer"}
           ]},
           {"kind": "text", "text": "History", "fontSize": 15, "color": "HeaderText", "padding": 2},
-          {"kind": "text", "text": "1  Crop 24 px", "color": "BodyText"},
+          {"kind": "text", "text": "1  Crop (auto, stacking edges)", "color": "BodyText"},
           {"kind": "text", "text": "2  Gradient removal", "color": "BodyText"},
           {"kind": "text", "text": "3  Colour calibration (SPCC)", "color": "BodyText"},
           {"kind": "text", "text": "4  Noise reduction (linear)", "color": "BodyText"},
