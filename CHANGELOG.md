@@ -49,7 +49,8 @@ Four defaults changed, and all change what the same input produces:
   on its own.
 - **`image remove-stars --model` fills the digs by default** (`--no-fill-digs` turns it off): the holes TianWen's
   own models dig under the stars they take are filled to the sky around them (`DigFill`, #2204). RC-Astro's
-  plate is never touched. `image fill-digs` is the step on its own.
+  plate is never touched. `image fill-digs` is the step on its own. The fill fades out where the sky around a
+  star cannot be trusted, inside bright, structured nebula, where it drew flat patches (#2243).
 
 What it is for, by subject:
 

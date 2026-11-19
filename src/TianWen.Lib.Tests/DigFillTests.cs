@@ -406,4 +406,121 @@ public class DigFillTests
         (sum / count).ShouldBeInRange(-0.75, 0.75, "the dug star is filled to the sky");
         stars[0][0, starY, starX].ShouldBe(frame[starY, starX] - starless[0][0, starY, starX]);
     }
+
+    // The scatter of one channel under one Gaussian, the plain way: whole planes in double, down the columns and then
+    // along the rows, each sum from the centre tap and then the pairs from the farthest in.
+    private static double[] PlainGaussian(double[] src, int width, int height, double sigma)
+    {
+        var kernel = DigFill.GaussianKernel(sigma);
+        var radius = kernel.Length / 2;
+        var mid = new double[src.Length];
+        var dst = new double[src.Length];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var sum = src[(y * width) + x] * kernel[radius];
+                for (var j = radius; j >= 1; j--)
+                {
+                    sum += (src[(DigFill.Mirror(y - j, height) * width) + x] + src[(DigFill.Mirror(y + j, height) * width) + x]) * kernel[radius - j];
+                }
+                mid[(y * width) + x] = sum;
+            }
+        }
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var sum = mid[(y * width) + x] * kernel[radius];
+                for (var j = radius; j >= 1; j--)
+                {
+                    sum += (mid[(y * width) + DigFill.Mirror(x - j, width)] + mid[(y * width) + DigFill.Mirror(x + j, width)]) * kernel[radius - j];
+                }
+                dst[(y * width) + x] = sum;
+            }
+        }
+        return dst;
+    }
+
+    [Fact]
+    public void TheTrustReadInRunsOfPixelsIsThePlainWholeFrameOne()
+    {
+        // #2254: the scatter is summed row by row and only over runs of the set's pixels, to hold no whole plane in double.
+        // It has to be, to the bit, what whole planes give. The frame is narrower than the far Gaussian reaches (48 px), so
+        // every run mirrors at both edges, and the set has pixels on the border, lone ones and wide blocks.
+        const int width = 70, height = 90, n = width * height, channels = 2;
+        var rng = new Random(21);
+        var plates = new float[channels][];
+        var sigma = new float[channels][];
+        for (var c = 0; c < channels; c++)
+        {
+            plates[c] = new float[n];
+            sigma[c] = new float[n];
+            for (var i = 0; i < n; i++)
+            {
+                // Noise of one sigma, and a ripple that grows from nothing at the left edge to eight sigmas at the right,
+                // so the scatter runs from under the trusted bar to over the untrusted one across the frame.
+                var x = i % width;
+                plates[c][i] = 0.3f + (0.1f * c) + (float)(1e-3 * StarInjection.Gaussian(rng)) + (0.008f * x / width * MathF.Sin(x / 5f));
+                sigma[c][i] = 1e-3f * (1f + (0.1f * c));
+            }
+        }
+        var set = new bool[n];
+        var sky = new float[n];
+        var nearWeight = new float[n];
+        for (var i = 0; i < n; i++)
+        {
+            var (x, y) = (i % width, i / width);
+            // A block deep enough for the far Gaussian, a strip along the left edge, a corner, and scattered single pixels.
+            set[i] = (x is >= 20 and < 50 && y is >= 30 and < 60) || (x < 3 && y % 4 != 0) || (x >= width - 2 && y >= height - 2) || rng.Next(40) == 0;
+            sky[i] = set[i] ? 0f : 1f;
+            // Which Gaussian answers: the far one deep in the block, as the step chooses it by the near one's weight.
+            nearWeight[i] = x is >= 28 and < 42 && y is >= 38 and < 52 ? 0.001f : 0.5f;
+        }
+
+        var trust = DigFill.SkyTrust(plates, sky, sigma, set, nearWeight, hasFar: true, width, height);
+
+        var expected = new double[n];
+        var wideSky = Array.ConvertAll(sky, v => (double)v);
+        foreach (var (blur, far) in new[] { (DigFill.SkyBlurPx, false), (DigFill.FarSkyBlurPx, true) })
+        {
+            var total = PlainGaussian(wideSky, width, height, blur);
+            for (var c = 0; c < channels; c++)
+            {
+                var first = new double[n];
+                var second = new double[n];
+                for (var i = 0; i < n; i++)
+                {
+                    first[i] = (double)plates[c][i] * sky[i];
+                    second[i] = (double)plates[c][i] * plates[c][i] * sky[i];
+                }
+                var sum = PlainGaussian(first, width, height, blur);
+                var squares = PlainGaussian(second, width, height, blur);
+                for (var i = 0; i < n; i++)
+                {
+                    if (set[i] && (nearWeight[i] < DigFill.ThinSkyWeight) == far)
+                    {
+                        var share = Math.Max(total[i], 1e-6);
+                        var mean = sum[i] / share;
+                        expected[i] = Math.Max(expected[i], Math.Sqrt(Math.Max((squares[i] / share) - (mean * mean), 0.0)) / sigma[c][i]);
+                    }
+                }
+            }
+        }
+        var checkedPixels = 0;
+        var between = 0;
+        for (var i = 0; i < n; i++)
+        {
+            if (!set[i])
+            {
+                continue;
+            }
+            var plain = (float)Math.Clamp((DigFill.UntrustedSkySpread - expected[i]) / (DigFill.UntrustedSkySpread - DigFill.TrustedSkySpread), 0.0, 1.0);
+            trust[i].ShouldBe(plain, $"pixel ({i % width}, {i / width})");
+            checkedPixels++;
+            between += plain is > 0f and < 1f ? 1 : 0;
+        }
+        checkedPixels.ShouldBeGreaterThan(900);
+        between.ShouldBeGreaterThan(20, "the scene holds pixels whose trust is neither 0 nor 1, so the comparison is of real values");
+    }
 }
