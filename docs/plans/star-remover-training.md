@@ -6667,6 +6667,49 @@ the first angle is a step after the model and not another arm:
     6.7 % of synth28's 22,080 draws (a median of 119 stars dropped where it acted). StarXTerminator was not run on
     this session for this read, and the light taken from the field and the faint stars drawn a tile were not read.
   - **Seed 1 is not launched:** the registration ties it to a cleared question. What follows is the owner's.
+- **R4e, pre-registered 2026-11-19 before any export or score. One change from R4c: each session's noise is drawn at
+  the level its starless plate reads, not at the master's record.** The owner, 2026-11-19, on R4c's read and the
+  finding of #1786 (a crowded master's recorded noise is read with its stars in, 1.11 to 1.5 times too high; "S4b:
+  the level's cause" below): "go for that arm". synth30 = synth28's line (`--faint-stars 3`, the default cap) from
+  `bh-bin10`, built 2026-11-19 12:03 at "docs(plans): R4c read: the faint stars clear BP 17-19 and miss the crowded
+  flat's bar, every guard held; the zero-flux case (#2221)" (its `HEAD.txt`). That holds the default bound ("TIA1786:
+  a stars export holds its noise level to the starless plate's by default") and not "TIA1786: an unreadable plate
+  keeps the recorded level, and the row and the log say what was drawn" (#2224, merged after it): on this binary a
+  plate with no readable block throws and fails its session, so a failed session is named, not skipped; R3v's model and recipe exactly, seed 0, a Batch job that removes itself
+  (tag `r4eaz`). Before the export, `bh-bin10` with `--noise-as-recorded` is checked against synth28's own tiles on
+  one session, so that the bound is shown to be the binary's one difference.
+  - **What the change reaches.** Of the 138 training sessions the bound lowers the level on those crowded with
+    RESOLVED stars (Lobster to 0.81 / 0.80 / 0.87 of the record, 29 of the store's 199 sessions under 0.90). The
+    held-out Tarantula, SMC and Sagittarius masters are crowded with stars nobody catalogued, and their own plates
+    read at or over their records by `noise_plate_all.py`'s lag-8 statistic (1.05 to 1.19). That statistic reads a few
+    percent higher than the one the bound uses; by the bound's own reading the SMC session is at 0.97, so the bound
+    lowers an SMC-kind session by about 3 %. The arm reaches the scored crowded rows barely, and mostly through what
+    the model learns on the other kind of field.
+  - **The question, with floor3 and core protection, against R4c:** the Tarantula's crowded flat at least 92.4 (R4c
+    90.4, StarXTerminator 96.1). That row lay 0.0 to 0.1 apart between seeds on the three recipes run twice, so one
+    seed answers it. Those spreads come from R3v, R4a and R3y, none of which draws faint stars, and R4c's own recipe
+    was run once (seed 1 not launched), so this recipe's spread is not measured; at a 2-point bar that cannot change
+    the call. 92.4 is R4c's 90.4 plus 2, as R4d's question has it (R4c's own bar was 92.0).
+  - **Guards, R4c's:** by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over; M42 100-1000 at least
+    88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat at least 95 and dug at most 3; Tarantula dark flat at
+    least 91; the glow's green median within 450 of zero on Andromeda and within 500 on the Tarantula; the M31 nucleus
+    under 10 % with protection; purity at most 1.0 %; the Sagittarius crowded flat at least 96.3.
+  - **Kill:** a guard fails, or the Tarantula's crowded flat under R4c's 90.4. The kill rests on the crowded flat and
+    the guards alone: BP 17-19 has no bar here, so a bound that gave back R4c's faint-star gain (BP back at R3z's 92.6)
+    would be reported, not killed. Between 90.4 and 92.4 with every guard
+    held it neither passes nor is killed; the rows are reported and the owner decides.
+  - **Reported, no bar:** Gaia BP 17-19 (96.0 on R4c; it lies 1.4 to 1.7 apart between seeds, so one seed cannot
+    carry a bar on it); every row as trained, the dig most of all (Andromeda dark flat and its dug share, M42 and SMC
+    100-1000 by count), since a model shown less noise round crowded stars may dig differently; the grain in the
+    Tarantula's dense cells 4,4 and 5,4 and the bright cell 4,6 (`band.py`) beside R4c's; the ratios the export took,
+    by session.
+  - **Prediction:** the question is missed. The crowded flat moves by under a point either way, because the scored
+    crowded masters are of the kind the bound barely touches (the SMC's ratio is 0.97); BP 17-19 stays inside a seed's spread of 96.0; the dig
+    as trained changes little. If the crowded flat does rise by 2, the level of the training noise matters more to
+    the crowded rows than the kind of field it was corrected on, and the noise's shape (#1847: the drawn noise reads
+    4 to 10 % under the real plate at 8 px) is the next thing to correct.
+  - **Nothing is adopted;** adoption is the owner's. R4d (the cap lifted) is still training and is read on its own
+    registration.
 - **The zero-flux case (#1244 point 3), 2026-11-19: a starless plate through the remover comes back as the plate,
   except where the plate still holds stars.** `zero_flux.py`: a session's stored plate through `image remove-stars`
   as trained, the output less the plate over the middle three quarters of the frame, in the master's recorded sigma
@@ -7570,7 +7613,7 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   while the two agree in the estimator's band (the frame less its 4 px low-pass). So the real noise holds more power
   at 8 px and beyond than the drawn noise does at equal fine-scale noise, which is the shape #1847 names (the drawn
   field's lag-1 is under real's too). The level is right where the estimator reads it; the shape is #1847's.
-- **No arm is registered on it.** Whether a model trained on such an export does better on the crowded rows is an arm's question.
+- **R4e is the arm registered on it** ("R4e, pre-registered 2026-11-19" in the arms above): R4c's recipe exported with the default bound and `--faint-stars 3`, the export this section measured. Whether a model trained on it does better on the crowded rows is R4e's question.
 
 ##### S4b: the read
 
