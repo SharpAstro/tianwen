@@ -397,9 +397,10 @@ one a user is watching.
 
 ### C. Quad-descriptor matching against the catalog
 
-**Issue:** #2249 (a frame that states no scale is refused by the catalogue solver, though the seed finds its scale
+**Issue:** #2249 (a frame that states no scale was refused by the catalogue solver, though the seed finds its scale
 from a hint twice wrong: the Sagittarius Triplet master, 2026-11-19, solves to 5.983 arcsec/px from `--scale 3.1`
-and is not tried at all with no scale; ASTAP then solves it, so a machine without ASTAP has no solution).
+and was not tried at all with no scale; ASTAP then solved it, so a machine without ASTAP had no solution). Done
+2026-11-20: "The scale ladder" below, which also names what it left open (#2268, #2269).
 
 **Measured 2026-08-31 by `QuadCatalogFeasibilityProbe` (`TIANWEN_QUAD_FEASIBILITY=1`), and it splits
 this phase in two: the matching half is dead, the SCALE half is alive and is the half this plan
@@ -554,6 +555,96 @@ Positional unrelatedness is `PairRansacLock`'s problem. The hazard that matters 
 that is not the true one, so `QuadScaleRecoveryTests` shifts the second field's scale instead: at
 x0.80 the answer tracks the shift, at x1.25 it declines outright, and it never invents ~1.0 from
 chance agreement.
+
+#### The scale ladder: a frame that states no scale (2026-11-20)
+
+**Issues:** #2249 (done here); #2268 (wide-lens frames get no answer); #2269 (the solver's own recovery, cut to
+equal counts).
+
+A frame with no `PIXSCALE`, no `FOCALLEN` with a pixel size and no solved matrix was refused in a few
+milliseconds, before a star was detected. The owner, 2026-11-19, on the Sagittarius Triplet master: it "should
+still work with the tycho stars, that is yet another defect we need to fix". The recovery above needs no scale to
+compare quads, but it does need the two star sets to be about the same stars, and which catalogue stars are "in
+the frame" depends on the scale believed. So the scale is searched: `ScaleLadder` walks believed scales from a
+12 degree frame down, a factor of 1.25 a rung, and asks the recovery at each.
+
+**It answers a scale, never a solution.** `CatalogPlateSolver` takes the answer as the frame's `ImageDim` and
+solves as it would from a header's: its own recovery, quad seed, parity race and acceptance gate all run. A wrong
+answer costs one failed solve. Nothing in the gate moved.
+
+**How far one rung reaches, which sets the step** (`ScaleLadderProbe.ReportHowFarOneRungReaches` on nine masters;
+the believed scale over the true one at which the recovery answers, and its candidates):
+
+| master | true scale, field | answers from, to (as shipped) | answers from, to (equal counts) | candidates at 0.8, at 1.0 (equal counts) |
+|---|---|---|---|---|
+| Sagittarius Triplet | 5.98, 5.1 deg | 0.5 to 1.0 | 0.5 to 1.0 | 49, 15 |
+| Andromeda | 6.91, 8.0 x 5.6 deg | 0.6 to 1.0 | 0.6 to 1.0 | 45, 11 |
+| Tarantula | 2.87, 2.4 deg | 0.6 to 1.1 | 0.6 to 1.1 | 42, 25 |
+| Centaurus A | 1.58, 1.8 x 1.2 deg | never (8 candidates at best) | 0.7 to 1.25 | 49, 33 |
+| Horsehead | 2.87, 2.4 deg | 0.7 to 1.1 | 0.7 to 1.1 | 55, 24 |
+| M83 | 5.98, 5.0 deg | 0.6 to 1.1 | 0.6 to 1.1 | 103, 24 |
+| Helix | 1.71, 1.6 x 1.1 deg | never | never | 66 catalogue stars in the frame |
+| Orion wide, 35 mm lens | 21.2, 18 deg | never | never | 3 at 1.0 |
+| Carina wide, 24 mm lens | 23.9, 26 x 15 deg | never | never | 0 at 1.0 |
+
+The table's believed scales are 0.25, 0.33, 0.4 and then tenths to 1.1, 1.25, 1.5 and up, so an edge is known to
+the next of those. The span from first to last answer is 1.57 on the narrowest frame (Horsehead) and 2.0 on the
+widest, which a step of 1.25 fits into at least twice. Three things the table says beyond the step:
+
+- **The recovery answers best under the true scale, not at it** (42 to 103 candidates at 0.8, 11 to 33 at 1.0).
+  At the true scale the detections' brightest 500 share most quads with a catalogue cut that starts 100 to 250
+  ranks down on three of the five masters with over 400 catalogue stars in the frame
+  (`ReportWhichCatalogueDepthAnswersAtTheTrueScale`), which a narrower believed frame gives.
+- **"Equal counts" is the ladder's, and it is what makes a narrow frame answer.** The solver's own recovery takes
+  the brightest 500 of each side independently, so on the Centaurus A master 500 detections meet the 288 catalogue
+  stars the frame holds and it never answers. Cut to the smaller count on both sides it answers from 0.7 to
+  1.25. The ladder hands the recovery equal spans; the solver's own call is unchanged and is #2269.
+- **Two kinds of frame get no answer at any rung.** Too few catalogue stars (Helix, 66 Tycho-2 stars in the
+  frame), and the two wide-lens masters, on which no catalogue depth from rank 0 to 8000 answers at the true scale
+  either (#2268; #402 is the acceptance gate's own trouble with very wide fields). So the ladder starts at a
+  12 degree frame, whose rung reaches frames to about 20 degrees, and ends at the first rung whose frame holds
+  under the 50 catalogue stars the recovery needs: a narrower frame holds fewer still.
+
+**An answer is believed when a second question agrees within 1 %.** The second is asked at 0.8, 0.9, 0.7 and then
+1.0 of the implied scale, leaving out any that stands within 5 % of the rung itself (the same stars would agree
+with themselves). The first form asked 0.8 and then 1.0 only, and declined 7 of the 24 frozen Vela panels on a
+right first answer: their rung had landed at 0.79 of the truth, so 0.8 was left out, and at 1.0 the recovery does
+not answer on those panels. With the four fractions all 24 answer.
+
+**What the ladder answers** (`ScaleLadderProbe.ReportWhatTheLadderAnswers`: told the hint and nothing else; the
+hint exact, then moved north by a quarter, a half and three quarters of the frame's long side):
+
+| master | off the truth: hint exact | a quarter off | a half off | three quarters off | rung that answered |
+|---|---|---|---|---|---|
+| Sagittarius Triplet | -0.02 % | +0.02 % | +0.01 % | +0.01 % | 5 |
+| Andromeda | +0.01 % | -0.03 % | -0.49 % | none | 3 (4 at a half off) |
+| Tarantula | -0.01 % | +0.03 % | -0.01 % | none | 8 |
+| Centaurus A | -0.03 % | -0.04 % | none | none | 9 |
+| Horsehead | -0.03 % | -0.02 % | -0.01 % | none | 8 (9 at a half off) |
+| M83 | -0.01 % | -0.01 % | 0.00 % | -0.03 % | 5 |
+| Helix, Orion wide, Carina wide | none | none | none | none | |
+
+The walk takes 6 to 42 ms and its one catalogue query 8 to 119 ms (11,000 to 61,000 stars); the star detection
+before it, on the whole frame, 100 to 725 ms. On the frozen Vela mosaic (`ScaleLadderTests`) it answers all 24
+panels, the worst 0.067 % off its solved scale, and declines all 22 panels pointed at a field that shares no sky
+with them.
+
+**The issue's own cases** (`tianwen solve`, no `--scale`, the hint of the issue): the Sagittarius Triplet master
+solves at 5.983 arcsec/px with 488 matches and the Andromeda master at 6.910 with 409, each the solution the same
+frame gives with its scale stated. The ladder's part was 410 to 750 ms on the first (three runs) and 604 and
+625 ms on the second, most of it the detection (8,507 and 14,716 stars). The committed NGC 3576 frame with its focal length taken out of the
+header solves in about 0.5 s at the 2.8669 it solves at with the header's scale; the ladder's answer was 2.8657
+(`RealFrameSolveTests.TheRealFrameSolvesWithNoScaleStatedAnywhere`).
+
+**What it does not do.**
+
+- It is asked only where NO scale is stated. A stated scale that is far wrong is still believed: the Andromeda
+  master told `--scale 3.0` fails as before.
+- The detection runs on the whole frame, since the bin the solve proposes is read off the scale. On a very large
+  frame that is seconds, once, on a path that used to refuse.
+- It needs the hint. With the hint half a frame off five of the six masters still answer; three quarters off, two.
+- **Tried and not kept:** cutting both sides to the disc that is in frame at any camera angle. It moves the
+  answering span up (0.7 to 1.25 on three masters) and narrows it on every one (1.38 to 1.79 against 1.57 to 2.0).
 
 #### What a solve costs now, cold and warm (measured 2026-09-01)
 

@@ -81,6 +81,10 @@ What it is for, by subject:
   embedded files off (`TianWen.Lib.EmbeddedData.Sky`, `.Stars`, `.Imaging`, `.FakeDevices`) and its
   host supplies them through `DataFiles.Source` (`IDataFileSource`). The web planner serves the sky's
   catalogues as plain files beside the app. Desktop hosts read the embedded files as before.
+- **Plate solving a frame that states no scale (#2249).** Told only where a frame points, the built-in
+  solver reads the scale off the stars and solves; before, it refused such a frame and only an
+  external solver could take it. A frame holding few catalogue stars (66 on the one tried) still
+  gets no answer, nor does a wide-lens frame, 18 degrees and more across (#2268).
 
 ## 10.0
 

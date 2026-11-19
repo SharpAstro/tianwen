@@ -190,7 +190,8 @@ Full rules: `docs/plans/plate-solver-performance.md`.
 - **A header hint is `OBJCTRA`/`OBJCTDEC` before `RA`/`DEC`** (CRVAL first); `WCS.FromHeader` and
   `Image.Fits.ParseTargetCoords` must agree.
 - A remembered parity (`SolveHintCache`) is a hypothesis budget, never a skip. The quad seed answers where the frame is,
-  never a solution. `MinSampledFwhmPx` only un-does a bin.
+  never a solution; the scale ladder (`ScaleLadder`, for a frame that states no scale) answers a scale, never a
+  solution. `MinSampledFwhmPx` only un-does a bin.
 - **An external tool never outlives the call that started it** (`BoundedProcess.WaitForExitOrKillAsync`).
 
 ### Sky objects, planner, atlas
