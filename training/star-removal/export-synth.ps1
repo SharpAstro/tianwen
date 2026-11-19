@@ -30,12 +30,15 @@ param(
     # comma in the value, which -Extra would split.
     [string]$FaintStars = '',
     [string]$Store = 'D:/Astro-Dataset/2026-10-12-full',
+    # The starless root the plates are read from (its plates/ and stats/ folders). Empty is the store's own. R4f's
+    # export names a root whose plates went through plate_grain.py, with the store's side files beside them.
+    [string]$PlatesRoot = '',
     # The 138 training sessions synth4 to synth20 were exported over, one session id per line.
     [string]$Sessions = (Join-Path $PSScriptRoot 'synth-sessions.txt'),
     [int]$Chunk = 10
 )
 $ErrorActionPreference = 'Stop'
-$plates = "$Store/starless"
+$plates = if ($PlatesRoot) { $PlatesRoot } else { "$Store/starless" }
 $out = "$Root/$Name"
 $exportLog = "$Root/export.log"
 $status = "$Root/export.status"
@@ -54,7 +57,7 @@ try {
     $Extra = @($Extra | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $list = @(Get-Content $Sessions | Where-Object { $_ })
     if ($list.Count -ne 138) { Say "FAILED: $($list.Count) sessions, the training set has 138"; return }
-    "bin $Bin; beta draw $BetaDraw; faint stars $FaintStars; extra $($Extra -join ' ')" | Out-File "$Root/export.recipe" -Encoding utf8
+    "bin $Bin; beta draw $BetaDraw; faint stars $FaintStars; extra $($Extra -join ' '); plates $plates" | Out-File "$Root/export.recipe" -Encoding utf8
 
     $common = @('dataset', 'degrade', '--bake', "`"$Store`"", '--plates', "`"$plates`"", '--mode', 'stars', '--shape', 'warped',
         '--warp-sigma', '0.5', '--warp-sigma-drizzle', '0', '--cells', '40', '--draws', '4', '--seed', '1',
