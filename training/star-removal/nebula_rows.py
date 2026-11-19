@@ -18,14 +18,18 @@ a core's few stars vanish in the count. These rows take the INPUT as their refer
              Removing stars can only take light, so every such pixel is a fill that put light in. Also read over the
              whole frame.
   broad      the light taken that is not compact: the 9 px median of (input - starless), what exceeds a third of a
-             sigma, averaged over the nebula in sigma. A star's core does not survive a 9 px median; a hole dug under
-             it, or a halo taken with it, does. Read beside a judge's figure, since a real halo counts here too.
-  standing   of the INPUT's compact peaks on the nebula (local maxima of the 1 px less 4 px band over 50 sigma), the
-             share that keeps over half its height in the starless image, and the same for the brightest tenth of
-             them. A nebula knot is such a peak too and no remover takes it, so the figure has a floor that a judge's
-             output shows; a star put back inside a protected core raises it over that floor.
+             sigma, averaged over the nebula in sigma. A faint star does not survive a 9 px median; a hole dug under
+             it, or a halo taken with it, does, and so does the skirt of a bright star rightly taken (a star 1.3 px
+             wide leaves 2 % of its peak at the median's centre; 40 stars up to 3000 sigma on a synthetic nebula read
+             0.08). So the figure has a floor, and it is read beside a judge's figure.
+  standing   of the INPUT's compact peaks on the nebula (local maxima of the 1 px less 4 px band over 14 pixel sigmas;
+             see STRONG for what that is in the band's own sigmas), the share that keeps over half its height in the starless
+             image, and the same for the brightest tenth of them, with the counts: the tenth is 18 peaks on the Lagoon
+             and 77 on the Tarantula, so a figure of the Lagoon moves in steps of 5.6 %. A nebula knot is such a peak
+             too and no remover takes it, so the figure has a floor that a judge's output shows; a star put back inside
+             a protected core raises it over that floor.
 
-Not caught, and said so wherever these rows are quoted: FAINT stars left on bright nebula. Peaks under 50 sigma
+Not caught, and said so wherever these rows are quoted: FAINT stars left on bright nebula. Peaks under that bar
 cannot be told from knots this way, and the detector's list holds too few of them there to carry a figure.
 
 The nebula is where the input's large-scale map (8 px block medians, median-filtered over 7 blocks, as
@@ -38,7 +42,15 @@ from astropy.io import fits
 from scipy.ndimage import gaussian_filter, maximum_filter, median_filter, uniform_filter
 
 BLOCK, FILTER, NEBULA_SIGMA, BORDER = 8, 7, 20.0, 32
-STRONG_SIGMA, PEAK_NOISE = 50.0, 0.28   # PEAK_NOISE: the noise of (gauss 1 px - gauss 4 px) for white pixel noise of 1
+# A compact peak counts from STRONG pixel sigmas in the band (gauss 1 px - gauss 4 px), the pixel sigma being the one
+# rows() reads off the differences of neighbouring pixels. That is the bar's only true name. In the band's own sigmas it
+# depends on the frame: WHITE pixel noise of 1 leaves BAND_NOISE in the band (0.2567 measured on 2048 x 2048), which would
+# make it 54.5; but a stacked master's noise is correlated, so the difference reading is low, and its band holds faint
+# stars as well. On the three masters the band scatters by 1.46, 1.30 and 0.65 pixel sigmas (1.4826 MAD: Andromeda,
+# Tarantula, Sagittarius), so the bar is 9.6, 10.8 and 21.6 of the band's own sigmas there (#2262). The first version
+# took the band's noise for 0.28 and called the bar 50 sigma (#2247). The bar itself is unchanged, 50 x 0.28, so every
+# figure made with it stays comparable.
+STRONG, BAND_NOISE = 50.0 * 0.28, 0.257
 
 
 def luminance(path):
@@ -79,14 +91,16 @@ def rows(master, starless):
     # nebula (two in the Lagoon's brightest tenth), and the stars a protected core gets back are exactly the ones it lacks.
     band = lambda a: gaussian_filter(a, 1) - gaussian_filter(a, 4)
     di, do = band(inp), maximum_filter(band(out), 3)
-    s_band = PEAK_NOISE * sig
-    peak = (di == maximum_filter(di, 7)) & neb & (di > STRONG_SIGMA * s_band)
+    peak = (di == maximum_filter(di, 7)) & neb & (di > STRONG * sig)
     amp, kept = di[peak], do[peak] / di[peak]
     r["peaks"] = int(peak.sum())
+    r["top"] = r["top_standing"] = 0
     if r["peaks"] >= 20:
         top = amp >= np.percentile(amp, 90)
         r["standing"] = 100.0 * float((kept > 0.5).mean())
         r["standing_top"] = 100.0 * float((kept[top] > 0.5).mean())
+        # The tenth is few peaks (18 on the Lagoon), so its figure is carried with its counts.
+        r["top"], r["top_standing"] = int(top.sum()), int((kept[top] > 0.5).sum())
     else:
         r["standing"] = r["standing_top"] = float("nan")
     return r
@@ -97,25 +111,31 @@ def line(name, r):
         return f"neb {name}: no bright extended light; added over the frame {r['added_frame']:.2f} %"
     return (f"neb {name}: nebula {r['nebula_px']} px ({r['nebula_share']:.1f} % of the frame) | added {r['added']:.2f} % "
             f"(brightest tenth {r['added_bright']:.2f} %, frame {r['added_frame']:.2f} %) | broad taken {r['broad']:.2f} "
-            f"(brightest tenth {r['broad_bright']:.2f}) | of {r['peaks']} compact peaks of the input over {STRONG_SIGMA:.0f} sigma, "
-            f"standing {r['standing']:.1f} %, of the brightest tenth {r['standing_top']:.1f} %")
+            f"(brightest tenth {r['broad_bright']:.2f}) | of {r['peaks']} compact peaks of the input over {STRONG:.0f} pixel sigmas "
+            f"in their band, standing {r['standing']:.1f} %, of the brightest tenth {r['standing_top']:.1f} % ({r['top_standing']} of {r['top']})")
 
 
 def short(name, r):
-    """The figures the scorecard's row carries: added %, broad taken, and the brightest peaks left standing %."""
+    """The figures the scorecard's row carries: added %, broad taken, and the peaks left standing %, all of them and the
+    brightest tenth with its counts."""
     if not r["nebula_px"]:
         return f"{name} neb none"
-    return f"{name} neb added {r['added']:.1f}% broad {r['broad']:.2f} peaks standing {r['standing']:.1f}/{r['standing_top']:.1f}"
+    return (f"{name} neb added {r['added']:.1f}% broad {r['broad']:.2f} peaks standing {r['standing']:.1f}/{r['standing_top']:.1f} "
+            f"({r['top_standing']} of {r['top']})")
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("paths", nargs="*", help="<master> <starless>")
-    p.add_argument("--dir"); p.add_argument("--config")
+    p.add_argument("--dir", help="a folder score_whole.py wrote: every master of the scorecard is read")
+    p.add_argument("--config", help="with --dir, the scorecard json that names the masters; default scorecard.local.json beside this script, as score_whole.py")
     p.add_argument("--name", default="m")
     a = p.parse_args()
     if a.dir:
-        cfg = json.load(open(a.config))
+        config = a.config or os.path.join(os.path.dirname(os.path.abspath(__file__)), "scorecard.local.json")
+        if not os.path.exists(config):
+            p.error(f"--dir needs the scorecard that names the masters: {config} does not exist (give --config)")
+        cfg = json.load(open(config, encoding="utf-8"))
         text = []
         for name, master in cfg["masters"].items():
             plate = next((q for q in (f"{a.dir}/{name}_starless.post.fits", f"{a.dir}/{name}_starless.fits") if os.path.exists(q)), None)

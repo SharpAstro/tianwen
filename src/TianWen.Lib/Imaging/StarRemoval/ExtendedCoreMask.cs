@@ -10,7 +10,8 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// The brightest part of each large, extended source in a frame (a galaxy, a nebula), which a star remover must leave alone
 /// (#1658, the owner's idea of 2026-10-19). Learned removers take a bright compact core as a star: E6 took 16.5 % of M31's
 /// nucleus in red and a bright knot of the Lagoon, where StarXTerminator and StarNet2 took about none. Putting the INPUT back
-/// there, feathered, keeps the core whatever the remover did, at the price of the few stars that sit inside it. The design
+/// there, feathered, keeps the core whatever the remover did, at the price of the stars that sit inside it, unless the
+/// frame's catalogued stars are handed over too (<see cref="CoreStars"/>, #2242), which are then left removed. The design
 /// and its measurements: docs/plans/star-remover-training.md, "Bright compact structure taken as stars".
 /// </summary>
 /// <remarks>
@@ -79,14 +80,19 @@ public sealed class ExtendedCoreMask
     /// about the peak, over the map's peak above the sky.</param>
     public readonly record struct Core(int X, int Y, double PeakSigma, int SourceAreaPx, int CoreAreaPx, int EdgeDistancePx = 0, double PeakRatio = 0);
 
-    private ExtendedCoreMask(int width, int height, float[] weight, ImmutableArray<Core> cores, double skySigma)
+    private ExtendedCoreMask(int width, int height, float[] weight, ImmutableArray<Core> cores, double skySigma, CoreStars.Report? starsLeftOut = null)
     {
         Width = width;
         Height = height;
         Weight = weight;
         Cores = cores;
         SkySigma = skySigma;
+        StarsLeftOut = starsLeftOut;
     }
+
+    /// <summary>What <see cref="CoreStars"/> found when the catalogued stars were taken out of this mask
+    /// (<see cref="LeavingOut"/>); null on a mask as <see cref="Find"/> made it.</summary>
+    public CoreStars.Report? StarsLeftOut { get; }
 
     /// <summary>The frame's width.</summary>
     public int Width { get; }
@@ -319,6 +325,43 @@ public sealed class ExtendedCoreMask
             cores.Add(core);
         }
         return new ExtendedCoreMask(width, height, weight, cores.MoveToImmutable(), sigma);
+    }
+
+    /// <summary>
+    /// This mask with <paramref name="footprint"/> taken out of it: per pixel the weight times one less the footprint (1 on
+    /// a star, <see cref="CoreStars.Find"/>), so where a catalogued star sits inside a core the remover's plate stands and
+    /// the star is not put back with the core (#2242). The cores themselves are as they were.
+    /// </summary>
+    public ExtendedCoreMask LeavingOut(float[] footprint, CoreStars.Report report)
+    {
+        if (footprint.Length != Weight.Length)
+        {
+            throw new ArgumentException($"the footprint holds {footprint.Length} pixels and the mask {Weight.Length}");
+        }
+        var weight = new float[Weight.Length];
+        for (var i = 0; i < weight.Length; i++)
+        {
+            weight[i] = Weight[i] * (1f - Math.Clamp(footprint[i], 0f, 1f));
+        }
+        return new ExtendedCoreMask(Width, Height, weight, Cores, SkySigma, report);
+    }
+
+    /// <summary>
+    /// <see cref="Find"/>, and with <paramref name="catalogStars"/> the catalogued stars the frame shows inside the cores
+    /// taken out of what the mask puts back (<see cref="CoreStars"/>, #2242). Without stars, or where no zero point can be
+    /// read off them, the mask is <see cref="Find"/>'s.
+    /// </summary>
+    public static ExtendedCoreMask Find(Image image, Options? options, IReadOnlyList<FrameStar>? catalogStars, CoreStars.Options? starOptions = null)
+    {
+        var mask = Find(image, options);
+        if (catalogStars is null || mask.Cores.Length == 0)
+        {
+            return mask;
+        }
+        var (footprint, report) = CoreStars.Find(image, mask, catalogStars, starOptions);
+        return footprint is null
+            ? new ExtendedCoreMask(mask.Width, mask.Height, mask.Weight, mask.Cores, mask.SkySigma, report)
+            : mask.LeavingOut(footprint, report);
     }
 
     /// <summary>

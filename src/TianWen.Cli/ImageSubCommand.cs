@@ -157,7 +157,10 @@ internal sealed partial class ImageSubCommand(
     // A verb that needs one says so at the point of use rather than failing composition.
     IImageDeblurrer? deblurrer = null,
     IDenoiseEnhancer? denoiser = null,
-    ILogger<ImageSubCommand>? logger = null)
+    ILogger<ImageSubCommand>? logger = null,
+    // The embedded star catalogue: asked for the stars of a solved frame where no ASTAP database is installed
+    // (core protection leaves catalogued stars removed, #2242). Without it only an installed database is asked.
+    TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? objectDb = null)
 {
     public Command Build()
     {
@@ -179,6 +182,7 @@ internal sealed partial class ImageSubCommand(
                 BuildMatchPsfCommand(),
                 BuildDeblurCommand(),
                 BuildRemoveStarsCommand(),
+                BuildProtectCoresCommand(),
                 BuildFillDigsCommand(),
                 BuildContinuumCommand(),
                 BuildAddLineCommand(),
@@ -403,6 +407,7 @@ internal sealed partial class ImageSubCommand(
                 + "1 adds the line once more at the H-alpha master's signal to noise.",
             DefaultValueFactory = _ => 1.0,
         };
+        var coreCatalogueOpt = CoreCatalogueOption();
         var starlessOpt = new Option<bool>("--starless")
         {
             Description = "Remove the stars from every master first (the active star remover, RC-Astro StarXTerminator), add the "
@@ -467,7 +472,7 @@ internal sealed partial class ImageSubCommand(
         var cmd = new Command("combine", "One colour image from red, green and blue mono masters on one grid (image align), "
             + "optionally with H-alpha's emission added to red, its continuum subtracted.")
         {
-            Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, linearFitOpt, deblurOpt, matchPsfOpt, luminanceOpt, lrgbOpt, colourSigmaOpt, denoiseOpt, denoiseStrengthOpt, colourDenoiseStrengthOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
+            Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, coreCatalogueOpt, linearFitOpt, deblurOpt, matchPsfOpt, luminanceOpt, lrgbOpt, colourSigmaOpt, denoiseOpt, denoiseStrengthOpt, colourDenoiseStrengthOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -503,6 +508,10 @@ internal sealed partial class ImageSubCommand(
                 Deblur = parseResult.GetValue(deblurOpt),
                 MatchPsf = parseResult.GetValue(matchPsfOpt),
                 Starless = parseResult.GetValue(starlessOpt),
+                // As image remove-stars: on a plate-solved set the catalogued stars inside a protected core stay removed.
+                CatalogStars = parseResult.GetValue(starlessOpt)
+                    ? await CoreCatalogueAsync("combine", parseResult.GetValue(coreCatalogueOpt), wcs, masters[0].Width, masters[0].Height, ct)
+                    : null,
                 LineScale = parseResult.GetValue(haScaleOpt),
                 LineWeight = parseResult.GetValue(haWeightOpt),
                 Luminance = parseResult.GetValue(luminanceOpt) is not null,

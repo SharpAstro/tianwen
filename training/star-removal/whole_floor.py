@@ -1,4 +1,12 @@
-"""The dig_floor post-step on whole linear masters. python -I whole_floor.py <w-tag> <floor|fill|floor2|floor3> [scorecard.json]
+"""The dig_floor post-step on whole linear masters. python -I whole_floor.py <w-tag> <floor|fill|floor2|floor3|floor4|floor5> [scorecard.json]
+floor4 (#2243) is floor3 that fades where the sky it fills to cannot be trusted: inside bright, structured nebula floor3
+filled real dark structure flat and lowered the nebula in squares, because the 'removed star' set is one large blob there
+and the sky under it is interpolated from far away.
+floor5 (#2252) is floor4 that also fades where the set as a whole stands far from that sky. The far pixels can agree with
+one another, so the trust is whole, and still not be the level under the blob: a nebula knot between the star cores was
+cut down to the far sky in the 5 px squares of the lowering's cap, and a dark globule was lifted toward it. The lowering
+fades where the set stands 2 to 4 noise sigmas over its sky; the fill fades where it lies 2 to 4 under AND the input is
+as dark there itself (a globule is in the input, a dig is the model's).
 Reads f2-whole-master/<w-tag>/{andromeda,tarantula,sag}_starless.fits and the input masters of the scorecard config,
 writes f2-whole-master/<w-tag>+<mode>/<name>_starless.post.fits, NOT <name>_starless.fits. score_whole.py reads
 <name>_starless.fits and copies a --plates file in only when that does not exist yet, so to score a result hand it over as
@@ -11,9 +19,17 @@ from scipy.ndimage import gaussian_filter, binary_dilation, median_filter, maxim
 S = os.environ.get("TIANWEN_SR_SCRATCH", "C:/temp/tianwen-scratch")
 cfg = json.load(open(sys.argv[3] if len(sys.argv) > 3 else f"{S}/whole-blend3-scorecard.json", encoding="utf-8"))
 tag, mode = sys.argv[1], sys.argv[2]
-if mode not in ("floor", "fill", "floor2", "floor3"):
-    sys.exit(f"mode must be floor, fill, floor2 or floor3, got '{mode}'")
+if mode not in ("floor", "fill", "floor2", "floor3", "floor4", "floor5"):
+    sys.exit(f"mode must be floor, fill, floor2, floor3, floor4 or floor5, got '{mode}'")
 THR, GROW, SBG, SLO, B = 1.5, 2, 4.0, 1.5, 64
+# floor4: the correction is whole where the sky it fills to scatters by under TRUSTED pixel-noise sigmas, nothing over UNTRUSTED.
+TRUSTED, UNTRUSTED = 2.0, 4.0
+# floor5: the lowering is whole where the set stands under LEVEL_NEAR pixel-noise sigmas over its sky and nothing from
+# LEVEL_FAR; the fill the same where it lies under it and the input's own floor does too. That floor is the FLOOR_RANK
+# share from the bottom of the input smoothed by 1 px, over a window of FLOOR_SIDE px: a star may cover most of the window
+# and the floor is still the scene's.
+LEVEL_NEAR, LEVEL_FAR = 2.0, 4.0
+FLOOR_SIDE, FLOOR_RANK = 15, 0.2
 
 def sigma_map(c, ok):
     """Local noise: 1.4826 MAD of the 5 px high-pass in B px blocks, smoothed and upsampled."""
@@ -39,17 +55,58 @@ for name in ("andromeda", "tarantula", "sag"):
     m = binary_dilation(removed.max(0) > THR, iterations=GROW) & ok
     w = (ok & ~m).astype(np.float32); mf = m.astype(np.float32); res = o.copy(); lift = []
     den = gaussian_filter(w, SBG); den2 = gaussian_filter(w, 3 * SBG); thin = den < 0.02; dm = np.maximum(gaussian_filter(mf, SLO), 1e-6)
-    for c in range(o.shape[0]):
+    trust = stands = lies = 1.0
+    def sky_of(c):
         bg = gaussian_filter(o[c] * w, SBG) / np.maximum(den, 1e-6)
-        bg = np.where(thin, gaussian_filter(o[c] * w, 3 * SBG) / np.maximum(den2, 1e-6), bg)
+        return np.where(thin, gaussian_filter(o[c] * w, 3 * SBG) / np.maximum(den2, 1e-6), bg)
+    if mode == "floor5":
+        # How far the set as a whole stands from the sky it is corrected to: the plate less that sky, averaged over the set
+        # under the Gaussian of the near sky, in pixel noise, per channel. On dark sky it is a few tenths of a sigma where
+        # floor4 lowers (99 % under 1.0 to 1.7) and never 2 under it where floor4 fills; on a nebula knot under crowded
+        # stars it is tens of sigmas, and in a dark globule several under. The highest channel gates the lowering, the
+        # lowest the fill.
+        dk = np.maximum(gaussian_filter(mf, SBG), 1e-6)
+        high = np.full(o.shape[1:], -np.inf, np.float32); low = np.full(o.shape[1:], np.inf, np.float32)
+        for c in range(o.shape[0]):
+            level = gaussian_filter((o[c] - sky_of(c)) * mf, SBG) / dk / sig[c]
+            high = np.maximum(high, level); low = np.minimum(low, level)
+        stands = np.clip((LEVEL_FAR - high) / (LEVEL_FAR - LEVEL_NEAR), 0, 1).astype(np.float32)
+        lies = np.clip((LEVEL_FAR + low) / (LEVEL_FAR - LEVEL_NEAR), 0, 1).astype(np.float32)
+        # A dig lies under its sky too. What tells a globule from it is the input: the globule is dark there, the dig is
+        # the model's. So where the plate says far under, the input's own floor about the pixel is read against the same
+        # sky (an order statistic of the window's present pixels, no interpolation), the lowest channel, and the fill
+        # keeps the larger of the two weights. Read at a few thousand pixels of a master.
+        ys, xs = np.nonzero(m & (lies < 1)); floor_in = np.full(len(ys), np.inf, np.float32); half = FLOOR_SIDE // 2
+        for c in range(o.shape[0]):
+            smooth = gaussian_filter(x[c], 1.0); sky = sky_of(c)
+            for i, (py, px) in enumerate(zip(ys, xs)):
+                y0, y1, x0, x1 = max(0, py - half), min(ok.shape[0], py + half + 1), max(0, px - half), min(ok.shape[1], px + half + 1)
+                win = smooth[y0:y1, x0:x1][ok[y0:y1, x0:x1]]; k = int(FLOOR_RANK * (win.size - 1))
+                floor_in[i] = min(floor_in[i], (np.partition(win, k)[k] - sky[py, px]) / sig[c][py, px])
+        lies[ys, xs] = np.maximum(lies[ys, xs], np.clip((LEVEL_FAR + floor_in) / (LEVEL_FAR - LEVEL_NEAR), 0, 1).astype(np.float32))
+    if mode in ("floor4", "floor5"):
+        # How far the sky under the set can be trusted: the scatter of the plate OUTSIDE the set under the very Gaussian that
+        # makes bg, in pixel noise, the largest of the channels. About 1 on flat sky (99 % of a dark field's set under 1.7 to
+        # 1.9); 3.5 to 5 at the median where floor3 drew its patches in 30 Doradus and the Lagoon. In float64: the scatter
+        # is a small difference of two large sums, and in float32 a level of a few thousand sigmas reads as no scatter.
+        w64 = w.astype(np.float64); dn = np.maximum(gaussian_filter(w64, SBG), 1e-6); df = np.maximum(gaussian_filter(w64, 3 * SBG), 1e-6)
+        spread = np.zeros(o.shape[1:], np.float64)
+        for c in range(o.shape[0]):
+            o64 = o[c].astype(np.float64); near = gaussian_filter(o64 * w64, SBG) / dn; far = gaussian_filter(o64 * w64, 3 * SBG) / df
+            v = np.where(thin, gaussian_filter(o64 * o64 * w64, 3 * SBG) / df - far * far, gaussian_filter(o64 * o64 * w64, SBG) / dn - near * near)
+            spread = np.maximum(spread, np.sqrt(np.maximum(v, 0)) / sig[c])
+        trust = np.clip((UNTRUSTED - spread) / (UNTRUSTED - TRUSTED), 0, 1).astype(np.float32)
+    for c in range(o.shape[0]):
+        bg = sky_of(c)
         s = gaussian_filter((o[c] - bg) * mf, SLO) / dm
         if mode == "floor": s = np.minimum(s, 0)
-        if mode == "floor3":   # floor2, each correction capped by what the model took there (dig_floor.py --cap-up 2 --cap-down 0.05)
+        if mode in ("floor3", "floor4", "floor5"):   # floor2, each correction capped by what the model took there (dig_floor.py --cap-up 2 --cap-down 0.05)
             oc = np.where(m & ((o[c] - bg) < -2.5 * sig[c]), bg, o[c]); taper = np.clip(2 * gaussian_filter(mf, 1.0) - 1, 0, 1)
             s2 = gaussian_filter((oc - bg) * mf, SLO) / dm
             took = maximum_filter(np.maximum(gaussian_filter(x[c] - o[c], 1.0), 0), 5)
             up = np.clip(oc - np.minimum(s2, 0) * taper - o[c], 0, 2.0 * took)
-            res[c] = np.where(m, o[c] + up - np.minimum(np.maximum(s2, 0) * taper, 0.05 * took), o[c])
+            down = np.minimum(np.maximum(s2, 0) * taper, 0.05 * took)
+            res[c] = np.where(m, o[c] + up - down, o[c]) if mode == "floor3" else np.where(m, o[c] + trust * (lies * up - stands * down), o[c])
         elif mode == "floor2":   # pinholes set to the sky, then the smooth lift tapered at the mask's edge (dig_floor.py --pin 2.5)
             oc = np.where(m & ((o[c] - bg) < -2.5 * sig[c]), bg, o[c])
             s = np.minimum(gaussian_filter((oc - bg) * mf, SLO) / dm, 0) * np.clip(2 * gaussian_filter(mf, 1.0) - 1, 0, 1)

@@ -44,10 +44,15 @@ Four defaults changed, and all change what the same input produces:
   default), never during the wait for dark. A goto or Home on its own still never unparks.
 - **`image remove-stars` protects cores by default** (`--no-protect-cores` turns it off; `--protect-cores` is
   still accepted). No core is taken at the frame's edge or on a star, and the colour composition's
-  star splits protect them too (#2199).
+  star splits protect them too (#2199). On a plate-solved master the catalogued stars inside a core stay
+  removed (#2242; `--core-catalogue none` puts them back with the core), and `image protect-cores` is the step
+  on its own.
 - **`image remove-stars --model` fills the digs by default** (`--no-fill-digs` turns it off): the holes TianWen's
   own models dig under the stars they take are filled to the sky around them (`DigFill`, #2204). RC-Astro's
-  plate is never touched. `image fill-digs` is the step on its own.
+  plate is never touched. `image fill-digs` is the step on its own. The fill fades out where the sky around a
+  star cannot be trusted, inside bright, structured nebula, where it drew flat patches (#2243), and where the
+  removed stars' pixels as a whole stand far from that sky: it no longer cuts square holes into a nebula knot
+  under crowded stars, nor lifts a dark globule that the input shows too (#2252).
 
 What it is for, by subject:
 

@@ -171,9 +171,11 @@ internal sealed partial class ImageSubCommand
         var noProtectCoresOpt = new Option<bool>("--no-protect-cores")
         {
             Description = "Do not protect cores. By default the brightest part of each galaxy or nebula is kept out of the stars, whichever "
-                + "remover runs: a nucleus like M31's or a bright knot a remover takes as a star stays in the starless plate, with the stars "
-                + "inside it (#1658). Give this to read the remover's own behaviour.",
+                + "remover runs: a nucleus like M31's or a bright knot a remover takes as a star stays in the starless plate (#1658). On a "
+                + "plate-solved master the catalogued stars inside it are still removed (#2242, see --core-catalogue); on an unsolved "
+                + "one they stay with the core. Give this to read the remover's own behaviour.",
         };
+        var coreCatalogueOpt = CoreCatalogueOption();
         var protectCoresOpt = new Option<bool>("--protect-cores")
         {
             Description = "Accepted and ignored: core protection is the default (see --no-protect-cores).",
@@ -189,7 +191,7 @@ internal sealed partial class ImageSubCommand
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, noFillDigsOpt },
+            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, coreCatalogueOpt, noFillDigsOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -210,8 +212,11 @@ internal sealed partial class ImageSubCommand
                 : null;
             IStarRemover remover = own ?? starRemover;
             consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
+            var catalogStars = coreOptions is null
+                ? null
+                : await CoreCatalogueAsync("remove-stars", parseResult.GetValue(coreCatalogueOpt), wcs, masters[0].Width, masters[0].Height, ct);
             var (starless, stars, cores, filled) = await NarrowbandCombination.SplitStarsAsync(
-                masters, remover, coreOptions, fillDigs: !parseResult.GetValue(noFillDigsOpt), ct);
+                masters, remover, coreOptions, fillDigs: !parseResult.GetValue(noFillDigsOpt), catalogStars, ct);
             for (var i = 0; i < starless.Length; i++)
             {
                 if (filled is not null)
@@ -221,10 +226,7 @@ internal sealed partial class ImageSubCommand
                 }
                 if (cores?[i] is { } mask)
                 {
-                    consoleHost.WriteScrollable(mask.Cores.Length == 0
-                        ? $"[remove-stars] {Path.GetFileName(paths[i])}: no extended source bright enough to protect"
-                        : $"[remove-stars] {Path.GetFileName(paths[i])}: protected " + string.Join("; ", mask.Cores.Select(c =>
-                            string.Create(CultureInfo.InvariantCulture, $"({c.X}, {c.Y}), peak {c.PeakSigma:F0} sigma, {c.CoreAreaPx} px of {c.SourceAreaPx}"))));
+                    SayCores("remove-stars", paths[i], mask);
                 }
                 var dst = StepOutput(paths[i], "_starless", parseResult.GetValue(outputOpt), paths.Length);
                 WriteStep(starless[i], dst, wcs, "remove-stars");
@@ -236,6 +238,106 @@ internal sealed partial class ImageSubCommand
             return 0;
         });
         return cmd;
+    }
+
+    // -------- tianwen image protect-cores ------------------------------
+
+    private Command BuildProtectCoresCommand()
+    {
+        var inputOpt = new Option<string>("--input") { Description = "The master the stars were removed from.", Required = true };
+        var starlessOpt = new Option<string>("--starless") { Description = "Its starless plate as the remover left it (image remove-stars --no-protect-cores).", Required = true };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <starless>_cores.fits." };
+        var catalogueOpt = CoreCatalogueOption();
+        var cmd = new Command("protect-cores", "The step image remove-stars runs after its remover, alone (ExtendedCoreMask, #1658): the brightest "
+            + "part of each galaxy or nebula takes the input back, so a nucleus or knot the remover took as a star is in the starless plate "
+            + "again. On a plate-solved master the catalogued stars inside a core stay removed (#2242). No remover runs.")
+        {
+            Options = { inputOpt, starlessOpt, outputOpt, catalogueOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var starlessPath = parseResult.Required(starlessOpt);
+            // The plate is read as written (its absent pixels are NaN, and an exact zero in it is the remover's value).
+            if (!TryReadMasters([parseResult.Required(inputOpt)], out var input, out var wcs)
+                || !TryReadMasters([starlessPath], out var starless, out _, maskAbsent: false)
+                || !OneGrid([input[0], starless[0]]))
+            {
+                return 1;
+            }
+            var catalogStars = await CoreCatalogueAsync("protect-cores", parseResult.GetValue(catalogueOpt), wcs, input[0].Width, input[0].Height, ct);
+            var mask = ExtendedCoreMask.Find(input[0], ExtendedCoreMask.Options.Default, catalogStars);
+            SayCores("protect-cores", starlessPath, mask);
+            WriteStep(mask.Apply(input[0], starless[0]), StepOutput(starlessPath, "_cores", parseResult.GetValue(outputOpt), 1), wcs, "protect-cores");
+            return 0;
+        });
+        return cmd;
+    }
+
+    // Which star catalogue core protection asks: the installed ASTAP database and, without one, the embedded Tycho-2
+    // (auto); the embedded one alone; or none, and every star inside a core then stays with it.
+    internal static Option<string> CoreCatalogueOption()
+    {
+        var option = new Option<string>("--core-catalogue")
+        {
+            Description = "The star catalogue asked for the stars inside a protected core, which then stay removed (a plate-solved master only): "
+                + "auto (the star database ASTAP installs, else the embedded Tycho-2), embedded (Tycho-2 alone), or none (every star inside a "
+                + "core stays in the starless plate with it).",
+            DefaultValueFactory = _ => "auto",
+        };
+        option.AcceptOnlyFromAmong("auto", "embedded", "none");
+        return option;
+    }
+
+    // The catalogued stars of a solved frame, for core protection; null with one line saying why where there are none.
+    private async Task<IReadOnlyList<FrameStar>?> CoreCatalogueAsync(string verb, string? choice, WCS? wcs, int width, int height, CancellationToken ct)
+    {
+        if (choice == "none")
+        {
+            return null;
+        }
+        // A header's pointing, or the matrix made up from its pixel scale and angle, is read as a WCS too and is no solution.
+        if (wcs is not { } solution || !CatalogFrameStars.IsSolved(solution))
+        {
+            consoleHost.WriteScrollable($"[{verb}] the master carries no plate solution, so stars inside a protected core stay with it "
+                + "(tianwen solve writes one)");
+            return null;
+        }
+        if (choice == "embedded" && objectDb is null)
+        {
+            // Only where this command was built without the catalogue; the program always hands it one.
+            consoleHost.WriteScrollable($"[{verb}] the embedded catalogue is not at hand here, so stars inside a protected core stay with it");
+            return null;
+        }
+        var installed = choice == "embedded" ? null : TianWen.Lib.Astrometry.Catalogs.AstapStarDatabase.FindInstalled();
+        var (stars, why) = await CatalogFrameStars.ReadAsync(solution, width, height, installed, objectDb, ct);
+        if (stars is null)
+        {
+            consoleHost.WriteScrollable($"[{verb}] no catalogued stars ({why}), so stars inside a protected core stay with it");
+            return null;
+        }
+        consoleHost.WriteScrollable($"[{verb}] catalogued stars from {stars.Source}");
+        return stars.Stars;
+    }
+
+    private void SayCores(string verb, string path, ExtendedCoreMask mask)
+    {
+        var name = Path.GetFileName(path);
+        if (mask.Cores.Length == 0)
+        {
+            consoleHost.WriteScrollable($"[{verb}] {name}: no extended source bright enough to protect");
+            return;
+        }
+        consoleHost.WriteScrollable($"[{verb}] {name}: protected " + string.Join("; ", mask.Cores.Select(c =>
+            string.Create(CultureInfo.InvariantCulture, $"({c.X}, {c.Y}), peak {c.PeakSigma:F0} sigma, {c.CoreAreaPx} px of {c.SourceAreaPx}"))));
+        if (mask.StarsLeftOut is { } found)
+        {
+            consoleHost.WriteScrollable(found.CalibrationStars == 0
+                ? $"[{verb}] {name}: too few catalogued stars show on the frame to read a zero point, so the stars inside the cores stay with them"
+                : string.Create(CultureInfo.InvariantCulture,
+                    $"[{verb}] {name}: {found.Stars} of {found.Peaks} compact peaks inside the cores are catalogued stars and stay removed "
+                    + $"(zero point {found.ZeroPoint:F2} over {found.CalibrationStars} stars, scatter {found.ZeroPointScatter:F2} mag; "
+                    + $"a star of magnitude 10 reaches {found.ReachAtMagnitude10:F0} px)"));
+        }
     }
 
     // -------- tianwen image fill-digs ----------------------------------

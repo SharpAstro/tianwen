@@ -496,7 +496,11 @@ per rule and points here.
   `N2nLinearRunner`, whose `RestoreLevel` would put the removed starlight back as a haze.
   `docs/plans/star-remover-training.md`, "A whole-frame runner". **Core protection (on by default, `--no-protect-cores` turns it off, `ExtendedCoreMask`,
   #1658) is applied in the split, `NarrowbandCombination.SplitStarsAsync`, never inside a remover**, so a galaxy's nucleus
-  is kept from RC-Astro's remover as from ours.
+  is kept from RC-Astro's remover as from ours. **On a plate-solved master the catalogued stars inside a core stay
+  removed** (`CoreStars`, #2242): a compact peak there is a star when a catalogued star lies on it and can carry its
+  light, and its footprint is left out of what the mask puts back. The stars come from the star database ASTAP installs
+  where there is one, else from the embedded Tycho-2 (`CatalogFrameStars`); with no solution or no catalogue the core
+  takes its stars back as before. `image protect-cores` is the step alone.
 - **TianWen's own remover's plate has its digs filled, by default** (`DigFill`, #2204, adopted 2026-11-18). Our models
   dig a hole under many of the stars they take, which is most of their gap to StarXTerminator. `DigFill.Apply` is a
   classical step with no model in it: where a star was taken (input less plate over 1.5 noise sigmas, grown 2 px) it
@@ -512,9 +516,22 @@ per rule and points here.
     scripts (`score-arm.ps1`, `score_whole.py`) pass it, beside `--no-protect-cores`, so their rows stay the model
     alone. `image fill-digs --input <master> --starless <plate>` is the step on its own, with no model run.
   - **It is the Python step, to the bit.** It was chosen and scored as "floor3" of
-    `training/star-removal/whole_floor.py` (the reasons for each rule and the scores:
-    `docs/plans/star-remover-training.md`), so `DigFill` reproduces scipy's filters exactly (the Gaussian's truncation,
-    border and summing order, the median, the maximum, the dilation, the linear zoom). On the three whole masters of
-    the scorecard (two colour, one mono) its output equals the Python's bit for bit at every pixel;
+    `training/star-removal/whole_floor.py`, became "floor4" (#2243) and is "floor5" since 2026-11-20 (#2252; the
+    reasons for each rule and the scores: `docs/plans/star-remover-training.md`), so `DigFill` reproduces scipy's filters exactly (the Gaussian's
+    truncation, border and summing order, the median, the maximum, the dilation, the linear zoom). On the three whole
+    masters of the scorecard (two colour, one mono) its output equals the Python's bit for bit at every pixel;
     `training/star-removal/dig_fill_parity.py` is that comparison. A change to a constant or a filter there is a
     change to a scored step: re-run the parity, and re-score.
+  - **It fades where its sky cannot be trusted (floor4).** Inside bright, structured nebula the pixels of removed
+    stars form one large blob, the sky under it is spread in from far away, and filling to it drew flat patches over
+    real dark structure. So the scatter of the plate outside those pixels is read under the Gaussian that made the
+    sky, in noise sigmas, and the whole correction is applied in full up to `TrustedSkySpread` (2), not at all from
+    `UntrustedSkySpread` (4), in proportion between. On dark sky the scatter is about 1 and the step is floor3's.
+  - **It fades where the removed stars' pixels as a whole stand far from that sky (floor5).** The far sky can be
+    smooth, so trusted, and still not be the level under the blob: a nebula knot between crowded stars was lowered to
+    it in 5 px squares, and a dark globule lifted toward it. The plate less the sky, averaged over those pixels under
+    the near sky's Gaussian, is a few tenths of a noise sigma on dark sky and tens of sigmas on such a knot. The
+    lowering is applied in full while the highest channel stands under `NearSetLevel` (2) over the sky and not at all
+    from `FarSetLevel` (4). The fill is held back the same way where the lowest channel lies that far under the sky
+    and the input is as dark there itself (its own floor in a 15 px window): a globule is in the input, a dig is the
+    model's and is still filled.

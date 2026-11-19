@@ -261,10 +261,21 @@ internal sealed class SolveSubCommand(
                 consoleHost.WriteScrollable("[solve] no solution");
             }
 
+            // A path that cannot be written, or is no path at all, is said, not thrown, and ends a solved run with 3 as a
+            // failed Gaia export does.
+            var exportFailed = false;
             if (exportPath is not null)
             {
-                await ExportStarsAsync(stars, result.Solution, exportPath, exportFormat, ct);
-                consoleHost.WriteScrollable($"[export] {stars.Count} stars -> {exportPath}");
+                try
+                {
+                    await ExportStarsAsync(stars, result.Solution, exportPath, exportFormat, ct);
+                    consoleHost.WriteScrollable($"[export] {stars.Count} stars -> {exportPath}");
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
+                {
+                    consoleHost.WriteError($"[export] {e.Message}");
+                    exportFailed = true;
+                }
             }
 
             // The Gaia export is an extra: whatever stops it is reported and ends the run with 3, after --export-stars is written.
@@ -292,22 +303,21 @@ internal sealed class SolveSubCommand(
                             : $"[gaia] faintest magnitude in the field {gaia.Field.FaintestMagnitude:F1}; the database is under its density cap here");
                     }
                 }
-                catch (Exception e) when (e is NotSupportedException or InvalidDataException or IOException)
+                catch (Exception e) when (e is NotSupportedException or InvalidDataException or IOException or UnauthorizedAccessException)
                 {
                     consoleHost.WriteError($"[gaia] {e.Message}");
                     gaiaFailed = true;
                 }
             }
 
-            if (gaiaFailed)
-            {
-                return 3;
-            }
-
-            return result.Solution is not null ? 0 : 2;
+            return ExitCode(result.Solution is not null, gaiaFailed || exportFailed);
         });
         return solveCommand;
     }
+
+    /// <summary>The code a solve ends with. No solution is the run's first answer and keeps its code, 2, whatever an
+    /// export did; 3 is a solved run of which an export failed; 0 a solved run with every export written.</summary>
+    internal static int ExitCode(bool solved, bool anExportFailed) => !solved ? 2 : anExportFailed ? 3 : 0;
 
     // -------------------------------------------------------------------- helpers
 

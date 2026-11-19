@@ -57,9 +57,20 @@ public static class NarrowbandCombination
     /// (<see cref="DigFill"/>, #2204). Also the share of each plate's pixels the step could change; null when it did not run.</para>
     /// <para>The stars are the plane less the FINISHED plate, so plate plus stars is the plane whatever ran.</para>
     /// </summary>
-    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+    public static Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
         CancellationToken cancellationToken = default)
+        => SplitStarsAsync(planes, remover, protectCores, fillDigs, catalogStars: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="SplitStarsAsync(IReadOnlyList{Image}, IStarRemover, ExtendedCoreMask.Options?, bool, CancellationToken)"/>
+    /// with the frame's catalogued stars (<see cref="CatalogFrameStars"/>): those the planes show inside a protected core
+    /// stay removed instead of coming back with the core (<see cref="CoreStars"/>, #2242). All planes are on one grid, so
+    /// one list serves them all; null is the split without it.
+    /// </summary>
+    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
+        IReadOnlyList<FrameStar>? catalogStars, CancellationToken cancellationToken = default)
     {
         var starless = await StarlessAsync(planes, remover, cancellationToken);
         var cores = protectCores is null ? null : new ExtendedCoreMask[planes.Count];
@@ -69,7 +80,7 @@ public static class NarrowbandCombination
         {
             if (cores is not null)
             {
-                cores[i] = ExtendedCoreMask.Find(planes[i], protectCores);
+                cores[i] = ExtendedCoreMask.Find(planes[i], protectCores, catalogStars);
                 if (cores[i].Cores.Length > 0)
                 {
                     var plate = starless[i];
@@ -78,10 +89,13 @@ public static class NarrowbandCombination
                 }
             }
             // Cores first, digs second, the fill read against the ORIGINAL plane: the order the step was scored in (the
-            // whole masters went through the model with core protection, then through floor3 against their inputs). It is
-            // also the order that keeps the two apart: inside a protected core the plate IS the plane, so the fill sees
-            // nothing taken there and leaves the nucleus alone, where filling first would work on a nucleus the model dug
-            // into and the core's feathered edge would then blend that work back in.
+            // whole masters went through the model with core protection, then through the dig fill against their inputs).
+            // It is also the order that keeps the two apart: inside a protected core the plate IS the plane, so the fill
+            // sees nothing taken there and leaves the nucleus alone, where filling first would work on a nucleus the model
+            // dug into and the core's feathered edge would then blend that work back in. The one place inside a core where
+            // the plate is NOT the plane is the footprint of a catalogued star (catalogStars, #2242): there the remover's
+            // plate stands, and the fill treats it as it treats a removed star anywhere, fading out where the sky around it
+            // cannot be trusted.
             if (filled is not null)
             {
                 cancellationToken.ThrowIfCancellationRequested();

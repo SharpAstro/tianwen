@@ -398,7 +398,7 @@ the code line by line; it is here to size the work, not to settle it.
 | Colour | Linear fit, LRGB, combine, continuum | `ColourComposition` and its steps | `image linear-fit`, `lrgb`, `combine`, `continuum`, `luminance` | |
 | Colour | Saturation, SCNR, highlight compression, background reduction | `Image.Saturate`, `SubtractiveChromaticNoise`, `CompressHighlights`, `ReduceBackground` | none of their own | The verbs |
 | Restoration | Deblur, denoise, PSF match | the enhancer roles | `image deblur`, `denoise`, `match-psf`, `sharpen` | |
-| Stars | Remove, add back, fill digs | `NarrowbandCombination.SplitStarsAsync`, `DigFill.Apply` | `image remove-stars`, `add-stars`, `fill-digs` | |
+| Stars | Remove, add back, protect cores, fill digs | `NarrowbandCombination.SplitStarsAsync`, `ExtendedCoreMask`, `DigFill.Apply` | `image remove-stars`, `add-stars`, `protect-cores`, `fill-digs` | |
 | Tone | Stretch (MTF, GHS, asinh, star stretch) | `Image.MtfStretch`, `GeneralizedHyperbolicStretch`, `AsinhStretch`, `StarStretch` | `image render` | A stretch as a step that writes a FITS, to be checked |
 | Combining | Add, subtract, multiply, blend, screen | `Image.Add`, `Subtract`, `Multiply`, `Lerp`, `Screen`, `Unscreen` | `add-stars` only | Fixed-form blends as a verb. An expression language ("pixel math") is not planned |
 | Masks | Range mask, blend through a mask | `Image.LuminanceRangeMask`, `Binarize`, `BlendThroughMask` | none | A mask as an image a process takes (W13) |
