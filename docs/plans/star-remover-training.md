@@ -6661,19 +6661,30 @@ the first angle is a step after the model and not another arm:
     | 5,4 (dense) | 5.5 / 5.3 / 4.2 | 5.5 / 5.2 / 4.2 | 4.7 / 4.4 / 3.7 | 3.8 / 3.3 / 3.0 |
     | 4,6 (30 Doradus's core) | 82.5 / 105.0 / 101.7 | 79.2 / 100.8 / 87.1 | 59.4 / 70.5 / 51.9 | 82.7 / 107.8 / 90.8 |
 
-    R4a's two seeds stand 39 to 75 % apart on the bright cell and 23 to 33 % apart on dense cell 5,4, with the same
-    data, recipe and machine. So the bright cell's band is not a property of a recipe that one seed can show: R4d's
+    R4a's two seeds stand 39 to 75 % apart on the bright cell and 23 to 33 % apart on dense cell 5,4, on the same
+    data and recipe but NOT the same machine: seed 0 trained on the T4 (tag `r4aaz`) and seed 1 on the GTX 1070
+    (registration of R4a's seed 1). So these are a seed-and-machine spread, the confound no pair of runs
+    separates (below). The R3v columns are no cleaner: seed 0 trained on the 1070, and the plan does not record
+    where seed 1 trained, so they are read as a seed spread only if that is checked. Either way the bright cell's band is not a property of a recipe that one seed can show: R4d's
     44.4 / 49.4 / 39.7 is lower than any of the six other models read, which is as much as can be said, and "the
     cap lifted costs a quarter of the core" is NOT shown. The kill stands on the registered rule (a guard failed);
-    the guard itself was badly chosen, since R4a's seed 0 would fail it against R4a's own seed 1. The same holds for two sentences of R4c's read below: its dense-cell grain "4 to 17 % under R3z's" and its
-    bright cell's "higher band" are inside this spread. What one seed does carry here: the crowded flat (0.0 to 0.1
-    between seeds), so the question's miss is firm. R4d also trained on the GTX 1070 where R4c trained on a T4; no
-    pair of runs separates the machine from the seed.
+    the guard itself was badly chosen, since R4a's seed 0 would fail it against R4a's own seed 1.
+  - **What is inside this spread and what is not, per cell and channel.** R4c's bright-cell "higher band" is
+    inside R4a's spread on 4,6. R4c's dense-cell grain under R3z's (line of R4c's read: 4.6 / 3.8 / 3.0 against
+    4.8 / 4.3 / 3.6, so 4 / 12 / 17 % on 4,4) is judged cell by cell. On 5,4 R4c's 6 / 11 / 13 % is inside R4a's
+    23 to 33 % and outside R3v's 0 to 2 %. On 4,4 the pairs differ by 3 to 10.5 % (R4a: 4.6/4.3, 4.2/3.8,
+    3.4/3.3) and 2 to 6 % (R3v), so R4c's G (12 %) and B (17 %) on 4,4 are outside every 4,4 spread read here and
+    only R (4 %) is inside; those two are not shown to be a seed's doing. What one seed does carry here: the
+    crowded flat (0.0 to 0.1 between seeds), so the question's miss is firm.
+  - **These spreads are of recipes without faint stars.** R3v and R4a draw none; R4c and R4d draw them, and R4c
+    ran one seed and R4d one, so the faint-star recipe's own spread is not measured (the R4e registration says the
+    same of R3v, R4a and R3y). "Inside this spread" reads as inside the spread of a recipe without faint stars.
+    R4d also trained on the GTX 1070 where R4c trained on a T4; no pair of runs separates the machine from the seed.
   - **The other side of the ledger, as trained.** R4d leans less on floor3 than R4c: Andromeda dark flat dug 19.5
     against 45.9, Tarantula dark flat left 14.3 against 33.1, by count clean 95.6 and 91.5 against 94.9 and 86.7,
     SMC 100-1000 clean 91.5 against 81.4. Seeds of one recipe have differed by 6.4 points on the Andromeda dig and
     17 on M42 (R4a, R3y), so the Andromeda difference is larger than a seed's has been; the spread of the other rows as trained is not
-    measured. This counts for the cap lifted when the owner weighs it; it does not change the default.
+    measured. The row the cap exists to protect goes the other way: the Tarantula's glow with floor3 reads p90 443.5 and 31 % over the bound against R4c's 143.4 and 8 % (inside its guard, the largest of the recent arms), and its seed spread is not measured (one seed of each). So the ledger is mixed and none of it is a measured seed difference except the Andromeda dig. This counts for the cap lifted only as the owner weighs it; it does not change the default.
   - Predictions: the grain falling
     by a third, missed (unchanged); the crowded flat rising 2 to 3, missed (0.8); the light taken from the densest
     cells rising, hardly (81 % against R4c's 80 %). Reported, no bar, as trained: Andromeda dark flat 69.4 dug 19.5
