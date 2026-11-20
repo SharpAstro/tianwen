@@ -7163,7 +7163,9 @@ the first angle is a step after the model and not another arm:
     Measured after it (`grain_rule_nebula_out.py`: the rule plate with `nebula_rows.py`'s own nebula mask, the
     input's large-scale light 20 sigma over the sky, held out of the rule): the light added returns to R4d's 0.1 /
     0.7 / 0.3 % and the crowded rows keep their gain (Tarantula 97.8, Sagittarius 99.7, BP 17-19 with the level
-    set aside 96.4); the mask is 2.0 % of the Tarantula's frame. Held out at 5 sigma the mask is half that frame,
+    set aside 96.4); the mask is 2.0 % of the Tarantula's frame before its feather (the rows above were scored on the plate that holds
+    out the mask plus the tool's 8 px Gaussian feather, which is wider; the tool prints it as "held out with its
+    feather", and an arm that holds the nebula out must quote both areas). Held out at 5 sigma the mask is half that frame,
     since crowded sky is itself bright at that scale, and the gain is gone (crowded flat 91.9, BP 17-19 91.9). So
     the bright nebula can be held out of the rule at no cost to the rows, and the faint wisps beyond it cannot
     be protected by a brightness mask.

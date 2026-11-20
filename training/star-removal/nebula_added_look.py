@@ -31,13 +31,18 @@ big = np.zeros_like(inp); big[:bh * BLOCK, :bw * BLOCK] = np.repeat(np.repeat(sm
 neb = big - float(np.percentile(small, 5)) > NEBULA_SIGMA * sig
 over_p = (uniform_filter(np.nan_to_num(p.mean(axis=0)) - inp, 3) > sig) & neb
 over_b = (uniform_filter(np.nan_to_num(b.mean(axis=0)) - inp, 3) > sig) & neb
-print(f"nebula {int(neb.sum())} px; added on it: the plate {100 * over_p[neb].mean():.2f} %, the base {100 * over_b[neb].mean():.2f} %; "
+print(f"nebula {int(neb.sum())} px; added on it: the plate {100 * over_p[neb].mean() if neb.any() else 0.0:.2f} %, "
+      f"the base {100 * over_b[neb].mean() if neb.any() else 0.0:.2f} %; "
       f"of the plate's added pixels {100 * (over_p & over_b).sum() / max(1, over_p.sum()):.0f} % are the base's too")
 # How dark the added pixels are in the input against their surroundings: the input less its own 31 px median, in sigma.
 dip = (inp - median_filter(inp[::2, ::2], 15).repeat(2, 0).repeat(2, 1)[:h, :w]) / sig
 new = over_p & ~over_b
-print(f"the input at the newly added pixels, less its own 31 px median, in pixel sigma: median {np.median(dip[new]):+.2f}, "
-      f"10th to 90th percentile {np.percentile(dip[new], 10):+.2f} to {np.percentile(dip[new], 90):+.2f}; over the whole nebula: median {np.median(dip[neb]):+.2f}")
+whole = f"over the whole nebula: median {np.median(dip[neb]):+.2f}" if neb.any() else "no nebula"
+if new.any():
+    print(f"the input at the newly added pixels, less its own 31 px median, in pixel sigma: median {np.median(dip[new]):+.2f}, "
+          f"10th to 90th percentile {np.percentile(dip[new], 10):+.2f} to {np.percentile(dip[new], 90):+.2f}; {whole}")
+else:
+    print(f"no new pixels (the plate adds nothing on the nebula that the base does not); {whole}")
 div = float(np.nanmax(m)); par = []
 for c in range(m.shape[0]):
     cov = np.isfinite(m[c]) & (m[c] != 0)
