@@ -384,25 +384,27 @@ workflow a live stack uses, and whether the preview switches to the stack by its
 
 ## The processes: what exists, and what is missing
 
-From the verbs in `TianWen.Cli` and the public methods of `Image` on 2026-11-19. W10's first task is to check this list against
-the code line by line; it is here to size the work, not to settle it.
+Checked line by line against the code on 2026-11-20: the commands built in `TianWen.Cli` (`ImageSubCommand` and its partials,
+`StackSubCommand`, `SolveSubCommand`), the public methods of `Image`, and each routine named below, which all exist under
+that name. Every non-empty Missing cell names the open issue that carries it.
 
 | Group | Process | Routine | Verb | Missing |
 |---|---|---|---|---|
-| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `ViewerActions.ScanForCrop` | `image autocrop`, `image crop` (a given rectangle, #2244) | The solver in Lib (W10) |
-| Geometry | Rotate, flip, resample, bin | `Image.Affine`, `BilinearResize`, `Downsample` | none | The verbs; the WCS carried through each |
+| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `MasterCrop`, `ViewerActions.ScanForCrop` (in `TianWen.UI.Abstractions`) | `image crop` (a given rectangle, #2244), `image autocrop` (still calls `ViewerActions.ScanForCrop`) | The rectangle solver in Lib, with `image autocrop` and `stack` calling it (#2237, this flight) |
+| Geometry | Rotate, flip | `Image.TransformAsync` and `WarpToReferenceGridAsync` (a matrix; no named rotate or flip; `Image.Affine` is a per-value line, not geometry) | none | The routine and verb; the WCS carried (#2280) |
+| Geometry | Resample, bin | `Image.BilinearResize` (WCS passed through unscaled), `Image.Downsample` | none | The verbs; the WCS scaled (#2281) |
 | Geometry | Align to a reference | `FrameRegistration` | `image align` | |
 | Astrometry | Plate solve | the solver | `tianwen solve` | |
 | Background | Gradient | `ClassicalBackgroundExtractor`, the GraXpert backend | `image flatten` | |
-| Colour | White balance by SPCC | `ColourCalibration`, `WhiteBalanceStep` | inside `stack`, `image sharpen`, `image render` | A verb of its own, to be checked |
+| Colour | White balance by SPCC | `Tycho2ColorCalibration.ComputeWhiteBalance`, `Image.WithWhiteBalanceApplied`, the `ColourCalibration` record, `WhiteBalanceStep` | inside `stack`, `image sharpen` and `image render` (which prints the triple); `--white-balance R,G,B` hands one back | Settled by reading the code: no verb solves it and writes a FITS (#2284) |
 | Colour | Linear fit, LRGB, combine, continuum | `ColourComposition` and its steps | `image linear-fit`, `lrgb`, `combine`, `continuum`, `luminance` | |
-| Colour | Saturation, SCNR, highlight compression, background reduction | `Image.Saturate`, `SubtractiveChromaticNoise`, `CompressHighlights`, `ReduceBackground` | none of their own | The verbs |
+| Colour | Saturation, SCNR, highlight compression, background reduction | `Image.Saturate`, `SubtractiveChromaticNoise`, `CompressHighlights`, `ReduceBackground` | none of their own (`image render --saturation` reaches saturation) | The verbs (#2282) |
 | Restoration | Deblur, denoise, PSF match | the enhancer roles | `image deblur`, `denoise`, `match-psf`, `sharpen` | |
 | Stars | Remove, add back, protect cores, fill digs | `NarrowbandCombination.SplitStarsAsync`, `ExtendedCoreMask`, `DigFill.Apply` | `image remove-stars`, `add-stars`, `protect-cores`, `fill-digs` | |
-| Tone | Stretch (MTF, GHS, asinh, star stretch) | `Image.MtfStretch`, `GeneralizedHyperbolicStretch`, `AsinhStretch`, `StarStretch` | `image render` | A stretch as a step that writes a FITS, to be checked |
-| Combining | Add, subtract, multiply, blend, screen | `Image.Add`, `Subtract`, `Multiply`, `Lerp`, `Screen`, `Unscreen` | `add-stars` only | Fixed-form blends as a verb. An expression language ("pixel math") is not planned |
-| Masks | Range mask, blend through a mask | `Image.LuminanceRangeMask`, `Binarize`, `BlendThroughMask` | none | A mask as an image a process takes (W13) |
-| Analysis | Statistics, sources | `Image.GetStats`, the detector | `image stats`, `image sources` | |
+| Tone | Stretch (MTF, GHS, asinh, star stretch) | `Image.MtfStretch`, `GeneralizedHyperbolicStretch`, `AsinhStretch`, `StarStretch` | `image render` (PNG, HDR PQ PNG or JPEG XR only) | Settled by reading the code: no verb writes a stretched FITS (#2285) |
+| Combining | Add, subtract, multiply, blend, screen | `Image.Add`, `Subtract`, `Multiply`, `Lerp`, `Screen`, `Unscreen` | `image add-stars` only | Fixed-form blends as a verb (#2283). An expression language ("pixel math") is not planned |
+| Masks | Range mask, blend through a mask | `Image.LuminanceRangeMask`, `Binarize`, `BlendThroughMask` | none | A mask as an image a process takes (W13, #2240) |
+| Analysis | Statistics, sources | `Image.GetStats`, the detector | `image stats`, `image sources`, `image channel-offsets` | |
 
 ## Where it lives (W0, the owner's decision)
 
@@ -507,7 +509,11 @@ workflow, with its parity test against `tianwen stack --enhance`. A built-in gat
 
 ### W10 The missing process verbs
 
-Tracked as #2237. First the audit of [the process table](#the-processes-what-exists-and-what-is-missing) against the code. Then, each as a
+Tracked as #2237. The audit of [the process table](#the-processes-what-exists-and-what-is-missing) against the code is done
+(2026-11-20); it files one small PR each as #2280 (rotate and flip), #2281 (resample and bin), #2282 (saturation, SCNR,
+highlight compression, background reduction), #2283 (a fixed-form blend), #2284 (SPCC white balance written to a FITS) and
+#2285 (a stretch that writes a FITS). `Image.Invert`, `GaussianBlur`, `ContrastBoost` and `Divide` also have no verb; none is planned
+until the owner asks. The rest of W10, each as a
 Lib routine with a verb and tests: the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib with the viewer,
 `image autocrop` and `tianwen stack` calling it; the crop rule as a setting (`image crop` to four given numbers, #2244, now exists); rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
 PR, and none needs the app.
