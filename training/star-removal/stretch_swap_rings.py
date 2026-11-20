@@ -9,7 +9,10 @@ stretch_swap_table.py reads ("sxt", "r4d as trained" for the changed frame's pla
 writes its ring medians under a "=== " line. The plates come from `tianwen image remove-stars <frame> --model <onnx>
 --views 1 --no-stars --no-protect-cores --no-fill-digs` (ours, on the changed frame and on the frame as it is) and
 from the same verb with the registered remover (StarXTerminator, on the frame as it is). A sheet a star is written to
-<sheet folder> when one is given."""
+<sheet folder> when one is given.
+
+<frame name> must hold no whitespace: stretch_swap_table.py reads it back as one word. The list is the ninth argument,
+so a caller who wants another list and no sheets passes an empty eighth."""
 import os, re, subprocess, sys, tempfile
 
 FRAME, NAME, NIGHT, SXT, CHANGED, ASIS, OUT = sys.argv[1:8]
