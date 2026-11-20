@@ -70,11 +70,27 @@ public class LightGradingTests
         LightGrading.Relative(grades, jittered).ShouldBe(0.5f);
     }
 
-    /// <summary>The known, accepted edge: a nominal 12.5 s set straddles a bucket boundary (see <see cref="LightGradeKey.ExposureKeyMs"/>).</summary>
+    /// <summary>
+    /// #2213: a nominal exposure with three figures ending in 5 used to sit exactly on a bucket boundary, so its set
+    /// split in two under a few ms of recorded jitter. Both sides of 12.5, 125 and 1.25 s share a key now, and so do
+    /// both sides of a decade (9.998 and 10.002 s).
+    /// </summary>
     [Theory]
-    [InlineData(12.494, 12_000)]
-    [InlineData(12.506, 13_000)]
-    public void AHalfStepExposureSitsOnABucketEdge(double seconds, long expectedMs)
+    [InlineData(12.494, 12.506)]
+    [InlineData(124.996, 125.004)]
+    [InlineData(1.2496, 1.2504)]
+    [InlineData(9.998, 10.002)]
+    [InlineData(29.998, 30.064)]
+    public void ASetWithRecordedJitterIsOneBucketOnEitherSideOfItsNominalExposure(double below, double above)
+        => LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(below)).ShouldBe(LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(above)));
+
+    /// <summary>Where the boundaries are now: a quarter step under each two-figure value, which no camera offers as an exposure.</summary>
+    [Theory]
+    [InlineData(29.74, 29_000)]
+    [InlineData(29.76, 30_000)]
+    [InlineData(30.74, 30_000)]
+    [InlineData(30.76, 31_000)]
+    public void TheBucketEdgesSitAQuarterStepUnderEachTwoFigureValue(double seconds, long expectedMs)
         => LightGradeKey.ExposureKeyMs(TimeSpan.FromSeconds(seconds)).ShouldBe(expectedMs);
 
     [Fact]
