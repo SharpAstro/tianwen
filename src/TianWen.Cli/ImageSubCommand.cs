@@ -571,7 +571,7 @@ internal sealed partial class ImageSubCommand(
     /// already answers this exactly -- the drizzle weight plane from the <c>.rejection.fits</c> sidecar
     /// where one exists, <see cref="CoverageEdgeWalk"/> over the pixels otherwise -- and the viewer has
     /// used it for months. Only the <c>image</c> verbs could not reach
-    /// it, so every caller outside those two re-invented the trim and got it wrong: a fixed
+    /// it, so every caller outside the viewer re-invented the trim and got it wrong: a fixed
     /// "more than 2 percent absent" rule cannot see this edge at all, because these masters are absent
     /// about 1 percent EVERYWHERE from interior drizzle holes. On the HIP 80609 ASI533 master the left
     /// edge runs 100 / 84 / 63 / 42 / 20 / 2 percent absent over its first 25 columns; such a rule stops

@@ -527,10 +527,14 @@ Tracked as #2237. The audit of [the process table](#the-processes-what-exists-an
 (2026-11-20); it files one small PR each as #2280 (rotate and flip), #2281 (resample and bin), #2282 (saturation, SCNR,
 highlight compression, background reduction), #2283 (a fixed-form blend), #2284 (SPCC white balance written to a FITS) and
 #2285 (a stretch that writes a FITS). `Image.Invert`, `GaussianBlur`, `ContrastBoost` and `Divide` also have no verb; none is planned
-until the owner asks. The rest of W10, each as a
-Lib routine with a verb and tests. Done: the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib as
-`MasterAutoCrop`, with the viewer and `image autocrop` calling it (`tianwen stack` does not yet: see Crop and auto-crop); the crop rule as a setting (`image crop` to four given numbers, #2244, now exists); rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
-PR, and none needs the app.
+until the owner asks.
+
+Done by this flight (#2237): the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib as `MasterAutoCrop`,
+with the viewer and `image autocrop` calling it; `image crop` to four given numbers (#2244) already exists. `tianwen stack`
+does not call the routine yet: whether it should is #2291 (see Crop and auto-crop).
+
+Still to fly, each as a Lib routine with a verb and tests, one small PR each, none needing the app: rotate and flip (#2280),
+resample and bin (#2281), and the colour and tone operations that are `Image` methods with no verb (#2282 to #2285).
 
 ### W11 Memory, GPU and disk for many open images
 
