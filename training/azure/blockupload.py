@@ -124,7 +124,8 @@ def main(argv=None):
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--block-mib", type=int, default=8)
     a = p.parse_args(argv)
-    sas = open(a.sas_file, encoding="ascii").read().strip().lstrip("?")
+    with open(a.sas_file, encoding="ascii") as f:
+        sas = f.read().strip().lstrip("?")
     size = os.path.getsize(a.file)
     bs = a.block_mib * 1024 * 1024
     n = (size + bs - 1) // bs
