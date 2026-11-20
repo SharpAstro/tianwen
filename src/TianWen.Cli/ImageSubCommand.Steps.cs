@@ -186,7 +186,7 @@ internal sealed partial class ImageSubCommand
                 + "filled to the sky around them, and the little light they leave is lowered a little (#2204; image fill-digs is the step "
                 + "alone). RC-Astro's plate is never touched. Give this to read the models' own output.",
         };
-        var blackPointSigmaOpt = new Option<double?>("--black-point-sigma")
+        var blackPointSigmaOpt = new Option<double?>(BlackPointOption.Name)
         {
             Description = "With --model, for measurement only: stretch the frame with each channel's black point this many sky-noise "
                 + "sigma under its median, whatever the models' contracts say (#2309). A model is otherwise stretched as its "
@@ -210,18 +210,11 @@ internal sealed partial class ImageSubCommand
                 return 1;
             }
             var blackPointSigma = parseResult.GetValue(blackPointSigmaOpt);
-            if (blackPointSigma is { } depth)
+            if (BlackPointOption.Refusal(blackPointSigma, applies: parseResult.GetValue(modelOpt) is { Length: > 0 },
+                    needs: "--black-point-sigma sets the stretch of TianWen's own models; it needs --model") is { } blackPointRefusal)
             {
-                if (!(double.IsFinite(depth) && depth > 0))
-                {
-                    consoleHost.WriteScrollable(FormattableString.Invariant($"[remove-stars] --black-point-sigma {depth}: give a number of sigma over 0"));
-                    return 1;
-                }
-                if (parseResult.GetValue(modelOpt) is not { Length: > 0 })
-                {
-                    consoleHost.WriteScrollable("[remove-stars] --black-point-sigma sets the stretch of TianWen's own models; it needs --model");
-                    return 1;
-                }
+                consoleHost.WriteScrollable($"[remove-stars] {blackPointRefusal}");
+                return 1;
             }
             if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
             {

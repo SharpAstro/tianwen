@@ -2024,7 +2024,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "synth11; the plate's minimum sits in its deepest subtraction holes). Each session logs the slope ratio " +
                           "between the two at the sky.",
         };
-        var blackPointSigmaOpt = new Option<double?>("--black-point-sigma")
+        var blackPointSigmaOpt = new Option<double?>(BlackPointOption.Name)
         {
             Description = "--mode stars (#2309): set each channel's black point this many sky-noise sigma under its median, " +
                           "not at its minimum (one pixel, which lay 8 to 228 sky sigma under the sky across the store's " +
@@ -2388,18 +2388,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             }
             var stretchFrom = stretchGiven ?? "master";
             var blackPointSigma = parseResult.GetValue(blackPointSigmaOpt);
-            if (blackPointSigma is { } blackPointDepth)
+            if (BlackPointOption.Refusal(blackPointSigma, applies: mode == DatasetDegradationExporter.DegradationMode.Stars,
+                    needs: "--black-point-sigma sets the stars mode's stretch; it needs --mode stars") is { } blackPointRefusal)
             {
-                if (!(double.IsFinite(blackPointDepth) && blackPointDepth > 0))
-                {
-                    consoleHost.WriteError(string.Create(CultureInfo.InvariantCulture, $"--black-point-sigma {blackPointDepth}: give a number of sigma over 0"));
-                    return 1;
-                }
-                if (mode != DatasetDegradationExporter.DegradationMode.Stars)
-                {
-                    consoleHost.WriteError("--black-point-sigma sets the stars mode's stretch; it needs --mode stars");
-                    return 1;
-                }
+                consoleHost.WriteError(blackPointRefusal);
+                return 1;
             }
 
             var options = new DatasetDegradationExporter.Options(
