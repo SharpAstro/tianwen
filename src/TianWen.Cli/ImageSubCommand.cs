@@ -668,7 +668,8 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteScrollable($"[autocrop] trimming the declined edges would leave nothing; kept.");
             }
 
-            var margin = Math.Clamp(rule.Margin, 0.0, 0.25);
+            // The applied fraction: MasterAutoCropRule.ForModel clamps it, so it is printed as it stands.
+            var margin = rule.Margin;
             if (scan.Margin is { } inset)
             {
                 consoleHost.WriteScrollable(

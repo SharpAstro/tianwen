@@ -53,11 +53,12 @@ public sealed record MasterAutoCropRule(CoverageTrimPolicy Policy, double Margin
     public static MasterAutoCropRule ForViewing { get; } = new(CoverageTrimPolicy.KeepEveryPixel);
 
     /// <summary>The rule for a crop that feeds a model: the producing policy with its declined fraction
-    /// clamped to 0 to 0.25 (0 keeps a refused edge, as the viewer does), and the margin.</summary>
+    /// clamped to 0 to 0.25 (0 keeps a refused edge, as the viewer does), and the margin, clamped to the same
+    /// range here so <see cref="Margin"/> is the fraction that is applied and a caller prints it as it stands.</summary>
     public static MasterAutoCropRule ForModel(double declinedFraction, double margin = 0.0) =>
         new(declinedFraction > 0
             ? CoverageTrimPolicy.Default with { DeclinedFraction = Math.Clamp(declinedFraction, 0.0, 0.25) }
-            : CoverageTrimPolicy.KeepEveryPixel, margin);
+            : CoverageTrimPolicy.KeepEveryPixel, Math.Clamp(margin, 0.0, 0.25));
 }
 
 /// <summary>
@@ -93,29 +94,20 @@ public static class MasterAutoCrop
         var union = image.LargestCoveredRectangle();
         if (union.Width <= 0 || union.Height <= 0)
         {
-            return new MasterAutoCropResult(union, FromCoverage: false, Declined: false);
+            // Nothing is covered, so there is nothing to inset: a margin that was asked for is reported as
+            // ignored, as it is when the inset would leave 16 px or less, and not passed over in silence.
+            return new MasterAutoCropResult(union, FromCoverage: false, Declined: false) { MarginIgnored = rule.Margin > 0 };
         }
 
         if (filePath is { Length: > 0 } path)
         {
             try
             {
-                if (IntegrationFitsWriter.TryReadCoverageMap(path, out var coverage))
+                if (TryCoverageRect(image, path, out var exact) && exact.Width > 0 && exact.Height > 0)
                 {
-                    try
-                    {
-                        var exact = image.CoverageCropRectangle(coverage);
-                        if (exact.Width > 0 && exact.Height > 0)
-                        {
-                            logger?.LogDebug("Auto-crop from the coverage plane: {W}x{H} at ({X},{Y})",
-                                exact.Width, exact.Height, exact.X, exact.Y);
-                            return WithMargin(image, new MasterAutoCropResult(exact, FromCoverage: true, Declined: false), rule);
-                        }
-                    }
-                    finally
-                    {
-                        coverage.Release();
-                    }
+                    logger?.LogDebug("Auto-crop from the coverage plane: {W}x{H} at ({X},{Y})",
+                        exact.Width, exact.Height, exact.X, exact.Y);
+                    return WithMargin(image, new MasterAutoCropResult(exact, FromCoverage: true, Declined: false), rule);
                 }
             }
             catch (Exception ex)
@@ -145,6 +137,32 @@ public static class MasterAutoCrop
         }
 
         return WithMargin(image, result, rule);
+    }
+
+    /// <summary>
+    /// The exact tier on its own: the rectangle the coverage sidecar beside <paramref name="masterPath"/> states for
+    /// <paramref name="image"/>. False when the master has no sidecar that says which pixels every frame covered;
+    /// true with an empty rectangle when it has one and nothing is covered. One routine for <see cref="Scan"/>
+    /// and for the callers that want the covered area and no edge walk (the dataset's sky patch and its gradient
+    /// fit), so the plane is read, thresholded and released the same way everywhere.
+    /// </summary>
+    public static bool TryCoverageRect(Image image, string masterPath, out PixelRect rect)
+    {
+        rect = PixelRect.Empty;
+        if (!IntegrationFitsWriter.TryReadCoverageMap(masterPath, out var coverage))
+        {
+            return false;
+        }
+
+        try
+        {
+            rect = image.CoverageCropRectangle(coverage);
+            return true;
+        }
+        finally
+        {
+            coverage.Release();
+        }
     }
 
     /// <summary>Describes each refused edge the rule's policy took off, for a caller that prints it; empty
