@@ -19,7 +19,8 @@ param(
     [Parameter(Mandatory)][string]$Cells,
     [string[]]$Extra = @(),
     [string]$BetaDraw = '0.3,1.3,6,3',
-    [int]$Draws = 20,
+    # The trainer's cache holds at most 8 draws a cell (n2n_smoke.py, SUBS_PER_CELL); more would be exported and not read.
+    [int]$Draws = 8,
     [string]$Store = 'D:/Astro-Dataset/2026-10-12-full',
     [int]$Chunk = 4
 )

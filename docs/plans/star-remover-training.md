@@ -7119,8 +7119,9 @@ the first angle is a step after the model and not another arm:
     their sky. No cell of the Tarantula or of Andromeda is in it.
   - **The export** (`export-bright-plates.ps1`): R4d's star line on the plate, `--background plate --stretch-from
     master --star-beta-draw 0.3,1.3,6,3 --saturated-own-share --saturated-measured --halo-over-plate
-    --extra-cells <the list> --listed-only`, 20 draws a cell, from `bh-bin11` (main with the knot fix of #2276)
-    with `--noise-as-recorded`, as R4d's binary drew. `--faint-stars` is not in it: the exporter takes it on a
+    --extra-cells <the list> --listed-only`, 8 draws a cell (the most a cell of the trainer's cache holds), from
+    `bh-bin11` (main with the knot fix of #2276) with `--noise-as-recorded`, as R4d's binary drew.
+    `--faint-stars` is not in it: the exporter takes it on a
     synthetic background only, and a plate holds its own faint stars. Then `tianwen dataset plate-masks` writes
     D4's mask beside every draw (the sky within two PSF widths of a source the plate kept is left out of the
     loss), and the cache `r2-bright1` is prepared with the trainer's lists and `--prepare-keep`.
@@ -7131,11 +7132,13 @@ the first angle is a step after the model and not another arm:
     masks leave out 7.1 % of the pixels inside the rim, 114 sources a draw, as small discs on knots and texture
     peaks, with the edges and the broad light kept in the loss (`keep_look.py`).
   - **The training.** R4d's recipe and cache exactly (`r2-synth29`, R3v's flags, seed 0, the GTX 1070), with
-    `--extra-cache r2-bright1 --extra-loss-mask --schedule-on main`. The bright cells are 2,400 of 20,480 input
-    tiles, 11.7 % of the draw, near the share the cluster scenes had (12.5 %, R2q). `--extra-loss-mask` is new
-    with this registration's PR: an extra row reads its own draw's mask and a main row weighs every pixel, and a
-    batch with no extra row takes the plain mean it always took. The plateau halves and stops on synth29's
-    held-out part alone, as R4d's did. Model `r4g_synth29b1_s0`.
+    `--extra-cache r2-bright1 --extra-loss-mask --schedule-on main`. The bright cells are 960 of 19,040 input
+    tiles, 5.0 % of the draw (the cluster scenes had 12.5 %, R2q): a tile of either cache is drawn as often as any
+    other, and a bright target, with 8 draws to a main target's 4, twice as often as a main one. That takes
+    bright background from 0.5 % of the area the model is shown to between 2 and 3 %. `--extra-loss-mask` is new with
+    this registration's PR: an extra row reads its own draw's mask and a main row weighs every pixel, and a batch
+    with no extra row takes the plain mean it always took. The plateau halves and stops on synth29's held-out
+    part alone, as R4d's did. Model `r4g_synth29b1_s0`.
   - **The question, as trained:** the Lagoon's broad light taken at most 1.3 (R4d 2.67, R3v 0.56,
     StarXTerminator 0.42). Seeds of one recipe have stood 1.3 apart on that row, so the bar is a fall of more than
     that. The row is read on the Sagittarius master, a held-out field, but the Lagoon itself is in the bright
@@ -7159,15 +7162,15 @@ the first angle is a step after the model and not another arm:
   - **Reported, no bar:** every row as trained beside R4d's (Andromeda dark flat 69.4 with 19.5 dug, Tarantula
     dark flat 80.3, Tarantula crowded 86.7, BP 17-19 95.4); the faint stars left on bright background by level;
     M42's 100-1000 as trained; the extra cache's held-out objective beside its training objective at the best
-    step, since 120 targets drawn 20 times each can be learnt by heart; the twin error.
+    step, since 120 targets shown twice as often as a main one can be learnt by heart; the twin error.
   - **Looked at before the rows are quoted:** the Lagoon's core with the picture of what was taken
     (`r4_taken.py`), 30 Doradus's core, the Tarantula's knots, M42's core on a validation tile, M31's nucleus and
     a bright star on dark sky, as trained and through the product's chain, beside R4d and StarXTerminator.
-  - **Prediction:** the Lagoon's broad light taken falls to between 1.0 and 2.0, so the likely outcome is "the
-    owner decides"; the faint stars left on bright background fall by a quarter on both cores; the star rows stay
-    within a point of R4d's. What speaks against a clean pass: two thirds of the bright cells are one object
-    through one filter, 126 cells is little sky, and the halo change that began the nebula-taking is still in
-    every main row.
+  - **Prediction:** the Lagoon's broad light taken falls to between 1.3 and 2.2, so the likely outcome is "the
+    owner decides"; the faint stars left on bright background fall by a fifth on both cores; the star rows stay
+    within a point of R4d's. What speaks against a clean pass: the dose is a twentieth of the draw, two thirds of
+    the bright cells are one object through one filter, 126 cells is little sky, and the halo change that began
+    the nebula-taking is still in every main row.
   - **Nothing is adopted;** adoption is the owner's.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
