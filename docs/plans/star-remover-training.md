@@ -7334,10 +7334,16 @@ the first angle is a step after the model and not another arm:
       halving. R4d reads 0.50, R4e 0.47, R4c 0.48 and R4f 0.85. **0.60 or under: trained as the others.
       0.75 or over: stalled again.** Between the two it is called neither, and the rows are reported with that
       said. The figure is read against the curve before it is called: R3x reads 0.80 on it (6.06e-6 over 7.60e-6,
-      its first halving at 101,000) and is not a stall, since its curve is smooth with no spike and set a new
-      best (5.971e-6 at 148,500) 47,500 steps after the halving; a long first-rate stretch (71,000 steps against
-      27,000 to 52,000 for the others) lifts the ratio. So a ratio of 0.75 to 0.85 is read against the curve
-      (a spike, a new best after the halving) before it is called stalled. No threshold changes.
+      its first halving at 101,000) and is not a stall. Its curve has two isolated spikes before the halving
+      (held-out 1.934e-5 at step 74,500 and 1.101e-5 at 75,500 against 6.8e-6 around them, back to 7.0e-6 by
+      77,000; 1.192e-5 at step 85,000, back to 6.8e-6 by 88,000), and both recovered within a few evaluations. It
+      set a new best (5.971e-6 at 148,500) 47,500 steps after the halving; a long first-rate stretch (71,000 steps
+      against 27,000 to 52,000 for the others) lifts the ratio. What separates R4f is a spike with no recovery
+      (4.88e-5 at step 73,000, see above). So a ratio of 0.75 to 0.85 is read against the curve (a spike with no
+      recovery, a new best after the halving) before it is called stalled; a spike that recovers within a few
+      evaluations is not a stall. A ratio of 0.75 to 0.85 that shows a spike with no recovery and no new best
+      after the halving is called stalled; one that shows neither is called neither, and the rows are reported
+      with that said. No threshold changes.
     - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
       guards, its kill rule and its two added rows stand as its registration and its read list them (the
       Tarantula's crowded flat through the product's chain 93.3 or over and killed under R4d's 91.3; BP 17-19
