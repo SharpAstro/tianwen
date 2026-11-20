@@ -7099,6 +7099,18 @@ the first angle is a step after the model and not another arm:
     (`repair_export.py`, `reexport.ps1`; the first run's rows and tiles are kept beside the export), and the cache
     is built from that. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
     the guards and the kill rule are unchanged.
+  - **Added 2026-11-20, before the cache exists and before any score: what the question reads, and two rows that
+    read what this arm changes.** "The crowded rows read light between the stars" below shows that the Tarantula's
+    crowded flat moves from 91.3 to 95.9 on R4d's own plate when only light at 15 px and over is changed, and that
+    the plate then still looks mottled. This arm takes the grain out of the targets and leaves their level, so its
+    registered question may be missed by a model that does what the arm is for. The question and the kill rule
+    stay as registered. Beside them, with bars set now: (1) Gaia BP 17-19 removed with the level set aside
+    (`gaia_compact.py`, through the product's chain) at least 93.5 (R4d 90.5, StarXTerminator 96.6: half the gap;
+    the level-inclusive row stands 1.4 to 1.7 apart between seeds, this one's spread is not known); (2) the grain
+    in the Tarantula's dense cells 4,4 and 5,4 as trained (`band.py`) at most 0.6 of R4d's in every channel (R4d
+    4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6; two seeds of one recipe have stood 23 to 33 % apart on cell 5,4). The
+    crowded flat missed with both of these cleared is not a kill and not a pass: it goes to the owner with the
+    1:1 crop of the dense field beside R4d's and StarXTerminator's.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
     91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
@@ -7229,6 +7241,65 @@ the first angle is a step after the model and not another arm:
     the bright cells are one object through one filter, 126 cells is little sky, and the halo change that began
     the nebula-taking is still in every main row.
   - **Nothing is adopted;** adoption is the owner's.
+- **The crowded rows read light between the stars (2026-11-20, no training).** The owner, looking at one bright
+  star through StarXTerminator (#2292): "i feel that SXT real strength it that it can really model starlight, not
+  just stars". Read on the scoring masters, that is what separates the crowded rows.
+  - **Where the purity row's light lies** (`purity_parts.py`, the Tarantula, green). The row is the share of the
+    stars layer's light farther than 4 px from every Gaia star to BP 19 (8 px from one brighter than BP 13). The
+    plate holds 503,889 such stars, so only 22 % of the frame is "away from every one", and 21 of those 22 points
+    lie 4 to 8 px from a catalogued star (8 to 16 px from a bright one). StarXTerminator's 3.09 % is 2.93 in that zone, 0.02 on compact peaks the
+    catalogue lacks and 0.14 in the rest; R4d's 0.85 % is 0.83, 0.01 and 0.01. Per pixel StarXTerminator takes
+    0.52 sigma in the zone and 0.41 in the rest, R4d 0.10 and 0.03, R4c 0.12 and 0.06, R3v 0.07 and 0.01. So the
+    judge takes about 0.4 sigma a pixel everywhere between the catalogued stars, and our guard of "purity at most
+    1.0 %" forbids exactly that: the judge reads 3.1.
+  - **The diagnostic** (`judge_broad.py`, not a product step): R4d's plate through the product's chain less the
+    median over 15 px of (that plate less StarXTerminator's). A compact difference, a star one of the two left,
+    stays as ours; the smooth difference goes. On the Tarantula the part removed is 0.94 / 0.78 / 0.48 sigma a pixel
+    at the median (R / G / B; 0.2 to 2.7 at the 10th and 90th percentile), on Sagittarius 0.13, on Andromeda 0.01.
+    The same with a 31 px median removes the same 0.94 in red. Scored as any plate:
+
+    | row | R4d through the chain | with the judge's light at 15 px and over | at 31 px and over | StarXTerminator |
+    |---|---|---|---|---|
+    | Tarantula crowded flat | 91.3 | 95.9 | 93.6 | 96.1 |
+    | Gaia BP 17-19 removed | 96.0 | 98.7 | 98.8 | 98.3 |
+    | purity | 0.8 | 3.1 | 3.2 | 3.1 |
+    | Sagittarius crowded flat | 97.0 | 99.0 | 98.0 | 99.6 |
+    | Tarantula dark flat / left | 96.5 / 2.7 | 97.0 / 2.5 | 96.9 / 2.4 | 96.6 / 2.7 |
+    | Andromeda dark flat / dug | 98.5 / 0.7 | 99.6 / 0.4 | 99.1 / 0.6 | 98.6 / 1.4 |
+    | Tarantula glow, green median / p90 | 106.5 / 443.5 | -52.9 / 58.5 | -53.2 / 102.1 | -30.8 / 203.4 |
+    | Andromeda glow, green median / p90 | -8.5 / 342.2 | 245.7 / 531.7 | 207.3 / 447.6 | 242.8 / 574.8 |
+
+    With the judge's light at 15 px and over and our own finer scales, the plate reads the judge's crowded rows
+    within 0.2 to 0.6 of a point. Half of the Tarantula's crowded gap is a level beyond 31 px and half lies
+    between 15 and 31 px. On Andromeda the difference runs the other way: there the judge leaves a glow round
+    bright stars that ours takes, and the diagnostic plate inherits it.
+  - **The same rows with the level set aside** (`gaia_compact.py`: the light taken in a star's 3 px disc less the
+    median of the light taken in its own 16 to 24 px annulus, over the input's disc less its annulus). Removed over
+    half, the Tarantula, as the row reads it and with the level aside: StarXTerminator 98.5 / 98.5 at BP under 13,
+    96.5 / 96.4 at 13-15, 97.0 / 96.4 at 15-17, 98.4 / 96.6 at 17-19; R4d through the chain 98.4 / 98.4, 97.3 /
+    97.3, 98.1 / 97.3 and 96.1 / 90.5. So to BP 17 our model removes a star as fully as the judge or more, and at BP
+    17-19 it removes fewer, 90.5 against 96.6: a gap of six points that the row shows as 2.3, because any level
+    taken counts toward every star.
+  - **Looked at** (`jbroad_look.py`, the 400 px field where the difference is largest, at 1:1): the diagnostic
+    plate is darker than ours by 1.6 sigma there and is still mottled, where StarXTerminator's is smooth with its
+    compact knots sharp. So the plate that scores like the judge does not look like the judge's. What the eye sees
+    is the grain, the faint stars left standing (the six points at BP 17-19 are the catalogued part of them), and
+    no bar reads it.
+  - **How this sits with 2026-11-18's note** ("#2203 step 2" above: StarXTerminator keeps the glow as a smooth
+    surface at about 40 px and up and drops the grain). Both hold. What it drops with the grain is the grain's own
+    light, the faint stars', and the mean of that light is the level measured here; the surface it keeps is what
+    is left. Ours leaves those stars, so it keeps their grain and their mean.
+  - **Far wings are not it** (`bright_star_rings.py`, #2292): round the twelve brightest stars of each scoring
+    master the judge takes 1 to 4 sigma at 8 to 22 px and nothing a ring median sees beyond 22 px, and our models
+    since R4c match it there. No scoring master holds a star like HIP 80609.
+  - **What follows.** (1) The crowded flat, BP 17-19, purity and the Tarantula's glow are not separate gaps: they
+    are one, the light of stars under about BP 17, and a remover is at the judge's figures only if it takes that
+    light. (2) Our rules say not to take all of it: the owner's decision of 2026-10-23 (unresolved glow belongs in
+    the starless image), the faint stars' cap, and the purity guard. The uncapped arm (R4d) drew at most 0.23 sigma
+    a pixel of such stars on a validation tile; the judge takes 0.5 to 0.9 on the Tarantula. (3) So either the rule stays, and then
+    these rows cannot be reached by design and star removal is read with the level set aside and the grain under a
+    bar of its own; or the rule changes, and then an arm draws the carpet's stars to the faint end without the cap
+    and the purity guard moves to the judge's 3.1. That is the owner's decision. No arm is registered on it.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
