@@ -61,13 +61,16 @@ for c in range(C):
         else:
             plain = uniform_filter((ok & (np.abs(p - med) < 3 * sig)).astype(np.float32), 9) > 0.999
             ys, xs = np.nonzero(plain)
+            if ys.size == 0:
+                sys.exit(f"FAILED: channel {c} of {SRC} has no plain 9 px box of sky to plant its black point in; nothing was written")
             i = int(np.argmin((ys - H // 2) ** 2 + (xs - W // 4 - 2 * c) ** 2))
             y, x = int(ys[i]), int(xs[i])
         p[y, x] = want; touched += 1; spots.append((x, y))
     else:
         low = ok & (p < want)
         touched += int(low.sum()); p[low] = want
-print("depth in sky noise sigma" + (" (central crop)" if CENTRE else "") + ": " + " / ".join(f"{v:.1f}" for v in before)
+# One reading is named, the one that was taken: "sky noise" is the quiet blocks' figure, and the central crop's is not it.
+print(("depth in the central crop's noise sigma" if CENTRE else "depth in sky noise sigma") + ": " + " / ".join(f"{v:.1f}" for v in before)
       + f"  ->  {K:g} each   ({touched} samples touched of {d.size}" + (f"; planted at {spots}" if spots else "") + ")")
 fits.PrimaryHDU(d, hdr).writeto(OUT, overwrite=True)
 print(OUT)
