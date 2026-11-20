@@ -24,6 +24,22 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
 
     private FakeExternal MakeExternal() => new(output, _folders.Create("tianwen-clear-sky-"));
 
+    /// <summary>
+    /// #1989: a live session loads these references and the expected-sky models from its external's app data
+    /// (<c>Session.Imaging</c>), and every session test builds that external with no root of its own
+    /// (<c>SessionTestHelper</c>). It has to fall under the test run's own temp: read off the machine's real
+    /// <c>Viewer/clear-sky.json</c>, a session test's cloud verdict would depend on the nights somebody looked at there.
+    /// </summary>
+    [Fact]
+    public void ATestsExternalKeepsTheReferencesUnderTheTestRunsOwnTemp()
+    {
+        var external = new FakeExternal(output);
+        var temp = System.IO.Path.GetFullPath(TestRunTemp.Root) + System.IO.Path.DirectorySeparatorChar;
+
+        System.IO.Path.GetFullPath(LightGradeReferenceStore.PathFor(external)).ShouldStartWith(temp, Case.Insensitive);
+        System.IO.Path.GetFullPath(ExpectedSkyStore.PathFor(external)).ShouldStartWith(temp, Case.Insensitive);
+    }
+
     private static LightGrade Frame(string target, float sky, float patchiness, DateOnly night, int minute)
         => new(new LightGradeKey(4, 4, SensorType.Monochrome, "", target, 30_000, 1), new FrameMetrics(2f, 2.2f, 0.1f, 1000), 10f,
             Patchiness: patchiness, SkyLevel: sky, Night: night, Taken: new DateTimeOffset(night.Year, night.Month, night.Day, 12, 0, 0, TimeSpan.Zero).AddMinutes(minute));

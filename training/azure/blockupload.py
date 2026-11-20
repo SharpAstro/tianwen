@@ -16,6 +16,10 @@ block was opened on used to be the common failure: 4 to 19 % of the attempts to 
 try that fails while connecting has sent nothing and is not charged to the cap. The four calls outside the blocks (head,
 block list, commit, head) still take a connection each, so each of them is tried up to five times.
 
+A worker's connection sits idle while the worker waits for the cap (about 20 s at 10 Mb/s with 4 workers and 8 MiB blocks,
+ten times that at 1 Mb/s). One that the far end or a NAT drops in that wait still has its socket, so it is found only by
+the send, after the charge: that try is charged and costs one pause. How often that happens was not measured (#2316).
+
 For a direct line only: the block connections go straight to the blob's host, while those four calls go through urllib,
 which honours a proxy from the environment. Behind a proxy the four would pass and every block would fail.
 """
