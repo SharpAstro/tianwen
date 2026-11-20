@@ -16,7 +16,8 @@ For every <stem>_plate.fits of <plates in> (worker k of n takes every n-th; with
   out   = the plate where w (1 - keep) is 0, base plus pixel noise where it is 1.
 
 A plate with under eight crowded blocks is copied as it is. Absent pixels stay as they are: a channel's NaN, and a canvas
-ring stored as zeros (exact zero in every channel, connected to the frame's border, as Image.AbsentPixels reads it). A
+ring stored as zeros (exact zero in every channel, connected to the frame's border through such zeros; the product's
+Image.AbsentPixels also floods through NaN, which no stored plate's ring needs). A
 master that is not on the unit scale stores its ring as zeros, and the first run (2026-11-18) kept only NaN absent: on
 such a plate the rule wrote base plus noise into the ring beside crowded sky, the exporter then read the ring as sky and
 refused three sessions' plates as not linear (R4f's export, 2026-11-20). A plate without such a ring comes out as the
@@ -32,8 +33,10 @@ T = 2.0
 
 def zero_ring(plate):
     """The part of a plate's canvas ring [C, H, W] that is stored as zeros: exact zero in every channel, connected to the
-    frame's border (Image.AbsentPixels' rule for zeros). An island of zeros inside the frame is a measurement. A NaN is
-    left to each channel's own test, as the first run had it, so a plate without such zeros comes out byte for byte."""
+    frame's border through such zeros (four-way, as the product's flood is). An island of zeros inside the frame is a
+    measurement. Narrower than Image.AbsentPixels, which also floods through NaN: zeros that reach the border only
+    through NaN are not in it. A NaN is left to each channel's own test, as the first run had it, so a plate without such
+    zeros comes out byte for byte."""
     zeros = (plate == 0).all(axis=0)
     if not zeros.any():
         return zeros
