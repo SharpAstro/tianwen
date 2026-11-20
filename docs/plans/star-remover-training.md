@@ -7614,7 +7614,8 @@ the first angle is a step after the model and not another arm:
       2022-01-04 all eight are taken far out (50 to 117 percent at 60 to 80 px). The two masters are the same
       remote telescope and camera on two nights running. The earlier has the brighter sky (356 / 437 / 267
       against 252 / 298 / 216 in the files' units, R / G / B) and the larger noise (4.4 / 5.4 / 3.8 against
-      3.4 / 4.4 / 3.5); which difference the model answers to is not measured.
+      3.4 / 4.4 / 3.5). What the model answers to was measured later that night: neither, but the stretch
+      ("The stretch is the switch" below).
     - **On 2022-01-04 our model takes more than StarXTerminator** round Merope from 60 px out and round Maia
       from 80 px out (up to 212 and 153 percent): there it takes the nebula.
     - **On the rest** (sigma Scorpii twice, Alnitak, iota Orionis, lambda Centauri) it takes 85 to 97 percent of
@@ -7635,6 +7636,47 @@ the first angle is a step after the model and not another arm:
     that master, and the catalogue check kept one of the 35 compact peaks inside it removed. On the seven other
     masters the chain protects nothing but M42's own core. The owner's bar has "no stars put back in cores" as
     its third line.
+  - **The stretch is the switch, and three pixels set it (2026-11-20, late; no training; #2309).** The remover
+    feeds its models one whole-frame stretch a channel (`ChunkedNafnetRunner.ApplyInputStretch`): the channel's
+    minimum is subtracted, then a midtones balance puts the median above that minimum at 0.25. The minimum is
+    one pixel. `stretch_swap.py` writes a master with another master's stretch numbers and nothing else changed,
+    by planting a pixel or raising the few under the new minimum; `stretch_soften.py` scales a master's own.
+    R4d as trained on each, the share of StarXTerminator's take at 8-22 / 22-40 / 40-60 / 60-80 px
+    (`stretch_swap_table.py`):
+
+    | Alcyone | share taken | left at 40-60 px, R / G / B |
+    |---|---|---|
+    | 2022-01-05 as it is (master 174 / 262 / 298) | 17 / 7 / 5 / 7 | 165 / 233 / 260 |
+    | with the other night's maximum and minimums (6 samples touched) | 80 / 71 / 64 / 65 | 67 / 169 / 82 |
+    | with only the other night's maximum (3 samples) | 17 / 7 / 5 / 7 | 166 / 233 / 261 |
+    | with only the other night's minimums (3 samples) | 80 / 71 / 64 / 65 | 67 / 169 / 82 |
+    | every channel's minimum three times deeper (3 samples) | 89 / 68 / 34 / 16 | 116 / 167 / 183 |
+    | 2022-01-04 as it is (master 106 / 163 / 197) | 82 / 69 / 59 / 61 | 45 / 112 / 65 |
+    | 2022-01-04 with the other night's numbers (354 samples) | 17 / 8 / 5 / 3 | 101 / 147 / 178 |
+
+    - **All eight Pleiads of a frame move together**, each way: with the other night's minimums the stars of
+      2022-01-05 are taken far out and green (Maia 97 / 83 / 82 / 100, Merope's nebula with her), and those of
+      2022-01-04 stand with their colour. Looked at (512 px at 1:1): Merope's nebula turns green on the night it
+      was blue and keeps its blue on the night it was green.
+    - **The strength decides how much of the star goes.** With every channel softened alike, Alcyone gives up 89
+      percent of her innermost ring and Maia 97, with no cast and the nebula kept, and the share falls with
+      distance as on Alnitak. Antares on HIP 80609's master, softened the same way, gives up 81 percent of the
+      innermost ring where it gave 47, and nothing beyond 40 px: the core goes, the disc and the spikes stay.
+    - **The cast and the nebula taken follow the channels' balance, not the strength.** The two nights' minimums
+      differ by a factor of 1.7 in red and in green and by almost nothing in blue (median above minimum 168 /
+      400 / 174 against 98 / 233 / 183 in the files' units). With 2022-01-04's balance the model takes red and
+      blue far out and leaves green. With all three softened alike by a factor of three, a softer stretch than
+      either night's, there is no cast and the nebula stays.
+    - **It is not the whole of #2292.** A stretch three times harder does not make Alnitak stand (97 / 85 / 64 /
+      40 becomes 96 / 83 / 62 / 63), and no softening reaches Antares' disc. The far wing is still a matter of
+      what the model was shown. The frame's maximum, its unit divisor, does not matter here.
+    - **Refuted on the way** (`stretched_levels.py`): a ring's level in the stretched input does not say whether
+      it is taken. Across the twenty-four stars rings at one level are taken 5 percent and 84 percent.
+    - **The store** (`stretch_depths.py`, the 123 colour masters): the darkest pixel sits 8 to 228 noise sigma
+      under its channel's sky (median 34, 10th to 90th percentile 19 to 94), and within a master the deepest
+      channel is 1.5 times the shallowest at the median and twice or more on 22. The export stretches each
+      session with its master's numbers, so every session trained at the strength and balance its darkest
+      pixels happened to give it.
   - **Looked at** (the sheets, 512 px at 1:1: master / StarXTerminator / R4d as trained / R4d through the chain,
     all twenty-four). StarXTerminator leaves a smooth field on every one, and Merope's and Maia's nebulae with
     their streaks intact. Ours leaves:
@@ -7651,9 +7693,13 @@ the first angle is a step after the model and not another arm:
     (`InjectionPopulation.PlateHaloReachPx`) and it draws no spikes, and the ring table shows the take fading
     between 22 and 100 px on most stars; a lens's disc with many spikes is a shape no drawn star has, which would
     explain why Antares is barely touched. It does not explain the Pleiades: the same eight stars through the
-    same telescope are left on one night and taken, nebula and all, on the night before, so something about a
-    master (its sky, its noise, or how its saturated cores read) switches the model between the two. That is
-    the first thing to measure, before anything is drawn. The truth plates keep spikes by design
+    same telescope are left on one night and taken, nebula and all, on the night before. That was measured the
+    same night and is the stretch's black point, one pixel a channel ("The stretch is the switch" above, #2309):
+    a product defect of its own, and it means every drawn star so far was drawn into a domain whose strength
+    and colour balance vary by chance. A black point that does not hang on one pixel and is the same for the
+    three channels in noise terms (the median less a fixed number of noise sigma is the candidate), in the
+    export and at inference, would make that domain one; it needs a retrain, it would come before any far wing
+    is drawn, and it is not registered. The truth plates keep spikes by design
     (`ClassicalStarRemover`, "spikes are left whole") and cut the halo flat near 120 px, a further candidate
     cause. A halo injected past 45 px, and a star drawn with an iris's spikes, each read the same way, would
     separate those; neither has been run. (2) Such stars are rare: 8 of the 151 masters hold one, thirteen
