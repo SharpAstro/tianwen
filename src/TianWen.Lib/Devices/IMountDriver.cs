@@ -793,6 +793,19 @@ public interface IMountDriver : IDeviceDriver
     ValueTask<CameraSnapSettings?> GetCameraSnapSettingsAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult<CameraSnapSettings?>(null);
 
+    private bool OffersSpeed(TrackingSpeed speed)
+    {
+        foreach (var offered in TrackingSpeeds)
+        {
+            if (offered == speed)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public async ValueTask<bool> EnsureTrackingAsync(TrackingSpeed speed = TrackingSpeed.Sidereal, CancellationToken cancellationToken = default)
     {
         if (speed is TrackingSpeed.None)
@@ -809,6 +822,13 @@ public interface IMountDriver : IDeviceDriver
         {
             await SetTrackingSpeedAsync(speed, cancellationToken);
             await SetTrackingAsync(true, cancellationToken);
+        }
+        else if (!CanSetTracking && (await GetTrackingSpeedAsync(cancellationToken)) != speed && OffersSpeed(speed))
+        {
+            // A mount whose tracking cannot be switched may still take a rate: the SkyGuider Pro tracks whenever it is
+            // powered, at the rate it is set to. Left as it was found, a run on one set to lunar or half-sidereal imaged
+            // at that rate, since everything that sets a speed asked CanSetTracking first (#1483).
+            await SetTrackingSpeedAsync(speed, cancellationToken);
         }
 
         return await IsTrackingAsync(cancellationToken);
