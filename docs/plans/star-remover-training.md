@@ -7338,17 +7338,20 @@ the first angle is a step after the model and not another arm:
       (held-out 1.934e-5 at step 74,500 and 1.101e-5 at 75,500 against 6.8e-6 around them, back to 7.0e-6 by
       77,000; 1.192e-5 at step 85,000, back to 6.8e-6 by 88,000), and both recovered within a few evaluations. It
       set a new best (5.971e-6 at 148,500) 47,500 steps after the halving; a long first-rate stretch (71,000 steps
-      against 27,000 to 52,000 for the others) lifts the ratio. What separates R4f is a spike with no recovery
-      (4.88e-5 at step 73,000, see above). So a ratio of 0.75 to 0.85 is read against the curve (a spike with no
-      recovery, a new best after the halving) before it is called stalled; a spike that recovers within a few
-      evaluations is not a stall. A ratio of 0.75 to 0.85 that shows a spike with no recovery and no new best
-      after the halving is called stalled; one that shows neither, or only one of the two, is called neither,
-      and the rows are reported with that said. No threshold changes. **These sentences, from "The figure is read
-      against the curve", were added after the launch**, on the review of this registration (PR #2335), which
-      found that the figure as launched would have called R3x stalled: I had set the thresholds on R4c, R4d, R4e
-      and R4f and left R3x out. When they were added the run's log held 14 evaluations, to step 7,000, all at the
-      first learning rate, so nothing the figure reads (the first halving and the 60,000 steps after it) existed
-      yet. The addition is the owner's to refuse; refused, the rule is the one sentence as launched.
+      against 27,000 to 52,000 for the others) lifts the ratio. The spikes do not separate R4f from R3x: R4f's
+      window was back inside its level before the spike six evaluations after it (1.13e-5 at step 76,000, against
+      1.08e-5 to 1.16e-5 over steps 69,500 to 72,000), as R3x's was after five. What separates them is the new
+      best: R3x, R4d, R4e and R4c each set a new best window after their first halving, and R4f set none to its
+      stop. **So a ratio of 0.75 to 0.85 is called stalled only when the run sets no new best window after its
+      first halving; any other ratio in that band is called neither, and the rows are reported with that said.**
+      Spikes are described and decide nothing. Over 0.85 is stalled and 0.60 or under is trained, as launched; no
+      threshold changes. **These sentences, from "The figure is read against the curve", were added after the
+      launch**, on the review of this registration (PR #2335), which found that the figure as launched would
+      have called R3x stalled: I had set the thresholds on R4c, R4d, R4e and R4f and left R3x out. A first
+      wording of them (a spike with no recovery) was withdrawn in the same review, since by it R4f had recovered
+      too. When they were last changed the run's log reached step 13,500, all at the first learning rate, so
+      nothing the figure reads (the first halving and the steps after it) existed yet. The addition is the
+      owner's to refuse; refused, the rule is the one sentence as launched.
     - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
       guards, its kill rule and its two added rows stand as its registration and its read list them (the
       Tarantula's crowded flat through the product's chain 93.3 or over and killed under R4d's 91.3; BP 17-19
