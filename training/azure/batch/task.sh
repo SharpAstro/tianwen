@@ -83,12 +83,22 @@ done
 wait "$PID"; CODE=$?
 say "the trainer exited $CODE"
 sync_all "ended $CODE"
+# Upload one of the run's outputs and read its size back from the container.
+put_checked() {
+    local file size
+    file=$(basename "$1")
+    put "$1"
+    size=$(stat -c %s "$1")
+    azcopy list "$RUNBASE/$file?$SAS" --machine-readable 2>/dev/null | grep -q "Content Length: $size" \
+        || { say "$file is not in the container at $size bytes"; return 1; }
+    say "$file is in the container at $size bytes"
+}
 if [ "$CODE" -eq 0 ] && [ -f "$CACHE/$NAME.pt" ]; then
-    put "$CACHE/$NAME.pt"
-    SIZE=$(stat -c %s "$CACHE/$NAME.pt")
-    azcopy list "$RUNBASE/$NAME.pt?$SAS" --machine-readable 2>/dev/null | grep -q "Content Length: $SIZE" \
-        || { say "$NAME.pt is not in the container at $SIZE bytes"; exit 1; }
-    say "$NAME.pt is in the container at $SIZE bytes"
+    # The best step's weights (--save-best in TRAIN_FLAGS) go up FIRST. $NAME.pt in the container is what says the
+    # run is done (the check at the top), so a node lost between the two uploads must not leave a finished run
+    # without them: it trains to the end again from the resume checkpoint, which carries them.
+    if [ -f "$CACHE/$NAME.best.pt" ]; then put_checked "$CACHE/$NAME.best.pt" || exit 1; fi
+    put_checked "$CACHE/$NAME.pt" || exit 1
     exit 0
 fi
 say "no weights: the trainer left no $NAME.pt"

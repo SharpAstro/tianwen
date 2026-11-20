@@ -76,6 +76,10 @@ pwsh -File training/azure/fetch-batch.ps1 -Tag r3xaz -Name r3x_synth16_s0 -Fetch
 - **A preempted node is Batch's to replace**: it starts the task again on a new node, and `batch/task.sh` resumes from
   the checkpoint it synced to the container (the log, the resume checkpoint and a heartbeat go up every 10 minutes; the
   weights at the end, listed back at their size before the task exits 0).
+- **The best step's weights come home too when the arm asks for them**: `--save-best` in `-TrainFlags` makes the trainer
+  write `<name>.best.pt` beside `<name>.pt` (the weights at the held-out objective's best step; `<name>.pt` stays the
+  last step's, as every arm before was scored). They travel in the resume checkpoint, the task uploads them before
+  `<name>.pt`, and `fetch-batch.ps1` fetches both.
 - **What stays, and costs cents or nothing:** the Batch account (`batchAccount` in the settings file), the storage
   account and the job's record. The settings name the Batch account; a low-priority node has no price cap, it bills at
   Batch's low-priority rate.
