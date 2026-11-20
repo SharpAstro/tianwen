@@ -7203,7 +7203,9 @@ the first angle is a step after the model and not another arm:
     (`arms/r2-val.txt`). Widened the same evening, still before any score, to the fourteen stars of "A star that
     stands far out is left standing" below, pinned in `training/star-removal/bright_star_list.tsv` (name, master,
     x, y); thirteen of them are on masters no gradient step saw (two of those on the validation session's), so on
-    those the row is held-out evidence.
+    those the row is held-out evidence. Widened once more that night, still before any score, to the twenty-four
+    stars the census without a cap found (twenty-two of them on masters no gradient step saw); HIP 80609's star
+    is Antares.
   - **Looked at before the rows are quoted:** the Lagoon's core, 30 Doradus's core, the Tarantula's knots, a
     crowded Tarantula field, M31's nucleus and a bright star on dark sky, as trained and through the product's
     chain, beside R4d and StarXTerminator. The crowded field is where a pass should show (StarXTerminator's is
@@ -7309,7 +7311,8 @@ the first angle is a step after the model and not another arm:
     through the chain 90.7 at BP 17-19) and the bright stars of #2292 (first HIP 80609 alone, on the trainer's
     validation session's master; widened the same evening, still before any score, to the fourteen stars of "A
     star that stands far out is left standing" below, pinned in `training/star-removal/bright_star_list.tsv`,
-    thirteen of them on masters no gradient step saw).
+    thirteen of them on masters no gradient step saw; and once more that night, still before any score, to the
+    twenty-four the census without a cap found, twenty-two of them on such masters).
   - **Looked at before the rows are quoted:** the Lagoon's core with the picture of what was taken
     (`r4_taken.py`), 30 Doradus's core, the Tarantula's knots, M42's core on a validation tile, M31's nucleus and
     a bright star on dark sky, as trained and through the product's chain, beside R4d and StarXTerminator.
@@ -7425,7 +7428,8 @@ the first angle is a step after the model and not another arm:
     is left. Ours leaves those stars, so it keeps their grain and their mean.
   - **Far wings are not it** (`bright_star_rings.py`, #2292): round the twelve brightest stars of each scoring
     master the judge takes 1 to 4 sigma at 8 to 22 px and nothing a ring median sees beyond 22 px, and our models
-    since R4c match it there. No scoring master holds a star like HIP 80609; the store's other masters do, and
+    since R4c match it there. No scoring master holds a star like the one on HIP 80609's master (Antares, by
+    that master's WCS); the store's other masters do, and
     "A star that stands far out is left standing" below reads them.
   - **Corrected the same evening: the crowded flat reads the lumps, not the level** (two more plates, no
     training). The reading above took the 15 and 31 px plates' gain on the crowded flat for the judge's level. The
@@ -7484,118 +7488,194 @@ the first angle is a step after the model and not another arm:
     step could do it classically is open: the rule as it is leaves islands and flattens faint nebulosity. No arm
     and no step is registered on it.
 - **A star that stands far out is left standing, on every such star in the store (2026-11-20, no training;
-  #2292).** HIP 80609 was one example. Two things were measured: how many masters hold a star like it, and what
-  our model and StarXTerminator do with each.
-  - **The census** (`bright_census.py`): 150 sessions' masters, the twelve brightest compact peaks of each, 1,699
-    in all, each with its ring medians less its own sky out to 300 px. Seventy-five stand 5 pixel sigma or more
-    over the sky at 100 to 140 px. Looked at, all seventy-five (`bright_census_look.py`): most are nebula cores
-    (M42, the Lagoon, eta Carinae, 30 Doradus), two are globular clusters, two are galaxies, some are bright stars
-    inside reflection nebulosity. A ring's spread over eight sectors does not tell them apart (a spike spreads a
-    star's ring as a nebula does), so the sorting was by eye. **Isolated stars with a far halo: fourteen, in seven
-    sessions.** The first run took four peaks a master (599 peaks, sixty over the bar, ten such stars), and the
-    review of #2306 pointed out that this cap bound wherever a master's fourth peak was itself over the bar. With
-    twelve no master's last peak is over it, and the four stars the larger count added are all on the two
-    Pleiades masters, the cluster's brightest star among them. Of the seven sessions: HIP 80609's (two stars) is the trainer's VALIDATION session
-    (`arms/r2-val.txt`; the `meta.json` of both `r2-synth29` and `r2-synth31` list its three views under
-    `val_sessions` and none under `train_sessions`), so no gradient step saw it; the Ophiuchus cloud's of 2024-05-28
-    (one) is the only one of the seven in `arms/r2-train.txt`; Antares' field of 2023-05-15 (two), the Pleiades of
-    2022-01-04 and 2022-01-05 (seven), the Horsehead's field of 2025-10-28 (Alnitak) and the field south of M42 of
-    2025-10-15 (one) are in neither list. All fourteen are pinned in `training/star-removal/bright_star_list.tsv` (master
-    file, x, y). The census sigma is the mean of the channels over a central 512 px crop and the table's is each
-    channel's own 300 to 400 px annulus, so a census cut of 5 and a table figure are not one unit (south of M42
-    reads 4.7 in the table and sits under the census cut).
+  #2292).** The star that started this was called HIP 80609 after its session; by its master's WCS it is Antares.
+  Two things were measured: how many masters hold a star like it, and what our model and StarXTerminator do with
+  each.
+  - **The census** (`bright_census.py`): the store's 151 session masters that are not a flipped half, all 151
+    searched. A candidate is every source that stands 100 pixel sigma over its frame's median and is the largest
+    within 60 px, with no rank and no cap: 28,380 of them. The 1,185 whose ring at 100 to 140 px stands 3 sigma
+    over their ring at 300 to 400 px were measured in rings out to 300 px, and 711 of those, in 76 masters, stand
+    5 sigma or more at 100 to 140 px, the bar. A star's light falls with distance and a nebula's does not, so the
+    rows over the bar are split by their profile: 127 FALLING (the 8 to 22 px ring at least four times the 100 to
+    140 px ring) in 49 masters, and 584 FLAT.
+  - **Looked at: all 127 falling rows, and the 133 flat rows nearest the cut** (a fall of 2 to 4;
+    `bright_census_look.py`). Of the falling rows twenty-four are stars with a far halo of their own. Eighty-four
+    are nebula: the cores of M42, the Lagoon, eta Carinae, 30 Doradus and the Trifid, and stars inside bright
+    nebula, such as the Running Man's, whose far ring is the nebula's. Ten are fainter stars standing in a
+    brighter Pleiad's halo. Two are one star on the Pleiades' nebulosity south of Merope, on both nights, whose
+    far ring the eye cannot tell from the nebula. Four are steps at a frame's edge, and one each is a globular
+    cluster, a galaxy and a planetary nebula. The flat rows looked at hold no star on dark sky: nebula, clusters,
+    frame edges and faint stars inside a bright star's halo. The twenty-four read a fall of 14 to 468, so the cut
+    at four has room.
+  - **Twenty-four stars in eight sessions, and thirteen different stars** (named off each master's own WCS,
+    `bright_star_names.py`: every one lies within half an arc minute of its catalogue position). Antares on three
+    sessions and sigma Scorpii on two of them; eight Pleiads on each of two nights (Alcyone, Atlas, Electra, Maia,
+    Merope, Taygeta, Asterope and 22 Tauri); Alnitak; iota Orionis; lambda Centauri. All twenty-four are pinned
+    in `training/star-removal/bright_star_list.tsv` (name and night, master file, x, y).
+  - **The names this section used before were wrong, and the count was a floor twice.** The stars had been named
+    after their sessions and by rank. "HIP 80609" is Antares (HIP 80609 is that session's target, and the star
+    with the halo in its frame is Antares); "Ophiuchus" and "Antares' field, the brighter" are the same star on
+    two other sessions; "the fainter" of two of those sessions is sigma Scorpii; "south of M42" is iota Orionis;
+    and "the Pleiades' brightest star, in the Merope nebula" is Maia, in the nebula round Maia. The first run took
+    the four brightest peaks of a master and found ten such stars, the second took twelve and found fourteen,
+    and the review of #2306 showed both times that a cap by brightness binds: peak brightness is flat among
+    saturated stars, so the rank says nothing about a halo. The ten stars added now were behind that cap or
+    nearer an edge than 420 px, which the first two versions did not read: Alcyone (the cluster's brightest),
+    Atlas, Merope and 22 Tauri on both nights, Electra on the second, and lambda Centauri.
+  - **What the count does not hold.** The fainter of two sources within 60 px of each other. A source within 60 px
+    of a frame's edge (2,162 of the 28,380, 7.6 %). A star on nebula so bright that its own profile reads flat:
+    it is among the flat rows, and its far ring is the nebula's. And stars under the bar: Pleione reads 3.1 and
+    4.3 sigma at 100 to 140 px on the two nights, and Celaeno does not pass the 3 sigma screen on either.
+  - **Where the eight sessions sit in R2** (the `meta.json` of both `r2-synth29` and `r2-synth31`). Two train: the
+    Ophiuchus cloud's of 2024-05-28 (Antares) and the Running Chicken's of 2026-02-20 (lambda Centauri). HIP
+    80609's of 2026-04-21 (Antares, sigma Scorpii) is the trainer's VALIDATION session (its three views are under
+    `val_sessions` and none under `train_sessions`), so no gradient step saw it. Antares' of 2023-05-15, the
+    Pleiades' of 2022-01-04 and 2022-01-05, the Horsehead's of 2025-10-28 (Alnitak) and M42's of 2025-10-15 (iota
+    Orionis) are in neither list. So twenty-two of the twenty-four are on masters no gradient step saw.
+  - The census sigma is the mean of the channels over a central 512 px crop and the table's is each channel's own
+    300 to 400 px annulus, so a census cut of 5 and a table figure are not one unit (iota Orionis reads 4.7 in
+    the table and 6.3 in the census).
   - **What each remover leaves** (`bright_star_sheet.py`: ring medians less the frame's sky, in the master's pixel
-    sigma, red, at 8-22 / 40-60 / 100-120 px). R4d through the product's chain reads as R4d as trained to within
-    about a sigma on every ring. The table has all fourteen stars of `bright_star_list.tsv`; six were read after
-    the review of #2306 (two it asked about, which had simply not been run, and the four the larger census
-    found). HIP 80609's two are read on its `flip=b` half, the brighter at its peak there (x 1363, y 2245), and
-    the rest on the session's unflipped master.
+    sigma, red, at 8-22 / 40-60 / 100-120 px). The R4d column is R4d as trained. Through the product's chain it
+    reads the same to within 1.2 sigma from 8 px out on twenty-three of the twenty-four; on the twenty-fourth
+    the chain puts the star back (below). Antares and sigma Scorpii of 2026-04-21 are read on that session's
+    `flip=b` half, Antares at its peak there (x 1363, y 2245), and the rest on the session's unflipped master.
 
-    | star | master | R4d | StarXTerminator | its session in R2 |
+    | star and night | master | R4d | StarXTerminator | its session in R2 |
     |---|---|---|---|---|
-    | HIP 80609 | 452 / 46.7 / 18.7 | 243 / 46.8 / 18.8 | 4.8 / 5.8 / 5.2 | validation |
-    | HIP 80609, the fainter | 35.4 / 6.7 / 4.0 | 7.9 / 6.2 / 3.8 | 2.9 / 3.3 / 3.2 | validation |
-    | Ophiuchus | 442 / 26.0 / 4.9 | 98.7 / 25.6 / 5.0 | 0.7 / 0.4 / 0.8 | train |
-    | Antares' field, the brighter | 590 / 36.8 / 7.0 | 98.5 / 35.1 / 6.7 | 2.9 / 3.2 / 3.5 | neither |
-    | Antares' field, the fainter | 64.3 / 11.0 / 6.8 | 12.4 / 9.9 / 6.3 | 7.0 / 7.5 / 6.0 | neither |
-    | Pleiades 2022-01-05, the first | 1695 / 42.7 / 6.1 | 103 / 29.4 / 6.3 | 2.9 / 3.3 / 3.5 | neither |
-    | Pleiades 2022-01-05, the second | 720 / 22.8 / 6.2 | 33.6 / 17.1 / 6.3 | 3.6 / 3.9 / 3.4 | neither |
-    | Pleiades 2022-01-04 | 1353 / 29.7 / 3.9 | 28.5 / 9.0 / 3.1 | 1.3 / 1.6 / 1.9 | neither |
-    | Pleiades 2022-01-05, the brightest | 4649 / 120 / 33.2 | 2092 / 114 / 32.0 | 35.6 / 30.9 / 22.0 | neither |
-    | Pleiades 2022-01-04, the brightest | 3134 / 77.8 / 21.3 | 113 / 32.5 / 9.1 | 31.0 / 20.1 / 13.3 | neither |
-    | Pleiades 2022-01-04, at x 3123 | 2056 / 66.1 / 11.8 | 114 / 22.9 / 6.8 | 5.0 / 4.8 / 4.2 | neither |
-    | Pleiades 2022-01-04, at x 4468 | 524 / 14.4 / 3.6 | 12.7 / 7.3 / 3.2 | 2.7 / 2.5 / 2.2 | neither |
-    | Alnitak | 529 / 30.0 / 5.3 | 17.1 / 11.6 / 5.3 | 0.9 / 1.3 / 2.9 | neither |
-    | south of M42 | 194 / 11.1 / 4.7 | 12.4 / 7.5 / 4.5 | 3.1 / 3.2 / 3.2 | neither |
+    | Antares 2026-04-21 | 451 / 46.7 / 18.7 | 243 / 46.8 / 18.8 | 4.8 / 5.8 / 5.2 | validation |
+    | sigma Sco 2026-04-21 | 35.4 / 6.7 / 4.0 | 7.9 / 6.2 / 3.8 | 2.9 / 3.3 / 3.2 | validation |
+    | Antares 2024-05-28 | 442 / 26.0 / 4.9 | 98.7 / 25.6 / 5.0 | 0.7 / 0.4 / 0.8 | train |
+    | Antares 2023-05-15 | 590 / 36.8 / 7.0 | 98.5 / 35.1 / 6.7 | 2.9 / 3.2 / 3.5 | neither |
+    | sigma Sco 2023-05-15 | 64.3 / 11.0 / 6.8 | 12.4 / 9.9 / 6.3 | 7.0 / 7.5 / 6.0 | neither |
+    | Taygeta 2022-01-05 | 1695 / 42.7 / 6.1 | 103 / 29.4 / 6.3 | 2.9 / 3.3 / 3.5 | neither |
+    | Asterope 2022-01-05 | 720 / 22.8 / 6.2 | 33.6 / 17.1 / 6.3 | 3.6 / 3.9 / 3.4 | neither |
+    | 22 Tau 2022-01-05 | 408 / 13.8 / 5.3 | 17.1 / 10.1 / 4.8 | 2.4 / 2.7 / 2.6 | neither |
+    | Maia 2022-01-05 | 4649 / 120 / 33.2 | 2092 / 114 / 32.0 | 35.6 / 30.9 / 22.0 | neither |
+    | Merope 2022-01-05 | 1713 / 85.6 / 26.9 | 459 / 78.7 / 27.4 | 25.5 / 20.4 / 20.2 | neither |
+    | Alcyone 2022-01-05 | 4033 / 174 / 26.5 | 3335 / 165 / 25.6 | 6.7 / 5.6 / 5.7 | neither |
+    | Electra 2022-01-05 | 3302 / 106 / 18.8 | 810 / 94.8 / 18.9 | 5.1 / 5.4 / 6.7 | neither |
+    | Atlas 2022-01-05 | 2693 / 87.8 / 10.9 | 582 / 65.7 / 10.3 | 2.3 / 1.8 / 1.5 | neither |
+    | Taygeta 2022-01-04 | 1353 / 29.7 / 3.9 | 28.5 / 9.0 / 3.1 | 1.3 / 1.6 / 1.9 | neither |
+    | Asterope 2022-01-04 | 524 / 14.4 / 3.6 | 12.7 / 7.3 / 3.2 | 2.7 / 2.5 / 2.2 | neither |
+    | 22 Tau 2022-01-04 | 272 / 8.2 / 3.2 | 5.5 / 3.4 / 2.4 | 1.5 / 1.8 / 1.8 | neither |
+    | Maia 2022-01-04 | 3134 / 77.8 / 21.3 | 113 / 32.5 / 9.1 | 31.0 / 20.1 / 13.3 | neither |
+    | Merope 2022-01-04 | 1563 / 53.5 / 16.8 | 46.0 / 17.1 / 6.8 | 17.2 / 14.6 / 12.1 | neither |
+    | Alcyone 2022-01-04 | 2830 / 106 / 16.8 | 499 / 45.3 / 9.9 | 3.4 / 3.8 / 4.2 | neither |
+    | Electra 2022-01-04 | 2056 / 66.1 / 11.8 | 114 / 22.9 / 6.8 | 5.0 / 4.8 / 4.2 | neither |
+    | Atlas 2022-01-04 | 2431 / 54.9 / 6.9 | 52.1 / 18.0 / 5.9 | 0.8 / 0.7 / 1.2 | neither |
+    | Alnitak 2025-10-28 | 529 / 30.0 / 5.3 | 17.1 / 11.6 / 5.3 | 0.9 / 1.3 / 2.9 | neither |
+    | iota Ori 2025-10-15 | 194 / 11.1 / 4.7 | 12.4 / 7.5 / 4.5 | 3.1 / 3.2 / 3.2 | neither |
+    | lambda Cen 2026-02-20 | 552 / 20.3 / 6.6 | 24.0 / 12.2 / 6.2 | 4.5 / 4.0 / 5.0 | train |
 
-    Inside 22 px our model leaves 8 to 2,092 sigma. StarXTerminator leaves 1 to 7 there on twelve of the
-    fourteen, and 31 and 36 on the cluster's brightest star, which sits in the Merope nebula: its figures from
+    Inside 22 px our model leaves 5.5 to 3,335 sigma. StarXTerminator leaves 1 to 7 there on twenty of the
+    twenty-four, and 17 to 36 on Maia and Merope on both nights, which sit in their nebulae: its figures from
     22 px out are what the field holds (reflection nebula on the Pleiades and near Antares), and it keeps that
-    nebula. At 100 to 120 px our ring stays within about a sigma of the master's on twelve of the fourteen; the
-    two where our model takes more are on the Pleiades master of 2022-01-04.
+    nebula. At 100 to 120 px our ring stays within 1.3 sigma of the master's on twenty of the twenty-four; the
+    four where our model takes more (5 to 12 sigma) are Maia, Merope, Alcyone and Electra on the master of
+    2022-01-04.
   - **How far out our model takes anything, ring by ring** (the same file's rings: of the light StarXTerminator
     takes in a ring, the share R4d as trained takes; a dash where StarXTerminator takes under a sigma).
 
-    | star | 8-22 px | 22-40 | 40-60 | 60-80 | 80-100 | 100-120 |
+    | star and night | 8-22 px | 22-40 | 40-60 | 60-80 | 80-100 | 100-120 |
     |---|---|---|---|---|---|---|
-    | HIP 80609 | 47 % | 5 | 0 | 0 | 0 | 0 |
-    | Ophiuchus | 78 | 15 | 1 | 0 | 0 | 0 |
-    | Antares' field, the brighter | 84 | 38 | 5 | 0 | 4 | 8 |
-    | HIP 80609, the fainter | 85 | 38 | 13 | 11 | 15 | - |
-    | Antares' field, the fainter | 91 | 59 | 31 | 27 | - | - |
-    | Pleiades 2022-01-05, the first | 94 | 69 | 34 | 9 | 1 | 0 |
-    | Pleiades 2022-01-05, the second | 96 | 68 | 30 | 12 | 0 | 0 |
-    | south of M42 | 95 | 66 | 46 | 29 | 17 | 13 |
-    | Alnitak | 97 | 85 | 64 | 40 | 22 | 2 |
-    | Pleiades 2022-01-04 | 98 | 88 | 74 | 69 | 52 | 38 |
-    | Pleiades 2022-01-04, at x 4468 | 98 | 79 | 59 | 55 | 42 | 27 |
-    | Pleiades 2022-01-04, at x 3123 | 95 | 79 | 70 | 70 | 69 | 65 |
-    | Pleiades 2022-01-05, the brightest | 55 | 24 | 6 | 3 | 6 | 11 |
-    | Pleiades 2022-01-04, the brightest | 97 | 84 | 79 | 96 | 126 | 153 |
+    | Antares 2026-04-21 | 47 % | 5 | 0 | 0 | 0 | 0 |
+    | Antares 2024-05-28 | 78 | 15 | 1 | 0 | 0 | 0 |
+    | Antares 2023-05-15 | 84 | 38 | 5 | 0 | 4 | 8 |
+    | sigma Sco 2026-04-21 | 85 | 38 | 13 | 11 | 15 | - |
+    | sigma Sco 2023-05-15 | 91 | 59 | 31 | 27 | - | - |
+    | Alcyone 2022-01-05 | 17 | 7 | 5 | 7 | 5 | 5 |
+    | Maia 2022-01-05 | 55 | 24 | 6 | 3 | 6 | 11 |
+    | Merope 2022-01-05 | 74 | 41 | 11 | 4 | 0 | 0 |
+    | Electra 2022-01-05 | 76 | 39 | 11 | 1 | 0 | 0 |
+    | Atlas 2022-01-05 | 78 | 53 | 26 | 8 | 7 | 7 |
+    | Taygeta 2022-01-05 | 94 | 69 | 34 | 9 | 1 | 0 |
+    | Asterope 2022-01-05 | 96 | 68 | 30 | 12 | 0 | 0 |
+    | 22 Tau 2022-01-05 | 96 | 67 | 34 | 9 | 0 | 17 |
+    | Alcyone 2022-01-04 | 82 | 69 | 59 | 61 | 60 | 55 |
+    | Maia 2022-01-04 | 97 | 84 | 79 | 96 | 126 | 153 |
+    | Merope 2022-01-04 | 98 | 91 | 94 | 117 | 166 | 212 |
+    | Electra 2022-01-04 | 95 | 79 | 70 | 70 | 69 | 65 |
+    | Atlas 2022-01-04 | 98 | 88 | 68 | 50 | 34 | 18 |
+    | Taygeta 2022-01-04 | 98 | 88 | 74 | 69 | 52 | 38 |
+    | Asterope 2022-01-04 | 98 | 79 | 59 | 55 | 42 | 27 |
+    | 22 Tau 2022-01-04 | 99 | 85 | 76 | 62 | 34 | 56 |
+    | Alnitak 2025-10-28 | 97 | 85 | 64 | 40 | 22 | 2 |
+    | iota Ori 2025-10-15 | 95 | 66 | 46 | 29 | 17 | 13 |
+    | lambda Cen 2026-02-20 | 96 | 82 | 50 | 21 | 11 | 27 |
 
-    Three things show. Four stars are barely touched beyond their innermost ring: HIP 80609, Ophiuchus and the
-    brighter star of Antares' field, all taken through a stopped-down camera lens (a disc with the many spikes of
-    an iris), and the Pleiades' brightest star on 2022-01-05. On the others our model takes 85 to 98 percent of
-    the innermost ring and a share that falls with distance, to almost nothing by 100 to 120 px on the two
-    other stars of 2022-01-05 and on Alnitak. And the same brightest Pleiad on the night before reads the other
-    way: 97 percent of the innermost ring, and from 80 px out more than StarXTerminator takes. So there is no
-    one reach: what the star looks like on that master decides how much is taken at all, and where our model
-    takes as far out as StarXTerminator it takes nebula with it.
-  - **A colour cast where it does take the halo.** On the Pleiades' brightest star of 2022-01-04, at 40 to 60 px,
-    the master reads 77.8 / 139 / 187 (R / G / B). StarXTerminator leaves 20.1 / 35.9 / 54.2, the Merope nebula's
-    own blue. Ours leaves 32.5 / 109 / 52.2: red and blue taken, green left. Looked at: on that night's plate the
-    nebula round the star comes out green, with a bright core and a red pit, and the residue of the two other
-    stars of that master added by the larger census is green too; on 2022-01-05's the nebula keeps its colour,
-    because there our model takes little in any channel and leaves the star.
-  - **Looked at** (the sheets, 512 px at 1:1: master / StarXTerminator / R4d as trained / R4d through the chain).
-    StarXTerminator leaves a smooth field on all fourteen, and on the cluster's brightest star the Merope nebula
-    with its arc intact. Ours leaves a glowing disc with every diffraction spike
-    on the stars taken through a camera lens (Antares' field, Ophiuchus, HIP 80609: the many spikes of an iris;
-    even HIP 80609's fainter star, 35 sigma in its innermost ring, leaves a faint disc with spikes), a core with
-    four spikes and dark pits on the Pleiades, and a faint smudge with a pit on Alnitak, which has no spikes.
+    Four things show (a share is noisy where StarXTerminator takes only a few sigma, as in the outer rings of
+    the fainter stars).
+    - **Antares is barely touched beyond its innermost ring, on all three sessions:** 47, 78 and 84 percent
+      there, then 5 to 38, then nothing. All three were taken through a camera lens with an iris, whose star is
+      a disc with many spikes.
+    - **On the Pleiades the night decides, not the star.** On 2022-01-05 all eight are left from about 60 px
+      out (1 to 12 percent at 60 to 80 px), and Alcyone and Maia already inside 22 px (17 and 55 percent). On
+      2022-01-04 all eight are taken far out (50 to 117 percent at 60 to 80 px). The two masters are the same
+      remote telescope and camera on two nights running. The earlier has the brighter sky (356 / 437 / 267
+      against 252 / 298 / 216 in the files' units, R / G / B) and the larger noise (4.4 / 5.4 / 3.8 against
+      3.4 / 4.4 / 3.5); which difference the model answers to is not measured.
+    - **On 2022-01-04 our model takes more than StarXTerminator** round Merope from 60 px out and round Maia
+      from 80 px out (up to 212 and 153 percent): there it takes the nebula.
+    - **On the rest** (sigma Scorpii twice, Alnitak, iota Orionis, lambda Centauri) it takes 85 to 97 percent of
+      the innermost ring and a share that falls with distance.
+
+    So there is no one reach, and where our model takes as far out as StarXTerminator it takes nebula with it.
+  - **A colour cast where it does take the halo.** On 2022-01-04 every one of the eight comes out green. At 40 to
+    60 px Maia's master reads 77.8 / 139 / 187 (R / G / B); StarXTerminator leaves 20.1 / 35.9 / 54.2, the
+    nebula's own blue, and ours leaves 32.5 / 108 / 52.2: red and blue taken, green left. Alcyone, on dark sky,
+    reads 106 / 163 / 197; StarXTerminator leaves 3.8 / 6.2 / 8.8 and ours 45.3 / 112 / 65.4. Looked at: on that
+    night's plate Merope's nebula and Maia's come out green, and each star is a green core with a red pit below
+    it. On 2022-01-05 the nebulae keep their colour, because there our model takes little in any channel and
+    leaves the stars.
+  - **Through the product's chain one star comes back whole (#2308).** On the master of 2022-01-05 our model as
+    trained leaves Alcyone at 7,823 sigma inside 8 px (the master reads 22,412), and core protection takes what
+    is left for a core. Its log reads "protected (3260, 2164), peak 7440 sigma, 1024 px", and the chain's plate
+    holds the master's star again: 22,412 inside 8 px and 4,033 at 8 to 22 px. It is the only core protected on
+    that master, and the catalogue check kept one of the 35 compact peaks inside it removed. On the seven other
+    masters the chain protects nothing but M42's own core. The owner's bar has "no stars put back in cores" as
+    its third line.
+  - **Looked at** (the sheets, 512 px at 1:1: master / StarXTerminator / R4d as trained / R4d through the chain,
+    all twenty-four). StarXTerminator leaves a smooth field on every one, and Merope's and Maia's nebulae with
+    their streaks intact. Ours leaves:
+    - on Antares, on all three sessions, a glowing disc with every diffraction spike (the many spikes of an
+      iris), and a faint disc with spikes even on sigma Scorpii, 35 sigma in its innermost ring;
+    - on the Pleiades of 2022-01-05 each star's core with its spikes, Alcyone nearly whole, and on Asterope and
+      22 Tauri a ring with a dark pit;
+    - on the Pleiades of 2022-01-04 a small green core with a red pit and a green glow;
+    - on Alnitak a faint smudge with a pit, and on lambda Centauri, whose four spikes cross the whole crop, a
+      faint grey disc with a trace of the cross.
+
     Smaller bright stars in the same crops are removed.
   - **What follows.** (1) The likely causes, inferred and not measured. The injector's halo ends at 45 px
     (`InjectionPopulation.PlateHaloReachPx`) and it draws no spikes, and the ring table shows the take fading
-    between 22 and 100 px, star by star; a lens's disc with many spikes is a shape no drawn star has, which would
-    explain why those three are barely touched, though not why the brightest Pleiad is left on one night and
-    taken on the other. The truth plates keep spikes by design (`ClassicalStarRemover`, "spikes are left whole")
-    and cut the halo flat near 120 px, a second candidate cause. A halo injected past 45 px, and a star drawn
-    with an iris's spikes, each read the same way, would separate them; neither has been run. (2) Such stars are
-    rare (7 of 150 sessions, one of them, Ophiuchus, in the training set, and a session's 40 drawn cells rarely
-    hold its one such star), so more data is unlikely to teach it. With one trained session where two were first
-    counted that is thinner evidence than first written, and it has not been tested by adding sessions. If it
-    holds, it has to be drawn, a far wing to a few hundred pixels and the spikes. (3) Drawing may
+    between 22 and 100 px on most stars; a lens's disc with many spikes is a shape no drawn star has, which would
+    explain why Antares is barely touched. It does not explain the Pleiades: the same eight stars through the
+    same telescope are left on one night and taken, nebula and all, on the night before, so something about a
+    master (its sky, its noise, or how its saturated cores read) switches the model between the two. That is
+    the first thing to measure, before anything is drawn. The truth plates keep spikes by design
+    (`ClassicalStarRemover`, "spikes are left whole") and cut the halo flat near 120 px, a further candidate
+    cause. A halo injected past 45 px, and a star drawn with an iris's spikes, each read the same way, would
+    separate those; neither has been run. (2) Such stars are rare: 8 of the 151 masters hold one, thirteen
+    different stars in all, and a session's 40 drawn cells rarely hold its one such star. Two of the eight
+    sessions train, and their stars are removed no better than their kind: Antares where it trains reads as
+    Antares on the two sessions that do not (78 percent of the innermost ring against 47 and 84), and lambda
+    Centauri as Alnitak and iota Orionis, which do not train. So more data is unlikely to teach it; that has not
+    been tested by adding sessions. If it holds, it has to be drawn, a far wing to a few hundred pixels and the
+    spikes. (3) Drawing may
     not be enough for the farthest light. The model sees windows of 256 px (its contract's input;
     `OnnxTianWenStarRemover` steps them by half their interior), and the net's own reach is wider than that
     (about 294 px for four levels, "R2n" above), so the window is the limit: light farther than about 128 px from
     a star's core reaches the model mostly in windows that do not hold the star, where it cannot be told from
-    sky. On the fourteen stars the ring at 140 to 170 px stands 2 to 19 sigma over the sky. The disc, the spikes
-    and the wing inside about 120 px are within one window. (4) Where our model does take a halo far out it takes
-    nebula and shifts its colour (the Merope nebula above), so a longer reach has to come with the nebula rows
-    that R4g's read carries. (5) The scoring masters hold no such star, so no row of the scorecard reads this.
-    R4f's and R4g's reads are registered to run the fourteen stars of `bright_star_list.tsv` beside R4d and
-    StarXTerminator (the list pins their inputs). (6) Nothing is registered on it, and whether it comes before or
-    after R4f's and R4g's reads is the owner's.
+    sky. On the twenty-four stars the ring at 140 to 170 px stands 2 to 19 sigma over the sky. The disc, the
+    spikes and the wing inside about 120 px are within one window. (4) Where our model does take a halo far out
+    it takes nebula and shifts its colour (Merope's and Maia's nebulae above), so a longer reach has to come with
+    the nebula rows that R4g's read carries. (5) The scoring masters hold no such star, so no row of the
+    scorecard reads this. R4f's and R4g's reads run the stars of `bright_star_list.tsv` beside R4d and
+    StarXTerminator (the list pins their inputs). Their registrations named that list when it held fourteen;
+    it was extended to twenty-four before either arm had a score, which lengthens a read and moves no bar.
+    (6) The chain's core protection can put such a star back whole (#2308). (7) Nothing is registered on it, and
+    whether it comes before or after R4f's and R4g's reads is the owner's.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once

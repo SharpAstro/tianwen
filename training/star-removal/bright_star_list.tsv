@@ -1,15 +1,25 @@
 star	master	x	y	r2_split	read_in_plan
-HIP 80609	ZWO-ASI533MC-Pro_Optolong-L-Quad-Enhance_HIP-80609_2026-04-21_ZWO ASI533MC Pro_HIP 80609_Optolong L-Quad Enhance_flip=b	1363	2245	validation	table
-HIP 80609, the fainter	ZWO-ASI533MC-Pro_Optolong-L-Quad-Enhance_HIP-80609_2026-04-21_ZWO ASI533MC Pro_HIP 80609_Optolong L-Quad Enhance_flip=b	2512	1826	validation	table
-Ophiuchus	ZWO-ASI533MC-Pro_IDAS-LPS-D3_Ophiuchus-Molecular-Cloud_2024-05-28_ZWO ASI533MC Pro_Oph Mol Cloud 120s F2.8 RGB_IDAS LPS D3	2422	1943	train	table
-Antares, the brighter	ZWO-ASI533MC-Pro_IDAS-LPS-D3_Antares_2023-05-15_ZWO ASI533MC Pro_Antares OSC 135mm ASI533mc_IDAS LPS D3	2201	1867	neither	table
-Antares, the fainter	ZWO-ASI533MC-Pro_IDAS-LPS-D3_Antares_2023-05-15_ZWO ASI533MC Pro_Antares OSC 135mm ASI533mc_IDAS LPS D3	1731	732	neither	table
-Pleiades 2022-01-05, the first	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	4239	588	neither	table
-Pleiades 2022-01-05, the second	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	4525	1041	neither	table
-Pleiades 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	4180	774	neither	table
-Pleiades 2022-01-05, the brightest	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	3980	1015	neither	table
-Pleiades 2022-01-04, the brightest	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	3906	1210	neither	table
-Pleiades 2022-01-04, at x 3123	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	3123	606	neither	table
-Pleiades 2022-01-04, at x 4468	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	4468	1234	neither	table
-Alnitak	SVBONY-SV605CC_Optolong-L-Quad-Enhance_Horsehead-Nebula_2025-10-28_SVBONY SV605CC_Horsehead Nebula_Optolong L-Quad Enhance	1484	2208	neither	table
-south of M42	SVBONY-SV605CC_Optolong-L-Quad-Enhance_Great-Orion-Nebula_2025-10-15_SVBONY SV605CC_Great Orion Nebula_Optolong L-Quad Enhance	1643	2180	neither	table
+Antares 2026-04-21	ZWO-ASI533MC-Pro_Optolong-L-Quad-Enhance_HIP-80609_2026-04-21_ZWO ASI533MC Pro_HIP 80609_Optolong L-Quad Enhance_flip=b	1363	2245	validation	table
+sigma Sco 2026-04-21	ZWO-ASI533MC-Pro_Optolong-L-Quad-Enhance_HIP-80609_2026-04-21_ZWO ASI533MC Pro_HIP 80609_Optolong L-Quad Enhance_flip=b	2512	1826	validation	table
+Antares 2024-05-28	ZWO-ASI533MC-Pro_IDAS-LPS-D3_Ophiuchus-Molecular-Cloud_2024-05-28_ZWO ASI533MC Pro_Oph Mol Cloud 120s F2.8 RGB_IDAS LPS D3	2422	1943	train	table
+Antares 2023-05-15	ZWO-ASI533MC-Pro_IDAS-LPS-D3_Antares_2023-05-15_ZWO ASI533MC Pro_Antares OSC 135mm ASI533mc_IDAS LPS D3	2201	1867	neither	table
+sigma Sco 2023-05-15	ZWO-ASI533MC-Pro_IDAS-LPS-D3_Antares_2023-05-15_ZWO ASI533MC Pro_Antares OSC 135mm ASI533mc_IDAS LPS D3	1731	732	neither	table
+Taygeta 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	4239	588	neither	table
+Asterope 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	4525	1041	neither	table
+22 Tau 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	4455	1139	neither	table
+Maia 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	3980	1015	neither	table
+Merope 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	2760	1408	neither	table
+Alcyone 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	3262	2160	neither	table
+Electra 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	3203	413	neither	table
+Atlas 2022-01-05	iTelescope-T68_No-Filter_Pleiades_2022-01-05_ASCOM_M45_Color	3163	3307	neither	table
+Taygeta 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	4180	774	neither	table
+Asterope 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	4468	1234	neither	table
+22 Tau 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	4391	1340	neither	table
+Maia 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	3906	1210	neither	table
+Merope 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	2698	1600	neither	table
+Alcyone 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	3188	2353	neither	table
+Electra 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	3123	606	neither	table
+Atlas 2022-01-04	iTelescope-T68_No-Filter_Pleiades_2022-01-04_ASCOM_M45_Color	3106	3499	neither	table
+Alnitak 2025-10-28	SVBONY-SV605CC_Optolong-L-Quad-Enhance_Horsehead-Nebula_2025-10-28_SVBONY SV605CC_Horsehead Nebula_Optolong L-Quad Enhance	1484	2208	neither	table
+iota Ori 2025-10-15	SVBONY-SV605CC_Optolong-L-Quad-Enhance_Great-Orion-Nebula_2025-10-15_SVBONY SV605CC_Great Orion Nebula_Optolong L-Quad Enhance	1643	2180	neither	table
+lambda Cen 2026-02-20	QHYCCD-QHY294C_IDAS-LPS-D3_Running-Chicken-Nebula_2026-02-20_QHY294PROC_Running Chicken Nebula_IDAS LPS D3	3370	279	train	table
