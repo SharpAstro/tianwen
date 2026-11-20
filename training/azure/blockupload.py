@@ -11,25 +11,41 @@ from zero after every restart of its pass. Tested before use: a 64 MB file stopp
 staged, the second run sent the other 12, and the blob read back byte for byte (SHA-256).
 
 Each worker keeps ONE connection open across its blocks and opens a new one only after an error (#2300). A connection a
-block was opened on used to be the common failure: 4 to 16 % of the attempts to the storage endpoint timed out whole after
+block was opened on used to be the common failure: 4 to 19 % of the attempts to the storage endpoint timed out whole after
 21 s while the next one, from a new port, went through at once, and a cache of 3,300 blocks drew that lot 3,300 times. A
-try that fails while connecting has sent nothing and is not charged to the cap.
+try that fails while connecting has sent nothing and is not charged to the cap. The four calls outside the blocks (head,
+block list, commit, head) still take a connection each, so each of them is tried up to five times.
+
+For a direct line only: the block connections go straight to the blob's host, while those four calls go through urllib,
+which honours a proxy from the environment. Behind a proxy the four would pass and every block would fail.
 """
 import argparse, base64, hashlib, http.client, io, os, sys, threading, time, urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 VERSION = "2021-08-06"
-RETRY_PAUSE = 5.0   # seconds before the second try of a block; the n-th try waits n - 1 times this
+RETRY_PAUSE = 5.0   # seconds before the second try of a block or a call; the n-th try waits n - 1 times this
+RETRIED = (urllib.error.URLError, http.client.HTTPException, TimeoutError, ConnectionError, OSError)
 
 
 def request(method, url, body=None, headers=None, timeout=300):
-    req = urllib.request.Request(url, data=body, method=method)
-    req.add_header("x-ms-version", VERSION)
-    for k, v in (headers or {}).items():
-        req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.status, dict(r.headers), r.read()
+    """One call on a connection of its own, up to five tries. A connection that will not open or that dies, and a 5xx,
+    are tried again; any other HTTP status is an answer and is raised at once (a 404 says there is no such blob). Every
+    call made through here can be sent twice: the head and the block list only read, and a block list committed a second
+    time names blocks the service then finds among the committed ones, which leaves the same blob."""
+    for attempt in range(1, 6):
+        req = urllib.request.Request(url, data=body, method=method)
+        req.add_header("x-ms-version", VERSION)
+        for k, v in (headers or {}).items():
+            req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, dict(r.headers), r.read()
+        except RETRIED as e:
+            if attempt == 5 or (isinstance(e, urllib.error.HTTPError) and e.code < 500):
+                raise
+            print(f"  {method} try {attempt} failed ({e}); again in {RETRY_PAUSE * attempt:g} s", flush=True)
+            time.sleep(RETRY_PAUSE * attempt)
 
 
 def block_id(i):
@@ -66,9 +82,13 @@ class Sender:
         self.connects = 0
 
     def connect(self):
-        """Opens the connection when there is none. A failure here has sent nothing."""
+        """Opens the connection when none stands. A failure here has sent nothing. http.client drops its socket after an
+        answer that carries Connection: close and would open a new one by itself inside the next request, after the cap
+        was charged and without being counted, so a connection with no socket counts as none and is opened here."""
         if self.conn is not None:
-            return
+            if self.conn.sock is not None:
+                return
+            self.close()
         kind = http.client.HTTPSConnection if self.scheme == "https" else http.client.HTTPConnection
         conn = kind(self.host, self.port, timeout=self.timeout)
         conn.connect()
@@ -94,9 +114,6 @@ class Sender:
             self.close()
             raise urllib.error.HTTPError(f"{self.scheme}://{self.host}{target.split('?')[0]}", r.status, r.reason, r.headers, io.BytesIO(answer))
         return r.status
-
-
-RETRIED = (urllib.error.URLError, http.client.HTTPException, TimeoutError, ConnectionError, OSError)
 
 
 def send_block(sender, throttle, target, data, headers, say=print, what="block"):

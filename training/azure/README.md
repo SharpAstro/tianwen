@@ -104,7 +104,12 @@ pwsh -File training/azure/fetch-batch.ps1 -Tag r3xaz -Name r3x_synth16_s0 -Fetch
   host timed out whole after 21 s, while the next try from a new port went through, and a failed try was still charged to
   the cap. `blockupload.py` keeps one connection a worker and charges the cap only once a connection stands. One 96 MiB
   file in 1 MiB blocks at a 10 Mb/s cap, 2026-11-21: 23 failed tries and 3.2 Mb/s before; none, four connections and
-  9.9 Mb/s after, the blob read back byte for byte.
+  9.9 Mb/s after, the blob read back byte for byte. The four calls outside the blocks (head, block list, commit, head)
+  still take a connection each, so each is tried up to five times; the same block list committed twice leaves the same
+  blob (sent twice to the service, 201 both times). At the defaults (8 MiB blocks, four workers, where a worker's
+  connection sits silent for about 20 s between its blocks): 200 MiB, no failed try, four connections for 25 blocks,
+  10.0 Mb/s. Not measured: a cap so low that the silence outlasts what the service or a router keeps a connection for
+  (about 200 s at 1 Mb/s). A connection lost in that gap costs one charged try and a 5 s pause, never data.
 - **The spot quota is the subscription's, shared**: a colleague's training has held 324 of the region's 350 low-priority
   vCPUs, so the launcher checks for the 4 a T4 needs.
 - **pwsh's `tar` is bsdtar** (no `--force-local`); the launcher packs with `C:\Windows\System32\tar.exe`.
