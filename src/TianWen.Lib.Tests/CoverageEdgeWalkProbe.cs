@@ -195,7 +195,7 @@ public class CoverageEdgeWalkProbe(ITestOutputHelper output)
             read++;
             var name = Path.GetFileNameWithoutExtension(file);
 
-            // Start where the PRODUCTION callers start. All three of them (ViewerActions.ScanForCrop,
+            // Start where the PRODUCTION callers start. All three of them (MasterAutoCrop.Scan,
             // Image.SettledCoverageRectangle, ClassicalBackgroundExtractor) hand the walk the covered
             // rectangle, never the frame. The walk profiles an UNDER-EXPOSED band, and a canvas ring is
             // not one: fed the whole frame, a master that still has its ring has its outermost band

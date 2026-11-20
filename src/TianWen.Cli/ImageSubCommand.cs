@@ -567,7 +567,7 @@ internal sealed partial class ImageSubCommand(
     ///
     /// <para>A union canvas's border is partial coverage, and everything downstream is wrong over it:
     /// an enhancer reads the ring as structure, a stretch takes its statistics over pixels no exposure
-    /// produced, and a preview renders the absent part black. <see cref="ViewerActions.ScanForCrop"/>
+    /// produced, and a preview renders the absent part black. <see cref="MasterAutoCrop"/>
     /// already answers this exactly -- the drizzle weight plane from the <c>.rejection.fits</c> sidecar
     /// where one exists, <see cref="CoverageEdgeWalk"/> over the pixels otherwise -- and the viewer and
     /// <c>tianwen stack</c> have both used it for months. Only the <c>image</c> verbs could not reach
@@ -648,55 +648,35 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            var scan = ViewerActions.ScanForCrop(src, input, logger);
+            // What a refused edge loses is CoverageTrimPolicy's, not this verb's: the Lib routine
+            // applies the producing policy (the one the stacker uses), so this verb and a master
+            // written by `tianwen stack` crop identically, which they did not while this logic lived
+            // here: the CLI removed V1045 Ori's strip exactly and the bake kept it.
+            var rule = MasterAutoCropRule.ForModel(
+                parseResult.GetValue(trimDeclinedOpt), parseResult.GetValue(marginOpt));
+            var scan = MasterAutoCrop.Scan(src, input, rule, logger);
             var rect = scan.Rect;
 
-            // What a refused edge loses is CoverageTrimPolicy's, not this verb's. The scan hands back a
-            // viewer-shaped rectangle (every pixel that exists), so this re-applies the same verdicts
-            // under the producing policy, which is the one the stacker uses. This verb and a master
-            // written by `tianwen stack` therefore crop identically, which they did not while this
-            // logic lived here: the CLI removed V1045 Ori's strip exactly and the bake kept it.
-            var trimDeclined = Math.Clamp(parseResult.GetValue(trimDeclinedOpt), 0.0, 0.25);
-            if (trimDeclined > 0 && scan is { Declined: true, Trims: { } trims } && rect.Width > 0 && rect.Height > 0)
+            if (scan.DeclinedTrim is { } declined)
             {
-                var policy = CoverageTrimPolicy.Default with { DeclinedFraction = trimDeclined };
-                var held = trims.Apply(rect, policy);
-                if (held != rect)
-                {
-                    var edges = string.Join(", ", new[]
-                    {
-                        policy.Describe("left", trims.Left, policy.DepthFor(trims.Left, rect.Width)),
-                        policy.Describe("top", trims.Top, policy.DepthFor(trims.Top, rect.Height)),
-                        policy.Describe("right", trims.Right, policy.DepthFor(trims.Right, rect.Width)),
-                        policy.Describe("bottom", trims.Bottom, policy.DepthFor(trims.Bottom, rect.Height)),
-                    }.Where(e => e is not null));
-                    consoleHost.WriteScrollable(
-                        $"[autocrop] declined ({edges}): "
-                        + $"{rect.Width}x{rect.Height} -> {held.Width}x{held.Height}");
-                    rect = held;
-                }
-                else
-                {
-                    consoleHost.WriteScrollable($"[autocrop] trimming the declined edges would leave nothing; kept.");
-                }
+                consoleHost.WriteScrollable(
+                    $"[autocrop] declined ({MasterAutoCrop.DescribeDeclined(scan, rule)}): "
+                    + $"{declined.Before.Width}x{declined.Before.Height} -> {declined.After.Width}x{declined.After.Height}");
+            }
+            else if (scan.DeclinedTrimKept)
+            {
+                consoleHost.WriteScrollable($"[autocrop] trimming the declined edges would leave nothing; kept.");
             }
 
-            var margin = Math.Clamp(parseResult.GetValue(marginOpt), 0.0, 0.25);
-            if (margin > 0)
+            var margin = Math.Clamp(rule.Margin, 0.0, 0.25);
+            if (scan.Margin is { } inset)
             {
-                var ix = (int)Math.Round(src.Width * margin);
-                var iy = (int)Math.Round(src.Height * margin);
-                var inset = new PixelRect(rect.X + ix, rect.Y + iy, rect.Width - 2 * ix, rect.Height - 2 * iy);
-                if (inset.Width > 16 && inset.Height > 16)
-                {
-                    consoleHost.WriteScrollable(
-                        $"[autocrop] margin {margin:P1}: {rect.Width}x{rect.Height} -> {inset.Width}x{inset.Height}");
-                    rect = inset;
-                }
-                else
-                {
-                    consoleHost.WriteScrollable($"[autocrop] margin {margin:P1} would leave nothing; ignored.");
-                }
+                consoleHost.WriteScrollable(
+                    $"[autocrop] margin {margin:P1}: {inset.Before.Width}x{inset.Before.Height} -> {inset.After.Width}x{inset.After.Height}");
+            }
+            else if (scan.MarginIgnored)
+            {
+                consoleHost.WriteScrollable($"[autocrop] margin {margin:P1} would leave nothing; ignored.");
             }
             var tier = scan.FromCoverage ? "coverage plane" : "edge walk";
             consoleHost.WriteScrollable(
