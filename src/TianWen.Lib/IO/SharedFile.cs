@@ -34,12 +34,11 @@ namespace TianWen.Lib.IO;
 /// four looks (now, +5, +25, +100 ms) with nothing logged. That is the evidence. The mechanism is one of two
 /// that it cannot tell apart: several replaces' absent windows, one per look, or ONE window longer than the
 /// 130 ms the looks spanned (a writer descheduled inside its one replace). A one-off probe run in review on the
-/// desktop (its script is not in the repo; the on-demand shared-file-repeat workflow is the proof at CI scale;
-/// Release, 16 cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes) saw the name
-/// absent at 2
-/// of 266,782 looks (about 7.5e-6 per look), 0 nulls from 120,253 <see cref="TryOpenReadAsync"/> calls, and a
-/// staging file visible at both absent looks. Four independent misses would need a per-look rate near 0.2 on the
-/// runner, so one long window fits the CI miss at least as well as several. Neither is measured on the runner.
+/// desktop (Release, 16 cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes; its
+/// script is not in the repo) saw the name absent at 2 of 266,782 looks (about 7.5e-6 per look), 0 nulls from
+/// 120,253 <see cref="TryOpenReadAsync"/> calls, and a staging file visible at both absent looks. Four independent
+/// misses would need a per-look rate near 0.2 on the runner, so one long window fits the CI miss at least as well
+/// as several. Neither is measured on the runner. The on-demand shared-file-repeat workflow is the proof at CI scale.
 /// The rule below covers both, and is about what the looks show, not how many there are or how far apart: a
 /// write stages <c>name.guid.tmp</c> beside the name before it replaces it, and that file exists until the
 /// replace is done. Absence is believed only when a look finds no staging file beside the name (and, on Windows,
@@ -198,7 +197,7 @@ public static partial class SharedFile
                 return [.. seen.Values];
             }
 
-            if (ReplaceInProgress(folder.FullName, "*.tmp"))
+            if (AnyBeingReplaced(folder.FullName, Missing(expected, seen)))
             {
                 quiet = 0;
                 if (Stopwatch.GetElapsedTime(started) >= AbsenceDeadline)
@@ -228,6 +227,37 @@ public static partial class SharedFile
             }
             return true;
         }
+
+        static IEnumerable<string> Missing(IReadOnlyCollection<string> all, Dictionary<string, FileInfo> found)
+        {
+            foreach (var path in all)
+            {
+                if (!found.ContainsKey(path))
+                {
+                    yield return path;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether any of <paramref name="missing"/> has a staging file beside it in <paramref name="folder"/>, which is
+    /// a replace of THAT name under way. Asked per name, as <see cref="TryOpenReadAsync"/> asks: a listing used to
+    /// look for any <c>*.tmp</c> in the folder, so a crashed writer's orphan for ANOTHER file read as a replace in
+    /// progress and the first listing after an expected file was deleted waited out the whole deadline, a second,
+    /// before believing it (#2186).
+    /// </summary>
+    internal static bool AnyBeingReplaced(string folder, IEnumerable<string> missing)
+    {
+        foreach (var path in missing)
+        {
+            if (ReplaceInProgress(folder, Path.GetFileName(path) + ".*.tmp"))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

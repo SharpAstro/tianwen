@@ -6595,7 +6595,7 @@ truth takes 2 to 5 minutes.
 #### Step 0 read: the stack did not move (2026-11-12)
 
 `training/planetary/r10_gains.py step0` (glue only: every number is the CLI's) re-made held twin d024 from its plan row and seed, with a
-CLI built at HEAD, which was 8dbf431a6 (the scratch `bin` folder and its `BUILT_FROM.txt`, now e4ca5bea4, were rebuilt later by step B)
+CLI built at that branch's HEAD (the scratch `bin` folder and its `BUILT_FROM.txt` were rebuilt later by step B)
 (`dotnet build src/TianWen.Cli/TianWen.Cli.csproj -c Release`; the commit subject "R10 step 0: r10_gains.py, glue that
 re-makes a held twin with today's build and scores it against its October master", which differs from main's "docs(plans): the training
 plans re-checked against the code, R10 pre-registered, and priority read from the Priority field (#2106, #2112) (#2108)" in no planetary

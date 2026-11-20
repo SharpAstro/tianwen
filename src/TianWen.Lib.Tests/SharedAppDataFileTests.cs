@@ -174,6 +174,13 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         (await File.ReadAllTextAsync(path, ct)).ShouldBe("new");
     }
 
+    // Why the next three tests wait on the wall clock, which a unit test otherwise must not: SharedFile has no clock
+    // seam. What it waits on is ANOTHER process's rename, so it polls the real file system and measures with a
+    // Stopwatch, and a fake clock would test a wait that never happens in production. So the replace really takes
+    // its 300 ms (it has to outlast the 130 ms the old fixed looks spanned, or the test passes on the old rule), and
+    // the orphan test really spends the one second deadline, because the deadline passing is the thing it pins.
+    // Each has the test's token as its own deadline; none of them loops without sleeping.
+
     /// <summary>
     /// The name is absent while a staging file sits beside it, which is a replace under way: the reader keeps
     /// looking for as long as that lasts instead of counting a fixed number of looks. Here the replace takes
@@ -235,6 +242,26 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
 
         (await SharedFile.TryOpenReadAsync(path, ct)).ShouldBeNull();
         (await SharedFile.ListAsync(folder, ".json", [path], ct)).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// A listing asks whether the names it MISSES are being replaced, not whether anything in the folder is: a
+    /// crashed writer's staging file for another name is no reason to wait for these (#2186). No clock in this one:
+    /// it asks the rule itself.
+    /// </summary>
+    [Fact]
+    public void AStagingFileOfAnotherNameIsNotAReplaceOfTheNamesAListingMisses()
+    {
+        var folder = _folders.Create("shared-appdata-");
+        var missing = Path.Combine(folder.FullName, "record.json");
+        var other = Path.Combine(folder.FullName, "other.json");
+        File.WriteAllText($"{other}.{Guid.NewGuid():N}.tmp", "orphan");
+
+        SharedFile.AnyBeingReplaced(folder.FullName, [missing]).ShouldBeFalse("the only staging file here is another name's");
+        SharedFile.AnyBeingReplaced(folder.FullName, [missing, other]).ShouldBeTrue("and it does count for the name it belongs to");
+
+        File.WriteAllText($"{missing}.{Guid.NewGuid():N}.tmp", "new");
+        SharedFile.AnyBeingReplaced(folder.FullName, [missing]).ShouldBeTrue();
     }
 
     /// <summary>
