@@ -2,8 +2,7 @@
     python -I stretch_swap_table.py <rings file> [...]
 
 The rings file holds one "=== <star> (<name>; <frame>, ..." block per star and frame, each with the "<label>: ring medians less ..."
-tables this reads. Nothing in the tree writes it yet (the dump was run from an uncommitted scratch script), so a table of a
-new run needs that dump written first."""
+tables this reads. stretch_swap_rings.py writes it for one changed frame, from the three plates it is given."""
 import re, sys
 RINGS = [(8, 22), (22, 40), (40, 60), (60, 80), (80, 100), (100, 120)]
 for path in sys.argv[1:]:
