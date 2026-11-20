@@ -14,6 +14,7 @@ using TianWen.Lib.Imaging.Grading;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib;
 
 namespace TianWen.UI.Abstractions;
@@ -42,7 +43,7 @@ public sealed class ViewerController(
     /// result carries a <see cref="PixelRect"/>, whose write is wider than a pointer and so not atomic,
     /// and the Task IS the synchronisation primitive (see the concurrency rules in CLAUDE.md).
     /// </summary>
-    private Task<ViewerActions.CropScan>? _cropTask;
+    private Task<MasterAutoCropResult>? _cropTask;
 
     /// <summary>
     /// The last rectangle a crop settled on, kept after the crop is switched off so switching it back
@@ -1066,7 +1067,7 @@ public sealed class ViewerController(
                     _cropTask = Task.Run(async () =>
                     {
                         using var pin = await cropDoc.EnsurePlanesAsync(appToken).ConfigureAwait(false);
-                        return ViewerActions.ScanForCrop(image, path, logger);
+                        return MasterAutoCrop.Scan(image, path, MasterAutoCropRule.ForViewing, logger);
                     }, appToken);
                     _ = _cropTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
                 }

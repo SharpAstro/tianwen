@@ -5,6 +5,7 @@ using System.Linq;
 using nom.tam.fits;
 using nom.tam.util;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Stat;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -12,7 +13,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Opt-in: the viewer's auto-crop (<see cref="ViewerActions.ScanForCrop"/>, the shipped decision path)
+/// Opt-in: the viewer's auto-crop (<see cref="MasterAutoCrop"/>, the shipped decision path)
 /// over every retained master of a dataset bake named by <c>TIANWEN_CROP_BAKE_ROOT</c>, and what the
 /// crop does to the exporter's stretch gate. Per master: the strategy, the crop rectangle and its share
 /// of the canvas, whether the coverage sidecar or the edge walk answered and whether an edge declined,
@@ -39,7 +40,7 @@ public class MasterAutoCropProbe(ITestOutputHelper output)
         var masters = maxMasters > 0 && all.Length > maxMasters ? all.Take(maxMasters).ToArray() : all;
 
         output.WriteLine($"masters  {masters.Length} of {all.Length} in {mastersDir}");
-        output.WriteLine("crop     ViewerActions.ScanForCrop(image, path): the coverage sidecar's exact tier when present, else the union rectangle trimmed by the edge-noise walk");
+        output.WriteLine("crop     MasterAutoCrop.Scan(image, path, rule): the coverage sidecar's exact tier when present, else the union rectangle trimmed by the edge-noise walk");
         output.WriteLine($"gate     median(ch0 - min ch0) on the unit-scaled frame; {GateThreshold} or over reads as already stretched and the exporter refuses the session");
         output.WriteLine("");
         output.WriteLine($"{"master",-44} {"strategy",-13} {"canvas",11} {"crop",22} {"share",6} {"src",4} {"decl",4} {"zeros in",8} {"nan in",7} {"gate",7} {"gate in",7}");
@@ -62,7 +63,7 @@ public class MasterAutoCropProbe(ITestOutputHelper output)
             try
             {
                 var unit = image.ScaleFloatValuesToUnitInPlace();
-                var scan = ViewerActions.ScanForCrop(unit, path);
+                var scan = MasterAutoCrop.Scan(unit, path, MasterAutoCropRule.ForViewing);
                 var r = scan.Rect;
                 var share = (double)r.Width * r.Height / ((double)unit.Width * unit.Height);
                 var (zeros, nans) = CountAbsentInside(unit, r.X, r.Y, r.Width, r.Height);

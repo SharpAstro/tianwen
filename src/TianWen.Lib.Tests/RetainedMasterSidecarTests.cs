@@ -15,7 +15,7 @@ namespace TianWen.Lib.Tests
     /// nothing at all.
     ///
     /// <para>The two absences cost the same way and were both invisible in the master itself. With no
-    /// coverage plane, <c>ViewerActions.ScanForCrop</c> cannot reach its exact tier and every consumer
+    /// coverage plane, <c>MasterAutoCrop</c> cannot reach its exact tier and every consumer
     /// falls back to the edge-noise ESTIMATE, which refuses an edge whose band never settles and keeps
     /// the partial-coverage ramp a background model then fits. With no WCS,
     /// <c>MasterPreviewRenderer</c> never runs SPCC, so a preview falls back to sky-background white

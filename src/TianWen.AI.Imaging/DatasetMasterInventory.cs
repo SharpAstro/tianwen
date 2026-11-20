@@ -207,7 +207,8 @@ public static class DatasetMasterInventory
     /// the first version of this answered (153, 153) for 3,000 px frames, which is a black patch of
     /// nothing, for every master in the store. The crop is the coverage plane's exact rectangle where
     /// the sidecar exists and the pixel tier's union otherwise, the same two tiers
-    /// <c>ViewerActions.ScanForCrop</c> uses.</para>
+    /// <c>MasterAutoCrop</c> uses, except that the pixel tier here stops at the union and runs no edge
+    /// walk, so the answer stays its own: taking the routine's tier would trim the walk's edges and move the patch.</para>
     /// <para><b>And it is the renderer's 32 px square, not a 320 px one.</b> The scan steps four
     /// squares at a time, so a 320 px square visits three positions per axis on a 3,000 px frame and
     /// "darkest" means little; the render measures its background at 32 px, and a patch that shows

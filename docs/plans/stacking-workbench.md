@@ -203,17 +203,22 @@ What exists, read from the code on 2026-11-19:
 - **The viewer's auto-crop is a display clip.** `ViewerState.DisplayCrop` hides pixels in the draw; the comment at the toggle
   says "the crop only ever hid pixels that were there the whole time". It is passed to Enhance as a rectangle, so the pipeline
   does see it.
-- The rectangle comes from `ViewerActions.ScanForCrop`: the master's coverage plane where the sidecar has one
-  (`Image.CoverageCropRectangle`), else the edge walk over the pixels (`Image.LargestCoveredRectangle`).
-- `image autocrop` is the CLI verb, and **it calls `ViewerActions.ScanForCrop`**, a routine in
-  `TianWen.UI.Abstractions`. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244;
+- **The rectangle solver is `MasterAutoCrop.Scan` in `TianWen.Lib/Imaging/Stacking`** (#2237), beside `MasterCrop`. It takes the
+  master's coverage plane where the sidecar has one (`Image.CoverageCropRectangle`), else the edge walk over the pixels
+  (`CoverageEdgeWalk` from `Image.LargestCoveredRectangle`), under a `MasterAutoCropRule`: the policy for a refused edge
+  (`CoverageTrimPolicy.KeepEveryPixel` for a person looking, the producing policy with a declined fraction for a model) and an
+  optional margin. It releases the coverage image it reads. The viewer calls it with `MasterAutoCropRule.ForViewing`.
+- `DatasetMasterInventory.SkyPatchOf` keeps its own exact-else-union answer: its fallback runs no edge walk, and taking the
+  routine's tier would trim the walk's edges and move the patch.
+- `image autocrop` is the CLI verb, and **it calls `MasterAutoCrop.Scan`** with `MasterAutoCropRule.ForModel(--trim-declined,
+  --margin)`, keeping only parsing and printing. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244;
   the owner, 2026-11-19: "we can add a crop verb, takes in four parameters, but that is a seperate thing"). It calls
   `MasterCrop` in Lib, which refuses a rectangle not wholly inside the image in words and writes nothing, moves the WCS
   (`WCS.CroppedTo`) and carries the alignment provenance (`AlignmentProvenance.ForCrop`) and the stack cards (`STACK_N`,
   `SNAPSHOT`, `REJ_TOT`, `REJ_RATE`, `STRATEGY`; the two rejection cards stay those of the uncropped master). `image
   autocrop` writes through the same routine, so its output carries the same. The pixels are read once per crop.
 - **The coverage, rejection and std-error sidecars are not cropped** with the master, and none is written beside the
-  crop; that was so for `autocrop` before #2244. A crop therefore has no coverage plane of its own, and `ScanForCrop` on
+  crop; that was so for `autocrop` before #2244. A crop therefore has no coverage plane of its own, and `MasterAutoCrop.Scan` on
   it falls back to the edge walk. Cropping the sidecars is the same rectangle on each, left for its own issue.
 
 What the workbench needs, and why the display clip is not enough for it: a process after the crop must be handed the cropped
@@ -227,8 +232,17 @@ able to set the rectangle by hand.
   is written. Widening the crop later is a changed setting, as DSN-1 v6 draws it.
 - **While the frame is dragged the display clip draws it**, over the uncropped texture, so nothing is uploaded again. The clip
   and `Image.Crop` are given the same rectangle from one place; that they agree to the pixel is a test.
-- **The rectangle solver moves to Lib** before anything else (rule 1, and the repo's rule that pure math lives in
-  `TianWen.Lib`). The viewer, `image autocrop`, `tianwen stack` and the workbench then call one routine. W10.
+- **The rectangle solver is in Lib** (rule 1, and the repo's rule that pure math lives in `TianWen.Lib`): the viewer and
+  `image autocrop` call `MasterAutoCrop` today, and the workbench will. W10.
+- **`tianwen stack` does not call it yet.** Its autocrop (`MasterPostProcessor`) is the registration intersection (the
+  rectangle every frame's outline covers) clipped by the in-memory coverage (`ClipToCoverage`, `LargestCoveredRectangle` at
+  `AbsenceFraction` 0.5 over 8 px blocks, where absence is a block under half of full weight), and has no edge walk. The
+  solver's coverage tier reads the sidecar's plane over 16 px blocks (on a frame-count plane the block median must reach every
+  frame, minFraction 1.0; 0.95 applies to a drizzle-weight plane only), and its fallback walks noise. The two rules differ: the stack's clip was tuned for a hole inside the rim (the SV605CC Tarantula
+  corner wedge) where the viewer's 0.95 lost 34 good columns. Question for the owner (#2291): should `stack` call the routine?
+  Unifying would change what `stack` writes: its `_autocrop` FITS and display outputs would take the sidecar's rectangle (or the
+  walk's) in place of the intersection, losing or keeping some border columns, and the corner-wedge case would need its
+  threshold carried into the routine as a rule field first. Not changed in this leg.
 - **Guided uses the automatic rectangle** with no handles shown unless asked for, which is the viewer's behaviour and what the
   owner judged enough there.
 - DSN-1 says "cuts where fewer than 90 % of frames overlap". That number is the drawing's. `CoverageCropRectangle` has no such
@@ -384,25 +398,27 @@ workflow a live stack uses, and whether the preview switches to the stack by its
 
 ## The processes: what exists, and what is missing
 
-From the verbs in `TianWen.Cli` and the public methods of `Image` on 2026-11-19. W10's first task is to check this list against
-the code line by line; it is here to size the work, not to settle it.
+Checked line by line against the code on 2026-11-20: the commands built in `TianWen.Cli` (`ImageSubCommand` and its partials,
+`StackSubCommand`, `SolveSubCommand`), the public methods of `Image`, and each routine named below, which all exist under
+that name. Every non-empty Missing cell names the open issue that carries it.
 
 | Group | Process | Routine | Verb | Missing |
 |---|---|---|---|---|
-| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `ViewerActions.ScanForCrop` | `image autocrop`, `image crop` (a given rectangle, #2244) | The solver in Lib (W10) |
-| Geometry | Rotate, flip, resample, bin | `Image.Affine`, `BilinearResize`, `Downsample` | none | The verbs; the WCS carried through each |
+| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `MasterCrop`, `MasterAutoCrop` (the rectangle solver, in Lib) | `image crop` (a given rectangle, #2244), `image autocrop` (calls `MasterAutoCrop`) | `tianwen stack` still crops by its own rule: whether it should call `MasterAutoCrop` (#2291, see Crop and auto-crop) |
+| Geometry | Rotate, flip | `Image.TransformAsync` and `WarpToReferenceGridAsync` (a matrix; no named rotate or flip; `Image.Affine` is a per-value line, not geometry) | none | The routine and verb; the WCS carried (#2280) |
+| Geometry | Resample, bin | `Image.BilinearResize` (WCS passed through unscaled), `Image.Downsample` | none | The verbs; the WCS scaled (#2281) |
 | Geometry | Align to a reference | `FrameRegistration` | `image align` | |
 | Astrometry | Plate solve | the solver | `tianwen solve` | |
 | Background | Gradient | `ClassicalBackgroundExtractor`, the GraXpert backend | `image flatten` | |
-| Colour | White balance by SPCC | `ColourCalibration`, `WhiteBalanceStep` | inside `stack`, `image sharpen`, `image render` | A verb of its own, to be checked |
-| Colour | Linear fit, LRGB, combine, continuum | `ColourComposition` and its steps | `image linear-fit`, `lrgb`, `combine`, `continuum`, `luminance` | |
-| Colour | Saturation, SCNR, highlight compression, background reduction | `Image.Saturate`, `SubtractiveChromaticNoise`, `CompressHighlights`, `ReduceBackground` | none of their own | The verbs |
+| Colour | White balance by SPCC | `Tycho2ColorCalibration.ComputeWhiteBalance`, `Image.WithWhiteBalanceApplied`, the `ColourCalibration` record, `WhiteBalanceStep` | inside `stack`, `image sharpen` and `image render` (which prints the triple); `--white-balance R,G,B` hands one back | Settled by reading the code: no verb solves it and writes a FITS (#2284) |
+| Colour | Linear fit, LRGB, combine, continuum | `ColourComposition` and its steps, `NarrowbandCombination.AddLineFrom` | `image linear-fit`, `lrgb`, `combine`, `continuum`, `luminance`, `add-line` | |
+| Colour | Saturation, SCNR, highlight compression, background reduction | `Image.Saturate`, `SubtractiveChromaticNoise`, `CompressHighlights`, `ReduceBackground` | none of their own (`image render --saturation` reaches saturation) | The verbs (#2282) |
 | Restoration | Deblur, denoise, PSF match | the enhancer roles | `image deblur`, `denoise`, `match-psf`, `sharpen` | |
 | Stars | Remove, add back, protect cores, fill digs | `NarrowbandCombination.SplitStarsAsync`, `ExtendedCoreMask`, `DigFill.Apply` | `image remove-stars`, `add-stars`, `protect-cores`, `fill-digs` | |
-| Tone | Stretch (MTF, GHS, asinh, star stretch) | `Image.MtfStretch`, `GeneralizedHyperbolicStretch`, `AsinhStretch`, `StarStretch` | `image render` | A stretch as a step that writes a FITS, to be checked |
-| Combining | Add, subtract, multiply, blend, screen | `Image.Add`, `Subtract`, `Multiply`, `Lerp`, `Screen`, `Unscreen` | `add-stars` only | Fixed-form blends as a verb. An expression language ("pixel math") is not planned |
-| Masks | Range mask, blend through a mask | `Image.LuminanceRangeMask`, `Binarize`, `BlendThroughMask` | none | A mask as an image a process takes (W13) |
-| Analysis | Statistics, sources | `Image.GetStats`, the detector | `image stats`, `image sources` | |
+| Tone | Stretch (MTF, GHS, asinh, star stretch) | `Image.MtfStretch`, `GeneralizedHyperbolicStretch`, `AsinhStretch`, `StarStretch` | `image render` (PNG, HDR PQ PNG or JPEG XR only) | Settled by reading the code: no verb writes a stretched FITS (#2285) |
+| Combining | Add, subtract, multiply, blend, screen | `Image.Add`, `Subtract`, `Multiply`, `Lerp`, `Screen`, `Unscreen` | `image add-stars`, `image add-line` (a narrowband line into a broadband channel, `NarrowbandCombination.AddLineFrom`) | Fixed-form blends as a verb (#2283). An expression language ("pixel math") is not planned |
+| Masks | Range mask, blend through a mask | `Image.LuminanceRangeMask`, `Binarize`, `BlendThroughMask` | none | A mask as an image a process takes (W13, #2240) |
+| Analysis | Statistics, sources | `Image.GetStats`, the detector | `image stats`, `image sources`, `image channel-offsets` | |
 
 ## Where it lives (W0, the owner's decision)
 
@@ -507,10 +523,18 @@ workflow, with its parity test against `tianwen stack --enhance`. A built-in gat
 
 ### W10 The missing process verbs
 
-Tracked as #2237. First the audit of [the process table](#the-processes-what-exists-and-what-is-missing) against the code. Then, each as a
-Lib routine with a verb and tests: the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib with the viewer,
-`image autocrop` and `tianwen stack` calling it; the crop rule as a setting (`image crop` to four given numbers, #2244, now exists); rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
-PR, and none needs the app.
+Tracked as #2237. The audit of [the process table](#the-processes-what-exists-and-what-is-missing) against the code is done
+(2026-11-20); it files one small PR each as #2280 (rotate and flip), #2281 (resample and bin), #2282 (saturation, SCNR,
+highlight compression, background reduction), #2283 (a fixed-form blend), #2284 (SPCC white balance written to a FITS) and
+#2285 (a stretch that writes a FITS). `Image.Invert`, `GaussianBlur`, `ContrastBoost` and `Divide` also have no verb; none is planned
+until the owner asks.
+
+Done by this flight (#2237): the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib as `MasterAutoCrop`,
+with the viewer and `image autocrop` calling it; `image crop` to four given numbers (#2244) already exists. `tianwen stack`
+does not call the routine yet: whether it should is #2291 (see Crop and auto-crop).
+
+Still to fly, each as a Lib routine with a verb and tests, one small PR each, none needing the app: rotate and flip (#2280),
+resample and bin (#2281), and the colour and tone operations that are `Image` methods with no verb (#2282 to #2285).
 
 ### W11 Memory, GPU and disk for many open images
 
