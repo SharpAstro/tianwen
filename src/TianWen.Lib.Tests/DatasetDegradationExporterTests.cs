@@ -1757,49 +1757,103 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #2227: a plate with no block to read its noise from does not fail the session. It keeps the recorded level, as
+        /// a plate too quiet to believe does: its rows carry no plate ratio and the level every tile is drawn at is the
+        /// one an export told to use the record gives. It used to throw, and neither behaviour had a test.
+        /// </summary>
+        [Fact]
+        public async Task APlateWhoseNoiseCannotBeReadOrBelievedKeepsTheRecordedLevel()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var recorded = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-holed-recorded"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 1,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
+                NoiseAsRecorded: true);
+            (await DatasetDegradationExporter.RunAsync(recorded, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var probed = ReadDegradationRows(recorded.OutDir)[0];
+            var recordedSigma = probed.OneSubSigmaPerChannel.ShouldNotBeNull().Select(s => s * probed.MasterDepth).ToArray();
+            RetainedMasterStore.TryRead(bake, SessionId, out var fixtureMaster, logger: null).ShouldBeTrue();
+            var divisor = DatasetTileExporter.UnitDivisor(fixtureMaster);
+            fixtureMaster.Release();
+
+            // The fixture's own plate is a noise-free ramp, which the bound does not believe (it reads under
+            // StretchedNoise.MinPlateNoiseRatio of the record): that plate changes nothing either, the other half of the guard.
+            var quiet = recorded with { OutDir = Path.Combine(_root, "stars-quiet-default"), NoiseAsRecorded = false };
+            (await DatasetDegradationExporter.RunAsync(quiet, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var recordedOnQuiet = ReadDegradationRows(recorded.OutDir);
+            foreach (var row in ReadDegradationRows(quiet.OutDir))
+            {
+                row.OneSubSigmaPerChannel.ShouldNotBeNull().ShouldBe(recordedOnQuiet.Single(r => r.Tile == row.Tile).OneSubSigmaPerChannel.ShouldNotBeNull(),
+                    "a plate too quiet to believe leaves the level at the recorded one");
+            }
+
+            // The plate carries noise at 0.8 of the record, which the bound believes and lowers the level by (the test
+            // below shows that on the same plate without holes). `holes` takes one pixel out of every 16 by 16 square:
+            // every 32 px block then holds an absent pixel, so none is free to read the noise from, while nearly all of
+            // the plate is still there to cut cells from.
+            void WritePlate(bool holes)
+            {
+                var noiseRng = new Random(7);
+                var planes = new float[3][,];
+                for (var c = 0; c < 3; c++)
+                {
+                    var p = new float[H, W];
+                    for (var y = 0; y < H; y++)
+                    {
+                        for (var x = 0; x < W; x++)
+                        {
+                            var gauss = Math.Sqrt(-2.0 * Math.Log(1.0 - noiseRng.NextDouble())) * Math.Cos(2.0 * Math.PI * noiseRng.NextDouble());
+                            p[y, x] = holes && y % 16 == 8 && x % 16 == 8
+                                ? float.NaN
+                                : (float)(900.0 + (c * 120.0) + (140.0 * x / (W - 1)) + (60.0 * y / (H - 1)) + (0.8 * recordedSigma[c] * divisor * gauss));
+                        }
+                    }
+                    planes[c] = p;
+                }
+                var plate = new Image(planes, BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+                plate.WriteToFitsFile(Path.Combine(platesRoot, "plates", DatasetTileExporter.Sanitize(SessionId) + "_plate.fits"));
+                plate.Release();
+            }
+
+            // Premise: without the holes this plate IS read, so a null ratio below can only be the missing block.
+            WritePlate(holes: false);
+            var whole = recorded with { OutDir = Path.Combine(_root, "stars-whole-default"), NoiseAsRecorded = false };
+            (await DatasetDegradationExporter.RunAsync(whole, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            ReadDegradationRows(whole.OutDir).ShouldAllBe(static r => r.PlateNoiseRatio != null, "premise: the plate's noise is read when a block is free");
+
+            WritePlate(holes: true);
+            (await DatasetDegradationExporter.RunAsync(recorded with { OutDir = Path.Combine(_root, "stars-holed-recorded-2") }, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            recorded = recorded with { OutDir = Path.Combine(_root, "stars-holed-recorded-2") };
+            var byDefault = recorded with { OutDir = Path.Combine(_root, "stars-holed-default"), NoiseAsRecorded = false };
+            (await DatasetDegradationExporter.RunAsync(byDefault, logger: null, TestContext.Current.CancellationToken)).Failed
+                .ShouldBe(0, "a plate whose noise cannot be read is not a failed session");
+
+            var recordedRows = ReadDegradationRows(recorded.OutDir);
+            var rows = ReadDegradationRows(byDefault.OutDir);
+            rows.Length.ShouldBeGreaterThan(0, "the session exported tiles");
+            rows.Length.ShouldBe(recordedRows.Length);
+            foreach (var row in rows)
+            {
+                row.PlateNoiseRatio.ShouldBeNull("no ratio was read, so none is recorded");
+                row.OneSubSigmaPerChannel.ShouldNotBeNull().ShouldBe(recordedRows.Single(r => r.Tile == row.Tile).OneSubSigmaPerChannel.ShouldNotBeNull(),
+                    "the level is the recorded one");
+            }
+        }
+
+        /// <summary>
         /// #1786: by default each session's level is held to its plate's own estimate. With <c>NoiseAsRecorded</c> no row says
         /// anything of it; by default every row carries the ratio per channel and its one-sub sigma is the recorded export's times
         /// the ratio where the ratio is under 1 and the recorded one where it is not; the stars, knots and kept cores are the
         /// recorded export's to the byte of injections.jsonl, which holds at least one of each; and under a noise scale nothing is
-        /// bounded. (The faint stars' cap keeps the recorded level too; this fixture's catalogue is too small to fit the
-        /// luminosity function they are drawn from.)
+        /// bounded. (The faint stars' cap keeps the recorded level too: the test after this one, on a larger catalogue.)
         /// </summary>
         [Fact]
         public async Task ThePlateBoundsTheNoiseLevelByDefaultAndMovesNoStar()
         {
             var bake = BuildBakeWithHalves();
             var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
-            // The fixture's plate is a noise-free ramp, which no master less its stars is and which the bound does not believe
-            // (StretchedNoise.MinPlateNoiseRatio). Give it noise at 0.8 of what the master's record says, read off one export
-            // at the recorded level.
-            var probe = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-probe"),
-                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 1,
-                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
-                SyntheticBackground: true, NoiseAsRecorded: true);
-            (await DatasetDegradationExporter.RunAsync(probe, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
-            var probed = ReadDegradationRows(probe.OutDir)[0];
-            var recordedSigma = probed.OneSubSigmaPerChannel.ShouldNotBeNull().Select(s => s * probed.MasterDepth).ToArray();
-            RetainedMasterStore.TryRead(bake, SessionId, out var fixtureMaster, logger: null).ShouldBeTrue();
-            var divisor = DatasetTileExporter.UnitDivisor(fixtureMaster);
-            fixtureMaster.Release();
-            var noiseRng = new Random(7);
-            var noisyPlanes = new float[3][,];
-            for (var c = 0; c < 3; c++)
-            {
-                var p = new float[H, W];
-                for (var y = 0; y < H; y++)
-                {
-                    for (var x = 0; x < W; x++)
-                    {
-                        var gauss = Math.Sqrt(-2.0 * Math.Log(1.0 - noiseRng.NextDouble())) * Math.Cos(2.0 * Math.PI * noiseRng.NextDouble());
-                        p[y, x] = (float)(900.0 + (c * 120.0) + (140.0 * x / (W - 1)) + (60.0 * y / (H - 1)) + (0.8 * recordedSigma[c] * divisor * gauss));
-                    }
-                }
-                noisyPlanes[c] = p;
-            }
-            var noisyPlate = new Image(noisyPlanes, BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
-            noisyPlate.WriteToFitsFile(Path.Combine(platesRoot, "plates", DatasetTileExporter.Sanitize(SessionId) + "_plate.fits"));
-            noisyPlate.Release();
+            await GiveThePlateNoiseAsync(bake, platesRoot, 0.8);
 
             // The scene the byte comparison holds has to be there, a knot and a kept core, and the fixture has few cells: the
             // first seed whose plain export draws both is the one compared.
@@ -1858,6 +1912,112 @@ namespace TianWen.Lib.Tests
                 row.OneSubSigmaPerChannel.ShouldNotBeNull().ShouldBe(scaledRecordedRows.Single(r => r.Tile == row.Tile).OneSubSigmaPerChannel.ShouldNotBeNull(),
                     "under a noise scale the level is the recorded one");
             }
+        }
+
+        /// <summary>
+        /// #2218: the faint stars' cap is read at the RECORDED level, as the knots and kept cores are, so the plate's bound
+        /// moves no faint star. The catalogue here is large enough to fit the luminosity function the faint stars are drawn
+        /// from, and the cap is one that cuts a draw's faint stars partway (some kept, some dropped), which is where a cap
+        /// read at the bounded level would cut earlier: the default export's injections are the recorded export's to the byte.
+        /// </summary>
+        [Fact]
+        public async Task TheFaintStarsCapIsReadAtTheRecordedLevelWhateverThePlateBounds()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var noise = await GiveThePlateNoiseAsync(bake, platesRoot, 0.8);
+            await GiveTheCatalogueALuminosityFunctionAsync(platesRoot, noise);
+
+            // A cap that bites partway: the first of a falling series at which some draw keeps faint stars and drops others.
+            DatasetDegradationExporter.Options? found = null;
+            var tried = new System.Text.StringBuilder();
+            foreach (var cap in new[] { 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001 })
+            {
+                var candidate = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, FormattableString.Invariant($"faint-recorded-{cap}")),
+                    Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 1,
+                    NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
+                    SyntheticBackground: true, FaintStarFloor: 3.0, FaintStarCap: cap, NoiseAsRecorded: true);
+                (await DatasetDegradationExporter.RunAsync(candidate, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+                var drawn = ReadInjectionRows(candidate.OutDir);
+                tried.Append(CultureInfo.InvariantCulture, $" cap {cap}: kept {string.Join("/", drawn.Select(static i => i.Stars.Count(static st => st.Faint)))}, dropped {string.Join("/", drawn.Select(static i => i.FaintCapped))};");
+                if (drawn.Any(static i => i.FaintCapped > 0 && i.Stars.Any(static st => st.Faint)))
+                {
+                    found = candidate;
+                    break;
+                }
+            }
+            var plain = found.ShouldNotBeNull($"no cap of the series cut a draw's faint stars partway:{tried}");
+            var bounded = plain with { OutDir = Path.Combine(_root, "faint-from-plate"), NoiseAsRecorded = false };
+            (await DatasetDegradationExporter.RunAsync(bounded, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            ReadDegradationRows(bounded.OutDir).Any(static r => r.PlateNoiseRatio is { } ratio && ratio.Any(static x => x < 1.0))
+                .ShouldBeTrue("premise: the plate's bound lowered a channel's level, so a cap read at it would differ");
+            File.ReadAllText(Path.Combine(bounded.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(plain.OutDir, DatasetDegradationExporter.InjectionManifestFileName)),
+                    "the cap is the scene's: the faint stars kept and dropped are the recorded export's");
+        }
+
+        /// <summary>The fixture's plate is a noise-free ramp, which no master less its stars is and which the bound does not
+        /// believe (<c>StretchedNoise.MinPlateNoiseRatio</c>). This gives it noise at <paramref name="share"/> of what the
+        /// master's record says, read off one export at the recorded level. Returned: that recorded noise per channel at
+        /// the master's depth, in the plate's own units (the catalogue's amplitudes are in them).</summary>
+        private async Task<double[]> GiveThePlateNoiseAsync(string bake, string platesRoot, double share)
+        {
+            var probe = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-probe"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 1,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
+                SyntheticBackground: true, NoiseAsRecorded: true);
+            (await DatasetDegradationExporter.RunAsync(probe, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var probed = ReadDegradationRows(probe.OutDir)[0];
+            var recordedSigma = probed.OneSubSigmaPerChannel.ShouldNotBeNull().Select(s => s * probed.MasterDepth).ToArray();
+            RetainedMasterStore.TryRead(bake, SessionId, out var fixtureMaster, logger: null).ShouldBeTrue();
+            var divisor = DatasetTileExporter.UnitDivisor(fixtureMaster);
+            fixtureMaster.Release();
+            var noiseRng = new Random(7);
+            var noisyPlanes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                var p = new float[H, W];
+                for (var y = 0; y < H; y++)
+                {
+                    for (var x = 0; x < W; x++)
+                    {
+                        var gauss = Math.Sqrt(-2.0 * Math.Log(1.0 - noiseRng.NextDouble())) * Math.Cos(2.0 * Math.PI * noiseRng.NextDouble());
+                        p[y, x] = (float)(900.0 + (c * 120.0) + (140.0 * x / (W - 1)) + (60.0 * y / (H - 1)) + (share * recordedSigma[c] * divisor * gauss));
+                    }
+                }
+                noisyPlanes[c] = p;
+            }
+            var noisyPlate = new Image(noisyPlanes, BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+            noisyPlate.WriteToFitsFile(Path.Combine(platesRoot, "plates", DatasetTileExporter.Sanitize(SessionId) + "_plate.fits"));
+            noisyPlate.Release();
+            return [.. recordedSigma.Select(sigma => sigma * divisor)];
+        }
+
+        /// <summary>#2218: adds to the fixture's catalogue what the faint stars need. Eighty subtracted stars on a power law
+        /// of slope 1 from 10 to 300 sigma, so the luminosity function can be fitted (<c>LuminosityFunction.MinFitStars</c>;
+        /// the fixture's own thirteen all read 20), and fifteen from 6 to 10 sigma, the stars a faint star takes its colour
+        /// from. Each star's peak is its significance times <paramref name="noise"/>, the master's own, so a faint star
+        /// drawn at 3 sigma stands 3 sigma high and its light counts under the cap (a star of 5 sigma or more does not).
+        /// The fixture's amplitudes are hundreds of sigma at 20 "sigma", which is why its faint stars never reached a cap.</summary>
+        private static async Task GiveTheCatalogueALuminosityFunctionAsync(string platesRoot, double[] noise)
+        {
+            var path = StarlessCatalogue.PathFor(Path.Combine(platesRoot, "plates"), DatasetTileExporter.Sanitize(SessionId));
+            var stars = (await StarlessCatalogue.ReadAsync(path, TestContext.Current.CancellationToken)).ToBuilder();
+            var rng = new Random(22);
+            for (var k = 0; k < 95; k++)
+            {
+                var u = rng.NextDouble();
+                var significance = k < 80
+                    ? LuminosityFunction.FitLowSigma / (1.0 - (u * (1.0 - (LuminosityFunction.FitLowSigma / LuminosityFunction.FitHighSigma))))
+                    : 6.0 + (3.99 * u);
+                var x = Math.Round(10 + (rng.NextDouble() * (W - 20)), 2);
+                var y = Math.Round(10 + (rng.NextDouble() * (H - 20)), 2);
+                var amplitudes = noise.Select(sigma => (float)(significance * sigma)).ToImmutableArray();
+                stars.Add(new FittedStar((float)x, (float)y, (float)significance, amplitudes.Max(), 1f, 1000f, 5f, StarFitOutcome.Subtracted, false, false,
+                    float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, amplitudes));
+            }
+            await StarlessCatalogue.WriteAsync(path, stars.ToImmutable(), TestContext.Current.CancellationToken);
         }
 
         /// <summary>

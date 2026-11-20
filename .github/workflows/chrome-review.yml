@@ -8,13 +8,34 @@ name: Chrome review
 # counted as reviewed. Here it runs once per state of the PR that a person is about to merge, whoever wrote it.
 #
 # Drafts are skipped: a draft is still moving, and every push would be a paid review. Marking a PR ready runs it, and so
-# does every push after that; a newer push cancels a review still running on an older one.
+# does a later push that changes the UI diff or a chrome test; a newer push cancels a review still running on an older
+# one.
+#
+# What counts as UI is what the hook counted: the .cs and .razor files of the five projects below, not the benchmarks,
+# the E2E harness, a shader's .spv or a README beside them. A paths filter reads the whole PR diff against its base, so
+# it still starts this workflow on every later push of a PR that touches one of them, a docs fixup or a merge of main
+# included. The fingerprint step below is what keeps those from being a second paid review (105k to 165k tokens each,
+# docs/plans/viewer-layout-engine.md): it skips the agent when the UI and chrome-test diff is the one already reviewed.
+#
+# A PR that changes THIS file cannot be reviewed here. The review action will not run a workflow file that differs from
+# the default branch's: it logs "Workflow validation failed", ends its step as a success and writes nothing (seen on
+# #2307, whose check then read "the review did not finish"). The check says so in words and fails. The way out is a PR
+# of its own for the workflow change: one that touches no UI file starts no review at all.
 
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
     paths:
-      - 'src/TianWen.UI.**'
+      - 'src/TianWen.UI.Abstractions/**/*.cs'
+      - 'src/TianWen.UI.Abstractions/**/*.razor'
+      - 'src/TianWen.UI.Shared/**/*.cs'
+      - 'src/TianWen.UI.Shared/**/*.razor'
+      - 'src/TianWen.UI.Gui/**/*.cs'
+      - 'src/TianWen.UI.Gui/**/*.razor'
+      - 'src/TianWen.UI.FitsViewer/**/*.cs'
+      - 'src/TianWen.UI.FitsViewer/**/*.razor'
+      - 'src/TianWen.UI.Web/**/*.cs'
+      - 'src/TianWen.UI.Web/**/*.razor'
 
 concurrency:
   group: chrome-review-${{ github.event.pull_request.number }}
@@ -45,12 +66,65 @@ jobs:
           lfs: false
           persist-credentials: false
 
+      # The UI diff of this PR against its base, as one short hash: the five UI projects and, since the agent's rule 4
+      # reads test seams, the CHROME tests among the changed files of src/TianWen.Lib.Tests, which are the ones that
+      # use a TianWen.UI namespace. Not every test file: a fix to a stacking test, in a PR that also touches UI,
+      # would then be a second paid review of a diff the agent has nothing to say about, which is what this hash is
+      # here to prevent. The paths filter above stays UI-only. The comment a finished review leaves
+      # carries the hash it reviewed and the count it found; when this push leaves that diff as it was, the agent is
+      # not run again and the gate answers from that count. A review that did not finish leaves no hash, so it is
+      # never reused.
+      - name: Fingerprint the UI diff
+        id: fingerprint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: origin/${{ github.event.pull_request.base.ref }}
+        run: |
+          # The changed test files that use a UI namespace, as they are at the PR's head (a deleted file names nothing
+          # to review). Literal paths, so a name with a bracket in it is not read as a pattern.
+          chrome_tests=()
+          while IFS= read -r file; do
+            if grep -qE 'TianWen\.UI\.' "$file" 2>/dev/null; then
+              chrome_tests+=(":(literal)$file")
+            fi
+          done < <(git diff --name-only --diff-filter=d "$BASE...HEAD" -- ':(glob)src/TianWen.Lib.Tests/**/*.cs')
+          echo "chrome tests in the diff: ${#chrome_tests[@]}"
+          fp="$(git diff "$BASE...HEAD" -- \
+            ':(glob)src/TianWen.UI.Abstractions/**/*.cs' ':(glob)src/TianWen.UI.Abstractions/**/*.razor' \
+            ':(glob)src/TianWen.UI.Shared/**/*.cs' ':(glob)src/TianWen.UI.Shared/**/*.razor' \
+            ':(glob)src/TianWen.UI.Gui/**/*.cs' ':(glob)src/TianWen.UI.Gui/**/*.razor' \
+            ':(glob)src/TianWen.UI.FitsViewer/**/*.cs' ':(glob)src/TianWen.UI.FitsViewer/**/*.razor' \
+            ':(glob)src/TianWen.UI.Web/**/*.cs' ':(glob)src/TianWen.UI.Web/**/*.razor' \
+            "${chrome_tests[@]}" | sha256sum | cut -c1-16)"
+          echo "fp=$fp" >> "$GITHUB_OUTPUT"
+          first="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].body // empty' | head -n 1)"
+          reviewed="$(printf '%s' "$first" | sed -n 's/.* fp:\([0-9a-f]\{16\}\) high:\([0-9][0-9]*\) -->.*/\1 \2/p')"
+          if [ "${reviewed%% *}" = "$fp" ]; then
+            echo "same=true" >> "$GITHUB_OUTPUT"
+            echo "high=${reviewed##* }" >> "$GITHUB_OUTPUT"
+            echo "The UI diff ($fp) is the one already reviewed; the agent is not run again."
+          else
+            echo "same=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Does the PR change this workflow? Three dots: the PR's own changes, not what main changed under it (the
+          # workflow that runs is the merge commit's, so a branch that is only behind main still runs main's file).
+          if git diff --quiet "$BASE...HEAD" -- .github/workflows/chrome-review.yml; then
+            echo "own_workflow=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "own_workflow=true" >> "$GITHUB_OUTPUT"
+            echo "This PR changes .github/workflows/chrome-review.yml; the review action will not run it."
+          fi
+
       - name: Run the chrome-review agent
+        id: agent
+        if: ${{ steps.fingerprint.outputs.same != 'true' && steps.fingerprint.outputs.own_workflow != 'true' }}
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Sonnet, as the agent's own frontmatter says: a checklist review does not need the larger model. Read-only
-          # tools and the git reads the agent's instructions name; Write only for the two output files.
+          # tools and the git reads the agent's instructions name; Write only for the report.
           claude_args: |
             --model claude-sonnet-5-5
             --allowedTools "Read,Grep,Glob,Write,Bash(git fetch:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
@@ -62,28 +136,84 @@ jobs:
             Before you report a finding, open the line it names and the method around it and confirm it holds. Drop any you
             cannot confirm.
 
-            Write two files, and nothing else:
-            - ${{ env.OUT }}/report.md: the report in the format the instructions give (or their "No chrome arithmetic in
-              this diff." line and the files you read).
-            - ${{ env.OUT }}/verdict.json: {"high": <number of high-confidence findings>, "medium": <number of medium>}.
+            Write one file, and nothing else:
+            - ${{ env.OUT }}/report.md: the report in the format the instructions give, each finding with its own
+              "confidence: high" or "confidence: medium" line (or the instructions' "No chrome arithmetic in this diff."
+              line and the files you read).
 
-      # One comment per PR, edited in place on each run, so a PR does not collect a comment per push.
+      # The counts are read off the report itself, one "confidence:" line per finding. The agent used to write a second
+      # file with its own tally, and the gate trusted that alone: a report listing a high finding beside a tally of 0
+      # passed, and the reverse failed a clean one. One statement of each finding leaves nothing to disagree.
+      - name: Count the findings
+        id: count
+        if: ${{ !cancelled() && steps.fingerprint.outputs.same != 'true' && steps.fingerprint.outputs.own_workflow != 'true' }}
+        env:
+          EXECUTION_FILE: ${{ steps.agent.outputs.execution_file }}
+        run: |
+          if [ ! -s "$OUT/report.md" ]; then
+            # Why there is no report: the agent's own last word, which the action keeps out of the log. When the run
+            # never reached the model (a token that is no longer taken, a usage limit) it is the CLI's error, and
+            # without it the check only says "did not finish" (#2307's two runs ended in 0.2 s with no reason shown).
+            # The action sets its output only on success, so the file is also looked for where it always writes it.
+            log="${EXECUTION_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
+            why=""
+            if [ -s "$log" ]; then
+              why="$(jq -r '[.[] | select(.type == "result")] | last | (.result // ((.errors // []) | join("; "))) // ""' "$log" 2>/dev/null \
+                | tr '\r\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' | cut -c1-300)"
+            fi
+            echo "no report; the agent's last word: ${why:-none kept}"
+            # The reason says whose words it is here, where that is known: the comment and the check print it as it
+            # stands, and the workflow's own reason below would otherwise read as the agent's.
+            echo "why=${why:+the agent said: $why}" >> "$GITHUB_OUTPUT"
+            echo "finished=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          high="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*high[[:space:]]*$' "$OUT/report.md" || true)"
+          medium="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*medium[[:space:]]*$' "$OUT/report.md" || true)"
+          # Every line with the word in it, however it is dressed (bold, a trailing note, a list item): when that is
+          # more than the lines counted above, a finding was written in a form the counts miss, and the report is not
+          # trusted. The agent's format has the word on a finding's confidence line and nowhere else, so a report that
+          # uses it in a sentence fails here too, with the reason said: closed, not silently open.
+          total="$(grep -ic 'confidence' "$OUT/report.md" || true)"
+          clean="$(grep -c 'No chrome arithmetic in this diff' "$OUT/report.md" || true)"
+          echo "high $high, medium $medium, confidence lines $total, says clean: $clean"
+          if [ "$total" -ne $((high + medium)) ]; then
+            echo "finished=false" >> "$GITHUB_OUTPUT"
+            echo "why=the report has $total lines that speak of confidence and only $((high + medium)) are a bare 'confidence: high' or 'confidence: medium', so its findings cannot be counted" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # A report with no finding and no "nothing found" line says nothing that can be counted.
+          if [ "$high" -eq 0 ] && [ "$medium" -eq 0 ] && [ "$clean" -eq 0 ]; then
+            echo "finished=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "finished=true" >> "$GITHUB_OUTPUT"
+          echo "high=$high" >> "$GITHUB_OUTPUT"
+
+      # One comment per PR, edited in place on each run, so a PR does not collect a comment per push. Not on a
+      # cancelled run: a push that supersedes a running review would overwrite the comment with "did not finish" for
+      # the old commit, and two runs that find no comment yet would each post one. Nor when the diff was not reviewed
+      # again: the comment already says what was found in it.
       - name: Post the report on the PR
-        if: ${{ always() }}
+        if: ${{ !cancelled() && steps.fingerprint.outputs.same != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
+          FP: ${{ steps.fingerprint.outputs.fp }}
+          FINISHED: ${{ steps.count.outputs.finished }}
+          HIGH: ${{ steps.count.outputs.high }}
+          OWN_WORKFLOW: ${{ steps.fingerprint.outputs.own_workflow }}
+          WHY: ${{ steps.count.outputs.why }}
         run: |
-          marker='<!-- chrome-review -->'
-          if [ -s "$OUT/report.md" ]; then
-            body="$(printf '%s\n### Chrome review of %s\n\n%s\n' "$marker" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
+          if [ "$OWN_WORKFLOW" = "true" ]; then
+            body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\n%s\n' "${SHA:0:7}" \
+              'Not reviewed. This PR changes `.github/workflows/chrome-review.yml`, and the review action will not run a workflow file that differs from the one on the default branch. Put the workflow change in a PR of its own (one that touches no UI file starts no review). Until then this check stays red.')"
+          elif [ "$FINISHED" = "true" ]; then
+            body="$(printf '<!-- chrome-review fp:%s high:%s -->\n### Chrome review of %s\n\n%s\n' "$FP" "$HIGH" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
           else
-            body="$(printf '%s\n### Chrome review of %s\n\nThe review did not finish; see the run: %s\n' "$marker" "${SHA:0:7}" \
-              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+            body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish%s; see the run: %s\n' "${SHA:0:7}" \
+              "${WHY:+ ($WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
           fi
           id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
-            --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id // empty")"
+            --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].id // empty')"
           if [ -n "$id" ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" > /dev/null
           else
@@ -91,18 +221,30 @@ jobs:
           fi
 
       # The gate: a high-confidence finding fails the check. Medium ones are reported and pass, since the agent is a
-      # cheap model reading a diff. A review that wrote no verdict fails too, so a broken run is never a silent pass.
+      # cheap model reading a diff. A review that did not finish fails too, so a broken run is never a silent pass.
+      # An unchanged UI diff answers from the count its review left in the comment, and that comes first: a UI diff
+      # reviewed before the PR touched this workflow is still the diff that was reviewed. A PR that changes this
+      # workflow and has no such review fails with the reason (the header says why it cannot be reviewed).
       - name: Fail on a high-confidence finding
+        if: ${{ !cancelled() }}
+        env:
+          SAME: ${{ steps.fingerprint.outputs.same }}
+          OWN_WORKFLOW: ${{ steps.fingerprint.outputs.own_workflow }}
+          REVIEWED_HIGH: ${{ steps.fingerprint.outputs.high }}
+          FINISHED: ${{ steps.count.outputs.finished }}
+          COUNTED_HIGH: ${{ steps.count.outputs.high }}
+          WHY: ${{ steps.count.outputs.why }}
         run: |
-          if [ ! -s "$OUT/verdict.json" ]; then
-            echo "::error::The review wrote no verdict."; exit 1
+          if [ "$SAME" = "true" ]; then
+            high="$REVIEWED_HIGH"
+          elif [ "$OWN_WORKFLOW" = "true" ]; then
+            echo "::error::Not reviewed: this PR changes the review's own workflow file, which the review action will not run. Move that change to a PR that touches no UI file."; exit 1
+          elif [ "$FINISHED" = "true" ]; then
+            high="$COUNTED_HIGH"
+          else
+            echo "::error::The review did not finish, or its report names no finding and does not say there are none.${WHY:+ Reason: $WHY}"; exit 1
           fi
-          high="$(jq -r '.high // empty' "$OUT/verdict.json")"
-          medium="$(jq -r '.medium // 0' "$OUT/verdict.json")"
-          if [ -z "$high" ]; then
-            echo "::error::The verdict has no high count: $(cat "$OUT/verdict.json")"; exit 1
-          fi
-          echo "high $high, medium $medium"
+          echo "high $high"
           if [ "$high" -gt 0 ]; then
             echo "::error::The chrome review found $high high-confidence finding(s); the PR comment lists them."; exit 1
           fi

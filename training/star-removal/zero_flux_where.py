@@ -17,7 +17,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I leaves the 
 import zero_flux as z  # its store, CLI flags and output names
 
 want = sys.argv[3]
-sess = [s for s in sorted(z.rows) if want.lower() in s.lower() and "flip" not in s][0]
+# One session, said out loud. zero_flux.py runs every session a substring fits; this script reads ONE, and taking the
+# first sorted match in silence read the wrong one ('Great-Orion-Nebula_2022-12-03' fits a QHY178M session ahead of the
+# ASI533MC one). An exact name wins; anything else must fit exactly one session.
+matches = [s for s in sorted(z.rows) if want.lower() in s.lower() and "flip" not in s]
+exact = [s for s in matches if s.lower() == want.lower()]
+if len(exact) == 1 or len(matches) == 1:
+    sess = (exact or matches)[0]
+elif not matches:
+    sys.exit(f"'{want}' fits no session.")
+else:
+    sys.exit("\n   ".join([f"'{want}' fits {len(matches)} sessions, and this script reads one: give more of the name."] + matches))
 row = z.rows[sess]
 p = np.asarray(fits.getdata(f"{z.S}/starless/plates/{sess}_plate.fits"), np.float32)
 o = np.asarray(fits.getdata(z.output_path(sess)), np.float32)

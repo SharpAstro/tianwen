@@ -6422,7 +6422,8 @@ the first angle is a step after the model and not another arm:
       R3z, whose data differ in the halo and the saturated stars and not in the flank, has the shallowest ring on both.
       The other two sessions, read 2026-11-18 (`site-run-rest.sh`, same rows; like `site-run.sh`, which made the
       M42 and HIP 80609 rows per model, it runs `site_remove.py`, the real-site half of `transplant.py` with one output
-      folder per model, then `site_core.py` and `site_core_ch.py`). Lobster (5,818 stars): R3v -0.04 / 0.04 /
+      folder per model, then `site_core.py`; only `site-run.sh` goes on to `site_core_ch.py`, for M42's blue, so the
+      rows here are `site_core.py`'s). Lobster (5,818 stars): R3v -0.04 / 0.04 /
       -0.44 / -0.52, seed 0 -0.23 / 0.04 / -0.35 / -0.43, seed 1 -0.25 / -0.11 / -0.40 / -0.48. SMC (383 stars): R3v
       0.56 / 0.06 / -0.19 / -0.29, seed 0 0.00 / 0.15 / -0.16 / -0.44, seed 1 0.21 / 0.60 / 0.34 / -0.12. Neither has
       M42's ring at 1.6 to 2.5 px; Lobster has HIP 80609's shallow dip of about half a sigma from 2.5 to 4.5 px in
@@ -6768,7 +6769,8 @@ the first angle is a step after the model and not another arm:
     data and recipe but NOT the same machine: seed 0 trained on the T4 (tag `r4aaz`) and seed 1 on the GTX 1070
     (registration of R4a's seed 1). So these are a seed-and-machine spread, the confound no pair of runs
     separates (below). The R3v columns are no cleaner: seed 0 trained on the 1070, and the plan does not record
-    where seed 1 trained, so they are read as a seed spread only if that is checked. Either way the bright cell's band is not a property of a recipe that one seed can show: R4d's
+    where seed 1 trained, so they are read as a seed spread only if that is checked. Either way the bright cell's
+    band is not a property of a recipe that one seed can show: R4d's
     44.4 / 49.4 / 39.7 is lower than any of the six other models read, which is as much as can be said, and "the
     cap lifted costs a quarter of the core" is NOT shown. The kill stands on the registered rule (a guard failed);
     the guard itself was badly chosen, since R4a's seed 0 would fail it against R4a's own seed 1.
@@ -6784,7 +6786,8 @@ the first angle is a step after the model and not another arm:
     R3v's gap on every channel. Against R4a it is read on one basis: R4a's 39 / 53 / 75 % is the higher seed over the
     lower, so R4c over R4d (64.1 / 76.2 / 61.9 over 44.4 / 49.4 / 39.7) is 44 / 54 / 56 %, past R4a's gap on R by 5
     points and on G by 1, inside only on B. On the fall basis R4a's gaps are 28 / 35 / 43 % against R4d's 31 / 35 /
-    36 %, the same picture. So R and G sit at the edge of R4a's gap and B well inside it. Which gap a faint-star recipe should be read against is not measured: R4d's
+    36 %, the same picture. So R and G sit at the edge of R4a's gap and B well inside it. Which gap a faint-star
+    recipe should be read against is not measured: R4d's
     data is synth25 plus faint stars, R4a's is synth25 plus cluster scenes and R3v's is synth22, so "not shown"
     above is against the widest gap read (R4a's). What one seed does carry here: the crowded flat (0.0 to 0.1
     between seeds), so the question's miss is firm.
@@ -6797,19 +6800,23 @@ the first angle is a step after the model and not another arm:
   - **The other side of the ledger, as trained.** R4d leans less on floor3 than R4c: Andromeda dark flat dug 19.5
     against 45.9, Tarantula dark flat left 14.3 against 33.1, by count clean 95.6 and 91.5 against 94.9 and 86.7,
     SMC 100-1000 clean 91.5 against 81.4. The plan holds seed pairs for these rows on recipes without faint stars,
-    the same proxy as the band rows. Andromeda dig: R3y 9.6 points apart, R4a 6.4; M42 100-1000 clean: R3y 21.4,
-    R4a 17; R4d less R4c on the dig is 26.4, larger than any. Tarantula dark flat left: R3y 18.3 / 23.3, R3v 16.0 /
-    13.8 (gaps 5.0 and 2.2) against a difference of 18.8, larger than both. SMC 100-1000 clean: R3y 84.7 / 91.5,
-    R3v 89.8 / 91.5 (gaps 6.8 and 1.7) against 10.1, larger than both. So each of these three rows exceeds every
-    measured pair of its own row. Gaps of 17 to 21 points do occur between seeds on a row that spreads widely (the
-    M42 pairs above), so a difference of that size on the left and SMC rows is beyond their own pairs but not beyond
-    what a seed has moved on another row. The by-count clean rows are not paired here. The row the cap exists to protect goes the other way: the
-    Tarantula's glow with floor3 reads p90 443.5 and 31 % over the bound against R4c's 143.4 and 8 % (inside its
-    guard, and the larger of the two faint-star arms). R3v's pair for it (floor3, green, p90 1726.2 / 1436.5, over the bound
-    92 / 85 %, a no-faint-star spread) gaps 290 and 7 points; R4d less R4c is +300 and +23 points, so the p90 rise
-    is about one R3v seed's gap and the share over about three times its gap. R3v reads at a far higher level, so
-    the pair bounds a seed gap only roughly. So the ledger is mixed: the dig, the dark-flat left and SMC rows are
-    beyond measured seed gaps, the glow's p90 is not and its share over probably is. This counts for the cap lifted only as the owner weighs it; it does not change the default.
+    the same proxy as the band rows. (R3y's two seeds trained on two machines as R4a's did, seed 0 on the T4 and
+    seed 1 on the GTX 1070, so its pairs are seed-and-machine pairs too.) Andromeda dig: R3y 9.6 points apart, R4a
+    6.4; M42 100-1000 clean: R3y 21.4, R4a 17; R4d less R4c on the dig is 26.4, larger than any. Tarantula dark flat
+    left: R3y 18.3 / 23.3, R3v 16.0 / 13.8 (gaps 5.0 and 2.2) against a difference of 18.8, larger than both. SMC
+    100-1000 clean: R3y 84.7 / 91.5, R3v 89.8 / 91.5 (gaps 6.8 and 1.7) against 10.1, larger than both. So each of
+    these three rows exceeds every measured pair of its own row. Gaps of 17 to 21 points do occur between seeds on a
+    row that spreads widely (the M42 pairs above): the left row's 18.8 is inside that range and the SMC row's 10.1
+    is below it, so both are beyond their own pairs but not beyond what a seed has moved on another row. Only the
+    dig's 26.4 is beyond the widest pair measured on any row. The by-count clean rows are not paired here. The row
+    the cap exists to protect goes the other way: the Tarantula's glow with floor3 reads p90 443.5 and 31 % over the
+    bound against R4c's 143.4 and 8 % (inside its guard, and the larger of the two faint-star arms). R3v's pair for
+    it (floor3, green, p90 1726.2 / 1436.5, over the bound 92 / 85 %, a no-faint-star spread) gaps 290 and 7 points;
+    R4d less R4c is +300 and +23 points, so the p90 rise is about one R3v seed's gap and the share over about three
+    times its gap. R3v reads at a far higher level, so the pair bounds a seed gap only roughly. So the ledger is
+    mixed: the dig, the dark-flat left and SMC rows are beyond the measured seed gaps of their own rows, the glow's
+    p90 is not and its share over probably is. This counts for the cap lifted only as the owner weighs it; it does
+    not change the default.
   - Predictions: the grain falling
     by a third, missed (unchanged); the crowded flat rising 2 to 3, missed (0.8); the light taken from the densest
     cells rising, hardly (81 % against R4c's 80 %). Reported, no bar, as trained: Andromeda dark flat 69.4 dug 19.5
@@ -6878,8 +6885,8 @@ the first angle is a step after the model and not another arm:
   - **What the change reaches.** Of the 138 training sessions the bound lowers the level on those crowded with
     RESOLVED stars (Lobster to 0.81 / 0.80 / 0.87 of the record, 29 of the store's 199 sessions under 0.90). The
     held-out Tarantula, SMC and Sagittarius masters are crowded with stars nobody catalogued, and their own plates
-    read at or over their records by `noise_plate_all.py`'s lag-8 statistic (1.05 to 1.19). That statistic reads a few
-    percent higher than the one the bound uses; by the bound's own reading the SMC session is at 0.97, so the bound
+    read at or over their records by `noise_plate_all.py`'s lag-8 statistic (1.05 to 1.19). That statistic reads several
+    percent higher than the one the bound uses (6 to 11 on the three sessions both were read on, #2231); by the bound's own reading the SMC session is at 0.97, so the bound
     lowers an SMC-kind session by about 3 %. The arm reaches the scored crowded rows barely, and mostly through what
     the model learns on the other kind of field.
   - **The question, with floor3 and core protection, against R4c:** the Tarantula's crowded flat at least 92.4 (R4c
@@ -7042,10 +7049,14 @@ the first angle is a step after the model and not another arm:
     40 tiles, 11 of them holding a block, and are replaced too: on the 29 tiles free of blocks the same statistic
     reads a median of 0.67 / 0.75 / 0.60 from the stored plate and 0.60 / 0.60 / 0.57 from the rule's, and a 90th
     percentile of 1.19 / 1.31 / 0.97 against 1.01 / 1.10 / 0.78, `tile_grain_clean.py`, #2289.)
-  - **Two more differences from R4d, both small, neither chosen.** (1) The export draws its nebula knots where the
-    plate's fine scales hold signal, so with the grain gone fewer are drawn in crowded sky: 27 knots over the
-    Tarantula session's 40 cells from the stored plate, 19 from the rule's. (2) R4d trained on the GTX 1070 and
-    this arm trains on the T4. R4a's two seeds, one on each machine, read 88.5 and 88.5 on the crowded flat.
+  - **Three more differences from R4d, none chosen; the first two are small.** (1) The export draws its nebula
+    knots where the plate's fine scales hold signal, so with the grain gone fewer are drawn in crowded sky: 27
+    knots over the Tarantula session's 40 cells from the stored plate, 19 from the rule's. (2) R4d trained on the
+    GTX 1070 and this arm trains on the T4. R4a's two seeds, one on each machine, read 88.5 and 88.5 on the
+    crowded flat.
+    (3) The exporter's defect below (added 2026-11-21 on the review's note, #2277): 11 of the Tarantula session's
+    40 cells carry a square of zeros in synth29, in the target and in all four inputs, and none in synth31. What
+    that alone moves on the crowded flat was not measured.
   - **A defect of the exporter found on the way** (read on synth29 and synth30; by the code it is in every export
     that lays its nebula knots along a steer): an elongated nebula knot laid along an orientation that is not a
     number is drawn as a square of NaN, 29 to 43 px, which the tile carries as zeros in the target and in all four
@@ -7458,8 +7469,10 @@ the first angle is a step after the model and not another arm:
     | | 5 and over | 0.7 % (155 stars) | 54.5, 35.3 | 76.0, 76.5 | -0.2 |
 
     So 4.8 of the 5.9 points are stars under twice their seeing threshold, and 4.0 are in the two densest fifths,
-    where the frame holds a catalogued star to every 3 to 10 pixels. From five times the threshold up our model
-    removes as many stars as the judge or more, and on the little bright background this frame has it removes more.
+    where the frame holds a catalogued star to every 2.5 to 10 square pixels (186 to 725 of them within 24 px, a
+    disc of 1,810 square pixels: one every 1.6 to 3.1 px along a line). From five times the threshold up our model
+    removes within 0.2 of a point of the judge's share or more (95.2 against 95.4 from 5 to 10, 97.6 against 93.6
+    over 10), and on the little bright background this frame has it removes more.
     The Andromeda master carries no PIXORIG = 1, so the script refuses it and this is the Tarantula alone.
     **Looked at** (the script's `--sheet`: six stars of the densest fifth, under twice their threshold, that the
     judge removed and ours left, 48 px at 6x, on the input's scale and then each panel about its own median). The
@@ -9191,8 +9204,8 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   taken were 0.81, 0.80, 0.87 on Lobster, 0.96 on Tempel and 0.97 on the SMC. Lobster's draws went from 1.30, 1.24, 1.19 to 1.08,
   1.01, 1.04 against real's 1.18, 1.11, 1.10 at a lag of 8 px: from 10 % over to 8 % under. Tempel's and the SMC's draws went
   from 1 to 2 % under real to 5 % under.
-- **What is left under real at 8 px, measured 2026-11-19: a third of it is the stars under 5 sigma, the rest is the
-  noise's shape.** The same five sessions exported with the default bound and `--faint-stars 3`, read at the same
+- **What is left under real at 8 px, measured 2026-11-19: about a fifth of it is the stars under 5 sigma, the rest
+  is the noise's shape.** The same five sessions exported with the default bound and `--faint-stars 3`, read at the same
   cells (`noise_paired.py`; difference noise at a lag of 8 px over the recorded sigma, R / G / B):
 
   | session | real master | draw, bounded | draw, bounded and faint stars | real plate | clean tile |
@@ -9204,8 +9217,11 @@ recorded stretch) and over the master's recorded sigma. Instruments: `training/s
   | SMC (2024-09-27) | 1.14 / 1.19 / 1.12 | 1.08 / 1.13 / 1.09 | 1.10 / 1.14 / 1.10 | 1.05 / 1.06 / 1.04 | 0.99 / 1.00 / 1.01 |
 
   The faint stars add 0.3 to 3 % to a draw (most on Lobster), and with them the draws stand 1 to 7 % under the real
-  tiles, 4 to 6 % on most rows, where the recorded level stood 10 % over on Lobster. The rest is not stars: the clean
-  tile (no star at all) reads 4 to 10 % under the real PLATE at this lag on every session, the sparse Tempel included,
+  tiles, 4 to 6 % on most rows, where the recorded level stood 10 % over on Lobster. Of the gap from the bounded draw
+  to the real master that is 0.22 of the 0.99 the table's fifteen cells sum to, a fifth: 6 % on Tempel and 19 to
+  31 % on the other four (as first written the heading said a third; these are the table's two-decimal figures).
+  The rest is not stars: the clean tile (no star at all) reads 3 to 9 % under the real PLATE at this lag on every
+  session (the table's figures, the SMC's blue the least; 4 to 10 as first written), the sparse Tempel included,
   while the two agree in the estimator's band (the frame less its 4 px low-pass). So the real noise holds more power
   at 8 px and beyond than the drawn noise does at equal fine-scale noise, which is the shape #1847 names (the drawn
   field's lag-1 is under real's too). The level is right where the estimator reads it; the shape is #1847's.

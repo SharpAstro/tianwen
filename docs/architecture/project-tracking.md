@@ -55,7 +55,7 @@ auto-invocable when the request matches, or via `/<name>`): `release-lib`, `rele
 `plan-report` workflow), `tick-todo` (close a backlog ISSUE, preferably through its PR, and update CLAUDE.md,
 the plan files and memory), `chrome-review` (runs the read-only `.claude/agents/chrome-review.md` reviewer, on
 Sonnet, over a branch's UI diff for layout arithmetic the engine should own). **It runs mechanically in CI**:
-`.github/workflows/chrome-review.yml` runs it on every non-draft PR whose diff touches `src/TianWen.UI.*`, keeps one
+`.github/workflows/chrome-review.yml` runs it on every non-draft PR whose diff touches a `.cs` or `.razor` file of the five UI projects (a push that leaves the UI and chrome-test diff unchanged is not reviewed again), keeps one
 comment on the PR with its report, and fails the check on a high-confidence finding. Until 2026-11-19 a Stop hook
 asked each session for it instead; of its 106 asks, 34 ran the agent and 20, mostly in pilot flight worktrees, were
 ignored and still counted as reviewed, so the ask moved to the one place every change passes.
