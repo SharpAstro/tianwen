@@ -133,7 +133,8 @@ public sealed class MasterAutoCropTests : IDisposable
         modelled.DeclinedTrim.ShouldNotBeNull();
         modelled.Rect.Height.ShouldBeLessThan(master.Height);
         modelled.Rect.Y.ShouldBeGreaterThan(0);
-        MasterAutoCrop.DescribeDeclined(modelled, rule).ShouldNotBeEmpty();
+        MasterAutoCrop.DescribeDeclined(modelled, rule).ShouldContain("top");
+        MasterAutoCrop.DescribeDeclined(viewed, MasterAutoCropRule.ForViewing).ShouldBeEmpty();
     }
 
     [Fact]
@@ -160,5 +161,23 @@ public sealed class MasterAutoCropTests : IDisposable
         scan.MarginIgnored.ShouldBeTrue();
         scan.Margin.ShouldBeNull();
         scan.Rect.ShouldBe(Whole(master));
+    }
+
+    [Fact]
+    public void AMarginInsetsTheCoverageTiersRectangleToo()
+    {
+        var master = NoiseFrame(256, 256, static (_, _) => 1.0);
+        var path = MasterPath();
+        var inner = new PixelRect(32, 48, 160, 144);
+        IntegrationFitsWriter.WriteCoverageMap(path, CoveragePlane(256, 256, inner), frameCount: 24);
+
+        var scan = MasterAutoCrop.Scan(master, path, MasterAutoCropRule.ForModel(0.0, margin: 0.05));
+
+        scan.FromCoverage.ShouldBeTrue();
+        scan.Margin.ShouldNotBeNull();
+        scan.Rect.X.ShouldBeGreaterThan(inner.X);
+        scan.Rect.Y.ShouldBeGreaterThan(inner.Y);
+        scan.Rect.Width.ShouldBeLessThan(inner.Width);
+        scan.Rect.Height.ShouldBeLessThan(inner.Height);
     }
 }

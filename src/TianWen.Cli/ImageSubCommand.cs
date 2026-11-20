@@ -569,8 +569,8 @@ internal sealed partial class ImageSubCommand(
     /// an enhancer reads the ring as structure, a stretch takes its statistics over pixels no exposure
     /// produced, and a preview renders the absent part black. <see cref="MasterAutoCrop"/>
     /// already answers this exactly -- the drizzle weight plane from the <c>.rejection.fits</c> sidecar
-    /// where one exists, <see cref="CoverageEdgeWalk"/> over the pixels otherwise -- and the viewer and
-    /// <c>tianwen stack</c> have both used it for months. Only the <c>image</c> verbs could not reach
+    /// where one exists, <see cref="CoverageEdgeWalk"/> over the pixels otherwise -- and the viewer has
+    /// used it for months. Only the <c>image</c> verbs could not reach
     /// it, so every caller outside those two re-invented the trim and got it wrong: a fixed
     /// "more than 2 percent absent" rule cannot see this edge at all, because these masters are absent
     /// about 1 percent EVERYWHERE from interior drizzle holes. On the HIP 80609 ASI533 master the left
@@ -627,7 +627,7 @@ internal sealed partial class ImageSubCommand(
             "Crop a master to the rectangle its subs actually covered. Prefers the drizzle weight plane "
             + "from the <master>.rejection.fits sidecar, which states the covered area outright, and falls "
             + "back to the coverage edge walk over the pixels. The same scan the FITS viewer's auto-crop "
-            + "and `tianwen stack` use. The WCS is translated with the crop, so the output still solves.")
+            + "uses. The WCS is translated with the crop, so the output still solves.")
         {
             Arguments = { inputArg },
             Options = { outputOpt, dryRunOpt, marginOpt, trimDeclinedOpt },

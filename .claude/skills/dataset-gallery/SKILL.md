@@ -111,7 +111,7 @@ VERB: `image autocrop`, `image deblur` and `image denoise` all exist because thi
 **autocrop, and BEFORE the enhance.** A bake master is a union canvas whose border is partial
 coverage. An enhancer reads the ring as structure, a stretch takes statistics over pixels no exposure
 produced, and a preview renders the absent part black. `image autocrop` calls the viewer's own
-`ViewerActions.ScanForCrop`, so the gallery and the viewer crop identically.
+`MasterAutoCrop.Scan`, so the gallery and the viewer crop identically.
 
 **`--margin`, because this crop feeds a model.** The edge walk REFUSES an edge whose band never
 settles, which is right for a viewer and wrong here: a refusal keeps the ramp and GraXpert then fits
