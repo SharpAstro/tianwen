@@ -21,6 +21,13 @@ name: Chrome review
 # the default branch's: it logs "Workflow validation failed", ends its step as a success and writes nothing (seen on
 # #2307, whose check then read "the review did not finish"). The check says so in words and fails. The way out is a PR
 # of its own for the workflow change: one that touches no UI file starts no review at all.
+#
+# A run can also end before the model answered, and then the action's log holds no reason at all (#2318, run 44812002769
+# on #2307: is_error true after 399 ms, one turn, total_cost_usd 0, empty modelUsage). The count step reads those fields
+# off the last result of the execution file and, when no tokens were used, says the run ended before the model answered
+# (a refused OAuth token or a usage limit on the subscription, not a review of the diff), with the CLI's own text when
+# it has any. The execution file is kept as the run artifact chrome-review-execution for 7 days, so the refusal's real
+# text can be read when the comment cannot show it.
 
 on:
   pull_request:
@@ -157,14 +164,27 @@ jobs:
             # The action sets its output only on success, so the file is also looked for where it always writes it.
             log="${EXECUTION_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
             why=""
+            noanswer=false
             if [ -s "$log" ]; then
               why="$(jq -r '[.[] | select(.type == "result")] | last | (.result // ((.errors // []) | join("; "))) // ""' "$log" 2>/dev/null \
                 | tr '\r\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' | cut -c1-300)"
+              # A run that cost nothing and used no model never reached the model (#2318: 399 ms, one turn, cost 0,
+              # empty modelUsage, is_error true, and nothing in the log).
+              stats="$(jq -r '[.[] | select(.type == "result")] | last // {} | "\(.num_turns // 0) \(.total_cost_usd // 0) \((.modelUsage // {}) | length)"' "$log" 2>/dev/null || true)"
+              read -r turns cost models <<< "${stats:-0 0 0}"
+              echo "last result: turns $turns, cost $cost, models used $models"
+              if [ "$models" = "0" ] && [ "${cost%%.*}" = "0" ] && ! printf '%s' "$cost" | grep -q '[1-9]'; then
+                noanswer=true
+              fi
             fi
             echo "no report; the agent's last word: ${why:-none kept}"
             # The reason says whose words it is here, where that is known: the comment and the check print it as it
             # stands, and the workflow's own reason below would otherwise read as the agent's.
-            echo "why=${why:+the agent said: $why}" >> "$GITHUB_OUTPUT"
+            if [ "$noanswer" = "true" ]; then
+              echo "why=the run ended before the model answered (${turns:-0} turn(s), no tokens used): a refused OAuth token or a usage limit on the subscription, not a review of the diff${why:+; the CLI said: $why}" >> "$GITHUB_OUTPUT"
+            else
+              echo "why=${why:+the agent said: $why}" >> "$GITHUB_OUTPUT"
+            fi
             echo "finished=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           high="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*high[[:space:]]*$' "$OUT/report.md" || true)"
@@ -186,6 +206,17 @@ jobs:
           fi
           echo "finished=true" >> "$GITHUB_OUTPUT"
           echo "high=$high" >> "$GITHUB_OUTPUT"
+
+      # The action's execution file, kept when the review did not finish: its last result holds the CLI's own text for a
+      # run that ended before the model answered, which the action's log leaves out (#2318).
+      - name: Keep the execution file
+        if: ${{ !cancelled() && steps.count.outputs.finished == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-review-execution
+          path: ${{ runner.temp }}/claude-execution-output.json
+          retention-days: 7
+          if-no-files-found: ignore
 
       # One comment per PR, edited in place on each run, so a PR does not collect a comment per push. Not on a
       # cancelled run: a push that supersedes a running review would overwrite the comment with "did not finish" for
@@ -210,7 +241,7 @@ jobs:
             body="$(printf '<!-- chrome-review fp:%s high:%s -->\n### Chrome review of %s\n\n%s\n' "$FP" "$HIGH" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
           else
             body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish%s; see the run: %s\n' "${SHA:0:7}" \
-              "${WHY:+ ($WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+              "${WHY:+ ($WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (the action's execution file is kept there as the artifact chrome-review-execution, for 7 days)")"
           fi
           id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].id // empty')"
