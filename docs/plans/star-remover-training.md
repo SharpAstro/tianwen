@@ -7314,6 +7314,38 @@ the first angle is a step after the model and not another arm:
     box; which of the two was not separated. For the table above that splits the Tarantula's crowded gap of 4.8
     points: 2.3 is a level at 31 px and over, and the 2.3 between 15 and 31 px is partly the level and partly
     faint stars the judge removed and ours left.
+  - **Where those six points are** (`gaia_where.py`, the Tarantula's 21,903 stars of BP 17-19 seen, the level set
+    aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9).
+
+    | split | bin | share of the stars | judge | R4d | the bin's part of the 5.9 points |
+    |---|---|---|---|---|---|
+    | the star's excess over its seeing threshold | 1.0 to 1.5 | 21 % | 96.3 | 81.3 | 3.2 |
+    | | 1.5 to 2 | 17 % | 97.2 | 87.7 | 1.6 |
+    | | 2 to 3 | 22 % | 97.9 | 92.9 | 1.1 |
+    | | 3 to 5 | 19 % | 97.2 | 95.3 | 0.4 |
+    | | 5 to 10 | 11 % | 95.4 | 95.2 | 0.0 |
+    | | 10 and over | 10 % | 93.6 | 97.6 | -0.4 |
+    | catalogued stars within 24 px, in fifths | 6 to 51 | 20 % | 98.7 | 94.0 | 0.9 |
+    | | 52 to 105 | 20 % | 95.4 | 92.8 | 0.6 |
+    | | 106 to 185 | 20 % | 94.7 | 92.5 | 0.4 |
+    | | 186 to 298 | 20 % | 97.1 | 90.8 | 1.3 |
+    | | 299 to 725 | 20 % | 97.1 | 83.6 | 2.7 |
+    | background over the frame's sky, local rms | under 2 | 62 % | 98.3 | 94.5 | 2.3 |
+    | | 2 to 5 | 38 % | 94.7 | 84.9 | 3.7 |
+    | | 5 and over | 0.7 % (155 stars) | 54.5, 35.3 | 76.0, 76.5 | -0.2 |
+
+    So 4.8 of the 5.9 points are stars under twice their seeing threshold, and 4.0 are in the two densest fifths,
+    where the frame holds a catalogued star to every 3 to 10 pixels. From five times the threshold up our model
+    removes as many stars as the judge or more, and on the little bright background this frame has it removes more.
+    The Andromeda master carries no PIXORIG = 1, so the script refuses it and this is the Tarantula alone.
+    **Looked at** (the script's `--sheet`: six stars of the densest fifth, under twice their threshold, that the
+    judge removed and ours left, 48 px at 6x, on the input's scale and then each panel about its own median). The
+    judge's panels are a dark, even floor with fine noise. Ours hold the field's light as soft lumps 5 to 15 px
+    across (their height was not measured here), and in one of the six the core of a brighter star with a streak. The "star left"
+    at the centre is one of those lumps: in such a field the faint stars are the background, so removing them and
+    taking the carpet's light are one act, and the split of level from stars above is clean only at 31 px. What
+    our plate shows there is neither of the two consistent pictures: not the judge's dark floor, and not a smooth
+    glow at the carpet's level, which is what the rule of 2026-10-23 asks for and what R4f's targets hold.
   - **Looked at** (`judge_broad_look.py`: the 400 px box where the judge's broad take beyond ours is largest, at
     1:1 through the master's stretch). There our plate's median level stands 1.60 sigma over the judge's and the
     diagnostic plate's 0.00; that sigma is the crop's own, of the master's green channel, and not
