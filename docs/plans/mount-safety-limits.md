@@ -750,6 +750,13 @@ Driven through the SDL inspector against `tianwen-gui`; every finding below was 
    by `VerdictFor` above. Two wordings fixed on the way: `Describe()` ended with a period the watcher's
    log line then doubled, and the latched verdict said "Will warn only" about a mount it had just stopped
    -- `MountLimitVerdict.Latched` (also on the wire, optional) makes it say the limit has already acted.
+4. **A mount that cannot be stopped was said to have stopped (#1483).** The SkyGuider Pro has no tracking-off, and
+   its driver took the limit's "stop tracking" and did nothing: the verdict read "Will stop tracking" and then
+   "tracking is stopped" on the Home card and the toast while the tracker turned on towards the limit. The driver
+   refuses the call now, both limit paths ask `CanSetTracking` first, and the verdict carries
+   `MountCannotBeStopped` (also on the wire, optional; `MountLimits.CannotBeStopped`): true where the mount cannot
+   stop tracking and the configured response does not park it. Its sentence then says the mount is still turning
+   and has to be stopped at the mount. Nothing stops such a mount; the limit can only say so.
 
 ## Carried over from the 2026-08-29 handoff notes
 
