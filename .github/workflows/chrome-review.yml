@@ -102,6 +102,7 @@ jobs:
           fi
 
       - name: Run the chrome-review agent
+        id: agent
         if: ${{ steps.fingerprint.outputs.same != 'true' && steps.fingerprint.outputs.own_workflow != 'true' }}
         uses: anthropics/claude-code-action@v1
         with:
@@ -130,8 +131,22 @@ jobs:
       - name: Count the findings
         id: count
         if: ${{ !cancelled() && steps.fingerprint.outputs.same != 'true' && steps.fingerprint.outputs.own_workflow != 'true' }}
+        env:
+          EXECUTION_FILE: ${{ steps.agent.outputs.execution_file }}
         run: |
           if [ ! -s "$OUT/report.md" ]; then
+            # Why there is no report: the agent's own last word, which the action keeps out of the log. When the run
+            # never reached the model (a token that is no longer taken, a usage limit) it is the CLI's error, and
+            # without it the check only says "did not finish" (#2307's two runs ended in 0.2 s with no reason shown).
+            # The action sets its output only on success, so the file is also looked for where it always writes it.
+            log="${EXECUTION_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
+            why=""
+            if [ -s "$log" ]; then
+              why="$(jq -r '[.[] | select(.type == "result")] | last | (.result // ((.errors // []) | join("; "))) // ""' "$log" 2>/dev/null \
+                | tr '\r\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' | cut -c1-300)"
+            fi
+            echo "why=$why" >> "$GITHUB_OUTPUT"
+            echo "no report; the agent's last word: ${why:-none kept}"
             echo "finished=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           high="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*high[[:space:]]*$' "$OUT/report.md" || true)"
@@ -159,6 +174,7 @@ jobs:
           FINISHED: ${{ steps.count.outputs.finished }}
           HIGH: ${{ steps.count.outputs.high }}
           OWN_WORKFLOW: ${{ steps.fingerprint.outputs.own_workflow }}
+          WHY: ${{ steps.count.outputs.why }}
         run: |
           if [ "$OWN_WORKFLOW" = "true" ]; then
             body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\n%s\n' "${SHA:0:7}" \
@@ -166,8 +182,8 @@ jobs:
           elif [ "$FINISHED" = "true" ]; then
             body="$(printf '<!-- chrome-review fp:%s high:%s -->\n### Chrome review of %s\n\n%s\n' "$FP" "$HIGH" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
           else
-            body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish; see the run: %s\n' "${SHA:0:7}" \
-              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+            body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish%s; see the run: %s\n' "${SHA:0:7}" \
+              "${WHY:+ (the agent said: $WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
           fi
           id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].id // empty')"
@@ -190,6 +206,7 @@ jobs:
           REVIEWED_HIGH: ${{ steps.fingerprint.outputs.high }}
           FINISHED: ${{ steps.count.outputs.finished }}
           COUNTED_HIGH: ${{ steps.count.outputs.high }}
+          WHY: ${{ steps.count.outputs.why }}
         run: |
           if [ "$SAME" = "true" ]; then
             high="$REVIEWED_HIGH"
@@ -198,7 +215,7 @@ jobs:
           elif [ "$FINISHED" = "true" ]; then
             high="$COUNTED_HIGH"
           else
-            echo "::error::The review did not finish, or its report names no finding and does not say there are none."; exit 1
+            echo "::error::The review did not finish, or its report names no finding and does not say there are none.${WHY:+ The agent said: $WHY}"; exit 1
           fi
           echo "high $high"
           if [ "$high" -gt 0 ]; then
