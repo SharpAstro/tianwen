@@ -27,11 +27,13 @@ public class LightGradeReferenceStoreTests(ITestOutputHelper output) : IDisposab
     /// <summary>
     /// #1989: a live session loads these references and the expected-sky models from its external's app data
     /// (<c>Session.Imaging</c>), and every session test builds that external with no root of its own
-    /// (<c>SessionTestHelper</c>). It has to fall under the test run's own temp: read off the machine's real
+    /// (<c>SessionTestHelper</c>). It has to fall under the tests' own root (<c>TestRunTemp.Root</c>, the folder that
+    /// holds every test-owned folder; not one run's own, which is <c>TestRunTemp.Run</c>): read off the machine's real
     /// <c>Viewer/clear-sky.json</c>, a session test's cloud verdict would depend on the nights somebody looked at there.
+    /// The same is held through the helper itself in <c>SessionCloudTests</c>.
     /// </summary>
     [Fact]
-    public void ATestsExternalKeepsTheReferencesUnderTheTestRunsOwnTemp()
+    public void ATestsExternalKeepsTheReferencesUnderTheTestsRoot()
     {
         var external = new FakeExternal(output);
         var temp = System.IO.Path.GetFullPath(TestRunTemp.Root) + System.IO.Path.DirectorySeparatorChar;
