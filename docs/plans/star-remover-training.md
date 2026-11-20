@@ -7682,6 +7682,50 @@ the first angle is a step after the model and not another arm:
       channel is 1.5 times the shallowest at the median and twice or more on 22. The export stretches each
       session with its master's numbers, so every session trained at the strength and balance its darkest
       pixels happened to give it.
+    - **A black point a fixed number of noise sigma under each channel's sky, tried at inference** on R4d as it
+      is, no retrain (`stretch_depth_set.py`; 3 to 5 samples a frame). The share taken at 8-22 / 22-40 / 40-60 /
+      60-80 px:
+
+      | | 2022-01-05 as it is | at 60 sigma | at 120 sigma | 2022-01-04 as it is | at 60 sigma | at 120 sigma |
+      |---|---|---|---|---|---|---|
+      | Alcyone | 17 / 7 / 5 / 7 | 67 / 48 / 37 / 32 | 89 / 69 / 52 / 39 | 82 / 69 / 59 / 61 | 81 / 57 / 45 / 35 | 93 / 69 / 52 / 42 |
+      | Maia | 55 / 24 / 6 / 3 | 92 / 56 / 26 / 26 | 96 / 69 / 47 / 44 | 97 / 84 / 79 / 96 | 95 / 54 / 36 / 41 | 97 / 69 / 54 / 47 |
+      | Merope | 74 / 41 / 11 / 4 | 87 / 60 / 35 / 23 | 94 / 72 / 50 / 35 | 98 / 91 / 94 / 117 | 94 / 71 / 51 / 32 | 96 / 77 / 55 / 39 |
+      | Taygeta | 94 / 69 / 34 / 9 | 96 / 75 / 58 / 44 | 97 / 82 / 59 / 43 | 98 / 88 / 74 / 69 | 97 / 79 / 62 / 52 | 97 / 84 / 63 / 41 |
+
+      The two nights read alike at either depth, to within a few points at 120 sigma. Nothing is taken beyond
+      StarXTerminator's take any more (Merope of 2022-01-04 at 100 to 120 px: 212 percent as it is, 32 and 64),
+      and the colour holds: Alcyone of 2022-01-04 keeps 50 / 59 / 52 percent of her light at 40 to 60 px in R /
+      G / B at 120 sigma, and 49 / 58 / 51 the next night, against 43 / 69 / 33 as it is. Looked at (Merope on
+      both nights and Alcyone, 512 px at 1:1): the two nights' plates are alike, the nebula blue-grey with its
+      streaks, and where the star was a faint ring with a green tinge and a small dark pit. So a black point that
+      does not hang on one pixel makes the model's answer the same on both nights without a retrain; what it does
+      to the scorecard's rows is the read registered next.
+  - **The black point's read on the scoring masters, registered 2026-11-20 before any score of it.** No training
+    and no arm: R4d as it is, on the three scoring masters written with every channel's minimum at its median less
+    60 and less 120 noise sigma (`stretch_depth_set.py`), as trained and through the product's chain (protection
+    without the stars, then floor5), scored as every arm is.
+    - **The question:** do the scorecard's rows hold at a black point that mends the bright stars? Through the
+      chain, R4g's guards: the Tarantula's crowded flat at least 90.3 (R4d 91.3), the Sagittarius crowded flat at
+      least 96.3, Andromeda's dark flat at least 95 with at most 3 dug, the Tarantula's dark flat at least 91,
+      purity at most 1.0 %, the light taken from the Tarantula field at most 83 % and 84 %; and Gaia BP 17-19
+      with the level set aside at least 89.7 (R4d 90.7, a point under it).
+    - **Nebula guards, as trained** (R4g's): light added on at most 1.0 % of each master's nebula; of the
+      brightest tenth of the Tarantula's peaks at least 11 of 77 standing; and the Lagoon's broad light taken no
+      more than R4d's 2.67.
+    - **What is expected.** The bright stars gain, as on the Pleiades. The star rows are the risk: a softer stretch
+      puts faint stars nearer the sky in the model's input, so the crowded flats and BP 17-19 may fall. The
+      nebula rows may move either way, and no direction is predicted.
+    - **Reading.** A depth at which every row above holds is put to the owner as a candidate for the product's
+      black point and for the domain of a retrain. A depth at which a guard fails is not. If both fail, the rule
+      as tried is no product step and the black point goes to a retrain alone. Nothing is adopted by this read.
+    - **Reported, no bar:** every scorecard row beside R4d's as it is; the three masters' own depths; the
+      twenty-four stars of `bright_star_list.tsv` at each depth, as trained, and the uncertain star's two rows.
+    - **Not read here:** the rows scored on validation tiles (M42, the SMC, the counts by sigma). The tiles carry
+      the export's stretch, so they are read only once a depth has held on the whole masters.
+    - **Looked at before the rows are quoted:** the Lagoon's core, 30 Doradus's core, the Tarantula's crowded
+      field and knots, M31's nucleus and a bright star on dark sky, at each depth beside R4d as it is and
+      StarXTerminator.
   - **Looked at** (the sheets, 512 px at 1:1: master / StarXTerminator / R4d as trained / R4d through the chain,
     all twenty-four). StarXTerminator leaves a smooth field on every one, and Merope's and Maia's nebulae with
     their streaks intact. Ours leaves:
