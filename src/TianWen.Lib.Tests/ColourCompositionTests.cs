@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -104,7 +105,19 @@ public class ColourCompositionTests(ITestOutputHelper output)
         // image continuum --dry-run --line ha_deblur.fits --continuum red_linearfit_deblur.fits (the number carried by hand)
         var k = ContinuumSubtractor.FlattestResidualScale(deblurred[3], deblurred[0]).K;
         // image remove-stars (all four, one scale); core protection is its default, as it is in the recipe's own splits
-        var (starless, stars, _, _) = await NarrowbandCombination.SplitStarsAsync(deblurred, remover, ExtendedCoreMask.Options.Default, fillDigs: true, ct);
+        var (starless, stars, cores, _) = await NarrowbandCombination.SplitStarsAsync(deblurred, remover, ExtendedCoreMask.Options.Default, fillDigs: true, ct);
+
+        // #2201: the parity at the end can notice a recipe that dropped core protection only if the protection changes
+        // THESE masters. It used to do so through one core that sat exactly on the edge rule's bar (edge distance 56
+        // against a reach of 56). The line master now carries its emission core at the frame's centre, clear of the
+        // reach, with a star inside it, and the protected split of it is not the unprotected one.
+        var lineCore = cores.ShouldNotBeNull()[3].Cores.OrderByDescending(static c => c.CoreAreaPx).First();
+        Math.Max(Math.Abs(lineCore.X - CoreX), Math.Abs(lineCore.Y - CoreY)).ShouldBeLessThanOrEqualTo(ExtendedCoreMask.BlockPx,
+            $"the line master's core is the emission blob at the centre, found at ({lineCore.X}, {lineCore.Y})");
+        var (unprotected, _, _, _) = await NarrowbandCombination.SplitStarsAsync(deblurred, remover, protectCores: null, fillDigs: true, ct);
+        LargestDifference(starless[3], unprotected[3], CoreX, CoreY, reach: 6).ShouldBeGreaterThan(50f,
+            "inside the core the protected plate keeps what the remover took as a star, so it differs from the unprotected one");
+
         starless = [RoundTrip(starless[0], dir, "r_s"), RoundTrip(starless[1], dir, "g_s"), RoundTrip(starless[2], dir, "b_s"), RoundTrip(starless[3], dir, "h_s")];
         stars = [RoundTrip(stars[0], dir, "r_st", mask: false), RoundTrip(stars[1], dir, "g_st", mask: false), RoundTrip(stars[2], dir, "b_st", mask: false)];
         // image add-line --broadband red_starless --line ha_starless --scale k
@@ -117,7 +130,12 @@ public class ColourCompositionTests(ITestOutputHelper output)
         var (luminance, _, _) = await SyntheticLuminance.BuildAsync(full, null, reference: 1, ct);
         luminance = RoundTrip(luminance, dir, "lum");
         // image remove-stars lum.fits; image denoise lum_starless.fits
-        var (luminanceStarless, _, _, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover, ExtendedCoreMask.Options.Default, fillDigs: true, ct);
+        var (luminanceStarless, _, luminanceCores, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover, ExtendedCoreMask.Options.Default, fillDigs: true, ct);
+        // The recipe's second protected split, pinned the same way as the first (#2201).
+        luminanceCores.ShouldNotBeNull()[0].Cores.ShouldNotBeEmpty("the luminance carries the nucleus the three channels share");
+        var (luminanceUnprotected, _, _, _) = await NarrowbandCombination.SplitStarsAsync([luminance], remover, protectCores: null, fillDigs: true, ct);
+        LargestDifference(luminanceStarless[0], luminanceUnprotected[0], CoreX, CoreY, reach: 6).ShouldBeGreaterThan(0f,
+            "inside the core the protected luminance is not the unprotected one");
         var luminanceDenoised = RoundTrip((await NarrowbandCombination.DenoiseAsync([RoundTrip(luminanceStarless[0], dir, "lum_s")], denoiser, options.DetailDenoise, ct))[0], dir, "lum_s_dn");
         // image denoise --colour --strength 0.5 red_line.fits green_starless.fits blue_starless.fits
         var colour = await NarrowbandCombination.DenoiseColourAsync(redLine, starless[1], starless[2], denoiser, options.ColourDenoise, ct);
@@ -165,18 +183,41 @@ public class ColourCompositionTests(ITestOutputHelper output)
         NarrowbandCombination.LineToBroadband(line.ImageMeta, fitted.ImageMeta).ShouldBe(0.5 * fit.Slope, 1e-9);
     }
 
+    // Where a line master's emission blob sits: the frame's centre, 80 px from every border, so the core found on it is
+    // clear of ExtendedCoreMask's 56 px edge reach instead of on it (#2201).
+    private const int CoreX = Size / 2, CoreY = Size / 2;
+
+    // The largest difference between two plates within `reach` px of a point.
+    private static float LargestDifference(Image a, Image b, int cx, int cy, int reach)
+    {
+        var most = 0f;
+        for (var y = cy - reach; y <= cy + reach; y++)
+        {
+            for (var x = cx - reach; x <= cx + reach; x++)
+            {
+                var d = MathF.Abs(a[0, y, x] - b[0, y, x]);
+                if (d > most)
+                {
+                    most = d;
+                }
+            }
+        }
+        return most;
+    }
+
     // A field of stars in one colour over a sky, with a broad nebula and, for a line master, an emission blob; exposure
-    // 900 s for broadband, 1800 s for the line.
+    // 900 s for broadband, 1800 s for the line. The 141st star is not drawn at random: it sits 2 px from the blob's
+    // centre, so a line master always has a star inside its core.
     private static Image Master(double colour, double sky, double noise, double line, int seed)
     {
         var field = new Random(42);
         var rng = new Random(seed);
         var plane = new float[Size, Size];
-        for (var s = 0; s < 140; s++)
+        for (var s = 0; s < 141; s++)
         {
-            var cx = 6 + (field.NextDouble() * (Size - 12));
-            var cy = 6 + (field.NextDouble() * (Size - 12));
-            var flux = colour * (4000 + (field.NextDouble() * 50000));
+            var cx = s == 140 ? CoreX + 2.0 : 6 + (field.NextDouble() * (Size - 12));
+            var cy = s == 140 ? CoreY - 1.0 : 6 + (field.NextDouble() * (Size - 12));
+            var flux = s == 140 ? colour * 40000 : colour * (4000 + (field.NextDouble() * 50000));
             var norm = flux / (2 * Math.PI * 1.3 * 1.3);
             for (var y = Math.Max(0, (int)cy - 6); y < Math.Min(Size, (int)cy + 7); y++)
             {
@@ -191,7 +232,9 @@ public class ColourCompositionTests(ITestOutputHelper output)
             for (var x = 0; x < Size; x++)
             {
                 var nebula = 150 * colour * Math.Exp(-(((x - 70) * (x - 70)) + ((y - 90) * (y - 90))) / 2500.0);
-                var emission = line * Math.Exp(-(((x - 100) * (x - 100)) + ((y - 60) * (y - 60))) / 900.0);
+                // The blob is in every master (a galaxy's nucleus in the broadband ones, with the line's emission on top in
+                // a line master), so the luminance made of the broadband three carries a core as well.
+                var emission = (line + (900 * colour)) * Math.Exp(-(((x - CoreX) * (x - CoreX)) + ((y - CoreY) * (y - CoreY))) / 900.0);
                 plane[y, x] += (float)(sky + nebula + emission + (noise * Gaussian(rng)));
             }
         }
