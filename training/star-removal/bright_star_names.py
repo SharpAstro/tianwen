@@ -4,7 +4,9 @@
 
 Per row: the pixel through the master's WCS (its SIP terms included), and the nearest of a short table of bright stars
 with the distance in arc minutes. The table holds only the stars the census's fields can contain; a row farther than an
-arc minute from all of them is printed as UNNAMED. The check exists because the first write-up named the stars after
+arc minute from all of them is printed as UNNAMED, which is what a row marked uncertain in the list's last column has to
+be (the star south of Merope, kept out of the count because its far ring may be nebula). The check exists because the
+first write-up named the stars after
 their sessions and by rank: the star it called HIP 80609 after its session is Antares, as is the one it called
 Ophiuchus, and the Pleiad it called the brightest is Maia."""
 import os, sys
@@ -33,8 +35,9 @@ for line in open(LIST, encoding="utf-8"):
     name, (nra, ndec) = min(NAMED.items(), key=lambda kv: np.hypot((kv[1][0] - ra) * np.cos(np.radians(dec)), kv[1][1] - dec))
     away = float(np.hypot((nra - ra) * np.cos(np.radians(dec)), ndec - dec)) * 60
     found = name if away <= 1.0 else "UNNAMED"
-    agrees = star.startswith(found + " ")
+    # A row the list marks uncertain carries no star's name (it is "south of Merope"), so it only has to be unnamed.
+    agrees = found == "UNNAMED" if len(p) > 5 and p[5] == "uncertain" else star.startswith(found + " ")
     wrong += not agrees
-    print(f"{star:24s} ({x:4d},{y:4d})  RA {ra:9.4f}  Dec {dec:8.4f}  {found:10s} {away:5.2f}'" + ("" if agrees else "   THE LIST SAYS OTHERWISE"))
+    print(f"{star:27s} ({x:4d},{y:4d})  RA {ra:9.4f}  Dec {dec:8.4f}  {found:10s} {away:5.2f}'" + ("" if agrees else "   THE LIST SAYS OTHERWISE"))
 print("every row's name agrees with its position" if wrong == 0 else f"{wrong} rows whose name and position disagree")
 sys.exit(1 if wrong else 0)
