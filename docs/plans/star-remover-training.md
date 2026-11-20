@@ -7122,6 +7122,28 @@ the first angle is a step after the model and not another arm:
     needs the flat at 93.3 or over with every guard held, and rows (1) and (2) missed beside such a flat go to
     the owner with the same crop, since they say the plate scores by level and still looks mottled. A guard
     failing is a kill, as registered.
+  - **Added 2026-11-20 evening, while the cache uploads and before any score: what the target itself reads, and
+    one guard it cannot hold.** The note above reasoned that the question reads mostly the level and may be missed
+    by a model that does what the arm is for. That was wrong, and the control is under "Corrected the same
+    evening: the crowded flat reads the lumps, not the level" below. `grain_rule_post.py` applies this arm's
+    target rule to R4d's own plate through the chain, so the plate holds what a perfect learner of the target
+    would write on the scoring masters. It reads the Tarantula's crowded flat at 97.8 (the question asks 93.3),
+    BP 17-19 with the level set aside at 96.6 (row (1) asks 93.5), the blotch line of the Tarantula's densest
+    cells at 0.12 (R4d 0.29, StarXTerminator 0.14), and every whole-master guard inside its bar (Andromeda dark
+    flat 100.0 with 0.0 dug, Tarantula dark flat 98.3, the glow's green median -32.0 and 98.8, the nucleus 0.0,
+    the Sagittarius crowded flat 99.7, the light taken from the Tarantula field 81 and 83 %) **except purity:
+    2.6 against the guard's 1.0.** Purity counts the stars layer's light away from every catalogued star. The
+    lumps this arm is meant to remove are such light, and a plate with only the judge's level taken reads 3.4 on
+    it, so the row cannot tell the level from the grain. An arm that does what it is for would be killed by that
+    guard as registered. **For this arm purity is therefore reported and is not a guard.** What it stood for
+    stays guarded by the light taken from the Tarantula field (at most 83 and 84 %), which reads the level and
+    nothing else: 98 and 106 on the level-only plate and on StarXTerminator's, 81 and 83 on the rule plate. The
+    tiles' guards (by count, M42, the SMC) were not read on that plate. The nebula guard on light added stays as
+    registered: the rule plate reads 2.7 % on Andromeda and 4.3 % on the Tarantula there, but it draws fresh
+    noise, which by the row's own threshold (a 3 px mean over one pixel sigma) puts 1.7 % of smoothed pixels
+    over it by chance; a model draws none. The Lagoon's broad light on it is 2.04 (R4d through the chain 2.04)
+    and 17 of the Tarantula's 77 brightest peaks stand. Reported beside row (2) from now on: the scorer's blotch
+    line on the held-out Tarantula.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
     91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
@@ -7295,7 +7317,8 @@ the first angle is a step after the model and not another arm:
 
     With the judge's light at 15 px and over and our own finer scales, the plate reads the judge's crowded rows
     within 0.2 to 0.6 of a point. Half of the Tarantula's crowded gap is a level beyond 31 px and half lies
-    between 15 and 31 px (what that second half is made of is read below, with the level set aside). On Andromeda
+    between 15 and 31 px (what that second half is made of is read below, with the level set aside; and "a level"
+    is corrected further down: no part of the crowded flat's gap is the level). On Andromeda
     the difference runs the other way: there the judge leaves a glow round
     bright stars that ours takes, and the diagnostic plate inherits it.
   - **The same rows with the level set aside** (`gaia_compact.py`: the light taken in a star's 3 px disc less the
@@ -7314,7 +7337,8 @@ the first angle is a step after the model and not another arm:
     (ours less the judge's) passes part of the compact difference under a faint star, or of several inside one
     box; which of the two was not separated. For the table above that splits the Tarantula's crowded gap of 4.8
     points: 2.3 is a level at 31 px and over, and the 2.3 between 15 and 31 px is partly the level and partly
-    faint stars the judge removed and ours left.
+    faint stars the judge removed and ours left. (Corrected the same evening, below: the 2.3 points at 31 px are
+    not the level either. A plate with the level alone taken reads 91.4.)
   - **Where those six points are** (`gaia_where.py`, the Tarantula's 21,903 stars of BP 17-19 seen, the level set
     aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9).
 
@@ -7343,8 +7367,9 @@ the first angle is a step after the model and not another arm:
     judge removed and ours left, 48 px at 6x, on the input's scale and then each panel about its own median). The
     judge's panels are a dark, even floor with fine noise. Ours hold the field's light as soft lumps 5 to 15 px
     across (their height was not measured here), and in one of the six the core of a brighter star with a streak. The "star left"
-    at the centre is one of those lumps: in such a field the faint stars are the background, so removing them and
-    taking the carpet's light are one act, and the split of level from stars above is clean only at 31 px. What
+    at the centre is one of those lumps. (As first written this said that in such a field removing the faint
+    stars and taking the carpet's light are one act. They are two: the rule plate below removes the lumps at our
+    own level.) What
     our plate shows there is neither of the two consistent pictures: not the judge's dark floor, and not a smooth
     glow at the carpet's level, which is what the rule of 2026-10-23 asks for and what R4f's targets hold.
   - **Looked at** (`judge_broad_look.py`: the 400 px box where the judge's broad take beyond ours is largest, at
@@ -7362,17 +7387,62 @@ the first angle is a step after the model and not another arm:
   - **Far wings are not it** (`bright_star_rings.py`, #2292): round the twelve brightest stars of each scoring
     master the judge takes 1 to 4 sigma at 8 to 22 px and nothing a ring median sees beyond 22 px, and our models
     since R4c match it there. No scoring master holds a star like HIP 80609.
-  - **What follows.** (1) The crowded flat, BP 17-19, purity and the Tarantula's glow are not separate gaps: they
-    are one, the light of stars under about BP 17, and a remover is at the judge's figures only if it takes that
-    light. (2) Our rules say not to take all of it: the owner's decision of 2026-10-23 (unresolved glow belongs in
-    the starless image), the faint stars' cap, and the purity guard. The uncapped arm (R4d) drew at most 0.23 sigma
-    a pixel of such stars on a validation tile; the judge takes 0.5 to 1.2 on the Tarantula (`judge_broad.py`'s
-    per-channel medians above, each figure in its own image's pixel noise). (3) So either the rule stays, and then
-    the level's share of these rows cannot be reached by design (on the Tarantula's crowded flat at least the 2.3
-    points at 31 px and over), star removal is read with the level set aside and the grain under a bar of its
-    own, and what is left to gain is the faint stars' own removal, the six points at BP 17-19; or the rule
-    changes, and then an arm draws the carpet's stars to the faint end without the cap and the purity guard moves
-    to the judge's 3.1. That is the owner's decision. No arm is registered on it.
+  - **Corrected the same evening: the crowded flat reads the lumps, not the level** (two more plates, no
+    training). The reading above took the 15 and 31 px plates' gain on the crowded flat for the judge's level. The
+    control for that was missing. `judge_level.py` takes ONLY the level (ours less the judge's through a median of
+    about 100 px, so nothing under about 50 px changes). `grain_rule_post.py` does the opposite: it keeps our
+    level and smooths our plate with R4f's target rule (`plate_grain.py`: in crowded sky, where the detail between
+    7 and 31 px is weak, the 31 px glow plus pixel noise; the crowding is read off the input's compact peaks,
+    calibrated against the plate builder's own counts on five store sessions with `grain_rule_density_cal.py`).
+
+    | row | R4d through the chain | the judge's level only | the judge's light at 31 px and over | at 15 px and over | our level kept, the grain rule | StarXTerminator |
+    |---|---|---|---|---|---|---|
+    | Tarantula crowded flat | 91.3 | 91.4 | 93.6 | 95.9 | 97.8 | 96.1 |
+    | Sagittarius crowded flat | 97.0 | 97.1 | 98.0 | 99.0 | 99.7 | 99.6 |
+    | Gaia BP 17-19, the scorer's row | 96.0 | 98.8 | 98.8 | 98.7 | 98.4 | 98.3 |
+    | Gaia BP 17-19, the level set aside | 90.7 | 90.6 | 91.2 | 93.0 | 96.6 | 96.6 |
+    | purity | 0.8 | 3.4 | 3.2 | 3.1 | 2.6 | 3.1 |
+    | light taken from the Tarantula field, densest tenth / whole frame, % | 81 / 82 | 98 / 106 | 97 / 105 | 97 / 104 | 81 / 83 | 98 / 106 |
+    | blotch-scale structure over the noise, the Tarantula's densest tenth | 0.29 | 0.29 | 0.29 | 0.26 | 0.12 | 0.14 |
+    | Tarantula dark flat / left | 96.5 / 2.7 | 96.5 / 2.7 | 96.9 / 2.4 | 97.0 / 2.5 | 98.3 / 1.5 | 96.6 / 2.7 |
+    | Andromeda dark flat / dug | 98.5 / 0.7 | 98.4 / 0.8 | 99.1 / 0.6 | 99.6 / 0.4 | 100.0 / 0.0 | 98.6 / 1.4 |
+
+    - **The level does not move the crowded flat.** The level-only plate takes 1.22 / 0.89 / 0.56 sigma a pixel on
+      the Tarantula, all of what the 15 and 31 px plates took, and the flat moves by 0.1. The level moves purity,
+      the light taken from the field and the scorer's BP 17-19 row, and `gaia_compact.py`'s row is blind to it
+      as meant (90.6).
+    - **The lumps are the gap.** The rule plate keeps our level (against R4d's plate at 31 px: median 0.00 sigma,
+      10th to 90th percentile -0.1 to +0.1; the light taken from the field 81 / 83 %) and reads both crowded flats
+      above the judge's and BP 17-19 with the level set aside at the judge's 96.6. Of `gaia_where.py`'s bins only
+      the densest fifth still trails by more than about a point (93.9 against 97.1). So the crowded flat reads structure between about 15
+      and 100 px between the stars; the 31 px plate gains its 2.3 points with the blotch line unmoved, so part of
+      that structure is wider than the blotch scale.
+    - **The scorer already reads the grain on the held-out master:** the blotch line of `remover_check2.py`'s log
+      (R4d 0.29, the judge 0.14), which no row carried.
+    - **Looked at** (1:1, `judge_broad_look.py` with the rule plate in the third panel, and `gaia_where.py`'s
+      sheet). The crowded field is a smooth glow at our level, but about a dozen star-shaped islands stand in a
+      400 px crop where the rule kept our plate's residue round brighter stars. At 30 Doradus's edge the faint
+      wisps outside the bright nebula are flattened, where the judge keeps them. M31's nucleus and dust lanes
+      are as ours. Of the faint stars of the densest fifth the judge removed, 106 are still left (R4d 439), each
+      a soft blob the rule kept. So the rule as a post step is a ceiling for the rows and not a product step as
+      it stands.
+    - **R4f's targets, looked at beside R4d's** (`target_pair_look.py`, the store's Tarantula session of
+      2024-10-02, the five cells whose target changed most): smooth in crowded sky with the nebula's knots kept
+      and no such islands (they are synthetic backgrounds steered by the plate, not the plate), a faint fine
+      ripple at six times the contrast. R4d's targets in those cells hold the grain and the knot defect's zero
+      blocks (#2276).
+  - **What follows** (as corrected; the first version said that with the rule of 2026-10-23 kept, the level's
+    share of these rows could not be reached by design, which the level-only plate refutes). (1) Two things
+    separate our plate from the judge's in crowded sky and they are separable: the LEVEL the judge takes, and the
+    LUMPS ours leaves between about 15 and 100 px. (2) The level moves purity, the light taken from the field and
+    the scorer's BP 17-19 row, and no flat row. Our rules say not to take it (the owner's decision of 2026-10-23,
+    the faint stars' cap), the field light guard holds it, and no star row needs it. (3) The lumps are the whole
+    gap of the crowded flats and the six points at BP 17-19 with the level set aside: a plate without them, at our
+    own level, reads the judge's rows or better. That is the grain R4f's targets no longer hold, so R4f is the
+    arm on it, and these rows ask no decision of the owner. (4) Purity cannot guard such an arm (R4f's
+    registration says what replaces it), and BP 17-19 is read with the level set aside. (5) Whether a product
+    step could do it classically is open: the rule as it is leaves islands and flattens faint nebulosity. No arm
+    and no step is registered on it.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
