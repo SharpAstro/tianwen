@@ -29,11 +29,15 @@ def sky_sigma(p):
     if CENTRE:
         return 1.4826 * float(np.median(np.abs(np.diff(p[H // 2 - 256:H // 2 + 256, W // 2 - 256:W // 2 + 256], axis=1)))) / np.sqrt(2)
     hh, ww = H // BLOCK * BLOCK, (W - 1) // BLOCK * BLOCK
-    d = np.abs(np.diff(p, axis=1))[:hh, :ww]
-    bad = ~np.isfinite(p[:hh, :ww]) | (p[:hh, :ww] == 0)
+    bad = ~np.isfinite(p) | (p == 0)
+    # A difference counts only when both of its pixels are there: a block whose last column borders a NaN ring would
+    # otherwise hand a NaN to its median, and one NaN block made the whole percentile NaN (the Ophiuchus master's ring).
+    d = np.where(bad[:, :-1] | bad[:, 1:], np.nan, np.abs(np.diff(p, axis=1)))[:hh, :ww]
     blocks = d.reshape(hh // BLOCK, BLOCK, ww // BLOCK, BLOCK).transpose(0, 2, 1, 3).reshape(hh // BLOCK, ww // BLOCK, -1)
-    whole = ~bad.reshape(hh // BLOCK, BLOCK, ww // BLOCK, BLOCK).any(axis=(1, 3))
-    return float(np.percentile(1.4826 * np.median(blocks, axis=2)[whole] / np.sqrt(2), 20))
+    whole = np.isfinite(blocks).all(axis=2)
+    if not whole.any():
+        sys.exit(f"FAILED: no {BLOCK} px block of {SRC} is free of the canvas ring, so there is no sky noise to set a depth by")
+    return float(np.percentile(1.4826 * np.median(blocks[whole], axis=1) / np.sqrt(2), 20))
 
 
 with fits.open(SRC) as h:
@@ -47,6 +51,8 @@ for c in range(C):
     ok = np.isfinite(p) & (p != 0)
     mn, med = float(p[ok].min()), float(np.median(p[ok]))
     sig = sky_sigma(p)
+    if not (np.isfinite(sig) and sig > 0):
+        sys.exit(f"FAILED: channel {c} of {SRC} gives a sky noise of {sig}; nothing was written")
     before.append((med - mn) / sig)
     want = med - K * sig
     if want < mn:
