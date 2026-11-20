@@ -568,8 +568,8 @@ internal sealed partial class ImageSubCommand(
     /// <para>A union canvas's border is partial coverage, and everything downstream is wrong over it:
     /// an enhancer reads the ring as structure, a stretch takes its statistics over pixels no exposure
     /// produced, and a preview renders the absent part black. <see cref="MasterAutoCrop"/>
-    /// already answers this exactly (the drizzle weight plane from the <c>.rejection.fits</c> sidecar
-    /// where one exists, <see cref="CoverageEdgeWalk"/> over the pixels otherwise), and the viewer has
+    /// already answers this exactly -- the drizzle weight plane from the <c>.rejection.fits</c> sidecar
+    /// where one exists, <see cref="CoverageEdgeWalk"/> over the pixels otherwise -- and the viewer has
     /// used it for months. Only the <c>image</c> verbs could not reach
     /// it, so every caller outside the viewer re-invented the trim and got it wrong: a fixed
     /// "more than 2 percent absent" rule cannot see this edge at all, because these masters are absent

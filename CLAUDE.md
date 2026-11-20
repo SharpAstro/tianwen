@@ -33,8 +33,9 @@ Full rules: `docs/architecture/project-tracking.md`.
 | `docs/known-limitations.md` | Root causes; read before "fixing" a suspected bug |
 | `CHANGELOG.md` | One section per `MAJOR.MINOR`, added in the same commit as a version bump |
 
-Skills are in `.claude/skills/<name>/SKILL.md` and listed by the session. A Stop hook asks for `chrome-review` once when a
-branch's `src/TianWen.UI.*` diff was not reviewed: answer with the agent, or one line saying the change carries no layout.
+Skills are in `.claude/skills/<name>/SKILL.md` and listed by the session. The `chrome-review` agent runs in CI on every
+non-draft PR that touches `src/TianWen.UI.*` (`.github/workflows/chrome-review.yml`) and fails the check on a
+high-confidence finding; run `/chrome-review` before marking a PR ready to see it first.
 
 ## Project Overview
 
