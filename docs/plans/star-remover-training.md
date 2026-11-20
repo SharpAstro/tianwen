@@ -7314,6 +7314,42 @@ the first angle is a step after the model and not another arm:
       stopped learning early. Two things would separate the target from the training: the same arm run again
       (another seed, or the same seed on the other machine), and a trainer that keeps the weights of its best
       step. Neither is registered, and both are the owner's.
+  - **R4f run again, registered 2026-11-21 before its launch and before any score of it (seed 1,
+    `r4f_synth31_s1`). Nothing is changed from R4f but the seed.** The owner, 2026-11-21, on the two things the
+    read names: "yeah lets rerun R4f". The cache is R4f's own, already in the container (`r2-synth31/cache`), so
+    no export is made. The recipe is R4f's (the Batch task's, with `--levels 4 --max-ch 256 --clip-grad 8`). The
+    trainer is R4f's frozen one plus `--save-best` only (PR #2329), which writes the weights of the best step
+    beside the last step's and changes nothing the run computes: on a tiny cache with the arm's switches the
+    frozen trainer without the patch, with it, and with it and the switch end on the same weights to the bit, and
+    the best file equals the weights of a run stopped at that step. One Batch run on a low-priority T4, capped
+    at 36 hours, whose pool removes itself.
+    - **The question.** Was R4f's training an accident of one run, or does this target with this recipe train
+      so? Only when it trains as the others did does the arm answer what R4f was registered to ask.
+    - **The training is read first, from the trainer's log alone, before any row is scored.** One figure, the
+      one R4f's read aligns the arms on: the median of the window means over the 60,000 steps after the first
+      halving (or to the stop, the length then stated), as a share of the median from step 30,000 to that
+      halving. R4d reads 0.50, R4e 0.47, R4c 0.48 and R4f 0.85. **0.60 or under: trained as the others.
+      0.75 or over: stalled again.** Between the two it is called neither, and the rows are reported with that
+      said.
+    - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
+      guards, its kill rule and its two added rows stand as its registration and its read list them (the
+      Tarantula's crowded flat through the product's chain 93.3 or over and killed under R4d's 91.3; BP 17-19
+      with the level set aside 93.5; the dense cells' grain as trained 0.6 of R4d's). The 1:1 sheets are looked
+      at before any row is quoted.
+    - **The best step's weights are a reported column and decide nothing.** They are scored on the same rows
+      and set beside the last step's. No arm before was read on a best step, so no bar or kill rule applies to
+      them.
+    - **What each outcome says.** Trained as the others and the crowded flat at its bar: the grain-free target
+      works, and seed 0 was an accident of its training. Trained as the others and killed again: the grain in
+      the target is not what holds the crowded fields, the answer R4f could not give. Stalled again: the stall
+      is this target's with this recipe (two seeds of two) and the rows judge the target no more than R4f's
+      did; what is then worth reading is the best step's column against R4d, and the next step is the
+      trainer's (why the objective breaks and does not come back), not another export.
+    - **Prediction, written before the launch.** It trains as the others (my guess, two chances in three: R4c,
+      R4d and R4e each differ from R4f by one change of the export and none broke; the earlier stalls this plan
+      records are arm B's seed 1, R2n and R3w). If
+      it does, the dense cells' grain as trained falls by a quarter or more against R4d's, and the crowded flat
+      rises over R4d's 91.3 but does not reach its bar of 93.3.
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
   the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
   2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
