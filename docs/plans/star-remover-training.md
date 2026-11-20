@@ -7199,9 +7199,10 @@ the first angle is a step after the model and not another arm:
     Doradus's core, cell 4,6, which carries no bar because two seeds of one recipe have stood 39 to 75 % apart on
     it (R4d 44.4 / 49.4 / 39.7, R4e 76.0 / 83.9 / 71.2); the twin error. Added 2026-11-20 while the cache
     uploaded: the bright stars of #2292, as trained and through the chain, the ring medians beside R4d's and
-    StarXTerminator's. As first written this was HIP 80609 alone, on a training session's master. Widened the
-    same evening, still before any score, to the eight stars of "A star that stands far out is left standing"
-    below; six of them are on masters no training cache holds, so on those the row is held-out evidence.
+    StarXTerminator's. As first written this was HIP 80609 alone, on the trainer's validation session's master
+    (`arms/r2-val.txt`). Widened the same evening, still before any score, to the eight stars of "A star that
+    stands far out is left standing" below, pinned in `training/star-removal/bright_star_list.tsv` (name, master,
+    x, y); seven of them are on masters no gradient step saw, so on those the row is held-out evidence.
   - **Looked at before the rows are quoted:** the Lagoon's core, 30 Doradus's core, the Tarantula's knots, a
     crowded Tarantula field, M31's nucleus and a bright star on dark sky, as trained and through the product's
     chain, beside R4d and StarXTerminator. The crowded field is where a pass should show (StarXTerminator's is
@@ -7306,7 +7307,8 @@ the first angle is a step after the model and not another arm:
     2026-11-20 while it trained, before any score: the Gaia rows with the level set aside (`gaia_compact.py`, R4d
     through the chain 90.7 at BP 17-19) and the bright stars of #2292 (first HIP 80609 alone, on a training
     session's master; widened the same evening, still before any score, to the eight stars of "A star that stands
-    far out is left standing" below, six of them on masters no training cache holds).
+    far out is left standing" below, pinned in `training/star-removal/bright_star_list.tsv`, seven of them on masters
+    no gradient step saw).
   - **Looked at before the rows are quoted:** the Lagoon's core with the picture of what was taken
     (`r4_taken.py`), 30 Doradus's core, the Tarantula's knots, M42's core on a validation tile, M31's nucleus and
     a bright star on dark sky, as trained and through the product's chain, beside R4d and StarXTerminator.
@@ -7488,25 +7490,36 @@ the first angle is a step after the model and not another arm:
     at 100 to 140 px. Looked at, all sixty (`bright_census_look.py`): most are nebula cores (M42, the Lagoon, eta
     Carinae, 30 Doradus), one is a globular cluster, some are bright stars inside reflection nebulosity. A ring's
     spread over eight sectors does not tell them apart (a spike spreads a star's ring as a nebula does), so the
-    sorting was by eye. **Isolated stars with a far halo: ten, in seven sessions.** HIP 80609's session (two
-    stars) and the Ophiuchus cloud's of 2024-05-28 (one) are in the training caches; Antares' field of 2023-05-15
-    (two), the Pleiades of 2022-01-04 and 2022-01-05 (three), the Horsehead's field of 2025-10-28 (Alnitak) and
-    the field south of M42 of 2025-10-15 (one) are in none (read off `r2-synth29`'s session list and the synth29
-    and synth31 exports). So five of the seven sessions are unseen by every model since R4d.
+    sorting was by eye. **Isolated stars with a far halo: at least ten, in at least seven sessions.** (A floor: the census takes
+    the four brightest peaks of each master, and where the fourth slot is itself a candidate, both Pleiades sessions
+    among them, a fifth star may be unread; `bright_census.py` with a larger stars-per-master count would settle
+    it and has not been run.) Of the seven: HIP 80609's session (two stars) is the trainer's VALIDATION session
+    (`arms/r2-val.txt`; the `meta.json` of both `r2-synth29` and `r2-synth31` list its three views under
+    `val_sessions` and none under `train_sessions`), so no gradient step saw it; the Ophiuchus cloud's of 2024-05-28
+    (one) is the only one of the seven in `arms/r2-train.txt`; Antares' field of 2023-05-15 (two), the Pleiades of
+    2022-01-04 and 2022-01-05 (three), the Horsehead's field of 2025-10-28 (Alnitak) and the field south of M42 of
+    2025-10-15 (one) are in neither list. All ten are pinned in `training/star-removal/bright_star_list.tsv` (master
+    file, x, y). The census sigma is the mean of the channels over a central 512 px crop and the table's is each
+    channel's own 300 to 400 px annulus, so a census cut of 5 and a table figure are not one unit (south of M42
+    reads 4.7 in the table and sits under the census cut).
   - **What each remover leaves** (`bright_star_sheet.py`: ring medians less the frame's sky, in the master's pixel
     sigma, red, at 8-22 / 40-60 / 100-120 px). R4d through the product's chain reads as R4d as trained to within
-    about a sigma on every ring.
+    about a sigma on every ring. The table has eight of the ten stars. Left out, NOT read yet and for no
+    other reason: HIP 80609's second star (x 2512, y 1826) and the Pleiades of 2022-01-04 (x 4180, y 774); they are
+    in `bright_star_list.tsv` marked "not read", and the R4f and R4g reads take them. The rows are the list's: "the
+    first" and "the second" of the Pleiades are both of 2022-01-05 (x 4239, y 588 and x 4525, y 1041), HIP 80609 is
+    read on its `flip=b` half (x 1367, y 2244) and the rest on the session's unflipped master.
 
-    | star | master | R4d | StarXTerminator | its session trains |
+    | star | master | R4d | StarXTerminator | its session in R2 |
     |---|---|---|---|---|
-    | HIP 80609 | 451 / 46.6 / 18.8 | 242 / 46.8 / 18.8 | 4.8 / 5.7 / 5.2 | yes |
-    | Ophiuchus | 442 / 26.0 / 4.9 | 98.7 / 25.6 / 5.0 | 0.7 / 0.4 / 0.8 | yes |
-    | Antares' field, the brighter | 590 / 36.8 / 7.0 | 98.5 / 35.1 / 6.7 | 2.9 / 3.2 / 3.5 | no |
-    | Antares' field, the fainter | 64.3 / 11.0 / 6.8 | 12.4 / 9.9 / 6.3 | 7.0 / 7.5 / 6.0 | no |
-    | Pleiades, the first | 1695 / 42.7 / 6.1 | 103 / 29.4 / 6.3 | 2.9 / 3.3 / 3.5 | no |
-    | Pleiades, the second | 720 / 22.8 / 6.2 | 33.6 / 17.1 / 6.3 | 3.6 / 3.9 / 3.4 | no |
-    | Alnitak | 529 / 30.0 / 5.3 | 17.1 / 11.6 / 5.3 | 0.9 / 1.3 / 2.9 | no |
-    | south of M42 | 194 / 11.1 / 4.7 | 12.4 / 7.5 / 4.5 | 3.1 / 3.2 / 3.2 | no |
+    | HIP 80609 | 451 / 46.6 / 18.8 | 242 / 46.8 / 18.8 | 4.8 / 5.7 / 5.2 | validation |
+    | Ophiuchus | 442 / 26.0 / 4.9 | 98.7 / 25.6 / 5.0 | 0.7 / 0.4 / 0.8 | train |
+    | Antares' field, the brighter | 590 / 36.8 / 7.0 | 98.5 / 35.1 / 6.7 | 2.9 / 3.2 / 3.5 | neither |
+    | Antares' field, the fainter | 64.3 / 11.0 / 6.8 | 12.4 / 9.9 / 6.3 | 7.0 / 7.5 / 6.0 | neither |
+    | Pleiades, the first | 1695 / 42.7 / 6.1 | 103 / 29.4 / 6.3 | 2.9 / 3.3 / 3.5 | neither |
+    | Pleiades, the second | 720 / 22.8 / 6.2 | 33.6 / 17.1 / 6.3 | 3.6 / 3.9 / 3.4 | neither |
+    | Alnitak | 529 / 30.0 / 5.3 | 17.1 / 11.6 / 5.3 | 0.9 / 1.3 / 2.9 | neither |
+    | south of M42 | 194 / 11.1 / 4.7 | 12.4 / 7.5 / 4.5 | 3.1 / 3.2 / 3.2 | neither |
 
     At 100 to 120 px our model takes nothing from any of the eight: the ring reads the master's. At 40 to 60 px
     it takes between nothing and two thirds. Inside 22 px it leaves 12 to 242 sigma where StarXTerminator leaves 1
@@ -7517,13 +7530,20 @@ the first angle is a step after the model and not another arm:
     on the stars taken through a camera lens (Antares' field, Ophiuchus, HIP 80609: the many spikes of an iris), a
     core with four spikes and dark pits on the Pleiades, and a faint smudge with a pit on Alnitak, which has no
     spikes. Smaller bright stars in the same crops are removed.
-  - **What follows.** (1) The reach of our model ends where the injector's halo ends:
-    `InjectionPopulation.PlateHaloReachPx` is 45, and the injector draws no spikes. The truth plates keep spikes
-    by design (`ClassicalStarRemover`, "spikes are left whole") and cut the halo flat near 120 px. (2) Such stars
-    are rare (7 of 150 sessions, 2 of them in the training caches, and a session's 40 drawn cells rarely hold its
-    one such star), so more data will not teach it; it has to be drawn, a far wing to a few hundred pixels and
-    the spikes. (3) The scoring masters hold no such star, so no row of the scorecard reads this. Since this
-    evening every arm's read runs these eight stars beside R4d and StarXTerminator. (4) Nothing is registered on
+  - **What follows.** (1) The likely cause, inferred and not measured: the reach of our model ends near where
+    the injector's halo ends (`InjectionPopulation.PlateHaloReachPx` is 45, and the injector draws no spikes). The
+    table does not show one reach: R4d keeps all of the 40 to 60 px excess on HIP 80609 (46.6 to 46.8) and
+    Ophiuchus (26.0 to 25.6) and nearly all on the brighter Antares star (36.8 to 35.1), and takes 25 to 61 percent
+    on the others, and the 22 to 40 px ring is never read, so the reach looks star dependent and shorter than 45 px
+    on three of eight. The truth plates keep spikes by design (`ClassicalStarRemover`, "spikes are left whole") and
+    cut the halo flat near 120 px, a second candidate cause. A halo injected past 45 px and read the same way would
+    separate the two; it has not been run. (2) Such stars are rare (at least 7 of 150 sessions, one of them,
+    Ophiuchus, in the training set, and a session's 40 drawn cells rarely hold its one such star), so more data is
+    unlikely to teach it; that rests on the census not having missed stars (the cap above) and, with one trained
+    session where two were counted, on less evidence than first written: it has not been tested by adding
+    sessions. If it holds, it has to be drawn, a far wing to a few hundred pixels and the spikes. (3) The scoring masters hold no such star, so no row of the scorecard reads this. R4f's and R4g's
+    reads are registered to run the ten stars of `bright_star_list.tsv` beside R4d and StarXTerminator (the list pins
+    their inputs; the eight read so far are the table's). (4) Nothing is registered on
     it, and whether it comes before or after R4f's and R4g's reads is the owner's.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3

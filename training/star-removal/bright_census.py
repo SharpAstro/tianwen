@@ -28,6 +28,7 @@ sky_ring = (dist >= 300) & (dist < 400)
 rings = [(dist >= lo) & (dist < hi) for lo, hi in zip(EDGES[:-1], EDGES[1:])]
 masters = sorted(f for f in os.listdir(f"{STORE}/session-masters") if f.endswith(".fits") and "flip=" not in f)
 rows = []
+gave_row = set()      # the masters that yielded at least one star; a master that yields none is named, never dropped silently
 t0 = time.time()
 with open(OUT, "w", encoding="utf-8") as out:
     out.write("session\tx\ty\tpeak_sigma\t" + "\t".join(f"r{lo}_{hi}" for lo, hi in zip(EDGES[:-1], EDGES[1:])) + "\tspread_100_140\tspread_140_200\n")
@@ -36,17 +37,20 @@ with open(OUT, "w", encoding="utf-8") as out:
             with fits.open(f"{STORE}/session-masters/{name}", memmap=True) as h:
                 d = h[0].data
                 if d is None or d.ndim not in (2, 3):
+                    print(f"NO ROW {name[:80]}: no 2-D or 3-D image data", flush=True)
                     continue
                 lum4 = np.asarray(d[..., ::STEP, ::STEP], np.float32)
                 lum4 = lum4 if lum4.ndim == 2 else lum4[:3].mean(axis=0)
                 H, W = d.shape[-2:]
                 if min(H, W) < 2 * R + 200:
+                    print(f"NO ROW {name[:80]}: {W} x {H} px is under the {2 * R + 200} px a star's rings need", flush=True)
                     continue
                 cy, cx = H // 2, W // 2
                 c = np.asarray(d[..., cy - 256:cy + 256, cx - 256:cx + 256], np.float32)
                 c = c if c.ndim == 2 else c[:3].mean(axis=0)
                 sig = 1.4826 * float(np.nanmedian(np.abs(np.diff(c, axis=1)))) / np.sqrt(2)
                 if not np.isfinite(sig) or sig <= 0:
+                    print(f"NO ROW {name[:80]}: no usable pixel sigma in the central crop", flush=True)
                     continue
                 ok4 = np.isfinite(lum4) & (lum4 != 0)
                 L = np.where(ok4, lum4, np.nanmedian(lum4[ok4]))
@@ -56,6 +60,10 @@ with open(OUT, "w", encoding="utf-8") as out:
                 peak[:m] = peak[-m:] = False; peak[:, :m] = peak[:, -m:] = False
                 ys, xs = np.nonzero(peak)
                 order = np.argsort(-s[ys, xs])[:PER]
+                if len(order) == 0:
+                    print(f"NO ROW {name[:80]}: no local maximum survives the {R} px margin in a {W} x {H} px frame", flush=True)
+                    continue
+                gave_row.add(name)
                 for j in order:
                     y0, x0 = int(ys[j]) * STEP, int(xs[j]) * STEP
                     crop = np.asarray(d[..., y0 - R - 8:y0 + R + 9, x0 - R - 8:x0 + R + 9], np.float32)
@@ -81,7 +89,7 @@ with open(OUT, "w", encoding="utf-8") as out:
             print(f"{k + 1}/{len(masters)} masters, {len(rows)} stars, {time.time() - t0:.0f} s", flush=True)
 rows.sort(key=lambda r: -r[4][4])
 far = [r for r in rows if r[4][4] >= 5 and np.isfinite(r[5][0]) and r[5][0] < 1]
-print(f"{len(masters)} masters, {len(rows)} stars measured; standing 5 sigma or more at 100-140 px with a spread under 1: {len(far)} stars in {len({r[0] for r in far})} masters")
+print(f"{len(masters)} masters found, {len(gave_row)} gave a row ({len(masters) - len(gave_row)} named above as NO ROW or SKIPPED), {len(rows)} stars measured; standing 5 sigma or more at 100-140 px with a spread under 1: {len(far)} stars in {len({r[0] for r in far})} masters")
 print("session (60 chars)                                            x     y   peak   " + " ".join(f"{lo}-{hi}".rjust(8) for lo, hi in zip(EDGES[:-1], EDGES[1:])) + "   spread")
 for r in rows[:40]:
     print(f"{r[0][:60]:60s} {r[1]:5d} {r[2]:5d} {r[3]:6.0f}   " + " ".join(f"{v:8.1f}" for v in r[4]) + f"   {r[5][0]:.2f} / {r[5][1]:.2f}")
