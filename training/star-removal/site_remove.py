@@ -21,10 +21,21 @@ onnx, stems = sys.argv[1], sys.argv[2:]
 os.makedirs(OUT, exist_ok=True)
 
 
+def as_trained_flags():
+    """The options that switch off the dig-fill and core protection, where this build has them: every row this script
+    gives is the model AS TRAINED. A build from before those steps has neither option and needs neither. The same
+    question transplant.py asks; asked of the build once, where it used to be asked once per flag for every plate."""
+    text = subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+    return [f for f in ("--no-fill-digs", "--no-protect-cores") if f in text]
+
+
+AS_TRAINED = as_trained_flags()
+
+
 def remove(src, dst):
     if not os.path.exists(dst):
         r = subprocess.run([CLI, "image", "remove-stars", src, "-o", dst, "--no-stars", "--views", "1", "--model", onnx]
-                           + [f for f in ("--no-fill-digs", "--no-protect-cores") if f in subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout],
+                           + AS_TRAINED,
                            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode != 0:
             raise SystemExit(f"remove-stars failed on {src}:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}")
@@ -37,7 +48,7 @@ masks = [(rr >= a) & (rr < b) for a, b in RINGS]
 for stem in stems:
     tag = stem.split("_")[0]
     with fits.open(f"{STORE}/session-masters/{stem}.fits") as h:
-        master = np.asarray(h[0].data, dtype=np.float32); header = h[0].header
+        master = np.asarray(h[0].data, dtype=np.float32)
     plate = np.asarray(fits.getdata(f"{STORE}/starless/plates/{stem}_plate.fits"), dtype=np.float32)
     layer = np.nan_to_num(master - plate, nan=0.0)
     out_a = remove(f"{STORE}/session-masters/{stem}.fits", f"{OUT}/{tag}-real-out.fits")
@@ -45,30 +56,29 @@ for stem in stems:
     print(f"\n{stem}\n  master {master.shape}, median {np.nanmedian(master):.5f}, plate median {np.nanmedian(plate):.5f}, "
           f"layer share over 0 {100 * (layer > 0).mean():.1f} %, {len(stars)} catalogued")
     H, W = master.shape[1:]
-    for name, out, dy, dx in (("real site (shift 0)", out_a, 0, 0),):
-        err = np.nanmean(out - plate, axis=0)
-        print(f"  {name}")
-        print(f"    {'band':10s} {'n':>6s}" + "".join(f"   r{a}-{b}: med  dug% left%" for a, b in RINGS))
-        for bname, lo, hi in BANDS:
-            rows = [[] for _ in RINGS]
-            for s in stars:
-                sg = float(s["significance"])
-                if not (lo <= sg < hi) or s["saturated"] == "1" or s["second_pass"] != "0":
-                    continue
-                x, y = int(round(float(s["x"]))) + dx, int(round(float(s["y"]))) + dy
-                if not (80 <= x < W - 80 and 80 <= y < H - 80):
-                    continue
-                st = err[y - 16:y + 17, x - 16:x + 17]
-                if not np.isfinite(st).all():
-                    continue
-                sig = float(s["sigma"]) / np.sqrt(3.0)
-                for i, m in enumerate(masks):
-                    rows[i].append(st[m].mean() / sig)
-            n = len(rows[0])
-            if not n:
+    err = np.nanmean(out_a - plate, axis=0)
+    print("  real site (shift 0)")
+    print(f"    {'band':10s} {'n':>6s}" + "".join(f"   r{a}-{b}: med  dug% left%" for a, b in RINGS))
+    for bname, lo, hi in BANDS:
+        rows = [[] for _ in RINGS]
+        for s in stars:
+            sg = float(s["significance"])
+            if not (lo <= sg < hi) or s["saturated"] == "1" or s["second_pass"] != "0":
                 continue
-            line = f"    {bname:10s} {n:6d}"
-            for v in rows:
-                v = np.array(v)
-                line += f"   {np.median(v):12.2f} {100 * (v < -1).mean():5.1f} {100 * (v > 1).mean():5.1f}"
-            print(line, flush=True)
+            x, y = int(round(float(s["x"]))), int(round(float(s["y"])))
+            if not (80 <= x < W - 80 and 80 <= y < H - 80):
+                continue
+            st = err[y - 16:y + 17, x - 16:x + 17]
+            if not np.isfinite(st).all():
+                continue
+            sig = float(s["sigma"]) / np.sqrt(3.0)
+            for i, m in enumerate(masks):
+                rows[i].append(st[m].mean() / sig)
+        n = len(rows[0])
+        if not n:
+            continue
+        line = f"    {bname:10s} {n:6d}"
+        for v in rows:
+            v = np.array(v)
+            line += f"   {np.median(v):12.2f} {100 * (v < -1).mean():5.1f} {100 * (v > 1).mean():5.1f}"
+        print(line, flush=True)

@@ -6422,7 +6422,8 @@ the first angle is a step after the model and not another arm:
       R3z, whose data differ in the halo and the saturated stars and not in the flank, has the shallowest ring on both.
       The other two sessions, read 2026-11-18 (`site-run-rest.sh`, same rows; like `site-run.sh`, which made the
       M42 and HIP 80609 rows per model, it runs `site_remove.py`, the real-site half of `transplant.py` with one output
-      folder per model, then `site_core.py` and `site_core_ch.py`). Lobster (5,818 stars): R3v -0.04 / 0.04 /
+      folder per model, then `site_core.py`; only `site-run.sh` goes on to `site_core_ch.py`, for M42's blue, so the
+      rows here are `site_core.py`'s). Lobster (5,818 stars): R3v -0.04 / 0.04 /
       -0.44 / -0.52, seed 0 -0.23 / 0.04 / -0.35 / -0.43, seed 1 -0.25 / -0.11 / -0.40 / -0.48. SMC (383 stars): R3v
       0.56 / 0.06 / -0.19 / -0.29, seed 0 0.00 / 0.15 / -0.16 / -0.44, seed 1 0.21 / 0.60 / 0.34 / -0.12. Neither has
       M42's ring at 1.6 to 2.5 px; Lobster has HIP 80609's shallow dip of about half a sigma from 2.5 to 4.5 px in

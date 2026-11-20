@@ -1757,6 +1757,91 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #2227: a plate with no block to read its noise from does not fail the session. It keeps the recorded level, as
+        /// a plate too quiet to believe does: its rows carry no plate ratio and the level every tile is drawn at is the
+        /// one an export told to use the record gives. It used to throw, and neither behaviour had a test.
+        /// </summary>
+        [Fact]
+        public async Task APlateWhoseNoiseCannotBeReadOrBelievedKeepsTheRecordedLevel()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var recorded = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-holed-recorded"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 1, CellsPerSession: 0, Seed: 1,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0,
+                NoiseAsRecorded: true);
+            (await DatasetDegradationExporter.RunAsync(recorded, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var probed = ReadDegradationRows(recorded.OutDir)[0];
+            var recordedSigma = probed.OneSubSigmaPerChannel.ShouldNotBeNull().Select(s => s * probed.MasterDepth).ToArray();
+            RetainedMasterStore.TryRead(bake, SessionId, out var fixtureMaster, logger: null).ShouldBeTrue();
+            var divisor = DatasetTileExporter.UnitDivisor(fixtureMaster);
+            fixtureMaster.Release();
+
+            // The fixture's own plate is a noise-free ramp, which the bound does not believe (it reads under
+            // StretchedNoise.MinPlateNoiseRatio of the record): that plate changes nothing either, the other half of the guard.
+            var quiet = recorded with { OutDir = Path.Combine(_root, "stars-quiet-default"), NoiseAsRecorded = false };
+            (await DatasetDegradationExporter.RunAsync(quiet, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var recordedOnQuiet = ReadDegradationRows(recorded.OutDir);
+            foreach (var row in ReadDegradationRows(quiet.OutDir))
+            {
+                row.OneSubSigmaPerChannel.ShouldNotBeNull().ShouldBe(recordedOnQuiet.Single(r => r.Tile == row.Tile).OneSubSigmaPerChannel.ShouldNotBeNull(),
+                    "a plate too quiet to believe leaves the level at the recorded one");
+            }
+
+            // The plate carries noise at 0.8 of the record, which the bound believes and lowers the level by (the test
+            // below shows that on the same plate without holes). `holes` takes one pixel out of every 16 by 16 square:
+            // every 32 px block then holds an absent pixel, so none is free to read the noise from, while nearly all of
+            // the plate is still there to cut cells from.
+            void WritePlate(bool holes)
+            {
+                var noiseRng = new Random(7);
+                var planes = new float[3][,];
+                for (var c = 0; c < 3; c++)
+                {
+                    var p = new float[H, W];
+                    for (var y = 0; y < H; y++)
+                    {
+                        for (var x = 0; x < W; x++)
+                        {
+                            var gauss = Math.Sqrt(-2.0 * Math.Log(1.0 - noiseRng.NextDouble())) * Math.Cos(2.0 * Math.PI * noiseRng.NextDouble());
+                            p[y, x] = holes && y % 16 == 8 && x % 16 == 8
+                                ? float.NaN
+                                : (float)(900.0 + (c * 120.0) + (140.0 * x / (W - 1)) + (60.0 * y / (H - 1)) + (0.8 * recordedSigma[c] * divisor * gauss));
+                        }
+                    }
+                    planes[c] = p;
+                }
+                var plate = new Image(planes, BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+                plate.WriteToFitsFile(Path.Combine(platesRoot, "plates", DatasetTileExporter.Sanitize(SessionId) + "_plate.fits"));
+                plate.Release();
+            }
+
+            // Premise: without the holes this plate IS read, so a null ratio below can only be the missing block.
+            WritePlate(holes: false);
+            var whole = recorded with { OutDir = Path.Combine(_root, "stars-whole-default"), NoiseAsRecorded = false };
+            (await DatasetDegradationExporter.RunAsync(whole, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            ReadDegradationRows(whole.OutDir).ShouldAllBe(static r => r.PlateNoiseRatio != null, "premise: the plate's noise is read when a block is free");
+
+            WritePlate(holes: true);
+            (await DatasetDegradationExporter.RunAsync(recorded with { OutDir = Path.Combine(_root, "stars-holed-recorded-2") }, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            recorded = recorded with { OutDir = Path.Combine(_root, "stars-holed-recorded-2") };
+            var byDefault = recorded with { OutDir = Path.Combine(_root, "stars-holed-default"), NoiseAsRecorded = false };
+            (await DatasetDegradationExporter.RunAsync(byDefault, logger: null, TestContext.Current.CancellationToken)).Failed
+                .ShouldBe(0, "a plate whose noise cannot be read is not a failed session");
+
+            var recordedRows = ReadDegradationRows(recorded.OutDir);
+            var rows = ReadDegradationRows(byDefault.OutDir);
+            rows.Length.ShouldBeGreaterThan(0, "the session exported tiles");
+            rows.Length.ShouldBe(recordedRows.Length);
+            foreach (var row in rows)
+            {
+                row.PlateNoiseRatio.ShouldBeNull("no ratio was read, so none is recorded");
+                row.OneSubSigmaPerChannel.ShouldNotBeNull().ShouldBe(recordedRows.Single(r => r.Tile == row.Tile).OneSubSigmaPerChannel.ShouldNotBeNull(),
+                    "the level is the recorded one");
+            }
+        }
+
+        /// <summary>
         /// #1786: by default each session's level is held to its plate's own estimate. With <c>NoiseAsRecorded</c> no row says
         /// anything of it; by default every row carries the ratio per channel and its one-sub sigma is the recorded export's times
         /// the ratio where the ratio is under 1 and the recorded one where it is not; the stars, knots and kept cores are the
