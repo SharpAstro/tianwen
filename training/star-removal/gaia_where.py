@@ -104,7 +104,9 @@ def split(col, title, edges, fmt):
 
 fifths = np.unique(np.quantile(rows[:, 0], np.linspace(0, 1, 6)))
 fifths[-1] += 1
-split(0, "by crowding: catalogued stars to BP 19 within 24 px", fifths, lambda lo, hi: f"{lo:.0f} to {hi - 1:.0f}")
+# The counts are whole and a quantile edge need not be: a bin from 4.2 to under 5.4 holds the count 5 alone, so its label
+# is the first and last whole count inside it (lo and hi - 1 as they stood read "4 to 4" there).
+split(0, "by crowding: catalogued stars to BP 19 within 24 px", fifths, lambda lo, hi: f"{np.ceil(lo):.0f} to {np.ceil(hi) - 1:.0f}")
 split(1, "by background: the annulus median over the frame's sky, in local rms", np.array([-np.inf, 2, 5, 10, 20, 50, np.inf]),
       lambda lo, hi: f"under {hi:.0f}" if np.isinf(lo) else f"{lo:.0f} and over" if np.isinf(hi) else f"{lo:.0f} to {hi:.0f}")
 split(2, "by contrast: the star's excess over its seeing threshold (3 rms sqrt n)", np.array([1, 1.5, 2, 3, 5, 10, np.inf]),
