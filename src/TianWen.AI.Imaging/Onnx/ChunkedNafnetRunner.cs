@@ -358,11 +358,15 @@ public static class ChunkedNafnetRunner
     /// minimum, as every model before was trained. The export and the runner both come through here, so a model is fed
     /// at inference what its tiles were written with, whichever rule that is.
     /// </summary>
-    /// <remarks>The linearity test (<see cref="NeedsStretch"/>) reads the frame the same way under either rule: it asks
-    /// whether the frame is linear, which the black point's rule does not change.</remarks>
+    /// <remarks>The linearity test asks one question under either rule, how far channel 0's median stands above its black
+    /// point, and each rule answers it with its own black point: the minimum's with the channel's minimum
+    /// (<see cref="NeedsStretch(Image, BitMatrix?)"/>), the depth's with <paramref name="blackPointSigma"/> times the
+    /// channel's sky noise. Under the depth rule no single pixel decides it, which is the point of that rule (#2309): a
+    /// frame whose deepest hole lifts its median past the threshold above its minimum is still stretched. A channel 0
+    /// with no sky noise to measure is not judged here; <see cref="Image.MtfStretchParametersFromSkyNoise"/> refuses it.</remarks>
     internal static (bool Applied, float[]? OrigMin, double[]? Balances) InputStretchParameters(Image input, BitMatrix? absent, double? blackPointSigma)
     {
-        if (!NeedsStretch(input, absent))
+        if (!(blackPointSigma is { } gateDepth ? NeedsStretch(input, absent, gateDepth) : NeedsStretch(input, absent)))
         {
             // Already in (or near) the NAFNet training distribution; feed it verbatim and skip
             // the inverse round-trip. Critical for pre-stretched inputs (GHS/ABE), where the MTF
@@ -386,6 +390,16 @@ public static class ChunkedNafnetRunner
     /// </summary>
     private static bool NeedsStretch(Image input, BitMatrix? absent)
         => input.MinAndShiftedMedian(0, absent).ShiftedMedian < AiNafnetInputs.StretchAutoDetectMedianThreshold;
+
+    /// <summary>
+    /// <see cref="NeedsStretch(Image, BitMatrix?)"/> under the depth rule: channel 0's median stands
+    /// <paramref name="blackPointSigma"/> sky-noise sigma above its black point, and that height is what is held against
+    /// <see cref="AiNafnetInputs.StretchAutoDetectMedianThreshold"/>. A channel with no sky noise to measure answers
+    /// "stretch", so the refusal comes from the stretch itself and names the channel.
+    /// </summary>
+    private static bool NeedsStretch(Image input, BitMatrix? absent, double blackPointSigma)
+        => !input.TryEstimateSkyNoise(0, absent, out var sigma)
+            || blackPointSigma * sigma < AiNafnetInputs.StretchAutoDetectMedianThreshold;
 
     private static void ValidateChannels(int sourceChannels, int modelChannels)
     {

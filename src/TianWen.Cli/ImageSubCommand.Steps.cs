@@ -193,7 +193,7 @@ internal sealed partial class ImageSubCommand
                 + "contract states it was trained: at that depth, or from each channel's minimum where the contract is silent. "
                 + "This runs a model outside its contract, and the log says so.",
         };
-        var cmd = new Command("remove-stars","Star removal (RC-Astro StarXTerminator, or TianWen's own weights named with --model): the starless "
+        var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator, or TianWen's own weights named with --model): the starless "
             + "plate and the stars it took out, each on its input's scale, so image add-stars puts them back exactly. Several masters "
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {

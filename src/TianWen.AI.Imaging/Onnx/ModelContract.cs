@@ -259,6 +259,11 @@ internal sealed record ModelContract
         {
             problems.Add($"the runner sets each channel's black point {DescribeBlackPoint(feed.StretchBlackPointSigma)} and the graph was trained with it {DescribeBlackPoint(StretchBlackPointSigma)}");
         }
+        // A depth is refused here, with the rest of the contract, and not at the first frame's stretch.
+        if (StretchBlackPointSigma is { } stated && !(double.IsFinite(stated) && stated > 0))
+        {
+            problems.Add($"it states a black point {stated} sky-noise sigma under the median, and a depth is a finite number over 0");
+        }
 
         var described = Inputs.IsDefault ? [] : Inputs;
         foreach (var role in described.GroupBy(i => i.Role, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key))

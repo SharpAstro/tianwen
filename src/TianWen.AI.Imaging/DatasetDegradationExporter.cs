@@ -708,7 +708,15 @@ namespace TianWen.AI.Imaging
             var outDegManifest = Path.Combine(options.OutDir, DegradationManifestFileName);
 
             var cellsBySession = await ReadCellsAsync(bakeManifest, cancellationToken);
-            var alreadyDone = options.Force ? [] : await ReadExportedSessionsAsync(outDegManifest, cancellationToken);
+            // Read whether or not --force re-exports the sessions: the rows already there say which black point the folder
+            // was written with, and a stars export by another rule is refused before any work.
+            var exportedBlackPoints = new HashSet<double?>();
+            var exported = await ReadExportedSessionsAsync(outDegManifest, exportedBlackPoints, cancellationToken);
+            if (options.Mode == DegradationMode.Stars && AnotherBlackPointRefusal(exportedBlackPoints, options.BlackPointSigma) is { } refusal)
+            {
+                throw new InvalidOperationException($"{options.OutDir}: {refusal}");
+            }
+            var alreadyDone = options.Force ? [] : exported;
             var extraCells = options.ExtraCellsPath is { } extraPath
                 ? DatasetCellList.Read(extraPath)
                 : new Dictionary<string, HashSet<(int X, int Y)>>(StringComparer.Ordinal);
@@ -2292,7 +2300,28 @@ namespace TianWen.AI.Imaging
                 StringComparer.Ordinal);
         }
 
-        private static async Task<HashSet<string>> ReadExportedSessionsAsync(string degradationManifest, CancellationToken cancellationToken)
+        /// <summary>
+        /// Why a stars export whose black point is set by <paramref name="asked"/> cannot go into a folder whose rows were
+        /// written by another rule, or null when it can. One folder is one training set and holds one rule: the trainer's
+        /// --prepare refuses a mix too (<c>load_black_point_sigma</c> in n2n_smoke.py), but only after the hours of export.
+        /// </summary>
+        internal static string? AnotherBlackPointRefusal(IEnumerable<double?> exported, double? asked)
+        {
+            static string Describe(double? depth)
+                => depth is { } sigma ? $"{sigma} sky-noise sigma under each channel's median" : "at each channel's minimum";
+            foreach (var there in exported)
+            {
+                if (there != asked)
+                {
+                    return $"the folder already holds rows whose black point lies {Describe(there)} and this export sets it {Describe(asked)}; "
+                        + "one folder holds one rule, so export into an empty folder";
+                }
+            }
+            return null;
+        }
+
+        private static async Task<HashSet<string>> ReadExportedSessionsAsync(
+            string degradationManifest, HashSet<double?> blackPoints, CancellationToken cancellationToken)
         {
             var done = new HashSet<string>(StringComparer.Ordinal);
             if (!File.Exists(degradationManifest))
@@ -2311,6 +2340,7 @@ namespace TianWen.AI.Imaging
                 if (row is not null)
                 {
                     done.Add(row.SessionId);
+                    blackPoints.Add(row.StretchBlackPointSigma);
                 }
             }
             return done;

@@ -56,6 +56,10 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
     private readonly double? _blackPointSigma;
     private readonly ILogger? _logger;
 
+    /// <summary>The depth every frame's black point is set by, in sky-noise sigma under each channel's median; null is
+    /// each channel's minimum. It is the models' contracts' unless <see cref="Open"/> was given another.</summary>
+    internal double? BlackPointSigma => _blackPointSigma;
+
     private OnnxTianWenStarRemover(ImmutableArray<StarRemoverRunner.Model> models, int views, bool monoAsRgb, double? blackPointSigma, ILogger? logger)
     {
         _models = models;

@@ -32,7 +32,8 @@ public partial class Image
     /// <param name="exclude">Pixels to leave out, <c>[row, column]</c> over this image's own geometry.</param>
     /// <param name="sigma">The sky noise in the image's own units; NaN when there is none to give.</param>
     /// <returns><see langword="false"/> when the frame holds no block free of absent pixels (it is smaller than a block,
-    /// or the ring reaches every one), or when the quiet blocks are exactly flat.</returns>
+    /// or the ring reaches every one), or when every such block is exactly flat. A flat block (a zero-filled or
+    /// saturated patch inside the frame) is left out of the quantile like one that touches an absent pixel.</returns>
     public bool TryEstimateSkyNoise(int channel, BitMatrix? exclude, out float sigma)
     {
         var (_, width, height) = Shape;
@@ -97,7 +98,14 @@ public partial class Image
                 }
                 if (complete)
                 {
-                    sigmas[whole++] = toSigma * MedianFast(differences);
+                    // A block whose median difference is 0 holds no noise to read: a zero-filled or saturated patch the
+                    // border does not reach, so AbsentPixels does not flag it. Counted, a fifth of such blocks would put
+                    // the quantile at 0 and leave a frame of noisy sky with no answer.
+                    var blockSigma = toSigma * MedianFast(differences);
+                    if (blockSigma > 0f)
+                    {
+                        sigmas[whole++] = blockSigma;
+                    }
                 }
             }
         }

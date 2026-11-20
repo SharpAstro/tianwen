@@ -243,4 +243,50 @@ public class SkyNoiseBlackPointTests
         // And the two rules are not the same stretch on this frame: its darkest pixel is about 5 sigma under the sky.
         (minimumMin[0] - expectedMin[0]).ShouldBeGreaterThan(20 * Sigma);
     }
+
+    [Fact]
+    public void UnderADepthTheLinearityTestReadsTheSkyNoiseAndNotTheDeepestPixel()
+    {
+        // One pixel 0.29 under the sky puts the median past the threshold above the MINIMUM, so the minimum's rule calls
+        // the frame already stretched and feeds it as it is. Under a depth the same frame is still stretched: its median
+        // stands 40 x 0.002 = 0.08 above its black point, whatever its deepest pixel is.
+        var planes = new[] { NoisySky(seed: 40, level: 0.30f), NoisySky(seed: 41, level: 0.30f), NoisySky(seed: 42, level: 0.30f) };
+        foreach (var plane in planes)
+        {
+            plane[100, 100] = 0.01f;
+        }
+        var image = ToImage(planes);
+
+        ChunkedNafnetRunner.InputStretchParameters(image, absent: null).Applied.ShouldBeFalse();
+        ChunkedNafnetRunner.InputStretchParameters(image, absent: null, blackPointSigma: Depth).Applied.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(0.0025f, true)]   // 40 x 0.0025 = 0.10, under the threshold of 0.125: stretched
+    [InlineData(0.0040f, false)]  // 40 x 0.0040 = 0.16, over it: fed as it is
+    public void UnderADepthTheMediansHeightAboveTheBlackPointIsWhatTheThresholdReads(float sigma, bool stretched)
+    {
+        var image = ToImage(NoisySky(seed: 50, sigma, level: 0.5f), NoisySky(seed: 51, sigma, level: 0.5f), NoisySky(seed: 52, sigma, level: 0.5f));
+
+        ChunkedNafnetRunner.InputStretchParameters(image, absent: null, blackPointSigma: Depth).Applied.ShouldBe(stretched);
+    }
+
+    [Fact]
+    public void FlatBlocksInsideTheFrameAreLeftOutOfTheSkyNoise()
+    {
+        // A zero-filled patch inside the frame, which no canvas ring flags: 24 of the 56 blocks, more than the fifth
+        // the quantile sits at. Counted as blocks of zero noise they would leave this frame of noisy sky with no answer.
+        var plane = NoisySky(seed: 60);
+        for (var y = 64; y < 320; y++)
+        {
+            for (var x = 64; x < 448; x++)
+            {
+                plane[y, x] = 0f;
+            }
+        }
+
+        ToImage(plane).TryEstimateSkyNoise(0, exclude: null, out var sigma).ShouldBeTrue();
+
+        sigma.ShouldBe(Sigma, Sigma * 0.06f);
+    }
 }
