@@ -7122,29 +7122,90 @@ the first angle is a step after the model and not another arm:
     needs the flat at 93.3 or over with every guard held, and rows (1) and (2) missed beside such a flat go to
     the owner with the same crop, since they say the plate scores by level and still looks mottled. A guard
     failing is a kill, as registered.
+  - **Added 2026-11-20 evening, while the cache uploads and before any score: what the target itself reads, and
+    one guard it cannot hold.** The note above reasoned that the question reads mostly the level and may be missed
+    by a model that does what the arm is for. That was wrong, and the control is under "Corrected the same
+    evening: the crowded flat reads the lumps, not the level" below. `grain_rule_post.py` applies this arm's
+    target rule to R4d's own plate through the chain, so the plate holds what a perfect learner of the target
+    would write on the scoring masters. It reads the Tarantula's crowded flat at 97.8 (the question asks 93.3),
+    BP 17-19 with the level set aside at 96.6 (row (1) asks 93.5), the blotch line of the Tarantula's densest
+    cells at 0.12 (R4d 0.29, StarXTerminator 0.14), and every whole-master guard inside its bar (Andromeda dark
+    flat 100.0 with 0.0 dug, Tarantula dark flat 98.3, the glow's green median -32.0 and 98.8, the nucleus 0.0,
+    the Sagittarius crowded flat 99.7, the light taken from the Tarantula field 81 and 83 %) **except purity:
+    2.6 against the guard's 1.0.** Purity counts the stars layer's light away from every catalogued star. The
+    lumps this arm is meant to remove are such light, and a plate with only the judge's level taken reads 3.4 on
+    it, so the row cannot tell the level from the grain. An arm that does what it is for would be killed by that
+    guard as registered. **For this arm purity is therefore reported and is not a guard.** What it stood for
+    stays guarded by the light taken from the Tarantula field (at most 83 and 84 %), which reads the level and
+    nothing else: 98 and 106 on the level-only plate and on StarXTerminator's, 81 and 83 on the rule plate. The
+    tiles' guards (by count, M42, the SMC) were not read on that plate. **The nebula guard on light added stays a
+    guard as registered, and a plate that meets the target fails it on the Tarantula.** The first argument here
+    (fresh noise, "a model draws none") did not close, as the review of #2302 showed, so the split was measured
+    the same evening with `grain_rule_post.py --own-noise`: the plate keeps its own noise where the rule would
+    draw fresh noise, so what it adds over the input is the rule's fill alone.
+
+    | light added on the nebula, % | R4d through the chain | the rule plate, own noise (the fill) | the rule plate, fresh noise |
+    |---|---|---|---|
+    | Andromeda | 0.11 | 0.62 | 2.65 |
+    | Tarantula | 0.65 | 2.09 | 4.27 |
+    | Lagoon | 0.30 | 0.30 | 0.30 |
+
+    Of the rule plate's 2.7 and 4.3 %, about 2.0 and 2.2 points are two independent noises standing apart (more
+    than the 1.7 % a white noise allows by the row's threshold, a 3 px mean over one pixel sigma, since a stacked
+    master's noise is correlated), and the fill adds 0.5 points on Andromeda and 1.4 on the Tarantula over R4d's
+    own. As trained R4d reads 0.0, so a perfect learner of this target would read about 0.5 and 1.4 against the
+    bar of 1.0. Unlike purity the row is not misread: on the Tarantula the newly added pixels lie where the input
+    stands 3.6 to 9.7 sigma under its own 31 px median (median 6.5; `nebula_added_look.py`, whose sheet shows the
+    largest of them as a dark pocket beside 30 Doradus's core). They are dark structure of the nebula that the
+    rule fills, a cost of the target rule and not of the scorer. So the bar stays. R4f failing it on the
+    Tarantula would be a finding against the rule (the nebula has to be held out of it), and the read is to say
+    so in those words. The owner may rule otherwise before the read; until then the registration stands.
+    Measured after it (`grain_rule_nebula_out.py`: the rule plate with `nebula_rows.py`'s own nebula mask, the
+    input's large-scale light 20 sigma over the sky, held out of the rule): the light added returns to R4d's 0.1 /
+    0.7 / 0.3 % and the crowded rows keep their gain (Tarantula 97.8, Sagittarius 99.7, BP 17-19 with the level
+    set aside 96.4); the mask is 2.0 % of the Tarantula's frame before its feather (the rows above were scored on the plate that holds
+    out the mask plus the tool's 8 px Gaussian feather, which is wider; the tool prints it as "held out with its
+    feather", and an arm that holds the nebula out must quote both areas: here 2.0 and 4.2 % of the Tarantula's
+    frame, 5.5 and 7.4 % of Andromeda's, 0.8 and 1.5 % of the Lagoon's). Held out at 5 sigma the mask is half that frame (45.2 %, and 49.9 % with the feather),
+    since crowded sky is itself bright at that scale, and the gain is gone (crowded flat 91.9, BP 17-19 91.9). So
+    the bright nebula can be held out of the rule at no cost to the rows, and the faint wisps beyond it cannot
+    be protected by a brightness mask.
+    The Lagoon's broad light on it is 2.04 (R4d through the chain 2.04)
+    and 17 of the Tarantula's 77 brightest peaks stand. Reported beside row (2) from now on: the scorer's blotch
+    line on the held-out Tarantula.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
     91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
   - **Guards, through the same chain,** R4c's: by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and
     over (the tiles with floor5); M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat
     at least 95 and dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 of zero on
-    Andromeda and within 500 on the Tarantula; the M31 nucleus under 10 %; purity at most 1.0 %; the Sagittarius
-    crowded flat at least 96.3. R4d's own: the light taken from the Tarantula field (green, the densest tenth of
+    Andromeda and within 500 on the Tarantula; the M31 nucleus under 10 %; purity at most 1.0 % (R4c's bar, **not a
+    guard for R4f**: purity is reported for this arm, see "For this arm purity is therefore reported" above); the
+    Sagittarius crowded flat at least 96.3. R4d's own: the light taken from the Tarantula field (green, the densest tenth of
     cells and the whole frame) at most 83 % and 84 % (R4d 81 and 82).
   - **Nebula guards, as trained** (the rule since 2026-11-19; R4d reads added 0.0 / 0.0 / 0.0, broad 2.88 / 5.86 /
-    2.67, 17 of 77 and 0 of 18 standing): light added on at most 1.0 % of each master's nebula; the Lagoon's broad
+    2.67, 17 of 77 and 0 of 18 standing): light added on at most 1.0 % of each master's nebula (**it stays a
+    guard**; a plate that meets the target reads about 1.4 on the Tarantula from the rule's fill alone, see "The
+    nebula guard on light added stays a guard" above); the Lagoon's broad
     light taken at most 4.0 (seeds of one recipe have stood up to 1.3 apart on it); of the brightest tenth of the
     Tarantula's peaks at least 11 of 77 standing (R4c's, the fewest of the faint-star arms; StarXTerminator 17).
-  - **Kill:** a guard fails, or the crowded flat under R4d's 91.3. Between 91.3 and 93.3 with every guard held it
+  - **Kill:** a guard fails (purity is not one for R4f; light added on the nebula is one), or the crowded flat under R4d's 91.3. Between 91.3 and 93.3 with every guard held it
     neither passes nor is killed; the rows go to the owner.
-  - **Reported, no bar:** every row as trained (R4d: Andromeda dark flat 69.4 with 19.5 dug, Tarantula dark flat
+  - **Reported, no bar:** purity through the chain (R4d 0.8, the rule plate 2.6, a level-only plate 3.4), and the
+    scorer's blotch line on the held-out Tarantula (R4d 0.29, StarXTerminator 0.14, the rule plate 0.12); every row
+    as trained (R4d: Andromeda dark flat 69.4 with 19.5 dug, Tarantula dark flat
     80.3, Tarantula crowded 86.7, BP 17-19 95.4); Gaia BP 17-19 through the chain (R4d 96.0); the grain in the
     Tarantula's dense cells 4,4 and 5,4 (`band.py`, R4d 4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6); the band of 30
     Doradus's core, cell 4,6, which carries no bar because two seeds of one recipe have stood 39 to 75 % apart on
     it (R4d 44.4 / 49.4 / 39.7, R4e 76.0 / 83.9 / 71.2); the twin error. Added 2026-11-20 while the cache
-    uploaded: the bright star of #2292 (HIP 80609 on its session master, as trained and through the chain, the
-    ring medians beside R4d's and StarXTerminator's). That master is a training session's, since no scoring master
-    holds such a star, so it is a look and a reported row and never held-out evidence.
+    uploaded: the bright stars of #2292, as trained and through the chain, the ring medians beside R4d's and
+    StarXTerminator's. As first written this was HIP 80609 alone, on the trainer's validation session's master
+    (`arms/r2-val.txt`). Widened the same evening, still before any score, to the fourteen stars of "A star that
+    stands far out is left standing" below, pinned in `training/star-removal/bright_star_list.tsv` (name, master,
+    x, y); thirteen of them are on masters no gradient step saw (two of those on the validation session's), so on
+    those the row is held-out evidence. Widened once more that night, still before any score, to the twenty-four
+    stars the census without a cap found (twenty-two of them on masters no gradient step saw); HIP 80609's star
+    is Antares.
   - **Looked at before the rows are quoted:** the Lagoon's core, 30 Doradus's core, the Tarantula's knots, a
     crowded Tarantula field, M31's nucleus and a bright star on dark sky, as trained and through the product's
     chain, beside R4d and StarXTerminator. The crowded field is where a pass should show (StarXTerminator's is
@@ -7232,7 +7293,7 @@ the first angle is a step after the model and not another arm:
     clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over; M42 100-1000 at least 88; SMC 20-100 and
     100-1000 at least 97; Andromeda dark flat at least 95 and dug at most 3; Tarantula dark flat at least 91; the
     glow's green median within 450 of zero on Andromeda and within 500 on the Tarantula; the M31 nucleus under
-    10 %; purity at most 1.0 %; the Sagittarius crowded flat at least 96.3; the Tarantula's crowded flat at least
+    10 %; purity at most 1.0 % (**this bar stands for R4g**: it trains on the stored plate cells without the grain rule, as R4d does, so purity is not the question it is for R4f; the heading "R4f's" above is shared text only); the Sagittarius crowded flat at least 96.3; the Tarantula's crowded flat at least
     90.3 (R4d 91.3, a point under it); the light taken from the Tarantula field at most 83 % and 84 %.
   - **Nebula guards, as trained:** light added on at most 1.0 % of each master's nebula; of the brightest tenth
     of the Tarantula's peaks at least 11 of 77 standing (R4d 17). And one for what a plate target could teach, a
@@ -7247,8 +7308,11 @@ the first angle is a step after the model and not another arm:
     M42's 100-1000 as trained; the extra cache's held-out objective beside its training objective at the best
     step, since 120 targets shown twice as often as a main one can be learnt by heart; the twin error. Added
     2026-11-20 while it trained, before any score: the Gaia rows with the level set aside (`gaia_compact.py`, R4d
-    through the chain 90.7 at BP 17-19) and the bright star of #2292 (HIP 80609 on its session master, a training
-    session's, so a look and a reported row only).
+    through the chain 90.7 at BP 17-19) and the bright stars of #2292 (first HIP 80609 alone, on the trainer's
+    validation session's master; widened the same evening, still before any score, to the fourteen stars of "A
+    star that stands far out is left standing" below, pinned in `training/star-removal/bright_star_list.tsv`,
+    thirteen of them on masters no gradient step saw; and once more that night, still before any score, to the
+    twenty-four the census without a cap found, twenty-two of them on such masters).
   - **Looked at before the rows are quoted:** the Lagoon's core with the picture of what was taken
     (`r4_taken.py`), 30 Doradus's core, the Tarantula's knots, M42's core on a validation tile, M31's nucleus and
     a bright star on dark sky, as trained and through the product's chain, beside R4d and StarXTerminator.
@@ -7295,7 +7359,8 @@ the first angle is a step after the model and not another arm:
 
     With the judge's light at 15 px and over and our own finer scales, the plate reads the judge's crowded rows
     within 0.2 to 0.6 of a point. Half of the Tarantula's crowded gap is a level beyond 31 px and half lies
-    between 15 and 31 px (what that second half is made of is read below, with the level set aside). On Andromeda
+    between 15 and 31 px (what that second half is made of is read below, with the level set aside; and "a level"
+    is corrected further down: no part of the crowded flat's gap is the level). On Andromeda
     the difference runs the other way: there the judge leaves a glow round
     bright stars that ours takes, and the diagnostic plate inherits it.
   - **The same rows with the level set aside** (`gaia_compact.py`: the light taken in a star's 3 px disc less the
@@ -7314,7 +7379,8 @@ the first angle is a step after the model and not another arm:
     (ours less the judge's) passes part of the compact difference under a faint star, or of several inside one
     box; which of the two was not separated. For the table above that splits the Tarantula's crowded gap of 4.8
     points: 2.3 is a level at 31 px and over, and the 2.3 between 15 and 31 px is partly the level and partly
-    faint stars the judge removed and ours left.
+    faint stars the judge removed and ours left. (Corrected the same evening, below: the 2.3 points at 31 px are
+    not the level either. A plate with the level alone taken reads 91.4.)
   - **Where those six points are** (`gaia_where.py`, the Tarantula's 21,903 stars of BP 17-19 seen, the level set
     aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9).
 
@@ -7343,8 +7409,9 @@ the first angle is a step after the model and not another arm:
     judge removed and ours left, 48 px at 6x, on the input's scale and then each panel about its own median). The
     judge's panels are a dark, even floor with fine noise. Ours hold the field's light as soft lumps 5 to 15 px
     across (their height was not measured here), and in one of the six the core of a brighter star with a streak. The "star left"
-    at the centre is one of those lumps: in such a field the faint stars are the background, so removing them and
-    taking the carpet's light are one act, and the split of level from stars above is clean only at 31 px. What
+    at the centre is one of those lumps. (As first written this said that in such a field removing the faint
+    stars and taking the carpet's light are one act. They are two: the rule plate below removes the lumps at our
+    own level.) What
     our plate shows there is neither of the two consistent pictures: not the judge's dark floor, and not a smooth
     glow at the carpet's level, which is what the rule of 2026-10-23 asks for and what R4f's targets hold.
   - **Looked at** (`judge_broad_look.py`: the 400 px box where the judge's broad take beyond ours is largest, at
@@ -7361,18 +7428,375 @@ the first angle is a step after the model and not another arm:
     is left. Ours leaves those stars, so it keeps their grain and their mean.
   - **Far wings are not it** (`bright_star_rings.py`, #2292): round the twelve brightest stars of each scoring
     master the judge takes 1 to 4 sigma at 8 to 22 px and nothing a ring median sees beyond 22 px, and our models
-    since R4c match it there. No scoring master holds a star like HIP 80609.
-  - **What follows.** (1) The crowded flat, BP 17-19, purity and the Tarantula's glow are not separate gaps: they
-    are one, the light of stars under about BP 17, and a remover is at the judge's figures only if it takes that
-    light. (2) Our rules say not to take all of it: the owner's decision of 2026-10-23 (unresolved glow belongs in
-    the starless image), the faint stars' cap, and the purity guard. The uncapped arm (R4d) drew at most 0.23 sigma
-    a pixel of such stars on a validation tile; the judge takes 0.5 to 1.2 on the Tarantula (`judge_broad.py`'s
-    per-channel medians above, each figure in its own image's pixel noise). (3) So either the rule stays, and then
-    the level's share of these rows cannot be reached by design (on the Tarantula's crowded flat at least the 2.3
-    points at 31 px and over), star removal is read with the level set aside and the grain under a bar of its
-    own, and what is left to gain is the faint stars' own removal, the six points at BP 17-19; or the rule
-    changes, and then an arm draws the carpet's stars to the faint end without the cap and the purity guard moves
-    to the judge's 3.1. That is the owner's decision. No arm is registered on it.
+    since R4c match it there. No scoring master holds a star like the one on HIP 80609's master (Antares, by
+    that master's WCS); the store's other masters do, and
+    "A star that stands far out is left standing" below reads them.
+  - **Corrected the same evening: the crowded flat reads the lumps, not the level** (two more plates, no
+    training). The reading above took the 15 and 31 px plates' gain on the crowded flat for the judge's level. The
+    control for that was missing. `judge_level.py` takes ONLY the level (ours less the judge's through a median of
+    about 100 px, so nothing under about 50 px changes). `grain_rule_post.py` does the opposite: it keeps our
+    level and smooths our plate with R4f's target rule (`plate_grain.py`: in crowded sky, where the detail between
+    7 and 31 px is weak, the 31 px glow plus pixel noise; the crowding is read off the input's compact peaks,
+    calibrated against the plate builder's own counts on five store sessions with `grain_rule_density_cal.py`).
+
+    | row | R4d through the chain | the judge's level only | the judge's light at 31 px and over | at 15 px and over | our level kept, the grain rule | StarXTerminator |
+    |---|---|---|---|---|---|---|
+    | Tarantula crowded flat | 91.3 | 91.4 | 93.6 | 95.9 | 97.8 | 96.1 |
+    | Sagittarius crowded flat | 97.0 | 97.1 | 98.0 | 99.0 | 99.7 | 99.6 |
+    | Gaia BP 17-19, the scorer's row | 96.0 | 98.8 | 98.8 | 98.7 | 98.4 | 98.3 |
+    | Gaia BP 17-19, the level set aside | 90.7 | 90.6 | 91.2 | 93.0 | 96.6 | 96.6 |
+    | purity | 0.8 | 3.4 | 3.2 | 3.1 | 2.6 | 3.1 |
+    | light taken from the Tarantula field, densest tenth / whole frame, % | 81 / 82 | 98 / 106 | 97 / 105 | 97 / 104 | 81 / 83 | 98 / 106 |
+    | blotch-scale structure over the noise, the Tarantula's densest tenth | 0.29 | 0.29 | 0.29 | 0.26 | 0.12 | 0.14 |
+    | Tarantula dark flat / left | 96.5 / 2.7 | 96.5 / 2.7 | 96.9 / 2.4 | 97.0 / 2.5 | 98.3 / 1.5 | 96.6 / 2.7 |
+    | Andromeda dark flat / dug | 98.5 / 0.7 | 98.4 / 0.8 | 99.1 / 0.6 | 99.6 / 0.4 | 100.0 / 0.0 | 98.6 / 1.4 |
+
+    - **The level does not move the crowded flat.** The level-only plate takes 1.22 / 0.89 / 0.56 sigma a pixel on
+      the Tarantula, all of what the 15 and 31 px plates took, and the flat moves by 0.1. The level moves purity,
+      the light taken from the field and the scorer's BP 17-19 row, and `gaia_compact.py`'s row is blind to it
+      as meant (90.6).
+    - **The lumps are the gap.** The rule plate keeps our level (against R4d's plate at 31 px: median 0.00 sigma,
+      10th to 90th percentile -0.1 to +0.1; the light taken from the field 81 / 83 %) and reads both crowded flats
+      above the judge's and BP 17-19 with the level set aside at the judge's 96.6. Of `gaia_where.py`'s bins only
+      the densest fifth still trails by more than about a point (93.9 against 97.1). So the crowded flat reads structure between about 15
+      and 100 px between the stars; the 31 px plate gains its 2.3 points with the blotch line unmoved, so part of
+      that structure is wider than the blotch scale.
+    - **The scorer already reads the grain on the held-out master:** the blotch line of `remover_check2.py`'s log
+      (R4d 0.29, the judge 0.14), which no row carried.
+    - **Looked at** (1:1, `judge_broad_look.py` with the rule plate in the third panel, and `gaia_where.py`'s
+      sheet). The crowded field is a smooth glow at our level, but about a dozen star-shaped islands stand in a
+      400 px crop where the rule kept our plate's residue round brighter stars. At 30 Doradus's edge the faint
+      wisps outside the bright nebula are flattened, where the judge keeps them. M31's nucleus and dust lanes
+      are as ours. Of the faint stars of the densest fifth the judge removed, 106 are still left (R4d 439), each
+      a soft blob the rule kept. So the rule as a post step is a ceiling for the rows and not a product step as
+      it stands.
+    - **R4f's targets, looked at beside R4d's** (`target_pair_look.py`, the store's Tarantula session of
+      2024-10-02, the five cells whose target changed most): smooth in crowded sky with the nebula's knots kept
+      and no such islands (they are synthetic backgrounds steered by the plate, not the plate), a faint fine
+      ripple at six times the contrast. R4d's targets in those cells hold the grain and the knot defect's zero
+      blocks (#2276).
+  - **What follows** (as corrected; the first version said that with the rule of 2026-10-23 kept, the level's
+    share of these rows could not be reached by design, which the level-only plate refutes). (1) Two things
+    separate our plate from the judge's in crowded sky and they are separable: the LEVEL the judge takes, and the
+    LUMPS ours leaves between about 15 and 100 px. (2) The level moves purity, the light taken from the field and
+    the scorer's BP 17-19 row, and no flat row. Our rules say not to take it (the owner's decision of 2026-10-23,
+    the faint stars' cap), the field light guard holds it, and no star row needs it. (3) The lumps are the whole
+    gap of the crowded flats and the six points at BP 17-19 with the level set aside: a plate without them, at our
+    own level, reads the judge's rows or better. That is the grain R4f's targets no longer hold, so R4f is the
+    arm on it, and these rows ask no decision of the owner. (4) Purity cannot guard such an arm (R4f's
+    registration says what replaces it), and BP 17-19 is read with the level set aside. (5) Whether a product
+    step could do it classically is open: the rule as it is leaves islands and flattens faint nebulosity. No arm
+    and no step is registered on it.
+- **A star that stands far out is left standing, on every such star in the store (2026-11-20, no training;
+  #2292).** The star that started this was called HIP 80609 after its session; by its master's WCS it is Antares.
+  Two things were measured: how many masters hold a star like it, and what our model and StarXTerminator do with
+  each.
+  - **The census** (`bright_census.py`): the store's 151 session masters that are not a flipped half, all 151
+    searched. A candidate is every source that stands 100 pixel sigma over its frame's median and is the largest
+    within 60 px, with no rank and no cap: 28,380 of them. The 1,185 whose ring at 100 to 140 px stands 3 sigma
+    over their ring at 300 to 400 px were measured in rings out to 300 px, and 711 of those, in 76 masters, stand
+    5 sigma or more at 100 to 140 px, the bar. A star's light falls with distance and a nebula's does not, so the
+    rows over the bar are split by their profile: 127 FALLING (the 8 to 22 px ring at least four times the 100 to
+    140 px ring) in 49 masters, and 584 FLAT.
+  - **Looked at: all 127 falling rows, and the 133 flat rows nearest the cut** (a fall of 2 to 4;
+    `bright_census_look.py`). Of the falling rows twenty-four are stars with a far halo of their own. Eighty-four
+    are nebula: the cores of M42, the Lagoon, eta Carinae, 30 Doradus and the Trifid, and stars inside bright
+    nebula, such as the Running Man's, whose far ring is the nebula's. Ten are fainter stars standing in a
+    brighter Pleiad's halo. Two are one star on the Pleiades' nebulosity south of Merope, on both nights, whose
+    far ring the eye cannot tell from the nebula (Alnitak in the Flame nebula and sigma Scorpii near Antares'
+    reflection nebula were counted as stars the same way, by eye, so that star is in the list too, marked
+    uncertain, and the reads run it). Four are steps at a frame's edge, and one each is a globular
+    cluster, a galaxy and a planetary nebula. The flat rows looked at hold no star on dark sky: nebula, clusters,
+    frame edges and faint stars inside a bright star's halo. The twenty-four read a fall of 14 to 468, so the cut
+    at four has room.
+  - **Twenty-four stars in eight sessions, and thirteen different stars** (named off each master's own WCS,
+    `bright_star_names.py`: every one lies within half an arc minute of its catalogue position). Antares on three
+    sessions and sigma Scorpii on two of them; eight Pleiads on each of two nights (Alcyone, Atlas, Electra, Maia,
+    Merope, Taygeta, Asterope and 22 Tauri); Alnitak; iota Orionis; lambda Centauri. All twenty-four are pinned
+    in `training/star-removal/bright_star_list.tsv` (name and night, master file, x, y), and after them the
+    uncertain star's two rows.
+  - **The names this section used before were wrong, and the count was a floor twice.** The stars had been named
+    after their sessions and by rank. "HIP 80609" is Antares (HIP 80609 is that session's target, and the star
+    with the halo in its frame is Antares); "Ophiuchus" and "Antares' field, the brighter" are the same star on
+    two other sessions; "the fainter" of two of those sessions is sigma Scorpii; "south of M42" is iota Orionis;
+    and "the Pleiades' brightest star, in the Merope nebula" is Maia, in the nebula round Maia. The first run took
+    the four brightest peaks of a master and found ten such stars, the second took twelve and found fourteen,
+    and the review of #2306 showed both times that a cap by brightness binds: peak brightness is flat among
+    saturated stars, so the rank says nothing about a halo. The ten stars added now were behind that cap or
+    nearer an edge than 420 px, which the first two versions did not read: Alcyone (the cluster's brightest),
+    Atlas, Merope and 22 Tauri on both nights, Electra on the second, and lambda Centauri.
+  - **What the count does not hold.** The fainter of two sources within 60 px of each other. A source within 60 px
+    of a frame's edge (2,162 of the 28,380, 7.6 %). A star on nebula so bright that its own profile reads flat:
+    it is among the flat rows, and its far ring is the nebula's. A source under 100 sigma on the quarter-scale
+    read, which is never a candidate. And stars under the bar: Pleione reads 3.1 and
+    4.3 sigma at 100 to 140 px on the two nights, and Celaeno does not pass the 3 sigma screen on either.
+  - **Where the eight sessions sit in R2** (the `meta.json` of both `r2-synth29` and `r2-synth31`). Two train: the
+    Ophiuchus cloud's of 2024-05-28 (Antares) and the Running Chicken's of 2026-02-20 (lambda Centauri). HIP
+    80609's of 2026-04-21 (Antares, sigma Scorpii) is the trainer's VALIDATION session (its three views are under
+    `val_sessions` and none under `train_sessions`), so no gradient step saw it. Antares' of 2023-05-15, the
+    Pleiades' of 2022-01-04 and 2022-01-05, the Horsehead's of 2025-10-28 (Alnitak) and M42's of 2025-10-15 (iota
+    Orionis) are in neither list. So twenty-two of the twenty-four are on masters no gradient step saw.
+  - The census sigma is the mean of the channels over a central 512 px crop and the table's is each channel's own
+    300 to 400 px annulus, so a census cut of 5 and a table figure are not one unit (iota Orionis reads 4.7 in
+    the table and 6.3 in the census).
+  - **What each remover leaves** (`bright_star_sheet.py`: ring medians less the frame's sky, in the master's pixel
+    sigma, red, at 8-22 / 40-60 / 100-120 px). The R4d column is R4d as trained. Through the product's chain it
+    reads the same to within 1.2 sigma from 8 px out on twenty-three of the twenty-four; on the twenty-fourth
+    the chain puts the star back (below). Antares and sigma Scorpii of 2026-04-21 are read on that session's
+    `flip=b` half, Antares at its peak there (x 1363, y 2245), and the rest on the session's unflipped master.
+
+    | star and night | master | R4d | StarXTerminator | its session in R2 |
+    |---|---|---|---|---|
+    | Antares 2026-04-21 | 451 / 46.7 / 18.7 | 243 / 46.8 / 18.8 | 4.8 / 5.8 / 5.2 | validation |
+    | sigma Sco 2026-04-21 | 35.4 / 6.7 / 4.0 | 7.9 / 6.2 / 3.8 | 2.9 / 3.3 / 3.2 | validation |
+    | Antares 2024-05-28 | 442 / 26.0 / 4.9 | 98.7 / 25.6 / 5.0 | 0.7 / 0.4 / 0.8 | train |
+    | Antares 2023-05-15 | 590 / 36.8 / 7.0 | 98.5 / 35.1 / 6.7 | 2.9 / 3.2 / 3.5 | neither |
+    | sigma Sco 2023-05-15 | 64.3 / 11.0 / 6.8 | 12.4 / 9.9 / 6.3 | 7.0 / 7.5 / 6.0 | neither |
+    | Taygeta 2022-01-05 | 1695 / 42.7 / 6.1 | 103 / 29.4 / 6.3 | 2.9 / 3.3 / 3.5 | neither |
+    | Asterope 2022-01-05 | 720 / 22.8 / 6.2 | 33.6 / 17.1 / 6.3 | 3.6 / 3.9 / 3.4 | neither |
+    | 22 Tau 2022-01-05 | 408 / 13.8 / 5.3 | 17.1 / 10.1 / 4.8 | 2.4 / 2.7 / 2.6 | neither |
+    | Maia 2022-01-05 | 4649 / 120 / 33.2 | 2092 / 114 / 32.0 | 35.6 / 30.9 / 22.0 | neither |
+    | Merope 2022-01-05 | 1713 / 85.6 / 26.9 | 459 / 78.7 / 27.4 | 25.5 / 20.4 / 20.2 | neither |
+    | Alcyone 2022-01-05 | 4033 / 174 / 26.5 | 3335 / 165 / 25.6 | 6.7 / 5.6 / 5.7 | neither |
+    | Electra 2022-01-05 | 3302 / 106 / 18.8 | 810 / 94.8 / 18.9 | 5.1 / 5.4 / 6.7 | neither |
+    | Atlas 2022-01-05 | 2693 / 87.8 / 10.9 | 582 / 65.7 / 10.3 | 2.3 / 1.8 / 1.5 | neither |
+    | Taygeta 2022-01-04 | 1353 / 29.7 / 3.9 | 28.5 / 9.0 / 3.1 | 1.3 / 1.6 / 1.9 | neither |
+    | Asterope 2022-01-04 | 524 / 14.4 / 3.6 | 12.7 / 7.3 / 3.2 | 2.7 / 2.5 / 2.2 | neither |
+    | 22 Tau 2022-01-04 | 272 / 8.2 / 3.2 | 5.5 / 3.4 / 2.4 | 1.5 / 1.8 / 1.8 | neither |
+    | Maia 2022-01-04 | 3134 / 77.8 / 21.3 | 113 / 32.5 / 9.1 | 31.0 / 20.1 / 13.3 | neither |
+    | Merope 2022-01-04 | 1563 / 53.5 / 16.8 | 46.0 / 17.1 / 6.8 | 17.2 / 14.6 / 12.1 | neither |
+    | Alcyone 2022-01-04 | 2830 / 106 / 16.8 | 499 / 45.3 / 9.9 | 3.4 / 3.8 / 4.2 | neither |
+    | Electra 2022-01-04 | 2056 / 66.1 / 11.8 | 114 / 22.9 / 6.8 | 5.0 / 4.8 / 4.2 | neither |
+    | Atlas 2022-01-04 | 2431 / 54.9 / 6.9 | 52.1 / 18.0 / 5.9 | 0.8 / 0.7 / 1.2 | neither |
+    | Alnitak 2025-10-28 | 529 / 30.0 / 5.3 | 17.1 / 11.6 / 5.3 | 0.9 / 1.3 / 2.9 | neither |
+    | iota Ori 2025-10-15 | 194 / 11.1 / 4.7 | 12.4 / 7.5 / 4.5 | 3.1 / 3.2 / 3.2 | neither |
+    | lambda Cen 2026-02-20 | 552 / 20.3 / 6.6 | 24.0 / 12.2 / 6.2 | 4.5 / 4.0 / 5.0 | train |
+
+    Inside 22 px our model leaves 5.5 to 3,335 sigma. StarXTerminator leaves 1 to 7 there on twenty of the
+    twenty-four, and 17 to 36 on Maia and Merope on both nights, which sit in their nebulae: its figures from
+    22 px out are what the field holds (reflection nebula on the Pleiades and near Antares), and it keeps that
+    nebula. At 100 to 120 px our ring stays within 1.3 sigma of the master's on twenty of the twenty-four; the
+    four where our model takes more (5 to 12 sigma) are Maia, Merope, Alcyone and Electra on the master of
+    2022-01-04.
+  - **How far out our model takes anything, ring by ring** (the same file's rings: of the light StarXTerminator
+    takes in a ring, the share R4d as trained takes; a dash where StarXTerminator takes under a sigma).
+
+    | star and night | 8-22 px | 22-40 | 40-60 | 60-80 | 80-100 | 100-120 |
+    |---|---|---|---|---|---|---|
+    | Antares 2026-04-21 | 47 % | 5 | 0 | 0 | 0 | 0 |
+    | Antares 2024-05-28 | 78 | 15 | 1 | 0 | 0 | 0 |
+    | Antares 2023-05-15 | 84 | 38 | 5 | 0 | 4 | 8 |
+    | sigma Sco 2026-04-21 | 85 | 38 | 13 | 11 | 15 | - |
+    | sigma Sco 2023-05-15 | 91 | 59 | 31 | 27 | - | - |
+    | Alcyone 2022-01-05 | 17 | 7 | 5 | 7 | 5 | 5 |
+    | Maia 2022-01-05 | 55 | 24 | 6 | 3 | 6 | 11 |
+    | Merope 2022-01-05 | 74 | 41 | 11 | 4 | 0 | 0 |
+    | Electra 2022-01-05 | 76 | 39 | 11 | 1 | 0 | 0 |
+    | Atlas 2022-01-05 | 78 | 53 | 26 | 8 | 7 | 7 |
+    | Taygeta 2022-01-05 | 94 | 69 | 34 | 9 | 1 | 0 |
+    | Asterope 2022-01-05 | 96 | 68 | 30 | 12 | 0 | 0 |
+    | 22 Tau 2022-01-05 | 96 | 67 | 34 | 9 | 0 | 17 |
+    | Alcyone 2022-01-04 | 82 | 69 | 59 | 61 | 60 | 55 |
+    | Maia 2022-01-04 | 97 | 84 | 79 | 96 | 126 | 153 |
+    | Merope 2022-01-04 | 98 | 91 | 94 | 117 | 166 | 212 |
+    | Electra 2022-01-04 | 95 | 79 | 70 | 70 | 69 | 65 |
+    | Atlas 2022-01-04 | 98 | 88 | 68 | 50 | 34 | 18 |
+    | Taygeta 2022-01-04 | 98 | 88 | 74 | 69 | 52 | 38 |
+    | Asterope 2022-01-04 | 98 | 79 | 59 | 55 | 42 | 27 |
+    | 22 Tau 2022-01-04 | 99 | 85 | 76 | 62 | 34 | 56 |
+    | Alnitak 2025-10-28 | 97 | 85 | 64 | 40 | 22 | 2 |
+    | iota Ori 2025-10-15 | 95 | 66 | 46 | 29 | 17 | 13 |
+    | lambda Cen 2026-02-20 | 96 | 82 | 50 | 21 | 11 | 27 |
+
+    Four things show (a share is noisy where StarXTerminator takes only a few sigma, as in the outer rings of
+    the fainter stars).
+    - **Antares is barely touched beyond its innermost ring, on all three sessions:** 47, 78 and 84 percent
+      there, then 5 to 38 at 22 to 40 px, and 0 to 8 beyond. All three were taken through a camera lens with an
+      iris, whose star is
+      a disc with many spikes.
+    - **On the Pleiades the night decides, not the star.** On 2022-01-05 all eight are left from about 60 px
+      out (1 to 12 percent at 60 to 80 px), and Alcyone and Maia already inside 22 px (17 and 55 percent). On
+      2022-01-04 all eight are taken far out (50 to 117 percent at 60 to 80 px). The two masters are the same
+      remote telescope and camera on two nights running. The earlier has the brighter sky (356 / 437 / 267
+      against 252 / 298 / 216 in the files' units, R / G / B) and the larger noise (4.4 / 5.4 / 3.8 against
+      3.4 / 4.4 / 3.5). What the model answers to was measured later that night: neither, but the stretch
+      ("The stretch is the switch" below).
+    - **On 2022-01-04 our model takes more than StarXTerminator** round Merope from 60 px out and round Maia
+      from 80 px out (up to 212 and 153 percent): there it takes the nebula.
+    - **On the rest** (sigma Scorpii twice, Alnitak, iota Orionis, lambda Centauri) it takes 85 to 97 percent of
+      the innermost ring and a share that falls with distance.
+
+    So there is no one reach, and where our model takes as far out as StarXTerminator it takes nebula with it.
+  - **A colour cast where it does take the halo.** On 2022-01-04 every one of the eight comes out green. At 40 to
+    60 px Maia's master reads 77.8 / 139 / 187 (R / G / B); StarXTerminator leaves 20.1 / 35.9 / 54.2, the
+    nebula's own blue, and ours leaves 32.5 / 108 / 52.2: red and blue taken, green left. Alcyone, on dark sky,
+    reads 106 / 163 / 197; StarXTerminator leaves 3.8 / 6.2 / 8.8 and ours 45.3 / 112 / 65.4. Looked at: on that
+    night's plate Merope's nebula and Maia's come out green, and each star is a green core with a red pit below
+    it. On 2022-01-05 the nebulae keep their colour, because there our model takes little in any channel and
+    leaves the stars.
+  - **Through the product's chain one star comes back whole (#2308).** On the master of 2022-01-05 our model as
+    trained leaves Alcyone at 7,823 sigma inside 8 px (the master reads 22,412), and core protection takes what
+    is left for a core. Its log reads "protected (3260, 2164), peak 7440 sigma, 1024 px", and the chain's plate
+    holds the master's star again: 22,412 inside 8 px and 4,033 at 8 to 22 px. It is the only core protected on
+    that master, and the catalogue check kept one of the 35 compact peaks inside it removed. On the seven other
+    masters the chain protects nothing but M42's own core. Stars put back in cores are the third thing the
+    owner's bar rules out (#2245, his line of 2026-11-19 as recorded there; the wording here is ours).
+  - **The stretch is the switch, and three pixels set it (2026-11-20, late; no training; #2309).** The remover
+    feeds its models one whole-frame stretch a channel (`ChunkedNafnetRunner.ApplyInputStretch`): the channel's
+    minimum is subtracted, then a midtones balance puts the median above that minimum at 0.25. The minimum is
+    one pixel. `stretch_swap.py` writes a master with another master's stretch numbers and nothing else changed,
+    by planting a pixel or raising the few under the new minimum; `stretch_soften.py` scales a master's own.
+    R4d as trained on each, the share of StarXTerminator's take at 8-22 / 22-40 / 40-60 / 60-80 px
+    (`stretch_swap_rings.py`, then `stretch_swap_table.py`), and what is left at 40 to 60 px as in the table
+    above: ring medians less the frame's sky, in the master's pixel sigma.
+
+    | Alcyone | share taken, % | left at 40-60 px, R / G / B, sigma |
+    |---|---|---|
+    | 2022-01-05 as it is (master 174 / 262 / 298) | 17 / 7 / 5 / 7 | 165 / 233 / 260 |
+    | with the other night's maximum and minimums (6 samples touched) | 80 / 71 / 64 / 65 | 67 / 169 / 82 |
+    | with only the other night's maximum (3 samples) | 17 / 7 / 5 / 7 | 166 / 233 / 261 |
+    | with only the other night's minimums (3 samples) | 80 / 71 / 64 / 65 | 67 / 169 / 82 |
+    | every channel's minimum three times deeper (3 samples) | 89 / 68 / 34 / 16 | 116 / 167 / 183 |
+    | 2022-01-04 as it is (master 106 / 163 / 197) | 82 / 69 / 59 / 61 | 45 / 112 / 65 |
+    | with the other night's maximum and minimums (354 samples) | 17 / 8 / 5 / 3 | 101 / 147 / 178 |
+    | with only the other night's minimums (295 samples) | 17 / 8 / 5 / 3 | 101 / 148 / 178 |
+
+    The 354 are 295 dark pixels raised to the shallower minimums and 59 pixels of saturated star cores clipped to
+    the lower maximum, so that arm changes stars. The 295 alone, which touch no star, were run after the review of
+    #2311 asked for them and give the same answer on all eight. Three pixels do it one way and 295 the other: a
+    minimum is deepened by one planted pixel and made shallower only by raising every pixel under it.
+
+    - **All eight Pleiads of a frame move together**, each way: with the other night's minimums the stars of
+      2022-01-05 are taken far out and green (Maia 97 / 83 / 82 / 100, Merope's nebula with her), and those of
+      2022-01-04 stand with their colour. Looked at (512 px at 1:1): Merope's nebula turns green on the night it
+      was blue and keeps its blue on the night it was green.
+    - **The strength decides how much of the star goes.** With every channel softened alike, Alcyone gives up 89
+      percent of her innermost ring and Maia 97, with no cast and the nebula kept, and the share falls with
+      distance as on Alnitak. Antares on HIP 80609's master, softened the same way, gives up 81 percent of the
+      innermost ring where it gave 47, and nothing beyond 40 px: the core goes, the disc and the spikes stay.
+    - **The cast and the nebula taken follow the channels' balance, not the strength.** The two nights' minimums
+      differ by a factor of 1.7 in red and in green and by almost nothing in blue (median above minimum 168 /
+      400 / 174 on 2022-01-04 against 98 / 233 / 183 on 2022-01-05, in the files' units). With 2022-01-04's balance the model takes red and
+      blue far out and leaves green. With all three softened alike by a factor of three, a softer stretch than
+      either night's, there is no cast and the nebula stays.
+    - **It is not the whole of #2292.** A stretch three times harder does not make Alnitak stand (97 / 85 / 64 /
+      40 becomes 96 / 83 / 62 / 63), and no softening reaches Antares' disc. The far wing is still a matter of
+      what the model was shown. The frame's maximum, its unit divisor, does not matter here.
+    - **Refuted on the way** (`stretched_levels.py`): a ring's level in the stretched input does not say whether
+      it is taken. Across the twenty-four stars rings at one level are taken 5 percent and 84 percent.
+    - **The store** (`stretch_depths.py`, the 123 colour masters): the darkest pixel sits 8 to 228 noise sigma
+      under its channel's sky (median 34, 10th to 90th percentile 19 to 94), and within a master the deepest
+      channel is 1.5 times the shallowest at the median and twice or more on 22. The export stretches each
+      session with its master's numbers, so every session trained at the strength and balance its darkest
+      pixels happened to give it.
+    - **A black point a fixed number of noise sigma under each channel's sky, tried at inference** on R4d as it
+      is, no retrain (`stretch_depth_set.py ... centre`; 3 to 5 samples a frame). The sigma of this first try was
+      the noise of the frame's central 512 px crop; by the sky noise the registered read below uses, its two
+      depths are 69 to 94 and 138 to 188 sigma, differing by channel and night. The share taken at 8-22 / 22-40 /
+      40-60 / 60-80 px:
+
+      | | 2022-01-05 as it is | at 60 sigma | at 120 sigma | 2022-01-04 as it is | at 60 sigma | at 120 sigma |
+      |---|---|---|---|---|---|---|
+      | Alcyone | 17 / 7 / 5 / 7 | 67 / 48 / 37 / 32 | 89 / 69 / 52 / 39 | 82 / 69 / 59 / 61 | 81 / 57 / 45 / 35 | 93 / 69 / 52 / 42 |
+      | Maia | 55 / 24 / 6 / 3 | 92 / 56 / 26 / 26 | 96 / 69 / 47 / 44 | 97 / 84 / 79 / 96 | 95 / 54 / 36 / 41 | 97 / 69 / 54 / 47 |
+      | Merope | 74 / 41 / 11 / 4 | 87 / 60 / 35 / 23 | 94 / 72 / 50 / 35 | 98 / 91 / 94 / 117 | 94 / 71 / 51 / 32 | 96 / 77 / 55 / 39 |
+      | Taygeta | 94 / 69 / 34 / 9 | 96 / 75 / 58 / 44 | 97 / 82 / 59 / 43 | 98 / 88 / 74 / 69 | 97 / 79 / 62 / 52 | 97 / 84 / 63 / 41 |
+
+      The two nights read much closer at either depth than as they are (up to 113 points apart on these four
+      stars, Merope at 60 to 80 px): at 120 sigma they differ by up to 7 points (Maia 47 against 54 at 40 to
+      60 px), at 60 sigma by up to 16 (Merope 35 against 51, Maia 26 against 41, Alcyone 67 against 81). The two
+      depths were not equal between the nights in sky sigma, as said above, so some of what is left may be that.
+      Nothing is taken beyond
+      StarXTerminator's take any more (Merope of 2022-01-04 at 100 to 120 px: 212 percent as it is, 32 and 64),
+      and the colour holds: Alcyone of 2022-01-04 keeps 50 / 59 / 52 percent of her light at 40 to 60 px in R /
+      G / B at 120 sigma, and 49 / 58 / 51 the next night, against 43 / 69 / 33 as it is. Looked at (Merope on
+      both nights and Alcyone, 512 px at 1:1): the two nights' plates are alike, the nebula blue-grey with its
+      streaks, and where the star was a faint ring with a green tinge and a small dark pit. So a black point that
+      does not hang on one pixel brings the model's answers on the two nights together without a retrain; what
+      it does to the scorecard's rows is the read registered next.
+  - **The black point's read on the scoring masters, registered 2026-11-20 before any score of it.** No training
+    and no arm: R4d as it is, on the three scoring masters written with every channel's minimum at its median less
+    60 and less 120 noise sigma (`stretch_depth_set.py`), as trained and through the product's chain (protection
+    without the stars, then floor5), scored as every arm is.
+    - **The sigma is the sky's** (corrected before any score, the same night): the 20th percentile over the
+      frame's 64 px blocks of each block's neighbour-difference sigma, since a central crop is 30 Doradus on the
+      Tarantula master. By it the three masters' own depths are 45 / 40 / 48 on Andromeda, 9 / 11 / 10 on the
+      Tarantula and 32 on the Sagittarius master (one plane): the Tarantula, which carries the crowded rows, is
+      stretched far harder as it is than the other two, and 60 or 120 sigma softens it five- to thirteenfold.
+    - **The question:** do the scorecard's rows hold at a black point that mends the bright stars? Through the
+      chain, every whole-master guard of R4g's list: the Tarantula's crowded flat at least 90.3 (R4d 91.3), the
+      Sagittarius crowded flat at least 96.3, Andromeda's dark flat at least 95 with at most 3 dug, the
+      Tarantula's dark flat at least 91, purity at most 1.0 %, the light taken from the Tarantula field at most
+      83 % and 84 %; the glow's green median within 450 of zero on Andromeda and within 500 on the Tarantula (R4d
+      -8.5 and 106.5); the M31 nucleus under 10 % (R4d 0.0). And one row R4g's list reports without a bar: Gaia
+      BP 17-19 with the level set aside at least 89.7 (R4d 90.7, a point under it). A softer black point is what
+      risks cores and glow, so those two are guards here, not reported only.
+    - **Nebula guards, as trained,** all of R4g's: light added on at most 1.0 % of each master's nebula; of the
+      brightest tenth of the Tarantula's peaks at least 11 of 77 standing; of the faint stars on bright background
+      (`audit.py real`) at most 37 % left on the Lagoon's core and at most 27 % on 30 Doradus (R4g's bars; R4d
+      29 % of 142 and 22 % of 321). And one added for this read: the Lagoon's broad light taken no more than
+      R4d's 2.67.
+    - **Of R4g's list only the tile rows are left out:** by count clean at 100-1000 sigma and at 1000 and over,
+      M42's 100-1000 and the SMC's two bands ("Not read here" below says why). A depth that passes the rows above
+      is still unread on those.
+    - **What is expected.** The bright stars gain, as on the Pleiades. The star rows are the risk: a softer stretch
+      puts faint stars nearer the sky in the model's input, so the crowded flats and BP 17-19 may fall. The
+      nebula rows may move either way, and no direction is predicted.
+    - **Reading.** A depth at which every row above holds is put to the owner as a candidate for the product's
+      black point and for the domain of a retrain. A depth at which a guard fails is not. If both fail, the rule
+      as tried is no product step and the black point goes to a retrain alone. Nothing is adopted by this read.
+    - **Reported, no bar:** every scorecard row beside R4d's as it is; the three masters' own depths; the
+      twenty-four stars of `bright_star_list.tsv` at each depth, as trained, and the uncertain star's two rows.
+    - **Not read here:** the rows scored on validation tiles (M42, the SMC, the counts by sigma). The tiles carry
+      the export's stretch, so they are read only once a depth has held on the whole masters.
+    - **Looked at before the rows are quoted:** the Lagoon's core, 30 Doradus's core, the Tarantula's crowded
+      field and knots, M31's nucleus and a bright star on dark sky, at each depth beside R4d as it is and
+      StarXTerminator.
+  - **Looked at** (the sheets, 512 px at 1:1: master / StarXTerminator / R4d as trained / R4d through the chain,
+    all twenty-four). StarXTerminator leaves a smooth field on every one, and Merope's and Maia's nebulae with
+    their streaks intact. Ours leaves:
+    - on Antares, on all three sessions, a glowing disc with every diffraction spike (the many spikes of an
+      iris), and a faint disc with spikes even on sigma Scorpii, 35 sigma in its innermost ring;
+    - on the Pleiades of 2022-01-05 each star's core with its spikes, Alcyone nearly whole, and on Asterope and
+      22 Tauri a ring with a dark pit;
+    - on the Pleiades of 2022-01-04 a small green core with a red pit and a green glow;
+    - on Alnitak a faint smudge with a pit, and on lambda Centauri, whose four spikes cross the whole crop, a
+      faint grey disc with a trace of the cross.
+
+    Smaller bright stars in the same crops are removed.
+  - **What follows.** (1) The likely causes, inferred and not measured. The injector's halo ends at 45 px
+    (`InjectionPopulation.PlateHaloReachPx`) and it draws no spikes, and the ring table shows the take fading
+    between 22 and 100 px on most stars; a lens's disc with many spikes is a shape no drawn star has, which would
+    explain why Antares is barely touched. It does not explain the Pleiades: the same eight stars through the
+    same telescope are left on one night and taken, nebula and all, on the night before. That was measured the
+    same night and is the stretch's black point, one pixel a channel ("The stretch is the switch" above, #2309):
+    a product defect of its own, and it means every drawn star so far was drawn into a domain whose strength
+    and colour balance vary by chance. A black point that does not hang on one pixel and is the same for the
+    three channels in noise terms (the median less a fixed number of noise sigma is the candidate), in the
+    export and at inference, would make that domain one; it needs a retrain, it would come before any far wing
+    is drawn, and it is not registered. The truth plates keep spikes by design
+    (`ClassicalStarRemover`, "spikes are left whole") and cut the halo flat near 120 px, a further candidate
+    cause. A halo injected past 45 px, and a star drawn with an iris's spikes, each read the same way, would
+    separate those; neither has been run. (2) Such stars are rare: at least 8 of the 151 masters hold one (a floor, for what the count does not hold), thirteen
+    different stars in all, and a session's 40 drawn cells rarely hold its one such star. Two of the eight
+    sessions train, and their stars are removed no better than their kind: Antares where it trains reads as
+    Antares on the two sessions that do not (78 percent of the innermost ring against 47 and 84), and lambda
+    Centauri as Alnitak and iota Orionis, which do not train. So more data is unlikely to teach it; that has not
+    been tested by adding sessions. If it holds, it has to be drawn, a far wing to a few hundred pixels and the
+    spikes. (3) Drawing may
+    not be enough for the farthest light. The model sees windows of 256 px (its contract's input;
+    `OnnxTianWenStarRemover` steps them by half their interior), and the net's own reach is wider than that
+    (about 294 px for four levels, "R2n" above), so the window is the limit: light farther than about 128 px from
+    a star's core reaches the model mostly in windows that do not hold the star, where it cannot be told from
+    sky. On the twenty-four stars the ring at 140 to 170 px stands 2 to 19 sigma over the sky. The disc, the
+    spikes and the wing inside about 120 px are within one window. (4) Where our model does take a halo far out
+    it takes nebula and shifts its colour (Merope's and Maia's nebulae above), so a longer reach has to come with
+    the nebula rows that R4g's read carries. (5) The scoring masters hold no such star, so no row of the
+    scorecard reads this. R4f's and R4g's reads run the stars of `bright_star_list.tsv` beside R4d and
+    StarXTerminator (the list pins their inputs). Their registrations named that list when it held fourteen;
+    it was extended to twenty-four before either arm had a score, which lengthens a read and moves no bar.
+    (6) The chain's core protection can put such a star back whole (#2308). (7) Nothing is registered on it, and
+    whether it comes before or after R4f's and R4g's reads is the owner's.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
