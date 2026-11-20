@@ -643,6 +643,11 @@ header solves in about 0.5 s at the 2.8669 it solves at with the header's scale;
 - The detection runs on the whole frame, since the bin the solve proposes is read off the scale. On a very large
   frame that is seconds, once, on a path that used to refuse.
 - It needs the hint. With the hint half a frame off five of the six masters still answer; three quarters off, two.
+- **It leaves the light path's remembered scale alone** (`SolveHintCache`, #2273). That entry is how wrong a typed
+  focal length is. A solve whose scale the ladder supplied has no typed focal length behind it, so it neither
+  applies the remembered ratio nor stores one: its own would be about one, and the next frame of that light path
+  that does state a focal length would read it as its own error. The entry holds its ratio and its parity together,
+  so such a solve does not teach the parity either; it still reads it.
 - **Tried and not kept:** cutting both sides to the disc that is in frame at any camera angle. It moves the
   answering span up (0.7 to 1.25 on three masters) and narrows it on every one (1.38 to 1.79 against 1.57 to 2.0).
 

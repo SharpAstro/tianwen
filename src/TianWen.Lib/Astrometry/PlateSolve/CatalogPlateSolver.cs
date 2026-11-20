@@ -770,8 +770,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // frame's, so it is the fallback for a decline rather than a competitor. The decline is the
         // case worth serving -- the recovery needs 10 agreeing quad candidates and answers on 2 of 5
         // real frames, and it declines through the same starved projection that makes the seed hard.
+        //
+        // The remembered RATIO is how wrong this light path's typed focal length is. A scale the ladder read off
+        // the stars has no typed focal length behind it, so the ratio says nothing about it and is not applied;
+        // the remembered parity still is, since that is the optics' and not the header's.
         var cachedHint = _hints.TryGet(image.ImageMeta);
-        if (scalePrior is null && cachedHint is { } cached)
+        var scaleFromStars = LastScaleLadder is not null;
+        if (scalePrior is null && cachedHint is { } cached && !scaleFromStars)
         {
             scalePrior = new QuadScaleRecovery.Recovery(cached.ScaleRatio, Candidates: 0, RelativeSpread: 0f);
             _logger.LogDebug("CatalogPlateSolver: no quad recovery, using the scale this light path solved at before -- ratio {Ratio:F5} (implied {Implied:F4}\"/px against the header's {Header:F4})",
@@ -973,7 +978,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // structure whose whole justification is that a miss is cheap. The parity is read off the
         // attempt that answered rather than off the pick, because the gate above is exactly where
         // those two part company.
-        if (winner.Wcs is { } accepted && accepted.PixelScaleArcsec > 0)
+        //
+        // Not from a solve whose scale the ladder supplied: its ratio is about one by construction (the stars' scale
+        // over the stars' scale), and stored under the light path's key it would be read by the next frame that
+        // carries a typed focal length as how wrong THAT is. The entry holds one ratio and one parity together, so
+        // the parity is not learned from such a solve either; a frame that states a scale teaches both.
+        if (winner.Wcs is { } accepted && accepted.PixelScaleArcsec > 0 && !scaleFromStars)
         {
             _hints.Store(image.ImageMeta, (float)(dim.PixelScale / accepted.PixelScaleArcsec), winner.IsStd);
         }

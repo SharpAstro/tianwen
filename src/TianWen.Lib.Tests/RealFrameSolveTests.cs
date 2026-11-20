@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
@@ -128,10 +129,12 @@ public class RealFrameSolveTests(ITestOutputHelper output)
 
         var db = new CelestialObjectDB();
         await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        // The figure the no-scale solve is held to comes from a solver of its own: a solver remembers what a light
+        // path answered (its parity, its scale ratio), and this fixture names its telescope and camera, so one solver
+        // for both would hand the second solve the first one's answers and the no-scale solve would not be a cold one.
+        var withScale = await _AssertSolves(new CatalogPlateSolver(db, NullLogger<CatalogPlateSolver>.Instance), image, stated.Value, hint, ct);
+
         var solver = new CatalogPlateSolver(db, NullLogger<CatalogPlateSolver>.Instance);
-
-        var withScale = await _AssertSolves(solver, image, stated.Value, hint, ct);
-
         var sw = Stopwatch.StartNew();
         var result = await solver.SolveImageAsync(unscaled, imageDim: null, searchOrigin: hint, cancellationToken: ct);
         sw.Stop();
@@ -151,6 +154,14 @@ public class RealFrameSolveTests(ITestOutputHelper output)
         Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(
             Math.Abs(solver.LastScaleLadder.Value.ScaleArcsec - withScale.PixelScaleArcsec) / withScale.PixelScaleArcsec, 0.0025,
             "the ladder's answer must be inside the window the seed gives a scale read off the stars");
+
+        // What a light path remembers is how wrong its TYPED focal length is. A solve whose scale the ladder supplied
+        // has none behind it, so it teaches the cache nothing: its ratio of about one, stored under this light path,
+        // would be read by the next frame that does carry a focal length as that frame's own error.
+        solver.Hints.Count.ShouldBe(0, "a solve whose scale came from the stars must not be remembered as a typed focal length's error");
+        var afterIt = await solver.SolveImageAsync(image, stated.Value, searchOrigin: hint, cancellationToken: ct);
+        Assert.NotNull(afterIt.Solution);
+        solver.Hints.Count.ShouldBe(1, "premise: a solve from a stated scale is what teaches the light path");
 
         image.Release();
     }
