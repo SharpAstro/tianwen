@@ -203,17 +203,21 @@ What exists, read from the code on 2026-11-19:
 - **The viewer's auto-crop is a display clip.** `ViewerState.DisplayCrop` hides pixels in the draw; the comment at the toggle
   says "the crop only ever hid pixels that were there the whole time". It is passed to Enhance as a rectangle, so the pipeline
   does see it.
-- The rectangle comes from `ViewerActions.ScanForCrop`: the master's coverage plane where the sidecar has one
-  (`Image.CoverageCropRectangle`), else the edge walk over the pixels (`Image.LargestCoveredRectangle`).
-- `image autocrop` is the CLI verb, and **it calls `ViewerActions.ScanForCrop`**, a routine in
-  `TianWen.UI.Abstractions`. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244;
+- **The rectangle solver is `MasterAutoCrop.Scan` in `TianWen.Lib/Imaging/Stacking`** (#2237), beside `MasterCrop`. It takes the
+  master's coverage plane where the sidecar has one (`Image.CoverageCropRectangle`), else the edge walk over the pixels
+  (`CoverageEdgeWalk` from `Image.LargestCoveredRectangle`), under a `MasterAutoCropRule`: the policy for a refused edge
+  (`CoverageTrimPolicy.KeepEveryPixel` for a person looking, the producing policy with a declined fraction for a model) and an
+  optional margin. It releases the coverage image it reads. The viewer calls it with `MasterAutoCropRule.ForViewing`.
+- `image autocrop` is the CLI verb, and **it calls `MasterAutoCrop.Scan`** with `MasterAutoCropRule.ForModel(--trim-declined,
+  --margin)`, keeping only parsing and printing. `DatasetMasterInventory.SkyPatchOf` keeps its own exact-else-union answer:
+  its fallback runs no edge walk, and taking the routine's tier would trim the walk's edges and move the patch. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244;
   the owner, 2026-11-19: "we can add a crop verb, takes in four parameters, but that is a seperate thing"). It calls
   `MasterCrop` in Lib, which refuses a rectangle not wholly inside the image in words and writes nothing, moves the WCS
   (`WCS.CroppedTo`) and carries the alignment provenance (`AlignmentProvenance.ForCrop`) and the stack cards (`STACK_N`,
   `SNAPSHOT`, `REJ_TOT`, `REJ_RATE`, `STRATEGY`; the two rejection cards stay those of the uncropped master). `image
   autocrop` writes through the same routine, so its output carries the same. The pixels are read once per crop.
 - **The coverage, rejection and std-error sidecars are not cropped** with the master, and none is written beside the
-  crop; that was so for `autocrop` before #2244. A crop therefore has no coverage plane of its own, and `ScanForCrop` on
+  crop; that was so for `autocrop` before #2244. A crop therefore has no coverage plane of its own, and `MasterAutoCrop.Scan` on
   it falls back to the edge walk. Cropping the sidecars is the same rectangle on each, left for its own issue.
 
 What the workbench needs, and why the display clip is not enough for it: a process after the crop must be handed the cropped
@@ -227,8 +231,17 @@ able to set the rectangle by hand.
   is written. Widening the crop later is a changed setting, as DSN-1 v6 draws it.
 - **While the frame is dragged the display clip draws it**, over the uncropped texture, so nothing is uploaded again. The clip
   and `Image.Crop` are given the same rectangle from one place; that they agree to the pixel is a test.
-- **The rectangle solver moves to Lib** before anything else (rule 1, and the repo's rule that pure math lives in
-  `TianWen.Lib`). The viewer, `image autocrop`, `tianwen stack` and the workbench then call one routine. W10.
+- **The rectangle solver is in Lib** (rule 1, and the repo's rule that pure math lives in `TianWen.Lib`): the viewer and
+  `image autocrop` call `MasterAutoCrop` today, and the workbench will. W10.
+- **`tianwen stack` does not call it yet.** Its autocrop (`MasterPostProcessor`) is the registration intersection (the
+  rectangle every frame's outline covers) clipped by the in-memory coverage (`ClipToCoverage`, `LargestCoveredRectangle` at
+  `AbsenceFraction` 0.5 over 8 px blocks, where absence is a block under half of full weight), and has no edge walk. The
+  solver's coverage tier reads the sidecar at 0.95 over 16 px blocks (a median of whole numbers on a frame-count plane), and
+  its fallback walks noise. They differ by design: the stack's clip was tuned for a hole inside the rim (the SV605CC Tarantula
+  corner wedge) where the viewer's 0.95 lost 34 good columns. Question for the owner: should `stack` call the routine?
+  Unifying would change what `stack` writes: its `_autocrop` FITS and display outputs would take the sidecar's rectangle (or the
+  walk's) in place of the intersection, losing or keeping some border columns, and the corner-wedge case would need its
+  threshold carried into the routine as a rule field first. Not changed in this leg.
 - **Guided uses the automatic rectangle** with no handles shown unless asked for, which is the viewer's behaviour and what the
   owner judged enough there.
 - DSN-1 says "cuts where fewer than 90 % of frames overlap". That number is the drawing's. `CoverageCropRectangle` has no such
@@ -390,7 +403,7 @@ that name. Every non-empty Missing cell names the open issue that carries it.
 
 | Group | Process | Routine | Verb | Missing |
 |---|---|---|---|---|
-| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `MasterCrop`, `ViewerActions.ScanForCrop` (in `TianWen.UI.Abstractions`) | `image crop` (a given rectangle, #2244), `image autocrop` (still calls `ViewerActions.ScanForCrop`) | The rectangle solver in Lib, with `image autocrop` and `stack` calling it (#2237, this flight) |
+| Geometry | Crop, auto-crop | `Image.Crop`, `WCS.CroppedTo`, `MasterCrop`, `MasterAutoCrop` (the rectangle solver, in Lib) | `image crop` (a given rectangle, #2244), `image autocrop` (calls `MasterAutoCrop`) | `tianwen stack` still crops by its own rule (see Crop and auto-crop); the crop as a setting |
 | Geometry | Rotate, flip | `Image.TransformAsync` and `WarpToReferenceGridAsync` (a matrix; no named rotate or flip; `Image.Affine` is a per-value line, not geometry) | none | The routine and verb; the WCS carried (#2280) |
 | Geometry | Resample, bin | `Image.BilinearResize` (WCS passed through unscaled), `Image.Downsample` | none | The verbs; the WCS scaled (#2281) |
 | Geometry | Align to a reference | `FrameRegistration` | `image align` | |
@@ -514,8 +527,8 @@ Tracked as #2237. The audit of [the process table](#the-processes-what-exists-an
 highlight compression, background reduction), #2283 (a fixed-form blend), #2284 (SPCC white balance written to a FITS) and
 #2285 (a stretch that writes a FITS). `Image.Invert`, `GaussianBlur`, `ContrastBoost` and `Divide` also have no verb; none is planned
 until the owner asks. The rest of W10, each as a
-Lib routine with a verb and tests: the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib with the viewer,
-`image autocrop` and `tianwen stack` calling it; the crop rule as a setting (`image crop` to four given numbers, #2244, now exists); rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
+Lib routine with a verb and tests: [x] the crop-rectangle solver moved out of `TianWen.UI.Abstractions` into Lib as
+`MasterAutoCrop`, with the viewer and `image autocrop` calling it (`tianwen stack` does not yet: see Crop and auto-crop); the crop rule as a setting (`image crop` to four given numbers, #2244, now exists); rotate and flip; resample and bin; and the colour and tone operations that are `Image` methods with no verb. Each is one small
 PR, and none needs the app.
 
 ### W11 Memory, GPU and disk for many open images
