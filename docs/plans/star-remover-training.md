@@ -7503,7 +7503,9 @@ the first angle is a step after the model and not another arm:
     are nebula: the cores of M42, the Lagoon, eta Carinae, 30 Doradus and the Trifid, and stars inside bright
     nebula, such as the Running Man's, whose far ring is the nebula's. Ten are fainter stars standing in a
     brighter Pleiad's halo. Two are one star on the Pleiades' nebulosity south of Merope, on both nights, whose
-    far ring the eye cannot tell from the nebula. Four are steps at a frame's edge, and one each is a globular
+    far ring the eye cannot tell from the nebula (Alnitak in the Flame nebula and sigma Scorpii near Antares'
+    reflection nebula were counted as stars the same way, by eye, so that star is in the list too, marked
+    uncertain, and the reads run it). Four are steps at a frame's edge, and one each is a globular
     cluster, a galaxy and a planetary nebula. The flat rows looked at hold no star on dark sky: nebula, clusters,
     frame edges and faint stars inside a bright star's halo. The twenty-four read a fall of 14 to 468, so the cut
     at four has room.
@@ -7511,7 +7513,8 @@ the first angle is a step after the model and not another arm:
     `bright_star_names.py`: every one lies within half an arc minute of its catalogue position). Antares on three
     sessions and sigma Scorpii on two of them; eight Pleiads on each of two nights (Alcyone, Atlas, Electra, Maia,
     Merope, Taygeta, Asterope and 22 Tauri); Alnitak; iota Orionis; lambda Centauri. All twenty-four are pinned
-    in `training/star-removal/bright_star_list.tsv` (name and night, master file, x, y).
+    in `training/star-removal/bright_star_list.tsv` (name and night, master file, x, y), and after them the
+    uncertain star's two rows.
   - **The names this section used before were wrong, and the count was a floor twice.** The stars had been named
     after their sessions and by rank. "HIP 80609" is Antares (HIP 80609 is that session's target, and the star
     with the halo in its frame is Antares); "Ophiuchus" and "Antares' field, the brighter" are the same star on
@@ -7524,7 +7527,8 @@ the first angle is a step after the model and not another arm:
     Atlas, Merope and 22 Tauri on both nights, Electra on the second, and lambda Centauri.
   - **What the count does not hold.** The fainter of two sources within 60 px of each other. A source within 60 px
     of a frame's edge (2,162 of the 28,380, 7.6 %). A star on nebula so bright that its own profile reads flat:
-    it is among the flat rows, and its far ring is the nebula's. And stars under the bar: Pleione reads 3.1 and
+    it is among the flat rows, and its far ring is the nebula's. A source under 100 sigma on the quarter-scale
+    read, which is never a candidate. And stars under the bar: Pleione reads 3.1 and
     4.3 sigma at 100 to 140 px on the two nights, and Celaeno does not pass the 3 sigma screen on either.
   - **Where the eight sessions sit in R2** (the `meta.json` of both `r2-synth29` and `r2-synth31`). Two train: the
     Ophiuchus cloud's of 2024-05-28 (Antares) and the Running Chicken's of 2026-02-20 (lambda Centauri). HIP
@@ -7607,7 +7611,8 @@ the first angle is a step after the model and not another arm:
     Four things show (a share is noisy where StarXTerminator takes only a few sigma, as in the outer rings of
     the fainter stars).
     - **Antares is barely touched beyond its innermost ring, on all three sessions:** 47, 78 and 84 percent
-      there, then 5 to 38, then nothing. All three were taken through a camera lens with an iris, whose star is
+      there, then 5 to 38 at 22 to 40 px, and 0 to 8 beyond. All three were taken through a camera lens with an
+      iris, whose star is
       a disc with many spikes.
     - **On the Pleiades the night decides, not the star.** On 2022-01-05 all eight are left from about 60 px
       out (1 to 12 percent at 60 to 80 px), and Alcyone and Maia already inside 22 px (17 and 55 percent). On
@@ -7634,8 +7639,8 @@ the first angle is a step after the model and not another arm:
     is left for a core. Its log reads "protected (3260, 2164), peak 7440 sigma, 1024 px", and the chain's plate
     holds the master's star again: 22,412 inside 8 px and 4,033 at 8 to 22 px. It is the only core protected on
     that master, and the catalogue check kept one of the 35 compact peaks inside it removed. On the seven other
-    masters the chain protects nothing but M42's own core. The owner's bar has "no stars put back in cores" as
-    its third line.
+    masters the chain protects nothing but M42's own core. Stars put back in cores are the third thing the
+    owner's bar rules out (#2245, his line of 2026-11-19 as recorded there; the wording here is ours).
   - **The stretch is the switch, and three pixels set it (2026-11-20, late; no training; #2309).** The remover
     feeds its models one whole-frame stretch a channel (`ChunkedNafnetRunner.ApplyInputStretch`): the channel's
     minimum is subtracted, then a midtones balance puts the median above that minimum at 0.25. The minimum is
@@ -7702,7 +7707,7 @@ the first angle is a step after the model and not another arm:
     is drawn, and it is not registered. The truth plates keep spikes by design
     (`ClassicalStarRemover`, "spikes are left whole") and cut the halo flat near 120 px, a further candidate
     cause. A halo injected past 45 px, and a star drawn with an iris's spikes, each read the same way, would
-    separate those; neither has been run. (2) Such stars are rare: 8 of the 151 masters hold one, thirteen
+    separate those; neither has been run. (2) Such stars are rare: at least 8 of the 151 masters hold one (a floor, for what the count does not hold), thirteen
     different stars in all, and a session's 40 drawn cells rarely hold its one such star. Two of the eight
     sessions train, and their stars are removed no better than their kind: Antares where it trains reads as
     Antares on the two sessions that do not (78 percent of the innermost ring against 47 and 84), and lambda
