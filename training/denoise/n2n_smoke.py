@@ -457,8 +457,23 @@ class ExtraCache:
         if need_keep:
             out.keep = open_keep(cache, meta)
             if out.keep is None:
-                raise SystemExit(f"--extra-cache {cache}: --loss-mask needs its keep.u8 (--prepare-keep)")
+                raise SystemExit(f"--extra-cache {cache}: --loss-mask and --extra-loss-mask need its keep.u8 "
+                                 "(tianwen dataset plate-masks, then --prepare-keep)")
+            if int(meta["keep_draws"]) < out.draws:
+                raise SystemExit(f"--extra-cache {cache}: its masks cover {meta['keep_draws']} draws, it trains {out.draws}")
         return out
+
+
+def extra_loss_mask_refusal(extra_loss_mask, extra_cache, main_has_keep):
+    """Why --extra-loss-mask cannot run as asked, or None when it can (or was not asked): it needs an extra cache to mask,
+    and is for a main cache without masks, since with --loss-mask the extra cache's masks are read already."""
+    if not extra_loss_mask:
+        return None
+    if not extra_cache:
+        return "--extra-loss-mask needs --extra-cache"
+    if main_has_keep:
+        return "--extra-loss-mask is for a main cache without masks; with --loss-mask the extra cache's are read already"
+    return None
 
 
 def extra_share(n_train_main, draws_main, n_train_extra, draws_extra):
@@ -1712,6 +1727,9 @@ def train(args):
     # R2q's --extra-cache: a second synthetic cache's training cells join the draw by their share of the input tiles, each
     # regressing onto its own truth (slot 0) whatever --teacher says for the main cache's.
     extra, share = None, 0.0
+    refusal = extra_loss_mask_refusal(args.extra_loss_mask, args.extra_cache, keep_planes is not None)
+    if refusal:
+        raise SystemExit(refusal)
     if args.extra_cache:
         if regimes != [SYNTH] or synth_target != SLOT_MASTER or getattr(args, "scale_aug", None) or args.cond_psf01 \
                 or args.star_loss is not None or args.operator == "rl":
@@ -1719,11 +1737,7 @@ def train(args):
                              "--cond-psf01, --star-loss or --operator)")
         # R4g's --extra-loss-mask: the extra cache's rows carry D4's mask though the main cache's do not (its truths are
         # stored plates, which keep sources of their own; the main cache's are synthetic and keep none).
-        if args.extra_loss_mask and keep_planes is not None:
-            raise SystemExit("--extra-loss-mask is for a main cache without masks; with --loss-mask the extra cache's are read already")
         extra = ExtraCache.open(args.extra_cache, CH, sigma_planes is not None, keep_planes is not None or args.extra_loss_mask)
-        if args.extra_loss_mask and extra.meta["keep_draws"] < extra.draws:
-            raise SystemExit(f"--extra-loss-mask: {args.extra_cache}'s masks cover {extra.meta['keep_draws']} draws, it trains {extra.draws}")
         share = extra_share(n_train, draws, extra.n_train, extra.draws)
         print(f"extra cache ON: {extra.n_train} training cells x {extra.draws} draw(s) of {args.extra_cache}, "
               f"{share:.1%} of the training draw, each regressing onto its own truth; "
@@ -1731,8 +1745,6 @@ def train(args):
         if args.extra_loss_mask:
             print(f"  its rows leave the sky near their plate's own sources out of the loss ({KEEP_FILE}, "
                   f"{extra.meta['keep_planes']} draw masks); a main row weighs every pixel", flush=True)
-    elif args.extra_loss_mask:
-        raise SystemExit("--extra-loss-mask needs --extra-cache")
 
     # A DECONVOLUTION arm conditions on a stored psf01 label rather than on the input's measured
     # noise, and is selected on width and ringing rather than on noise: the denoiser's gate would

@@ -7038,7 +7038,10 @@ the first angle is a step after the model and not another arm:
     0.83 / 0.67 from the stored plate and 0.63 / 0.63 / 0.58 from the rule's (R / G / B), and a 90th percentile of
     3.73 / 3.75 / 4.45 against 1.27 / 1.60 / 1.20; the mean level is the same to two decimals. So the targets of a
     crowded session lose little in most cells and two thirds of their texture in the most textured ones. (The 90th
-    percentile and that last sentence are withdrawn: see the correction below.)
+    percentile and that last sentence are withdrawn: see the correction below. The medians were read over the same
+    40 tiles, 11 of them holding a block, and are replaced too: on the 29 tiles free of blocks the same statistic
+    reads a median of 0.67 / 0.75 / 0.60 from the stored plate and 0.60 / 0.60 / 0.57 from the rule's, and a 90th
+    percentile of 1.19 / 1.31 / 0.97 against 1.01 / 1.10 / 0.78, `tile_grain_clean.py`, #2289.)
   - **Two more differences from R4d, both small, neither chosen.** (1) The export draws its nebula knots where the
     plate's fine scales hold signal, so with the grain gone fewer are drawn in crowded sky: 27 knots over the
     Tarantula session's 40 cells from the stored plate, 19 from the rule's. (2) R4d trained on the GTX 1070 and

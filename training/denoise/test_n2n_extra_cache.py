@@ -146,14 +146,43 @@ class ExtraRowsMaskAlone(unittest.TestCase):
         self.assertNotIn("extra_loss_mask", off, "a checkpoint written before the switch still resumes")
         self.assertTrue(on["extra_loss_mask"])
 
-    def test_an_extra_cache_without_its_masks_is_refused(self):
-        with tempfile.TemporaryDirectory() as cache:
-            meta = {"cells": 2, "injected": True, "train_cells": 1, "draws": 1, "slots": 2, "channels": 3}
-            with open(os.path.join(cache, "meta.json"), "w", encoding="utf-8") as fh:
-                json.dump(meta, fh)
-            np.zeros((2, 2, 3, S.TILE, S.TILE), dtype=np.float16).tofile(os.path.join(cache, "tiles.f16"))
-            with self.assertRaises(SystemExit):
+    def fake_extra(self, cache, draws, keep_draws=None):
+        """An extra cache of two cells on disk, with masks for `keep_draws` draws when given."""
+        meta = {"cells": 2, "injected": True, "train_cells": 1, "draws": draws, "slots": 1 + draws, "channels": 3}
+        np.zeros((2, 1 + draws, 3, S.TILE, S.TILE), dtype=np.float16).tofile(os.path.join(cache, "tiles.f16"))
+        if keep_draws is not None:
+            meta.update(keep_planes=2 * keep_draws, keep_draws=keep_draws)
+            np.ones((2, keep_draws, S.TILE, S.TILE), dtype=np.uint8).tofile(os.path.join(cache, S.KEEP_FILE))
+        with open(os.path.join(cache, "meta.json"), "w", encoding="utf-8") as fh:
+            json.dump(meta, fh)
+
+    def test_an_extra_cache_without_its_masks_is_refused_and_the_refusal_names_both_switches(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache:
+            self.fake_extra(cache, draws=1)
+            with self.assertRaises(SystemExit) as refused:
                 S.ExtraCache.open(cache, 3, need_sigma=False, need_keep=True)
+            self.assertIn("--extra-loss-mask", str(refused.exception))
+            self.assertIn("--loss-mask", str(refused.exception))
+
+    def test_masks_covering_fewer_draws_than_the_cache_trains_are_refused(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache:
+            self.fake_extra(cache, draws=2, keep_draws=1)
+            with self.assertRaises(SystemExit) as refused:
+                S.ExtraCache.open(cache, 3, need_sigma=False, need_keep=True)
+            self.assertIn("cover 1 draws", str(refused.exception))
+
+    def test_masks_covering_every_draw_open(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache:
+            self.fake_extra(cache, draws=2, keep_draws=2)
+            extra = S.ExtraCache.open(cache, 3, need_sigma=False, need_keep=True)
+            self.assertEqual(extra.keep.shape, (2, 2, S.TILE, S.TILE))
+            del extra   # its memmaps hold the files open, and Windows will not delete an open file
+
+    def test_the_switch_is_refused_without_an_extra_cache_and_beside_a_main_mask(self):
+        self.assertIsNone(S.extra_loss_mask_refusal(False, None, False), "not asked, nothing to refuse")
+        self.assertIsNone(S.extra_loss_mask_refusal(True, "c:/x/bright", False))
+        self.assertIn("needs --extra-cache", S.extra_loss_mask_refusal(True, None, False))
+        self.assertIn("without masks", S.extra_loss_mask_refusal(True, "c:/x/bright", True))
 
 
 class SplitByScene(unittest.TestCase):
