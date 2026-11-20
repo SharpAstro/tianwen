@@ -2,10 +2,16 @@
 
     python -I bright_star_nights.py [--floor SIGMA] <ring file> <image label> [<ring file> <image label> ...]
 
-A ring file is the concatenation of the two outputs of stretch_swap_rings.py, one per night (2022-01-04 and
-2022-01-05; each writes one night, one block a row opened by its "=== " line, one table of ring medians an image).
-A file holding one night only stops with a message: the night-to-night gap needs a star on both. For each
-(file, label) this prints, in the red channel:
+A ring file is outputs of stretch_swap_rings.py put end to end. One run of that script writes one night and frame:
+one block a row of bright_star_list.tsv on that night, opened by its "=== " line, with one table of ring medians an
+image. What this script needs of the file differs by line:
+
+- the night-to-night gap needs the two Pleiades nights, 2022-01-04 and 2022-01-05, and a file without a Pleiad on
+  both stops with a message;
+- the count of rows is over the rows the file holds, so the plan's "7 of 26" needs the output of every night of the
+  list (26 rows over eight nights; the two Pleiades nights alone hold 18).
+
+For each (file, label) this prints, in the red channel:
 
 - on how many rows the image takes under 80 percent of what StarXTerminator takes at 8 to 22 px, and which rows;
 - over the eight Pleiads that are on both nights (2022-01-04 and 2022-01-05), the widest difference between the
@@ -54,18 +60,21 @@ def shares(path, ours):
 
 def main(args):
     global FLOOR
-    if args[:1] == ["--floor"]:
-        if len(args) < 2:
-            sys.exit(__doc__)
-        FLOOR = float(args[1])
-        args = args[2:]
+    args = list(args)
+    if "--floor" in args:
+        at = args.index("--floor")
+        try:
+            FLOOR = float(args[at + 1])
+        except (IndexError, ValueError):
+            sys.exit("FAILED: --floor takes a number of sigma, as in --floor 1")
+        del args[at:at + 2]
     if len(args) < 2 or len(args) % 2:
         sys.exit(__doc__)
     for path, label in zip(args[0::2], args[1::2]):
         s = shares(path, label)
         under = [k for k, v in s.items() if v[0] is not None and round(v[0]) < 80]
         widest, widest_shown = (0, "none"), (0, "none")
-        paired = 0
+        paired, compared = 0, 0
         for star in sorted({k.rsplit(" ", 1)[0] for k in s if "2022-01-0" in k and not k.startswith("south")}):
             a, b = s.get(f"{star} 2022-01-05"), s.get(f"{star} 2022-01-04")
             if not a or not b:
@@ -74,6 +83,7 @@ def main(args):
             for i, w in enumerate(RINGS):
                 if a[i] is None or b[i] is None:
                     continue
+                compared += 1
                 d = abs(round(a[i]) - round(b[i]))
                 where = f"{star} at {'-'.join(p.strip() for p in w.split(' to '))} px"
                 if d > widest[0]:
@@ -83,6 +93,9 @@ def main(args):
         if not paired:
             sys.exit(f"FAILED: {path} has no Pleiad on both 2022-01-04 and 2022-01-05; "
                      "concatenate the two nights' ring files")
+        if not compared:
+            sys.exit(f"FAILED: at a floor of {FLOOR:g} sigma {path} has no ring that both nights keep, "
+                     "so there is no gap to give")
         print(f"{label}: the innermost ring is taken under 80 percent on {len(under)} of {len(s)} rows "
               f"({', '.join(under) or 'none'})")
         print(f"    the two nights, eight Pleiads: up to {widest[0]} points apart ({widest[1]}); "

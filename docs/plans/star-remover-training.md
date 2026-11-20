@@ -7902,7 +7902,8 @@ the first angle is a step after the model and not another arm:
       scorecard has been reading R4d at depths chosen by each master's darkest pixel. If no depth holds, what is
       left is the retrain: one black point by noise in the export and at inference, so that a star and a knot
       each look one way to the model on every frame. It is not registered, and it is the owner's.
-    - **One more depth, 40 sigma, registered 2026-11-21 before any score of it.** The review of this read asked
+    - **One more depth, 40 sigma: the text pushed at 07:04 on 2026-11-21 was registered before the run** (its
+      wording was touched at 07:30; the read below says how). The review of this read asked
       what lies between the Tarantula's own 10 sigma and 60. The same script, binary, masters, guards and looks
       as the two depths above, and the stars of the list at 40 as trained. The three scoring masters are the
       scorecard's own copies and the stars' masters those of the 2026-10-12-full bake, as at 60 and 120; the
