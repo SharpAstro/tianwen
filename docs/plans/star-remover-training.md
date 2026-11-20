@@ -7138,19 +7138,29 @@ the first angle is a step after the model and not another arm:
     guard as registered. **For this arm purity is therefore reported and is not a guard.** What it stood for
     stays guarded by the light taken from the Tarantula field (at most 83 and 84 %), which reads the level and
     nothing else: 98 and 106 on the level-only plate and on StarXTerminator's, 81 and 83 on the rule plate. The
-    tiles' guards (by count, M42, the SMC) were not read on that plate. The nebula guard on light added is kept
-    as registered for now, **but its argument does not close and the split is owed before any score.** The rule
-    plate reads 2.7 % on Andromeda and 4.3 % on the Tarantula there. Fresh noise puts at most 1.7 % of smoothed
-    pixels over the row's threshold by chance (white noise: out less input is sigma times root 2, a 3 x 3 mean
-    divides it by 3, against 1 sigma gives z 2.12, P 1.7 %). That is a per-pixel ceiling for white noise: it
-    cannot account for 4.3 %, nor for more than 1.7 of the 2.7, and a stacked master's correlated noise raises it
-    by an amount not measured here. The rest is probably light the rule fills (the rule softens thin dark lanes,
-    and a filled lane is light added over the input), which a model trained on those targets would fill too, so
-    "a model draws none" rests only on R4d's 0.0, whose targets keep the lanes. `grain_rule_post.py` is to
-    report the 2.7 and 4.3 split into chance (the same threshold on noise-only pixels) and fill before R4f is
-    scored; it does not yet. If
-    the fill alone clears 1.0 %, this guard has purity's fault and goes to the owner as a reported row, as
-    purity did, rather than killing an arm that does what it is for. The Lagoon's broad light on it is 2.04 (R4d through the chain 2.04)
+    tiles' guards (by count, M42, the SMC) were not read on that plate. **The nebula guard on light added stays a
+    guard as registered, and a plate that meets the target fails it on the Tarantula.** The first argument here
+    (fresh noise, "a model draws none") did not close, as the review of #2302 showed, so the split was measured
+    the same evening with `grain_rule_post.py --own-noise`: the plate keeps its own noise where the rule would
+    draw fresh noise, so what it adds over the input is the rule's fill alone.
+
+    | light added on the nebula, % | R4d through the chain | the rule plate, own noise (the fill) | the rule plate, fresh noise |
+    |---|---|---|---|
+    | Andromeda | 0.11 | 0.62 | 2.65 |
+    | Tarantula | 0.65 | 2.09 | 4.27 |
+    | Lagoon | 0.30 | 0.30 | 0.30 |
+
+    Of the rule plate's 2.7 and 4.3 %, about 2.0 and 2.2 points are two independent noises standing apart (more
+    than the 1.7 % a white noise allows by the row's threshold, a 3 px mean over one pixel sigma, since a stacked
+    master's noise is correlated), and the fill adds 0.5 points on Andromeda and 1.4 on the Tarantula over R4d's
+    own. As trained R4d reads 0.0, so a perfect learner of this target would read about 0.5 and 1.4 against the
+    bar of 1.0. Unlike purity the row is not misread: on the Tarantula the newly added pixels lie where the input
+    stands 3.6 to 9.7 sigma under its own 31 px median (median 6.5; `nebula_added_look.py`, whose sheet shows the
+    largest of them as a dark pocket beside 30 Doradus's core). They are dark structure of the nebula that the
+    rule fills, a cost of the target rule and not of the scorer. So the bar stays. R4f failing it on the
+    Tarantula would be a finding against the rule (the nebula has to be held out of it), and the read is to say
+    so in those words. The owner may rule otherwise before the read; until then the registration stands.
+    The Lagoon's broad light on it is 2.04 (R4d through the chain 2.04)
     and 17 of the Tarantula's 77 brightest peaks stand. Reported beside row (2) from now on: the scorer's blotch
     line on the held-out Tarantula.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read

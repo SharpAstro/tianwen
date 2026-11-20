@@ -62,8 +62,10 @@ def base_of(p7):
     return zoom(median_filter(small, 15), (H / small.shape[0], W / small.shape[1]), order=1)[:H, :W]
 
 
-def grain_out(plate, dens, stem):
-    """The rule on one plate [C, H, W] with its subtracted-star density map [H, W]: the plate it writes and a note a channel."""
+def grain_out(plate, dens, stem, fresh_noise=True):
+    """The rule on one plate [C, H, W] with its subtracted-star density map [H, W]: the plate it writes and a note a channel.
+    With fresh_noise False (a diagnostic's, never an export's) the plate's own residual under 7 px stands where the drawn
+    noise would, so the result shares the plate's noise and differs from it by the smoothing alone."""
     C, H, W = plate.shape
     w = np.clip((dens - 0.003) / 0.005, 0, 1); sq = np.sqrt(np.maximum(dens, 0))
     out = plate.copy(); note = []
@@ -94,8 +96,11 @@ def grain_out(plate, dens, stem):
         t = T * g * sig
         a = np.sqrt(uniform_filter(d * d, 21)); keep = np.clip((a - t) / np.maximum(t, 1e-12), 0, 1)
         share = w * (1 - keep)
-        rng = np.random.default_rng(zlib.crc32(f"{stem}|{c}".encode()))
-        res = share * (base + rng.normal(0, 1, base.shape).astype(np.float32) * sig) + (1 - share) * P
+        if fresh_noise:
+            rng = np.random.default_rng(zlib.crc32(f"{stem}|{c}".encode()))
+            res = share * (base + rng.normal(0, 1, base.shape).astype(np.float32) * sig) + (1 - share) * P
+        else:
+            res = share * (base + (P - p7)) + (1 - share) * P
         out[c] = np.where(nan, plate[c], res).astype(np.float32)
         note.append(f"grain {np.percentile(r, 25):.3f} smoothed {100 * share.mean():.1f}%")
     return out, note
