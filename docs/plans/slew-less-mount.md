@@ -170,9 +170,13 @@ From #1483 (the SkyGuider Pro driver's confirmed defects) and #810 (a lost reply
 - **#810, `IsTrackingAsync` on a lost reply** answers "not tracking", and two such polls end the run as
   `DriverEnforcedStop`. Wanted before any real night, with or without this plan.
 - **#1483 item 2, the RA model nothing reads**: between solves the driver's RA is stale after a move. The routine syncs
-  after every solve, so the routine does not depend on it; the meridian limit between solves does.
-- **#1483 item 5**, a move on a closed port still sets the moving flag. **The tenth item**, the pointing state
-  `Computed`, is done in P2.
+  after every solve, so the routine does not depend on it; the meridian limit between solves does. The anchor fields
+  that were written and never read are removed; a model that follows a move is still to be built, with P3.
+- **#1483 item 5**, a move on a closed port set the moving flag: fixed, it is refused. **The tenth item**, the
+  pointing state `Computed`, is done in P2.
+- **#1483 item 1, a stop of tracking that did nothing**: the driver refuses it, and the limit paths
+  (`Session.EnforceMountLimitsAsync`, `MountLimitWatcher`) ask `CanSetTracking` first. At a limit this mount is not
+  stopped: the log says it is still turning and has to be stopped by hand.
 
 ## Phases
 

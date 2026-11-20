@@ -221,14 +221,15 @@ throws a transient exception.
 | `IsSlewingAsync` | `:MGAS#` through `GetMountStatusAsync`; the motion field (`02` moving), so it stays `true` while the servo winds down after a stop | the last motion read | **the last motion read**, which the connect sets and every valid status updates |
 | `GetCameraSnapSettingsAsync` | `:MGCS#`; shutter and interval parsed as whole seconds, then the shot count (`CameraSettingsRegex`) | the cached settings | **the cached settings**: the last `CameraSnapAsync` this driver instance sent, or `null` if none, which reads the same as a real answer |
 | `SetTrackingSpeedAsync` | `:MSTR3#` Sidereal, `:MSTR1#` Lunar, `:MSTR0#` Solar; `ArgumentException` for any other speed, before anything is sent | `InvalidOperationException` | **returns normally**: the `:HRTR0#` ack is read and discarded, and the cached speed is updated as if the mount accepted it |
-| `SetTrackingAsync` | `true`: the cached speed's `:MSTR` again (through `SetTrackingSpeedAsync`). `false`: nothing, and it returns normally (`CanSetTracking` is `false`) | `true`: `InvalidOperationException`. `false`: returns normally | `true`: **returns normally**, as `SetTrackingSpeedAsync` |
-| `MoveAxisAsync` | Primary only; any other axis throws `InvalidOperationException`. Rate 0: `:MSMR2#`. Otherwise `:MSMS<n>#` then `:MSMR1#` (positive rate, west) or `:MSMR0#` (east) under one lock, `n` being the highest of the seven speeds not above the rate's magnitude (1 below 1x) | rate 0: `InvalidOperationException`. Any other rate: sends nothing, yet returns normally and sets the slewing record | **returns normally**: every ack is matched and discarded, and a move sets the slewing record; a stop leaves it for `IsSlewingAsync` to clear from the mount's status |
+| `SetTrackingAsync` | `true`: the cached speed's `:MSTR` again (through `SetTrackingSpeedAsync`), or `:MSTR3#` when the cached speed is `None`. `false`: sends nothing and throws `InvalidOperationException`, since the mount has no tracking-off (`CanSetTracking` is `false`). It used to return normally, so a caller was told the tracker had stopped (#1483) | `InvalidOperationException` either way | `true`: **returns normally**, as `SetTrackingSpeedAsync` |
+| `MoveAxisAsync` | Primary only; any other axis throws `InvalidOperationException`. Rate 0: `:MSMR2#`. Otherwise `:MSMS<n>#` then `:MSMR1#` (positive rate, west) or `:MSMR0#` (east) under one lock, `n` being the highest of the seven speeds not above the rate's magnitude (1 below 1x) | `InvalidOperationException`, and the slewing record is left as it was (a move used to send nothing, return normally and set it, #1483) | **returns normally**: every ack is matched and discarded, and a move sets the slewing record; a stop leaves it for `IsSlewingAsync` to clear from the mount's status |
 | `AbortSlewAsync` | `:MSMR2#` | `InvalidOperationException` | **returns normally**, the stop unacknowledged |
-| `SetGuideRateRightAscensionAsync` | `:MSGR<pp>50#`: `pp` is the rate as a whole percentage of sidereal, and the Dec field is always `50`; `ArgumentException` outside 0 to 99 percent, before anything is sent | `InvalidOperationException` | **returns normally**, cached percentage updated |
-| `CameraSnapAsync` | `:MSCA1<ssss><iii><nnn>#`: shutter and interval in whole seconds (the unit is unconfirmed, a TODO in the code), then the shot count. The one command never sent twice, since it starts the shutter sequence | `InvalidOperationException` | **returns normally**, settings cached |
+| `SetGuideRateRightAscensionAsync` | `:MSGR<pp><dd>#`: `pp` is the rate as a whole percentage of sidereal, and `dd` is the Dec field as the mount held it at connect, sent back unchanged (it was always sent as `50`, #1483); `ArgumentException` outside 0 to 99 percent, before anything is sent | `InvalidOperationException` | **returns normally**, cached percentage updated |
+| `CameraSnapAsync` | `:MSCA1<ssss><iii><nnn>#`: shutter and interval in whole seconds (the unit is unconfirmed, a TODO in the code), then the shot count. `ArgumentOutOfRangeException` before anything is sent for a shutter outside 0 to 9999, or an interval or a count outside 0 to 999: the fields are that many digits, and a value that did not fit used to be written into a command of another length (#1483). The one command never sent twice, since it starts the shutter sequence | `InvalidOperationException` | **returns normally**, settings cached |
 | `SetHemisphereAsync` (not on `IMountDriver`; only tests call it) | `:MSHE1#` north, `:MSHE0#` south; sets the modelled Dec to +90 or -90 | `InvalidOperationException` | **returns normally**, Dec updated |
 
-The driver never sends `:MSTR2#` (half-sidereal is not in `TrackingSpeeds`), `:MGGR`, `:MGEL` or `:MSEL`.
+The driver never sends `:MSTR2#` (half-sidereal is not in `TrackingSpeeds`), `:MGEL` or `:MSEL`, and sends `:MGGR#`
+once, at connect.
 
 ### Members the driver models locally
 
@@ -239,17 +240,17 @@ the last connect, sync or setter.
 | Member | Returns |
 |---|---|
 | `IsTrackingAsync` | `true` while connected, without asking: the mount has no tracking-off, a stop resumes tracking. It used to read `:MGAS#` and answer `false` on any reply that did not parse, which was every read during a move (`:HRAS02...`) and every stale reply; two such polls latch `DriverEnforcedStop` and end a run |
-| `GetRightAscensionAsync` | the RA of the last `SyncRaDecAsync`, `0.0` before any. Held constant: neither time nor `MoveAxisAsync` moves it. `SyncRaDecAsync` and `SetTrackingAsync(true)` record a tracking-start anchor (`_trackingStartTicks`, `_raAtTrackingStart`) that nothing reads |
+| `GetRightAscensionAsync` | the RA of the last `SyncRaDecAsync`, `0.0` before any. Held constant: neither time nor `MoveAxisAsync` moves it. Following a move is the slew-less plan's P3; the tracking-start anchor that was written here and never read is gone (#1483) |
 | `GetDeclinationAsync` | +90 or -90 from the hemisphere (the connect's `:MGAS#`, or `SetHemisphereAsync`), or the Dec of the last `SyncRaDecAsync` |
 | `GetTargetRightAscensionAsync` / `GetTargetDeclinationAsync` | `0.0` always (`_targetRa` is never set); the +90 or -90 set at connect, which neither a sync nor `SetHemisphereAsync` updates |
 | `SyncRaDecAsync` | sends nothing; replaces the modelled RA and Dec |
 | `BeginSlewRaDecAsync` | throws `InvalidOperationException` (no goto) |
 | `GetSiderealTimeAsync` / `GetHourAngleAsync` | LST from the host clock (`TimeProvider`) and the longitude last set; LST minus the modelled RA. Both throw `InvalidOperationException` ("Site longitude has not been set", from `Transform.SiteLongitude`) until a longitude is set |
 | `GetSiteLatitudeAsync` / `GetSiteLongitudeAsync` / `GetSiteElevationAsync`, and their setters | cached only: `NaN`, `NaN` and `0.0` until set. Setting a southern latitude does not send `:MSHE0#` |
-| `GetTrackingSpeedAsync` | cached: the connect's `:MGAS#` tracking-rate digit, then the last `SetTrackingSpeedAsync` |
+| `GetTrackingSpeedAsync` | cached: the connect's `:MGAS#` tracking-rate digit, then the last `SetTrackingSpeedAsync`. `None` for half-sidereal (`2`), which has no name among the speeds and was reported as Sidereal (#1483) |
 | `TrackingSpeeds` | Sidereal, Lunar and Solar |
-| `GetGuideRateRightAscensionAsync` | the cached percentage (50 until set) of the sidereal rate, in degrees per second; `:MGGR` is never sent |
-| `GetGuideRateDeclinationAsync` | `0.0`, although every RA set writes the mount's Dec field as 50. `SetGuideRateDeclinationAsync` throws `InvalidOperationException` |
+| `GetGuideRateRightAscensionAsync` | the percentage the connect's `:MGGR#` read, then the last one set, of the sidereal rate, in degrees per second |
+| `GetGuideRateDeclinationAsync` | `0.0`: there is no Dec motor to guide. The mount's own Dec field is read at connect and sent back unchanged with every RA set. `SetGuideRateDeclinationAsync` throws `InvalidOperationException` |
 | `GetRightAscensionRateAsync` / `GetDeclinationRateAsync` | `0.0`; both setters throw `InvalidOperationException` |
 | `GetSideOfPierAsync` / `DestinationSideOfPierAsync` | computed from the hour angle as on the LX200 base (west of the meridian `Normal`, east `ThroughThePole`), `Unknown` before a longitude is set; `PointingStateSource` is `Computed`, so whether a flip happened is read off the image. It was `None` with a constant `Normal` until the slew-less flip (`docs/plans/slew-less-mount.md`, P2), which hid every flip; `SetSideOfPierAsync` throws `InvalidOperationException` |
 | `AtHomeAsync` / `AtParkAsync` | `false`; `ParkAsync` and `UnparkAsync` throw `InvalidOperationException` |
@@ -270,21 +271,24 @@ the last connect, sync or setter.
    way `DoConnectDeviceAsync` reports failure (logging any exception) and `ConnectAsync` throws
    `InvalidOperationException` ("Could not connect to device").
 2. `:MRSVE#`, through `SgpWire`, so a reply a previous session left held is passed over. A reply matching `^:RMRVE12(\d{6})$` (`SgpFirmwareRegex`) sets the firmware date that
-   `DriverInfo` shows. **Any other outcome is not an error**: no reply, a wrong reply or another device's
-   answer leaves the firmware `Unknown` and the connect goes on, so connecting never checks that an SGP is
-   on the port (discovery does).
+   `DriverInfo` shows. **Any other outcome fails the connect** (#1483): no reply, a wrong reply or another
+   device's answer used to leave the firmware `Unknown` and the connect went on, so connecting never checked
+   that an SGP was on the port.
 3. `:MGAS#` through `GetMountStatusAsync`. The motion field starts the slewing record, the hemisphere digit sets the modelled Dec, and the target Dec,
    to +90 or -90. The tracking-rate digit sets the cached tracking speed: `0` Solar, `1` Lunar, `3`
-   Sidereal, and anything else Sidereal, which takes in half-sidereal (`2`) and a failed read. A failed
-   read keeps the hemisphere the driver last knew (north on a new driver instance).
-4. `GetSiteLatitudeAsync` and `GetSiteLongitudeAsync`, which return cached fields and send nothing.
+   Sidereal, and anything else `None` with a warning, which is half-sidereal (`2`). **A status that cannot be
+   read fails the connect** (#1483): it used to connect as a northern mount tracking at the sidereal rate.
+4. `:MGGR#`. The reply `:HRGR<pp><dd>` sets the cached RA guide percentage and keeps the Dec field as the
+   mount holds it. **A reply that cannot be read fails the connect.**
+5. `GetSiteLatitudeAsync` and `GetSiteLongitudeAsync`, which return cached fields and send nothing.
 
 Nothing is written to the mount at connect: no hemisphere, tracking rate, time or site. Because reads have
 no deadline, a mount that never answers holds the connect until the caller's token fires.
 `InitDeviceAsync` catches every exception, logs "Failed to initialize SGP mount" and returns `false`, which
 `ConnectAsync` turns into an `InvalidOperationException`, closing the port it opened and leaving the driver
 not connected, so a retry runs the whole connect again (#806). `DoDisconnectDeviceAsync` takes the port lock and
-closes the port.
+closes the port. The lock is not given back: the real connection disposes its semaphore as it closes, so a
+release after the close would throw (#1483 read this as a leak; what is wrong is the transport's, #2322).
 
 ## Discovery
 

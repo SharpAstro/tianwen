@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -116,6 +117,171 @@ public class SgpOutOfStepReplayTests(ITestOutputHelper output)
         }
     }
 
+    // #1483: the driver's confirmed defects, each against the scripted mount.
+
+    /// <summary>
+    /// A connect is all or nothing: a port where no SkyGuider Pro answers the firmware query, or whose status or guide
+    /// rates cannot be read, does not connect. It used to connect with firmware "Unknown" and a status of its own making.
+    /// </summary>
+    [Theory(Timeout = 30_000)]
+    [InlineData(":MRSVE#", null)]
+    [InlineData(":MRSVE#", ":RMRVE11170518#")]   // another model's answer: 12 is the SkyGuider Pro
+    [InlineData(":MGAS#", null)]
+    [InlineData(":MGAS#", ":HRAS0#")]
+    [InlineData(":MGGR#", null)]
+    public async Task AConnectFailsWhenTheMountDoesNotAnswerAsASkyGuiderPro(string command, string? answer)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = new ScriptedSgp();
+        mount.Instead[command] = answer;
+        await using var sp = Services(mount);
+        var driver = new SgpMountDriver(Device, sp);
+
+        await Should.ThrowAsync<InvalidOperationException>(async () => await driver.ConnectAsync(ct));
+
+        driver.Connected.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// Half-sidereal has no name among the tracking speeds. It was reported as sidereal; it is None until a speed is set,
+    /// and asking for tracking with none chosen sends the sidereal rate.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AMountLeftAtHalfSiderealIsNotCalledSidereal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = new ScriptedSgp();
+        mount.Instead[":MGAS#"] = ":HRAS012900105#";
+        await using var sp = Services(mount);
+        var driver = new SgpMountDriver(Device, sp);
+        await driver.ConnectAsync(ct);
+        try
+        {
+            (await driver.GetTrackingSpeedAsync(ct)).ShouldBe(TrackingSpeed.None);
+
+            await driver.SetTrackingAsync(true, ct);
+
+            mount.Traffic.Any(static t => t.StartsWith(">> :MSTR3#", StringComparison.Ordinal)).ShouldBeTrue("tracking with no speed chosen is the sidereal rate");
+            (await driver.GetTrackingSpeedAsync(ct)).ShouldBe(TrackingSpeed.Sidereal);
+        }
+        finally
+        {
+            await driver.DisconnectAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// The mount has no tracking-off. Asking for it used to return normally with nothing sent, so the caller believed the
+    /// tracker had stopped; it is refused, and nothing is sent.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task StoppingTrackingIsRefusedBecauseTheMountCannot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = new ScriptedSgp();
+        await using var sp = Services(mount);
+        var driver = new SgpMountDriver(Device, sp);
+        await driver.ConnectAsync(ct);
+        try
+        {
+            driver.CanSetTracking.ShouldBeFalse();
+            var sent = mount.Traffic.Count;
+
+            var refusal = await Should.ThrowAsync<InvalidOperationException>(async () => await driver.SetTrackingAsync(false, ct));
+
+            refusal.Message.ShouldContain("no tracking-off");
+            mount.Traffic.Count.ShouldBe(sent, "nothing is sent for a stop the mount does not have");
+            (await driver.IsTrackingAsync(ct)).ShouldBeTrue();
+        }
+        finally
+        {
+            await driver.DisconnectAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>A move on a port that has closed is refused like any other command, and the axis is not recorded as moving.</summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AMoveOnAClosedPortIsRefusedAndNotRecordedAsMoving()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = new ScriptedSgp();
+        await using var sp = Services(mount);
+        var driver = new SgpMountDriver(Device, sp);
+        await driver.ConnectAsync(ct);
+        try
+        {
+            await mount.Last.ShouldNotBeNull().TryCloseAsync();
+
+            await Should.ThrowAsync<InvalidOperationException>(async () => await driver.MoveAxisAsync(TelescopeAxis.Primary, 0.5, ct));
+
+            (await driver.IsSlewingAsync(ct)).ShouldBeFalse("nothing was sent, so nothing moves");
+        }
+        finally
+        {
+            await driver.DisconnectAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// The guide rate is the mount's own, read at connect, and a change of the RA half sends the Dec half back as the mount
+    /// held it. The RA half was assumed to be 50 % and the Dec half was overwritten with 50.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task TheGuideRateIsTheMountsOwnAndItsDecHalfIsLeftAsItWas()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = new ScriptedSgp();
+        mount.Instead[":MGGR#"] = ":HRGR3070#";
+        await using var sp = Services(mount);
+        var driver = new SgpMountDriver(Device, sp);
+        await driver.ConnectAsync(ct);
+        try
+        {
+            var held = await driver.GetGuideRateRightAscensionAsync(ct);
+
+            await driver.SetGuideRateRightAscensionAsync(held * 2, ct);
+
+            mount.Traffic.Any(static t => t.StartsWith(">> :MSGR6070#", StringComparison.Ordinal))
+                .ShouldBeTrue($"twice the mount's 30 % is 60, with its Dec half 70 untouched; sent: {string.Join(" | ", mount.Traffic)}");
+            (await driver.GetGuideRateDeclinationAsync(ct)).ShouldBe(0.0, "there is no Dec motor to guide");
+        }
+        finally
+        {
+            await driver.DisconnectAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// The camera snap's fields are four and three digits on the wire. A value that does not fit, or a negative one, was
+    /// formatted into a command of another length; it is refused and nothing is sent.
+    /// </summary>
+    [Theory(Timeout = 30_000)]
+    [InlineData(10_000, 5, 2)]
+    [InlineData(30, 1_000, 2)]
+    [InlineData(30, 5, 1_000)]
+    [InlineData(-1, 5, 2)]
+    [InlineData(30, 5, -1)]
+    public async Task ACameraSnapThatDoesNotFitTheWireIsRefused(int shutterSeconds, int intervalSeconds, int shots)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = new ScriptedSgp();
+        await using var sp = Services(mount);
+        var driver = new SgpMountDriver(Device, sp);
+        await driver.ConnectAsync(ct);
+        try
+        {
+            var settings = new CameraSnapSettings(TimeSpan.FromSeconds(shutterSeconds), TimeSpan.FromSeconds(intervalSeconds), shots);
+
+            await Should.ThrowAsync<ArgumentOutOfRangeException>(async () => await driver.CameraSnapAsync(settings, ct));
+
+            mount.Traffic.Any(static t => t.Contains(":MSCA", StringComparison.Ordinal)).ShouldBeFalse("nothing is sent for a snap that cannot be written");
+        }
+        finally
+        {
+            await driver.DisconnectAsync(CancellationToken.None);
+        }
+    }
+
     private static IOptronDevice Device => new(DeviceType.Mount, "SkyGuider-Pro_test", "Scripted SkyGuider Pro", "serial:COM99");
 
     private ServiceProvider Services(ScriptedSgp mount) => new ServiceCollection()
@@ -150,7 +316,13 @@ public class SgpOutOfStepReplayTests(ITestOutputHelper output)
         internal string? Held { get; set; }
         internal List<string> Traffic { get; } = [];
 
-        internal Wire Connect() => new(this);
+        /// <summary>What this mount answers a command with in place of its own reply; null for nothing at all.</summary>
+        internal Dictionary<string, string?> Instead { get; } = [];
+
+        /// <summary>The connection last handed to a driver, for a test that closes the port under it.</summary>
+        internal Wire? Last { get; private set; }
+
+        internal Wire Connect() => Last = new(this);
 
         internal string Receive(string command)
         {
@@ -189,6 +361,11 @@ public class SgpOutOfStepReplayTests(ITestOutputHelper output)
 
         private string? ReplyTo(string command)
         {
+            if (Instead.TryGetValue(command, out var instead))
+            {
+                return instead;
+            }
+
             switch (command)
             {
                 case ":MRSVE#":

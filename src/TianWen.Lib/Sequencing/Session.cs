@@ -743,9 +743,19 @@ internal partial record Session(
         // so the axis should not still be driving toward the limit while it is under way -- and if
         // the park then fails, a stopped mount is a better place to have left the rig than a
         // tracking one.
-        await ResilientInvokeAsync(
-            mount, ct => mount.SetTrackingAsync(false, ct),
-            ResilientCallOptions.NonIdempotentAction, cancellationToken);
+        // Where the mount can, as MountLimitWatcher does: a tracker with no tracking-off (the SkyGuider Pro) is not
+        // asked for what it cannot do, and is not said to have stopped (#1483).
+        var stopped = mount.CanSetTracking;
+        if (stopped)
+        {
+            await ResilientInvokeAsync(
+                mount, ct => mount.SetTrackingAsync(false, ct),
+                ResilientCallOptions.NonIdempotentAction, cancellationToken);
+        }
+        else
+        {
+            _logger.LogError("{Mount} cannot stop tracking on command, so it is still turning towards the limit. Stop it at the mount.", mount.Name);
+        }
 
         if (verdict.Response is MountLimitResponse.Park && mount.CanPark)
         {
@@ -754,7 +764,9 @@ internal partial record Session(
         }
         else if (verdict.Response is MountLimitResponse.Park)
         {
-            _logger.LogWarning("Mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead.");
+            _logger.LogWarning(stopped
+                ? "Mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead."
+                : "Mount safety limit asked for a park, but this mount can neither park nor stop tracking.");
         }
     }
 

@@ -30,9 +30,11 @@ public class MountLimitWatcherTests
 
     private static IMountDriver MountAt(
         double hourAngleHours, bool isTracking = true, bool canPark = false,
-        PointingState pointingState = PointingState.ThroughThePole, double? axisAngleDeg = null)
+        PointingState pointingState = PointingState.ThroughThePole, double? axisAngleDeg = null, bool canSetTracking = true)
     {
         var mount = Substitute.For<IMountDriver>();
+        // Stated, as the pointing state is below: an unconfigured mock answers false, a mount that cannot stop tracking.
+        mount.CanSetTracking.Returns(canSetTracking);
         mount.Name.Returns("FakeMount1");
         mount.Connected.Returns(true);
         mount.Logger.Returns(NullLogger.Instance);
@@ -168,6 +170,40 @@ public class MountLimitWatcherTests
         await WatcherFor(hub, discovery).TickAsync(ct);
 
         await mount.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #1483: a tracker with no tracking-off (the SkyGuider Pro) is not asked for a stop it cannot make, and the log says
+    /// it is still turning, not that tracking was stopped. Its driver used to take the call and do nothing.
+    /// </summary>
+    [Fact]
+    public async Task AMountThatCannotStopTrackingIsNotAskedToAndIsNotSaidToHaveStopped()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = MountAt(hourAngleHours: 1.0, canSetTracking: false);
+        var parkAtTheLimit = StopTrackingPastTheMeridian with { MeridianResponse = MountLimitResponse.Park };
+        var (hub, discovery) = HubAndDiscoveryFor(mount, parkAtTheLimit);
+        var log = new RecordingWatcherLogger();
+
+        await new MountLimitWatcher(hub, discovery, Substitute.For<ITimeProvider>(), log).TickAsync(ct);
+
+        await mount.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        log.Inner.Messages.ShouldContain(static m => m.Contains("cannot stop tracking on command"));
+        log.Inner.Messages.ShouldContain(static m => m.Contains("can neither park nor stop tracking"));
+        log.Inner.Messages.ShouldNotContain(static m => m.Contains("tracking was stopped"));
+    }
+
+    private sealed class RecordingWatcherLogger : Microsoft.Extensions.Logging.ILogger<MountLimitWatcher>
+    {
+        public RecordingLogger Inner { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Inner.Log(logLevel, eventId, state, exception, formatter);
     }
 
     [Fact]

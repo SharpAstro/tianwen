@@ -39,18 +39,22 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     private bool _isNorthernHemisphere = true;
     private TrackingSpeed _trackingSpeed = TrackingSpeed.Sidereal;
     private int _slewSpeedIndex = 1; // 1-7
-    private int _guideRateRA = 50; // 0-99, default 50 = 0.50x sidereal
+    private int _guideRateRA = 50; // 0-99, read from the mount at connect (50 = 0.50x sidereal is its default)
+
+    /// <summary>The Dec half of the mount's guide rate as the mount holds it, two digits. There is no Dec motor, so it
+    /// guides nothing and this driver never chooses it: a change of the RA rate sends it back as it was read (#1483).</summary>
+    private string _guideRateDecField = "50";
 
     // RA-only mount: Dec is fixed at ±90 (pole) based on hemisphere
     // These can be updated via sync
     private double _dec = 90.0;
     private double _targetDec = 90.0;
 
-    // RA is estimated from sidereal tracking start
+    // RA is the last sync's and is held: the mount tracks whenever it is powered, so time does not move it. A MOVE does,
+    // and nothing here follows that yet (docs/plans/slew-less-mount.md, P3): the session syncs after each solve instead.
+    // A tracking-start anchor was written here on every sync and never read (#1483); it is gone.
     private double _ra = double.NaN;
     private double _targetRa = double.NaN;
-    private long _trackingStartTicks;
-    private double _raAtTrackingStart = double.NaN;
     private volatile bool _isMoving; // RA axis moving via MoveAxis
 
     // Camera snap settings
@@ -133,14 +137,18 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     {
         if (tracking)
         {
-            await SetTrackingSpeedAsync(_trackingSpeed, cancellationToken);
-            _trackingStartTicks = TimeProvider.GetTimestamp();
-            _raAtTrackingStart = _ra;
+            // A rate this driver has no name for (half-sidereal, read at connect) is not sent back: asking for tracking
+            // with no speed chosen means the sidereal rate.
+            await SetTrackingSpeedAsync(_trackingSpeed is TrackingSpeed.None ? TrackingSpeed.Sidereal : _trackingSpeed, cancellationToken);
         }
         else
         {
-            // SGP doesn't have an explicit tracking-off command;
-            // stopping movement resumes tracking. This is a no-op.
+            // The SkyGuider Pro has no tracking-off: its rates are solar, lunar, half-sidereal and sidereal, and the stop
+            // of a move resumes tracking. This used to return normally, so a caller that asked for the tracker to stop
+            // was told it had while it kept turning (#1483). It refuses, as every member the mount has no command for
+            // does. CanSetTracking says so beforehand, and the limit paths ask it and tell the operator to stop the
+            // mount by hand.
+            throw new InvalidOperationException("The SkyGuider Pro has no tracking-off command: it tracks whenever it is powered. Stop it at the mount.");
         }
     }
 
@@ -222,10 +230,16 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         // Direction: positive = west, negative = east
         var dirCmd = rate > 0 ? ":MSMR1#" : ":MSMR0#";
 
-        // Set speed + start move atomically (single lock)
-        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
+        // As every other command on a closed port (SendCommandAsync). It used to send nothing, return normally and
+        // record the axis as moving (#1483).
+        if (_deviceInfo.SerialDevice is not { IsOpen: true } port)
         {
-            using var @lock = await port.WaitAsync(cancellationToken);
+            throw new InvalidOperationException("Serial port is not connected");
+        }
+
+        // Set speed + start move atomically (single lock)
+        using (await port.WaitAsync(cancellationToken))
+        {
             await ExchangeLockedAsync(port, $":MSMS{speedIndex}#", repeatable: true, cancellationToken);
             await ExchangeLockedAsync(port, dirCmd, repeatable: true, cancellationToken);
         }
@@ -245,8 +259,6 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         // SGP has no sync command: we update our internal model
         _ra = ra;
         _dec = dec;
-        _raAtTrackingStart = ra;
-        _trackingStartTicks = TimeProvider.GetTimestamp();
         return ValueTask.CompletedTask;
     }
 
@@ -275,10 +287,13 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
             throw new ArgumentException($"Guide rate {value} out of range (0-99% of sidereal)", nameof(value));
         }
 
-        await SendCommandAsync($":MSGR{percentage:D2}50#", cancellationToken);
+        // The Dec half goes back as the mount held it at connect. It was always sent as 50, whatever the mount had,
+        // while GetGuideRateDeclinationAsync answers 0 (#1483).
+        await SendCommandAsync($":MSGR{percentage:D2}{_guideRateDecField}#", cancellationToken);
         _guideRateRA = percentage;
     }
 
+    /// <summary>Zero: there is no Dec motor, so a Dec pulse moves nothing whatever Dec rate the mount stores.</summary>
     public ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(0.0);
 
@@ -404,6 +419,9 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #region Camera Snap
 
+    private const int MaxSnapShutter = 9999;
+    private const int MaxSnapField = 999;
+
     /// <summary>
     /// Triggers camera snap. MSCA format: :MSCA{y}{aaaa}{bbb}{ccc}#
     /// where y=1 (start flag), aaaa=shutter, bbb=interval, ccc=shot count.
@@ -415,6 +433,20 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         // TODO: confirm units; using seconds for now based on example (0030 = 30s shutter, 005 = 5s interval)
         var shutter = (int)settings.ShutterTime.TotalSeconds;
         var interval = (int)settings.Interval.TotalSeconds;
+        // The wire has four digits for the shutter and three each for the interval and the count. A larger or a negative
+        // value was formatted anyway, into a command of another length that the mount reads as other fields (#1483).
+        if (shutter is < 0 or > MaxSnapShutter)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), settings.ShutterTime, $"The SkyGuider Pro's shutter time is 0 to {MaxSnapShutter} s");
+        }
+        if (interval is < 0 or > MaxSnapField)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), settings.Interval, $"The SkyGuider Pro's interval is 0 to {MaxSnapField} s");
+        }
+        if (settings.ShotCount is < 0 or > MaxSnapField)
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings), settings.ShotCount, $"The SkyGuider Pro's shot count is 0 to {MaxSnapField}");
+        }
         var cmd = $":MSCA1{shutter:D4}{interval:D3}{settings.ShotCount:D3}#";
 
         // The one command that is never sent twice: it starts the shutter sequence.
@@ -495,14 +527,26 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     {
         try
         {
+            // A connect is all or nothing (#1483). Each of the three reads below used to be taken as it came: a port
+            // with no SkyGuider Pro on it connected with firmware "Unknown", and a status that could not be read was a
+            // northern mount tracking at the sidereal rate.
             var fwResponse = await SendAndReceiveAsync(":MRSVE#", cancellationToken);
-            if (fwResponse is not null && SgpFirmwareRegex().IsMatch(fwResponse))
+            if (fwResponse is null || SgpFirmwareRegex().Match(fwResponse) is not { Success: true } firmware)
             {
-                _firmwareVersion = SgpFirmwareRegex().Match(fwResponse).Groups[1].Value;
+                Logger.LogError("No SkyGuider Pro answered on {DeviceUri}: its firmware query was answered {Reply}",
+                    _device.DeviceUri, fwResponse is null ? "with nothing" : $"'{fwResponse}'");
+                return false;
             }
+            _firmwareVersion = firmware.Groups[1].Value;
 
             var status = await GetMountStatusAsync(cancellationToken);
-            _isMoving = status.IsValid && status.IsMoving;
+            if (!status.IsValid)
+            {
+                Logger.LogError("The SkyGuider Pro on {DeviceUri} did not report its status, so its hemisphere and tracking rate are not known",
+                    _device.DeviceUri);
+                return false;
+            }
+            _isMoving = status.IsMoving;
             _isNorthernHemisphere = status.IsNorthern;
             _dec = _isNorthernHemisphere ? 90.0 : -90.0;
             _targetDec = _dec;
@@ -512,8 +556,27 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
                 0 => TrackingSpeed.Solar,
                 1 => TrackingSpeed.Lunar,
                 3 => TrackingSpeed.Sidereal,
-                _ => TrackingSpeed.Sidereal
+                // Half-sidereal (2) has no name among TrackingSpeed. It was called sidereal, so a session on a mount
+                // left at half rate believed it was tracking the stars. It is none of ours until a speed is set.
+                _ => TrackingSpeed.None,
             };
+            if (_trackingSpeed is TrackingSpeed.None)
+            {
+                Logger.LogWarning("The SkyGuider Pro on {DeviceUri} tracks at a rate this driver has no name for (status digit {Rate}; 2 is half-sidereal). Set a tracking speed before imaging.",
+                    _device.DeviceUri, status.TrackingRate);
+            }
+
+            // The guide rates the mount holds: the RA half was assumed to be 50 % until set, and the Dec half was
+            // overwritten with 50 by every change of the RA half.
+            var rates = await SendAndReceiveAsync(":MGGR#", cancellationToken);
+            if (rates is null || GuideRateRegex().Match(rates) is not { Success: true } guide)
+            {
+                Logger.LogError("The SkyGuider Pro on {DeviceUri} did not report its guide rates: answered {Reply}",
+                    _device.DeviceUri, rates is null ? "with nothing" : $"'{rates}'");
+                return false;
+            }
+            _guideRateRA = int.Parse(guide.Groups["Ra"].Value, CultureInfo.InvariantCulture);
+            _guideRateDecField = guide.Groups["Dec"].Value;
 
             await GetSiteLatitudeAsync(cancellationToken);
             await GetSiteLongitudeAsync(cancellationToken);
@@ -533,6 +596,11 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         {
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
+                // Taken so no exchange is under way when the port closes, and NOT given back (#1483's item 8, which
+                // read this as a leak): the real connection disposes its semaphore as it closes
+                // (SerialConnection.TryCloseAsync), so a release after the close throws ObjectDisposedException. The
+                // LX200 and SkyWatcher bases close the same way. What is wrong is the transport's: a caller already
+                // waiting for the port when it closes is never woken (#2322).
                 await port.WaitAsync(cancellationToken);
                 return await port.TryCloseAsync();
             }
@@ -612,6 +680,10 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     [GeneratedRegex(@"^:RMRVE12(\d{6})$", RegexOptions.CultureInvariant)]
     private static partial Regex SgpFirmwareRegex();
+
+    /// <summary>Matches :HRGR{nn}{mm}, the RA and Dec guide rates as percentages of sidereal. Example (bench, 2026-11-05): :HRGR5050.</summary>
+    [GeneratedRegex(@"^:HRGR(?<Ra>\d{2})(?<Dec>\d{2})$", RegexOptions.CultureInvariant)]
+    private static partial Regex GuideRateRegex();
 
     #endregion
 }
