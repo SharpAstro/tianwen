@@ -238,8 +238,8 @@ able to set the rectangle by hand.
   rectangle every frame's outline covers) clipped by the in-memory coverage (`ClipToCoverage`, `LargestCoveredRectangle` at
   `AbsenceFraction` 0.5 over 8 px blocks, where absence is a block under half of full weight), and has no edge walk. The
   solver's coverage tier reads the sidecar's plane over 16 px blocks (on a frame-count plane the block median must reach every
-  frame, minFraction 1.0; 0.95 applies to a drizzle-weight plane only), and its fallback walks noise. The two rules differ: the stack's clip was tuned for a hole inside the rim (the SV605CC Tarantula
-  corner wedge) where the viewer's 0.95 lost 34 good columns. Question for the owner (#2291): should `stack` call the routine?
+  frame, minFraction 1.0; 0.95 applies to a drizzle-weight plane only), and its fallback walks noise. The two rules differ: the stack's clip was tuned for a hole inside the rim
+  (the SV605CC Tarantula corner wedge) where the viewer's 0.95 lost 34 good columns. Question for the owner (#2291): should `stack` call the routine?
   Unifying would change what `stack` writes: its `_autocrop` FITS and display outputs would take the sidecar's rectangle (or the
   walk's) in place of the intersection, losing or keeping some border columns, and the corner-wedge case would need its
   threshold carried into the routine as a rule field first. Not changed in this leg.
