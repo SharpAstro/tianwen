@@ -15,6 +15,11 @@ name: Chrome review
 # it still starts this workflow on every later push of a PR that touches one of them, a docs fixup or a merge of main
 # included. The fingerprint step below is what keeps those from being a second paid review (105k to 165k tokens each,
 # docs/plans/viewer-layout-engine.md): it skips the agent when the UI diff is the one already reviewed.
+#
+# A PR that changes THIS file cannot be reviewed here. The review action will not run a workflow file that differs from
+# the default branch's: it logs "Workflow validation failed", ends its step as a success and writes nothing (seen on
+# #2307, whose check then read "the review did not finish"). The check says so in words and fails. The way out is a PR
+# of its own for the workflow change: one that touches no UI file starts no review at all.
 
 on:
   pull_request:
@@ -87,14 +92,22 @@ jobs:
           else
             echo "same=false" >> "$GITHUB_OUTPUT"
           fi
+          # Does the PR change this workflow? Three dots: the PR's own changes, not what main changed under it (the
+          # workflow that runs is the merge commit's, so a branch that is only behind main still runs main's file).
+          if git diff --quiet "$BASE...HEAD" -- .github/workflows/chrome-review.yml; then
+            echo "own_workflow=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "own_workflow=true" >> "$GITHUB_OUTPUT"
+            echo "This PR changes .github/workflows/chrome-review.yml; the review action will not run it."
+          fi
 
       - name: Run the chrome-review agent
-        if: ${{ steps.fingerprint.outputs.same != 'true' }}
+        if: ${{ steps.fingerprint.outputs.same != 'true' && steps.fingerprint.outputs.own_workflow != 'true' }}
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Sonnet, as the agent's own frontmatter says: a checklist review does not need the larger model. Read-only
-          # tools and the git reads the agent's instructions name; Write only for the two output files.
+          # tools and the git reads the agent's instructions name; Write only for the report.
           claude_args: |
             --model claude-sonnet-5-5
             --allowedTools "Read,Grep,Glob,Write,Bash(git fetch:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
@@ -116,7 +129,7 @@ jobs:
       # passed, and the reverse failed a clean one. One statement of each finding leaves nothing to disagree.
       - name: Count the findings
         id: count
-        if: ${{ !cancelled() && steps.fingerprint.outputs.same != 'true' }}
+        if: ${{ !cancelled() && steps.fingerprint.outputs.same != 'true' && steps.fingerprint.outputs.own_workflow != 'true' }}
         run: |
           if [ ! -s "$OUT/report.md" ]; then
             echo "finished=false" >> "$GITHUB_OUTPUT"; exit 0
@@ -145,8 +158,12 @@ jobs:
           FP: ${{ steps.fingerprint.outputs.fp }}
           FINISHED: ${{ steps.count.outputs.finished }}
           HIGH: ${{ steps.count.outputs.high }}
+          OWN_WORKFLOW: ${{ steps.fingerprint.outputs.own_workflow }}
         run: |
-          if [ "$FINISHED" = "true" ]; then
+          if [ "$OWN_WORKFLOW" = "true" ]; then
+            body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\n%s\n' "${SHA:0:7}" \
+              'Not reviewed. This PR changes `.github/workflows/chrome-review.yml`, and the review action will not run a workflow file that differs from the one on the default branch. Put the workflow change in a PR of its own (one that touches no UI file starts no review), or run `/chrome-review` on this branch and say in the PR what it found.')"
+          elif [ "$FINISHED" = "true" ]; then
             body="$(printf '<!-- chrome-review fp:%s high:%s -->\n### Chrome review of %s\n\n%s\n' "$FP" "$HIGH" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
           else
             body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish; see the run: %s\n' "${SHA:0:7}" \
@@ -162,17 +179,22 @@ jobs:
 
       # The gate: a high-confidence finding fails the check. Medium ones are reported and pass, since the agent is a
       # cheap model reading a diff. A review that did not finish fails too, so a broken run is never a silent pass.
-      # An unchanged UI diff answers from the count its review left in the comment.
+      # An unchanged UI diff answers from the count its review left in the comment, and that comes first: a UI diff
+      # reviewed before the PR touched this workflow is still the diff that was reviewed. A PR that changes this
+      # workflow and has no such review fails with the reason (the header says why it cannot be reviewed).
       - name: Fail on a high-confidence finding
         if: ${{ !cancelled() }}
         env:
           SAME: ${{ steps.fingerprint.outputs.same }}
+          OWN_WORKFLOW: ${{ steps.fingerprint.outputs.own_workflow }}
           REVIEWED_HIGH: ${{ steps.fingerprint.outputs.high }}
           FINISHED: ${{ steps.count.outputs.finished }}
           COUNTED_HIGH: ${{ steps.count.outputs.high }}
         run: |
           if [ "$SAME" = "true" ]; then
             high="$REVIEWED_HIGH"
+          elif [ "$OWN_WORKFLOW" = "true" ]; then
+            echo "::error::Not reviewed: this PR changes the review's own workflow file, which the review action will not run. Move that change to a PR that touches no UI file."; exit 1
           elif [ "$FINISHED" = "true" ]; then
             high="$COUNTED_HIGH"
           else
