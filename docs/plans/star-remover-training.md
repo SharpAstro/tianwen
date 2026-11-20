@@ -7227,6 +7227,66 @@ the first angle is a step after the model and not another arm:
     weak detail there. If the crowded flat does not move, the grain in the target is not what holds the crowded
     fields either, and what is left is the model's capacity or the judge's own smoothing of the glow.
   - **Nothing is adopted;** adoption is the owner's.
+  - **R4f's read, 2026-11-21 (seed 0, `r4f_synth31_s0`): KILLED. The Tarantula's crowded flat reads 90.3, under
+    R4d's 91.3; every guard held. Its training stopped improving at step 69,500, as no earlier arm's did, so the
+    read says little about the target.** Through the product's chain unless a row says "as trained"; R4d's tile
+    rows are this step's own, with floor5:
+
+    | row | R4d | R4f | bar | read |
+    |---|---|---|---|---|
+    | Tarantula crowded flat | 91.3 | **90.3** | at least 93.3, killed under 91.3 | **killed** |
+    | added row (1): Gaia BP 17-19 with the level set aside | 90.7 | 90.0 | at least 93.5 | missed |
+    | added row (2): grain in dense cell 4,4, as trained, R / G / B | 4.3 / 3.8 / 3.1 | 3.8 / 3.3 / 2.7 | at most 0.6 of R4d's | missed: 0.88 / 0.87 / 0.87 |
+    | added row (2): grain in dense cell 5,4, as trained | 4.7 / 4.6 / 3.6 | 4.4 / 4.0 / 3.3 | at most 0.6 of R4d's | missed: 0.94 / 0.87 / 0.92 |
+    | by count clean, 100-1000 and 1000 and over | 99.2, 100.0 | 99.1, 100.0 | at least 98.5, 98 | held |
+    | M42 100-1000 by count clean | 93.4 | 92.6 | at least 88 | held |
+    | SMC 20-100 and 100-1000 by count clean | 98.9, 100.0 | 98.9, 100.0 | at least 97 | held |
+    | Andromeda dark flat, dug | 98.5, 0.7 | 98.6, 0.7 | at least 95, at most 3 | held |
+    | Tarantula dark flat | 96.5 | 96.1 | at least 91 | held |
+    | glow green median, Andromeda and Tarantula | -8.5, +106.5 | -82.8, -270.5 | within 450, 500 | held |
+    | M31 nucleus with protection | 0.0 % | 0.0 % | under 10 % | held |
+    | Sagittarius crowded flat | 97.0 | 97.6 | at least 96.3 | held |
+    | light taken from the Tarantula field, densest tenth and whole frame | 81, 82 % | 82, 84 % | at most 83, 84 % | held, the second at its bar |
+    | light added on each master's nebula, as trained | 0.0 / 0.0 / 0.0 % | 0.0 / 0.1 / 0.0 % | at most 1.0 % | held |
+    | the Lagoon's broad light taken, as trained | 2.67 | 1.51 | at most 4.0 | held |
+    | brightest tenth of the Tarantula's peaks standing, as trained | 17 of 77 | 17 of 77 | at least 11 | held |
+
+    - **Looked at before the rows** (the two sheets, each panel cropped to 1:1, and the bright stars' sheets). **The
+      Tarantula's crowded field:** as mottled as R4d's, as trained and through the chain, with nothing of
+      StarXTerminator's smooth field. **The Tarantula's knots:** taken more than R4d takes them (the upper knot a
+      dim pink smudge, the lower ones gone), though the peaks row counts the same 17. **30 Doradus's core, the
+      Lagoon's core with its lanes, M31's nucleus:** as with R4d. **Bright stars:** Maia of 2022-01-05 and Antares
+      of 2026-04-21 are left whole, core and all, where R4d dims the core.
+    - **The training.** The trainer stopped itself at step 129,500 of 480,000, and the Batch pool removed itself.
+      The held-out objective was best at step 69,500 (1.08e-5, still at the first learning rate) and never
+      improved again through all four halvings. Its readings between steps 70,000 and 130,000 have a median of
+      1.48e-5, as between 30,000 and 70,000 (1.58e-5); over those same later steps R4d's median is 9.6e-6 and
+      R4e's 8.9e-6, and R4d went on to 7.85e-6 at step 233,000. The run was moved to a new node twice (resumed
+      after steps 72,000 and 110,000). R4c, R4e and R3x were moved too and each went on improving after every
+      resume, so the resume is not shown to be the cause. The trainer keeps the last step's weights, so the model
+      scored is the one at the stop and not the one at its best. Why this run stopped improving is not known.
+    - **Reported.** Purity 1.0 (R4d 0.8); the blotch line on the Tarantula's densest tenth 0.29 (0.29). As
+      trained: Andromeda's dark flat 68.3 with 19.8 % dug (R4d 69.4, 19.5); the Tarantula's 70.0 with 28.1 % left
+      (80.3, 14.3); its crowded flat 85.9 (86.7); BP 17-19 95.1 (95.4), and through the chain 95.5 (96.0); the M31
+      nucleus taken in its worst channel 27.2 % (9.7); broad light taken on Andromeda and the Tarantula 2.91 and
+      5.30 (2.88 and 5.86); the Tarantula's glow median -533 (-6.5). 30 Doradus's core, cell 4,6: 52.4 / 54.5 /
+      39.8 (R4d 44.4 / 49.4 / 39.7, the plate 78.9 / 101.0 / 104.7). Faint stars left on bright background as
+      trained: 11 % of 142 on the Lagoon's core (R4d 29) and 25 % of 321 on 30 Doradus (22). Where the BP 17-19
+      stars are left, with the level set aside: R4f takes more than R4d in the most crowded fifth (85.7 against
+      83.6) and less in the least crowded (90.0 against 94.0). The twin error: 2.49 sigma in the mask as trained,
+      1.06 with floor5. The bright stars of #2292, 26 rows: inside 22 px R4f leaves over 1.2 times R4d's on 18 and
+      less on none, and on five rows more than the master itself holds there (Maia of 2022-01-05 6,567 sigma
+      against 4,649; also Merope, Alcyone and Electra of that night and Alcyone of 2022-01-04).
+    - **Against the prediction.** The dense cells' grain as trained fell by 6 to 13 percent, where a quarter to a
+      half was predicted. The crowded flat fell by 1.0, where a rise of 1 to 3 was predicted. The Lagoon's broad
+      light taken fell from 2.67 to 1.51, where a rise toward its guard was predicted. All three missed.
+    - **What it says.** By its registration the arm is killed, and nothing is adopted. It does NOT show that the
+      grain in the target is not what holds the crowded fields: the prediction's last sentence, for a crowded flat
+      that does not move, took a model trained as R4d was for granted, and this one was not. Its rows as trained
+      (twice the stars left on the Tarantula's dark flat, the bright stars left whole) are those of a model that
+      stopped learning early. Two things would separate the target from the training: the same arm run again
+      (another seed, or the same seed on the other machine), and a trainer that keeps the weights of its best
+      step. Neither is registered, and both are the owner's.
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
   the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
   2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
