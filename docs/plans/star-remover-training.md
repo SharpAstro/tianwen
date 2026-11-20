@@ -7138,10 +7138,19 @@ the first angle is a step after the model and not another arm:
     guard as registered. **For this arm purity is therefore reported and is not a guard.** What it stood for
     stays guarded by the light taken from the Tarantula field (at most 83 and 84 %), which reads the level and
     nothing else: 98 and 106 on the level-only plate and on StarXTerminator's, 81 and 83 on the rule plate. The
-    tiles' guards (by count, M42, the SMC) were not read on that plate. The nebula guard on light added stays as
-    registered: the rule plate reads 2.7 % on Andromeda and 4.3 % on the Tarantula there, but it draws fresh
-    noise, which by the row's own threshold (a 3 px mean over one pixel sigma) puts 1.7 % of smoothed pixels
-    over it by chance; a model draws none. The Lagoon's broad light on it is 2.04 (R4d through the chain 2.04)
+    tiles' guards (by count, M42, the SMC) were not read on that plate. The nebula guard on light added is kept
+    as registered for now, **but its argument does not close and the split is owed before any score.** The rule
+    plate reads 2.7 % on Andromeda and 4.3 % on the Tarantula there. Fresh noise puts at most 1.7 % of smoothed
+    pixels over the row's threshold by chance (white noise: out less input is sigma times root 2, a 3 x 3 mean
+    divides it by 3, against 1 sigma gives z 2.12, P 1.7 %). That is a per-pixel ceiling for white noise: it
+    cannot account for 4.3 %, nor for more than 1.7 of the 2.7, and a stacked master's correlated noise raises it
+    by an amount not measured here. The rest is probably light the rule fills (the rule softens thin dark lanes,
+    and a filled lane is light added over the input), which a model trained on those targets would fill too, so
+    "a model draws none" rests only on R4d's 0.0, whose targets keep the lanes. `grain_rule_post.py` is to
+    report the 2.7 and 4.3 split into chance (the same threshold on noise-only pixels) and fill before R4f is
+    scored; it does not yet. If
+    the fill alone clears 1.0 %, this guard has purity's fault and goes to the owner as a reported row, as
+    purity did, rather than killing an arm that does what it is for. The Lagoon's broad light on it is 2.04 (R4d through the chain 2.04)
     and 17 of the Tarantula's 77 brightest peaks stand. Reported beside row (2) from now on: the scorer's blotch
     line on the held-out Tarantula.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
@@ -7150,16 +7159,19 @@ the first angle is a step after the model and not another arm:
   - **Guards, through the same chain,** R4c's: by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and
     over (the tiles with floor5); M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat
     at least 95 and dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 of zero on
-    Andromeda and within 500 on the Tarantula; the M31 nucleus under 10 %; purity at most 1.0 %; the Sagittarius
-    crowded flat at least 96.3. R4d's own: the light taken from the Tarantula field (green, the densest tenth of
+    Andromeda and within 500 on the Tarantula; the M31 nucleus under 10 %; purity at most 1.0 % (R4c's bar, **not a
+    guard for R4f**: purity is reported for this arm, see "For this arm purity is therefore reported" above); the
+    Sagittarius crowded flat at least 96.3. R4d's own: the light taken from the Tarantula field (green, the densest tenth of
     cells and the whole frame) at most 83 % and 84 % (R4d 81 and 82).
   - **Nebula guards, as trained** (the rule since 2026-11-19; R4d reads added 0.0 / 0.0 / 0.0, broad 2.88 / 5.86 /
     2.67, 17 of 77 and 0 of 18 standing): light added on at most 1.0 % of each master's nebula; the Lagoon's broad
     light taken at most 4.0 (seeds of one recipe have stood up to 1.3 apart on it); of the brightest tenth of the
     Tarantula's peaks at least 11 of 77 standing (R4c's, the fewest of the faint-star arms; StarXTerminator 17).
-  - **Kill:** a guard fails, or the crowded flat under R4d's 91.3. Between 91.3 and 93.3 with every guard held it
+  - **Kill:** a guard fails (purity is not one for R4f), or the crowded flat under R4d's 91.3. Between 91.3 and 93.3 with every guard held it
     neither passes nor is killed; the rows go to the owner.
-  - **Reported, no bar:** every row as trained (R4d: Andromeda dark flat 69.4 with 19.5 dug, Tarantula dark flat
+  - **Reported, no bar:** purity through the chain (R4d 0.8, the rule plate 2.6, a level-only plate 3.4), and the
+    scorer's blotch line on the held-out Tarantula (R4d 0.29, StarXTerminator 0.14, the rule plate 0.12); every row
+    as trained (R4d: Andromeda dark flat 69.4 with 19.5 dug, Tarantula dark flat
     80.3, Tarantula crowded 86.7, BP 17-19 95.4); Gaia BP 17-19 through the chain (R4d 96.0); the grain in the
     Tarantula's dense cells 4,4 and 5,4 (`band.py`, R4d 4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6); the band of 30
     Doradus's core, cell 4,6, which carries no bar because two seeds of one recipe have stood 39 to 75 % apart on
@@ -7254,7 +7266,7 @@ the first angle is a step after the model and not another arm:
     clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over; M42 100-1000 at least 88; SMC 20-100 and
     100-1000 at least 97; Andromeda dark flat at least 95 and dug at most 3; Tarantula dark flat at least 91; the
     glow's green median within 450 of zero on Andromeda and within 500 on the Tarantula; the M31 nucleus under
-    10 %; purity at most 1.0 %; the Sagittarius crowded flat at least 96.3; the Tarantula's crowded flat at least
+    10 %; purity at most 1.0 % (**this bar stands for R4g**: it trains on the stored plate cells without the grain rule, as R4d does, so purity is not the question it is for R4f; the heading "R4f's" below is shared text only); the Sagittarius crowded flat at least 96.3; the Tarantula's crowded flat at least
     90.3 (R4d 91.3, a point under it); the light taken from the Tarantula field at most 83 % and 84 %.
   - **Nebula guards, as trained:** light added on at most 1.0 % of each master's nebula; of the brightest tenth
     of the Tarantula's peaks at least 11 of 77 standing (R4d 17). And one for what a plate target could teach, a
