@@ -2024,6 +2024,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "synth11; the plate's minimum sits in its deepest subtraction holes). Each session logs the slope ratio " +
                           "between the two at the sky.",
         };
+        var blackPointSigmaOpt = new Option<double?>(BlackPointOption.Name)
+        {
+            Description = "--mode stars (#2309): set each channel's black point this many sky-noise sigma under its median, " +
+                          "not at its minimum (one pixel, which lay 8 to 228 sky sigma under the sky across the store's " +
+                          "masters). The sky noise is the 20th percentile over 64 px blocks of each block's neighbour-difference " +
+                          "sigma. Every row records the depth, and a model trained on the export has to state it in its " +
+                          "contract (stretchBlackPointSigma), so that the remover stretches a frame the same way. Without it " +
+                          "the black point is the minimum, as every export before 2026-11-21 wrote.",
+        };
 
         var faintStarsOpt = new Option<string?>("--faint-stars")
         {
@@ -2038,7 +2047,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, brightMeasuredOpt, haloOverPlateOpt, noiseAsRecordedOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, outerHaloOpt, saturatedOwnShareOpt, saturatedMeasuredOpt, brightMeasuredOpt, haloOverPlateOpt, noiseAsRecordedOpt, channelWingCutOpt, chromaticWidthOpt, starBetaOpt, starBetaDrawOpt, noiseScaleOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt, blackPointSigmaOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2378,6 +2387,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 return 1;
             }
             var stretchFrom = stretchGiven ?? "master";
+            var blackPointSigma = parseResult.GetValue(blackPointSigmaOpt);
+            if (BlackPointOption.Refusal(blackPointSigma, applies: mode == DatasetDegradationExporter.DegradationMode.Stars,
+                    needs: "--black-point-sigma sets the stars mode's stretch; it needs --mode stars") is { } blackPointRefusal)
+            {
+                consoleHost.WriteError(blackPointRefusal);
+                return 1;
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -2431,6 +2447,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 SaturatedMeasured: parseResult.GetValue(saturatedMeasuredOpt),
                 HaloOverPlate: parseResult.GetValue(haloOverPlateOpt),
                 NoiseAsRecorded: parseResult.GetValue(noiseAsRecordedOpt),
+                BlackPointSigma: blackPointSigma,
                 NoiseScale: noiseScale,
                 StarBeta: starBeta,
                 StarBetaDraw: starBetaDraw,

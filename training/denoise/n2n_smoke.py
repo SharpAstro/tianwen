@@ -448,14 +448,18 @@ class ExtraCache:
         self.sigma, self.has, self.keep = sigma, has, keep
 
     @classmethod
-    def open(cls, cache, channels, need_sigma, need_keep):
+    def open(cls, cache, channels, need_sigma, need_keep, black_point=None):
         """Opens `cache` as an extra cache for a main cache of `channels`, refusing one that cannot join: a cache of real subs,
-        another channel count, no draw, or a plane or mask the run needs and the cache lacks."""
+        another channel count, no draw, a plane or mask the run needs and the cache lacks, or tiles stretched from another
+        black point than the main cache's `black_point` (#2309: one model has one domain, stated once in its contract)."""
         meta = json.load(open(os.path.join(cache, "meta.json"), encoding="utf-8"))
         if not meta.get("injected"):
             raise SystemExit(f"--extra-cache {cache} holds real subs; only an injected (synthetic) cache has a truth to train toward")
         if int(meta.get("channels", 3)) != channels:
             raise SystemExit(f"--extra-cache {cache} holds {meta.get('channels', 3)} channels, the main cache {channels}")
+        if meta.get(BLACK_POINT_KEY) != black_point:
+            raise SystemExit(f"--extra-cache {cache} is stretched from {describe_black_point(meta.get(BLACK_POINT_KEY))}, "
+                             f"the main cache from {describe_black_point(black_point)}")
         mm = np.memmap(os.path.join(cache, "tiles.f16"), dtype=np.float16, mode="r",
                        shape=(meta["cells"], meta.get("slots", SLOTS_SUBS_ONLY), channels, TILE, TILE))
         out = cls(cache, mm, meta)
@@ -761,6 +765,37 @@ def load_psf01(root):
 
             out[row["Tile"]] = float(value)
     return out
+
+
+BLACK_POINT_KEY = "stretch_black_point_sigma"
+
+
+def load_black_point_sigma(root):
+    """The depth an export's stretch set every channel's black point at, in sky-noise sigma under the channel's median
+    (#2309): `StretchBlackPointSigma` of `degradations.jsonl`, or None where the black point is the channel's minimum,
+    which is every export before 2026-11-21 and every row that does not carry the field.
+
+    It is one value for a whole export. A model is told its domain once, in its contract, and the runner stretches a
+    frame that one way, so rows that disagree stop the prepare here.
+    """
+    path = os.path.join(root, "degradations.jsonl")
+    if not os.path.exists(path):
+        return None
+
+    seen = set()
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                seen.add(json.loads(line).get("StretchBlackPointSigma"))
+    if len(seen) > 1:
+        raise SystemExit(f"{path}: its rows are stretched from more than one black point ({sorted(seen, key=str)}); "
+                         f"one cache is one domain")
+    return next(iter(seen), None)
+
+
+def describe_black_point(sigma):
+    return "each channel's minimum" if sigma is None else f"{sigma:g} sky-noise sigma under each channel's median"
 
 
 def load_kernel_rows(root):
@@ -1075,6 +1110,12 @@ def prepare(args):
         "sigma_planes": sigma_planes,
         "keys": [[k[0], k[1], k[2]] for k in keys],
     }
+    # The black point the export's stretch was written with (#2309), kept only when it is not the minimum, so a cache of
+    # an older export is the file it always was. n2n_export.py states it in the model's contract.
+    black_point = load_black_point_sigma(args.root)
+    if black_point is not None:
+        meta[BLACK_POINT_KEY] = black_point
+    print(f"  stretched from {describe_black_point(black_point)}")
     with open(os.path.join(args.cache, "meta.json"), "w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent=1)
     gb = os.path.getsize(path) / 2**30
@@ -1748,7 +1789,8 @@ def train(args):
                              "--cond-psf01, --star-loss or --operator)")
         # R4g's --extra-loss-mask: the extra cache's rows carry D4's mask though the main cache's do not (its truths are
         # stored plates, which keep sources of their own; the main cache's are synthetic and keep none).
-        extra = ExtraCache.open(args.extra_cache, CH, sigma_planes is not None, keep_planes is not None or args.extra_loss_mask)
+        extra = ExtraCache.open(args.extra_cache, CH, sigma_planes is not None, keep_planes is not None or args.extra_loss_mask,
+                                black_point=meta.get(BLACK_POINT_KEY))
         share = extra_share(n_train, draws, extra.n_train, extra.draws)
         print(f"extra cache ON: {extra.n_train} training cells x {extra.draws} draw(s) of {args.extra_cache}, "
               f"{share:.1%} of the training draw, each regressing onto its own truth; "

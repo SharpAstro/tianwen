@@ -299,6 +299,68 @@ public class ModelContractTests : IDisposable
     }
 
     [Fact]
+    public void AModelTrainedWithABlackPointByNoiseIsRefusedByARunnerThatStretchesFromTheMinimum()
+    {
+        // #2309: the denoiser's runner sets each channel's black point at its minimum. A model whose tiles were stretched
+        // from a depth in sky-noise sigma is another domain, and the silence of the runner is a rule, not a gap.
+        var problems = CheckAgainstPlaneGraph(Bound(StandInWeights) with { StretchBlackPointSigma = 40 }, StandInWeights);
+
+        var only = problems.ShouldHaveSingleItem();
+        only.ShouldContain("the runner sets each channel's black point at its minimum");
+        only.ShouldContain("trained with it 40 sky-noise sigma under its median");
+    }
+
+    [Fact]
+    public void ARunnerThatSetsTheBlackPointByNoiseIsRefusedByAContractThatDoesNotStateIt()
+    {
+        var modelPath = Place(StandInWeights, Bound(StandInWeights));
+        var feed = N2nDenoiser.Feed(planeConditioned: true) with { StretchBlackPointSigma = 40 };
+
+        var problems = ModelContract.LoadBeside(modelPath).Check(modelPath, feed, PlaneGraph());
+
+        var only = problems.ShouldHaveSingleItem();
+        only.ShouldContain("the runner sets each channel's black point 40 sky-noise sigma under its median");
+        only.ShouldContain("trained with it at its minimum");
+    }
+
+    [Theory]
+    [InlineData(40.0, 40.0, true)]
+    [InlineData(40.0, 60.0, false)]
+    public void ABlackPointDepthAgreesOnlyWithItself(double trained, double fed, bool agrees)
+    {
+        var modelPath = Place(StandInWeights, Bound(StandInWeights) with { StretchBlackPointSigma = trained });
+        var feed = N2nDenoiser.Feed(planeConditioned: true) with { StretchBlackPointSigma = fed };
+
+        var problems = ModelContract.LoadBeside(modelPath).Check(modelPath, feed, PlaneGraph());
+
+        if (agrees)
+        {
+            problems.ShouldBeEmpty();
+        }
+        else
+        {
+            problems.ShouldHaveSingleItem().ShouldContain("black point");
+        }
+    }
+
+    [Fact]
+    public void AContractStatesItsBlackPointInItsOwnProperty()
+    {
+        // What n2n_export.py writes for a model trained on an export made with --black-point-sigma.
+        var modelPath = Place(StandInWeights, Bound(StandInWeights));
+        var contractPath = ModelContract.PathBeside(modelPath);
+        var text = File.ReadAllText(contractPath);
+        var silent = ModelContract.Parse(Encoding.UTF8.GetBytes(text), N2nDenoiser.ModelFileName, contractPath);
+        var stated = text.Replace("\"stretchMedianTarget\": 0.25,", "\"stretchMedianTarget\": 0.25, \"stretchBlackPointSigma\": 40,", StringComparison.Ordinal);
+
+        // A model trained from the minimum says nothing, so every contract written before this reads as it did.
+        text.ShouldNotContain("stretchBlackPointSigma");
+        silent.StretchBlackPointSigma.ShouldBeNull();
+        stated.ShouldNotBe(text);
+        ModelContract.Parse(Encoding.UTF8.GetBytes(stated), N2nDenoiser.ModelFileName, contractPath).StretchBlackPointSigma.ShouldBe(40);
+    }
+
+    [Fact]
     public void APlaneInOtherUnitsThanTheRunnerBuildsIsRefused()
     {
         var contract = WithInputs(Bound(StandInWeights), i => i.Role == ModelRoles.Plane ? i with { Scale = 100.0 } : i);

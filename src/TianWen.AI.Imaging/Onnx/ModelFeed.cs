@@ -14,7 +14,15 @@ namespace TianWen.AI.Imaging.Onnx;
 /// <param name="StretchMedianTarget">For <see cref="ModelDomain.MtfStretched"/>, the per-channel median the runner
 /// stretches a frame to; <c>null</c> where it does not stretch.</param>
 /// <param name="Inputs">Every input the runner fills, by role.</param>
-internal sealed record ModelFeed(ModelDomain Domain, double? StretchMedianTarget, ImmutableArray<ModelFeedInput> Inputs);
+internal sealed record ModelFeed(ModelDomain Domain, double? StretchMedianTarget, ImmutableArray<ModelFeedInput> Inputs)
+{
+    /// <summary>For <see cref="ModelDomain.MtfStretched"/>, how many sky-noise sigma under its median the runner puts
+    /// each channel's black point (<c>Image.MtfStretchParametersFromSkyNoise</c>); <c>null</c> where the black point is
+    /// the channel's minimum, as every runner set it before #2309. Checked against
+    /// <see cref="ModelContract.StretchBlackPointSigma"/> both ways, so a model trained under one rule is never fed
+    /// under the other.</summary>
+    public double? StretchBlackPointSigma { get; init; }
+}
 
 /// <summary>One input a runner fills.</summary>
 /// <param name="Role">What the tensor is (<see cref="ModelRoles"/>).</param>

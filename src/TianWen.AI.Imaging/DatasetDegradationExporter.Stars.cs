@@ -458,11 +458,14 @@ public static partial class DatasetDegradationExporter
     /// further above its floor and the plate's stretch is gentler there: 1.9 to 3.8 times in red on 7 of the 8 validation
     /// sessions. Also returns, per channel, the master's MTF slope at its own sky over the plate's at the same pixel value,
     /// so every export measures that gap whichever stretch it writes.
+    /// <para>With <paramref name="blackPointSigma"/> each side's black point lies that many sky-noise sigma under its own
+    /// median (#2309) and not at its minimum; the plate's deepest holes then no longer set its stretch, and the ratio is
+    /// read between the two stretches as they are written.</para>
     /// </summary>
     internal static (float[] OrigMin, double[] Balances, double[] SkySlopeRatio) StarsStretch(
-        string sessionId, Image master, float divisor, Image unitPlate, bool fromMaster)
+        string sessionId, Image master, float divisor, Image unitPlate, bool fromMaster, double? blackPointSigma = null)
     {
-        var (plateApplied, plateMin, plateBalances) = ChunkedNafnetRunner.InputStretchParameters(unitPlate, unitPlate.AbsentPixels());
+        var (plateApplied, plateMin, plateBalances) = ChunkedNafnetRunner.InputStretchParameters(unitPlate, unitPlate.AbsentPixels(), blackPointSigma);
         if (!plateApplied || plateMin is null || plateBalances is null)
         {
             throw new InvalidOperationException($"{sessionId}: the starless plate did not read as linear, so it is not a valid injection target");
@@ -475,7 +478,7 @@ public static partial class DatasetDegradationExporter
         double[]? masterBalances;
         try
         {
-            (masterApplied, masterMin, masterBalances) = ChunkedNafnetRunner.InputStretchParameters(unitMaster, unitMaster.AbsentPixels());
+            (masterApplied, masterMin, masterBalances) = ChunkedNafnetRunner.InputStretchParameters(unitMaster, unitMaster.AbsentPixels(), blackPointSigma);
         }
         finally
         {
@@ -552,9 +555,12 @@ public static partial class DatasetDegradationExporter
             // (StretchFromMaster), which is what inference stretches the master with (#1776), or the plate's (the target's, H6).
             var divisor = DatasetTileExporter.UnitDivisor(master);
             unitPlate = DatasetTileExporter.ToUnitRange(plate, divisor);
-            var (origMin, balances, skySlopeRatio) = StarsStretch(sessionId, master, divisor, unitPlate, options.StretchFromMaster);
-            logger?.LogInformation("[degrade] {Session}: stretched with the {Source}'s parameters; the master's slope at its sky over the plate's {Ratio}",
+            var (origMin, balances, skySlopeRatio) = StarsStretch(sessionId, master, divisor, unitPlate, options.StretchFromMaster, options.BlackPointSigma);
+            logger?.LogInformation("[degrade] {Session}: stretched with the {Source}'s parameters, the black point {BlackPoint}; the master's slope at its sky over the plate's {Ratio}",
                 sessionId, options.StretchFromMaster ? "master" : "plate",
+                options.BlackPointSigma is { } depth
+                    ? string.Create(CultureInfo.InvariantCulture, $"{depth:0.###} sky-noise sigma under each channel's median")
+                    : "at each channel's minimum",
                 string.Join(" / ", skySlopeRatio.Select(static r => r.ToString("F2", CultureInfo.InvariantCulture))));
             plateStretched = unitPlate.MtfStretchWith(origMin, balances);
 
@@ -784,6 +790,7 @@ public static partial class DatasetDegradationExporter
                     {
                         Stretch = options.StretchFromMaster ? "master" : "plate",
                         StretchSkySlopeRatio = skySlopeRatio,
+                        StretchBlackPointSigma = options.BlackPointSigma,
                         NoiseStructure = noiseStructure is null ? null : "cross-lags",
                         NoiseStructureShrink = noiseStructure?.Shrink,
                         NoiseScale = options.NoiseScale,
