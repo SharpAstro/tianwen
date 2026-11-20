@@ -2083,6 +2083,9 @@ def train(args):
     # --save-best (2026-11-21): the weights at the held-out objective's best so far, kept in memory, carried in the
     # resume checkpoint and written beside --out at the end. The run and its --out are untouched. R4f's objective was
     # best at step 69,500 and its last step's weights, the ones every arm is scored on, read half again worse.
+    if args.save_best and args.schedule != "plateau":
+        raise SystemExit("--save-best needs --schedule plateau: the best step is the held-out objective's, and no other "
+                         "schedule reads it")
     best_state = None
     # R2p's --teacher: each synthetic draw regresses onto a teacher's output on that same draw (n2n_teacher.py) instead of
     # the clean tile, so one model is trained toward an average's answer. The held-out objective still reads the clean
@@ -2656,6 +2659,11 @@ def train(args):
     if args.save_best and best_state is not None:
         # Beside --out and never in its place: the arms before this were all scored on their last step.
         save(best_state, best_path_of(args.out), val_best_step)
+    elif args.save_best:
+        # Said, so that a missing file is never read as a file that was lost on the way home.
+        print(f"--save-best: nothing written. No step improved the held-out objective while the switch was on: the run "
+              f"judged fewer than {VAL_WINDOW} evaluations, or it was resumed from a checkpoint made without the switch "
+              f"and its best step ({val_best_step}) lies before that resume.", flush=True)
     # The run is over and its outputs are written: a checkpoint left now would resume a finished run.
     if os.path.exists(resume_path):
         os.remove(resume_path)
@@ -3096,8 +3104,10 @@ if __name__ == "__main__":
                         "recipe or the cache differs (resume_fingerprint)")
     p.add_argument("--save-best", action="store_true",
                    help="with --schedule plateau: also write the weights at the held-out objective's best step to "
-                        "<out>.best.pt, beside --out, which stays the last step's as for every run before. The best "
-                        "step's weights travel in the resume checkpoint. It changes nothing the run computes")
+                        "<out>.best.pt, beside --out, which with the gate off (--gate-every 0) stays the last step's as "
+                        "for every run before. With --ema the file holds the averaged weights at that step, as --out "
+                        "does, though the step is chosen on the live weights' objective. The best step's weights travel "
+                        "in the resume checkpoint. It changes nothing the run computes; any other schedule refuses it")
     p.add_argument("--init-from", default=None,
                    help="begin at another run's saved weights (its --out file) instead of a random net, with a fresh "
                         "optimiser, schedule and plateau history: a continuation under a changed objective. The file must "
