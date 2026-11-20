@@ -111,8 +111,10 @@ public static class MasterCrop
             return Crop(image, wcs, provenance, rect, outputPath, carried);
         }
 
-        // The maps are read BEFORE anything is written: the output may be the input's own path.
-        var maps = ReadMaps(inputPath, image.Width, image.Height);
+        // The maps are read BEFORE anything is written: the output may be the input's own path. Each is cropped as it
+        // is read and the whole one given back, so what is held across the write is the cropped copies and not four
+        // full-frame maps beside the master (a map of an RGB master is three float planes, as large as the master).
+        var maps = ReadCroppedMaps(inputPath, image.Width, image.Height, rect);
         try
         {
             var result = Crop(image, wcs, provenance, rect, outputPath, carried);
@@ -122,7 +124,7 @@ public static class MasterCrop
             }
 
             var leftOut = new List<string>(maps.LeftOut);
-            foreach (var stale in IntegrationFitsWriter.RemoveMapSidecars(outputPath))
+            foreach (var stale in IntegrationFitsWriter.RemoveCanvasMapSidecars(outputPath))
             {
                 leftOut.Add($"{Path.GetFileName(stale)} was beside the output from an earlier file and could not be removed");
             }
@@ -130,23 +132,22 @@ public static class MasterCrop
             var written = new List<string>();
             if (maps.Coverage is { } coverage)
             {
-                IntegrationFitsWriter.WriteCoverageMap(outputPath, coverage.Crop(rect), frameCount, strategy);
+                IntegrationFitsWriter.WriteCoverageMap(outputPath, coverage, frameCount, strategy);
                 written.Add("coverage");
             }
             if (maps.Rejection is { } rejection)
             {
-                var cropped = rejection.Crop(rect);
-                IntegrationFitsWriter.WriteRejectionMap(outputPath, cropped, frameCount, MeanOf(cropped), strategy);
+                IntegrationFitsWriter.WriteRejectionMap(outputPath, rejection, frameCount, MeanOf(rejection), strategy);
                 written.Add("rejection");
             }
             if (maps.Saturation is { } saturation)
             {
-                IntegrationFitsWriter.WriteSaturationMap(outputPath, saturation.Crop(rect), frameCount, strategy);
+                IntegrationFitsWriter.WriteSaturationMap(outputPath, saturation, frameCount, strategy);
                 written.Add("saturation");
             }
             if (maps.StandardError is { } standardError)
             {
-                IntegrationFitsWriter.WriteStandardErrorMap(outputPath, standardError.Crop(rect), frameCount, strategy);
+                IntegrationFitsWriter.WriteStandardErrorMap(outputPath, standardError, frameCount, strategy);
                 written.Add("standard error");
             }
 
@@ -168,30 +169,46 @@ public static class MasterCrop
     /// (<see cref="IntegrationFitsWriter.WriteStandardErrorMap"/>); until this was written the crop verbs left them
     /// behind, so a cropped master had no coverage plane to say where it is whole and no saturation map for SPCC
     /// (#2274). The bad pixel map is not one of them: it is the SENSOR's photosites, not the canvas's pixels, and a
-    /// rectangle of the canvas names nothing in it.
+    /// rectangle of the canvas names nothing in it. A crop neither carries it nor removes it, so a crop onto the
+    /// master's own path keeps the master's.
     /// </summary>
-    private static (Image? Coverage, Image? Rejection, Image? Saturation, Image? StandardError, List<string> LeftOut) ReadMaps(
-        string inputPath, int width, int height)
+    /// <returns>Each map already cropped to <paramref name="rect"/>, the caller's to release. One whole map is held
+    /// at a time: it is cropped and given back before the next is read.</returns>
+    private static (Image? Coverage, Image? Rejection, Image? Saturation, Image? StandardError, List<string> LeftOut) ReadCroppedMaps(
+        string inputPath, int width, int height, PixelRect rect)
     {
         var leftOut = new List<string>();
-        Image? OnTheGrid(Image? map, string kind)
+        Image? Cropped(Image? map, string kind)
         {
-            if (map is null || (map.Width == width && map.Height == height))
+            if (map is null)
             {
-                return map;
+                return null;
             }
 
-            leftOut.Add($"the {kind} map is {map.Width}x{map.Height}, not the master's {width}x{height}");
-            map.Release();
-            return null;
+            try
+            {
+                if (map.Width == width && map.Height == height)
+                {
+                    return map.Crop(rect);
+                }
+
+                leftOut.Add($"the {kind} map is {map.Width}x{map.Height}, not the master's {width}x{height}");
+                return null;
+            }
+            finally
+            {
+                map.Release();
+            }
         }
 
         IntegrationFitsWriter.TryReadCoverageMap(inputPath, out var coverage);
+        var croppedCoverage = Cropped(coverage, "coverage");
         IntegrationFitsWriter.TryReadRejectionMap(inputPath, out var rejection);
+        var croppedRejection = Cropped(rejection, "rejection");
         IntegrationFitsWriter.TryReadSaturationMap(inputPath, out var saturation);
+        var croppedSaturation = Cropped(saturation, "saturation");
         IntegrationFitsWriter.TryReadStandardErrorMap(inputPath, out var standardError);
-        return (OnTheGrid(coverage, "coverage"), OnTheGrid(rejection, "rejection"), OnTheGrid(saturation, "saturation"),
-            OnTheGrid(standardError, "standard error"), leftOut);
+        return (croppedCoverage, croppedRejection, croppedSaturation, Cropped(standardError, "standard error"), leftOut);
     }
 
     /// <summary>The mean of every finite sample of <paramref name="map"/>, over all its channels; 0 for none.</summary>

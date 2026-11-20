@@ -361,8 +361,11 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// #2197: a wait for a timer is woken by the timer being made, not by looking again every millisecond. It is
-        /// not finished before the timer exists, and it finishes once it does, with nothing advancing the wall clock.
+        /// #2197: a wait that began before its timer exists finishes once the timer is made. What this pins is that the
+        /// wake is WIRED: the wait sleeps on the wrapper's change signal, so a timer made without signalling it would
+        /// leave this test hanging to its timeout. It does not tell a woken wait from one that looked again every
+        /// millisecond, as the wait used to: both finish within a millisecond of the timer, and nothing here has a
+        /// clock to tell them apart with (pilot's review of #2307).
         /// </summary>
         [Fact(Timeout = 30_000)]
         public async Task AWaitForATimerIsWokenWhenTheTimerIsMade()
@@ -371,10 +374,11 @@ namespace TianWen.Lib.Tests
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
 
             var wait = time.WaitForTimerDueAfterAsync(TimeSpan.FromSeconds(5), ct, "the deadline under test");
-            wait.IsCompleted.ShouldBeFalse("no timer exists yet");
+            wait.IsCompleted.ShouldBeFalse("no timer exists yet, so a wait that is done already answered without looking");
 
+            // A timer that is not the one waited for wakes the wait and must not finish it. That is not asserted: the
+            // wait's continuation runs on another thread, so "still not done" read here would hold either way.
             using var near = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
-            wait.IsCompleted.ShouldBeFalse("a timer due in 1 s is not the one due after 5 s");
 
             using var far = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
             await wait;
@@ -382,7 +386,8 @@ namespace TianWen.Lib.Tests
 
         /// <summary>
         /// #2197: the same for a wait on a timer due inside a window, where an ADVANCE is what brings the timer into
-        /// the window: nothing is made or changed, only now moves.
+        /// the window: nothing is made or changed, only now moves. As above, it pins that an advance wakes the wait (a
+        /// missed wake hangs to the timeout), not that the wait does not poll.
         /// </summary>
         [Fact(Timeout = 30_000)]
         public async Task AWaitForATimerInsideAWindowIsWokenWhenAnAdvanceBringsItIn()

@@ -223,8 +223,9 @@ What exists, read from the code on 2026-11-19:
   so `MasterAutoCrop.Scan` on it answers from the exact tier, and SPCC still finds its saturation map. The rejection
   map's `REJ_RATE` is the cropped map's own average. A map that is not on the master's grid is left out and named, a
   map of an earlier file beside the output is removed first, and a refused crop touches none. The bad pixel map is
-  not carried: it is the sensor's photosites, not the canvas's pixels. Until this was written both verbs left every
-  map behind, as `autocrop` had before #2244.
+  neither carried nor removed: it is the sensor's photosites, not the canvas's pixels, so a crop onto the master's
+  own path keeps the master's. One whole map is held at a time (read, cropped, given back), not four beside the
+  master. Until this was written both verbs left every map behind, as `autocrop` had before #2244.
 
 What the workbench needs, and why the display clip is not enough for it: a process after the crop must be handed the cropped
 pixels (a gradient fit must not see the ragged edge), an export must be the cropped image with a moved WCS, and the user must be

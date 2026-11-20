@@ -152,9 +152,13 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
     /// </summary>
     /// <param name="giveBack">Run once the sequence's work is over and BEFORE <see cref="Progress"/> says it ended, however it
     /// ended: where the caller gives back what it claimed for the run (the wheel, the focuser), so whoever reads an ended
-    /// phase and acts at once finds them free (#2160). It must not throw.</param>
+    /// phase and acts at once finds them free (#2160). It must not throw. If it does, it is still run only once, the
+    /// exception is logged and the end is still published: a run that finished ends as
+    /// <see cref="PlanetarySequencePhase.Failed"/> with that reason and throws, since what it claimed may still be held; a
+    /// run that was stopped or had failed keeps its own ending and its own exception.</param>
     /// <exception cref="InvalidOperationException">The sequence is not one this wheel can run, a step's change or recording was
-    /// refused, or the capture ended under it; the reason is <see cref="Progress"/>'s too.</exception>
+    /// refused, the capture ended under it, or it finished and <paramref name="giveBack"/> threw; the reason is
+    /// <see cref="Progress"/>'s too.</exception>
     public async Task RunAsync(PlanetarySequence sequence, Func<string?, DateTimeOffset, string> pathFor, Action? giveBack,
         CancellationToken cancellationToken)
     {
@@ -166,6 +170,23 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
         string? filter = null;
         void Note(PlanetarySequencePhase phase, string? failure = null)
             => Volatile.Write(ref _progress, new PlanetarySequenceProgress(phase, set, sequence.Sets, index, steps.IsDefault ? 0 : steps.Length, filter, files, failure));
+
+        // What the run claimed goes back BEFORE Progress says it ended (#2160), once, and never throwing into the ending
+        // that called it: an exception there would leave Progress at its in-flight phase for good, or stand in for the
+        // run's own (a stop would surface as whatever the give-back threw).
+        Exception? notGivenBack = null;
+        void GiveBack()
+        {
+            try
+            {
+                giveBack?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                notGivenBack = ex;
+                logger.LogError(ex, "Planetary sequence: giving back what the run claimed threw; the run's end is published all the same.");
+            }
+        }
 
         try
         {
@@ -207,20 +228,31 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
                 index = steps.Length;
             }
             set = Math.Min(set, sequence.Sets);
-            // The devices go back BEFORE Progress says the run ended (#2160), and the end is published even if giving
-            // them back throws: an exception here would otherwise leave Progress at its in-flight phase for good.
-            try { giveBack?.Invoke(); } finally { Note(PlanetarySequencePhase.Done); }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            try { giveBack?.Invoke(); } finally { Note(PlanetarySequencePhase.Stopped); }
+            GiveBack();
+            Note(PlanetarySequencePhase.Stopped);
             throw;
         }
         catch (Exception ex)
         {
-            try { giveBack?.Invoke(); } finally { Note(PlanetarySequencePhase.Failed, StatusText.FromException(ex)); }
+            GiveBack();
+            Note(PlanetarySequencePhase.Failed, StatusText.FromException(ex));
             throw;
         }
+
+        // The work is over and nothing failed. This ending is OUTSIDE the try on purpose: inside it, a give-back that
+        // threw was caught as a failure of the work, which gave back a second time and replaced a published Done with
+        // Failed. A run that could not give back what it claimed has not ended cleanly, and says so.
+        GiveBack();
+        if (notGivenBack is { } kept)
+        {
+            var reason = $"The sequence finished, but what it claimed was not given back: {StatusText.FromException(kept)}";
+            Note(PlanetarySequencePhase.Failed, reason);
+            throw new InvalidOperationException(reason, kept);
+        }
+        Note(PlanetarySequencePhase.Done);
     }
 
     // The stream stopped for the step: the wheel turned to its filter and the focuser moved by the offset, then the stream

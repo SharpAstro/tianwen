@@ -136,6 +136,18 @@ public sealed class MasterAutoCropTests : IDisposable
     public void TheModelRuleStoresTheMarginItApplies(double asked, double stored)
         => MasterAutoCropRule.ForModel(0.02, asked).Margin.ShouldBe(stored);
 
+    // The rule holds its own margin, however it is built (pilot's review of #2307): held in ForModel alone, a rule from
+    // the public constructor said 0.9 where 0.25 was applied.
+    [Fact]
+    public void TheRuleHoldsItsMarginHoweverItIsBuilt()
+    {
+        new MasterAutoCropRule(CoverageTrimPolicy.KeepEveryPixel, 0.9).Margin.ShouldBe(MasterAutoCropRule.MaxMargin);
+        (MasterAutoCropRule.ForViewing with { Margin = 0.9 }).Margin.ShouldBe(MasterAutoCropRule.MaxMargin);
+        (MasterAutoCropRule.ForViewing with { Margin = -1.0 }).Margin.ShouldBe(0.0);
+        new MasterAutoCropRule(CoverageTrimPolicy.KeepEveryPixel, double.NaN).Margin.ShouldBe(0.0, "not a number is no margin");
+        new MasterAutoCropRule(CoverageTrimPolicy.KeepEveryPixel, 0.1).Margin.ShouldBe(0.1);
+    }
+
     // #2294: the exact tier as one routine, for the callers that want the covered area and no edge walk.
     [Fact]
     public void TheExactTierOnItsOwnAnswersOnlyWhereASidecarSaysWhatIsCovered()

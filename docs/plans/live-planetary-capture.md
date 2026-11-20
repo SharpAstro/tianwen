@@ -1289,7 +1289,9 @@ elsewhere (#1684 builds the find and the re-slew).
   filter change and a job on the focuser are refused in words while it runs, and both are given back as it ends. The order
   is part of the rule (#2160): they are given back once, BEFORE the run's progress reads Done, Stopped or Failed, so a
   client that sees the end and asks for the wheel at once is not refused by a claim that is about to go
-  (`PlanetarySequenceRunner.RunAsync`'s `giveBack`). The end is published even if giving them back throws.
+  (`PlanetarySequenceRunner.RunAsync`'s `giveBack`). The give-back must not throw. If it does, it is still run once
+  and the end is still published: a run that finished ends as Failed with that reason, since what it claimed may
+  still be held, and a run that was stopped or had failed keeps its own ending.
 - **A step's length is a time OR a frame count** (`RecordingLength`, the owner, 2026-10-19). A frame target is a recording's own end
   (`SerRecording.FrameTarget`, "its frames are taken"), so it holds on any night whatever the rate; such a recording has no end time
   (`EndsAt` null), and the GUI's time left says nothing for it.

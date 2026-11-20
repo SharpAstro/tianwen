@@ -237,6 +237,28 @@ public class MasterCropTests : IDisposable
         (coverage!.Width, coverage.Height).ShouldBe((20, 15), "and the coverage beside the output is this crop's, not the earlier file's");
     }
 
+    // The bad pixel map is the sensor's and not on the canvas grid, so a crop does not carry it, and must not take it
+    // away either: a crop onto the master's own path deleted the master's bad pixel map without a word (pilot's review
+    // of #2307).
+    [Fact]
+    public void CropFile_OntoTheMastersOwnPathKeepsItsBadPixelMap()
+    {
+        var input = WriteMaster(AlignmentProvenance.Sidereal);
+        var badPixels = IntegrationFitsWriter.BadPixelPathFor(input);
+        File.WriteAllText(badPixels, "the sensor's");
+
+        var result = MasterCrop.CropFile(input, new PixelRect(7, 4, 20, 15), input);
+
+        result.Succeeded.ShouldBeTrue(result.Message);
+        result.Sidecars.ShouldBe(["coverage", "rejection", "standard error"]);
+        result.SidecarsLeftOut.ShouldBeEmpty();
+        File.Exists(badPixels).ShouldBeTrue("the crop names nothing in the sensor's map, so it is not the crop's to remove");
+        File.ReadAllText(badPixels).ShouldBe("the sensor's");
+        IntegrationFitsWriter.TryReadCoverageMap(input, out var coverage).ShouldBeTrue();
+        var map = coverage.ShouldNotBeNull();
+        (map.Width, map.Height).ShouldBe((20, 15), "and the maps on the canvas grid are this crop's");
+    }
+
     [Fact]
     public void CropFile_ARefusedCropWritesNoMapAndRemovesNone()
     {

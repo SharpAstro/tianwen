@@ -265,6 +265,27 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
+    /// The same rule at the listing itself (pilot's review of #2307: the test above would still pass with the
+    /// folder-wide look put back in <c>ListAsync</c>). An expected file is gone for good and another name's orphaned
+    /// staging file sits beside it: the listing believes the absence after its quiet looks. With the folder-wide look
+    /// it took the orphan for a replace under way and looked again every few milliseconds for the whole deadline.
+    /// Counted in looks and not in time: a wall-clock bar is opt-in.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task AListingDoesNotWaitOnAnotherNamesStagingFile()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("shared-appdata-");
+        var gone = Path.Combine(folder.FullName, "record.json");
+        File.WriteAllText($"{Path.Combine(folder.FullName, "other.json")}.{Guid.NewGuid():N}.tmp", "orphan");
+
+        var (files, looks) = await SharedFile.ListCountingLooksAsync(folder, ".json", [gone], ct);
+
+        files.ShouldBeEmpty();
+        looks.ShouldBe(SharedFile.QuietLooksNeeded + 1, "its quiet looks and the last look at the names, not a look every 5 ms until the deadline");
+    }
+
+    /// <summary>
     /// A staging file nobody will ever rename (a crashed writer's) does not keep a name alive for ever: the
     /// deadline ends the wait and the name is reported absent.
     /// </summary>

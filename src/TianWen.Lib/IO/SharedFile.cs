@@ -75,7 +75,7 @@ public static partial class SharedFile
     // Windows hides the name for a moment inside a replace, so one quiet miss may be the tail of a window that has
     // already closed; a second quiet look finds the file. Elsewhere a miss with no staging file is the answer, once
     // the name has been looked for after the staging file was (see the last look in TryOpenReadAsync).
-    private static int QuietLooksNeeded => OperatingSystem.IsWindows() ? 2 : 1;
+    internal static int QuietLooksNeeded => OperatingSystem.IsWindows() ? 2 : 1;
 
     // A write stages '<name>.<guid>.tmp' before it replaces the name and removes nothing until the replace is
     // done, so a staging file beside the name is the evidence that a replace is under way.
@@ -177,13 +177,25 @@ public static partial class SharedFile
     /// <param name="expected">Full paths the previous listing had, or null for a first listing.</param>
     public static async Task<IReadOnlyList<FileInfo>> ListAsync(DirectoryInfo folder, string suffix, IReadOnlyCollection<string>? expected,
         CancellationToken cancellationToken = default)
+        => (await ListCountingLooksAsync(folder, suffix, expected, cancellationToken)).Files;
+
+    /// <summary>
+    /// <see cref="ListAsync"/>, with how many times it looked at the folder. A listing that believes an absence stops
+    /// after its quiet looks; one that takes something for a replace under way looks again every few milliseconds
+    /// until the deadline. The count tells the two apart with no wall-clock bar, which is what a test of the rule at
+    /// the listing itself needs.
+    /// </summary>
+    internal static async Task<(IReadOnlyList<FileInfo> Files, int Looks)> ListCountingLooksAsync(DirectoryInfo folder, string suffix,
+        IReadOnlyCollection<string>? expected, CancellationToken cancellationToken = default)
     {
         var seen = new Dictionary<string, FileInfo>(StringComparer.OrdinalIgnoreCase);
         var started = Stopwatch.GetTimestamp();
         var quiet = 0;
         var lastLook = false;
+        var looks = 0;
         while (true)
         {
+            looks++;
             if (folder.Exists)
             {
                 foreach (var file in folder.EnumerateFiles("*" + suffix))
@@ -194,7 +206,7 @@ public static partial class SharedFile
 
             if (expected is null || AllSeen() || lastLook)
             {
-                return [.. seen.Values];
+                return ([.. seen.Values], looks);
             }
 
             if (AnyBeingReplaced(folder.FullName, Missing(expected, seen)))
@@ -202,7 +214,7 @@ public static partial class SharedFile
                 quiet = 0;
                 if (Stopwatch.GetElapsedTime(started) >= AbsenceDeadline)
                 {
-                    return [.. seen.Values];
+                    return ([.. seen.Values], looks);
                 }
             }
             else if (++quiet >= QuietLooksNeeded)
@@ -249,11 +261,39 @@ public static partial class SharedFile
     /// </summary>
     internal static bool AnyBeingReplaced(string folder, IEnumerable<string> missing)
     {
-        foreach (var path in missing)
+        if (!Directory.Exists(folder))
         {
-            if (ReplaceInProgress(folder, Path.GetFileName(path) + ".*.tmp"))
+            return false;
+        }
+
+        // One pass over the folder's staging files, each asked whose it is: a look per missing name was a scan of the
+        // folder per name per look, for a listing that had lost many. The names are only gathered once a staging
+        // file is met, which is rare.
+        HashSet<string>? names = null;
+        foreach (var staging in Directory.EnumerateFiles(folder, "*.tmp"))
+        {
+            if (names is null)
             {
-                return true;
+                names = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+                foreach (var path in missing)
+                {
+                    names.Add(Path.GetFileName(path));
+                }
+            }
+            if (names.Count == 0)
+            {
+                return false;
+            }
+
+            // What the per-name look matches is '<name>.*.tmp', so a staging file is a name's when the name is all of
+            // it before one of its dots and at least '.tmp' follows that dot.
+            var file = Path.GetFileName(staging);
+            for (var dot = file.IndexOf('.'); dot >= 0 && dot <= file.Length - 5; dot = file.IndexOf('.', dot + 1))
+            {
+                if (dot > 0 && names.Contains(file[..dot]))
+                {
+                    return true;
+                }
             }
         }
 

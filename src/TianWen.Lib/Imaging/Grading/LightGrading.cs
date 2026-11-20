@@ -65,7 +65,10 @@ public readonly record struct LightGradeKey(
         return (long)Math.Round(Math.Floor((ms + step / 4) / step) * step);
     }
 
-    /// <summary>The key in words, for the panel: the filter and the exposure, which are what tell two groups of one folder apart.</summary>
+    /// <summary>The key in words, for the panel: the filter and the exposure, which are what tell two groups of one folder apart.
+    /// The exposure shown is the group's KEY (<see cref="ExposureKeyMs"/>), exact for a two-figure exposure and the
+    /// bucket's own figure for any other: a set of 125 s exposures reads "120 s" (it read "130 s" while the key was
+    /// rounded to the nearest).</summary>
     public string Describe()
     {
         var exposure = ExposureMs % 1000 == 0 ? $"{ExposureMs / 1000} s" : $"{ExposureMs / 1000.0:0.###} s";

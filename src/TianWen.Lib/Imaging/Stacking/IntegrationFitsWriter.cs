@@ -629,15 +629,18 @@ public static class IntegrationFitsWriter
     }
 
     /// <summary>
-    /// Removes every map sidecar beside <paramref name="masterPath"/>, in either stored form. For a writer about to
-    /// put a NEW master at that path: a sidecar left from the file that was there describes other pixels, and every
-    /// reader would take it for this master's (the same reason the stacker removes a stale saturation map).
+    /// Removes the map sidecars beside <paramref name="masterPath"/> that are on a master's CANVAS grid (rejection or
+    /// weight, coverage, saturation, standard error), in either stored form. For a writer about to put other pixels
+    /// at that path: such a sidecar left from the file that was there describes those, and every reader would take
+    /// it for this master's (the same reason the stacker removes a stale saturation map). The bad pixel map is not
+    /// touched: it is the sensor's photosites, which a rectangle of the canvas does not change, and a crop onto the
+    /// master's own path would otherwise take the master's away.
     /// </summary>
     /// <returns>The files that could not be removed; they stay and are wrong.</returns>
-    public static IReadOnlyList<string> RemoveMapSidecars(string masterPath)
+    public static IReadOnlyList<string> RemoveCanvasMapSidecars(string masterPath)
     {
         var left = new List<string>();
-        foreach (var suffix in (ReadOnlySpan<string>)[RejectionMapSuffix, CoverageMapSuffix, BadPixelMapSuffix, SaturationMapSuffix, StandardErrorMapSuffix])
+        foreach (var suffix in (ReadOnlySpan<string>)[RejectionMapSuffix, CoverageMapSuffix, SaturationMapSuffix, StandardErrorMapSuffix])
         {
             var logical = SiblingPath(masterPath, suffix);
             foreach (var path in (ReadOnlySpan<string>)[CompressedPathFor(logical), logical])

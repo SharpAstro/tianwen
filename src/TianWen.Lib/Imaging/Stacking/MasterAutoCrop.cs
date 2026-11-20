@@ -45,20 +45,37 @@ public readonly record struct MasterAutoCropResult(
 /// <param name="Policy">What the walk's refused edges lose. <see cref="CoverageTrimPolicy.KeepEveryPixel"/>
 /// is for a person looking (every pixel that exists); the producing policy with a
 /// <see cref="CoverageTrimPolicy.DeclinedFraction"/> is for a model.</param>
-/// <param name="Margin">Fraction of each axis inset from every edge after the scan, clamped to 0 to 0.25.
-/// An inset that would leave 16 px or less on either axis is ignored.</param>
+/// <param name="Margin">Fraction of each axis inset from every edge after the scan, held to 0 to
+/// <see cref="MaxMargin"/> by the rule itself. An inset that would leave 16 px or less on either axis is ignored.</param>
 public sealed record MasterAutoCropRule(CoverageTrimPolicy Policy, double Margin = 0.0)
 {
+    /// <summary>The largest margin a rule holds: a quarter of each axis from every edge.</summary>
+    public const double MaxMargin = 0.25;
+
+    private readonly double _margin = HeldMargin(Margin);
+
+    /// <summary>The margin that is applied: what was given, held to 0 to <see cref="MaxMargin"/> (a value that is not a
+    /// number is none). The constructor, a <c>with</c> and <see cref="ForModel"/> all pass through here, so a caller
+    /// prints it as it stands. It was held in <see cref="ForModel"/> alone, and a rule from the constructor said 0.9
+    /// where 0.25 was applied.</summary>
+    public double Margin
+    {
+        get => _margin;
+        init => _margin = HeldMargin(value);
+    }
+
+    private static double HeldMargin(double margin) => double.IsNaN(margin) ? 0.0 : Math.Clamp(margin, 0.0, MaxMargin);
+
     /// <summary>The viewer's rule: a refused edge is left alone and there is no margin.</summary>
     public static MasterAutoCropRule ForViewing { get; } = new(CoverageTrimPolicy.KeepEveryPixel);
 
     /// <summary>The rule for a crop that feeds a model: the producing policy with its declined fraction
-    /// clamped to 0 to 0.25 (0 keeps a refused edge, as the viewer does), and the margin, clamped to the same
-    /// range here so <see cref="Margin"/> is the fraction that is applied and a caller prints it as it stands.</summary>
+    /// clamped to 0 to 0.25 (0 keeps a refused edge, as the viewer does), and the margin, which the rule holds to
+    /// its own range (<see cref="Margin"/>).</summary>
     public static MasterAutoCropRule ForModel(double declinedFraction, double margin = 0.0) =>
         new(declinedFraction > 0
             ? CoverageTrimPolicy.Default with { DeclinedFraction = Math.Clamp(declinedFraction, 0.0, 0.25) }
-            : CoverageTrimPolicy.KeepEveryPixel, Math.Clamp(margin, 0.0, 0.25));
+            : CoverageTrimPolicy.KeepEveryPixel, margin);
 }
 
 /// <summary>
@@ -187,7 +204,7 @@ public static class MasterAutoCrop
 
     private static MasterAutoCropResult WithMargin(Image image, MasterAutoCropResult scan, MasterAutoCropRule rule)
     {
-        var margin = Math.Clamp(rule.Margin, 0.0, 0.25);
+        var margin = rule.Margin;
         if (margin <= 0)
         {
             return scan;
