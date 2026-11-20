@@ -184,13 +184,46 @@ public class MountLimitWatcherTests
         var parkAtTheLimit = StopTrackingPastTheMeridian with { MeridianResponse = MountLimitResponse.Park };
         var (hub, discovery) = HubAndDiscoveryFor(mount, parkAtTheLimit);
         var log = new RecordingWatcherLogger();
+        var watcher = new MountLimitWatcher(hub, discovery, Substitute.For<ITimeProvider>(), log);
 
-        await new MountLimitWatcher(hub, discovery, Substitute.For<ITimeProvider>(), log).TickAsync(ct);
+        await watcher.TickAsync(ct);
 
         await mount.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        log.Inner.Messages.ShouldContain(static m => m.Contains("cannot stop tracking on command"));
+        log.Inner.Messages.ShouldContain(static m => m.Contains("cannot be stopped on command"));
         log.Inner.Messages.ShouldContain(static m => m.Contains("can neither park nor stop tracking"));
         log.Inner.Messages.ShouldNotContain(static m => m.Contains("tracking was stopped"));
+        // What the Home card and the toast show is the verdict's own sentence, on the tick that acts and once latched.
+        var acted = watcher.VerdictFor(MountUri);
+        acted.MountCannotBeStopped.ShouldBeTrue();
+        acted.Describe().ShouldContain("stop it at the mount");
+
+        await watcher.TickAsync(ct);
+
+        var latched = watcher.VerdictFor(MountUri);
+        latched.Latched.ShouldBeTrue("premise: still in the limit, already acted");
+        latched.Describe().ShouldContain("still turning");
+        latched.Describe().ShouldNotContain("tracking is stopped");
+    }
+
+    /// <summary>
+    /// A mount that cannot switch its tracking but can park, with the limit set to park: it is parked, so it is not
+    /// turning, and nothing says it has to be stopped by hand.
+    /// </summary>
+    [Fact]
+    public async Task AMountThatCannotStopTrackingButIsParkedByTheLimitIsNotSaidToBeTurning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = MountAt(hourAngleHours: 1.0, canPark: true, canSetTracking: false);
+        var (hub, discovery) = HubAndDiscoveryFor(mount, StopTrackingPastTheMeridian with { MeridianResponse = MountLimitResponse.Park });
+        var log = new RecordingWatcherLogger();
+        var watcher = new MountLimitWatcher(hub, discovery, Substitute.For<ITimeProvider>(), log);
+
+        await watcher.TickAsync(ct);
+
+        await mount.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await mount.Received(1).ParkAsync(Arg.Any<CancellationToken>());
+        watcher.VerdictFor(MountUri).MountCannotBeStopped.ShouldBeFalse();
+        log.Inner.Messages.ShouldNotContain(static m => m.Contains("still turning"));
     }
 
     private sealed class RecordingWatcherLogger : Microsoft.Extensions.Logging.ILogger<MountLimitWatcher>

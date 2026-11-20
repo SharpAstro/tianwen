@@ -202,6 +202,41 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #1483, through the session's own limit path on the fake SkyGuider Pro, a tracker with no tracking-off: the limit
+    /// is reached, no stop is asked of a driver that would refuse it, and the verdict the operator reads says the mount
+    /// is still turning and has to be stopped by hand.
+    /// </summary>
+    [Fact]
+    public async Task OnAMountThatCannotStopTrackingTheLimitSaysSoAndAsksForNoStop()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, mountPort: "SGP", mountLimits: StopTrackingPastTheMeridian, cancellationToken: ct);
+        ctx.Mount.CanSetTracking.ShouldBeFalse("premise: this mount has no tracking-off");
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+        // An hour past the meridian, by a sync: the driver's pointing state is computed, so the hour-angle tier answers.
+        var lst = await ctx.Mount.GetSiderealTimeAsync(ct);
+        await ctx.Mount.SyncRaDecAsync(((lst - 1.0) % 24.0 + 24.0) % 24.0, 45.0, ct);
+
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        var verdict = ctx.Session.MountLimitVerdict;
+        verdict.Kind.ShouldBe(MountLimitKind.Meridian, verdict.Describe());
+        verdict.MountCannotBeStopped.ShouldBeTrue();
+        verdict.Describe().ShouldContain("stop it at the mount");
+        verdict.Describe().ShouldNotContain("Will stop tracking");
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeTrue("nothing on the wire stops this mount");
+
+        // Once latched it still says so, where it used to read "tracking is stopped".
+        await ctx.Session.PollDeviceStatesAsync(ct);
+        var latched = ctx.Session.MountLimitVerdict;
+        latched.Latched.ShouldBeTrue("premise: still in the limit, already acted");
+        latched.Describe().ShouldContain("still turning");
+        latched.Describe().ShouldNotContain("tracking is stopped");
+    }
+
     [Fact]
     public async Task AMountThatStopsTrackingOnItsOwnIsReadAsADriverEnforcedLimitNotAFault()
     {

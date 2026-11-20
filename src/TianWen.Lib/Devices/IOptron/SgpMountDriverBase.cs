@@ -562,7 +562,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
             };
             if (_trackingSpeed is TrackingSpeed.None)
             {
-                Logger.LogWarning("The SkyGuider Pro on {DeviceUri} tracks at a rate this driver has no name for (status digit {Rate}; 2 is half-sidereal). Set a tracking speed before imaging.",
+                Logger.LogWarning("The SkyGuider Pro on {DeviceUri} tracks at a rate this driver has no name for (status digit {Rate}; 2 is half-sidereal). A run sets the rate it wants before it images (EnsureTrackingAsync).",
                     _device.DeviceUri, status.TrackingRate);
             }
 

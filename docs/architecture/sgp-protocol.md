@@ -247,7 +247,7 @@ the last connect, sync or setter.
 | `BeginSlewRaDecAsync` | throws `InvalidOperationException` (no goto) |
 | `GetSiderealTimeAsync` / `GetHourAngleAsync` | LST from the host clock (`TimeProvider`) and the longitude last set; LST minus the modelled RA. Both throw `InvalidOperationException` ("Site longitude has not been set", from `Transform.SiteLongitude`) until a longitude is set |
 | `GetSiteLatitudeAsync` / `GetSiteLongitudeAsync` / `GetSiteElevationAsync`, and their setters | cached only: `NaN`, `NaN` and `0.0` until set. Setting a southern latitude does not send `:MSHE0#` |
-| `GetTrackingSpeedAsync` | cached: the connect's `:MGAS#` tracking-rate digit, then the last `SetTrackingSpeedAsync`. `None` for half-sidereal (`2`), which has no name among the speeds and was reported as Sidereal (#1483) |
+| `GetTrackingSpeedAsync` | cached: the connect's `:MGAS#` tracking-rate digit, then the last `SetTrackingSpeedAsync`. `None` for half-sidereal (`2`), which has no name among the speeds and was reported as Sidereal (#1483). A run sets the rate it wants before imaging: `IMountDriver.EnsureTrackingAsync` sets a speed on a mount whose tracking cannot be switched, where it used to skip such a mount altogether |
 | `TrackingSpeeds` | Sidereal, Lunar and Solar |
 | `GetGuideRateRightAscensionAsync` | the percentage the connect's `:MGGR#` read, then the last one set, of the sidereal rate, in degrees per second |
 | `GetGuideRateDeclinationAsync` | `0.0`: there is no Dec motor to guide. The mount's own Dec field is read at connect and sent back unchanged with every RA set. `SetGuideRateDeclinationAsync` throws `InvalidOperationException` |
@@ -315,8 +315,8 @@ mount source; the CLI, server and GUI `Program.cs` all call it.
 - **`IOptronDeviceSource`** (`ConsumesSerialProbe = true`, `CheckSupportAsync` always true, mounts only)
   turns `ISerialProbeService.ResultsFor("iOptron")` into `IOptronDevice`s, and
   `IOptronDevice.NewInstanceFromDevice` makes an `SgpMountDriver` for each. A hand-entered
-  `Mount://IOptronDevice/...?port=...` URI skips the probe, and the connect then checks nothing (see
-  Connect handshake).
+  `Mount://IOptronDevice/...?port=...` URI skips the probe. The connect still checks that a SkyGuider Pro
+  answers there (see Connect handshake); it used to check nothing.
 - **No blacklist entry.** `NativeDriverBlacklist` deliberately leaves the `ASCOM.iOptron2017` mount driver
   visible, because the native driver covers only the SkyGuider Pro, not the CEM/GEM/HEM range.
 
@@ -332,7 +332,7 @@ nothing to `SgpMountDriverBase`, so tests run the production driver over the fak
 `FakeSgpSerialDevice` (`src/TianWen.Lib/Devices/Fake/FakeSgpSerialDevice.cs`) is an in-memory
 `ISerialConnection`: a write is parsed at once and its reply appended to a buffer the next read consumes.
 It answers every command in the reference above, including the ones the driver never sends (`:MSTR2#`,
-`:MGGR`, `:MGEL`, `:MSEL`), with the replies the reference gives, and reports firmware `170518`. It keeps
+`:MGEL`, `:MSEL`), with the replies the reference gives, and reports firmware `170518`. It keeps
 the tracking rate, move direction, slew speed, both guide rates, eyepiece light and camera settings (a
 `:MSCA` is read back by `:MGCS#`), and a 50 ms timer accumulates an hour-angle offset while a move runs.
 Where it is simpler than the mount:

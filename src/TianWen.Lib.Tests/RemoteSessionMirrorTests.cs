@@ -1023,6 +1023,19 @@ public class RemoteSessionMirrorTests
     }
 
     [Fact]
+    public void AMountThatCannotBeStoppedSaysSoOnTheOtherSideOfTheWireToo()
+    {
+        // #1483: a window watching another node's rig builds its sentence from this verdict, so the flag has to cross.
+        var verdict = new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true) { MountCannotBeStopped = true };
+
+        var back = MountLimitDto.FromVerdict(verdict).ToVerdict();
+
+        back.ShouldBe(verdict);
+        back.Describe().ShouldContain("still turning");
+        MountLimitDto.FromVerdict(MountLimitVerdict.Clear).MountCannotBeStopped.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task TheFlipInstantAndTheLastNoteSurviveTheRoundTrip()
     {
         var flipDue = new DateTimeOffset(2026, 7, 26, 23, 12, 0, TimeSpan.Zero);

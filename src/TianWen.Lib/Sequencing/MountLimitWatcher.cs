@@ -205,6 +205,11 @@ public sealed class MountLimitWatcher(
 
         var alreadyActed = _acted.ContainsKey(mountUri);
         var verdict = MountLimits.Evaluate(hourAngle, pointingState, primaryAxisAngleDeg, altitude, isTracking, alreadyActed, config, declination);
+        if (verdict.IsBreached)
+        {
+            // What the operator reads says what THIS mount will do, as in Session.EnforceMountLimitsAsync (#1483).
+            verdict = verdict with { MountCannotBeStopped = MountLimits.CannotBeStopped(mount.CanSetTracking, mount.CanPark, verdict.Kind, config) };
+        }
         _verdicts[mountUri.DeviceKey] = verdict;
 
         if (!verdict.IsBreached)
@@ -232,16 +237,11 @@ public sealed class MountLimitWatcher(
         // toward the limit while it is under way.
         // Where the mount can. A tracker with no tracking-off (the SkyGuider Pro) used to be "stopped" by a call that
         // did nothing, and the line below then said tracking was stopped while it turned on towards the limit (#1483).
-        var stopped = mount.CanSetTracking;
-        if (stopped)
+        if (mount.CanSetTracking)
         {
             await ResilientCall.InvokeAsync(
                 mount, ct => mount.SetTrackingAsync(false, ct),
                 ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            logger.LogError("{Mount} cannot stop tracking on command, so it is still turning towards the limit. Stop it at the mount.", mount.Name);
         }
 
         if (verdict.Response is MountLimitResponse.Park && mount.CanPark)
@@ -251,9 +251,16 @@ public sealed class MountLimitWatcher(
         }
         else if (verdict.Response is MountLimitResponse.Park)
         {
-            logger.LogWarning(stopped
+            logger.LogWarning(mount.CanSetTracking
                 ? "{Mount} mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead."
                 : "{Mount} mount safety limit asked for a park, but this mount can neither park nor stop tracking.", mount.Name);
+        }
+
+        // Said only when neither the stop nor a park was made: a mount that cannot switch its tracking but was parked
+        // is not turning any more.
+        if (verdict.MountCannotBeStopped)
+        {
+            logger.LogError("{Mount} cannot be stopped on command, so it is still turning towards the limit. Stop it at the mount.", mount.Name);
         }
     }
 }

@@ -113,6 +113,15 @@ public readonly record struct MountLimitVerdict(
     MountLimitBasis Basis = MountLimitBasis.HourAngle,
     bool Latched = false)
 {
+    /// <summary>
+    /// True where nothing this limit does stops the mount: it cannot stop tracking on command (a tracker with no
+    /// tracking-off, the SkyGuider Pro) and the configured response does not park it either. The limit then only
+    /// reports, and <see cref="Describe"/> says so: the operator has to stop the mount by hand. Set by whoever
+    /// evaluates for a mount (<see cref="MountLimits.CannotBeStopped"/>), since the maker of a verdict knows no mount.
+    /// An init property and not a constructor parameter, so the record's constructor keeps its shape.
+    /// </summary>
+    public bool MountCannotBeStopped { get; init; }
+
     /// <summary>Nothing is wrong.</summary>
     public static MountLimitVerdict Clear { get; } =
         new MountLimitVerdict(MountLimitKind.None, MountLimitResponse.Warn, 0.0);
@@ -143,11 +152,11 @@ public readonly record struct MountLimitVerdict(
         MountLimitKind.DriverEnforced =>
             "The mount stopped tracking on its own: a driver-enforced limit (or a stall), not a fault. Ending the observation rather than fighting it.",
         MountLimitKind.Meridian when IsWarningOnly =>
-            $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before the mount will {ResponsePhrase()} ({BasisPhrase()}).",
+            $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before {WarningPhrase()} ({BasisPhrase()}).",
         MountLimitKind.Meridian =>
             $"Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit ({BasisPhrase()}). {ActionPhrase()}",
         MountLimitKind.Horizon when IsWarningOnly =>
-            $"Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before the mount will {ResponsePhrase()}.",
+            $"Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before {WarningPhrase()}.",
         MountLimitKind.Horizon =>
             $"Horizon limit reached: the pointing is {ExceededBy:F1} deg below the limit. {ActionPhrase()}",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "unknown limit kind"),
@@ -160,10 +169,23 @@ public readonly record struct MountLimitVerdict(
         _ => throw new ArgumentOutOfRangeException(nameof(Basis), Basis, "unknown limit basis"),
     };
 
-    /// <summary>What is about to happen -- or, once latched, what already did and why nothing more will.</summary>
-    private string ActionPhrase() => Latched
-        ? "The limit has already acted (tracking is stopped); it acts again only once the mount is clear."
-        : $"Will {ResponsePhrase()}.";
+    /// <summary>
+    /// What is about to happen -- or, once latched, what already did and why nothing more will. For a mount nothing
+    /// here can stop (<see cref="MountCannotBeStopped"/>) neither is true: it used to read "Will stop tracking" and then
+    /// "tracking is stopped" on the Home card and the toast while a SkyGuider Pro turned on towards the limit (#1483).
+    /// </summary>
+    private string ActionPhrase() => (Latched, MountCannotBeStopped) switch
+    {
+        (true, true) => "The limit has been reported, and this mount cannot be stopped on command: it is still turning until it is stopped at the mount.",
+        (true, false) => "The limit has already acted (tracking is stopped); it acts again only once the mount is clear.",
+        (false, true) when Response is not MountLimitResponse.Warn => "This mount cannot be stopped on command, so it is still turning: stop it at the mount.",
+        _ => $"Will {ResponsePhrase()}.",
+    };
+
+    /// <summary>What the countdown of a warning runs to: the action, or for a mount nothing here can stop, the limit itself.</summary>
+    private string WarningPhrase() => MountCannotBeStopped && Response is not MountLimitResponse.Warn
+        ? "the limit, and this mount cannot be stopped on command: stop it at the mount before then"
+        : $"the mount will {ResponsePhrase()}";
 
     private string ResponsePhrase() => Response switch
     {
@@ -297,6 +319,23 @@ public sealed record MountLimitConfiguration(
 /// </remarks>
 public static class MountLimits
 {
+    /// <summary>
+    /// Whether nothing the limit does stops this mount: it cannot stop tracking on command, and the response configured
+    /// for <paramref name="kind"/> does not park it (it is not <see cref="MountLimitResponse.Park"/>, or the mount cannot
+    /// park). Asked of the CONFIGURED response, never a verdict's own: a latched verdict's is downgraded to Warn, and a
+    /// mount that was parked at the limit would then read as still turning.
+    /// </summary>
+    public static bool CannotBeStopped(bool canSetTracking, bool canPark, MountLimitKind kind, MountLimitConfiguration limits)
+    {
+        if (canSetTracking)
+        {
+            return false;
+        }
+
+        var configured = kind is MountLimitKind.Horizon ? limits.HorizonResponse : limits.MeridianResponse;
+        return !(configured is MountLimitResponse.Park && canPark);
+    }
+
     /// <summary>
     /// The pointing state a mechanical limit may trust: the reported one when the driver MEASURED it,
     /// <see cref="PointingState.Unknown"/> otherwise. A state derived from the hour angle

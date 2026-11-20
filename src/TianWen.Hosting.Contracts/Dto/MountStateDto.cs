@@ -61,6 +61,10 @@ public sealed class MountLimitDto
     public required MountLimitBasis Basis { get; init; }
     /// <summary>Not <c>required</c>: an older node never writes it, and "not latched" is the right reading of its absence.</summary>
     public bool Latched { get; init; }
+    /// <summary>Not <c>required</c>, as <see cref="Latched"/>: an older node never writes it, and it then reads as a mount
+    /// the limit stops, which is what that node's sentence said. Crosses the wire so a window watching another node's rig
+    /// says "stop it at the mount" too (#1483).</summary>
+    public bool MountCannotBeStopped { get; init; }
 
     public static MountLimitDto FromVerdict(MountLimitVerdict verdict) => new()
     {
@@ -69,7 +73,8 @@ public sealed class MountLimitDto
         ExceededBy = JsonNumber.OrNull(verdict.ExceededBy),
         Basis = verdict.Basis,
         Latched = verdict.Latched,
+        MountCannotBeStopped = verdict.MountCannotBeStopped,
     };
 
-    public MountLimitVerdict ToVerdict() => new(Kind, Response, JsonNumber.FromWire(ExceededBy), Basis, Latched);
+    public MountLimitVerdict ToVerdict() => new(Kind, Response, JsonNumber.FromWire(ExceededBy), Basis, Latched) { MountCannotBeStopped = MountCannotBeStopped };
 }

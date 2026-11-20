@@ -176,7 +176,8 @@ From #1483 (the SkyGuider Pro driver's confirmed defects) and #810 (a lost reply
   pointing state `Computed`, is done in P2.
 - **#1483 item 1, a stop of tracking that did nothing**: the driver refuses it, and the limit paths
   (`Session.EnforceMountLimitsAsync`, `MountLimitWatcher`) ask `CanSetTracking` first. At a limit this mount is not
-  stopped: the log says it is still turning and has to be stopped by hand.
+  stopped, and the verdict says so wherever it is shown (`MountLimitVerdict.MountCannotBeStopped`: the Home card, the
+  toast, the log, and a window watching another node's rig): it is still turning and has to be stopped by hand.
 
 ## Phases
 

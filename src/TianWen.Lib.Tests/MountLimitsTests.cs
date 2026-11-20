@@ -463,6 +463,51 @@ public class MountLimitsTests
         acted.Describe().ShouldContain("already acted");
     }
 
+    /// <summary>
+    /// #1483: on a mount nothing here can stop (no tracking-off, and not parked by the response) the sentence the operator
+    /// reads never says the mount will stop or has stopped. It read "Will stop tracking" and then "tracking is stopped" on
+    /// the Home card and the toast while a SkyGuider Pro turned on towards the limit.
+    /// </summary>
+    [Fact]
+    public void AMountNothingCanStopIsNeverSaidToBeStoppedOrAboutToBe()
+    {
+        var approaching = new MountLimitVerdict(MountLimitKind.Horizon, MountLimitResponse.StopTracking, -2.0) { MountCannotBeStopped = true };
+        approaching.Describe().ShouldContain("stop it at the mount before then");
+        approaching.Describe().ShouldNotContain("will stop tracking");
+
+        var reached = new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.StopTracking, 3.0) { MountCannotBeStopped = true };
+        reached.Describe().ShouldContain("still turning: stop it at the mount");
+        reached.Describe().ShouldNotContain("Will stop tracking");
+
+        var latched = new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true) { MountCannotBeStopped = true };
+        latched.Describe().ShouldContain("still turning until it is stopped at the mount");
+        latched.Describe().ShouldNotContain("tracking is stopped");
+
+        // A limit set to warn only promises no stop on any mount, so it reads as it did.
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0) { MountCannotBeStopped = true }
+            .Describe().ShouldContain("Will warn only.");
+        // And a mount that can be stopped reads as it did.
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.StopTracking, 3.0).Describe().ShouldContain("Will stop tracking.");
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true).Describe().ShouldContain("tracking is stopped");
+    }
+
+    [Theory]
+    [InlineData(true, false, MountLimitResponse.StopTracking, false)]
+    [InlineData(true, false, MountLimitResponse.Park, false)]
+    [InlineData(false, false, MountLimitResponse.StopTracking, true)]
+    [InlineData(false, true, MountLimitResponse.StopTracking, true)]    // it could park, but the limit was not set to
+    [InlineData(false, true, MountLimitResponse.Park, false)]           // parked, so not turning
+    [InlineData(false, false, MountLimitResponse.Park, true)]
+    public void AMountCannotBeStoppedWhenItCanNeitherStopTrackingNorIsParkedByTheLimit(
+        bool canSetTracking, bool canPark, MountLimitResponse configured, bool expected)
+    {
+        var limits = new MountLimitConfiguration(Enabled: true, MeridianResponse: configured, HorizonResponse: MountLimitResponse.Warn);
+
+        MountLimits.CannotBeStopped(canSetTracking, canPark, MountLimitKind.Meridian, limits).ShouldBe(expected);
+        // Each limit by its own configured response.
+        MountLimits.CannotBeStopped(canSetTracking, canPark, MountLimitKind.Horizon, limits).ShouldBe(!canSetTracking);
+    }
+
     [Fact]
     public void AlreadyActedDoesNotManufactureABreachWhereThereIsNone()
     {

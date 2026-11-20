@@ -171,6 +171,39 @@ public class SgpOutOfStepReplayTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A run asks for the rate it wants through EnsureTrackingAsync, which skipped every mount whose tracking cannot be
+    /// switched. This one tracks whenever it is powered and still takes a rate, so a run on it found at half-sidereal (or
+    /// lunar) imaged at that rate. It is set now; a mount already at the rate is sent nothing.
+    /// </summary>
+    [Theory(Timeout = 30_000)]
+    [InlineData(":HRAS012900105#", true)]    // half-sidereal
+    [InlineData(":HRAS011900105#", true)]    // lunar
+    [InlineData(":HRAS013900105#", false)]   // sidereal already
+    public async Task ARunSetsTheRateItWantsOnAMountThatCannotSwitchItsTracking(string status, bool sends)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mount = new ScriptedSgp();
+        mount.Instead[":MGAS#"] = status;
+        await using var sp = Services(mount);
+        var driver = new SgpMountDriver(Device, sp);
+        await driver.ConnectAsync(ct);
+        try
+        {
+            IMountDriver asRun = driver;
+
+            (await asRun.EnsureTrackingAsync(TrackingSpeed.Sidereal, ct)).ShouldBeTrue();
+
+            mount.Traffic.Any(static t => t.StartsWith(">> :MSTR3#", StringComparison.Ordinal)).ShouldBe(sends);
+            mount.Traffic.Any(static t => t.Contains(":MSTR", StringComparison.Ordinal)).ShouldBe(sends, "and no other rate is sent");
+            (await driver.GetTrackingSpeedAsync(ct)).ShouldBe(TrackingSpeed.Sidereal);
+        }
+        finally
+        {
+            await driver.DisconnectAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
     /// The mount has no tracking-off. Asking for it used to return normally with nothing sent, so the caller believed the
     /// tracker had stopped; it is refused, and nothing is sent.
     /// </summary>
