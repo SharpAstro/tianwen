@@ -127,6 +127,23 @@ public class SessionCloudTests(ITestOutputHelper output)
     private static string[] FramesOf(SessionTestContext ctx)
         => Directory.GetFiles(ctx.External.ImageOutputFolder.FullName, "*frame_*.fits", SearchOption.AllDirectories);
 
+    /// <summary>
+    /// #1989: a run loads its clear-sky references and its expected-sky models from its external's app data, and the rig
+    /// every session test builds has to keep both under the tests' own root, never in the machine's app data: read from
+    /// there, a test's cloud verdict would depend on the nights somebody looked at on that machine. Asked of the helper
+    /// itself, so a root given to it later is held to the same.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task ASessionTestsRigKeepsItsCloudFilesUnderTheTestsRoot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await CreateAsync(Config(), TimeSpan.FromMinutes(5), ct);
+        var root = Path.GetFullPath(TestRunTemp.Root) + Path.DirectorySeparatorChar;
+
+        Path.GetFullPath(LightGradeReferenceStore.PathFor(ctx.External)).ShouldStartWith(root, Case.Insensitive);
+        Path.GetFullPath(ExpectedSkyStore.PathFor(ctx.External)).ShouldStartWith(root, Case.Insensitive);
+    }
+
     [Fact(Timeout = 180_000)]
     public async Task ACloudyLightAfterClearOnesIsSavedAsMaybeCloudAndKeptOutOfFocusAndTheNextClearOneResumes()
     {
