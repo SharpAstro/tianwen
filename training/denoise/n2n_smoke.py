@@ -330,6 +330,17 @@ def should_init_from(args, resume_path):
     return bool(args.init_from) and not (args.resume and os.path.exists(resume_path))
 
 
+def snapshot_state(module):
+    """A copy of a module's weights on the CPU that later training steps cannot change (--save-best)."""
+    return {k: t.detach().to("cpu", copy=True) for k, t in module.state_dict().items()}
+
+
+def best_path_of(out):
+    """Where --save-best writes the best step's weights: beside --out, never in its place."""
+    root, ext = os.path.splitext(out)
+    return root + ".best" + ext
+
+
 def resume_fingerprint(args, meta):
     """What makes two invocations the SAME run, for --resume to refuse anything else: the recipe's switches, the seed, and
     the cache's shape. The step cap is left out under --schedule plateau, where it only bounds the run (a resumed run may
@@ -2069,6 +2080,10 @@ def train(args):
     # --checkpoint-every / --resume (2026-10-15, for spot VMs that can be taken away mid-run): everything the loop
     # carries from one step to the next, so a resumed run continues the SAME run, not a similar one.
     resume_path = os.path.join(args.cache, args.out.replace(".pt", ".resume.pt"))
+    # --save-best (2026-11-21): the weights at the held-out objective's best so far, kept in memory, carried in the
+    # resume checkpoint and written beside --out at the end. The run and its --out are untouched. R4f's objective was
+    # best at step 69,500 and its last step's weights, the ones every arm is scored on, read half again worse.
+    best_state = None
     # R2p's --teacher: each synthetic draw regresses onto a teacher's output on that same draw (n2n_teacher.py) instead of
     # the clean tile, so one model is trained toward an average's answer. The held-out objective still reads the clean
     # tile, so the schedule stops on the truth and not on the teacher.
@@ -2128,6 +2143,7 @@ def train(args):
         flux_w = ck.get("flux_w")
         regime_steps = defaultdict(int, ck["regime_steps"])
         best, best_struct, snapshots = ck["best"], ck["best_struct"], ck["snapshots"]
+        best_state = ck.get("best_state")
         if ck.get("clip") is not None:
             hist, clipped, grad_max = ck["clip"]
             grad_hist.extend(hist)
@@ -2416,6 +2432,8 @@ def train(args):
                 pass
             elif v < val_best * (1.0 - args.min_improve):
                 val_best, val_best_step, val_bad = v, step, 0
+                if args.save_best:
+                    best_state = snapshot_state(ema if ema is not None else model)
             else:
                 val_bad += 1
             if val_bad >= args.patience:
@@ -2559,6 +2577,7 @@ def train(args):
                         "star_w": star_w, "flux_w": flux_w, "running": running[-args.log_every:],
                         "running_star": running_star[-args.log_every:], "regime_steps": dict(regime_steps),
                         "best": best, "best_struct": best_struct, "snapshots": snapshots,
+                        "best_state": best_state,
                         "clip": (list(grad_hist), clipped, grad_max) if args.clip_grad else None,
                         "elapsed": time.perf_counter() - t0}, tmp)
             os.replace(tmp, resume_path)
@@ -2634,6 +2653,9 @@ def train(args):
             save(model.state_dict(), args.out.replace(".pt", "_raw.pt"), steps)
         else:
             save(model.state_dict(), args.out, steps)
+    if args.save_best and best_state is not None:
+        # Beside --out and never in its place: the arms before this were all scored on their last step.
+        save(best_state, best_path_of(args.out), val_best_step)
     # The run is over and its outputs are written: a checkpoint left now would resume a finished run.
     if os.path.exists(resume_path):
         os.remove(resume_path)
@@ -3072,6 +3094,10 @@ if __name__ == "__main__":
     p.add_argument("--resume", action="store_true",
                    help="continue from <out>.resume.pt when it exists (else start fresh): the same run, refused if the "
                         "recipe or the cache differs (resume_fingerprint)")
+    p.add_argument("--save-best", action="store_true",
+                   help="with --schedule plateau: also write the weights at the held-out objective's best step to "
+                        "<out>.best.pt, beside --out, which stays the last step's as for every run before. The best "
+                        "step's weights travel in the resume checkpoint. It changes nothing the run computes")
     p.add_argument("--init-from", default=None,
                    help="begin at another run's saved weights (its --out file) instead of a random net, with a fresh "
                         "optimiser, schedule and plateau history: a continuation under a changed objective. The file must "
