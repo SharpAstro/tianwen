@@ -7265,19 +7265,27 @@ the first angle is a step after the model and not another arm:
       "best" judge), read from its `val STEP held-out X window Y best Z at S lr L` lines in the logs
       `C:/temp/e2/r4faz-batch/r4faz.log`, `C:/temp/e2/r4d.log` (a GTX 1070 run, not Batch),
       `C:/temp/e2/r4eaz-batch/r4eaz.log`, `C:/temp/e2/r4caz-batch/r4caz.log` and
-      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **R4f tracked R4d until step 69,500 and was not slow from the start:** over
-      steps 30,000 to 70,000 the medians are R4f 1.88e-5, R4d 1.76e-5, R4e 1.87e-5, R4c 2.16e-5, and at step 69,500
-      R4d's window mean was 1.04e-5 against R4f's 1.08e-5. **After the first halving they part:** over steps 70,000 to
-      130,000 R4d's median is 9.47e-6, R4e's 8.96e-6 and R4c's 1.05e-5 (each about half its earlier median), where
-      R4f's is 1.48e-5 (a fall of a fifth), and R4d went on to 7.85e-6 at step 233,000. So the flat stretch before the
-      stop does not separate R4f from the arms that went on. **Nor did the later steps hold weights as good as the
+      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **R4f was not slow from the start: at its first learning rate it was
+      ahead.** The rate was first halved from step 57,000 in R4e, 63,500 in R4d, 77,500 in R4c and 82,000 in R4f
+      (decided at step 81,500), so no one range of steps is "before the first halving" for all four, and at step
+      69,500 R4d's window of 1.04e-5 is one at the halved rate against R4f's 1.08e-5 at the first. At the first rate
+      the best windows were R4f 1.08e-5 (step 69,500), R4d 1.20e-5 (51,000), R4c 1.26e-5 (65,000) and R4e 1.50e-5
+      (44,500). **They part at the halvings:** aligned on each arm's own first halving, the median from step 30,000
+      to the halving and then over the next 60,000 steps is R4d 1.96e-5 then 9.82e-6, R4e 2.11e-5 then 9.95e-6 and
+      R4c 2.10e-5 then 1.01e-5 (each about half), where R4f's is 1.76e-5 then 1.49e-5 (a fall of 15 percent, over
+      the 47,500 steps it ran after its first halving); R4d went on to 7.85e-6 at step 233,000. So the flat stretch
+      before the stop does not separate R4f from the arms that went on: its halvings bought almost nothing, where
+      theirs halved the objective. **Nor did the later steps hold weights as good as the
       best:** R4f's windows sat at 1.08e-5 to 1.16e-5 through step 72,000, then came a spike (held-out 4.88e-5 at
       step 73,000, window 2.50e-5) with no recovery: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
       lower, and the final window is 1.57e-5, 45 percent above the best. That is the shape R2n's note records (above,
       "the deeper net blew up"). The first resume (after step 72,000) is not its cause: replaying steps 72,500, 73,000
       and 73,500 gives the same digits (1.433862e-05, 4.882240e-05, 1.355304e-05). The run was moved to a new node
-      twice (resumed after steps 72,000 and 110,000); R4c, R4e and R3x were moved too and each went on improving
-      after every resume. **These figures are not like for like across arms:** each arm's held-out objective is read
+      twice (resumed after steps 72,000 and 110,000); R4c, R4e and R3x were moved too, and each set a new best after
+      its earlier resumes (R4c after steps 40,000, 76,000 and 98,000; R4e after 100,000; R3x after 34,000, 72,000
+      and 104,000). Their last resumes gained little or nothing: R4c's, after step 128,000, set no new best (its
+      best stays 8.95e-6 at step 121,000 to the stop at 157,000, the lowest later window 9.01e-6), and R3x's, after
+      132,000, gained 0.15 percent (5.980e-6 to 5.971e-6). **These figures are not like for like across arms:** each arm's held-out objective is read
       on its own validation draws (R4f on synth31's, whose targets are the grain-free plates; R4d on synth29's and R4e
       on synth30's, on the stored plates), and this plan already calls a held-out loss on another arm's draws "not
       comparable" (arm A and B, above). The gap says R4f's curve was higher after the spike, not by how much the model
