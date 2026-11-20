@@ -119,6 +119,10 @@ internal static class ScaleLadder
             cancellationToken.ThrowIfCancellationRequested();
             rungs++;
 
+            // One line per rung asked, whatever it answers: a rung that is asked, does not answer and still holds
+            // enough stars says nothing else, and without this a silent log could not tell "asked and got nothing"
+            // from "never asked".
+            logger?.LogDebug("ScaleLadder: asking rung {Rung} at {Scale:F3}\"/px", rungs, scale);
             var answer = Ask(detected, within, origin, width, height, scale, out var inFrame);
             if (inFrame.Count < QuadScaleRecovery.MinStars)
             {

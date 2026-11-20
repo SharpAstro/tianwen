@@ -1286,7 +1286,10 @@ elsewhere (#1684 builds the find and the re-slew).
   window, the recentre and the live stack at its start and its end; on the capture, the live view and the rolling stack carry on
   through every step (the last bullet above) and the operator pans and recentres as it runs. What the run needs beyond the camera,
   the wheel and the focuser, it claims for itself (`NodePlanetary.SequenceOwner`, "a planetary sequence"), so the device plane's
-  filter change and a job on the focuser are refused in words while it runs, and both are given back as it ends.
+  filter change and a job on the focuser are refused in words while it runs, and both are given back as it ends. The order
+  is part of the rule (#2160): they are given back once, BEFORE the run's progress reads Done, Stopped or Failed, so a
+  client that sees the end and asks for the wheel at once is not refused by a claim that is about to go
+  (`PlanetarySequenceRunner.RunAsync`'s `giveBack`). The end is published even if giving them back throws.
 - **A step's length is a time OR a frame count** (`RecordingLength`, the owner, 2026-10-19). A frame target is a recording's own end
   (`SerRecording.FrameTarget`, "its frames are taken"), so it holds on any night whatever the rate; such a recording has no end time
   (`EndsAt` null), and the GUI's time left says nothing for it.
