@@ -91,8 +91,10 @@ for name, path in cfg["masters"].items():
             m_r, _ = rings(M[cut], d, sky_ring)
             rows.append(np.where(tk >= 1.0, (m_r - j_r) / sig / np.maximum(tk, 1e-9), np.nan))
         left[tag][name] = np.array(rows)
+if not scored:
+    sys.exit("no master holds a qualifying star; nothing to score")
 print()
-head = "".join(f"{lo}-{hi} px".rjust(14) for lo, hi in zip(EDGES[:-1], EDGES[1:]))
+head ="".join(f"{lo}-{hi} px".rjust(14) for lo, hi in zip(EDGES[:-1], EDGES[1:]))
 print(f"left by the remover, median over the stars (0 = as the judge, 1 = untouched); in brackets the stars a ring counted\n{'':44s}{head}")
 for tag in tags:
     for name in scored + ["all"]:

@@ -7110,7 +7110,7 @@ the first angle is a step after the model and not another arm:
     registered question may be missed by a model that does what the arm is for. The question and the kill rule
     stay as registered. Beside them, with bars set now (the "Reported, no bar" line below lists the grain figure as
     reported; the bar on it is row (2)'s): (1) Gaia BP 17-19 removed with the level set aside
-    (`gaia_compact.py`, through the product's chain) at least 93.5 (R4d 90.5, StarXTerminator 96.6: half the gap;
+    (`gaia_compact.py`, through the product's chain) at least 93.5 (R4d 90.5, StarXTerminator 96.6: half the gap; those two were drawn with `gaia_compact.py`'s earlier single random stream, and the script now draws per remover and bin, so they are to be re-read with it before R4f is scored, a difference of about 0.15 point;
     the level-inclusive row stands 1.4 to 1.7 apart between seeds, this one's spread is not known); (2) the grain
     in the Tarantula's dense cells 4,4 and 5,4 as trained (`band.py`) at most 0.6 of R4d's in every channel (R4d
     4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6; two seeds of one recipe have stood 23 to 33 % apart on cell 5,4). The
@@ -7312,7 +7312,7 @@ the first angle is a step after the model and not another arm:
     are one, the light of stars under about BP 17, and a remover is at the judge's figures only if it takes that
     light. (2) Our rules say not to take all of it: the owner's decision of 2026-10-23 (unresolved glow belongs in
     the starless image), the faint stars' cap, and the purity guard. The uncapped arm (R4d) drew at most 0.23 sigma
-    a pixel of such stars on a validation tile; the judge takes 0.5 to 0.9 on the Tarantula. (3) So either the rule stays, and then
+    a pixel of such stars on a validation tile; the judge takes 0.5 to 0.9 on the Tarantula (the same per-channel figures as the provisional 0.48 / 0.78 / 0.94 above, and the 1.6 sigma shares their noise estimate, so these are to be re-read with the fixed `judge_broad.py` before the decision is taken). (3) So either the rule stays, and then
     these rows cannot be reached by design and star removal is read with the level set aside and the grain under a
     bar of its own; or the rule changes, and then an arm draws the carpet's stars to the faint end without the cap
     and the purity guard moves to the judge's 3.1. That is the owner's decision. No arm is registered on it.
