@@ -7141,7 +7141,10 @@ the first angle is a step after the model and not another arm:
     80.3, Tarantula crowded 86.7, BP 17-19 95.4); Gaia BP 17-19 through the chain (R4d 96.0); the grain in the
     Tarantula's dense cells 4,4 and 5,4 (`band.py`, R4d 4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6); the band of 30
     Doradus's core, cell 4,6, which carries no bar because two seeds of one recipe have stood 39 to 75 % apart on
-    it (R4d 44.4 / 49.4 / 39.7, R4e 76.0 / 83.9 / 71.2); the twin error.
+    it (R4d 44.4 / 49.4 / 39.7, R4e 76.0 / 83.9 / 71.2); the twin error. Added 2026-11-20 while the cache
+    uploaded: the bright star of #2292 (HIP 80609 on its session master, as trained and through the chain, the
+    ring medians beside R4d's and StarXTerminator's). That master is a training session's, since no scoring master
+    holds such a star, so it is a look and a reported row and never held-out evidence.
   - **Looked at before the rows are quoted:** the Lagoon's core, 30 Doradus's core, the Tarantula's knots, a
     crowded Tarantula field, M31's nucleus and a bright star on dark sky, as trained and through the product's
     chain, beside R4d and StarXTerminator. The crowded field is where a pass should show (StarXTerminator's is
@@ -7242,7 +7245,10 @@ the first angle is a step after the model and not another arm:
   - **Reported, no bar:** every row as trained beside R4d's (Andromeda dark flat 69.4 with 19.5 dug, Tarantula
     dark flat 80.3, Tarantula crowded 86.7, BP 17-19 95.4); the faint stars left on bright background by level;
     M42's 100-1000 as trained; the extra cache's held-out objective beside its training objective at the best
-    step, since 120 targets shown twice as often as a main one can be learnt by heart; the twin error.
+    step, since 120 targets shown twice as often as a main one can be learnt by heart; the twin error. Added
+    2026-11-20 while it trained, before any score: the Gaia rows with the level set aside (`gaia_compact.py`, R4d
+    through the chain 90.7 at BP 17-19) and the bright star of #2292 (HIP 80609 on its session master, a training
+    session's, so a look and a reported row only).
   - **Looked at before the rows are quoted:** the Lagoon's core with the picture of what was taken
     (`r4_taken.py`), 30 Doradus's core, the Tarantula's knots, M42's core on a validation tile, M31's nucleus and
     a bright star on dark sky, as trained and through the product's chain, beside R4d and StarXTerminator.
