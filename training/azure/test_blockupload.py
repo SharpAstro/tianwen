@@ -25,6 +25,7 @@ class Blob:
         self.refuse_once = set()  # block ids whose first Put Block is answered 500
         self.close_after = set()  # block ids whose Put Block is answered 201 with Connection: close
         self.drop_single = {}     # "HEAD" / "GET" / "COMMIT" -> how many of the next such calls get no answer
+        self.busy_single = {}     # "HEAD" / "GET" / "COMMIT" -> how many of the next such calls are answered 503
         self.lose_commit_answer = 0  # how many of the next commits are carried out and then get no answer
         self.head_status = None   # a status every head is answered with, in place of the blob's own
 
@@ -54,15 +55,21 @@ def handler_for(blob):
             return dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
 
         def single(self, kind):
-            """Counts a call outside the blocks; true when this one gets no answer (the client sees the line die)."""
+            """Counts a call outside the blocks; true when this one is not served: it gets no answer (the client sees
+            the line die) or a 503."""
             with blob.lock:
                 blob.single_calls += 1
                 drop = blob.drop_single.get(kind, 0) > 0
+                busy = not drop and blob.busy_single.get(kind, 0) > 0
                 if drop:
                     blob.drop_single[kind] -= 1
+                if busy:
+                    blob.busy_single[kind] -= 1
             if drop:
                 self.close_connection = True
-            return drop
+            if busy:
+                self.answer(503, b"busy")
+            return drop or busy
 
         def do_HEAD(self):
             if self.single("HEAD"):
@@ -252,6 +259,14 @@ class Uploads(unittest.TestCase):
     def test_each_call_outside_the_blocks_is_tried_again_when_its_connection_dies(self):
         path, data = self.file_of(2)
         self.blob.drop_single = {"HEAD": 1, "GET": 1, "COMMIT": 1}
+        self.assertEqual(self.upload(path, 1), 0)
+        self.assertEqual(self.blob.committed, data)
+        self.assertEqual(self.blob.single_calls, 4 + 3)
+        self.assertEqual(self.blob.block_puts, 3)
+
+    def test_each_call_outside_the_blocks_is_tried_again_when_the_service_is_busy(self):
+        path, data = self.file_of(2)
+        self.blob.busy_single = {"HEAD": 1, "GET": 1, "COMMIT": 1}
         self.assertEqual(self.upload(path, 1), 0)
         self.assertEqual(self.blob.committed, data)
         self.assertEqual(self.blob.single_calls, 4 + 3)

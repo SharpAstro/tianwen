@@ -109,7 +109,9 @@ pwsh -File training/azure/fetch-batch.ps1 -Tag r3xaz -Name r3x_synth16_s0 -Fetch
   blob (sent twice to the service, 201 both times). At the defaults (8 MiB blocks, four workers, where a worker's
   connection sits silent for about 20 s between its blocks): 200 MiB, no failed try, four connections for 25 blocks,
   10.0 Mb/s. Not measured: a cap so low that the silence outlasts what the service or a router keeps a connection for
-  (about 200 s at 1 Mb/s). A connection lost in that gap costs one charged try and a 5 s pause, never data.
+  (about 200 s at 1 Mb/s). A connection lost in that gap costs one charged try, never data: a reset shows at once and
+  the next try follows after 5 s, while a connection a router dropped without a word is found only when the send times
+  out (the 300 s socket timeout at most).
 - **The spot quota is the subscription's, shared**: a colleague's training has held 324 of the region's 350 low-priority
   vCPUs, so the launcher checks for the 4 a T4 needs.
 - **pwsh's `tar` is bsdtar** (no `--force-local`); the launcher packs with `C:\Windows\System32\tar.exe`.
