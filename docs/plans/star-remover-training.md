@@ -7305,7 +7305,8 @@ the first angle is a step after the model and not another arm:
     97.3, 98.1 / 97.3 and 96.0 / 90.7 (the script's draw per remover and bin; with its first, single random stream
     the last pair read 96.1 / 90.5 and StarXTerminator's rows the same). So to BP 17 our model removes a star as
     fully as the judge or more, and at BP 17-19 it removes fewer, 90.7 against 96.6: a gap of six points that the
-    row shows as 2.4, because any level taken counts toward every star.
+    row shows as 2.4 (98.4 less 96.0 in this script's draw; the scorer's own draw, in the table above, reads the
+    same row as 98.3 against 96.0), because any level taken counts toward every star.
   - **The diagnostic plate at 15 px is not a level alone.** The same read on the two diagnostic plates, BP 17-19
     with the level set aside: 91.2 with the judge's light at 31 px and over, 93.0 at 15 px and over (R4d's own
     90.7, the judge's 96.6; the brighter bins do not move). So the 31 px plate changes a level and little else,
@@ -7349,7 +7350,8 @@ the first angle is a step after the model and not another arm:
   - **Looked at** (`judge_broad_look.py`: the 400 px box where the judge's broad take beyond ours is largest, at
     1:1 through the master's stretch). There our plate's median level stands 1.60 sigma over the judge's and the
     diagnostic plate's 0.00; that sigma is the crop's own, of the master's green channel, and not
-    `judge_broad.py`'s. The diagnostic plate is still mottled, where StarXTerminator's is smooth with its
+    `judge_broad.py`'s. The 0.00 is so by construction (the plate is ours less the median of that difference) and
+    only checks the arithmetic; the evidence here is the 1.60 and the look. The diagnostic plate is still mottled, where StarXTerminator's is smooth with its
     compact knots sharp. So the plate that scores like the judge does not look like the judge's. What the eye sees
     is the grain, the faint stars left standing (the six points at BP 17-19 are the catalogued part of them), and
     no bar reads it.
