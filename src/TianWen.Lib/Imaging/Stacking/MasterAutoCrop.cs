@@ -68,11 +68,11 @@ public sealed record MasterAutoCropRule(CoverageTrimPolicy Policy, double Margin
 /// <remarks>
 /// <para><b>The exact tier wins wherever it exists.</b> A TianWen drizzle master writes its
 /// accumulated per-pixel weight to <c>&lt;master&gt;.rejection.fits</c>, which states the covered
-/// area outright; everything else -- another program's composite, an older sidecar that cannot say
-/// which kind of map it is -- gets the estimate. The same split as the mount limits' mechanical
+/// area outright; everything else (another program's composite, an older sidecar that cannot say
+/// which kind of map it is) gets the estimate. The same split as the mount limits' mechanical
 /// tier: a fallback, never a cross-check.</para>
 /// <para>Both tiers start from <see cref="Image.LargestCoveredRectangle()"/>, and the walk runs even
-/// when that keeps the whole frame. A frame with no canvas ring can still carry the band -- a stack
+/// when that keeps the whole frame. A frame with no canvas ring can still carry the band: a stack
 /// someone has already cropped to its zero-free rectangle is exactly that shape, and it is the file
 /// most likely to be handed to a viewer. Skipping the walk there to save a second was the first
 /// version, and it made the feature silently not apply to the case that needs it most. An ordinary
