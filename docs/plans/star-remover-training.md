@@ -7080,6 +7080,25 @@ the first angle is a step after the model and not another arm:
     question, the guards and the kill rule above do not rest on the withdrawn figure and stand as registered; the
     prediction was written with it in mind, so its "1 to 3 points" is the upper end of what this dose can be
     expected to buy.
+  - **A second correction, 2026-11-20, after the export and before any cache or score: the rule's first run did
+    not know a canvas ring stored as zeros.** synth31's export ended with three sessions refused ("the starless
+    plate did not read as linear": the SMC of 2024-10-02, which trains, and two that no list uses). The
+    exporter's exit code did not show it; the cache step did, which refuses a listed session its root lacks.
+    `plate_grain.py` kept only NaN absent. A master that is not on the unit scale stores its ring as exact zeros
+    (89 of the 201 plates, 60 of the 138 exported sessions), and beside crowded sky the rule wrote its base plus
+    noise into that ring: on 61 plates, 173 to 29,448 ring pixels each, some of them under zero (`grain_ring.py`).
+    The product reads an all-zero pixel at the border as absent, so a changed ring pixel became sky, and on three
+    plates the stretch then read the frame as not linear. The ring's blocks also went into the rule's own grain
+    statistic. The earlier check of the plates ("one pixel of one plate newly absent") counted NaN and so could
+    not see it. **The rule now hands a zero ring back as it came and keeps it out of its statistics**
+    (`zero_ring`, the product's rule for zeros: exact zero in every channel, connected to the border;
+    `test_plate_grain.py`), and a plate without such a ring comes out as the first run wrote it. Run again over
+    all 201 plates (`starless-grain2`): 62 differ from the first run, every one of them a plate with a zero ring,
+    and no ring pixel is changed on any. The 48 exported sessions whose plate differs (the three refused ones
+    among them) were taken out of synth31 and exported again with the same line and binary
+    (`repair_export.py`, `reexport.ps1`; the first run's rows and tiles are kept beside the export), and the cache
+    is built from that. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
+    the guards and the kill rule are unchanged.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
     91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
