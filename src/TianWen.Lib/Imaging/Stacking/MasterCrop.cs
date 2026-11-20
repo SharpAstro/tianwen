@@ -13,8 +13,9 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// rectangle and the image size.</param>
 /// <param name="Width">Width of the written crop, 0 on a refusal.</param>
 /// <param name="Height">Height of the written crop, 0 on a refusal.</param>
-/// <param name="SourceWidth">Width of the master that was cropped.</param>
-/// <param name="SourceHeight">Height of the master that was cropped.</param>
+/// <param name="SourceWidth">Width of the master that was cropped; 0 when the input could not be read, since
+/// there is then no master to measure.</param>
+/// <param name="SourceHeight">Height of the master that was cropped; 0 when the input could not be read.</param>
 public readonly record struct MasterCropResult(bool Succeeded, string Message, int Width, int Height, int SourceWidth = 0, int SourceHeight = 0);
 
 /// <summary>
