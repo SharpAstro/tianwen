@@ -207,19 +207,18 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
                 index = steps.Length;
             }
             set = Math.Min(set, sequence.Sets);
-            giveBack?.Invoke();
-            Note(PlanetarySequencePhase.Done);
+            // The devices go back BEFORE Progress says the run ended (#2160), and the end is published even if giving
+            // them back throws: an exception here would otherwise leave Progress at its in-flight phase for good.
+            try { giveBack?.Invoke(); } finally { Note(PlanetarySequencePhase.Done); }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            giveBack?.Invoke();
-            Note(PlanetarySequencePhase.Stopped);
+            try { giveBack?.Invoke(); } finally { Note(PlanetarySequencePhase.Stopped); }
             throw;
         }
         catch (Exception ex)
         {
-            giveBack?.Invoke();
-            Note(PlanetarySequencePhase.Failed, StatusText.FromException(ex));
+            try { giveBack?.Invoke(); } finally { Note(PlanetarySequencePhase.Failed, StatusText.FromException(ex)); }
             throw;
         }
     }
