@@ -7683,8 +7683,10 @@ the first angle is a step after the model and not another arm:
       session with its master's numbers, so every session trained at the strength and balance its darkest
       pixels happened to give it.
     - **A black point a fixed number of noise sigma under each channel's sky, tried at inference** on R4d as it
-      is, no retrain (`stretch_depth_set.py`; 3 to 5 samples a frame). The share taken at 8-22 / 22-40 / 40-60 /
-      60-80 px:
+      is, no retrain (`stretch_depth_set.py ... centre`; 3 to 5 samples a frame). The sigma of this first try was
+      the noise of the frame's central 512 px crop; by the sky noise the registered read below uses, its two
+      depths are 69 to 94 and 138 to 188 sigma, differing by channel and night. The share taken at 8-22 / 22-40 /
+      40-60 / 60-80 px:
 
       | | 2022-01-05 as it is | at 60 sigma | at 120 sigma | 2022-01-04 as it is | at 60 sigma | at 120 sigma |
       |---|---|---|---|---|---|---|
@@ -7705,6 +7707,11 @@ the first angle is a step after the model and not another arm:
     and no arm: R4d as it is, on the three scoring masters written with every channel's minimum at its median less
     60 and less 120 noise sigma (`stretch_depth_set.py`), as trained and through the product's chain (protection
     without the stars, then floor5), scored as every arm is.
+    - **The sigma is the sky's** (corrected before any score, the same night): the 20th percentile over the
+      frame's 64 px blocks of each block's neighbour-difference sigma, since a central crop is 30 Doradus on the
+      Tarantula master. By it the three masters' own depths are 45 / 40 / 48 on Andromeda, 9 / 11 / 10 on the
+      Tarantula and 32 on the Sagittarius master (one plane): the Tarantula, which carries the crowded rows, is
+      stretched far harder as it is than the other two, and 60 or 120 sigma softens it six- to twelvefold.
     - **The question:** do the scorecard's rows hold at a black point that mends the bright stars? Through the
       chain, R4g's guards: the Tarantula's crowded flat at least 90.3 (R4d 91.3), the Sagittarius crowded flat at
       least 96.3, Andromeda's dark flat at least 95 with at most 3 dug, the Tarantula's dark flat at least 91,
