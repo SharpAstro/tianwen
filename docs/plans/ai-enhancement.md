@@ -489,7 +489,15 @@ per rule and points here.
   `.onnx` states the weights' SHA-256, the graph's inputs and output and the domain it is FED, checked at first use
   against the file, the graph and the runner's own `ModelFeed`; an absent sidecar, or a field the runner relies on
   left out, is a refusal. A retrain gets a new file name and contract (a plain tracked `Content` file, not LFS), and
-  a new model ships its contract in its first commit.
+  a new model ships its contract in its first commit. **The stretch's black point is part of that domain**
+  (`stretchBlackPointSigma`, #2309): a model whose tiles were stretched with each channel's black point so many
+  sky-noise sigma under its median (`dataset degrade --mode stars --black-point-sigma`,
+  `Image.MtfStretchParametersFromSkyNoise`) says so, the star remover stretches a frame the way its models'
+  contracts state, and a runner that stretches from each channel's minimum (the denoiser's) refuses such a model. A
+  contract that is silent means the minimum, which is every model trained before 2026-11-21. The depth travels by
+  itself: every row of the export records it, `n2n_smoke.py --prepare` puts it in the cache's `meta.json`, and
+  `n2n_export.py` writes it into the contract. `image remove-stars --black-point-sigma` overrides it for a
+  measurement and says so in the log; it is no way to use a model.
 - **TianWen's own star remover runs only on weights a caller NAMES** (`image remove-stars --model a.onnx b.onnx`,
   `OnnxTianWenStarRemover`): none ship and none are registered, so RC-Astro stays the registered `IStarRemover`. It
   averages its models over a tile's flips and turns in half-overlapping triangle windows, and never through

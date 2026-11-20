@@ -53,13 +53,15 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
     private readonly ImmutableArray<StarRemoverRunner.Model> _models;
     private readonly int _views;
     private readonly bool _monoAsRgb;
+    private readonly double? _blackPointSigma;
     private readonly ILogger? _logger;
 
-    private OnnxTianWenStarRemover(ImmutableArray<StarRemoverRunner.Model> models, int views, bool monoAsRgb, ILogger? logger)
+    private OnnxTianWenStarRemover(ImmutableArray<StarRemoverRunner.Model> models, int views, bool monoAsRgb, double? blackPointSigma, ILogger? logger)
     {
         _models = models;
         _views = views;
         _monoAsRgb = monoAsRgb;
+        _blackPointSigma = blackPointSigma;
         _logger = logger;
     }
 
@@ -75,7 +77,17 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
     /// starts on a model it cannot finish with. <paramref name="views"/> is how many of a tile's eight flips and quarter
     /// turns each model sees: 1, 2 (a mirror), 4 (the turns) or 8.
     /// </summary>
-    public static OnnxTianWenStarRemover Open(IReadOnlyList<string> modelPaths, int views = 8, bool monoAsRgb = false, ILogger? logger = null)
+    /// <remarks>
+    /// <para><b>The stretch's black point is the models' own.</b> Each contract says how its model's tiles were stretched
+    /// (<see cref="ModelContract.StretchBlackPointSigma"/>: so many sky-noise sigma under each channel's median, or the
+    /// channel's minimum where it is silent), and the frame is stretched that way. The models of one set are averaged in
+    /// one stretched frame, so they must agree on it.</para>
+    /// <para><paramref name="blackPointSigma"/> overrides that and runs the models OUTSIDE the domain their contracts
+    /// state. It exists for measurement (a model trained from the minimum, read at a fixed depth: #2309's reads), is
+    /// said in the log, and is no way to use a model.</para>
+    /// </remarks>
+    public static OnnxTianWenStarRemover Open(IReadOnlyList<string> modelPaths, int views = 8, bool monoAsRgb = false, ILogger? logger = null,
+        double? blackPointSigma = null)
     {
         if (modelPaths.Count == 0)
         {
@@ -85,7 +97,12 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
         {
             throw new ArgumentOutOfRangeException(nameof(views), views, "views must be 1, 2, 4 or 8");
         }
+        if (blackPointSigma is { } given && !(double.IsFinite(given) && given > 0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(blackPointSigma), blackPointSigma, "a black point's depth is a number of sigma over 0");
+        }
         var models = ImmutableArray.CreateBuilder<StarRemoverRunner.Model>(modelPaths.Count);
+        var trainedBlackPoints = new List<double?>(modelPaths.Count);
         try
         {
             foreach (var path in modelPaths)
@@ -99,7 +116,11 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
                     session.Dispose();
                     throw new NotSupportedException($"{file}: a star remover here takes an image and its noise plane; this graph does not.");
                 }
-                var problems = contract.Check(path, N2nDenoiser.Feed(planeConditioned: true), ModelGraph.From(session));
+                // The one field of the feed taken FROM the contract: this runner serves models of either black-point
+                // rule and stretches as each was trained, so here the comparison is with itself. The same field refuses
+                // such a model in a runner that cannot follow it (the denoiser's, whose feed leaves it unset).
+                var feed = N2nDenoiser.Feed(planeConditioned: true) with { StretchBlackPointSigma = contract.StretchBlackPointSigma };
+                var problems = contract.Check(path, feed, ModelGraph.From(session));
                 if (problems.Length > 0)
                 {
                     session.Dispose();
@@ -113,11 +134,17 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
                     throw new NotSupportedException($"{file}: the graph must declare a fixed square tile, got {height?.ToString() ?? "dynamic"} x {width?.ToString() ?? "dynamic"}.");
                 }
                 models.Add(new StarRemoverRunner.Model(file, session, imageInput, planeInput, output, tile));
-                logger?.LogInformation("OnnxTianWenStarRemover: {Model} matches its contract (weights {Sha}), tile {Tile}", file, contract.OnnxSha256, tile);
+                trainedBlackPoints.Add(contract.StretchBlackPointSigma);
+                logger?.LogInformation("OnnxTianWenStarRemover: {Model} matches its contract (weights {Sha}), tile {Tile}, black point {BlackPoint}",
+                    file, contract.OnnxSha256, tile, StarRemoverRunner.DescribeBlackPoint(contract.StretchBlackPointSigma));
             }
             if (models.Select(static m => m.Tile).Distinct().Count() != 1)
             {
                 throw new NotSupportedException("the models must share one tile size: their windows are averaged pixel for pixel.");
+            }
+            if (trainedBlackPoints.Distinct().Count() != 1)
+            {
+                throw new NotSupportedException("the models must share one black point: their windows are averaged in one stretched frame.");
             }
         }
         catch
@@ -128,7 +155,13 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
             }
             throw;
         }
-        return new OnnxTianWenStarRemover(models.MoveToImmutable(), views, monoAsRgb, logger);
+        var trained = trainedBlackPoints[0];
+        if (blackPointSigma is { } asked && asked != trained)
+        {
+            logger?.LogWarning("OnnxTianWenStarRemover: the black point is set {Asked} where the models were trained with it {Trained}; this is a measurement outside their contract",
+                StarRemoverRunner.DescribeBlackPoint(asked), StarRemoverRunner.DescribeBlackPoint(trained));
+        }
+        return new OnnxTianWenStarRemover(models.MoveToImmutable(), views, monoAsRgb, blackPointSigma ?? trained, logger);
     }
 
     public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
@@ -145,7 +178,7 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
         switch (input.ChannelCount)
         {
             case 3:
-                return StarRemoverRunner.Run(input, _models, _views, _logger, ct);
+                return StarRemoverRunner.Run(input, _models, _views, _blackPointSigma, _logger, ct);
             case 1 when _monoAsRgb:
                 _logger?.LogWarning("{Name}: a mono frame put in all three channels; no model here was trained or measured on one", Name);
                 var (_, w, h) = input.Shape;
@@ -157,7 +190,7 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
                     grey.CopyTo(MemoryMarshal.CreateSpan(ref rgb[c][0, 0], w * h));
                 }
                 var colour = new Image(rgb, BitDepth.Float32, input.MaxValue, input.MinValue, input.Pedestal, input.ImageMeta);
-                var starless = StarRemoverRunner.Run(colour, _models, _views, _logger, ct);
+                var starless = StarRemoverRunner.Run(colour, _models, _views, _blackPointSigma, _logger, ct);
                 var mean = new float[h, w];
                 var dst = MemoryMarshal.CreateSpan(ref mean[0, 0], w * h);
                 ReadOnlySpan<float> r = starless.GetChannelSpan(0), g = starless.GetChannelSpan(1), b = starless.GetChannelSpan(2);
@@ -189,6 +222,12 @@ public sealed class OnnxTianWenStarRemover : IStarRemover, IDisposable
 internal static class StarRemoverRunner
 {
     internal sealed record Model(string Name, InferenceSession Session, string ImageInput, string PlaneInput, string Output, int Tile);
+
+    /// <summary>A black point's rule in words, for a log line.</summary>
+    internal static string DescribeBlackPoint(double? sigma)
+        => sigma is { } depth
+            ? FormattableString.Invariant($"{depth:0.###} sky-noise sigma under each channel's median")
+            : "at each channel's minimum";
 
     /// <summary>One view of a tile: mirrored left to right first when <paramref name="Flip"/>, then turned a quarter
     /// <paramref name="Turns"/> times, as <c>r2_infer.py</c> makes them (<c>torch.rot90</c> over the last two axes).</summary>
@@ -306,7 +345,10 @@ internal static class StarRemoverRunner
         return padded;
     }
 
-    public static Image Run(Image input, ImmutableArray<Model> models, int viewCount, ILogger? logger, CancellationToken ct)
+    /// <summary>The whole frame through every model and view. <paramref name="blackPointSigma"/> is the depth the
+    /// frame's stretch sets each channel's black point at, <see langword="null"/> for the channel's minimum
+    /// (<see cref="ChunkedNafnetRunner.InputStretchParameters(Image, BitMatrix?, double?)"/>).</summary>
+    public static Image Run(Image input, ImmutableArray<Model> models, int viewCount, double? blackPointSigma, ILogger? logger, CancellationToken ct)
     {
         var (channels, width, height) = input.Shape;
         var tile = models[0].Tile;
@@ -320,7 +362,15 @@ internal static class StarRemoverRunner
 
         // Into the training domain, and the frame's noise once (the denoiser runner's steps 0 and its plane half).
         var absent = input.AbsentPixels();
-        var (stretched, stretchApplied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(input, absent);
+        var (stretched, stretchApplied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(input, absent, blackPointSigma);
+        if (origMin is not null && balances is not null)
+        {
+            // What the frame was stretched with, so a run's log can be read against the export's own line for the session.
+            logger?.LogInformation("StarRemoverRunner: stretched with the black point {Rule}: black points {BlackPoints}, balances {Balances}",
+                DescribeBlackPoint(blackPointSigma),
+                string.Join(" / ", origMin.Select(static m => m.ToString("G6", System.Globalization.CultureInfo.InvariantCulture))),
+                string.Join(" / ", balances.Select(static b => b.ToString("G6", System.Globalization.CultureInfo.InvariantCulture))));
+        }
         var (stretches, calibrations) = N2nLinearRunner.FrameNoise(input, stretchApplied, origMin, balances, absent);
 
         var pw = width + 2 * pad;

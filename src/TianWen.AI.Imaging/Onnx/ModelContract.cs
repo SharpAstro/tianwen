@@ -142,6 +142,12 @@ internal sealed record ModelContract
     /// (<c>AiNafnetInputs.TargetMedian</c>); the runner must stretch to the same one.</summary>
     public double? StretchMedianTarget { get; init; }
 
+    /// <summary>For <see cref="ModelDomain.MtfStretched"/>, how many sky-noise sigma under its median each channel's
+    /// black point lay in every training tile (<c>Image.MtfStretchParametersFromSkyNoise</c>, #2309). Absent where the
+    /// black point was the channel's minimum, which is every model trained before 2026-11-21; the runner must use the
+    /// same rule and the same depth.</summary>
+    public double? StretchBlackPointSigma { get; init; }
+
     /// <summary>Every input of the graph, each by name and role.</summary>
     public required ImmutableArray<ModelContractInput> Inputs { get; init; }
 
@@ -246,6 +252,12 @@ internal sealed record ModelContract
             {
                 problems.Add($"the runner stretches to a per-channel median of {fedMedian} and the graph was trained on {trainedMedian}");
             }
+        }
+        // The black point's rule is checked both ways: a silent side means "each channel's minimum", which is a rule
+        // of its own and not an absence of one.
+        if (!SameBlackPoint(feed.StretchBlackPointSigma, StretchBlackPointSigma))
+        {
+            problems.Add($"the runner sets each channel's black point {DescribeBlackPoint(feed.StretchBlackPointSigma)} and the graph was trained with it {DescribeBlackPoint(StretchBlackPointSigma)}");
         }
 
         var described = Inputs.IsDefault ? [] : Inputs;
@@ -366,6 +378,12 @@ internal sealed record ModelContract
         => names.ToArray() is { Length: > 0 } list ? string.Join(", ", list.Select(n => $"'{n}'")) : "none";
 
     private static bool Near(double a, double b) => Math.Abs(a - b) <= 1e-9 * Math.Max(1.0, Math.Abs(b));
+
+    private static bool SameBlackPoint(double? fed, double? trained)
+        => fed is { } f ? trained is { } t && Near(f, t) : trained is null;
+
+    private static string DescribeBlackPoint(double? sigma)
+        => sigma is { } depth ? $"{depth} sky-noise sigma under its median" : "at its minimum";
 }
 
 /// <summary>

@@ -328,8 +328,16 @@ public static class ChunkedNafnetRunner
     /// because it must also put the ring back after inference (<see cref="Image.CopyAbsent"/>).
     /// </summary>
     internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input, BitMatrix? absent)
+        => ApplyInputStretch(input, absent, blackPointSigma: null);
+
+    /// <summary>
+    /// <see cref="ApplyInputStretch(Image, BitMatrix?)"/> for a model trained with its black point set by sky noise:
+    /// <paramref name="blackPointSigma"/> is that depth, or <see langword="null"/> for every model before, whose black
+    /// point is each channel's minimum (<see cref="InputStretchParameters(Image, BitMatrix?, double?)"/>).
+    /// </summary>
+    internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input, BitMatrix? absent, double? blackPointSigma)
     {
-        var (applied, origMin, balances) = InputStretchParameters(input, absent);
+        var (applied, origMin, balances) = InputStretchParameters(input, absent, blackPointSigma);
         return applied && origMin is not null && balances is not null
             ? (input.MtfStretchWith(origMin, balances), true, origMin, balances)
             : (input, false, null, null);
@@ -341,6 +349,18 @@ public static class ChunkedNafnetRunner
     /// its master's (#1776), so both halves of the pair land where inference puts the master.
     /// </summary>
     internal static (bool Applied, float[]? OrigMin, double[]? Balances) InputStretchParameters(Image input, BitMatrix? absent)
+        => InputStretchParameters(input, absent, blackPointSigma: null);
+
+    /// <summary>
+    /// <see cref="InputStretchParameters(Image, BitMatrix?)"/> with the black point's rule named. With
+    /// <paramref name="blackPointSigma"/> each channel's black point lies that many sky-noise sigma under its median
+    /// (<see cref="Image.MtfStretchParametersFromSkyNoise"/>, #2309); without it the black point is the channel's
+    /// minimum, as every model before was trained. The export and the runner both come through here, so a model is fed
+    /// at inference what its tiles were written with, whichever rule that is.
+    /// </summary>
+    /// <remarks>The linearity test (<see cref="NeedsStretch"/>) reads the frame the same way under either rule: it asks
+    /// whether the frame is linear, which the black point's rule does not change.</remarks>
+    internal static (bool Applied, float[]? OrigMin, double[]? Balances) InputStretchParameters(Image input, BitMatrix? absent, double? blackPointSigma)
     {
         if (!NeedsStretch(input, absent))
         {
@@ -349,7 +369,9 @@ public static class ChunkedNafnetRunner
             // nonlinearity near saturation amplifies per-channel noise around bright stars.
             return (false, null, null);
         }
-        var (origMin, balances) = input.MtfStretchParameters(AiNafnetInputs.TargetMedian, absent);
+        var (origMin, balances) = blackPointSigma is { } depth
+            ? input.MtfStretchParametersFromSkyNoise(AiNafnetInputs.TargetMedian, depth, absent)
+            : input.MtfStretchParameters(AiNafnetInputs.TargetMedian, absent);
         return (true, origMin, balances);
     }
 

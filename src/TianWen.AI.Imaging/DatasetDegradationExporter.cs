@@ -229,6 +229,10 @@ namespace TianWen.AI.Imaging
         /// was drawn at the recorded level. A channel whose recorded sigma is not positive has no ratio to take and says 1.
         /// Null where nothing was read: with <see cref="Options.NoiseAsRecorded"/>, under
         /// a <see cref="Options.NoiseScale"/>, and for a plate with no block to read.</param>
+        /// <param name="StretchBlackPointSigma">Stars mode (#2309): how many sky-noise sigma under its median each channel's
+        /// black point was set for this pair's stretch (<see cref="Options.BlackPointSigma"/>); null where it is the
+        /// channel's minimum, as every export before 2026-11-21 wrote. A model trained on such rows states the same
+        /// number in its contract.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -280,7 +284,8 @@ namespace TianWen.AI.Imaging
             string? NoiseStructure = null,
             double? NoiseStructureShrink = null,
             double? NoiseScale = null,
-            double[]? PlateNoiseRatio = null);
+            double[]? PlateNoiseRatio = null,
+            double? StretchBlackPointSigma = null);
 
         /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
         public const string SigmaTileExtension = ".sigma.f16";
@@ -485,6 +490,13 @@ namespace TianWen.AI.Imaging
         /// median of it per amplitude, to 45 px, and every other star draws the session's whole halo, coming in from 8 to 14 px. A session with fewer
         /// than eight measured stars whose 60 px stamp lies in the frame and holds no absent pixel draws as without it, which the
         /// session's log line says. Draws no random number.</param>
+        /// <param name="BlackPointSigma">Stars mode (#2309): set each channel's black point this many sky-noise sigma under its
+        /// median (<c>Image.MtfStretchParametersFromSkyNoise</c>) and not at its minimum, which is one pixel and lay 8 to 228
+        /// sky sigma under the sky across the store's masters. Null (the default) is the minimum, as every export before
+        /// 2026-11-21 wrote. The runner stretches a frame the same way for a model whose contract states the depth
+        /// (<c>ModelContract.StretchBlackPointSigma</c>), so the depth an export is written at has to reach that contract.
+        /// A session whose master has no sky noise to read fails, as one that does not read as linear does. Draws no random
+        /// number.</param>
         /// <param name="OuterHaloPath">Stars mode (#1870): a <c>halo-profiles.json</c> (training/star-removal/domain/halo_profile.py); every
         /// injected star is drawn with a second, wide, faint Moffat under its profile
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>), fitted in C# per rig (the master's camera) to that file's LINEAR
@@ -600,7 +612,8 @@ namespace TianWen.AI.Imaging
             bool HaloOverPlate = false,
             Action<string>? Say = null,
             bool BrightMeasured = false,
-            bool NoiseAsRecorded = false);
+            bool NoiseAsRecorded = false,
+            double? BlackPointSigma = null);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

@@ -1416,6 +1416,20 @@ namespace TianWen.Lib.Tests
             File.ReadAllText(Path.Combine(fromPlate.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
                 .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)), "the stretch moves no star");
 
+            // A black point by sky noise (#2309) exports the same draws too and says its depth on every row, where an
+            // export from the minimum says nothing.
+            var atDepth = options with { OutDir = Path.Combine(_root, "stars-black-point"), BlackPointSigma = 40 };
+            (await DatasetDegradationExporter.RunAsync(atDepth, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var depthRows = ReadDegradationRows(atDepth.OutDir);
+            depthRows.Length.ShouldBe(rows.Length);
+            depthRows.ShouldAllBe(static r => r.StretchBlackPointSigma == 40);
+            rows.ShouldAllBe(static r => r.StretchBlackPointSigma == null);
+            File.ReadAllText(Path.Combine(atDepth.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)), "the black point moves no star");
+            depthRows.Zip(rows).Any(pair => !File.ReadAllBytes(Path.Combine(atDepth.OutDir, pair.First.Tile))
+                    .AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(options.OutDir, pair.Second.Tile))))
+                .ShouldBeTrue("the tiles are stretched from another black point");
+
             // The same seed, the same bytes: every star and every tile, and reading the stars back changes none of them.
             var again = options with { OutDir = Path.Combine(_root, "stars-again"), MeasureInjection = true };
             (await DatasetDegradationExporter.RunAsync(again, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
@@ -1509,6 +1523,20 @@ namespace TianWen.Lib.Tests
             fromMaster.SkySlopeRatio[0].ShouldBeGreaterThan(1.5, "the hole drops red's floor, so the plate's stretch is gentler at the sky");
             fromMaster.SkySlopeRatio[1].ShouldBe(1.0, 0.05, "green's plate floor is the master's");
             fromMaster.SkySlopeRatio[2].ShouldBe(1.0, 0.05);
+
+            // With a depth (#2309) each side's black point lies that many sky-noise sigma under its own median, as the
+            // runner sets it for a model whose contract states the depth, and the hole no longer sets the plate's stretch.
+            const double depth = 40;
+            var (depthApplied, depthMin, depthBalances) = ChunkedNafnetRunner.InputStretchParameters(unitMaster, unitMaster.AbsentPixels(), depth);
+            depthApplied.ShouldBeTrue();
+            var atDepth = DatasetDegradationExporter.StarsStretch("test", masterImage, divisor, unitPlate, fromMaster: true, blackPointSigma: depth);
+            atDepth.OrigMin.ShouldBe(depthMin.ShouldNotBeNull());
+            atDepth.Balances.ShouldBe(depthBalances.ShouldNotBeNull());
+            atDepth.OrigMin.ShouldNotBe(fromMaster.OrigMin);
+            output.WriteLine($"scale {scale}: at {depth} sigma, slope ratio master over plate {string.Join(" / ", atDepth.SkySlopeRatio.Select(static r => r.ToString("F3")))}");
+            atDepth.SkySlopeRatio[0].ShouldBe(1.0, 0.05, "the hole is one of the plate's pixels and no longer its black point");
+            atDepth.SkySlopeRatio[1].ShouldBe(1.0, 0.05);
+            atDepth.SkySlopeRatio[2].ShouldBe(1.0, 0.05);
         }
 
         /// <summary>
