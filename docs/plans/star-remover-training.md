@@ -7138,7 +7138,14 @@ the first angle is a step after the model and not another arm:
     left no source of 100 sigma or over unsubtracted. That leaves out what the look showed is no truth: a
     cluster's core (Omega Centauri, 27 cells, 48 to 75 % subtracted, the plate a noisy mush), a bright star's
     halo (HIP 80609), the Lagoon session of 2025-05-25 where a subtracted halo left a ring in the nebula (seen on
-    two of its failing cells; 24 of its 30 fail) and eta Carinae at 135 mm. One session is left out by name
+    two of its failing cells; 24 of its 30 fail) and eta Carinae at 135 mm. What the builder does at a saturated
+    star was measured on two of them after the owner asked whether the halo is over-subtracted
+    (`plate_halo_channels.py`, ring medians less the sky at 300 to 400 px, in pixel sigma, R / G / B): it cuts the
+    star and its halo flat out to about 120 px and leaves the master as it is beyond. On plain sky (HIP 80609)
+    that flat level is the halo's own at 120 px, a pedestal of 20 / 15.5 / 6 sigma above the sky, never under
+    it, with the spikes' residues 4 to 5 sigma under the pedestal. Over nebula (the Lagoon cell) the flat level
+    sits 3 to 6 sigma under its own rim, with a patch 20 to 30 sigma lower: a dent in the nebula. One session is
+    left out by name
     (`--exclude-session`), the Lagoon and Trifid of 2023-06-16 with its 8 cells: the Sagittarius master the
     question is read on is an OIII stack of 72 minutes from a frame of that camera's size, and whether its sky is
     that session's or the L-Ultimate session's of 2024-07-03 (which no list trains) was not established, so
