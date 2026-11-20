@@ -7333,7 +7333,11 @@ the first angle is a step after the model and not another arm:
       halving (or to the stop, the length then stated), as a share of the median from step 30,000 to that
       halving. R4d reads 0.50, R4e 0.47, R4c 0.48 and R4f 0.85. **0.60 or under: trained as the others.
       0.75 or over: stalled again.** Between the two it is called neither, and the rows are reported with that
-      said.
+      said. The figure is read against the curve before it is called: R3x reads 0.80 on it (6.06e-6 over 7.60e-6,
+      its first halving at 101,000) and is not a stall, since its curve is smooth with no spike and set a new
+      best (5.971e-6 at 148,500) 47,500 steps after the halving; a long first-rate stretch (71,000 steps against
+      27,000 to 52,000 for the others) lifts the ratio. So a ratio of 0.75 to 0.85 is read against the curve
+      (a spike, a new best after the halving) before it is called stalled. No threshold changes.
     - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
       guards, its kill rule and its two added rows stand as its registration and its read list them (the
       Tarantula's crowded flat through the product's chain 93.3 or over and killed under R4d's 91.3; BP 17-19
@@ -7349,8 +7353,9 @@ the first angle is a step after the model and not another arm:
       did; what is then worth reading is the best step's column against R4d, and the next step is the
       trainer's (why the objective breaks and does not come back), not another export.
     - **Prediction, written before the launch.** It trains as the others (my guess, two chances in three: R4c,
-      R4d and R4e each differ from R4f by one change of the export and none broke; the earlier stalls this plan
-      records are arm B's seed 1, R2n and R3w). If
+      R4d and R4e train R3v's model and recipe on exports of the same line and none broke, and R4d is the one
+      change neighbour of R4f, its target; the earlier stalls this plan records are arm B's seed 1, R2n and
+      R3w). If
       it does, the dense cells' grain as trained falls by a quarter or more against R4d's, and the crowded flat
       rises over R4d's 91.3 but does not reach its bar of 93.3.
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
