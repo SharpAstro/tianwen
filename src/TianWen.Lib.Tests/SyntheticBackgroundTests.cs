@@ -501,6 +501,39 @@ public sealed class SyntheticBackgroundTests
         elongated.ShouldBeGreaterThan(5);
     }
 
+    /// <summary>
+    /// A plate may hold a pixel that is not a number INSIDE the frame (the canvas ring is handed over as absent; an
+    /// island is not). Its read of the fine orientation near that pixel is then not a number either, and an elongated
+    /// nebula knot laid along it was drawn as a square of NaN, which a tile carried as zeros in the target and in every
+    /// input draw (#2276: 64 knots of 1,052 in synth29, 15 of 16 on the store's Tarantula session).
+    /// </summary>
+    [Fact]
+    public void AKnotNearAPixelThatIsNotANumberIsStillDrawnAndTheCellHoldsNoNaN()
+    {
+        var plate = WavePlate();
+        // In the textured half, where the nebula knots fall.
+        plate.GetChannelArray(0)[512, 768] = float.NaN;
+        // The export's steer (degrade --steer 0.5,2,0.8,1), whose fine part reads the plate's own fine structure.
+        var background = SyntheticBackground.Build(plate, absent: null, Fwhm, brightKnotsWide: true,
+            steering: new SyntheticBackground.Steering(0.5, 2.0, 0.8, 1.0), nebulaKnots: true);
+        var (knotsDrawn, elongated) = (0, 0);
+        for (var draw = 0; draw < 40; draw++)
+        {
+            var planes = background.Cell(640, 384, 256, [Noise], new Random(700 + draw), out var knots);
+            foreach (var k in knots)
+            {
+                knotsDrawn++;
+                elongated += k.SigmaMajorPx > 2 * k.SigmaMinorPx ? 1 : 0;
+                double.IsFinite(k.AngleRad).ShouldBeTrue($"draw {draw}: a knot at ({k.X:F0}, {k.Y:F0}) has no angle");
+            }
+            foreach (var plane in planes)
+            {
+                plane.Count(static v => !float.IsFinite(v)).ShouldBe(0, $"draw {draw}: the cell's background holds pixels that are not numbers");
+            }
+        }
+        elongated.ShouldBeGreaterThan(10, $"premise: elongated knots are drawn here ({knotsDrawn} knots in all)");
+    }
+
     [Fact]
     public void ElongatedKnotsAreMostlyElongatedAndARoundOneIsWideAndFaint()
     {

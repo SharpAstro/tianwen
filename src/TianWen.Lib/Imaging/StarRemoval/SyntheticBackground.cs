@@ -446,9 +446,29 @@ public sealed class SyntheticBackground
     // NoiseMargin times the count, over the count, so it is one where the signal's energy matches the noise of the scales
     // read and zero on a noise-only sky. A share of the total was not: a gradient lifts the noise, and stripes clear to the
     // eye (1.5 sigma a pixel) took 0.39 of it, which left the coarse orientation steering them.
+    //
+    // A pixel that is not a number INSIDE the frame (an island: the ring is absent and already out of clean) is filled with
+    // the luminance's median and taken out of clean here, as the channels' own planes are filled before they are read. Read
+    // raw, it made every scale's detail NaN across that scale's kernel and the smoothed tensor NaN across the window, so the
+    // weight was NaN for tens of pixels round it and an elongated nebula knot laid along that orientation was drawn as a
+    // square of NaN (#2276).
     private static FineOrientation FineStructure(float[] luminance, float[] clean, int width, int height, int firstKept)
     {
         var n = width * height;
+        if (Array.Exists(luminance, static v => !float.IsFinite(v)))
+        {
+            var finite = luminance.Where(float.IsFinite).ToArray();
+            var fill = finite.Length > 0 ? StatisticsHelper.NthSmallest(finite.AsSpan(), finite.Length / 2) : 0f;
+            var filled = new float[n];
+            var cleanHere = new float[n];
+            for (var i = 0; i < n; i++)
+            {
+                var known = float.IsFinite(luminance[i]);
+                filled[i] = known ? luminance[i] : fill;
+                cleanHere[i] = known ? clean[i] : 0f;
+            }
+            (luminance, clean) = (filled, cleanHere);
+        }
         var sigma = Math.Max(AmplitudeWindowPx, 1 << firstKept);
         var weight = Image.SeparableGaussianBlur(clean, width, height, sigma);
         var decomposition = ATrousWaveletTransform.Decompose(luminance, width, height, firstKept);
@@ -1489,7 +1509,10 @@ public sealed class SyntheticBackground
             cos2 = (w * fine.Cos2[f]) + ((1 - w) * cos2);
             sin2 = (w * fine.Sin2[f]) + ((1 - w) * sin2);
         }
-        return 0.5 * Math.Atan2(sin2, cos2);
+        // An orientation that is not a number is no orientation: the caller then takes the knot's random angle, as it does
+        // without a steer. A knot drawn at a NaN angle is a square of NaN in the cell (#2276).
+        var angle = 0.5 * Math.Atan2(sin2, cos2);
+        return double.IsFinite(angle) ? angle : null;
     }
 
     private static int Poisson(double mean, Random random)

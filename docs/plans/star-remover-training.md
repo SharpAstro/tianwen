@@ -7037,7 +7037,8 @@ the first angle is a step after the model and not another arm:
     all differ: their texture between a 3 px and a 31 px box, in the tile's pixel noise, has a median of 0.78 /
     0.83 / 0.67 from the stored plate and 0.63 / 0.63 / 0.58 from the rule's (R / G / B), and a 90th percentile of
     3.73 / 3.75 / 4.45 against 1.27 / 1.60 / 1.20; the mean level is the same to two decimals. So the targets of a
-    crowded session lose little in most cells and two thirds of their texture in the most textured ones.
+    crowded session lose little in most cells and two thirds of their texture in the most textured ones. (The 90th
+    percentile and that last sentence are withdrawn: see the correction below.)
   - **Two more differences from R4d, both small, neither chosen.** (1) The export draws its nebula knots where the
     plate's fine scales hold signal, so with the grain gone fewer are drawn in crowded sky: 27 knots over the
     Tarantula session's 40 cells from the stored plate, 19 from the rule's. (2) R4d trained on the GTX 1070 and
@@ -7048,7 +7049,34 @@ the first angle is a step after the model and not another arm:
     input draws (`knot_angles.py`, `tile_holes.py`). synth29 and synth30 each hold 64 such knots of 1,052 elongated
     ones, in 54 of 5,520 cells (1.0 %) and 16 sessions, 11 of the cells on the Tarantula session. With the rule's
     plates that session has none. It is fixed apart from this arm; `bh-bin8` keeps it, so the other sessions'
-    squares are in synth31 as they are in synth29.
+    squares are in synth31 as they are in synth29. The fix (#2276, with this correction's PR: the fine orientation
+    reads a luminance whose absent pixels are filled, and an angle that is not a number is no angle) was checked
+    on the stored plates of the same four sessions with the fixed build (`knot-check.ps1`, `bh-bin11`): 16 of
+    the 17 elongated knots without an angle before and none after, 12 of 160 target tiles and 48 of 640 input
+    tiles holding a zero block before and none after, and the 9 to 41 px band of the Tarantula tiles that held no
+    block the same from both builds (per tile 1.00 at the median, 0.93 to 1.05).
+  - **A correction to the tiles' check, 2026-11-20, while synth31 exports and before any score of R4f exists.** The
+    90th percentile above (3.73 / 3.75 / 4.45 against 1.27 / 1.60 / 1.20) read the defect's zero blocks, not the
+    grain: 11 of the Tarantula session's 40 target tiles hold one from the stored plates and none from the rule's,
+    and a square of zeros is a great deal of "texture" between two box means. So "two thirds of their texture in
+    the most textured ones" was wrong. Read again on the 29 tiles free of blocks, with the plan's own statistic
+    (`tile_band.py`, `tile_band_plate.py`: `band.py`'s 9 to 41 px band through a 7 px median, in sigma of a 9 px
+    mean, R / G / B): the targets from the stored plates read a median of 2.9 / 2.9 / 2.5 and a 90th percentile of
+    8.6 / 9.3 / 6.4, from the rule's plates 2.2 / 2.3 / 1.9 and 7.4 / 8.6 / 5.9. A sparse session's targets (Helix)
+    read 1.4 / 1.4 / 1.4, and white noise alone 0.85. Per tile the band from the rule's plates is 0.94 / 0.94 /
+    0.93 of the stored one at the median (lowest 0.59 / 0.54 / 0.59), because the change sits in one group of
+    tiles. In green: the 9 tiles already at a sparse session's level (under 2.0) stay there (median 1.5 to 1.4);
+    the 11 between 2.0 and 4.0 fall from a median of 2.9 to 2.3 (the largest falls 2.8 to 1.5, 3.2 to 2.1 and 3.5
+    to 2.3; one stays at 3.5); the 9 at 4.0 and over, which hold nebula, read 8.3 and then 7.3 at the median, the
+    three brightest (11.7 to 13.8) 2 to 3 % higher and four others 7 to 16 % lower. So **the arm takes about two
+    fifths of the excess over a sparse session's level from the middle third of the crowded session's targets and
+    leaves the rest much as they were**. Two more things the same table says. The export's target already holds
+    less of the band than its plate does over the tile's own footprint (0.7 / 0.6 / 0.7 of it per tile from the
+    stored plates), so the plate's grain was reaching the targets in part only. And the plates themselves fall
+    further than the tiles (the plate's median over these footprints 4.1 / 4.6 / 3.5 to 3.0 / 2.9 / 2.2). The
+    question, the guards and the kill rule above do not rest on the withdrawn figure and stand as registered; the
+    prediction was written with it in mind, so its "1 to 3 points" is the upper end of what this dose can be
+    expected to buy.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
     91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
