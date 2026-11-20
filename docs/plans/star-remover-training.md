@@ -7038,7 +7038,10 @@ the first angle is a step after the model and not another arm:
     0.83 / 0.67 from the stored plate and 0.63 / 0.63 / 0.58 from the rule's (R / G / B), and a 90th percentile of
     3.73 / 3.75 / 4.45 against 1.27 / 1.60 / 1.20; the mean level is the same to two decimals. So the targets of a
     crowded session lose little in most cells and two thirds of their texture in the most textured ones. (The 90th
-    percentile and that last sentence are withdrawn: see the correction below.)
+    percentile and that last sentence are withdrawn: see the correction below. The medians were read over the same
+    40 tiles, 11 of them holding a block, and are replaced too: on the 29 tiles free of blocks the same statistic
+    reads a median of 0.67 / 0.75 / 0.60 from the stored plate and 0.60 / 0.60 / 0.57 from the rule's, and a 90th
+    percentile of 1.19 / 1.31 / 0.97 against 1.01 / 1.10 / 0.78, `tile_grain_clean.py`, #2289.)
   - **Two more differences from R4d, both small, neither chosen.** (1) The export draws its nebula knots where the
     plate's fine scales hold signal, so with the grain gone fewer are drawn in crowded sky: 27 knots over the
     Tarantula session's 40 cells from the stored plate, 19 from the rule's. (2) R4d trained on the GTX 1070 and
@@ -7106,6 +7109,106 @@ the first angle is a step after the model and not another arm:
     light taken rises toward its guard, because a model taught that crowded sky is smooth has less reason to keep
     weak detail there. If the crowded flat does not move, the grain in the target is not what holds the crowded
     fields either, and what is left is the model's capacity or the judge's own smoothing of the glow.
+  - **Nothing is adopted;** adoption is the owner's.
+- **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
+  the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
+  2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
+  structured nebula with its knots kept in the target, against the nebula-taking, on the GTX 1070. It runs
+  beside R4f and shares its parent, so the two reads can be set side by side.
+  - **Why.** Since R3z's halo change the models take nebula with the stars: on the Lagoon the broad light taken
+    reads 1.49 to 3.50 for six runs against 0.55 to 1.11 before it and StarXTerminator's 0.42 ("The scorecard's
+    blind side" below). Two reads of the training pairs on 2026-11-19 (`audit.py`, `asked_broad.py`) say what the
+    data shows the model there. Background at a stretched level of 0.4 and over (the sky sits at 0.25) is 0.5 % of
+    synth28's tile area, against 55 % of a 300 px box on the Lagoon's core and 73 % on 30 Doradus's. And 86 % of
+    synth25's draws hold a saturated star with its broad halo (3.12 a draw) against 25 % of synth22's (0.25), while
+    bright structure in the target is 2.3 tiles' worth of 414. So the pairs ask for broad light to be taken round
+    a bright core 12 times as often as before, almost never over a bright background that must stay.
+  - **Why not through the synthetic line.** A sample export of the bake's bright cells with R4c's line (122 cells,
+    8 sessions, 2026-11-19) was looked at on 2026-11-20 before this registration: 17 of the 122 targets hold black
+    pits on over 1 % of their bright pixels, and the real master tiles of the same cells hold none. The synthetic
+    background redraws a plate's fine scales as random texture of the plate's own strength there, and at a sharp
+    edge (the dark bay beside the Trapezium, eta Carinae's lanes) that strength is 0.7 to 2.3 of the level, so the
+    downward swings empty the dark side to zero (#2288; `bright_pits.py`, `bright_pit_cause.py`). The pits do not
+    sit where the plate builder painted or subtracted. The stored plate of the same cells is a good starless
+    picture of them (`bright_plate_look.py`, 40 cells of 28 sessions at 1:1 through the master's own stretch).
+  - **The cells** (`bright_plate_cells.py`). The bake's bright cells by the one rule (`tianwen dataset
+    bright-cells`: at least 10 % of a cell at a level of 0.45 to 0.95, outside each session's sample of 40), of the
+    sessions in the trainer's own lists (`arms/r2-train.txt`, `arms/r2-val.txt`): 234 cells in 23 session ids. A
+    cell takes the plate as its target when the builder inpainted at most 10 % of it, subtracted at most 20 % and
+    left no source of 100 sigma or over unsubtracted. That leaves out what the look showed is no truth: a
+    cluster's core (Omega Centauri, 27 cells, 48 to 75 % subtracted, the plate a noisy mush), a bright star's
+    halo (HIP 80609), the Lagoon session of 2025-05-25 where a subtracted halo left a ring in the nebula (seen on
+    two of its failing cells; 24 of its 30 fail) and eta Carinae at 135 mm. What the builder does at a saturated
+    star was measured on two of them after the owner asked whether the halo is over-subtracted
+    (`plate_halo_channels.py`, ring medians less the sky at 300 to 400 px, in pixel sigma, R / G / B): it cuts the
+    star and its halo flat out to about 120 px and leaves the master as it is beyond. On plain sky (HIP 80609)
+    that flat level is the halo's own at 120 px, a pedestal of 20 / 15.5 / 6 sigma above the sky, never under
+    it, with the spikes' residues 4 to 5 sigma under the pedestal. Over nebula (the Lagoon cell) the flat level
+    sits 3 to 6 sigma under its own rim, with a patch 20 to 30 sigma lower: a dent in the nebula. One session is
+    left out by name
+    (`--exclude-session`), the Lagoon and Trifid of 2023-06-16 with its 8 cells: the Sagittarius master the
+    question is read on is an OIII stack of 72 minutes from a frame of that camera's size, and whether its sky is
+    that session's or the L-Ultimate session's of 2024-07-03 (which no list trains) was not established, so
+    neither gives a plate cell. **126 cells pass: 120 training cells in 9 session ids and 6 held out** (M42 of
+    2021-11-28, a validation session). By object 85 of the training cells are eta Carinae (two nights through one
+    3 nm filter), 24 the Lagoon and Trifid, 11 Orion. Their median bright share is 38 %, the builder inpainted
+    4.7 % and subtracted 9.7 % of the median cell, and it left 27 sources a cell unsubtracted, nine in ten of them
+    judged a knot (0.7 a cell at 20 sigma and over). The cells lie on a 128 px grid, so neighbours share half
+    their sky. No cell of the Tarantula or of Andromeda is in it.
+  - **The export** (`export-bright-plates.ps1`): R4d's star line on the plate, `--background plate --stretch-from
+    master --star-beta-draw 0.3,1.3,6,3 --saturated-own-share --saturated-measured --halo-over-plate
+    --extra-cells <the list> --listed-only`, 8 draws a cell (the most a cell of the trainer's cache holds), from
+    `bh-bin11` (main with the knot fix of #2276) with `--noise-as-recorded`, as R4d's binary drew.
+    `--faint-stars` is not in it: the exporter takes it on a
+    synthetic background only, and a plate holds its own faint stars. Then `tianwen dataset plate-masks` writes
+    D4's mask beside every draw (the sky within two PSF widths of a source the plate kept is left out of the
+    loss), and the cache `r2-bright1` is prepared with the trainer's lists and `--prepare-keep`.
+  - **Checked before the export, on one session** (V1045 Ori, the Trapezium field, 7 cells, 2 draws,
+    `r4g-preflight.ps1`): no target holds a pit (4 of the same 7 do through the synthetic line); the input's pixel
+    noise on bright background is 1.00 of the real master's at the same cell (`bright_cell_noise.py`; through the
+    synthetic line it was 0.99 at the median over 122 cells, 0.76 to 1.51 at the 10th and 90th percentile); the
+    masks leave out 7.1 % of the pixels inside the rim, 114 sources a draw, as small discs on knots and texture
+    peaks, with the edges and the broad light kept in the loss (`keep_look.py`).
+  - **The training.** R4d's recipe and cache exactly (`r2-synth29`, R3v's flags, seed 0, the GTX 1070), with
+    `--extra-cache r2-bright1 --extra-loss-mask --schedule-on main`. The bright cells are 960 of 19,040 input
+    tiles, 5.0 % of the draw (the cluster scenes had 12.5 %, R2q): a tile of either cache is drawn as often as any
+    other, and a bright target, with 8 draws to a main target's 4, twice as often as a main one. That takes
+    bright background from 0.5 % of the area the model is shown to between 2 and 3 %. `--extra-loss-mask` is new with
+    this registration's PR: an extra row reads its own draw's mask and a main row weighs every pixel, and a batch
+    with no extra row takes the plain mean it always took. The plateau halves and stops on synth29's held-out
+    part alone, as R4d's did. Model `r4g_synth29b1_s0`.
+  - **The question, as trained:** the Lagoon's broad light taken at most 1.3 (R4d 2.67, R3v 0.56,
+    StarXTerminator 0.42). Seeds of one recipe have stood 1.3 apart on that row, so the bar is a fall of more than
+    that. The row is read on the Sagittarius master, a held-out field, but the Lagoon itself is in the bright
+    cells through two training sessions of other rigs: the master is held out and the object is not. The other
+    two masters cannot carry the question: on the Tarantula and Andromeda StarXTerminator takes as much broad
+    light as R4d does (5.99 and 2.88 against 5.86 and 2.88).
+  - **Guards, through the product's chain** (core protection without the stars, then floor5), R4f's: by count
+    clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over; M42 100-1000 at least 88; SMC 20-100 and
+    100-1000 at least 97; Andromeda dark flat at least 95 and dug at most 3; Tarantula dark flat at least 91; the
+    glow's green median within 450 of zero on Andromeda and within 500 on the Tarantula; the M31 nucleus under
+    10 %; purity at most 1.0 %; the Sagittarius crowded flat at least 96.3; the Tarantula's crowded flat at least
+    90.3 (R4d 91.3, a point under it); the light taken from the Tarantula field at most 83 % and 84 %.
+  - **Nebula guards, as trained:** light added on at most 1.0 % of each master's nebula; of the brightest tenth
+    of the Tarantula's peaks at least 11 of 77 standing (R4d 17). And one for what a plate target could teach, a
+    star kept because the plate kept one like it: of the faint stars on bright background (`audit.py real`:
+    contrast 3 to 10 in a 300 px box, a star being a peak of the input less StarXTerminator's image) at most 37 %
+    left on the Lagoon's core and at most 27 % on 30 Doradus (R4d 29 % of 142 and 22 % of 321; each bar is R4d's
+    figure plus twice its binomial error).
+  - **Kill:** a guard fails, or the Lagoon's broad light taken is over R4d's 2.67. Between 1.3 and 2.67 with
+    every guard held it neither passes nor is killed; the rows go to the owner.
+  - **Reported, no bar:** every row as trained beside R4d's (Andromeda dark flat 69.4 with 19.5 dug, Tarantula
+    dark flat 80.3, Tarantula crowded 86.7, BP 17-19 95.4); the faint stars left on bright background by level;
+    M42's 100-1000 as trained; the extra cache's held-out objective beside its training objective at the best
+    step, since 120 targets shown twice as often as a main one can be learnt by heart; the twin error.
+  - **Looked at before the rows are quoted:** the Lagoon's core with the picture of what was taken
+    (`r4_taken.py`), 30 Doradus's core, the Tarantula's knots, M42's core on a validation tile, M31's nucleus and
+    a bright star on dark sky, as trained and through the product's chain, beside R4d and StarXTerminator.
+  - **Prediction:** the Lagoon's broad light taken falls to between 1.3 and 2.2, so the likely outcome is "the
+    owner decides"; the faint stars left on bright background fall by a fifth on both cores; the star rows stay
+    within a point of R4d's. What speaks against a clean pass: the dose is a twentieth of the draw, two thirds of
+    the bright cells are one object through one filter, 126 cells is little sky, and the halo change that began
+    the nebula-taking is still in every main row.
   - **Nothing is adopted;** adoption is the owner's.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
