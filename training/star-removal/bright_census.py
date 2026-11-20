@@ -1,6 +1,6 @@
 """How many of the store's masters hold a star like HIP 80609 (#2292): a star whose light still stands far out (2026-11-20).
 
-    python -I bright_census.py <store> <out tsv> [stars per master, default 4]
+    python -I bright_census.py <store> <out tsv> [stars per master, default 12]
 
 Per session master (the flip variants and side files left out): the brightest compact peaks at least 420 px inside the
 frame and 300 px apart, found on the frame read at every 4th row and column (a quarter of the file's pages, so a run
@@ -11,14 +11,20 @@ central 512 px crop). Rings: 8-22, 22-40, 40-60, 60-100, 100-140, 140-200, 200-3
 A halo is round and a nebula is not, so each ring also gets its SPREAD: the ring cut in 8 sectors, (largest sector median
 less smallest) over the ring's median excess. Printed and written: one row a star, the largest 100-140 px excess first.
 The injector draws a halo to 45 px and the plate builder cuts one flat at about 120 px, so a star that stands 5 sigma
-over its sky at 100-140 px with a spread under 1 is one neither has ever shown a model."""
+over its sky at 100-140 px with a spread under 1 is one neither has ever shown a model.
+
+The count of peaks a master is a cap, and a cap that binds hides stars: with four, both Pleiades masters' fourth peak
+was itself over the bar and four more such stars sat behind it. So the summary names every master whose LAST peak
+stands 5 sigma or more at 100-140 px; while it names any, the counts are floors and a larger count is owed. With twelve
+it names none on the store of 2026-10-12."""
 import os, sys, time
 import numpy as np
 from astropy.io import fits
 from scipy.ndimage import maximum_filter, uniform_filter
 
 STORE, OUT = sys.argv[1], sys.argv[2]
-PER = int(sys.argv[3]) if len(sys.argv) > 3 else 4
+PER = int(sys.argv[3]) if len(sys.argv) > 3 else 12
+capped = []   # masters whose last peak taken is itself over the bar: the cap binds there
 EDGES = [8, 22, 40, 60, 100, 140, 200, 300]
 R, STEP = 400, 4
 yy, xx = np.mgrid[-R:R + 1, -R:R + 1]
@@ -82,6 +88,8 @@ with open(OUT, "w", encoding="utf-8") as out:
                     row = (name[:-5], x0 - 8 + dx, y0 - 8 + dy, (float(cut[R, R]) - sky) / sig, vals, spread)
                     rows.append(row)
                     out.write(f"{row[0]}\t{row[1]}\t{row[2]}\t{row[3]:.0f}\t" + "\t".join(f"{v:.2f}" for v in vals) + f"\t{spread[0]:.2f}\t{spread[1]:.2f}\n")
+                if len(order) == PER and vals[4] >= 5:   # vals is the last peak's here, the faintest one taken
+                    capped.append(name[:-5])
                 out.flush()
         except Exception as e:  # a master that cannot be read is named and the census goes on
             print(f"SKIPPED {name[:80]}: {type(e).__name__} {e}", flush=True)
@@ -90,6 +98,13 @@ with open(OUT, "w", encoding="utf-8") as out:
 rows.sort(key=lambda r: -r[4][4])
 far = [r for r in rows if r[4][4] >= 5 and np.isfinite(r[5][0]) and r[5][0] < 1]
 print(f"{len(masters)} masters found, {len(gave_row)} gave a row ({len(masters) - len(gave_row)} named above as NO ROW or SKIPPED), {len(rows)} stars measured; standing 5 sigma or more at 100-140 px with a spread under 1: {len(far)} stars in {len({r[0] for r in far})} masters")
+print(f"standing 5 sigma or more at 100-140 px, any spread: {sum(r[4][4] >= 5 for r in rows)} peaks in {len({r[0] for r in rows if r[4][4] >= 5})} masters")
+if capped:
+    print(f"THE CAP OF {PER} BINDS on {len(capped)} masters (their last peak is itself over the bar), so the counts are floors:")
+    for name in capped:
+        print(f"   {name[:100]}")
+else:
+    print(f"the cap of {PER} peaks a master binds nowhere: no master's last peak stands over the bar")
 print("session (60 chars)                                            x     y   peak   " + " ".join(f"{lo}-{hi}".rjust(8) for lo, hi in zip(EDGES[:-1], EDGES[1:])) + "   spread")
 for r in rows[:40]:
     print(f"{r[0][:60]:60s} {r[1]:5d} {r[2]:5d} {r[3]:6.0f}   " + " ".join(f"{v:8.1f}" for v in r[4]) + f"   {r[5][0]:.2f} / {r[5][1]:.2f}")
