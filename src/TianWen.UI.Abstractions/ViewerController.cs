@@ -1330,19 +1330,6 @@ public sealed class ViewerController(
     }
 
     /// <summary>
-    /// Applies a finished AI-enhance result on the render thread: swaps the displayed document for the
-    /// enhanced one (<see cref="ViewerState.NeedsTextureUpdate"/> triggers the GPU re-upload next frame)
-    /// and clears the in-progress flag. Poll every frame from OnRender, mirroring the SER-playback /
-    /// sky-map async-result hand-offs. No-op until the background enhance task completes; on cancel /
-    /// failure it just clears the flag -- <see cref="EnhanceActions"/> already wrote the reason to the
-    /// status line.
-    /// </summary>
-    /// <remarks>
-    /// Also starts star detection on the enhanced raster and, on any non-success path, drops whatever
-    /// the revert route retained -- a run that produced no document leaves nothing to revert TO.
-    /// </remarks>
-    /// <param name="appToken">Ties the star detection it starts to the app's lifetime.</param>
-    /// <summary>
     /// Applies a finished auto-crop scan, if one is pending. Call from the frame loop beside
     /// <see cref="TryApplyPendingEnhance"/>.
     /// </summary>
@@ -1941,6 +1928,19 @@ public sealed class ViewerController(
         }
     }
 
+    /// <summary>
+    /// Applies a finished AI-enhance result on the render thread: swaps the displayed document for the
+    /// enhanced one (<see cref="ViewerState.NeedsTextureUpdate"/> triggers the GPU re-upload next frame)
+    /// and clears the in-progress flag. Poll every frame from OnRender, mirroring the SER-playback /
+    /// sky-map async-result hand-offs. No-op until the background enhance task completes; on cancel /
+    /// failure it just clears the flag -- <see cref="EnhanceActions"/> already wrote the reason to the
+    /// status line.
+    /// </summary>
+    /// <remarks>
+    /// Also starts star detection on the enhanced raster and, on any non-success path, drops whatever
+    /// the revert route retained -- a run that produced no document leaves nothing to revert TO.
+    /// </remarks>
+    /// <param name="appToken">Ties the star detection it starts to the app's lifetime.</param>
     public void TryApplyPendingEnhance(CancellationToken appToken = default)
     {
         FollowFrameRenames();

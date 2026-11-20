@@ -850,8 +850,11 @@ public partial class Image
     /// plain. Measured on M42 RGB 2022-12-03 (ASI533MC Pro, 31 frames): one frame re-pointed 425 px after
     /// a gap left a strip along two edges covered by 30 of the 31 (0.968, inside 0.95), the crop kept it,
     /// and the enhanced master showed the seam. Every frame reaching a region is also the rule the
-    /// dataset's tiles are already cut by (the all-frames <c>StatsRect</c>) and the stack's own
-    /// <c>_autocrop</c> lands on.</para>
+    /// dataset's tiles are already cut by (the all-frames <c>StatsRect</c>) and the one the stack's own
+    /// <c>_autocrop</c> starts from (the registration intersection). The stack then clips that rectangle by
+    /// its in-memory coverage at half weight over 8 px blocks, which this routine does not do, so the two
+    /// rectangles agree on the every-frame rule and can still differ at a hole inside the rim
+    /// (<c>docs/plans/stacking-workbench.md</c>, W10, and the open question #2291).</para>
     /// <para><b>The test is each block's MEDIAN count, never its mean.</b> A count falls by one at
     /// scattered single pixels all over a fully covered interior, wherever a frame's hot-pixel mask or a
     /// rejected sample left that frame out, so a block's mean there reads just under the full count and a

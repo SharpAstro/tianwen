@@ -2576,12 +2576,6 @@ internal sealed partial class ImageSubCommand(
     }
 
     /// <summary>
-    /// Run the shared <see cref="MasterPreviewRenderer"/> -- same path the
-    /// stack subcommand uses for its <c>master_*.png</c> -- against
-    /// <paramref name="img"/>. SPCC is computed at render time and only
-    /// baked into the PNG; the source FITS stays untouched.
-    /// </summary>
-    /// <summary>
     /// Which balance <c>image sharpen</c> works from: an explicit <c>--white-balance</c> WINS over the input's own WB
     /// cards (an option on the command line is the user's intent, and the cards used to win silently, so an override
     /// was lost without a word), and the note names both triples when it replaced the file's. Null note when nothing
@@ -2626,6 +2620,12 @@ internal sealed partial class ImageSubCommand(
         return true;
     }
 
+    /// <summary>
+    /// Run the shared <see cref="MasterPreviewRenderer"/> -- same path the
+    /// stack subcommand uses for its <c>master_*.png</c> -- against
+    /// <paramref name="img"/>. SPCC is computed at render time and only
+    /// baked into the PNG; the source FITS stays untouched.
+    /// </summary>
     private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, (float R, float G, float B)? whiteBalanceOverride, ScreenedStars? starScreen, float backgroundSky, CancellationToken ct)
     {
         try
