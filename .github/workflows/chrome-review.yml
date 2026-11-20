@@ -68,9 +68,9 @@ jobs:
 
       # The UI diff of this PR against its base, as one short hash: the five UI projects and, since the agent's rule 4
       # reads test seams, the CHROME tests among the changed files of src/TianWen.Lib.Tests, which are the ones that
-      # use a TianWen.UI namespace. Every test file was in it for one commit: then a fix to a stacking test, in a PR
-      # that also touches UI, was a second paid review of a diff the agent has nothing to say about, which is what
-      # this hash is here to prevent. The paths filter above stays UI-only. The comment a finished review leaves
+      # use a TianWen.UI namespace. Not every test file: a fix to a stacking test, in a PR that also touches UI,
+      # would then be a second paid review of a diff the agent has nothing to say about, which is what this hash is
+      # here to prevent. The paths filter above stays UI-only. The comment a finished review leaves
       # carries the hash it reviewed and the count it found; when this push leaves that diff as it was, the agent is
       # not run again and the gate answers from that count. A review that did not finish leaves no hash, so it is
       # never reused.
