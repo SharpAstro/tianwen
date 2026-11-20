@@ -7229,7 +7229,7 @@ the first angle is a step after the model and not another arm:
   - **Nothing is adopted;** adoption is the owner's.
   - **R4f's read, 2026-11-21 (seed 0, `r4f_synth31_s0`): KILLED. The Tarantula's crowded flat reads 90.3, under
     R4d's 91.3; every guard held. Its training stopped improving at step 69,500, which none of R4c, R4d, R4e and R3x
-    did (earlier stalls are arm B's seed 1 and R2n, below), so the read says little about
+    did (earlier stalls are arm B's seed 1, R2n and R3w, above), so the read says little about
     the target.** Through the product's chain unless a row says "as trained"; R4d's tile
     rows are this step's own, with floor5:
 
@@ -7260,23 +7260,30 @@ the first angle is a step after the model and not another arm:
       of 2026-04-21 are left whole, core and all, where R4d dims the core.
     - **The training.** The trainer stopped itself at step 129,500 of 480,000, and the Batch pool removed itself.
       The held-out objective was best at step 69,500 (1.08e-5, still at the first learning rate) and never
-      improved again through all four halvings. 1.08e-5 is the trainer's best, a mean of the last three scores
-      (`VAL_WINDOW` in `n2n_smoke.py`); whether each median below is of those window means or of the single scores
-      the log prints beside them is not recorded here. Its readings between steps 70,000 and 130,000 have a median of
-      1.48e-5, as between 30,000 and 70,000 (1.58e-5): the series is flat from step 30,000, so 69,500 may be the
-      lowest of about eighty window means and not the point where learning stopped, and a trainer that kept its best
-      step would then have returned weights no better than the final ones. Over those same later steps R4d's median
-      is 9.6e-6 and R4e's 8.9e-6, and R4d went on to 7.85e-6 at step 233,000. **These figures are not like for like:**
-      each arm's held-out objective is read on its own validation draws (R4f on synth31's, whose targets are the
-      grain-free plates; R4d on synth29's and R4e on synth30's, on the stored plates), and this plan already calls a
-      held-out loss on another arm's draws "not comparable" (arm A and B, above). The gap says R4f's curve was
-      higher, not by how much the model is worse. The logs the R4d and R4e medians, R4d's 7.85e-6 and the moves of
-      R4c, R4e and R3x were read from are the Azure Batch jobs' trainer stdout, which is in neither this tree nor on
-      this machine; R4d's median over steps 30,000 to 70,000, which would tell "tracked R4d until 69,500" from "slow
-      from the start", is not written down (#2327). The run was moved to a new node twice (resumed
-      after steps 72,000 and 110,000). R4c, R4e and R3x were moved too and each went on improving after every
-      resume, so the resume is not shown to be the cause. The trainer keeps the last step's weights, so the model
-      scored is the one at the stop and not the one at its best. Why this run stopped improving is not known.
+      improved again through all four halvings. Every figure below is a median of the trainer's window means
+      (`VAL_WINDOW` in `n2n_smoke.py`, the mean of the last three scores, which is what its plateau rule and its
+      "best" judge), read from its `val STEP held-out X window Y best Z at S lr L` lines in the logs
+      `C:/temp/e2/r4faz-batch/r4faz.log`, `C:/temp/e2/r4d.log` (a GTX 1070 run, not Batch),
+      `C:/temp/e2/r4eaz-batch/r4eaz.log`, `C:/temp/e2/r4caz-batch/r4caz.log` and
+      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **R4f tracked R4d until step 69,500 and was not slow from the start:** over
+      steps 30,000 to 70,000 the medians are R4f 1.88e-5, R4d 1.76e-5, R4e 1.87e-5, R4c 2.16e-5, and at step 69,500
+      R4d's window mean was 1.04e-5 against R4f's 1.08e-5. **After the first halving they part:** over steps 70,000 to
+      130,000 R4d's median is 9.47e-6, R4e's 8.96e-6 and R4c's 1.05e-5 (each about half its earlier median), where
+      R4f's is 1.48e-5 (a fall of a fifth), and R4d went on to 7.85e-6 at step 233,000. So the flat stretch before the
+      stop does not separate R4f from the arms that went on. **Nor did the later steps hold weights as good as the
+      best:** R4f's windows sat at 1.08e-5 to 1.16e-5 through step 72,000, then came a spike (held-out 4.88e-5 at
+      step 73,000, window 2.50e-5) with no recovery: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
+      lower, and the final window is 1.57e-5, 45 percent above the best. That is the shape R2n's note records (above,
+      "the deeper net blew up"). The first resume (after step 72,000) is not its cause: replaying steps 72,500, 73,000
+      and 73,500 gives the same digits (1.433862e-05, 4.882240e-05, 1.355304e-05). The run was moved to a new node
+      twice (resumed after steps 72,000 and 110,000); R4c, R4e and R3x were moved too and each went on improving
+      after every resume. **These figures are not like for like across arms:** each arm's held-out objective is read
+      on its own validation draws (R4f on synth31's, whose targets are the grain-free plates; R4d on synth29's and R4e
+      on synth30's, on the stored plates), and this plan already calls a held-out loss on another arm's draws "not
+      comparable" (arm A and B, above). The gap says R4f's curve was higher after the spike, not by how much the model
+      is worse. The trainer keeps the last step's weights, so the model scored is the one at the stop and not the one
+      at its best (a window of 1.57e-5 against 1.08e-5). Why the held-out objective spiked at step 73,000 and did not
+      recover is not known.
     - **Reported.** Purity 1.0 (R4d 0.8); the blotch line on the Tarantula's densest tenth 0.29 (0.29). As
       trained: Andromeda's dark flat 68.3 with 19.8 % dug (R4d 69.4, 19.5); the Tarantula's 70.0 with 28.1 % left
       (80.3, 14.3); its crowded flat 85.9 (86.7); BP 17-19 95.1 (95.4), and through the chain 95.5 (96.0); the M31
