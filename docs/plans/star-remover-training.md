@@ -7349,8 +7349,12 @@ the first angle is a step after the model and not another arm:
       launch**, on the review of this registration (PR #2335), which found that the figure as launched would
       have called R3x stalled: I had set the thresholds on R4c, R4d, R4e and R4f and left R3x out. A first
       wording of them (a spike with no recovery) was withdrawn in the same review, since by it R4f had recovered
-      too. When they were last changed the run's log reached step 13,500, all at the first learning rate, so
-      nothing the figure reads (the first halving and the steps after it) existed yet. The addition is the
+      too. They went in between 10:40 and 10:55 on 2026-11-21, 39 to 54 minutes into the training (its trainer
+      started at 10:00:46 and its log reads step 13,600 at 42.5 minutes): the run was then between about step
+      12,500 and step 17,500, at the first learning rate on every line fetched, far short of any halving, the earliest first halving among the other arms being
+      at step 57,000. So nothing the figure reads existed yet. The prediction's reasons below were reworded in
+      the same review (they first said R4c, R4d and R4e each differ from R4f by one change of the export, which
+      this plan's own lineage contradicts); the guess and its figures are as launched. The additions are the
       owner's to refuse; refused, the rule is the one sentence as launched.
     - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
       guards, its kill rule and its two added rows stand as its registration and its read list them (the
