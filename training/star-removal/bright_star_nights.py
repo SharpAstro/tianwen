@@ -4,7 +4,8 @@
 
 A ring file is the concatenation of the two outputs of stretch_swap_rings.py, one per night (2022-01-04 and
 2022-01-05; each writes one night, one block a row opened by its "=== " line, one table of ring medians an image).
-A file holding one night only stops with a message: the night-to-night gap needs a star on both. For each (file, label) this prints, in the red channel:
+A file holding one night only stops with a message: the night-to-night gap needs a star on both. For each
+(file, label) this prints, in the red channel:
 
 - on how many rows the image takes under 80 percent of what StarXTerminator takes at 8 to 22 px, and which rows;
 - over the eight Pleiads that are on both nights (2022-01-04 and 2022-01-05), the widest difference between the
@@ -13,9 +14,11 @@ A file holding one night only stops with a message: the night-to-night gap needs
 
 The share is (master - image) / (master - sxt) on the ring's median less its sky, clamped at 0, and a ring where
 StarXTerminator takes under --floor sigma is left out. The floor is 3 by default, as stretch_swap_table.py and
-stretched_levels.py have it (the plan's older table left out a ring under a sigma: pass --floor 1 for that). It exists because the first night-to-night
-figures in the plan were read off a table of three stars and written as if of all eight (20 and 19 points, where
-all eight read 31 and 38)."""
+stretched_levels.py have it (the plan's older table left out a ring under a sigma: pass --floor 1 for that).
+
+The floor matters. At 60 and 120 sigma the widest gap over the eight Pleiads is 20 and 19 points at the floor of 3
+and 31 and 38 at a floor of 1, the last two set by one ring where StarXTerminator takes 2.6 sigma. This script's
+first version had the floor at 1 and so "corrected" a right figure in the plan to a wrong one (2026-11-21)."""
 import re, sys
 
 RINGS = ["8 to  22", "22 to  40", "40 to  60", "60 to  80"]
@@ -78,8 +81,10 @@ def main(args):
                 if star in SHOWN and d > widest_shown[0]:
                     widest_shown = (d, where)
         if not paired:
-            sys.exit(f"FAILED: {path} has no Pleiad on both 2022-01-04 and 2022-01-05; concatenate the two nights' ring files")
-        print(f"{label}: the innermost ring is taken under 80 percent on {len(under)} of {len(s)} rows ({', '.join(under) or 'none'})")
+            sys.exit(f"FAILED: {path} has no Pleiad on both 2022-01-04 and 2022-01-05; "
+                     "concatenate the two nights' ring files")
+        print(f"{label}: the innermost ring is taken under 80 percent on {len(under)} of {len(s)} rows "
+              f"({', '.join(under) or 'none'})")
         print(f"    the two nights, eight Pleiads: up to {widest[0]} points apart ({widest[1]}); "
               f"{', '.join(SHOWN)}: up to {widest_shown[0]} ({widest_shown[1]})")
 

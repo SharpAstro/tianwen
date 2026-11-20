@@ -7869,20 +7869,18 @@ the first angle is a step after the model and not another arm:
       percent on 7 as they are, on 2 at 60 sigma and on 1 at 120, and nothing is taken beyond StarXTerminator's
       take at either depth, bar one ring: south of Merope 2022-01-04 reads 102 at 22-40 px at 60 sigma (every
       other ring at both depths is 100 or under). With the depth truly equal the two Pleiades nights stand within
-      20 points at 60 sigma and 19 at 120 on Alcyone, Maia and Merope (the same stars up to 113 apart as they
-      are). Over all eight Pleiads, leaving out a ring where StarXTerminator takes under 3 sigma (the floor of
-      `stretch_swap_table.py` and `stretched_levels.py`), the widest gap is 20 at 60 (Merope, 40-60 px) and 19
-      at 120 (Maia, 40-60 px): the figures the first text gave for the three stars are also the all-eight ones.
-      With the floor at 1 sigma (`bright_star_nights.py --floor 1`) it is 31 at 60 and 38 at 120, both 22 Tau
-      at 60-80 px, where StarXTerminator takes 2.6 sigma on 2022-01-04 and 5.0 on 2022-01-05 (shares 27 / 58 at
-      60 and 45 / 7 at 120, noise-sized); those two rest on that one ring. (Corrected 2026-11-21 twice: the first
-      figures were read off the table's three stars and written as if of all; the second correction gave the
-      1 sigma floor's figures without saying the floor.) So equal depth brings the nights together and
-      does not make them one. It is still no clean plate: inside 22 px
-      Alcyone of 2022-01-05
-      keeps 1,403 and 756 sigma of her 3,335, where StarXTerminator leaves 7. Looked at (512 px at 1:1): Alcyone
-      is a smaller core with a green fringe at each depth; Antares loses its core to a pink ring and keeps its
-      disc and every spike. Alnitak and iota Orionis give up less far out at 60 than as they are. For Alnitak
+      20 points at 60 sigma (Merope, 40-60 px) and 19 at 120 (Maia, 40-60 px) over all eight Pleiads, up to 113
+      apart as they are. A ring where StarXTerminator takes under 3 sigma is left out, the floor of
+      `stretch_swap_table.py` and `stretched_levels.py`. With the floor at 1 sigma
+      (`bright_star_nights.py --floor 1`) the two read 31 and 38, both 22 Tau at 60-80 px, where StarXTerminator
+      takes 2.6 sigma on 2022-01-04 and 5.0 on 2022-01-05 (shares 27 / 58 at 60 and 45 / 7 at 120): those rest
+      on one noise-sized ring. (A correction of 2026-11-21 put 31 and 38 here without naming the floor, and
+      called the first figures a reading of three stars, which was a guess. It is withdrawn: 20 and 19 stand.)
+      So equal depth brings the nights together and does not make them one. It is still no clean plate: inside
+      22 px Alcyone of 2022-01-05 keeps 1,403 and 756 sigma of her 3,335, where StarXTerminator leaves 7. Looked
+      at (512 px at 1:1): Alcyone is a smaller core with a green fringe at each depth; Antares loses its core to
+      a pink ring and keeps its disc and every spike. Alnitak and iota Orionis give up less far out at 60 than
+      as they are. For Alnitak
       that fits its own black point, which is deeper than 60 in red and green (65.2 / 127.6 / 54.5), so 60 is
       the harder one there. Iota Orionis is not that: its master reads 49.1 / 57.8 / 40.8, so 60 sigma is a
       softer black point in all three channels, yet R4d gives up less there (40-60 px share 46 at the master's
@@ -7926,7 +7924,9 @@ the first angle is a step after the model and not another arm:
       commit ("the 40 sigma registration names its masters' store; two wordings from the review") is stamped
       07:30 to 07:35 (+1100), AFTER the run began and while the star runs were still writing, so the
       registration "before any score" is the 07:04 text only; that commit named the masters' store and
-      reworded two sentences, and left the prediction and the reading rule as pushed at 07:04.
+      reworded two sentences, and left the prediction and the reading rule as pushed at 07:04. (Written 07:30,
+      four minutes after the scorecard's rows were on disk and before they were opened; 07:35 is its move onto
+      this branch.)
 
       | row | as it is | 40 sigma | bar | read |
       |---|---|---|---|---|
@@ -7980,11 +7980,11 @@ the first angle is a step after the model and not another arm:
         little: over all eight Pleiads the widest gap in these four rings, leaving out a ring where
         StarXTerminator takes under 3 sigma, is 15 points, against 20 at 60, 19 at 120 and 113 as they are (with
         the floor at 1 sigma the 60 and 120 figures are 31 and 38, set by one ring, 22 Tau at 60-80 px). No
-        spread is stated, and 20 and 19 are close to 15. Inside 22 px Alcyone of 2022-01-05 keeps 1,419 sigma of her 3,335, as at 60 (1,403). Iota
-        Orionis gives up less far out at 40 too (40-60 px 46 / 32 / 30), though 40 is the harder black point on
-        its master and 60 the softer; still unexplained. Looked at (512 px at 1:1): Alcyone is the smaller core
-        with a green fringe that 60 leaves; Antares keeps its disc and every spike around a pink ring; iota
-        Orionis leaves the same faint halo at each depth.
+        spread is stated, and 20 and 19 are close to 15. Inside 22 px Alcyone of 2022-01-05 keeps 1,419 sigma
+        of her 3,335, as at 60 (1,403). Iota Orionis gives up less far out at 40 too (40-60 px 46 / 32 / 30),
+        though 40 is the harder black point on its master and 60 the softer; still unexplained. Looked at (512
+        px at 1:1): Alcyone is the smaller core with a green fringe that 60 leaves; Antares keeps its disc and
+        every spike around a pink ring; iota Orionis leaves the same faint halo at each depth.
       - **Against what was predicted.** The peaks failed, as predicted. The stars did not land between: 7 of
         26, where 3 to 6 was predicted. The depth moved rows both ways, which a count of rows hides.
       - **What it says.** The knots lose their brightest peaks somewhere between the Tarantula's own 10 sigma
@@ -7994,9 +7994,10 @@ the first angle is a step after the model and not another arm:
         33 / 29 / 48 at 40 / 60 / 120). No depth under 40 is registered: by the stars' innermost rows at 40 it
         has nothing to give the stars, and it is harder than the Pleiades masters' own black point in green and
         blue. At 40 the two nights stand 15 points apart, against 20 and 19 at 60 and 120 on the same floor: a
-        little closer, not a different kind of reading. Which depth such a
-        domain should have these rows cannot say: they are read on a model trained on masters whose own depths
-        run from 8 to 228 sigma. The retrain is not registered, and it is the owner's.
+        little closer, not a different kind of reading. What all three depths show is that at one depth the
+        nights read far more alike than as they are (113), which is what a retrain in one domain would build on.
+        Which depth such a domain should have these rows cannot say: they are read on a model trained on masters
+        whose own depths run from 8 to 228 sigma. The retrain is not registered, and it is the owner's.
   - **Looked at** (the sheets, 512 px at 1:1: master / StarXTerminator / R4d as trained / R4d through the chain,
     all twenty-four). StarXTerminator leaves a smooth field on every one, and Merope's and Maia's nebulae with
     their streaks intact. Ours leaves:
