@@ -1514,6 +1514,8 @@ internal partial record Session
         // Iterative plate-solve centering after flip
         // A plate solve through cloud finds no field, or a wrong one: while the OTA's latest light is cloud the recentre and the
         // image-based flip check are skipped, and the flip is read off the mount's own report (#1977).
+        // OTA 0's judge alone is asked, as everything else here is OTA 0's (its solve, its recentre). A flip that
+        // recentres on every OTA has to ask each one's own (#1989).
         var cloudy = IsCloudy(0);
         if (cloudy)
         {

@@ -61,6 +61,29 @@ public class ViewerGradeVerdictE2ETests
         e2e.State.ImageFileNames.ShouldContain("light_0089.fits");
     }
 
+    /// <summary>
+    /// #1989 asked whether a frame with no grade gives no folder count, since the count sits in the Grade section. It
+    /// does give one: every frame that has a file has a readout ("Measuring the stars..." or "Not graded: no stars
+    /// found"), so its section is there and the folder's line with it. This holds that, at both scales.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [MemberData(nameof(Scales))]
+    public async Task TheFoldersCountIsShownForAFrameThatHasNoGradeYet(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpiScale);
+        e2e.WriteColourFits("BAD_STREAKY_light_0090.fits", level: 2f);
+        e2e.WriteColourFits("MAYBE_CLOUD_light_0091.fits", level: 3f);
+        var path = e2e.WriteColourFits("light_0092.fits", level: 4f);
+        await e2e.OpenAsync(path, ct);
+        e2e.Frame();
+        e2e.State.GradeOf("light_0092.fits").ShouldBeNull("premise: the frame on show has no grade");
+
+        PaintedStripText(e2e).ShouldContain("Folder: 1 suspected cloud, 1 rejected, 1 unmarked");
+        e2e.Viewer.PaintedRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "RejectCloud" })
+            .ShouldBeFalse("and still no verdict to give before the frame is graded");
+    }
+
     [Theory(Timeout = 120_000)]
     [MemberData(nameof(Scales))]
     public async Task ASuspectedCloudFrameIsConfirmedByCloudAndClearedByGood(float dpiScale)
