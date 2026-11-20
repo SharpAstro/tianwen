@@ -7160,6 +7160,13 @@ the first angle is a step after the model and not another arm:
     rule fills, a cost of the target rule and not of the scorer. So the bar stays. R4f failing it on the
     Tarantula would be a finding against the rule (the nebula has to be held out of it), and the read is to say
     so in those words. The owner may rule otherwise before the read; until then the registration stands.
+    Measured after it (`grain_rule_nebula_out.py`: the rule plate with `nebula_rows.py`'s own nebula mask, the
+    input's large-scale light 20 sigma over the sky, held out of the rule): the light added returns to R4d's 0.1 /
+    0.7 / 0.3 % and the crowded rows keep their gain (Tarantula 97.8, Sagittarius 99.7, BP 17-19 with the level
+    set aside 96.4); the mask is 2.0 % of the Tarantula's frame. Held out at 5 sigma the mask is half that frame,
+    since crowded sky is itself bright at that scale, and the gain is gone (crowded flat 91.9, BP 17-19 91.9). So
+    the bright nebula can be held out of the rule at no cost to the rows, and the faint wisps beyond it cannot
+    be protected by a brightness mask.
     The Lagoon's broad light on it is 2.04 (R4d through the chain 2.04)
     and 17 of the Tarantula's 77 brightest peaks stand. Reported beside row (2) from now on: the scorer's blotch
     line on the held-out Tarantula.
@@ -7174,10 +7181,12 @@ the first angle is a step after the model and not another arm:
     Sagittarius crowded flat at least 96.3. R4d's own: the light taken from the Tarantula field (green, the densest tenth of
     cells and the whole frame) at most 83 % and 84 % (R4d 81 and 82).
   - **Nebula guards, as trained** (the rule since 2026-11-19; R4d reads added 0.0 / 0.0 / 0.0, broad 2.88 / 5.86 /
-    2.67, 17 of 77 and 0 of 18 standing): light added on at most 1.0 % of each master's nebula; the Lagoon's broad
+    2.67, 17 of 77 and 0 of 18 standing): light added on at most 1.0 % of each master's nebula (**it stays a
+    guard**; a plate that meets the target reads about 1.4 on the Tarantula from the rule's fill alone, see "The
+    nebula guard on light added stays a guard" above); the Lagoon's broad
     light taken at most 4.0 (seeds of one recipe have stood up to 1.3 apart on it); of the brightest tenth of the
     Tarantula's peaks at least 11 of 77 standing (R4c's, the fewest of the faint-star arms; StarXTerminator 17).
-  - **Kill:** a guard fails (purity is not one for R4f), or the crowded flat under R4d's 91.3. Between 91.3 and 93.3 with every guard held it
+  - **Kill:** a guard fails (purity is not one for R4f; light added on the nebula is one), or the crowded flat under R4d's 91.3. Between 91.3 and 93.3 with every guard held it
     neither passes nor is killed; the rows go to the owner.
   - **Reported, no bar:** purity through the chain (R4d 0.8, the rule plate 2.6, a level-only plate 3.4), and the
     scorer's blotch line on the held-out Tarantula (R4d 0.29, StarXTerminator 0.14, the rule plate 0.12); every row
@@ -7276,7 +7285,7 @@ the first angle is a step after the model and not another arm:
     clean at least 98.5 at 100-1000 sigma and 98 at 1000 and over; M42 100-1000 at least 88; SMC 20-100 and
     100-1000 at least 97; Andromeda dark flat at least 95 and dug at most 3; Tarantula dark flat at least 91; the
     glow's green median within 450 of zero on Andromeda and within 500 on the Tarantula; the M31 nucleus under
-    10 %; purity at most 1.0 % (**this bar stands for R4g**: it trains on the stored plate cells without the grain rule, as R4d does, so purity is not the question it is for R4f; the heading "R4f's" below is shared text only); the Sagittarius crowded flat at least 96.3; the Tarantula's crowded flat at least
+    10 %; purity at most 1.0 % (**this bar stands for R4g**: it trains on the stored plate cells without the grain rule, as R4d does, so purity is not the question it is for R4f; the heading "R4f's" above is shared text only); the Sagittarius crowded flat at least 96.3; the Tarantula's crowded flat at least
     90.3 (R4d 91.3, a point under it); the light taken from the Tarantula field at most 83 % and 84 %.
   - **Nebula guards, as trained:** light added on at most 1.0 % of each master's nebula; of the brightest tenth
     of the Tarantula's peaks at least 11 of 77 standing (R4d 17). And one for what a plate target could teach, a
