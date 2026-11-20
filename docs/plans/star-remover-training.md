@@ -7165,7 +7165,8 @@ the first angle is a step after the model and not another arm:
     0.7 / 0.3 % and the crowded rows keep their gain (Tarantula 97.8, Sagittarius 99.7, BP 17-19 with the level
     set aside 96.4); the mask is 2.0 % of the Tarantula's frame before its feather (the rows above were scored on the plate that holds
     out the mask plus the tool's 8 px Gaussian feather, which is wider; the tool prints it as "held out with its
-    feather", and an arm that holds the nebula out must quote both areas). Held out at 5 sigma the mask is half that frame,
+    feather", and an arm that holds the nebula out must quote both areas: here 2.0 and 4.2 % of the Tarantula's
+    frame, 5.5 and 7.4 % of Andromeda's, 0.8 and 1.5 % of the Lagoon's). Held out at 5 sigma the mask is half that frame (45.2 %, and 49.9 % with the feather),
     since crowded sky is itself bright at that scale, and the gain is gone (crowded flat 91.9, BP 17-19 91.9). So
     the bright nebula can be held out of the rule at no cost to the rows, and the faint wisps beyond it cannot
     be protected by a brightness mask.
