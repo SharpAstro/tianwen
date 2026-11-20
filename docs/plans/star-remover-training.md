@@ -7322,6 +7322,62 @@ the first angle is a step after the model and not another arm:
     the bright cells are one object through one filter, 126 cells is little sky, and the halo change that began
     the nebula-taking is still in every main row.
   - **Nothing is adopted;** adoption is the owner's.
+  - **R4g's read, 2026-11-20 (seed 0, `r4g_synth29b1_s0`): KILLED. It leaves 41 % and 50 % of the faint stars on
+    bright background, over the bars of 37 and 27; the Lagoon's broad light falls to 1.37, short of 1.3 by 0.07.**
+    The trainer stopped itself at step 178,500 of 480,000 (best at 166,500, where the main cache's held-out
+    objective reads 8.73e-6 and the bright cells' 1.75e-5). As trained for the question and the nebula guards,
+    through the product's chain for the rest (the tile rows with floor5):
+
+    | row | R4d | R4g | bar | read |
+    |---|---|---|---|---|
+    | the Lagoon's broad light taken, as trained | 2.67 | **1.37** | at most 1.3, kill over 2.67 | missed by 0.07 |
+    | faint stars left on bright background, the Lagoon's core | 29 % of 142 | **41 %** | at most 37 % | **failed** |
+    | the same, 30 Doradus | 22 % of 321 | **50 %** | at most 27 % | **failed** |
+    | light added on each master's nebula | 0.0 / 0.0 / 0.0 % | 0.05 / 0.12 / 0.11 % | at most 1.0 % | held |
+    | brightest tenth of the Tarantula's peaks standing | 17 of 77 | 20 of 77 | at least 11 | held |
+    | by count clean, 100-1000 and 1000 and over | 99.2, 100.0 | 99.2, 100.0 | at least 98.5, 98 | held |
+    | M42 100-1000 by count clean | 93.4 | 93.4 | at least 88 | held |
+    | SMC 20-100 and 100-1000 by count clean | 98.9, 100.0 | 98.9, 100.0 | at least 97 | held |
+    | Andromeda dark flat, dug | 98.5, 0.7 | 98.1, 0.9 | at least 95, at most 3 | held |
+    | Tarantula dark flat | 96.5 | 95.6 | at least 91 | held |
+    | glow green median, Andromeda and Tarantula | -8.5, 106.5 | -125.3, 93.3 | within 450, 500 | held |
+    | M31 nucleus | 0.0 % | 0.0 % | under 10 % | held |
+    | purity | 0.8 | 0.8 | at most 1.0 | held |
+    | Sagittarius crowded flat | 97.0 | 97.2 | at least 96.3 | held |
+    | Tarantula crowded flat | 91.3 | 91.3 | at least 90.3 | held |
+    | light taken from the Tarantula field, densest tenth and whole frame | 81, 82 % | 79, 82 % | at most 83, 84 % | held |
+
+    On 30 Doradus R4g also leaves 16 % of the 330 stars of contrast 10 to 30 and 5 % of the 96 over 30, where R4d
+    leaves 1 % and none.
+  - **The renders, looked at before the rows** (`arm_look.py`, 300 px crops at 2x on one stretch a region; the
+    Lagoon's taken light with `r4_taken.py`; M42's two brightest validation tiles). **30 Doradus's core:** R4g
+    leaves a spray of stars left of the core, as trained and through the chain, where R4d leaves a few and
+    StarXTerminator none. **The Lagoon's core:** the plates look alike in the broad light, with more faint specks
+    on R4g's; in the picture of what was taken, R4d's two bright patches of nebula are down to one smaller patch
+    beside the cluster, with thin dark streaks where a little light was added. **The Tarantula's knots:** both
+    dim the knots' bright points, which StarXTerminator keeps. **M42's tiles, M31's nucleus and the bright star
+    on Andromeda:** R4g as R4d.
+  - **Against the prediction.** The Lagoon's broad light was predicted between 1.3 and 2.2 and reads 1.37: held.
+    The faint stars left on bright background were predicted to fall by a fifth on both cores; they rose by two
+    fifths on the Lagoon and more than doubled on 30 Doradus: failed, the other way. The star rows were predicted
+    within a point of R4d's: through the chain they are (the largest move is the Tarantula's dark flat, 96.5 to
+    95.6). As trained they are not: Andromeda's dark flat falls from 69.4 to 50.6 with 34.5 % dug and the
+    Tarantula's from 80.3 to 74.4, which floor5 covers.
+  - **Reported, no bar.** Broad light taken as trained on Andromeda / the Tarantula / the Lagoon: 2.83 / 4.17 /
+    1.37 against R4d's 2.88 / 5.86 / 2.67, the Tarantula with no cell in the draw. Gaia BP 17-19 with the level
+    set aside, through the chain: 91.4 (R4d 90.7). M42's 100-1000 as trained: 55.9 (R4d 63.2). The blotch line on
+    the Tarantula's densest tenth: 0.30 (R4d 0.29). The twin error: 2.48 sigma in the mask as trained, 1.07 with
+    floor5. The twenty-four bright stars of #2292: inside 22 px R4g leaves over 1.2 times R4d's on 21 and less on
+    none, and on both Pleiades nights it leaves the bright Pleiads whole (Maia 3,057 of 3,134 sigma on
+    2022-01-04, where R4d leaves 113).
+  - **What it says.** Plate targets teach the model to leave the nebula's broad light, on a master it holds no
+    cell of. They teach it to keep stars with it: the plates kept sources (27 a cell at the median, nine in ten
+    judged knots), the loss mask left out only the sky within two PSF widths of them, and the model learnt that
+    compact light on bright background stays and that a very bright star stays. The direction is right and the
+    target is not. A next arm on this line needs cells whose kept sources are not stars; none is registered, and
+    that is the owner's. Both models were read at each master's own black point, which #2309 shows is set by one
+    pixel a channel, so the bright-star rows of both stand at an arbitrary stretch; the kill does not rest on
+    them.
 - **The crowded rows read light between the stars (2026-11-20, no training).** The owner, looking at one bright
   star through StarXTerminator (#2292): "i feel that SXT real strength it that it can really model starlight, not
   just stars". Read on the scoring masters, that is what separates the crowded rows.
