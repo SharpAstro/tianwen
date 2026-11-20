@@ -8,13 +8,14 @@ name: Chrome review
 # counted as reviewed. Here it runs once per state of the PR that a person is about to merge, whoever wrote it.
 #
 # Drafts are skipped: a draft is still moving, and every push would be a paid review. Marking a PR ready runs it, and so
-# does a later push that changes the UI diff; a newer push cancels a review still running on an older one.
+# does a later push that changes the UI diff or a chrome test; a newer push cancels a review still running on an older
+# one.
 #
 # What counts as UI is what the hook counted: the .cs and .razor files of the five projects below, not the benchmarks,
 # the E2E harness, a shader's .spv or a README beside them. A paths filter reads the whole PR diff against its base, so
 # it still starts this workflow on every later push of a PR that touches one of them, a docs fixup or a merge of main
 # included. The fingerprint step below is what keeps those from being a second paid review (105k to 165k tokens each,
-# docs/plans/viewer-layout-engine.md): it skips the agent when the UI diff is the one already reviewed.
+# docs/plans/viewer-layout-engine.md): it skips the agent when the UI and chrome-test diff is the one already reviewed.
 #
 # A PR that changes THIS file cannot be reviewed here. The review action will not run a workflow file that differs from
 # the default branch's: it logs "Workflow validation failed", ends its step as a success and writes nothing (seen on
@@ -65,10 +66,14 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      # The UI diff of this PR against its base (the five UI projects and, since the agent's rule 4 reads test seams,
-      # src/TianWen.Lib.Tests; the paths filter above stays UI-only), as one short hash. The comment a finished review
-      # leaves carries the hash it reviewed and the count it found; when this push leaves that diff as it was, the agent is not run again
-      # and the gate answers from that count. A review that did not finish leaves no hash, so it is never reused.
+      # The UI diff of this PR against its base, as one short hash: the five UI projects and, since the agent's rule 4
+      # reads test seams, the CHROME tests among the changed files of src/TianWen.Lib.Tests, which are the ones that
+      # use a TianWen.UI namespace. Every test file was in it for one commit: then a fix to a stacking test, in a PR
+      # that also touches UI, was a second paid review of a diff the agent has nothing to say about, which is what
+      # this hash is here to prevent. The paths filter above stays UI-only. The comment a finished review leaves
+      # carries the hash it reviewed and the count it found; when this push leaves that diff as it was, the agent is
+      # not run again and the gate answers from that count. A review that did not finish leaves no hash, so it is
+      # never reused.
       - name: Fingerprint the UI diff
         id: fingerprint
         env:
@@ -76,12 +81,22 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           BASE: origin/${{ github.event.pull_request.base.ref }}
         run: |
+          # The changed test files that use a UI namespace, as they are at the PR's head (a deleted file names nothing
+          # to review). Literal paths, so a name with a bracket in it is not read as a pattern.
+          chrome_tests=()
+          while IFS= read -r file; do
+            if grep -qE 'TianWen\.UI\.' "$file" 2>/dev/null; then
+              chrome_tests+=(":(literal)$file")
+            fi
+          done < <(git diff --name-only --diff-filter=d "$BASE...HEAD" -- ':(glob)src/TianWen.Lib.Tests/**/*.cs')
+          echo "chrome tests in the diff: ${#chrome_tests[@]}"
           fp="$(git diff "$BASE...HEAD" -- \
             ':(glob)src/TianWen.UI.Abstractions/**/*.cs' ':(glob)src/TianWen.UI.Abstractions/**/*.razor' \
             ':(glob)src/TianWen.UI.Shared/**/*.cs' ':(glob)src/TianWen.UI.Shared/**/*.razor' \
             ':(glob)src/TianWen.UI.Gui/**/*.cs' ':(glob)src/TianWen.UI.Gui/**/*.razor' \
             ':(glob)src/TianWen.UI.FitsViewer/**/*.cs' ':(glob)src/TianWen.UI.FitsViewer/**/*.razor' \
-            ':(glob)src/TianWen.UI.Web/**/*.cs' ':(glob)src/TianWen.UI.Web/**/*.razor'             ':(glob)src/TianWen.Lib.Tests/**/*.cs' | sha256sum | cut -c1-16)"
+            ':(glob)src/TianWen.UI.Web/**/*.cs' ':(glob)src/TianWen.UI.Web/**/*.razor' \
+            "${chrome_tests[@]}" | sha256sum | cut -c1-16)"
           echo "fp=$fp" >> "$GITHUB_OUTPUT"
           first="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].body // empty' | head -n 1)"
@@ -146,20 +161,24 @@ jobs:
               why="$(jq -r '[.[] | select(.type == "result")] | last | (.result // ((.errors // []) | join("; "))) // ""' "$log" 2>/dev/null \
                 | tr '\r\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' | cut -c1-300)"
             fi
-            echo "why=$why" >> "$GITHUB_OUTPUT"
             echo "no report; the agent's last word: ${why:-none kept}"
+            # The reason says whose words it is here, where that is known: the comment and the check print it as it
+            # stands, and the workflow's own reason below would otherwise read as the agent's.
+            echo "why=${why:+the agent said: $why}" >> "$GITHUB_OUTPUT"
             echo "finished=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           high="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*high[[:space:]]*$' "$OUT/report.md" || true)"
           medium="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*medium[[:space:]]*$' "$OUT/report.md" || true)"
-          # Every "confidence:" line, however it is dressed (bold, a trailing note): when that is more than the lines
-          # counted above, a finding was written in a form the counts miss, and the report is not trusted.
-          total="$(grep -Eic '^[[:space:]]*[*_]*confidence:' "$OUT/report.md" || true)"
+          # Every line with the word in it, however it is dressed (bold, a trailing note, a list item): when that is
+          # more than the lines counted above, a finding was written in a form the counts miss, and the report is not
+          # trusted. The agent's format has the word on a finding's confidence line and nowhere else, so a report that
+          # uses it in a sentence fails here too, with the reason said: closed, not silently open.
+          total="$(grep -ic 'confidence' "$OUT/report.md" || true)"
           clean="$(grep -c 'No chrome arithmetic in this diff' "$OUT/report.md" || true)"
           echo "high $high, medium $medium, confidence lines $total, says clean: $clean"
           if [ "$total" -ne $((high + medium)) ]; then
             echo "finished=false" >> "$GITHUB_OUTPUT"
-            echo "why=a confidence line in the report is not a bare 'confidence: high' or 'confidence: medium'" >> "$GITHUB_OUTPUT"; exit 0
+            echo "why=the report has $total lines that speak of confidence and only $((high + medium)) are a bare 'confidence: high' or 'confidence: medium', so its findings cannot be counted" >> "$GITHUB_OUTPUT"; exit 0
           fi
           # A report with no finding and no "nothing found" line says nothing that can be counted.
           if [ "$high" -eq 0 ] && [ "$medium" -eq 0 ] && [ "$clean" -eq 0 ]; then
@@ -191,7 +210,7 @@ jobs:
             body="$(printf '<!-- chrome-review fp:%s high:%s -->\n### Chrome review of %s\n\n%s\n' "$FP" "$HIGH" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
           else
             body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish%s; see the run: %s\n' "${SHA:0:7}" \
-              "${WHY:+ (the agent said: $WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+              "${WHY:+ ($WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
           fi
           id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].id // empty')"
@@ -223,7 +242,7 @@ jobs:
           elif [ "$FINISHED" = "true" ]; then
             high="$COUNTED_HIGH"
           else
-            echo "::error::The review did not finish, or its report names no finding and does not say there are none.${WHY:+ The agent said: $WHY}"; exit 1
+            echo "::error::The review did not finish, or its report names no finding and does not say there are none.${WHY:+ Reason: $WHY}"; exit 1
           fi
           echo "high $high"
           if [ "$high" -gt 0 ]; then

@@ -349,8 +349,10 @@ hand beside a declared node is not a pattern at all, so the `/chrome-review` ski
 (Sonnet, read-only, `.claude/agents/chrome-review.md`) over a branch's diff for those. Nobody has to remember
 to: CI runs it on every non-draft PR that touches a `.cs` or `.razor` file of the five UI projects
 (`.github/workflows/chrome-review.yml`, which replaced a session Stop hook on 2026-11-19) and fails the check on a
-high-confidence finding. A later push that leaves the PR's UI diff as it was is not reviewed again: the review's
-comment carries a hash of the diff it read and the count it found, and the check answers from that. The count is read
+high-confidence finding. A later push that leaves the PR's UI diff as it was is not reviewed again (the UI
+projects' files and the changed tests that use a `TianWen.UI` namespace, the chrome tests the agent's rule 4 reads):
+the review's comment carries a hash of the diff it read and the count it found, and the check answers from that. The
+count is read
 off the report's own `confidence:` lines, one per finding, not from a second tally the agent writes (#2295). A PR
 that changes the workflow file itself cannot be reviewed there (the review action refuses a workflow that differs from
 the default branch's); its check says so and fails, and the workflow change belongs in a PR that touches no UI file.

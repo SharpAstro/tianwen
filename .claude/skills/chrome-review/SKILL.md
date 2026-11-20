@@ -13,7 +13,7 @@ frontmatter), which is enough for a checklist review and leaves the main session
    finding a bug, open the line and confirm it; say which you confirmed and which you only passed on.
 3. **Fixing is a separate step.** Offer to fix the confirmed ones; the agent never edits.
 
-The same agent runs in CI on every non-draft PR that touches a `.cs` or `.razor` file of the five UI projects (`.github/workflows/chrome-review.yml`; a push that leaves the UI diff unchanged is not reviewed again):
+The same agent runs in CI on every non-draft PR that touches a `.cs` or `.razor` file of the five UI projects (`.github/workflows/chrome-review.yml`; a push that leaves the UI and chrome-test diff unchanged is not reviewed again):
 it posts its report as one comment on the PR and fails the check on a high-confidence finding. Run this skill before
 marking a PR ready to find those first, at no CI round-trip.
 

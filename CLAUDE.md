@@ -35,7 +35,7 @@ Full rules: `docs/architecture/project-tracking.md`.
 
 Skills are in `.claude/skills/<name>/SKILL.md` and listed by the session. The `chrome-review` agent runs in CI on every
 non-draft PR that touches a `.cs` or `.razor` file of the five UI projects (`.github/workflows/chrome-review.yml`; a
-push that leaves the UI diff unchanged is not reviewed again) and fails the check on a
+push that leaves the UI and chrome-test diff unchanged is not reviewed again) and fails the check on a
 high-confidence finding; run `/chrome-review` before marking a PR ready to see it first.
 
 ## Project Overview
