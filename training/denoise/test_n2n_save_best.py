@@ -19,8 +19,9 @@ import n2n_smoke as S
 from test_n2n_init_from import META, args
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# The CPU, so that two runs of one seed agree to the bit on any machine.
-ENV = dict(os.environ, CUDA_VISIBLE_DEVICES="")
+# The CPU, so that two runs of one seed agree to the bit on any machine. "-1" and not "": Windows drops a variable set
+# to the empty string, and the trainer then takes the GPU (test_the_runs_here_are_on_the_cpu holds this).
+ENV = dict(os.environ, CUDA_VISIBLE_DEVICES="-1")
 
 
 def weights(path):
@@ -148,12 +149,12 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(same(best, weights(self.path("ema15.pt"))[1]), "the averaged weights at the best step, which --out ships")
         self.assertFalse(same(best, weights(self.path("ema15_raw.pt"))[1]), "and not the live weights of that step")
 
-    def test_a_run_stopped_midway_carries_its_best_step_through_the_resume(self):
-        # A run that cannot end by itself, killed once it has written three checkpoints (steps 10, 20 and 30; the first
-        # judged evaluation is at 15). The checkpoint is replaced atomically, so whichever one the kill leaves is whole.
-        resume = self.path("stopped.resume.pt")
-        with open(self.path("stopped.log"), "w", encoding="utf-8") as log:
-            run = subprocess.Popen(command(self.cache, "stopped.pt", 10_000_000, 0, "--save-best"), stdout=log, stderr=subprocess.STDOUT, cwd=HERE, env=ENV)
+    def stop_midway(self, name, *extra):
+        """A run that cannot end by itself, killed once it has written three checkpoints (steps 10, 20 and 30; the first
+        judged evaluation is at 15). The checkpoint is replaced atomically, so whichever one the kill leaves is whole."""
+        resume = self.path(name + ".resume.pt")
+        with open(self.path(name + ".log"), "w", encoding="utf-8") as log:
+            run = subprocess.Popen(command(self.cache, name + ".pt", 10_000_000, 0, *extra), stdout=log, stderr=subprocess.STDOUT, cwd=HERE, env=ENV)
             try:
                 seen, deadline = set(), time.monotonic() + 300
                 while len(seen) < 3:
@@ -165,8 +166,10 @@ class EndToEnd(unittest.TestCase):
             finally:
                 run.kill()
                 run.wait()
+        return torch.load(resume, map_location="cpu", weights_only=False)
 
-        held = torch.load(resume, map_location="cpu", weights_only=False)
+    def test_a_run_stopped_midway_carries_its_best_step_through_the_resume(self):
+        held = self.stop_midway("stopped", "--save-best")
         self.assertIsNotNone(held["best_state"], "the checkpoint carries the best step's weights")
         best_step = held["plateau"][1]
         self.assertGreaterEqual(best_step, 15)
@@ -182,6 +185,24 @@ class EndToEnd(unittest.TestCase):
         done = self.train("short.pt", 10, 0, "--save-best")
         self.assertFalse(os.path.exists(self.path("short.best.pt")))
         self.assertIn("--save-best: nothing written", done.stdout)
+        self.assertIn("(it read 2)", done.stdout)
+
+    def test_the_runs_here_are_on_the_cpu(self):
+        done = self.train("where.pt", 5, 0)
+        self.assertIn("device cpu", done.stdout)
+
+    def test_a_resume_of_a_run_made_without_the_switch_says_its_best_step_lies_before_it(self):
+        # The checkpoint of a run without the switch holds a best step and no weights for it. Resumed with the switch
+        # under a cap already passed, no later step can improve on it, so there is nothing to write and the line says so.
+        held = self.stop_midway("unswitched")
+        self.assertIsNone(held.get("best_state"))
+        best_step = held["plateau"][1]
+        self.assertGreaterEqual(best_step, 15)
+
+        done = self.train("unswitched.pt", 1, 0, "--save-best")
+        self.assertFalse(os.path.exists(self.path("unswitched.best.pt")))
+        self.assertIn("--save-best: nothing written", done.stdout)
+        self.assertIn(f"its best step ({best_step}) lies before that resume", done.stdout)
 
     def test_a_schedule_that_reads_no_held_out_objective_refuses_it(self):
         refused = subprocess.run([sys.executable, os.path.join(HERE, "n2n_smoke.py"), "--train", "--cache", self.cache, "--synthetic",

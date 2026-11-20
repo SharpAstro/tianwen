@@ -2661,9 +2661,11 @@ def train(args):
         save(best_state, best_path_of(args.out), val_best_step)
     elif args.save_best:
         # Said, so that a missing file is never read as a file that was lost on the way home.
-        print(f"--save-best: nothing written. No step improved the held-out objective while the switch was on: the run "
-              f"judged fewer than {VAL_WINDOW} evaluations, or it was resumed from a checkpoint made without the switch "
-              f"and its best step ({val_best_step}) lies before that resume.", flush=True)
+        last = f"{val_hist[-1]:.6e}" if val_hist else "none"
+        print(f"--save-best: nothing written. No step improved the held-out objective while the switch was on. The causes "
+              f"known: the run judged fewer than {VAL_WINDOW} evaluations (it read {len(val_hist)}); its objective was "
+              f"never a finite number (the last score: {last}); or it was resumed from a checkpoint made without the "
+              f"switch and its best step ({val_best_step}) lies before that resume.", flush=True)
     # The run is over and its outputs are written: a checkpoint left now would resume a finished run.
     if os.path.exists(resume_path):
         os.remove(resume_path)
