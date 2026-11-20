@@ -6879,8 +6879,8 @@ the first angle is a step after the model and not another arm:
   - **What the change reaches.** Of the 138 training sessions the bound lowers the level on those crowded with
     RESOLVED stars (Lobster to 0.81 / 0.80 / 0.87 of the record, 29 of the store's 199 sessions under 0.90). The
     held-out Tarantula, SMC and Sagittarius masters are crowded with stars nobody catalogued, and their own plates
-    read at or over their records by `noise_plate_all.py`'s lag-8 statistic (1.05 to 1.19). That statistic reads a few
-    percent higher than the one the bound uses; by the bound's own reading the SMC session is at 0.97, so the bound
+    read at or over their records by `noise_plate_all.py`'s lag-8 statistic (1.05 to 1.19). That statistic reads several
+    percent higher than the one the bound uses (6 to 11 on the three sessions both were read on, #2231); by the bound's own reading the SMC session is at 0.97, so the bound
     lowers an SMC-kind session by about 3 %. The arm reaches the scored crowded rows barely, and mostly through what
     the model learns on the other kind of field.
   - **The question, with floor3 and core protection, against R4c:** the Tarantula's crowded flat at least 92.4 (R4c
