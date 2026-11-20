@@ -100,6 +100,11 @@ pwsh -File training/azure/fetch-batch.ps1 -Tag r3xaz -Name r3x_synth16_s0 -Fetch
 - **azcopy's default concurrency thrashes a slow uplink** (1,130 retries, 12.7 % of 6.5 GB in 90 minutes on 2026-10-21):
   `upload-cache.ps1` holds it to 8 connections, and a big file goes through `blockupload.py`, which continues where a
   stopped upload left off instead of starting the file again.
+- **A connection opened for every block fails often on a home line** (#2300): 4 to 19 % of first tries to the storage
+  host timed out whole after 21 s, while the next try from a new port went through, and a failed try was still charged to
+  the cap. `blockupload.py` keeps one connection a worker and charges the cap only once a connection stands. One 96 MiB
+  file in 1 MiB blocks at a 10 Mb/s cap, 2026-11-21: 23 failed tries and 3.2 Mb/s before; none, four connections and
+  9.9 Mb/s after, the blob read back byte for byte.
 - **The spot quota is the subscription's, shared**: a colleague's training has held 324 of the region's 350 low-priority
   vCPUs, so the launcher checks for the 4 a T4 needs.
 - **pwsh's `tar` is bsdtar** (no `--force-local`); the launcher packs with `C:\Windows\System32\tar.exe`.
