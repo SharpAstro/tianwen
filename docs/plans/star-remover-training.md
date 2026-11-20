@@ -7380,7 +7380,10 @@ the first angle is a step after the model and not another arm:
     the Tarantula's densest tenth: 0.30 (R4d 0.29). The twin error: 2.48 sigma in the mask as trained, 1.07 with
     floor5. The twenty-four bright stars of #2292: inside 22 px R4g leaves over 1.2 times R4d's on 21 and less on
     none, and on both Pleiades nights it leaves the bright Pleiads whole (Maia 3,057 of 3,134 sigma on
-    2022-01-04, where R4d leaves 113).
+    2022-01-04, where R4d leaves 113). The uncertain star's two rows (south of Merope on both nights, in the
+    list since #2311) were read after the fact on 2026-11-21: inside 22 px R4g leaves 1.17 and 1.15 times
+    R4d's, and of StarXTerminator's take at 8-22 / 22-40 / 40-60 px it takes 94 / 68 / 12 and 92 / 54 / 8
+    where R4d takes 97 / 76 / 18 and 94 / 55 / 2.
   - **What it says.** Plate targets teach the model to leave the nebula's broad light, on a master it holds no
     cell of. They teach it to keep stars with it: the plates kept sources (27 a cell at the median, nine in ten
     judged knots), the loss mask left out only the sky within two PSF widths of them, and the model learnt that
@@ -7879,11 +7882,18 @@ the first angle is a step after the model and not another arm:
       percent on 7 as they are, on 2 at 60 sigma and on 1 at 120, and nothing is taken beyond StarXTerminator's
       take at either depth, bar one ring: south of Merope 2022-01-04 reads 102 at 22-40 px at 60 sigma (every
       other ring at both depths is 100 or under). With the depth truly equal the two Pleiades nights stand within
-      20 points at 60 sigma and 19 at 120 (the same stars up to 113 apart as they are), so equal depth brings the
-      nights together and does not make them one. It is still no clean plate: inside 22 px Alcyone of 2022-01-05
-      keeps 1,403 and 756 sigma of her 3,335, where StarXTerminator leaves 7. Looked at (512 px at 1:1): Alcyone
-      is a smaller core with a green fringe at each depth; Antares loses its core to a pink ring and keeps its
-      disc and every spike. Alnitak and iota Orionis give up less far out at 60 than as they are. For Alnitak
+      20 points at 60 sigma (Merope, 40-60 px) and 19 at 120 (Maia, 40-60 px) over all eight Pleiads, up to 113
+      apart as they are. A ring where StarXTerminator takes under 3 sigma is left out, the floor of
+      `stretch_swap_table.py` and `stretched_levels.py`. With the floor at 1 sigma
+      (`bright_star_nights.py --floor 1`) the two read 31 and 38, both 22 Tau at 60-80 px, where StarXTerminator
+      takes 2.6 sigma on 2022-01-04 and 5.0 on 2022-01-05 (shares 27 / 58 at 60 and 45 / 7 at 120): those rest
+      on one noise-sized ring. (A correction of 2026-11-21 put 31 and 38 here without naming the floor, and
+      called the first figures a reading of three stars, which was a guess. It is withdrawn: 20 and 19 stand.)
+      So equal depth brings the nights together and does not make them one. It is still no clean plate: inside
+      22 px Alcyone of 2022-01-05 keeps 1,403 and 756 sigma of her 3,335, where StarXTerminator leaves 7. Looked
+      at (512 px at 1:1): Alcyone is a smaller core with a green fringe at each depth; Antares loses its core to
+      a pink ring and keeps its disc and every spike. Alnitak and iota Orionis give up less far out at 60 than
+      as they are. For Alnitak
       that fits its own black point, which is deeper than 60 in red and green (65.2 / 127.6 / 54.5), so 60 is
       the harder one there. Iota Orionis is not that: its master reads 49.1 / 57.8 / 40.8, so 60 sigma is a
       softer black point in all three channels, yet R4d gives up less there (40-60 px share 46 at the master's
@@ -7898,27 +7908,110 @@ the first angle is a step after the model and not another arm:
       takes more of a bright star, as on the Pleiades and Antares (not on Alnitak, whose black point is deeper
       than 60 in two channels, nor on iota Orionis, which is unexplained), and with it the nebula's knots, the
       cores' peaks and M31's nucleus. The three scoring masters happen to sit where they read well: the
-      Tarantula's own black point is 10 sigma under its sky, where its knots stand, against 40 to 90 on the
-      Pleiades masters. So the rule as tried, one black point at 60 or at 120 sigma, does not both mend the bright
-      stars and keep the nebula. Nothing was read between 10 and 60 sigma (the Tarantula already fails the peaks
+      Tarantula's own black point is 10 sigma under its sky, where its knots stand, against about 40 to 90 on
+      the Pleiades masters. So the rule as tried, one black point at 60 or at 120 sigma, does not both mend the
+      bright stars and keep the nebula. Nothing was read between 10 and 60 sigma (the Tarantula already fails the peaks
       guard at 60, 1 of 77), so a depth in between is not ruled out by these rows; one is registered below. The
       scorecard has been reading R4d at depths chosen by each master's darkest pixel. If no depth holds, what is
       left is the retrain: one black point by noise in the export and at inference, so that a star and a knot
       each look one way to the model on every frame. It is not registered, and it is the owner's.
-    - **One more depth, 40 sigma, registered 2026-11-21 before any score of it.** The review of this read asked
+    - **One more depth, 40 sigma: the text pushed at 07:04 on 2026-11-21 was registered before the run** (its
+      wording was touched at 07:30; the read below says how). The review of this read asked
       what lies between the Tarantula's own 10 sigma and 60. The same script, binary, masters, guards and looks
-      as the two depths above, and the stars of the list at 40 as trained.
+      as the two depths above, and the stars of the list at 40 as trained. The three scoring masters are the
+      scorecard's own copies and the stars' masters those of the 2026-10-12-full bake, as at 60 and 120; the
+      script reads other depths on another bake's copy of a master.
       - **Predicted.** The Tarantula's brightest peaks fail again (17 of 77 stand at 10 sigma, 1 at 60). On the
         stars 40 lands between as they are and 60: the innermost ring taken under 80 percent on 3 to 6 of the 26
-        rows (7 as they are, 2 at 60). The second is the less sure: for the Pleiades master of 2022-01-05, whose
-        own depths are 37.5 / 74.1 / 80.8, 40 sigma leaves red where it is and is about twice as hard in green
-        and blue.
+        rows (7 as they are, 2 at 60). The stars prediction is the less sure: for the Pleiades master of
+        2022-01-05, whose own depths are 37.5 / 74.1 / 80.8, 40 sigma leaves red where it is and is about twice
+        as hard in green and blue.
       - **Reading.** A depth is a candidate only if every guard holds and the stars read as at 60 (the innermost
         ring under 80 percent on at most 2 of the 26). If a guard fails at 40, the rule has failed at every depth
         tried from 40 up, and what is left under 40 is harder than the Pleiades masters' own black point in green
         and blue; the stars' rows at 40 then say whether a lower depth is worth a registration. If every guard
         holds and the stars are not mended, the next depth to register lies between 40 and 60. Nothing is adopted
         by this read.
+    - **The read at 40 sigma, 2026-11-21: two guards fail and the stars are not mended, so it is no candidate.**
+      The registration was pushed at 07:04 and the run started at 07:06. The step log's first lines showed four
+      as-trained rows before the sheets were open; nothing was quoted from them before the look. The wording
+      commit ("the 40 sigma registration names its masters' store; two wordings from the review") is stamped
+      07:30 to 07:35 (+1100), AFTER the run began and while the star runs were still writing, so the
+      registration "before any score" is the 07:04 text only; that commit named the masters' store and
+      reworded two sentences, and left the prediction and the reading rule as pushed at 07:04. (Written 07:30,
+      four minutes after the scorecard's rows were on disk and before they were opened; 07:35 is its move onto
+      this branch.)
+
+      | row | as it is | 40 sigma | bar | read |
+      |---|---|---|---|---|
+      | Tarantula crowded flat, chain | 91.3 | 91.8 | at least 90.3 | held |
+      | Sagittarius crowded flat, chain | 97.0 | 97.2 | at least 96.3 | held |
+      | Andromeda dark flat and dug, chain | 98.5, 0.7 | 98.4, 0.7 | at least 95, at most 3 | held |
+      | Tarantula dark flat, chain | 96.5 | 96.1 | at least 91 | held |
+      | glow green median on Andromeda, chain | -8.5 | -30.0 | within 450 | held |
+      | glow green median on the Tarantula, chain | 106.5 | 76.9 | within 500 | held |
+      | M31 nucleus, chain | 0.0 % | 0.0 % | under 10 % | held |
+      | purity, chain | 0.8 | 0.7 | at most 1.0 | held |
+      | light taken from the Tarantula field, chain | 81, 82 % | 78, 83 % | at most 83, 84 % | held |
+      | Gaia BP 17-19 with the level set aside, chain | 90.7 | 92.9 | at least 89.7 | held |
+      | light added on each master's nebula, as trained | 0.0 % | 0.0 % | at most 1.0 % | held |
+      | brightest tenth of the Tarantula's peaks standing, as trained | 17 of 77 | **1 of 77** | at least 11 | **failed** |
+      | faint stars left on the Lagoon's core, as trained | 29 % | 28 % | at most 37 % | held |
+      | faint stars left on 30 Doradus, as trained | 22 % | 21 % | at most 27 % | held |
+      | the Lagoon's broad light taken, as trained | 2.67 | **2.72** | at most 2.67 | **failed** |
+
+      - **Looked at before the rows** (the same sheets, each panel also cropped to 1:1). **The Tarantula's
+        knots:** their bright points are gone at 40 as at 60, as trained and through the chain, where R4d as it
+        is leaves a pale trace of them. **30 Doradus's core:** flatter than as it is. **M31's nucleus, the
+        Lagoon's core, the Tarantula's crowded field and the bright star on Andromeda:** as R4d leaves them now.
+      - **Reported.** As trained, as it is / at 40: Andromeda's dark flat 69.4 / 73.2 with 19.5 / 14.4 % dug;
+        the Tarantula's 80.3 / 85.7 with 14.3 / 6.8 % left; its crowded flat 86.7 / 88.9; the M31 nucleus taken
+        in its worst channel 9.7 / 10.1 %; broad light taken on Andromeda 2.88 / 2.87 and on the Tarantula 5.86
+        / 7.69; the Tarantula's glow median -6.5 / 232. Through the chain the blotch line on the Tarantula's
+        densest tenth reads 0.29 / 0.31. The scoring masters' own depths by the script: Andromeda 45.0 / 40.4 /
+        48.0, the Tarantula 9.3 / 11.0 / 10.2, Sagittarius 31.9.
+      - **The stars at 40** (R4d as trained; the share of StarXTerminator's take at 8-22 / 22-40 / 40-60 /
+        60-80 px; the same selection of 12 of the 26 rows):
+
+        | star and night | as it is | at 40 sigma | at 60 sigma |
+        |---|---|---|---|
+        | Antares 2026-04-21 | 47 / 5 / 0 / 0 | 56 / 7 / 0 / 0 | 72 / 14 / 1 / 0 |
+        | Antares 2024-05-28 | 78 / 15 / 1 / 0 | 71 / 12 / 2 / 0 | 81 / 23 / 3 / 0 |
+        | Antares 2023-05-15 | 84 / 38 / 5 / 0 | 81 / 28 / 2 / 0 | 87 / 38 / 4 / 0 |
+        | Alcyone 2022-01-05 | 17 / 7 / 5 / 7 | 65 / 39 / 29 / 20 | 65 / 45 / 31 / 25 |
+        | Alcyone 2022-01-04 | 82 / 69 / 59 / 61 | 72 / 47 / 29 / 29 | 80 / 55 / 40 / 35 |
+        | Maia 2022-01-05 | 55 / 24 / 6 / 3 | 84 / 52 / 38 / 32 | 90 / 58 / 33 / 30 |
+        | Maia 2022-01-04 | 97 / 84 / 79 / 96 | 91 / 58 / 34 / 28 | 94 / 58 / 36 / 39 |
+        | Merope 2022-01-05 | 74 / 41 / 11 / 4 | 75 / 52 / 33 / 25 | 81 / 56 / 29 / 25 |
+        | Merope 2022-01-04 | 98 / 91 / 94 / 117 | 88 / 62 / 34 / 34 | 92 / 69 / 49 / 43 |
+        | Alnitak 2025-10-28 | 97 / 85 / 64 / 40 | 92 / 72 / 23 / 5 | 93 / 73 / 29 / 8 |
+        | iota Ori 2025-10-15 | 95 / 66 / 46 / 29 | 94 / 59 / 32 / 24 | 95 / 59 / 30 / 19 |
+        | lambda Cen 2026-02-20 | 96 / 82 / 50 / 21 | 96 / 86 / 66 / 31 | 97 / 87 / 64 / 26 |
+
+        Over all 26 rows the innermost ring is taken under 80 percent on 7 at 40, as on 7 as they are and 2 at
+        60, and no ring reads over 100. The seven are not the same seven: Maia of 2022-01-05 leaves the list
+        (55 to 84) and Alcyone of 2022-01-04 joins it (82 to 72). The two nights stand closest at 40, by a
+        little: over all eight Pleiads the widest gap in these four rings, leaving out a ring where
+        StarXTerminator takes under 3 sigma, is 15 points, against 20 at 60, 19 at 120 and 113 as they are (with
+        the floor at 1 sigma the 60 and 120 figures are 31 and 38, set by one ring, 22 Tau at 60-80 px). No
+        spread is stated, and 20 and 19 are close to 15. Inside 22 px Alcyone of 2022-01-05 keeps 1,419 sigma
+        of her 3,335, as at 60 (1,403). Iota Orionis gives up less far out at 40 too (40-60 px 46 / 32 / 30),
+        though 40 is the harder black point on its master and 60 the softer; still unexplained. Looked at (512
+        px at 1:1): Alcyone is the smaller core with a green fringe that 60 leaves; Antares keeps its disc and
+        every spike around a pink ring; iota Orionis leaves the same faint halo at each depth.
+      - **Against what was predicted.** The peaks failed, as predicted. The stars did not land between: 7 of
+        26, where 3 to 6 was predicted. The depth moved rows both ways, which a count of rows hides.
+      - **What it says.** The knots lose their brightest peaks somewhere between the Tarantula's own 10 sigma
+        and 40, and the stars' rows mend only from 60 up, so on these masters this rule has no depth that does
+        both, as far as four depths show it (the innermost ring moves one way with the depth within a point: iota
+        Ori 94 / 95 / 94, lambda Cen 96 / 97 / 96; the outer rings do not, Merope 2022-01-05 at 40-60 px reads
+        33 / 29 / 48 at 40 / 60 / 120). No depth under 40 is registered: by the stars' innermost rows at 40 it
+        has nothing to give the stars, and it is harder than the Pleiades masters' own black point in green and
+        blue. At 40 the two nights stand 15 points apart, against 20 and 19 at 60 and 120 on the same floor: a
+        little closer, not a different kind of reading. What all three depths show is that at one depth the
+        nights read far more alike than as they are (113), which is what a retrain in one domain would build on.
+        Which depth such a domain should have these rows cannot say: they are read on a model trained on masters
+        whose own depths run from 8 to 228 sigma. The retrain is not registered, and it is the owner's.
   - **Looked at** (the sheets, 512 px at 1:1: master / StarXTerminator / R4d as trained / R4d through the chain,
     all twenty-four). StarXTerminator leaves a smooth field on every one, and Merope's and Maia's nebulae with
     their streaks intact. Ours leaves:
