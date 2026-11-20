@@ -80,7 +80,7 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IServiceProvider service
 
     public bool Absolute => true;
 
-    public ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(_isMoving);
+    public ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(IsMoving);
 
     public int MaxIncrement => -1;
 

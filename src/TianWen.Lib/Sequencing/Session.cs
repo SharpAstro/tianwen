@@ -765,8 +765,9 @@ internal partial record Session(
 
     /// <summary>
     /// Records one guide correction as a guide sample, stamped with the guide FRAME's time
-    /// (<see cref="Devices.Guider.IGuider.GuideCorrectionEvent"/>), so <see cref="GuideStatistics.OverExposure"/>
-    /// reduces real corrections and <c>GUIDEN</c> counts guide frames, not polls (#821). Runs on the
+    /// (<see cref="Devices.Guider.IGuider.GuideCorrectionEvent"/>), so the open exposure's
+    /// <see cref="ExposureGuideTally"/> (which is what a light's <c>GUIDE*</c> cards are read from) counts real
+    /// corrections and <c>GUIDEN</c> counts guide frames, not polls (#821). Runs on the
     /// guider's thread: <see cref="_guideSamples"/> is the lock-free <see cref="CircularBuffer{T}"/>, so no lock.
     /// <para>A correction with no measured error appends nothing (null is not zero), and a pending dither
     /// mark waits for the next real sample.</para>
@@ -838,7 +839,10 @@ internal partial record Session(
 
         // A new exposure replaces whatever the slot held, so this is an unconditional swap, not a CAS loop.
         // A sample recorded between the snapshot above and the swap is folded in again below (idempotent
-        // through the last-included rule).
+        // through the last-included rule). That rule assumes samples reach a tally in time order: one that missed
+        // the slot before the swap is dropped by the re-fold if a NEWER sample lands in the new tally first, since
+        // the tally ignores a timestamp not after its last. The window is the microseconds between the swap and the
+        // re-fold against a guide cadence of seconds, and the cost is one sample of an exposure's count.
         Interlocked.Exchange(ref slots[otaIndex], tally);
 
         // A sample recorded between the ring snapshot and the publish reached no open slot: fold it in now.
