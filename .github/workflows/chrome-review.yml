@@ -65,8 +65,9 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      # The UI diff of this PR against its base, as one short hash. The comment a finished review leaves carries the
-      # hash it reviewed and the count it found; when this push leaves that diff as it was, the agent is not run again
+      # The UI diff of this PR against its base (the five UI projects and, since the agent's rule 4 reads test seams,
+      # src/TianWen.Lib.Tests; the paths filter above stays UI-only), as one short hash. The comment a finished review
+      # leaves carries the hash it reviewed and the count it found; when this push leaves that diff as it was, the agent is not run again
       # and the gate answers from that count. A review that did not finish leaves no hash, so it is never reused.
       - name: Fingerprint the UI diff
         id: fingerprint
@@ -80,7 +81,7 @@ jobs:
             ':(glob)src/TianWen.UI.Shared/**/*.cs' ':(glob)src/TianWen.UI.Shared/**/*.razor' \
             ':(glob)src/TianWen.UI.Gui/**/*.cs' ':(glob)src/TianWen.UI.Gui/**/*.razor' \
             ':(glob)src/TianWen.UI.FitsViewer/**/*.cs' ':(glob)src/TianWen.UI.FitsViewer/**/*.razor' \
-            ':(glob)src/TianWen.UI.Web/**/*.cs' ':(glob)src/TianWen.UI.Web/**/*.razor' | sha256sum | cut -c1-16)"
+            ':(glob)src/TianWen.UI.Web/**/*.cs' ':(glob)src/TianWen.UI.Web/**/*.razor'             ':(glob)src/TianWen.Lib.Tests/**/*.cs' | sha256sum | cut -c1-16)"
           echo "fp=$fp" >> "$GITHUB_OUTPUT"
           first="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].body // empty' | head -n 1)"
@@ -151,8 +152,15 @@ jobs:
           fi
           high="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*high[[:space:]]*$' "$OUT/report.md" || true)"
           medium="$(grep -Eic '^[[:space:]]*confidence:[[:space:]]*medium[[:space:]]*$' "$OUT/report.md" || true)"
+          # Every "confidence:" line, however it is dressed (bold, a trailing note): when that is more than the lines
+          # counted above, a finding was written in a form the counts miss, and the report is not trusted.
+          total="$(grep -Eic '^[[:space:]]*[*_]*confidence:' "$OUT/report.md" || true)"
           clean="$(grep -c 'No chrome arithmetic in this diff' "$OUT/report.md" || true)"
-          echo "high $high, medium $medium, says clean: $clean"
+          echo "high $high, medium $medium, confidence lines $total, says clean: $clean"
+          if [ "$total" -ne $((high + medium)) ]; then
+            echo "finished=false" >> "$GITHUB_OUTPUT"
+            echo "why=a confidence line in the report is not a bare 'confidence: high' or 'confidence: medium'" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           # A report with no finding and no "nothing found" line says nothing that can be counted.
           if [ "$high" -eq 0 ] && [ "$medium" -eq 0 ] && [ "$clean" -eq 0 ]; then
             echo "finished=false" >> "$GITHUB_OUTPUT"; exit 0
@@ -178,7 +186,7 @@ jobs:
         run: |
           if [ "$OWN_WORKFLOW" = "true" ]; then
             body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\n%s\n' "${SHA:0:7}" \
-              'Not reviewed. This PR changes `.github/workflows/chrome-review.yml`, and the review action will not run a workflow file that differs from the one on the default branch. Put the workflow change in a PR of its own (one that touches no UI file starts no review), or run `/chrome-review` on this branch and say in the PR what it found.')"
+              'Not reviewed. This PR changes `.github/workflows/chrome-review.yml`, and the review action will not run a workflow file that differs from the one on the default branch. Put the workflow change in a PR of its own (one that touches no UI file starts no review). Until then this check stays red.')"
           elif [ "$FINISHED" = "true" ]; then
             body="$(printf '<!-- chrome-review fp:%s high:%s -->\n### Chrome review of %s\n\n%s\n' "$FP" "$HIGH" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
           else

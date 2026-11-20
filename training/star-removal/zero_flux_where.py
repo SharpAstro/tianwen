@@ -24,6 +24,8 @@ matches = [s for s in sorted(z.rows) if want.lower() in s.lower() and "flip" not
 exact = [s for s in matches if s.lower() == want.lower()]
 if len(exact) == 1 or len(matches) == 1:
     sess = (exact or matches)[0]
+elif not matches:
+    sys.exit(f"'{want}' fits no session.")
 else:
     sys.exit("\n   ".join([f"'{want}' fits {len(matches)} sessions, and this script reads one: give more of the name."] + matches))
 row = z.rows[sess]

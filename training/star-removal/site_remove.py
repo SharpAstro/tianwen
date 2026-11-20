@@ -8,7 +8,7 @@ there: models are kept apart by SITE_OUT being one folder per model (site-run.sh
 site_core.py and site_core_ch.py read it. This is transplant.py's real-site half only; the moved star layer is
 transplant.py's.
 """
-import csv, os, subprocess, sys
+import csv, functools, os, subprocess, sys
 import numpy as np
 from astropy.io import fits
 
@@ -21,6 +21,7 @@ onnx, stems = sys.argv[1], sys.argv[2:]
 os.makedirs(OUT, exist_ok=True)
 
 
+@functools.cache  # lazily, once per run: a run whose outputs all exist never needs the CLI
 def as_trained_flags():
     """The options that switch off the dig-fill and core protection, where this build has them: every row this script
     gives is the model AS TRAINED. A build from before those steps has neither option and needs neither. The same
@@ -29,13 +30,11 @@ def as_trained_flags():
     return [f for f in ("--no-fill-digs", "--no-protect-cores") if f in text]
 
 
-AS_TRAINED = as_trained_flags()
-
 
 def remove(src, dst):
     if not os.path.exists(dst):
         r = subprocess.run([CLI, "image", "remove-stars", src, "-o", dst, "--no-stars", "--views", "1", "--model", onnx]
-                           + AS_TRAINED,
+                           + as_trained_flags(),
                            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode != 0:
             raise SystemExit(f"remove-stars failed on {src}:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}")

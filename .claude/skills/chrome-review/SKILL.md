@@ -1,6 +1,6 @@
 ---
 name: chrome-review
-description: Check a branch's UI chrome changes for layout arithmetic the engine should own - a box summed by hand beside a declared node, a device-pixel size handed to a design-unit node, a test seam that measures instead of reading the painted region. Runs the read-only chrome-review agent (Sonnet) over the diff. Use before opening a PR that touches src/TianWen.UI.*, or when asked to review viewer/GUI layout code.
+description: Check a branch's UI chrome changes for layout arithmetic the engine should own - a box summed by hand beside a declared node, a device-pixel size handed to a design-unit node, a test seam that measures instead of reading the painted region. Runs the read-only chrome-review agent (Sonnet) over the diff. Use before opening a PR that touches a .cs or .razor file of the src/TianWen.UI.* projects, or when asked to review viewer/GUI layout code.
 ---
 
 Run the `chrome-review` agent over this branch's diff and relay what it finds. It runs on Sonnet (its own
@@ -13,7 +13,7 @@ frontmatter), which is enough for a checklist review and leaves the main session
    finding a bug, open the line and confirm it; say which you confirmed and which you only passed on.
 3. **Fixing is a separate step.** Offer to fix the confirmed ones; the agent never edits.
 
-The same agent runs in CI on every non-draft PR that touches `src/TianWen.UI.*` (`.github/workflows/chrome-review.yml`):
+The same agent runs in CI on every non-draft PR that touches a `.cs` or `.razor` file of the five UI projects (`.github/workflows/chrome-review.yml`; a push that leaves the UI diff unchanged is not reviewed again):
 it posts its report as one comment on the PR and fails the check on a high-confidence finding. Run this skill before
 marking a PR ready to find those first, at no CI round-trip.
 
