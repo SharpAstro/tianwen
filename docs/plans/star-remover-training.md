@@ -7110,7 +7110,9 @@ the first angle is a step after the model and not another arm:
     registered question may be missed by a model that does what the arm is for. The question and the kill rule
     stay as registered. Beside them, with bars set now (the "Reported, no bar" line below lists the grain figure as
     reported; the bar on it is row (2)'s): (1) Gaia BP 17-19 removed with the level set aside
-    (`gaia_compact.py`, through the product's chain) at least 93.5 (R4d 90.5, StarXTerminator 96.6: half the gap; those two were drawn with `gaia_compact.py`'s earlier single random stream, and the script now draws per remover and bin, so they are to be re-read with it before R4f is scored, a difference of about 0.15 point;
+    (`gaia_compact.py`, through the product's chain) at least 93.5 (half the gap as first read: R4d 90.5,
+    StarXTerminator 96.6, drawn with the script's earlier single random stream. Re-read the same day with its draw
+    per remover and bin, before this arm's cache exists: R4d 90.7, StarXTerminator 96.6. The bar stays as written;
     the level-inclusive row stands 1.4 to 1.7 apart between seeds, this one's spread is not known); (2) the grain
     in the Tarantula's dense cells 4,4 and 5,4 as trained (`band.py`) at most 0.6 of R4d's in every channel (R4d
     4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6; two seeds of one recipe have stood 23 to 33 % apart on cell 5,4). The
@@ -7263,15 +7265,16 @@ the first angle is a step after the model and not another arm:
     1.0 %" forbids exactly that: the judge reads 3.1.
   - **The diagnostic** (`judge_broad.py`, not a product step): R4d's plate through the product's chain less the
     median over 15 px of (that plate less StarXTerminator's). A compact difference, a star one of the two left,
-    stays as ours; the smooth difference goes. On the Tarantula the part removed is 0.94 / 0.78 / 0.48 sigma a pixel
-    at the median (R / G / B; 0.2 to 2.7 at the 10th and 90th percentile), on Sagittarius 0.13, on Andromeda 0.01.
-    The same with a 31 px median removes the same 0.94 in red. **Those sigmas are provisional:** the script
-    divided by the noise of the first 2,000,000 valid pixels in raster order (the top strip of the frame), not of
-    the plate, so a field whose top strip is unrepresentative moves them. `judge_broad.py` now estimates it over
-    the whole valid plate (the MAD of horizontal neighbour differences where both pixels are valid, a strided
-    sample of them); the figures above are to be re-read with it. This sigma is a single per-channel number of
-    the plate; it is not the per-pixel `_c1.rms.fits` map that `purity_parts.py` divides by, which follows the
-    local noise, so the two are not interchangeable. The scores in the table below do not use it. Scored as any plate:
+    stays as ours; the smooth difference goes. On the Tarantula the part removed is 1.16 / 0.87 / 0.52 sigma a pixel
+    at the median (R / G / B; 0.2 to 3.0 at the 10th and 90th percentile), on Sagittarius 0.13, on Andromeda 0.01 /
+    0.02 / -0.01. The same with a 31 px median removes 1.16 / 0.86 / 0.52. The sigma is the noise of our whole valid
+    plate (the MAD of horizontal neighbour differences where both pixels are valid, a strided sample of them). As
+    first written the script divided by the noise of the first 2,000,000 valid pixels in raster order, the top
+    strip of the frame, and read the Tarantula as 0.94 / 0.78 / 0.48; the other two masters' figures did not move.
+    This sigma is a single per-channel number of the plate; it is not the per-pixel `_c1.rms.fits` map that
+    `purity_parts.py` divides by, which follows the local noise, so the two are not interchangeable. The scores in
+    the table below do not use it, and the plate the corrected script writes is byte for byte the one scored.
+    Scored as any plate:
 
     | row | R4d through the chain | with the judge's light at 15 px and over | at 31 px and over | StarXTerminator |
     |---|---|---|---|---|
@@ -7286,18 +7289,29 @@ the first angle is a step after the model and not another arm:
 
     With the judge's light at 15 px and over and our own finer scales, the plate reads the judge's crowded rows
     within 0.2 to 0.6 of a point. Half of the Tarantula's crowded gap is a level beyond 31 px and half lies
-    between 15 and 31 px. On Andromeda the difference runs the other way: there the judge leaves a glow round
+    between 15 and 31 px (what that second half is made of is read below, with the level set aside). On Andromeda
+    the difference runs the other way: there the judge leaves a glow round
     bright stars that ours takes, and the diagnostic plate inherits it.
   - **The same rows with the level set aside** (`gaia_compact.py`: the light taken in a star's 3 px disc less the
     median of the light taken in its own 16 to 24 px annulus, over the input's disc less its annulus). Removed over
     half, the Tarantula, as the row reads it and with the level aside: StarXTerminator 98.5 / 98.5 at BP under 13,
     96.5 / 96.4 at 13-15, 97.0 / 96.4 at 15-17, 98.4 / 96.6 at 17-19; R4d through the chain 98.4 / 98.4, 97.3 /
-    97.3, 98.1 / 97.3 and 96.1 / 90.5. So to BP 17 our model removes a star as fully as the judge or more, and at BP
-    17-19 it removes fewer, 90.5 against 96.6: a gap of six points that the row shows as 2.3, because any level
-    taken counts toward every star.
-  - **Looked at** (a one-off crop of the 400 px field where the difference is largest, at 1:1; its script is not
-    kept in the tree, so the sigma figure here is the eye's and not reproducible): the diagnostic
-    plate is darker than ours by 1.6 sigma there and is still mottled, where StarXTerminator's is smooth with its
+    97.3, 98.1 / 97.3 and 96.0 / 90.7 (the script's draw per remover and bin; with its first, single random stream
+    the last pair read 96.1 / 90.5 and StarXTerminator's rows the same). So to BP 17 our model removes a star as
+    fully as the judge or more, and at BP 17-19 it removes fewer, 90.7 against 96.6: a gap of six points that the
+    row shows as 2.4, because any level taken counts toward every star.
+  - **The diagnostic plate at 15 px is not a level alone.** The same read on the two diagnostic plates, BP 17-19
+    with the level set aside: 91.2 with the judge's light at 31 px and over, 93.0 at 15 px and over (R4d's own
+    90.7, the judge's 96.6; the brighter bins do not move). So the 31 px plate changes a level and little else,
+    and the 15 px plate also carries 2.3 of the six points of the faint stars' own removal: a 15 px median of
+    (ours less the judge's) passes part of the compact difference under a faint star, or of several inside one
+    box; which of the two was not separated. For the table above that splits the Tarantula's crowded gap of 4.8
+    points: 2.3 is a level at 31 px and over, and the 2.3 between 15 and 31 px is partly the level and partly
+    faint stars the judge removed and ours left.
+  - **Looked at** (`judge_broad_look.py`: the 400 px box where the judge's broad take beyond ours is largest, at
+    1:1 through the master's stretch). There our plate's median level stands 1.60 sigma over the judge's and the
+    diagnostic plate's 0.00; that sigma is the crop's own, of the master's green channel, and not
+    `judge_broad.py`'s. The diagnostic plate is still mottled, where StarXTerminator's is smooth with its
     compact knots sharp. So the plate that scores like the judge does not look like the judge's. What the eye sees
     is the grain, the faint stars left standing (the six points at BP 17-19 are the catalogued part of them), and
     no bar reads it.
@@ -7312,10 +7326,13 @@ the first angle is a step after the model and not another arm:
     are one, the light of stars under about BP 17, and a remover is at the judge's figures only if it takes that
     light. (2) Our rules say not to take all of it: the owner's decision of 2026-10-23 (unresolved glow belongs in
     the starless image), the faint stars' cap, and the purity guard. The uncapped arm (R4d) drew at most 0.23 sigma
-    a pixel of such stars on a validation tile; the judge takes 0.5 to 0.9 on the Tarantula (the same per-channel figures as the provisional 0.48 / 0.78 / 0.94 above, and the 1.6 sigma shares their noise estimate, so these are to be re-read with the fixed `judge_broad.py` before the decision is taken). (3) So either the rule stays, and then
-    these rows cannot be reached by design and star removal is read with the level set aside and the grain under a
-    bar of its own; or the rule changes, and then an arm draws the carpet's stars to the faint end without the cap
-    and the purity guard moves to the judge's 3.1. That is the owner's decision. No arm is registered on it.
+    a pixel of such stars on a validation tile; the judge takes 0.5 to 1.2 on the Tarantula (`judge_broad.py`'s
+    per-channel medians above, each figure in its own image's pixel noise). (3) So either the rule stays, and then
+    the level's share of these rows cannot be reached by design (on the Tarantula's crowded flat at least the 2.3
+    points at 31 px and over), star removal is read with the level set aside and the grain under a bar of its
+    own, and what is left to gain is the faint stars' own removal, the six points at BP 17-19; or the rule
+    changes, and then an arm draws the carpet's stars to the faint end without the cap and the purity guard moves
+    to the judge's 3.1. That is the owner's decision. No arm is registered on it.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once

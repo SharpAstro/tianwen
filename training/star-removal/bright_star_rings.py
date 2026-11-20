@@ -80,7 +80,7 @@ for name, path in cfg["masters"].items():
         print(f"{name}: no star qualifies; skipped")
         continue
     scored.append(name)
-    t =np.array([(st[4] - st[5]) / st[3] for st in stars])
+    t = np.array([(st[4] - st[5]) / st[3] for st in stars])
     took[name] = t
     print(f"{name}: {len(stars)} stars, peak over sky {min(st[6] for st in stars):.0f} to {max(st[6] for st in stars):.0f} sigma; the judge took, median per ring (sigma): "
           + " / ".join(f"{v:.1f}" for v in np.median(t, axis=0)))
@@ -94,7 +94,7 @@ for name, path in cfg["masters"].items():
 if not scored:
     sys.exit("no master holds a qualifying star; nothing to score")
 print()
-head ="".join(f"{lo}-{hi} px".rjust(14) for lo, hi in zip(EDGES[:-1], EDGES[1:]))
+head = "".join(f"{lo}-{hi} px".rjust(14) for lo, hi in zip(EDGES[:-1], EDGES[1:]))
 print(f"left by the remover, median over the stars (0 = as the judge, 1 = untouched); in brackets the stars a ring counted\n{'':44s}{head}")
 for tag in tags:
     for name in scored + ["all"]:
