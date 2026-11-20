@@ -7861,15 +7861,19 @@ the first angle is a step after the model and not another arm:
       | iota Ori 2025-10-15 | 95 / 66 / 46 / 29 | 95 / 59 / 30 / 19 | 94 / 49 / 13 / 5 |
       | lambda Cen 2026-02-20 | 96 / 82 / 50 / 21 | 97 / 87 / 64 / 26 | 96 / 87 / 58 / 18 |
 
-      Over all twenty-four and the uncertain star's two rows the innermost ring is taken under 80 percent on 7 as
-      they are, on 2 at 60 sigma and on 1 at 120, and nothing is taken beyond StarXTerminator's take at either
-      depth. With the depth truly equal the two Pleiades nights stand within 20 points at 60 sigma and 19 at 120
+      The table is a selection (12 of the 26 rows); the counts that follow are over all of them, so they cannot be
+      read off it. Over all twenty-four and the uncertain star's two rows the innermost ring is taken under 80
+      percent on 7 as they are, on 2 at 60 sigma and on 1 at 120, and nothing is taken beyond StarXTerminator's
+      take at either depth, bar one ring: south of Merope 2022-01-04 reads 102 at 22-40 px at 60 sigma (every
+      other ring at both depths is 100 or under). With the depth truly equal the two Pleiades nights stand within 20 points at 60 sigma and 19 at 120
       (the same stars up to 113 apart as they are), so equal depth brings the nights together and does not make
       them one. It is still no clean plate: inside 22 px Alcyone of 2022-01-05 keeps
       1,403 and 756 sigma of her 3,335, where StarXTerminator leaves 7. Looked at (512 px at 1:1): Alcyone is a
       smaller core with a green fringe at each depth; Antares loses its core to a pink ring and keeps its disc and
-      every spike. Alnitak and iota Orionis, whose own black points are deeper than 60 in a channel, give up less
-      far out at 60 than as they are. One master was done twice: the Ophiuchus master's canvas ring is NaN, the
+      every spike. Alnitak and iota Orionis give up less far out at 60 than as they are. For Alnitak the reason
+      is its own black point, deeper than 60 in a channel (65.2 / 127.6 / 54.5). Iota Orionis is not that: its
+      master reads 49.1 / 57.8 / 40.8, so 60 sigma is a softer black point in all three channels, yet R4d gives
+      up less there (40-60 px share 46 at the master's own depth, 30 at 60, 13 at 120). That one is unexplained. One master was done twice: the Ophiuchus master's canvas ring is NaN, the
       script's noise figure came out NaN and it wrote the frame unchanged without a word. It now reads only
       differences whose two pixels are there and stops with a message when it has no figure; the three scoring
       masters come out byte for byte as they were scored.
@@ -7877,10 +7881,13 @@ the first angle is a step after the model and not another arm:
       within 0.2, BP 17-19 with the level set aside up 1.3) and fell at 120. No direction was predicted for the
       nebula rows; they moved against us at both depths.
     - **What it says.** The strength of the stretch is one dial for everything bright and compact. Softer, R4d
-      takes more of a bright star, as on the Pleiades, and with it the nebula's knots, the cores' peaks and M31's
+      takes more of a bright star, as on the Pleiades and Antares (not on Alnitak, whose black point is deeper
+      than 60, nor on iota Orionis, which is unexplained), and with it the nebula's knots, the cores' peaks and M31's
       nucleus. The three scoring masters happen to sit where they read well: the Tarantula's own black point is
-      10 sigma under its sky, where its knots stand, against 40 to 90 on the Pleiades masters. So no black point
-      set at inference mends the bright stars and keeps the nebula with this model, and the scorecard has been
+      10 sigma under its sky, where its knots stand, against 40 to 90 on the Pleiades masters. So the rule as
+      tried, one black point at 60 or 120 sigma, mends the bright stars and keeps the nebula on none of these rows;
+      nothing was read between 10 and 60 sigma (the Tarantula already fails the peaks guard at 60, 1 of 77), so a
+      depth of 30 to 40 is not ruled out, and the scorecard has been
       reading R4d at depths chosen by each master's darkest pixel. What is left is the retrain: one black point by
       noise in the export and at inference, so that a star and a knot each look one way to the model on every
       frame. It is not registered, and it is the owner's.
