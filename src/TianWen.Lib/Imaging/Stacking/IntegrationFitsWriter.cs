@@ -614,6 +614,48 @@ public static class IntegrationFitsWriter
         return false;
     }
 
+    /// <summary>
+    /// Loads the rejection FRACTION map beside <paramref name="masterPath"/>. False where there is none, where it
+    /// cannot be read, and where the rejection slot holds a drizzle master's weight plane instead (that one is
+    /// coverage, and <see cref="TryReadCoverageMap"/> reads it).
+    /// </summary>
+    public static bool TryReadRejectionMap(string masterPath, [NotNullWhen(true)] out Image? rejection)
+    {
+        rejection = null;
+        return !string.IsNullOrEmpty(masterPath)
+            && ExistingSidecarPath(RejectionPathFor(masterPath)) is { } path
+            && !SaysCoverage(path)
+            && Image.TryReadFitsFile(path, out rejection);
+    }
+
+    /// <summary>
+    /// Removes every map sidecar beside <paramref name="masterPath"/>, in either stored form. For a writer about to
+    /// put a NEW master at that path: a sidecar left from the file that was there describes other pixels, and every
+    /// reader would take it for this master's (the same reason the stacker removes a stale saturation map).
+    /// </summary>
+    /// <returns>The files that could not be removed; they stay and are wrong.</returns>
+    public static IReadOnlyList<string> RemoveMapSidecars(string masterPath)
+    {
+        var left = new List<string>();
+        foreach (var suffix in (ReadOnlySpan<string>)[RejectionMapSuffix, CoverageMapSuffix, BadPixelMapSuffix, SaturationMapSuffix, StandardErrorMapSuffix])
+        {
+            var logical = SiblingPath(masterPath, suffix);
+            foreach (var path in (ReadOnlySpan<string>)[CompressedPathFor(logical), logical])
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    left.Add(path);
+                }
+            }
+        }
+
+        return left;
+    }
+
     private static bool SaysCoverage(string path)
     {
         try

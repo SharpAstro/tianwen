@@ -704,6 +704,7 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(2);
             }
             consoleHost.WriteScrollable($"[autocrop] wrote {dst}");
+            SayCroppedSidecars("autocrop", written);
             return Task.FromResult(0);
         });
 
@@ -762,6 +763,7 @@ internal sealed partial class ImageSubCommand(
             }
             consoleHost.WriteScrollable(
                 $"[crop] {result.SourceWidth}x{result.SourceHeight} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) -> {dst}");
+            SayCroppedSidecars("crop", result);
             return Task.FromResult(0);
         });
 
@@ -3119,6 +3121,20 @@ internal sealed partial class ImageSubCommand(
 
     private static string DefaultOut(string input, string suffix)
         => StripExtension(input) + suffix + ".fits";
+
+    /// <summary>Says which of the master's map sidecars were cropped with it, and any that were not, with the reason.</summary>
+    private void SayCroppedSidecars(string verb, MasterCropResult result)
+    {
+        if (result.Sidecars.Count > 0)
+        {
+            consoleHost.WriteScrollable($"[{verb}] its maps were cropped with it: {string.Join(", ", result.Sidecars)}");
+        }
+
+        foreach (var left in result.SidecarsLeftOut)
+        {
+            consoleHost.WriteScrollable($"[{verb}] not carried: {left}");
+        }
+    }
 
     /// <summary>
     /// Ensure <paramref name="path"/> ends with <c>.fits</c>. Used to harden

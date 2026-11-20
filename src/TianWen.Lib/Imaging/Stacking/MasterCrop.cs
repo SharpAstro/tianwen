@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using nom.tam.fits;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Geometry;
@@ -16,7 +17,21 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <param name="SourceWidth">Width of the master that was cropped; 0 when the input could not be read, since
 /// there is then no master to measure.</param>
 /// <param name="SourceHeight">Height of the master that was cropped; 0 when the input could not be read.</param>
-public readonly record struct MasterCropResult(bool Succeeded, string Message, int Width, int Height, int SourceWidth = 0, int SourceHeight = 0);
+public readonly record struct MasterCropResult(bool Succeeded, string Message, int Width, int Height, int SourceWidth = 0, int SourceHeight = 0)
+{
+    /// <summary>
+    /// The map sidecars cropped and written beside the output, by kind ("coverage", "rejection", "saturation",
+    /// "standard error"); empty where the input had none, and for <see cref="MasterCrop.Crop"/>, which is given no
+    /// input file. Init-only, so the constructor keeps its shape.
+    /// </summary>
+    public IReadOnlyList<string> Sidecars { get; init; } = [];
+
+    /// <summary>
+    /// Map sidecars the input had that were NOT carried, each with its reason in words: one that is not on the
+    /// master's geometry, or a stale one beside the output that could not be removed.
+    /// </summary>
+    public IReadOnlyList<string> SidecarsLeftOut { get; init; } = [];
+}
 
 /// <summary>
 /// Crops a FITS master to a caller's rectangle. Unlike <see cref="Image.Crop(PixelRect)"/>, which clamps
@@ -74,16 +89,129 @@ public static class MasterCrop
     {
         AlignmentProvenance? provenance = null;
         var carried = new Dictionary<string, (object Value, string Comment)>();
+        var frameCount = 0;
+        IntegrationStrategyKind? strategy = null;
         using (var fits = Image.OpenFitsHeader(inputPath))
         {
             if (fits.ReadFirstImageHduHeaderOnly()?.Header is { } header)
             {
                 provenance = AlignmentProvenance.FromHeader(header);
                 CarryStackCards(header, carried);
+                frameCount = Math.Max(0, header.GetIntValue("STACK_N", 0));
+                if (Enum.TryParse<IntegrationStrategyKind>(header.GetStringValue("STRATEGY"), ignoreCase: true, out var kind))
+                {
+                    strategy = kind;
+                }
             }
         }
 
-        return Crop(image, wcs, provenance, rect, outputPath, carried);
+        if (Validate(rect, image.Width, image.Height) is not null)
+        {
+            // A refusal writes nothing, the sidecars included.
+            return Crop(image, wcs, provenance, rect, outputPath, carried);
+        }
+
+        // The maps are read BEFORE anything is written: the output may be the input's own path.
+        var maps = ReadMaps(inputPath, image.Width, image.Height);
+        try
+        {
+            var result = Crop(image, wcs, provenance, rect, outputPath, carried);
+            if (!result.Succeeded)
+            {
+                return result;
+            }
+
+            var leftOut = new List<string>(maps.LeftOut);
+            foreach (var stale in IntegrationFitsWriter.RemoveMapSidecars(outputPath))
+            {
+                leftOut.Add($"{Path.GetFileName(stale)} was beside the output from an earlier file and could not be removed");
+            }
+
+            var written = new List<string>();
+            if (maps.Coverage is { } coverage)
+            {
+                IntegrationFitsWriter.WriteCoverageMap(outputPath, coverage.Crop(rect), frameCount, strategy);
+                written.Add("coverage");
+            }
+            if (maps.Rejection is { } rejection)
+            {
+                var cropped = rejection.Crop(rect);
+                IntegrationFitsWriter.WriteRejectionMap(outputPath, cropped, frameCount, MeanOf(cropped), strategy);
+                written.Add("rejection");
+            }
+            if (maps.Saturation is { } saturation)
+            {
+                IntegrationFitsWriter.WriteSaturationMap(outputPath, saturation.Crop(rect), frameCount, strategy);
+                written.Add("saturation");
+            }
+            if (maps.StandardError is { } standardError)
+            {
+                IntegrationFitsWriter.WriteStandardErrorMap(outputPath, standardError.Crop(rect), frameCount, strategy);
+                written.Add("standard error");
+            }
+
+            return result with { Sidecars = written, SidecarsLeftOut = leftOut };
+        }
+        finally
+        {
+            maps.Coverage?.Release();
+            maps.Rejection?.Release();
+            maps.Saturation?.Release();
+            maps.StandardError?.Release();
+        }
+    }
+
+    /// <summary>
+    /// The maps beside a master that describe its PIXELS, each on the master's own grid, so the same rectangle crops
+    /// them: coverage (or a drizzle master's weight plane), the rejection fraction, the saturated-frame count and
+    /// the standard error. The writer's own rule is that a caller that crops a master crops these too
+    /// (<see cref="IntegrationFitsWriter.WriteStandardErrorMap"/>); until this was written the crop verbs left them
+    /// behind, so a cropped master had no coverage plane to say where it is whole and no saturation map for SPCC
+    /// (#2274). The bad pixel map is not one of them: it is the SENSOR's photosites, not the canvas's pixels, and a
+    /// rectangle of the canvas names nothing in it.
+    /// </summary>
+    private static (Image? Coverage, Image? Rejection, Image? Saturation, Image? StandardError, List<string> LeftOut) ReadMaps(
+        string inputPath, int width, int height)
+    {
+        var leftOut = new List<string>();
+        Image? OnTheGrid(Image? map, string kind)
+        {
+            if (map is null || (map.Width == width && map.Height == height))
+            {
+                return map;
+            }
+
+            leftOut.Add($"the {kind} map is {map.Width}x{map.Height}, not the master's {width}x{height}");
+            map.Release();
+            return null;
+        }
+
+        IntegrationFitsWriter.TryReadCoverageMap(inputPath, out var coverage);
+        IntegrationFitsWriter.TryReadRejectionMap(inputPath, out var rejection);
+        IntegrationFitsWriter.TryReadSaturationMap(inputPath, out var saturation);
+        IntegrationFitsWriter.TryReadStandardErrorMap(inputPath, out var standardError);
+        return (OnTheGrid(coverage, "coverage"), OnTheGrid(rejection, "rejection"), OnTheGrid(saturation, "saturation"),
+            OnTheGrid(standardError, "standard error"), leftOut);
+    }
+
+    /// <summary>The mean of every finite sample of <paramref name="map"/>, over all its channels; 0 for none.</summary>
+    private static double MeanOf(Image map)
+    {
+        double sum = 0;
+        long count = 0;
+        for (var c = 0; c < map.ChannelCount; c++)
+        {
+            foreach (var value in map.GetChannelSpan(c))
+            {
+                if (float.IsFinite(value))
+                {
+                    sum += value;
+                    count++;
+                }
+            }
+        }
+
+        return count > 0 ? sum / count : 0.0;
     }
 
     /// <summary>
