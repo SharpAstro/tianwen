@@ -339,6 +339,66 @@ namespace TianWen.Lib.Tests
             time.HasTimerDueAfter(TimeSpan.Zero).ShouldBeFalse();
         }
 
+        /// <summary>
+        /// #2197: <c>ITimer.Change</c> answers false for a disposed timer, as the contract says, and does not put it
+        /// back in the record. It used to answer true whatever the inner timer said.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public void AChangeOnADisposedTimerAnswersFalseAndRecordsNothing()
+        {
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+            var fired = 0;
+            var timer = time.CreateTimer(_ => fired++, null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
+            timer.Change(TimeSpan.FromSeconds(20), Timeout.InfiniteTimeSpan).ShouldBeTrue("a live timer takes the change");
+            time.HasTimerDueAfter(TimeSpan.FromSeconds(15)).ShouldBeTrue();
+
+            timer.Dispose();
+
+            timer.Change(TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan).ShouldBeFalse();
+            time.HasTimerDueAfter(TimeSpan.Zero).ShouldBeFalse("a disposed timer is not recorded again");
+            time.Advance(TimeSpan.FromSeconds(30));
+            fired.ShouldBe(0);
+        }
+
+        /// <summary>
+        /// #2197: a wait for a timer is woken by the timer being made, not by looking again every millisecond. It is
+        /// not finished before the timer exists, and it finishes once it does, with nothing advancing the wall clock.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task AWaitForATimerIsWokenWhenTheTimerIsMade()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+            var wait = time.WaitForTimerDueAfterAsync(TimeSpan.FromSeconds(5), ct, "the deadline under test");
+            wait.IsCompleted.ShouldBeFalse("no timer exists yet");
+
+            using var near = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
+            wait.IsCompleted.ShouldBeFalse("a timer due in 1 s is not the one due after 5 s");
+
+            using var far = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
+            await wait;
+        }
+
+        /// <summary>
+        /// #2197: the same for a wait on a timer due inside a window, where an ADVANCE is what brings the timer into
+        /// the window: nothing is made or changed, only now moves.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task AWaitForATimerInsideAWindowIsWokenWhenAnAdvanceBringsItIn()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+            using var timer = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(100), Timeout.InfiniteTimeSpan);
+
+            var wait = time.WaitForTimerDueWithinAsync(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(20), ct, "the deadline under test");
+            wait.IsCompleted.ShouldBeFalse("the timer is 100 s out, past the window");
+
+            time.Advance(TimeSpan.FromSeconds(85));
+
+            await wait;
+        }
+
         /// <summary>The same window in <c>ITimer.Change</c>: the record and the inner timer are re-armed from one clock reading.</summary>
         [Fact(Timeout = 30_000)]
         public void AnAdvanceBetweenTheRecordAndTheInnerChangeLeavesThemAgreeing()

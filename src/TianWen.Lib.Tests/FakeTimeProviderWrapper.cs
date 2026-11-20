@@ -159,9 +159,17 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     {
         try
         {
-            while (!_recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks))
+            while (true)
             {
-                await Task.Delay(1, cancellationToken);
+                // Taken BEFORE the look: a timer recorded between the look and the wait has already ended this task,
+                // so the wait returns at once and the look is made again. Nothing is polled.
+                var change = _recording.NextChange;
+                if (_recording.HasOneShotDueAfter(_fake.GetUtcNow().UtcTicks + atLeast.Ticks))
+                {
+                    return;
+                }
+
+                await change.WaitAsync(cancellationToken);
             }
         }
         catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
@@ -196,13 +204,16 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         {
             while (true)
             {
+                // As in WaitForTimerDueAfterAsync. An advance is a change too: it moves the window this look is
+                // taken through, so a timer that was further out than atMost can come into it with no timer made.
+                var change = _recording.NextChange;
                 var now = _fake.GetUtcNow().UtcTicks;
                 if (_recording.HasOneShotDueAfter(now + atLeast.Ticks, now + atMost.Ticks))
                 {
                     return;
                 }
 
-                await Task.Delay(1, cancellationToken);
+                await change.WaitAsync(cancellationToken);
             }
         }
         catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
@@ -503,6 +514,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public void Advance(TimeSpan duration)
     {
         _fake.Advance(duration);
+        // Now moved, and with it what "due within" means: wake the timer waits to look again.
+        _recording.NoteChange();
         ReleaseDueParks();
     }
 
@@ -625,9 +638,26 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // Made dormant, then armed by Arm: the inner timer exists before anything can see the record.
             timer.Inner = inner.CreateTimer(static s => ((RecordedTimer)s!).Fire(), timer, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             timer.Arm(dueTime, period);
+            // A zero due time fires the callback inside Arm, before the record below. That callback cannot dispose
+            // THIS timer and leave a disposed one recorded (#2197 asked): the only reference to it is the one returned
+            // here, which nobody holds yet, so a dispose can only come after the record.
             _timers[timer] = 0;
+            NoteChange();
             return timer;
         }
+
+        private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>
+        /// Ends at the next change to what the timer waits look at: a timer recorded, a due time recorded or changed,
+        /// or the clock advanced. A waiter takes it BEFORE it looks, so a change that lands between its look and its
+        /// wait is not missed (<see cref="FakeTimeProviderWrapper.WaitForTimerDueAfterAsync"/>).
+        /// </summary>
+        public Task NextChange => Volatile.Read(ref _changed).Task;
+
+        /// <summary>Ends the current <see cref="NextChange"/> and starts the next.</summary>
+        public void NoteChange()
+            => Interlocked.Exchange(ref _changed, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
 
         /// <summary>The clock's now, in UTC ticks.</summary>
         private long Now => inner.GetUtcNow().UtcTicks;
@@ -753,7 +783,9 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             /// that reading, arms, and reads the clock again. If it did not move, record and inner timer were made
             /// from the same instant. If it moved, the pass is repeated from the new instant, unless the timer fired
             /// meanwhile (an advance that reached it, which the fire already accounted for). The loop retries only
-            /// when an advance actually happened, so it neither spins nor polls.
+            /// when an advance actually happened, so it neither spins nor polls. While a pump on another thread keeps
+            /// advancing, a timer made at that moment is therefore re-based once for each advance that lands during
+            /// its arming, and comes due that much later than its first reading said: bounded by those advances.
             /// </para>
             /// <para>
             /// Known limit, accepted: <c>firedBefore</c> is read before the pass, so on a <c>Change</c> of a LIVE timer an
@@ -767,7 +799,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             /// <c>DescribeTimers</c> shows it as <c>periodic (never due)</c>; harmless, it is a description only.
             /// </para>
             /// </summary>
-            public void Arm(TimeSpan dueTime, TimeSpan period)
+            /// <returns>Whether the inner timer took the change: false once it is disposed, as <see cref="ITimer.Change"/> answers.</returns>
+            public bool Arm(TimeSpan dueTime, TimeSpan period)
             {
                 var first = true;
                 var firedBefore = Interlocked.Read(ref _fired);
@@ -784,12 +817,12 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
                         owner.Seam?.Invoke();
                     }
 
-                    Inner?.Change(dueTime, period);
+                    var taken = Inner?.Change(dueTime, period) ?? false;
                     if (Interlocked.Read(ref _fired) != firedBefore)
                     {
                         // An advance reached the timer meanwhile; Fire already accounted for it.
                         Volatile.Write(ref _period, period == Timeout.InfiniteTimeSpan || period <= TimeSpan.Zero ? 0 : period.Ticks);
-                        return;
+                        return taken;
                     }
 
                     if (owner.Now == before)
@@ -801,25 +834,34 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
                             Volatile.Write(ref _nextDue, long.MaxValue);
                         }
 
-                        return;
+                        // A due time is on show: wake the waits that look for one.
+                        owner.NoteChange();
+                        return taken;
                     }
                 }
             }
 
+            /// <summary>
+            /// As <see cref="ITimer.Change"/> answers: false for a disposed timer, which is not armed again and stays
+            /// out of the record. It used to answer true always, whatever the inner timer said.
+            /// </summary>
             public bool Change(TimeSpan dueTime, TimeSpan period)
-            {
-                Arm(dueTime, period);
-                return true;
-            }
+                => !IsDisposed && Arm(dueTime, period);
+
+            private int _disposed;
+
+            public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
             public void Dispose()
             {
+                Volatile.Write(ref _disposed, 1);
                 owner.Forget(this);
                 Inner?.Dispose();
             }
 
             public ValueTask DisposeAsync()
             {
+                Volatile.Write(ref _disposed, 1);
                 owner.Forget(this);
                 return Inner?.DisposeAsync() ?? ValueTask.CompletedTask;
             }
