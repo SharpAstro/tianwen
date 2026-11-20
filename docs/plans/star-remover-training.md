@@ -7342,8 +7342,13 @@ the first angle is a step after the model and not another arm:
       (4.88e-5 at step 73,000, see above). So a ratio of 0.75 to 0.85 is read against the curve (a spike with no
       recovery, a new best after the halving) before it is called stalled; a spike that recovers within a few
       evaluations is not a stall. A ratio of 0.75 to 0.85 that shows a spike with no recovery and no new best
-      after the halving is called stalled; one that shows neither is called neither, and the rows are reported
-      with that said. No threshold changes.
+      after the halving is called stalled; one that shows neither, or only one of the two, is called neither,
+      and the rows are reported with that said. No threshold changes. **These sentences, from "The figure is read
+      against the curve", were added after the launch**, on the review of this registration (PR #2335), which
+      found that the figure as launched would have called R3x stalled: I had set the thresholds on R4c, R4d, R4e
+      and R4f and left R3x out. When they were added the run's log held 14 evaluations, to step 7,000, all at the
+      first learning rate, so nothing the figure reads (the first halving and the 60,000 steps after it) existed
+      yet. The addition is the owner's to refuse; refused, the rule is the one sentence as launched.
     - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
       guards, its kill rule and its two added rows stand as its registration and its read list them (the
       Tarantula's crowded flat through the product's chain 93.3 or over and killed under R4d's 91.3; BP 17-19
