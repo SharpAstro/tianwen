@@ -7651,13 +7651,13 @@ the first angle is a step after the model and not another arm:
 
     | Alcyone | share taken | left at 40-60 px, R / G / B |
     |---|---|---|
-    | 2022-01-05 as it is (master 174 / 262 / 298) | 17 / 7 / 5 / 7 | 165 / 233 / 260 |
+    | 2022-01-05 as it is (master 174 / 262 / 298 in master pixel sigma, ring medians less sky as in the table at line 7556) | 17 / 7 / 5 / 7 | 165 / 233 / 260 |
     | with the other night's maximum and minimums (6 samples touched) | 80 / 71 / 64 / 65 | 67 / 169 / 82 |
     | with only the other night's maximum (3 samples) | 17 / 7 / 5 / 7 | 166 / 233 / 261 |
     | with only the other night's minimums (3 samples) | 80 / 71 / 64 / 65 | 67 / 169 / 82 |
     | every channel's minimum three times deeper (3 samples) | 89 / 68 / 34 / 16 | 116 / 167 / 183 |
-    | 2022-01-04 as it is (master 106 / 163 / 197) | 82 / 69 / 59 / 61 | 45 / 112 / 65 |
-    | 2022-01-04 with the other night's numbers (354 samples) | 17 / 8 / 5 / 3 | 101 / 147 / 178 |
+    | 2022-01-04 as it is (master 106 / 163 / 197, same unit) | 82 / 69 / 59 / 61 | 45 / 112 / 65 |
+    | 2022-01-04 with the other night's numbers (354 samples: 295 for the minimums alone, 59 for the maximum alone, since the reverse clips every pixel over the lower maximum and so alters saturated star cores) | 17 / 8 / 5 / 3 | 101 / 147 / 178 |
 
     - **All eight Pleiads of a frame move together**, each way: with the other night's minimums the stars of
       2022-01-05 are taken far out and green (Maia 97 / 83 / 82 / 100, Merope's nebula with her), and those of
@@ -7669,7 +7669,7 @@ the first angle is a step after the model and not another arm:
       innermost ring where it gave 47, and nothing beyond 40 px: the core goes, the disc and the spikes stay.
     - **The cast and the nebula taken follow the channels' balance, not the strength.** The two nights' minimums
       differ by a factor of 1.7 in red and in green and by almost nothing in blue (median above minimum 168 /
-      400 / 174 against 98 / 233 / 183 in the files' units). With 2022-01-04's balance the model takes red and
+      400 / 174 on 2022-01-04 against 98 / 233 / 183 on 2022-01-05, in the files' units). With 2022-01-04's balance the model takes red and
       blue far out and leaves green. With all three softened alike by a factor of three, a softer stretch than
       either night's, there is no cast and the nebula stays.
     - **It is not the whole of #2292.** A stretch three times harder does not make Alnitak stand (97 / 85 / 64 /
@@ -7695,7 +7695,7 @@ the first angle is a step after the model and not another arm:
       | Merope | 74 / 41 / 11 / 4 | 87 / 60 / 35 / 23 | 94 / 72 / 50 / 35 | 98 / 91 / 94 / 117 | 94 / 71 / 51 / 32 | 96 / 77 / 55 / 39 |
       | Taygeta | 94 / 69 / 34 / 9 | 96 / 75 / 58 / 44 | 97 / 82 / 59 / 43 | 98 / 88 / 74 / 69 | 97 / 79 / 62 / 52 | 97 / 84 / 63 / 41 |
 
-      The two nights read alike at either depth, to within a few points at 120 sigma. Nothing is taken beyond
+      The two nights read much closer at either depth than as they are (up to 80 points apart): at 120 sigma they differ by up to 7 points (Maia 47 against 54 at 40 to 60 px), at 60 sigma by up to 16 (Merope 35 against 51, Maia 26 against 41, Alcyone 67 against 81). Nothing is taken beyond
       StarXTerminator's take any more (Merope of 2022-01-04 at 100 to 120 px: 212 percent as it is, 32 and 64),
       and the colour holds: Alcyone of 2022-01-04 keeps 50 / 59 / 52 percent of her light at 40 to 60 px in R /
       G / B at 120 sigma, and 49 / 58 / 51 the next night, against 43 / 69 / 33 as it is. Looked at (Merope on
@@ -7711,14 +7711,17 @@ the first angle is a step after the model and not another arm:
       frame's 64 px blocks of each block's neighbour-difference sigma, since a central crop is 30 Doradus on the
       Tarantula master. By it the three masters' own depths are 45 / 40 / 48 on Andromeda, 9 / 11 / 10 on the
       Tarantula and 32 on the Sagittarius master (one plane): the Tarantula, which carries the crowded rows, is
-      stretched far harder as it is than the other two, and 60 or 120 sigma softens it six- to twelvefold.
+      stretched far harder as it is than the other two, and 60 or 120 sigma softens it five- to thirteenfold.
     - **The question:** do the scorecard's rows hold at a black point that mends the bright stars? Through the
-      chain, R4g's guards: the Tarantula's crowded flat at least 90.3 (R4d 91.3), the Sagittarius crowded flat at
+      chain, the guards below (R4g's, with the ones R4g adds): the Tarantula's crowded flat at least 90.3 (R4d 91.3), the Sagittarius crowded flat at
       least 96.3, Andromeda's dark flat at least 95 with at most 3 dug, the Tarantula's dark flat at least 91,
-      purity at most 1.0 %, the light taken from the Tarantula field at most 83 % and 84 %; and Gaia BP 17-19
-      with the level set aside at least 89.7 (R4d 90.7, a point under it).
+      purity at most 1.0 %, the light taken from the Tarantula field at most 83 % and 84 %; the glow's green median
+      within 450 of zero on Andromeda and within 500 on the Tarantula; the M31 nucleus under 10 %; and Gaia BP 17-19
+      with the level set aside at least 89.7 (R4d 90.7, a point under it). A softer black point is what risks cores
+      and glow, so these two are guards here, not reported only.
     - **Nebula guards, as trained** (R4g's): light added on at most 1.0 % of each master's nebula; of the
-      brightest tenth of the Tarantula's peaks at least 11 of 77 standing; and the Lagoon's broad light taken no
+      brightest tenth of the Tarantula's peaks at least 11 of 77 standing; of the faint stars on bright background
+      (`audit.py real`) at most 37 % left on the Lagoon's core and at most 27 % on 30 Doradus (R4g's bars); and the Lagoon's broad light taken no
       more than R4d's 2.67.
     - **What is expected.** The bright stars gain, as on the Pleiades. The star rows are the risk: a softer stretch
       puts faint stars nearer the sky in the model's input, so the crowded flats and BP 17-19 may fall. The

@@ -67,6 +67,9 @@ for line in open(LIST, encoding="utf-8"):
     for e in EDGES:
         ring = cut[(r >= e[0]) & (r < e[1])]
         level = float(mtf(per[0][2], float(np.nanmedian(ring))))
+        if e not in shares.get(star, {}):          # a row the ring file lacks (the uncertain south of Merope stars)
+            cells.append('   n/a')
+            continue
         mst, sxt, ours = shares[star][e]
         took = mst - sxt
         share = None if took < 3 else 100 * (mst - ours) / took

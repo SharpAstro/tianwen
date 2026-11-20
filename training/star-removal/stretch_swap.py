@@ -7,8 +7,10 @@ The last argument takes only part of the other frame's stretch: its maximum alon
 The remover stretches a frame per channel from three numbers: the frame's maximum (its unit divisor), the channel's
 minimum, and the channel's median above that minimum. This writes <master to change> with those three made equal to the
 other master's, by touching as few pixels as it can: one pixel planted at the new maximum, and per channel either one
-pixel planted lower (to deepen the minimum) or the few pixels under the new minimum raised to it. Everything a star, a
-nebula or the noise is made of stays as it was. Prints the before and after of both frames."""
+pixel planted lower (to deepen the minimum) or the few pixels under the new minimum raised to it. Going to a deeper
+minimum or a higher maximum touches 3 to 6 samples and nothing a star, a nebula or the noise is made of changes. The
+reverse (a harder stretch, a lower maximum) is not like that: pixels under the new minimum are raised and every pixel
+over the new maximum is clipped to it, which alters saturated star cores, so it touches hundreds. Prints the before and after of both frames."""
 import sys
 import numpy as np
 from astropy.io import fits

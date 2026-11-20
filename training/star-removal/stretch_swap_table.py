@@ -1,5 +1,9 @@
 """The stretch swap's rings as shares of StarXTerminator's take (red), per star: the changed frame against the frame as it is.
-    python -I swap_table.py <rings file> [...]"""
+    python -I stretch_swap_table.py <rings file> [...]
+
+The rings file holds one "=== <star> (<name>; <frame>, ..." block per star and frame, each with the "<label>: ring medians less ..."
+tables this reads. Nothing in the tree writes it yet (the dump was run from an uncommitted scratch script), so a table of a
+new run needs that dump written first."""
 import re, sys
 RINGS = [(8, 22), (22, 40), (40, 60), (60, 80), (80, 100), (100, 120)]
 for path in sys.argv[1:]:

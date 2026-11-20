@@ -13,10 +13,12 @@ SRC, OUT, FACTOR = sys.argv[1], sys.argv[2], float(sys.argv[3])
 with fits.open(SRC) as h:
     hdr = h[0].header.copy()
     d = np.asarray(h[0].data, np.float32).copy()
+shape = d.shape
+d = d[None] if d.ndim == 2 else d          # a one-plane (mono) master has no channel axis
 H, W = d.shape[-2:]
 py, px = H // 2 + 7, 40
 touched, before, after = 0, [], []
-for c in range(3):
+for c in range(d.shape[0]):
     ok = np.isfinite(d[c]) & (d[c] != 0)
     mn, med = float(d[c][ok].min()), float(np.median(d[c][ok]))
     want = med - FACTOR * (med - mn)
@@ -29,5 +31,5 @@ for c in range(3):
     ok = np.isfinite(d[c]) & (d[c] != 0)
     after.append(float(np.median(d[c][ok])) - float(d[c][ok].min()))
 print("median above min R/G/B: " + " / ".join(f"{v:.5g}" for v in before) + "  ->  " + " / ".join(f"{v:.5g}" for v in after) + f"   ({touched} samples touched of {d.size})")
-fits.PrimaryHDU(d, hdr).writeto(OUT, overwrite=True)
+fits.PrimaryHDU(d.reshape(shape), hdr).writeto(OUT, overwrite=True)
 print(OUT)
