@@ -810,7 +810,8 @@ namespace TianWen.UI.Abstractions
                 var text = limit.IsWarningOnly && limit.Kind is MountLimitKind.Meridian
                     ? $"limit {-limit.ExceededBy:F0}m"
                     : limit.IsWarningOnly ? "limit" : "LIMIT";
-                return TableCell(text, style.WarnText, 1f, 70f);
+                // The cell holds a word; what happened and what to do about it is the verdict's sentence, on the hover (#2333).
+                return TableCell(text, style.WarnText, 1f, 70f).WithTooltip(limit.Describe());
             }
             return TableCell(card.TimeToMeridianFlip(now) is { } untilFlip
                 ? LiveSessionActions.FormatDuration(untilFlip)
@@ -1024,9 +1025,14 @@ namespace TianWen.UI.Abstractions
             // A limit is the other thing that ends a night while you sleep -- and unlike a flip it may already
             // have, which is why it sits directly under the status and is not gated on the rig running.
             // The full sentence, warning colour; a meridian warning's countdown is inside it.
+            // ONE line of it: the engine cuts what the card is too narrow for with an ellipsis, which is most of it on
+            // any card (the sentence runs to 230 characters), so the whole of it is the hover, and the sentence itself
+            // leads with what the operator has to do where that is anything (#2333). The hover's region takes no press:
+            // a press on the line is still the card's.
             if (card.MountLimit is { } limit)
             {
-                Row(Layout.Builder.Text(limit.Describe(), BaseFontSize * 0.85f, style.WarnText), DetailRowHeight);
+                var sentence = limit.Describe();
+                Row(Layout.Builder.Text(sentence, BaseFontSize * 0.85f, style.WarnText).WithTooltip(sentence), DetailRowHeight);
             }
 
             // Cooling sits directly under the status because during setup it IS the status, and it is the one

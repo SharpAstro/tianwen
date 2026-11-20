@@ -3,6 +3,7 @@ using NSubstitute;
 using Shouldly;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -189,13 +190,17 @@ public class MountLimitWatcherTests
         await watcher.TickAsync(ct);
 
         await mount.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        log.Inner.Messages.ShouldContain(static m => m.Contains("cannot be stopped on command"));
-        log.Inner.Messages.ShouldContain(static m => m.Contains("can neither park nor stop tracking"));
+        // One line, read by the words of the line that acts and not only by the verdict's, which an earlier line of the
+        // log already held: deleting the last line then left this test green (#2333).
+        log.Inner.Messages.ShouldContain(static m => m.Contains("cannot be stopped on command")
+            && m.Contains("No command is sent: the configured response is Park, which this mount cannot carry out."));
+        log.Inner.Messages.Count(static m => m.Contains("cannot be stopped on command")).ShouldBe(1, "said once");
+        log.Inner.Messages.ShouldNotContain(static m => m.Contains("Responding with"));
         log.Inner.Messages.ShouldNotContain(static m => m.Contains("tracking was stopped"));
         // What the Home card and the toast show is the verdict's own sentence, on the tick that acts and once latched.
         var acted = watcher.VerdictFor(MountUri);
         acted.MountCannotBeStopped.ShouldBeTrue();
-        acted.Describe().ShouldContain("stop it at the mount");
+        acted.Describe().ShouldStartWith("Stop the mount by hand.");
 
         await watcher.TickAsync(ct);
 
@@ -224,6 +229,7 @@ public class MountLimitWatcherTests
         await mount.Received(1).ParkAsync(Arg.Any<CancellationToken>());
         watcher.VerdictFor(MountUri).MountCannotBeStopped.ShouldBeFalse();
         log.Inner.Messages.ShouldNotContain(static m => m.Contains("still turning"));
+        log.Inner.Messages.ShouldContain(static m => m.Contains("Responding with Park."));
     }
 
     private sealed class RecordingWatcherLogger : Microsoft.Extensions.Logging.ILogger<MountLimitWatcher>

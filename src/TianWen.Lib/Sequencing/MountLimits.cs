@@ -145,6 +145,11 @@ public readonly record struct MountLimitVerdict(
     /// <summary>
     /// One user-facing sentence, in the same spirit as <c>DeviceOwnershipGate.Describe()</c>: say
     /// what happened, in what units, and what is about to be done about it.
+    /// <para>
+    /// Where the operator has to do it (a mount nothing here can stop), that comes FIRST: a Home card shows one line of
+    /// this and cuts the rest, and the instruction used to be the sentence's last words, off the end of every card
+    /// (#2333). The whole sentence is the card's hover.
+    /// </para>
     /// </summary>
     public string Describe() => Kind switch
     {
@@ -152,13 +157,13 @@ public readonly record struct MountLimitVerdict(
         MountLimitKind.DriverEnforced =>
             "The mount stopped tracking on its own: a driver-enforced limit (or a stall), not a fault. Ending the observation rather than fighting it.",
         MountLimitKind.Meridian when IsWarningOnly =>
-            $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before {WarningPhrase()} ({BasisPhrase()}).",
+            $"{ByHandLead()}Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before {WarningPhrase()} ({BasisPhrase()}).",
         MountLimitKind.Meridian =>
-            $"Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit ({BasisPhrase()}). {ActionPhrase()}",
+            $"{ByHandLead()}Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit ({BasisPhrase()}). {ActionPhrase()}",
         MountLimitKind.Horizon when IsWarningOnly =>
-            $"Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before {WarningPhrase()}.",
+            $"{ByHandLead()}Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before {WarningPhrase()}.",
         MountLimitKind.Horizon =>
-            $"Horizon limit reached: the pointing is {ExceededBy:F1} deg below the limit. {ActionPhrase()}",
+            $"{ByHandLead()}Horizon limit reached: the pointing is {ExceededBy:F1} deg below the limit. {ActionPhrase()}",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "unknown limit kind"),
     };
 
@@ -176,16 +181,37 @@ public readonly record struct MountLimitVerdict(
     /// </summary>
     private string ActionPhrase() => (Latched, MountCannotBeStopped) switch
     {
-        (true, true) => "The limit has been reported, and this mount cannot be stopped on command: it is still turning until it is stopped at the mount.",
+        (true, true) => "The limit has been reported, and this mount cannot be stopped on command: it is still turning.",
         (true, false) => "The limit has already acted (tracking is stopped); it acts again only once the mount is clear.",
-        (false, true) when Response is not MountLimitResponse.Warn => "This mount cannot be stopped on command, so it is still turning: stop it at the mount.",
+        (false, true) when Response is not MountLimitResponse.Warn => "This mount cannot be stopped on command, so it is still turning.",
         _ => $"Will {ResponsePhrase()}.",
     };
 
     /// <summary>What the countdown of a warning runs to: the action, or for a mount nothing here can stop, the limit itself.</summary>
-    private string WarningPhrase() => MountCannotBeStopped && Response is not MountLimitResponse.Warn
-        ? "the limit, and this mount cannot be stopped on command: stop it at the mount before then"
+    private string WarningPhrase() => OperatorHasToStopIt
+        ? "the limit, and this mount cannot be stopped on command"
         : $"the mount will {ResponsePhrase()}";
+
+    /// <summary>
+    /// True where the sentence sends the operator to the mount: nothing here stops it, and the limit is set to do more
+    /// than warn (a latched verdict reads <see cref="MountLimitResponse.Warn"/>, and was not set to).
+    /// </summary>
+    private bool OperatorHasToStopIt => MountCannotBeStopped && (Latched || Response is not MountLimitResponse.Warn);
+
+    /// <summary>What the operator has to do, ahead of everything else in <see cref="Describe"/>; empty where that is nothing.</summary>
+    private string ByHandLead() => !OperatorHasToStopIt ? ""
+        : IsWarningOnly ? "Stop the mount by hand before the limit. "
+        : "Stop the mount by hand. ";
+
+    /// <summary>
+    /// What the log adds to <see cref="Describe"/> on the tick that acts: the response made, or for a mount nothing here
+    /// can stop, that no command is sent. One wording for <c>Session.EnforceMountLimitsAsync</c> and
+    /// <see cref="MountLimitWatcher"/>, which said "Responding with StopTracking" of a mount that takes no stop and then
+    /// repeated the verdict's own words in a second line (#2333).
+    /// </summary>
+    public string ActingNote() => MountCannotBeStopped
+        ? $"No command is sent: the configured response is {Response}, which this mount cannot carry out."
+        : $"Responding with {Response}.";
 
     private string ResponsePhrase() => Response switch
     {

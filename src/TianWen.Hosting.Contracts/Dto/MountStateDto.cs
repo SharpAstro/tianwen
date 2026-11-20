@@ -63,7 +63,7 @@ public sealed class MountLimitDto
     public bool Latched { get; init; }
     /// <summary>Not <c>required</c>, as <see cref="Latched"/>: an older node never writes it, and it then reads as a mount
     /// the limit stops, which is what that node's sentence said. Crosses the wire so a window watching another node's rig
-    /// says "stop it at the mount" too (#1483).</summary>
+    /// says "Stop the mount by hand" too (#1483).</summary>
     public bool MountCannotBeStopped { get; init; }
 
     public static MountLimitDto FromVerdict(MountLimitVerdict verdict) => new()

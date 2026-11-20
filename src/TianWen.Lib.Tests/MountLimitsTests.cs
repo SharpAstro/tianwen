@@ -472,23 +472,41 @@ public class MountLimitsTests
     public void AMountNothingCanStopIsNeverSaidToBeStoppedOrAboutToBe()
     {
         var approaching = new MountLimitVerdict(MountLimitKind.Horizon, MountLimitResponse.StopTracking, -2.0) { MountCannotBeStopped = true };
-        approaching.Describe().ShouldContain("stop it at the mount before then");
+        approaching.Describe().ShouldStartWith("Stop the mount by hand before the limit. Approaching the horizon limit: 2.0 deg");
+        approaching.Describe().ShouldContain("cannot be stopped on command");
         approaching.Describe().ShouldNotContain("will stop tracking");
 
         var reached = new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.StopTracking, 3.0) { MountCannotBeStopped = true };
-        reached.Describe().ShouldContain("still turning: stop it at the mount");
+        // What the operator has to do leads: a Home card shows one line of the sentence and cuts the rest (#2333).
+        reached.Describe().ShouldStartWith("Stop the mount by hand. Meridian limit reached");
+        reached.Describe().ShouldEndWith("so it is still turning.");
         reached.Describe().ShouldNotContain("Will stop tracking");
 
         var latched = new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true) { MountCannotBeStopped = true };
-        latched.Describe().ShouldContain("still turning until it is stopped at the mount");
+        latched.Describe().ShouldStartWith("Stop the mount by hand. Meridian limit reached");
+        latched.Describe().ShouldEndWith("it is still turning.");
         latched.Describe().ShouldNotContain("tracking is stopped");
 
         // A limit set to warn only promises no stop on any mount, so it reads as it did.
-        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0) { MountCannotBeStopped = true }
-            .Describe().ShouldContain("Will warn only.");
+        var warnOnly = new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0) { MountCannotBeStopped = true };
+        warnOnly.Describe().ShouldContain("Will warn only.");
+        warnOnly.Describe().ShouldStartWith("Meridian limit reached", customMessage: "nobody is sent to the mount by a limit that only warns");
         // And a mount that can be stopped reads as it did.
         new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.StopTracking, 3.0).Describe().ShouldContain("Will stop tracking.");
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.StopTracking, 3.0).Describe().ShouldStartWith("Meridian limit reached");
         new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true).Describe().ShouldContain("tracking is stopped");
+    }
+
+    /// <summary>
+    /// #2333: the log line that acts says what is done. It said "Responding with StopTracking" of a mount that takes no
+    /// stop, and a second line then repeated the verdict's own words, which no test told apart from the first.
+    /// </summary>
+    [Fact]
+    public void TheLineThatActsSaysNoCommandIsSentToAMountNothingCanStop()
+    {
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.StopTracking, 3.0) { MountCannotBeStopped = true }
+            .ActingNote().ShouldBe("No command is sent: the configured response is StopTracking, which this mount cannot carry out.");
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Park, 3.0).ActingNote().ShouldBe("Responding with Park.");
     }
 
     [Theory]
