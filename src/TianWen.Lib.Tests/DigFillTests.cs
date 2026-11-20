@@ -116,6 +116,23 @@ public class DigFillTests
         MeanAtStar(plate, radius: 2).ShouldBeLessThan(before - 0.5);
     }
 
+    // #2209: the lift's cap had no test, and taking it out left every scene here passing. No scene that reaches it was
+    // found (see DigFill.Capped for why), so the rule is pinned where it is stated.
+    [Theory]
+    [InlineData(10f, 0f, 2f, 4f, 0f)]      // a lift is at most twice what the model took
+    [InlineData(3f, 0f, 2f, 3f, 0f)]       // and is itself when it is under that
+    [InlineData(-5f, 0f, 2f, 0f, 0f)]      // a wish to go down is no lift
+    [InlineData(0f, 10f, 2f, 0f, 0.1f)]    // light left standing comes down by at most a twentieth of the take
+    [InlineData(0f, 0.05f, 2f, 0f, 0.05f)] // and by itself when it is under that
+    [InlineData(10f, 10f, 0f, 0f, 0f)]     // where the model took nothing, nothing is corrected
+    public void EachCorrectionIsHeldToItsShareOfWhatTheModelTook(float wantedLift, float standing, float taken, float up, float down)
+    {
+        var capped = DigFill.Capped(wantedLift, standing, taken);
+
+        capped.Up.ShouldBe(up, 1e-6f);
+        capped.Down.ShouldBe(down, 1e-6f);
+    }
+
     [Fact]
     public void APlateWithNoStarTakenIsHandedBackAsItIs()
     {
