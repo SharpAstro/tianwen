@@ -116,6 +116,46 @@ class AllOnesMask(unittest.TestCase):
         self.assertTrue((out[~fe] == 0).all())
 
 
+class ExtraRowsMaskAlone(unittest.TestCase):
+    """R4g's --extra-loss-mask: the extra cache's truths are stored plates and carry D4's mask, the main cache's are
+    synthetic and carry none. A main row then weighs every pixel and an extra row reads its own draw's mask."""
+
+    def test_a_main_row_keeps_every_pixel_and_an_extra_row_its_own_mask(self):
+        rng = np.random.default_rng(2)
+        extra_keep = (rng.random((5, 3, 4, 4)) < 0.5).astype(np.uint8)
+        fe = np.array([True, False, True, False])
+        ie, slot = np.array([4, 0, 2, 1]), np.array([2, 0, 1, 0])
+        out = S.extra_only_keep(extra_keep, ie, slot, fe)
+        self.assertEqual(out.shape, (4, 4, 4))
+        self.assertTrue((out[~fe] == 1).all(), "a main row weighs every pixel")
+        np.testing.assert_array_equal(out[0], extra_keep[4, 2])
+        np.testing.assert_array_equal(out[2], extra_keep[2, 1])
+
+    def test_a_batch_without_an_extra_row_takes_no_mask(self):
+        extra_keep = np.zeros((5, 3, 4, 4), dtype=np.uint8)
+        fe = np.zeros(4, dtype=bool)
+        self.assertIsNone(S.extra_only_keep(extra_keep, np.zeros(4, dtype=np.int64), np.zeros(4, dtype=np.int64), fe),
+                          "its loss is then the plain mean a run without the mask takes")
+
+    def test_the_switch_is_in_the_fingerprint_only_when_set(self):
+        import argparse
+        meta = {"cells": 4, "train_cells": 3}
+        base = dict(schedule="plateau", steps=10, extra_cache="c:/x/bright")
+        off = S.resume_fingerprint(argparse.Namespace(**base), meta)
+        on = S.resume_fingerprint(argparse.Namespace(**base, extra_loss_mask=True), meta)
+        self.assertNotIn("extra_loss_mask", off, "a checkpoint written before the switch still resumes")
+        self.assertTrue(on["extra_loss_mask"])
+
+    def test_an_extra_cache_without_its_masks_is_refused(self):
+        with tempfile.TemporaryDirectory() as cache:
+            meta = {"cells": 2, "injected": True, "train_cells": 1, "draws": 1, "slots": 2, "channels": 3}
+            with open(os.path.join(cache, "meta.json"), "w", encoding="utf-8") as fh:
+                json.dump(meta, fh)
+            np.zeros((2, 2, 3, S.TILE, S.TILE), dtype=np.float16).tofile(os.path.join(cache, "tiles.f16"))
+            with self.assertRaises(SystemExit):
+                S.ExtraCache.open(cache, 3, need_sigma=False, need_keep=True)
+
+
 class SplitByScene(unittest.TestCase):
     """A held-out scene (every optics of a held-out seed) gives no cell to training, as the export's lists name it."""
 

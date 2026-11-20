@@ -364,6 +364,8 @@ def resume_fingerprint(args, meta):
         fp.update(extra_cache=os.path.basename(os.path.normpath(args.extra_cache)))
     if getattr(args, "schedule_on", "combined") != "combined":
         fp.update(schedule_on=args.schedule_on)
+    if getattr(args, "extra_loss_mask", False):
+        fp.update(extra_loss_mask=True)
     fp.update(cells=meta["cells"], train_cells=meta["train_cells"])
     if args.schedule == "cosine":
         fp["steps"] = args.steps
@@ -486,6 +488,18 @@ def mixed_rows(main, main_idx, main_slot, extra, extra_idx, extra_slot, from_ext
         out[~fe] = main[main_idx[~fe], main_slot[~fe]]
     if fe.any():
         out[fe] = extra[extra_idx[fe], extra_slot[fe]]
+    return out
+
+
+def extra_only_keep(extra_keep, extra_idx, extra_slot, from_extra):
+    """[B, H, W] loss masks for a batch whose MAIN cache carries none (--extra-loss-mask, R4g): a main row keeps every
+    pixel and an extra row reads its own draw's mask. None when no row of the batch is the extra cache's, so that batch's
+    loss is the plain mean a run without the mask takes."""
+    fe = np.asarray(from_extra, dtype=bool)
+    if not fe.any():
+        return None
+    out = np.ones((len(fe),) + extra_keep.shape[2:], dtype=extra_keep.dtype)
+    out[fe] = extra_keep[extra_idx[fe], extra_slot[fe]]
     return out
 
 
@@ -1703,11 +1717,22 @@ def train(args):
                 or args.star_loss is not None or args.operator == "rl":
             raise SystemExit("--extra-cache is for the plain synthetic regime against the clean tile (no --scale-aug, "
                              "--cond-psf01, --star-loss or --operator)")
-        extra = ExtraCache.open(args.extra_cache, CH, sigma_planes is not None, keep_planes is not None)
+        # R4g's --extra-loss-mask: the extra cache's rows carry D4's mask though the main cache's do not (its truths are
+        # stored plates, which keep sources of their own; the main cache's are synthetic and keep none).
+        if args.extra_loss_mask and keep_planes is not None:
+            raise SystemExit("--extra-loss-mask is for a main cache without masks; with --loss-mask the extra cache's are read already")
+        extra = ExtraCache.open(args.extra_cache, CH, sigma_planes is not None, keep_planes is not None or args.extra_loss_mask)
+        if args.extra_loss_mask and extra.meta["keep_draws"] < extra.draws:
+            raise SystemExit(f"--extra-loss-mask: {args.extra_cache}'s masks cover {extra.meta['keep_draws']} draws, it trains {extra.draws}")
         share = extra_share(n_train, draws, extra.n_train, extra.draws)
         print(f"extra cache ON: {extra.n_train} training cells x {extra.draws} draw(s) of {args.extra_cache}, "
               f"{share:.1%} of the training draw, each regressing onto its own truth; "
               f"{extra.meta['cells'] - extra.n_train} held-out cells", flush=True)
+        if args.extra_loss_mask:
+            print(f"  its rows leave the sky near their plate's own sources out of the loss ({KEEP_FILE}, "
+                  f"{extra.meta['keep_planes']} draw masks); a main row weighs every pixel", flush=True)
+    elif args.extra_loss_mask:
+        raise SystemExit("--extra-loss-mask needs --extra-cache")
 
     # A DECONVOLUTION arm conditions on a stored psf01 label rather than on the input's measured
     # noise, and is selected on width and ringing rather than on noise: the denoiser's gate would
@@ -2193,7 +2218,8 @@ def train(args):
         else:
             fe, ie, ae = pick
             plane_now = mixed_rows(sigma_planes, idx, a, extra.sigma, ie, ae, fe) if sigma_planes is not None else None
-            keep_now = mixed_rows(keep_planes, idx, a - 1, extra.keep, ie, ae - 1, fe) if keep_planes is not None else None
+            keep_now = (mixed_rows(keep_planes, idx, a - 1, extra.keep, ie, ae - 1, fe) if keep_planes is not None
+                        else extra_only_keep(extra.keep, ie, ae - 1, fe) if args.extra_loss_mask else None)
         if args.dihedral and k == SYNTH:
             # R2o: the tile, its target and its planes in one random view per sample, so one model learns the answer
             # averaging its eight views gave (E2: +6.0 points on bright stars). Drawn only when on, so earlier runs keep
@@ -2244,9 +2270,10 @@ def train(args):
         # the full tile optimises a condition the model never meets.
         pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
         yc = y[:, :, BORDER:-BORDER, BORDER:-BORDER]
-        # R2d's D4: each draw's own mask, the sky near the plate's own sources left out.
+        # R2d's D4: each draw's own mask, the sky near the plate's own sources left out (with --extra-loss-mask only an extra
+        # row's, and none at all in a batch the extra cache gave no row).
         mc = None
-        if keep_planes is not None:
+        if keep_now is not None:
             mc = torch.from_numpy(np.ascontiguousarray(keep_now)).to(dev).float() \
                 .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
         # R2l's --bright-weight: the bright cores' pixels weighed up, as a weighted mean (bright_weights).
@@ -2544,6 +2571,7 @@ def train(args):
                     "levels": args.levels, "max_ch": args.max_ch, "dihedral": args.dihedral, "ema": args.ema,
                     "cond": cond_planes, "cond_map": sigma_planes is not None, "half_pairs": args.half_pairs,
                     "loss_mask": keep_planes is not None, "extra_cache": args.extra_cache,
+                    "extra_loss_mask": bool(args.extra_loss_mask),
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
                     "pair_time": args.pair_time, "star_loss_w": star_w,
                     "operator": args.operator, "rl_k": args.rl_k,
@@ -2831,6 +2859,11 @@ if __name__ == "__main__":
     p.add_argument("--schedule-on", choices=("combined", "main"), default="combined",
                    help="with --extra-cache, which held-out objective the plateau halves and stops on: the two caches weighed "
                         "by share (R2q), or the main cache's alone (R2r), the extra cache's still logged")
+    p.add_argument("--extra-loss-mask", action="store_true",
+                   help="R4g, with --extra-cache and without --loss-mask: the extra cache's draws carry D4's mask (its keep.u8: "
+                        "tianwen dataset plate-masks, then --prepare-keep) though this cache's carry none; an extra row leaves "
+                        "the sky near its plate's own sources out of the pixel and band terms, in training and in its held-out "
+                        "objective, and a main row weighs every pixel")
     p.add_argument("--teacher", default=None,
                    help="R2p: a folder from n2n_teacher.py; each synthetic draw regresses onto the teacher's output on it "
                         "instead of the clean tile (distillation), while the held-out objective still reads the clean tile")
