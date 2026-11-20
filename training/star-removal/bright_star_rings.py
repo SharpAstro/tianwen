@@ -45,6 +45,7 @@ def rings(img, d, sky_ring):
 
 left = {t: {} for t in tags}
 took = {}
+scored = []   # the masters that had at least one qualifying star
 for name, path in cfg["masters"].items():
     I = lum(path); J = plate(judge, name)
     H, Wd = I.shape
@@ -53,10 +54,13 @@ for name, path in cfg["masters"].items():
     ys, xs = np.nonzero(peak)
     order = np.argsort(-s[ys, xs])
     stars = []
+    picked = []
     for k in order:
         y, x = int(ys[k]), int(xs[k])
         if y < 420 or x < 420 or y >= H - 420 or x >= Wd - 420:
             continue
+        if any(max(abs(y - sy), abs(x - sx)) < 150 for sy, sx in picked):
+            continue          # maximum_filter(151) only keeps +-75 px, so the 150 px separation is enforced here
         y0, x0 = y - 400, x - 400
         cut = np.s_[y0:y + 401, x0:x + 401]
         yy, xx = np.mgrid[-400:401, -400:401]
@@ -69,9 +73,14 @@ for name, path in cfg["masters"].items():
         if hi_i <= 0 or hi_j > 0.1 * hi_i:
             continue          # the judge keeps it: a nucleus or a knot, not a star
         stars.append((cut, d, sky_ring, sig, i_r, j_r, hi_i / sig))
+        picked.append((y, x))
         if len(stars) == N:
             break
-    t = np.array([(st[4] - st[5]) / st[3] for st in stars])
+    if not stars:
+        print(f"{name}: no star qualifies; skipped")
+        continue
+    scored.append(name)
+    t =np.array([(st[4] - st[5]) / st[3] for st in stars])
     took[name] = t
     print(f"{name}: {len(stars)} stars, peak over sky {min(st[6] for st in stars):.0f} to {max(st[6] for st in stars):.0f} sigma; the judge took, median per ring (sigma): "
           + " / ".join(f"{v:.1f}" for v in np.median(t, axis=0)))
@@ -86,7 +95,7 @@ print()
 head = "".join(f"{lo}-{hi} px".rjust(14) for lo, hi in zip(EDGES[:-1], EDGES[1:]))
 print(f"left by the remover, median over the stars (0 = as the judge, 1 = untouched); in brackets the stars a ring counted\n{'':44s}{head}")
 for tag in tags:
-    for name in list(cfg["masters"]) + ["all"]:
+    for name in scored + ["all"]:
         a = np.concatenate(list(left[tag].values())) if name == "all" else left[tag][name]
         line = "".join((f"{np.nanmedian(a[:, k]):.2f} [{int(np.isfinite(a[:, k]).sum())}]").rjust(14) if np.isfinite(a[:, k]).any() else "".rjust(14) for k in range(a.shape[1]))
         print(f"{tag[2:][:30]:30s} {name:12s} {line}")

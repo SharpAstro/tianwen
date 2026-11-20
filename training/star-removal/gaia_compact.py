@@ -17,6 +17,8 @@ import gaia_vizier  # noqa: E402
 inp, work = Path(sys.argv[1]), Path(sys.argv[2])
 removers = [(a.split('=', 1)[0], Path(a.split('=', 1)[1])) for a in sys.argv[3:]]
 hdr = fits.getheader(inp)
+if hdr.get('PIXORIG') != 1:
+    sys.exit(f'{inp.name}: no PIXORIG = 1, so the WCS convention is unknown; refusing')
 data = fits.getdata(inp).astype(np.float64)
 H, W = data.shape[-2:]
 w = WCS(hdr, naxis=2)
@@ -34,7 +36,6 @@ rr = np.hypot(xx, yy)
 disc, ann = rr < 3, (rr >= 16) & (rr < 24)
 bins = [(0, 13), (13, 15), (15, 17), (17, 19)]
 keep = (ix >= 24) & (ix < W - 24) & (iy >= 24) & (iy < H - 24)
-rng = np.random.default_rng(1)
 print("remover            BP bin   stars seen   removed over half, %: as the row reads it / with the level set aside   median share: row / level aside")
 for label, path in removers:
     st = fits.getdata(path).astype(np.float64)
@@ -43,7 +44,8 @@ for label, path in removers:
     for lo, hi in bins:
         sel = np.where(keep & (gmag >= lo) & (gmag < hi))[0]
         if len(sel) > 40000:
-            sel = rng.choice(sel, 40000, replace=False)
+            # seeded per remover and bin, so a figure never depends on the order of the arguments
+            sel = np.random.default_rng(1).choice(sel, 40000, replace=False)
         row, aside = [], []
         for k in sel:
             x, y = ix[k], iy[k]

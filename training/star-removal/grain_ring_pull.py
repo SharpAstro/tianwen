@@ -32,6 +32,8 @@ for stem in [l.strip() for l in open(STEMS, encoding="utf-8-sig") if l.strip()]:
     rows.append((stem, *out))
 r = np.array([x[1:] for x in rows], float)
 print(f"plates with a zero ring read: {len(rows)}")
+if not rows:
+    sys.exit("no listed plate has a zero ring; nothing to compare")
 print(f"changed by over 10 %, share of the band: within 20 px of the ring median {np.nanmedian(r[:, 0]):.2f} %, 40 to 60 px from it {np.nanmedian(r[:, 2]):.2f} %")
 print(f"median relative change: within 20 px {np.nanmedian(r[:, 1]):+.3f} %, 40 to 60 px {np.nanmedian(r[:, 3]):+.3f} %")
 worst = sorted(rows, key=lambda x: -(x[1] - x[3]) if np.isfinite(x[1]) and np.isfinite(x[3]) else 1e9)[:5]

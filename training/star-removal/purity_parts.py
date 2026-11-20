@@ -22,6 +22,8 @@ import gaia_vizier  # noqa: E402
 inp, work = Path(sys.argv[1]), Path(sys.argv[2])
 removers = [(a.split('=', 1)[0], Path(a.split('=', 1)[1])) for a in sys.argv[3:]]
 hdr = fits.getheader(inp)
+if hdr.get('PIXORIG') != 1:
+    sys.exit(f'{inp.name}: no PIXORIG = 1, so the WCS convention is unknown; refusing')
 data = fits.getdata(inp).astype(np.float64)
 H, W = data.shape[-2:]
 w = WCS(hdr, naxis=2)

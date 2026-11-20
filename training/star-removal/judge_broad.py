@@ -21,7 +21,10 @@ for c in range(o3.shape[0]):
     diff = np.where(ok, o3[c] - j3[c], 0.0)
     broad = median_filter(diff, PX)
     out[c] = np.where(ok, o3[c] - broad, o3[c])
-    sig = 1.4826 * np.median(np.abs(np.diff(o3[c][ok.all(axis=0) if ok.ndim == 3 else ok].reshape(-1)[:2000000]))) / np.sqrt(2)
+    # pixel sigma over the whole valid plate: the MAD of horizontal neighbour differences where both pixels are valid
+    pair = ok[:, 1:] & ok[:, :-1]
+    dx = (o3[c][:, 1:] - o3[c][:, :-1])[pair]
+    sig = 1.4826 * np.median(np.abs(dx[::max(1, dx.size // 4000000)])) / np.sqrt(2)
     print(f"channel {c}: the broad part taken, in pixel sigma: median {np.median(broad[ok]) / sig:+.2f}, 10th to 90th percentile {np.percentile(broad[ok], 10) / sig:+.2f} to {np.percentile(broad[ok], 90) / sig:+.2f}")
 fits.PrimaryHDU(out[0] if ours.ndim == 2 else out, header).writeto(OUT, overwrite=True)
 print(OUT)

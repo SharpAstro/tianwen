@@ -7097,20 +7097,29 @@ the first angle is a step after the model and not another arm:
     and no ring pixel is changed on any. The 48 exported sessions whose plate differs (the three refused ones
     among them) were taken out of synth31 and exported again with the same line and binary
     (`repair_export.py`, `reexport.ps1`; the first run's rows and tiles are kept beside the export), and the cache
-    is built from that. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
+    is built from that. **The sky beside a ring** (`grain_ring_pull.py`, the question #2297's review asked: does the
+    rule pull it toward the flat fill?) read, over the 89 plates with a zero ring, 0.01 % of the pixels within 20 px
+    of the ring changed by over 10 %, against 0.00 % at 40 to 60 px; the worst plates 2.74 % near against 1.02 %
+    far (figures from #2297's comment). A pull would show as the near band changing more with a sign; the medians
+    show none, and the worst plates differ by under two points of a band. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
     the guards and the kill rule are unchanged.
   - **Added 2026-11-20, before the cache exists and before any score: what the question reads, and two rows that
     read what this arm changes.** "The crowded rows read light between the stars" below shows that the Tarantula's
     crowded flat moves from 91.3 to 95.9 on R4d's own plate when only light at 15 px and over is changed, and that
     the plate then still looks mottled. This arm takes the grain out of the targets and leaves their level, so its
     registered question may be missed by a model that does what the arm is for. The question and the kill rule
-    stay as registered. Beside them, with bars set now: (1) Gaia BP 17-19 removed with the level set aside
+    stay as registered. Beside them, with bars set now (the "Reported, no bar" line below lists the grain figure as
+    reported; the bar on it is row (2)'s): (1) Gaia BP 17-19 removed with the level set aside
     (`gaia_compact.py`, through the product's chain) at least 93.5 (R4d 90.5, StarXTerminator 96.6: half the gap;
     the level-inclusive row stands 1.4 to 1.7 apart between seeds, this one's spread is not known); (2) the grain
     in the Tarantula's dense cells 4,4 and 5,4 as trained (`band.py`) at most 0.6 of R4d's in every channel (R4d
     4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6; two seeds of one recipe have stood 23 to 33 % apart on cell 5,4). The
-    crowded flat missed with both of these cleared is not a kill and not a pass: it goes to the owner with the
-    1:1 crop of the dense field beside R4d's and StarXTerminator's.
+    crowded flat between 91.3 and 93.3 with both of these cleared is not a kill and not a pass: it goes to the
+    owner with the 1:1 crop of the dense field beside R4d's and StarXTerminator's. Under 91.3 is the kill below,
+    whatever the rows read. **A row missed is only reported, never a kill and never a pass by itself:** a pass
+    needs the flat at 93.3 or over with every guard held, and rows (1) and (2) missed beside such a flat go to
+    the owner with the same crop, since they say the plate scores by level and still looks mottled. A guard
+    failing is a kill, as registered.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
     91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
@@ -7256,7 +7265,13 @@ the first angle is a step after the model and not another arm:
     median over 15 px of (that plate less StarXTerminator's). A compact difference, a star one of the two left,
     stays as ours; the smooth difference goes. On the Tarantula the part removed is 0.94 / 0.78 / 0.48 sigma a pixel
     at the median (R / G / B; 0.2 to 2.7 at the 10th and 90th percentile), on Sagittarius 0.13, on Andromeda 0.01.
-    The same with a 31 px median removes the same 0.94 in red. Scored as any plate:
+    The same with a 31 px median removes the same 0.94 in red. **Those sigmas are provisional:** the script
+    divided by the noise of the first 2,000,000 valid pixels in raster order (the top strip of the frame), not of
+    the plate, so a field whose top strip is unrepresentative moves them. `judge_broad.py` now estimates it over
+    the whole valid plate (the MAD of horizontal neighbour differences where both pixels are valid, a strided
+    sample of them); the figures above are to be re-read with it. This sigma is a single per-channel number of
+    the plate; it is not the per-pixel `_c1.rms.fits` map that `purity_parts.py` divides by, which follows the
+    local noise, so the two are not interchangeable. The scores in the table below do not use it. Scored as any plate:
 
     | row | R4d through the chain | with the judge's light at 15 px and over | at 31 px and over | StarXTerminator |
     |---|---|---|---|---|
@@ -7280,7 +7295,8 @@ the first angle is a step after the model and not another arm:
     97.3, 98.1 / 97.3 and 96.1 / 90.5. So to BP 17 our model removes a star as fully as the judge or more, and at BP
     17-19 it removes fewer, 90.5 against 96.6: a gap of six points that the row shows as 2.3, because any level
     taken counts toward every star.
-  - **Looked at** (`jbroad_look.py`, the 400 px field where the difference is largest, at 1:1): the diagnostic
+  - **Looked at** (a one-off crop of the 400 px field where the difference is largest, at 1:1; its script is not
+    kept in the tree, so the sigma figure here is the eye's and not reproducible): the diagnostic
     plate is darker than ours by 1.6 sigma there and is still mottled, where StarXTerminator's is smooth with its
     compact knots sharp. So the plate that scores like the judge does not look like the judge's. What the eye sees
     is the grain, the faint stars left standing (the six points at BP 17-19 are the catalogued part of them), and
