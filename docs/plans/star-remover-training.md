@@ -7885,8 +7885,8 @@ the first angle is a step after the model and not another arm:
       takes more of a bright star, as on the Pleiades and Antares (not on Alnitak, whose black point is deeper
       than 60 in two channels, nor on iota Orionis, which is unexplained), and with it the nebula's knots, the
       cores' peaks and M31's nucleus. The three scoring masters happen to sit where they read well: the
-      Tarantula's own black point is 10 sigma under its sky, where its knots stand, against 40 to 90 on the
-      Pleiades masters. So the rule as tried, one black point at 60 or at 120 sigma, does not both mend the bright
+      Tarantula's own black point is 10 sigma under its sky, where its knots stand, against about 40 to 90 on
+      the Pleiades masters. So the rule as tried, one black point at 60 or at 120 sigma, does not both mend the bright
       stars and keep the nebula. Nothing was read between 10 and 60 sigma (the Tarantula already fails the peaks
       guard at 60, 1 of 77), so a depth in between is not ruled out by these rows; one is registered below. The
       scorecard has been reading R4d at depths chosen by each master's darkest pixel. If no depth holds, what is
@@ -7894,12 +7894,14 @@ the first angle is a step after the model and not another arm:
       each look one way to the model on every frame. It is not registered, and it is the owner's.
     - **One more depth, 40 sigma, registered 2026-11-21 before any score of it.** The review of this read asked
       what lies between the Tarantula's own 10 sigma and 60. The same script, binary, masters, guards and looks
-      as the two depths above, and the stars of the list at 40 as trained.
+      as the two depths above, and the stars of the list at 40 as trained. The three scoring masters are the
+      scorecard's own copies and the stars' masters those of the 2026-10-12-full bake, as at 60 and 120; the
+      script reads other depths on another bake's copy of a master.
       - **Predicted.** The Tarantula's brightest peaks fail again (17 of 77 stand at 10 sigma, 1 at 60). On the
         stars 40 lands between as they are and 60: the innermost ring taken under 80 percent on 3 to 6 of the 26
-        rows (7 as they are, 2 at 60). The second is the less sure: for the Pleiades master of 2022-01-05, whose
-        own depths are 37.5 / 74.1 / 80.8, 40 sigma leaves red where it is and is about twice as hard in green
-        and blue.
+        rows (7 as they are, 2 at 60). The stars prediction is the less sure: for the Pleiades master of
+        2022-01-05, whose own depths are 37.5 / 74.1 / 80.8, 40 sigma leaves red where it is and is about twice
+        as hard in green and blue.
       - **Reading.** A depth is a candidate only if every guard holds and the stars read as at 60 (the innermost
         ring under 80 percent on at most 2 of the 26). If a guard fails at 40, the rule has failed at every depth
         tried from 40 up, and what is left under 40 is harder than the Pleiades masters' own black point in green
