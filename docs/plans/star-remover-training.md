@@ -7348,7 +7348,23 @@ the first angle is a step after the model and not another arm:
     star and its halo flat out to about 120 px and leaves the master as it is beyond. On plain sky (HIP 80609)
     that flat level is the halo's own at 120 px, a pedestal of 20 / 15.5 / 6 sigma above the sky, never under
     it, with the spikes' residues 4 to 5 sigma under the pedestal. Over nebula (the Lagoon cell) the flat level
-    sits 3 to 6 sigma under its own rim, with a patch 20 to 30 sigma lower: a dent in the nebula. One session is
+    sits 3 to 6 sigma under its own rim, with a patch 20 to 30 sigma lower: a dent in the nebula. **Where the two
+    were read** (written 2026-11-21 for #2293; the registration named neither): `plate_halo_channels.py` takes a
+    session master, its plate and an x, y, both files from the store (`session-masters/<stem>.fits` and
+    `starless/plates/<stem>_plate.fits`). HIP 80609 is the star itself in the `flip=b` half of its session, stem
+    `ZWO-ASI533MC-Pro_Optolong-L-Quad-Enhance_HIP-80609_2026-04-21_ZWO ASI533MC Pro_HIP 80609_Optolong L-Quad Enhance_flip=b`,
+    at x 1362, y 2244: the plate's ring medians read 19.1 to 20.9 / 15.1 to 16.5 / 5.7 to 6.5 out to 100 px
+    against the master's 20.9 / 16.4 / 6.7 at 100 to 120 px. (The session's master with no flip is another frame;
+    the two brightest stars the review tried on it are not this star.) The Lagoon is the session of 2025-05-25
+    with no flip, stem
+    `ZWO-ASI585MC-Pro_Unidentified-Broadband-BlueCut_Lagoon-Nebula_2025-05-25_ZWO ASI585MC Pro_Lagoon Nebula_Unidentified-Broadband-BlueCut`,
+    at x 1920, y 1312: the plate reads 35.0 to 37.4 / 24.5 to 27.8 / 25.2 to 28.6 between 8 and 100 px against
+    40.8 / 27.5 / 30.3 at 100 to 120 px, and its 10th percentile falls to 10.1 / 4.9 / 2.0 at 22 to 40 px. Both
+    were run again on 2026-11-21 and read the same. **The star's own cell is not one of the 126 that pass the
+    gate, but its flattened disc reaches into three that do:** the session's cells at 1603, 1214, at 1603, 1342
+    and at 1731, 1342 lie 62, 69 and 30 px from the star, so the disc of about 120 px reaches 58, 51 and 90 px
+    into them. The dent is therefore in R4g's own targets, on part of three cells of 126, and this registration
+    did not say so (whether the session's two flip halves hold it in a passing cell was not looked at). One session is
     left out by name
     (`--exclude-session`), the Lagoon and Trifid of 2023-06-16 with its 8 cells: the Sagittarius master the
     question is read on is an OIII stack of 72 minutes from a frame of that camera's size, and whether its sky is
@@ -7418,7 +7434,10 @@ the first angle is a step after the model and not another arm:
     owner decides"; the faint stars left on bright background fall by a fifth on both cores; the star rows stay
     within a point of R4d's. What speaks against a clean pass: the dose is a twentieth of the draw, two thirds of
     the bright cells are one object through one filter, 126 cells is little sky, and the halo change that began
-    the nebula-taking is still in every main row.
+    the nebula-taking is still in every main row. (Added 2026-11-21, after the arm was read and killed, so it
+    moves no bar: a fifth thing spoke against it and was not listed. Three of the 126 cells hold part of the dent
+    the builder leaves at a saturated star over nebula, "Where the two were read" above, which is the
+    broad-light-taken failure this arm tests, in its own targets.)
   - **Nothing is adopted;** adoption is the owner's.
   - **R4g's read, 2026-11-20 (seed 0, `r4g_synth29b1_s0`): KILLED. It leaves 41 % and 50 % of the faint stars on
     bright background, over the bars of 37 and 27; the Lagoon's broad light falls to 1.37, short of 1.3 by 0.07.**
