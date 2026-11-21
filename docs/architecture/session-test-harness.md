@@ -39,16 +39,25 @@ POLL and never sets the step: the fake mount's axis timer fires every 100 ms all
 tens of thousands of advances per fake hour. Its callback still fires once per period inside the advance, and a
 `PeriodicTimer` coalesces by design.
 
-**An advance is cheap because nothing in it sleeps on a timer.** A parked sleep is released by the advance that
-reaches it (`Advance` releases every due park) and the pump waits by YIELDING: a 1 ms `Task.Delay` measured about
-11 ms on a win-arm64 laptop even with `WindowsTimerResolution` held, a parked sleep polled with one, and the pump
-paid two per advance, about 22 ms. What replaced those delays, and why each is there:
+**An advance is cheap because nothing in it sleeps on a timer, and the pump holds no CPU while it waits.** A
+parked sleep is released by the advance that reaches it (`Advance` releases every due park). Before #1122 a parked
+sleep polled the clock with a 1 ms `Task.Delay`, which measured about 11 ms on a win-arm64 laptop even with
+`WindowsTimerResolution` held, and the pump paid two per advance, about 22 ms. #1122 replaced the delays with
+waits that YIELDED between looks, which was quick and was a busy loop: measured over three session test classes
+(22 tests, 44,385 advances), the pump spent 68 of its 111 seconds inside those waits, 116.7 million yields on a
+pool thread that did nothing else. Since #2081 each wait ends on a SIGNAL (a sleep parks or leaves its park, the
+driven loop ends) and a timer is only its bound; the pool's queue has no signal, so that one wait gives the queue
+one turn and then looks again each millisecond. The waits, and why each is there:
 - after an advance, the released sleeps leave their parks before the clock moves on, so a poll reads the instant
   it was released at;
 - before an advance, the pool's queued work is picked up, so what a timer woke (the imaging loop's tick) runs;
 - a 1 ms minimum dwell per advance, because nothing observable says a loop just started, or still being
   compiled, has reached its first wait: without it a healthy `PeriodicTimer` loop was overtaken by a whole
-  budget of advances, in 18 ms, before it ticked once. The old delays were that dwell by accident.
+  budget of advances, in 18 ms, before it ticked once. The old delays were that dwell by accident. It is one exact
+  sleep on a thread of the pump's own (`ShortSleeper`), started before the advance and awaited after the waits
+  above. A runtime timer cannot keep it: `Task.Delay(1)` ends at the clock's next millisecond tick, anywhere from
+  at once to a millisecond later. On Windows the sleep is a high-resolution waitable timer, which ends at its next
+  half-millisecond tick, so a dwell there is 1.0 to 1.5 ms.
 
 Measured on the 52 pumped session tests (`SessionPhase`, `SessionImaging`, `SessionObservationLoop`,
 `SessionFilter`, `SessionScoutAndProbe`), win-arm64, against the fixed-step pump the day before: **4m06 to

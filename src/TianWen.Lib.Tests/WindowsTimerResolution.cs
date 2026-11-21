@@ -40,6 +40,13 @@ namespace TianWen.Lib.Tests;
 /// releasing them. What this still serves in a pumped run is any real-time wait in the code under
 /// test, and the parked sleeps' 50 ms backstop.
 /// </para>
+/// <para>
+/// <b>Nor does the pump yield any more</b> (#2081): yielding between looks was a busy loop, 61 percent of
+/// the pump's time over three session test classes. Its waits end on a signal now, with a timer as their
+/// bound only, and this serves those bounds too. Its dwell is an exact sleep on a thread of its own
+/// (<c>ShortSleeper</c>), which does not depend on this: measured on the same laptop in an idle process,
+/// <c>Task.Delay(1)</c> took 1.04 ms at the median with this held, and 2.0 ms at the 90th percentile.
+/// </para>
 /// </summary>
 internal static partial class WindowsTimerResolution
 {

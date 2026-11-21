@@ -94,26 +94,68 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public TimeSpan ReParkWaited { get; private set; }
 
     /// <summary>
-    /// Waits until <paramref name="done"/> holds or <paramref name="bound"/> has passed, YIELDING between looks, never
-    /// sleeping on a timer: a 1 ms <c>Task.Delay</c> is about 11 ms on Windows even with the timer resolution raised,
-    /// and two of them per advance were most of what a pumped run cost (#1122: 22 ms of a 22 ms advance, measured).
-    /// Returns whether it held.
+    /// How long a wait of the pump goes between two looks when nothing signals what it waits for: the pool's queue has
+    /// no event, so that wait looks again after this.
     /// </summary>
-    private static async ValueTask<bool> WaitUntilAsync(Func<bool> done, TimeSpan bound, CancellationToken cancellationToken)
+    private static readonly TimeSpan LookWithNoSignal = TimeSpan.FromMilliseconds(1);
+
+    /// <summary>
+    /// How long a wait goes between two looks when its change has a signal but the pump's END has none: a pump run until
+    /// a condition holds (<see cref="PumpUntilAsync"/>) learns that it holds only by looking.
+    /// </summary>
+    private static readonly TimeSpan LookForTheEnd = TimeSpan.FromMilliseconds(5);
+
+    /// <summary>
+    /// How many times this clock's pumps have looked at what they were waiting for. A pump that holds no CPU while it
+    /// waits looks a few times per advance; the one that yielded between looks made 116.7 million of them over three
+    /// session test classes (#2081). For the test of that.
+    /// </summary>
+    internal long WaitLooks => Interlocked.Read(ref _waitLooks);
+    private long _waitLooks;
+
+    /// <summary>
+    /// Waits until <paramref name="done"/> holds or <paramref name="bound"/> has passed, and holds no CPU while it
+    /// does (#2081). Between two looks it waits for <paramref name="change"/> (the signal that what
+    /// <paramref name="done"/> reads may have changed), for <paramref name="ends"/> (the driven loop's task, where the
+    /// pump has one) or for a timer. Returns whether it held.
+    /// </summary>
+    /// <remarks>
+    /// <para>It used to YIELD between looks (#1122), because a 1 ms <c>Task.Delay</c> per wait had been most of what an
+    /// advance cost. Yielding is quick and it is a busy loop: over three session test classes (22 tests, 44,385
+    /// advances) the pump spent 68 of its 111 seconds inside these waits, on a pool thread that did nothing else.</para>
+    /// <para>The timer here is only the wait's BOUND, or the next look where nothing signals. A wait that its signal
+    /// ends never sees it, so its coarseness (a millisecond or two, by the system's clock) is paid only where a bound
+    /// runs out. The pump's one wait that must last an exact time, its dwell, is not made here
+    /// (<see cref="ShortSleeper"/>).</para>
+    /// </remarks>
+    private async ValueTask<bool> WaitUntilAsync(Func<bool> done, Task? ends, TimeSpan bound, CancellationToken cancellationToken, bool signalled = true)
     {
         var start = global::System.Diagnostics.Stopwatch.GetTimestamp();
-        while (!done())
+        while (true)
         {
-            if (cancellationToken.IsCancellationRequested
-                || global::System.Diagnostics.Stopwatch.GetElapsedTime(start) >= bound)
+            // Taken BEFORE the look: a change that lands between the look and the wait has already ended this task,
+            // so the wait returns at once and the look is made again.
+            var change = signalled ? NextParkChange : null;
+            Interlocked.Increment(ref _waitLooks);
+            if (done())
+            {
+                return true;
+            }
+
+            var left = bound - global::System.Diagnostics.Stopwatch.GetElapsedTime(start);
+            if (cancellationToken.IsCancellationRequested || left <= TimeSpan.Zero)
             {
                 return false;
             }
 
-            await Task.Yield();
+            var look = change is null ? LookWithNoSignal : ends is null ? LookForTheEnd : left;
+            // Whole milliseconds, rounded UP: a delay of less than one is asked as zero, ends at once, and this would
+            // be a busy loop again. The test's token ends it early; WhenAny never throws for that.
+            var timer = Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling((look < left ? look : left).TotalMilliseconds)), cancellationToken);
+            await (change is null
+                ? ends is null ? Task.WhenAny(timer) : Task.WhenAny(ends, timer)
+                : ends is null ? Task.WhenAny(change, timer) : Task.WhenAny(change, ends, timer));
         }
-
-        return true;
     }
 
     /// <summary>
@@ -128,6 +170,19 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public int WaiterCount => Volatile.Read(ref _waiterCount);
     private int _waiterCount;
 
+    private TaskCompletionSource _parksChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Ends at the next change to the parked sleeps: one has parked, or one has left its park. What the pump's waits
+    /// wait on instead of looking again and again (#2081). A waiter takes it BEFORE it looks, so a change that lands
+    /// between its look and its wait is not missed, as with the timers' <c>NextChange</c>.
+    /// </summary>
+    private Task NextParkChange => Volatile.Read(ref _parksChanged).Task;
+
+    /// <summary>Ends the current <see cref="NextParkChange"/> and starts the next.</summary>
+    private void NoteParkChange()
+        => Interlocked.Exchange(ref _parksChanged, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+
     /// <summary>
     /// Blocks until at least one task is parked in <see cref="SleepAsync"/>'s
     /// external-pump wait loop, OR the supplied <paramref name="loopTask"/>
@@ -140,11 +195,18 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// </summary>
     public async Task WaitForFirstWaiterAsync(Task loopTask, CancellationToken cancellationToken = default)
     {
-        while (WaiterCount == 0
-            && !loopTask.IsCompleted
-            && !cancellationToken.IsCancellationRequested)
+        while (true)
         {
-            await Task.Delay(1, cancellationToken);
+            // Taken before the look, as in the pump's own waits: the park that comes between the look and the wait
+            // has already ended it. It was a 1 ms poll, which is a millisecond or 16 by the system's clock.
+            var parked = NextParkChange;
+            if (WaiterCount != 0 || loopTask.IsCompleted)
+            {
+                return;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.WhenAny(parked, loopTask).WaitAsync(cancellationToken);
         }
     }
 
@@ -301,7 +363,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         TimeSpan? finestStep = null,
         TimeSpan? coarsestStep = null,
         CancellationToken cancellationToken = default)
-        => PumpCoreAsync(() => loopTask.IsCompleted, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken);
+        => PumpCoreAsync(() => loopTask.IsCompleted, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken, ends: loopTask);
 
     /// <summary>
     /// The same cooperative pump as <see cref="PumpUntilCompletedAsync"/> for a loop that never completes
@@ -339,7 +401,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         TimeSpan? coarsestStep = null,
         CancellationToken cancellationToken = default,
         TimeSpan? settleBound = null,
-        Func<TimeSpan, Task>? advance = null)
+        Func<TimeSpan, Task>? advance = null,
+        Task? ends = null)
     {
         var settle = settleBound ?? SettleBound;
         var finest = finestStep ?? DefaultFinestStep;
@@ -347,12 +410,15 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(finest, TimeSpan.Zero, nameof(finestStep));
         ArgumentOutOfRangeException.ThrowIfLessThan(coarsest, finest, nameof(coarsestStep));
 
-        // The pump no longer waits on a timer (#1122: it yields, and a parked sleep is released by the
-        // advance that reaches it), but the code under test may, and the parked sleeps keep a 50 ms
-        // backstop. Before #1122 every wait here asked for 1 ms and got the Windows scheduling quantum,
+        // A parked sleep is released by the advance that reaches it (#1122), and the pump's own waits end on a
+        // signal (#2081): a timer is only their bound, and the next look of the one wait that has no signal. Those
+        // timers, the code under test's own, and the parked sleeps' 50 ms backstop are what this is held for.
+        // Before #1122 every wait here asked for 1 ms and got the Windows scheduling quantum,
         // ~15.7 ms, and holding the resolution up took the functional suite from 3m05 to 1m20. Treat
         // it as removing a floor, never as a fix for a slow test.
         using var _ = WindowsTimerResolution.Raise();
+        // The dwell's exact sleeps (see below). It ends with this run.
+        await using var sleeper = new ShortSleeper();
 
         var pumped = TimeSpan.Zero;
         var iteration = 0;
@@ -371,14 +437,21 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // instead of failing with a diagnosis. Waiting a short while and then advancing anyway
             // costs the paced case nothing (a waiter appears at once) and keeps the loop live for the
             // phases that have no waiter at all.
-            await WaitUntilAsync(() => WaiterCount > 0 || isDone(), PacingBound, cancellationToken);
+            await WaitUntilAsync(() => WaiterCount > 0 || isDone(), ends, PacingBound, cancellationToken);
 
             // And until the pool has no queued work. What a timer woke (the imaging loop's PeriodicTimer), and a loop
             // just started with Task.Run, are parked on nothing the pump can see, and a parked device keeps the waiter
             // count above zero regardless. The old pump's 11 ms delays let such work run by accident; without this a
             // loop was overtaken by a hundred advances before it ran once (FakeTimePumpTests' healthy loop saw no
             // tick, #1017's shape). Bounded short: other tests' work shares the pool.
-            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), SettleBound, cancellationToken);
+            // The pool has no event for "the queue is empty", so this is the one wait that looks again on a timer.
+            // Before that it gives the queue ONE turn, which is a wait on an event too (the queue reaching the
+            // pump's own item) and is all that work on its way out needs.
+            if (ThreadPool.PendingWorkItemCount != 0 && !isDone())
+            {
+                await Task.Yield();
+            }
+            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), ends, SettleBound, cancellationToken, signalled: false);
 
             if (isDone() || cancellationToken.IsCancellationRequested)
             {
@@ -386,7 +459,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             }
 
             var waitersBefore = WaiterCount;
-            var advancedAt = global::System.Diagnostics.Stopwatch.GetTimestamp();
+            // The dwell starts here, before the advance, and is awaited after everything the advance needs: see there.
+            var dwell = sleeper.After(MinimumDwell);
             var step = NextStep(finest, coarsest);
             if (advance is null)
             {
@@ -403,7 +477,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // due by now, and the clock does not move on until each has left its park. The waiter pacing above
             // cannot do this, since a parked device keeps the count above zero, and a step that lands exactly on a
             // 100 ms poll is worth nothing if the poll then reads the time of the step after it.
-            await WaitUntilAsync(() => !HasReleasedParks() || isDone(), PacingBound, cancellationToken);
+            await WaitUntilAsync(() => !HasReleasedParks() || isDone(), ends, PacingBound, cancellationToken);
 
             if (onIteration is not null)
             {
@@ -416,18 +490,20 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // released two parks of which one ends without parking (one axis's pulse wait while the other's runs on),
             // which a guide loop does every few seconds of fake time (#1910): the count never climbs back.
             var reParkStart = global::System.Diagnostics.Stopwatch.GetTimestamp();
-            if (!await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), settle, cancellationToken))
+            if (!await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), ends, settle, cancellationToken))
             {
                 ReParkWaitsRunOut++;
             }
             ReParkWaited += global::System.Diagnostics.Stopwatch.GetElapsedTime(reParkStart);
 
-            // And never less than a short dwell per advance, yielding. Nothing the pump can observe says that a loop
+            // And never less than a short dwell per advance. Nothing the pump can observe says that a loop
             // just started, or still being compiled, has reached its first wait: measured, a healthy loop on a
             // PeriodicTimer was overtaken by all hundred advances of a budget, in 18 ms, before it ticked once. The old
             // pump's two 11 ms delays were this dwell by accident; this is it on purpose, at a twentieth of the cost.
-            await WaitUntilAsync(() => isDone()
-                || global::System.Diagnostics.Stopwatch.GetElapsedTime(advancedAt) >= MinimumDwell, MinimumDwell, cancellationToken);
+            // It is one exact sleep, started before the advance and awaited here (#2081): it used to be kept by
+            // yielding until the millisecond had passed, about 1,400 yields an advance. The last advance of a run
+            // sleeps it out too, where the yielding dwell ended with the loop: a millisecond once a run.
+            await dwell;
 
             // Charge the budget only while the loop is NOT moving. The probe is read AFTER the wait
             // above, so a loop whose continuation merely had to wait its turn on the pool counts as
@@ -627,6 +703,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             var park = new Park(target.UtcTicks);
             _parkedSleeps[id] = park;
             Interlocked.Increment(ref _waiterCount);
+            NoteParkChange();
             try
             {
                 while (_fake.GetUtcNow() < target)
@@ -639,6 +716,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             {
                 Interlocked.Decrement(ref _waiterCount);
                 _parkedSleeps.TryRemove(id, out _);
+                NoteParkChange();
             }
         }
         else
