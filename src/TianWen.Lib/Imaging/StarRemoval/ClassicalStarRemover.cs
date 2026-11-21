@@ -46,8 +46,10 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// held to the star's drift allowance, 2 px;</item>
 /// <item>the subtraction of a fit accepted OFF the frame, a star the edge or the absent canvas cut, reaches 161 px
 /// along the edge. Such a fit is let off the drift allowance and held by <see cref="RanAway"/> alone, asked where
-/// the centre stands on the cover (<see cref="NearestCovered"/>), so it may sit 32 px from the star ALONG the edge,
-/// as deep as the window reaches. That is 32 px of slack, not a few;</item>
+/// the centre stands on the cover (<see cref="HasLeftItsStar"/>), so it may sit 32 px from the star ALONG the edge.
+/// That is 32 px of slack, not a few. Its DEPTH no rule holds; reach does, and the deeper a centre the less of the
+/// frame it reaches: a window cut more than <see cref="MaxFitRadius"/> outside the cover holds no pixel, and a
+/// subtraction more than <see cref="MaxSubtractRadius"/> outside writes none;</item>
 /// <item>a source fitted as TWO stars (<c>FitPair</c>) has each of them up to 2.5 of the field's FWHM from the fit it
 /// replaces, and each is subtracted about its own centre: 131 px plus that, and the FWHM is the image's, which no
 /// constant here bounds;</item>
@@ -112,9 +114,31 @@ public static class ClassicalStarRemover
         return !(Math.Abs(x - starX) <= allowed && Math.Abs(y - starY) <= allowed);
     }
 
-    // The decision itself, free of the plate so that a test can place a centre (#2379).
+    /// <summary>
+    /// Whether a fit centred at (<paramref name="x"/>, <paramref name="y"/>) has left the star it was started on, on a
+    /// frame of <paramref name="width"/> by <paramref name="height"/> of which <paramref name="covered"/> names the
+    /// covered pixels. On the covered frame that is <see cref="RanAway"/> of the centre. Off it, an UNSATURATED star's
+    /// centre is judged where it stands on the cover (<see cref="NearestCovered"/>, #2374): a star the edge cut has its
+    /// centre straight out from its peak, and only a fit that went ALONG the edge has left it.
+    /// </summary>
+    /// <remarks>
+    /// <para>A SATURATED star is held on the centre itself, off the frame as on it. Its plateau is in view, so its
+    /// centre is by its peak and not at a depth; with half a plane of wing to go by, a fit trades depth against
+    /// amplitude, and the amplitude ceiling that would catch that is for unsaturated stars alone. Past the bound it
+    /// gets its profile, as it does on the frame.</para>
+    /// <para>For an unsaturated star the rule sets NO DEPTH. A centre past the frame's edge is brought straight into
+    /// the frame first and the cover is looked for within <see cref="MaxSubtractRadius"/> of THAT point, so beyond an
+    /// edge with no absent canvas a centre stands on the edge however far out it is. It stands nowhere, and has left,
+    /// only where more absent canvas than that lies between it and the cover. What holds the depth comes after this
+    /// rule, and is reach: a window is cut <see cref="MaxFitRadius"/> at most about a centre, so more than that outside
+    /// the cover a second fit that is wanted has no pixel to read and the source ends with no fit, as it did before
+    /// #2374, and a channel's fit has none and gives no amplitude; a subtraction more than
+    /// <see cref="MaxSubtractRadius"/> outside writes nothing.</para>
+    /// <para>A static of its own so that a test can place a centre: on a field, only a star straight out from the edge
+    /// is easily made, and that reaches one answer of this rule.</para>
+    /// </remarks>
     internal static bool HasLeftItsStar(double x, double y, double starX, double starY, double drift, bool saturated,
-        int width, int height, Func<int, int, bool> covered, int reach)
+        int width, int height, Func<int, int, bool> covered)
     {
         if (!double.IsFinite(x) || !double.IsFinite(y))
         {
@@ -126,20 +150,22 @@ public static class ClassicalStarRemover
         {
             return RanAway(x, y, starX, starY, drift);
         }
-        return NearestCovered(x, y, width, height, covered, reach) is not { } stands
+        return NearestCovered(x, y, width, height, covered, MaxSubtractRadius) is not { } stands
             || RanAway(stands.X, stands.Y, starX, starY, drift);
     }
 
     /// <summary>
     /// The covered pixel nearest to (<paramref name="x"/>, <paramref name="y"/>): the point itself, to the pixel, when it
-    /// is on the frame and covered; else the nearest covered pixel of the frame within <paramref name="reach"/> pixels;
-    /// and null when there is none that near, or the point is not a number.
+    /// is on the frame and covered; else the nearest covered pixel of the frame within <paramref name="reach"/> pixels
+    /// of the point BROUGHT INTO THE FRAME (a point past the frame's edge is taken straight in first, however far out
+    /// it is); and null when there is none that near, or the point is not a number.
     /// </summary>
     /// <remarks>
-    /// What <see cref="RanAway"/> is asked about a centre OFF the covered frame (#2374). A star the edge or the absent
-    /// canvas cut has its true centre straight out from where the finder took its peak, as deep as the window reaches: on a
-    /// test field a fit finds one 40 px outside the cover within 4 px. Such a fit has not left its star, and what it reads and writes
-    /// on the frame lies beside the star however deep the centre is. A fit that ran ALONG the edge has left, and the
+    /// What <see cref="RanAway"/> is asked about a centre OFF the covered frame (<see cref="HasLeftItsStar"/>, #2374). A
+    /// star the edge or the absent canvas cut has its true centre straight out from where the finder took its peak: on a
+    /// test field a fit finds one 40 px outside the cover within 4 px. Such a fit has not left its star, and what it
+    /// reads and writes on the frame lies beside the star however deep the centre is, and is less the deeper it is
+    /// (<see cref="HasLeftItsStar"/> says where it ends). A fit that ran ALONG the edge has left, and the
     /// covered pixel nearest its centre is as far from the star as it ran. Asked about the centre itself, the rule
     /// refused the first past 32 px of depth together with the second.
     /// <para>
@@ -312,6 +338,10 @@ public static class ClassicalStarRemover
         private readonly int _width = image.Shape.Width;
         private readonly int _height = image.Shape.Height;
         private readonly BitMatrix? _absent = image.AbsentPixels();
+        // The cover as HasLeftItsStar is handed it, made at its first use and kept: the rule is asked for every fit of
+        // every star, on every tile's thread. Two threads that make it at once make two that answer alike, and either
+        // may stand.
+        private Func<int, int, bool>? _covered;
         private float[][] _work = Array.Empty<float[]>();
         private float[] _lum = Array.Empty<float>();
         private float[] _rms = Array.Empty<float>();
@@ -918,13 +948,13 @@ public static class ClassicalStarRemover
                     // 364 px on their first fit, their second fits read what a tile beside was writing, and the refused
                     // row that came of it differed from run to run). None of its numbers is taken: the row says where
                     // the star was found and that it has no fit.
-                    // The count below was taken at the earlier rule, where a saturated off-frame centre was judged on the
-                    // cover; it has not been retaken for the centre-itself rule (#2379), which differs only for a
-                    // saturated centre more than 32 px off the frame. HasLeftItsStar's own test pins that case.
                     // NO TEST REACHES THE SATURATED ARM of the line below (#2374). No saturated star's first fit left
                     // its star on any field of ClassicalStarRemoverTests, nor on three real masters of 148,008 sources
                     // (two ringed composites and a ringless drizzle), counted with this branch made to count and go
-                    // on. Where one did, the answer would be the profile that the drift test below gives after a
+                    // on. The count was taken at the rule a saturated star is held by now, its centre itself: that
+                    // was every star's rule when it was taken (#2363), before #2374 gave an unsaturated star another,
+                    // and what it answers for a saturated one is pinned off this path, by HasLeftItsStar's own rows.
+                    // Where one did, the answer would be the profile that the drift test below gives after a
                     // second fit; what this arm saves is that second fit's window.
                     return fit.Saturated && previous is null ? SubtractProfile(fit, refX, refY, coreRadius, QuietSigma(refX, refY, sigma)) : fit;
                 }
@@ -1786,17 +1816,11 @@ public static class ClassicalStarRemover
 
         private bool IsAbsent(int x, int y) => _absent is { } a && a[y, x];
 
-        // Whether a fit centred at (x, y) has left the star it was started on. On the covered frame that is RanAway of
-        // the centre. Off it, an UNSATURATED star's centre is judged where it stands on the cover: a star the edge cut
-        // is straight out from its peak as deep as the window reaches, and only a fit that went ALONG the edge has left it
-        // (NearestCovered, #2374). A centre with nothing covered within a subtraction's reach touches nothing, and has
-        // left.
-        // A SATURATED star is held on the centre itself, off the frame as on it. Its plateau is in view, so its centre
-        // is by its peak and not at a depth; with half a plane of wing to go by, a fit trades depth against amplitude,
-        // and the amplitude ceiling that would catch that is for unsaturated stars alone. Past the bound it gets its
-        // profile, as it does on the frame.
+        // Whether a fit of this plate, centred at (x, y), has left the star it was started on: the rule and its reasons
+        // are ClassicalStarRemover.HasLeftItsStar's, asked here about this frame and its cover.
         private bool HasLeftItsStar(double x, double y, double starX, double starY, double drift, bool saturated)
-            => ClassicalStarRemover.HasLeftItsStar(x, y, starX, starY, drift, saturated, _width, _height, (cx, cy) => !IsAbsent(cx, cy), MaxSubtractRadius);
+            => ClassicalStarRemover.HasLeftItsStar(x, y, starX, starY, drift, saturated, _width, _height,
+                _covered ??= (cx, cy) => !IsAbsent(cx, cy));
 
         // A centre past the frame's edge or on its absent canvas: where a star cut by the edge has its true centre (the
         // Orion master's 700-sigma star, its peak in the last present column, fitted 3 px beyond it and given up as
