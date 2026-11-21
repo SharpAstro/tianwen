@@ -8416,8 +8416,23 @@ the first angle is a step after the model and not another arm:
   the old exporter: "you decide". The session chose two arms, since the exporter has changed under R4d's recipe and
   every later arm needs that baseline. Both are R4d's line (`export-synth.ps1 -BetaDraw 0.3,1.3,6,3 -FaintStars 3,1
   -Extra --saturated-own-share,--saturated-measured,--halo-over-plate,--noise-as-recorded`), R3v's model and recipe
-  with R4d's flags from the trainer copy R4f's rerun trains from (`--save-best` added, shown to end on the same
-  weights), seed 0, and both are exported from one binary built from main on 2026-11-21.
+  with R4d's flags, seed 0, and both are exported from one binary built from main on 2026-11-21.
+  - **The trainer both arms train from.** Not R4f's rerun copy as it stands: `C:/temp/e2/r4f1-run` is R3v's
+    `r3h-run` plus `--save-best` only and holds no black point code (its `n2n_smoke.py` has no
+    `load_black_point_sigma` or `BLACK_POINT_KEY`, the prepare step that writes `stretch_black_point_sigma` into the
+    cache's `meta.json`, and its `n2n_export.py` has no `stretchBlackPointSigma`, the contract writer; both arrived
+    with #2328, after #2329). Both arms train from one new frozen copy: that copy plus the `n2n_smoke.py` and
+    `n2n_export.py` parts of #2328, the same bytes for R4h and R4i, its `FROZEN-AT.txt` naming the commit. The
+    "ends on the same weights to the bit" check of R4f's rerun is repeated on that copy, covering the added parts
+    too (a tiny cache, the frozen copy without and with them, R4h's switches). The cache is prepared and the model
+    exported with that copy's scripts, never with R4f's.
+  - **Training alike.** Both arms are one Batch run each on a low-priority T4, capped at 36 hours, as R4f's rerun,
+    the same recipe, seed and step cap, so the control is a control. A pair that does not train alike (one
+    evicted past the cap, one stalled) is read as the next bullet says.
+  - **Contract check, before the first score of either:** R4i's `contract.json` states `stretchBlackPointSigma`
+    40 and R4h's states none. A silent contract and an unset feed agree, so the loader would not refuse R4i and
+    the product would stretch at each channel's minimum, the mismatch #2309 exists to remove; the check is what
+    catches it.
   - **R4h, the control (synth32):** the black point at each channel's minimum, as in every export so far. Its data
     differs from R4d's by what the exporter changed since `bh-bin8`; the knot fix of #2286 is known to change tiles.
     A preflight on one session before the export (the new binary without the flag against `bh-bin11`'s tiles of
@@ -8447,25 +8462,34 @@ the first angle is a step after the model and not another arm:
     the Tarantula's peaks standing on at least 11 of 77; faint stars left on the Lagoon's core at most 37 % and on
     30 Doradus at most 27 %; the Lagoon's broad light taken at most 2.67. Those bars were set from R4d. A row R4h
     misses too is the exporter's and not the black point's: it is reported, and R4i is then held on that row to
-    R4h's value less the allowance the bar gave R4d (the bar against R4d's own figure in that table).
-  - **Kill:** a guard fails on R4i. **Cleared:** both halves of the question with every guard held. Anything else
-    is neither, and the rows say which half.
+    a value worse than R4h's by no more than the allowance the bar gave R4d (the gap between the bar and R4d's own
+    figure in that table). For an at-least row that is R4h's value less the allowance; for an at-most row (dug,
+    glow median, purity, light taken, light added, faint stars left, broad light taken) it is R4h's value plus it
+    (on the Lagoon's faint stars 37 against R4d's 29 is 8 points).
+  - **Kill:** a guard fails on R4i, the pair having trained alike and neither having stalled. **Cleared:** both
+    halves of the question with every guard held, on the same terms. A stalled arm (the rule above), or a pair
+    that does not both train as the others, is neither killed nor cleared: its rows are reported, as R4f's rerun
+    was. Anything else is neither, and the rows say which half; that includes a ratio between 0.60 and 0.75, or
+    0.75 or over with a new best, which the R4f rerun rule calls neither.
   - **R4h's own read:** every row above beside R4d's, as trained and through the chain. It has no bar of its own;
     it is the baseline R4i is read against, and it says what the exporter's changes did to R4d's rows.
   - **What a frame whose noise is no longer its own does (#2341), reported for R4i, deciding nothing about the
     arm.** The depth's black point is 40 times the frame's sky noise under its sky, so on a denoised frame it lies
     close under the sky and dark structure can fall beneath it. Each of the three scoring masters, smoothed by a
-    Gaussian of 1.5 px (which cuts white noise to about a fifth), goes through R4i as trained: the share of the
-    frame's pixels at or under the black point, the nebula guards above (peaks standing, light added, broad light
-    taken), and the sheets. A guard failing there does not kill R4i; it says the guard #2341 asks for is needed
+    Gaussian of 1.5 px (which cuts white noise to about a fifth), goes through R4i as trained: the nebula guards above (peaks standing, light added, broad light
+    taken), and the sheets. Beside the share of covered pixels (the master's canvas ring, zeros or NaN, left out)
+    under the black point of the smoothed copy goes the share under median minus 40 sigma at the frame's own noise
+    of the unsmoothed master, so the figure has something to be read against, and where those pixels sit (lanes,
+    or holes and dead pixels). A guard failing there does not kill R4i; it says the guard #2341 asks for is needed
     before any model with a depth ships.
   - **Reported, no bar:** every row for both models as trained and with each post step as its own column; the
     best step's weights (`.best.pt`) beside the last step's; all 26 ring rows; the colour of Merope's nebula on
     both nights. The 1:1 sheets are looked at before any row is read.
   - **Prediction.** R4h: every row within a point of R4d's, the peaks standing within 5 of R4d's 17. R4i: the
     nights' gap falls to 10 to 25 points, so the first half is cleared; the innermost ring is taken under 80
-    percent on 4 to 6 rows, Antares' three among them (no depth reached its disc), so the second half is at its
-    edge and more likely missed than cleared; the peaks guard is the one most at risk, since the Tarantula's own
+    percent on 3 to 5 rows, by the innermost ring the measure the bar counts: Antares' 2026-04-21 and 2024-05-28
+    (56 and 71 at 40 sigma in the table above) among them and 2023-05-15 (81) not, though the sheets show the disc
+    left on all three sessions. The second half is at its edge and more likely missed than cleared; the peaks guard is the one most at risk, since the Tarantula's own
     black point is 10 sigma and at 40 its knots stand brighter, and it is predicted to hold at 11 to 20 of 77
     because the drawn knots are stretched the same way.
   - **Nothing is adopted by these reads.** A cleared question goes to the owner with the numbers, and a second seed
