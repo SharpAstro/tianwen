@@ -1,6 +1,8 @@
 # SharpAstro.Codecs: an image sniff+dispatch facade over the codec family (plan)
 
-**Status: NOT STARTED (design captured).** Motivated by the `PngImage.ToRgba8()` release
+**Status: Phases 1 to 5 SHIPPED; P6 (#501), ColorEncoding on read (#499), gain map on read (#500) and a per-channel
+gain map (#861) open** (the line below at "Status (2026-07-06)" has the detail; this line said NOT STARTED long after
+the phases shipped). Motivated by the `PngImage.ToRgba8()` release
 (SharpAstro.Png `3.4.431`) and the Console.Lib markdown-image work, which together produced two
 ad-hoc prototypes of a facade that does not exist yet, plus a recurring version-skew footgun. Turn
 those prototypes into a proper two-package layer in the Codecs repo, so consumers reference

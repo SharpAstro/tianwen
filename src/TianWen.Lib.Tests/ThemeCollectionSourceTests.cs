@@ -24,8 +24,15 @@ public class ThemeCollectionSourceTests
     private static readonly Regex CollectionAttr = new(@"^[ \t]*\[Collection\(([^)]*)\)\]", RegexOptions.Compiled | RegexOptions.Multiline);
     private static readonly Regex LineComment = new(@"//[^\r\n]*", RegexOptions.Compiled);
     // A type declaration at any indent (a block-scoped namespace indents every type); the shallowest indent in the file is top level,
-    // so a nested type never cuts a segment.
-    private static readonly Regex TypeDecl = new(@"^\s*(?:(?:public|internal|sealed|static|abstract|partial|file|readonly)\s+)*(?:class|record|struct)\s", RegexOptions.Compiled);
+    // so a nested type never cuts a segment. Attributes written on the declaration's own line are stepped over, and unsafe and
+    // ref are modifiers too (#2176).
+    //
+    // One limit is left, since this reads lines and does not parse: a line at column 0 that starts with class, record or
+    // struct INSIDE a raw string literal of a block-scoped file would make indent 0 the top level, and the real types at
+    // indent 4 would stop cutting segments. No file in the tree does that; the theory below has no case for it.
+    private static readonly Regex TypeDecl = new(
+        @"^\s*(?:\[[^\]\r\n]*\]\s*)*(?:(?:public|internal|sealed|static|abstract|partial|file|readonly|unsafe|ref)\s+)*(?:class|record|struct)\s",
+        RegexOptions.Compiled);
 
     /// <summary>One segment per top-level type, from its first attribute line to the next type's first attribute line.</summary>
     private static List<(int Start, string Text)> Segments(string text)
@@ -124,6 +131,12 @@ public class ThemeCollectionSourceTests
     [InlineData("namespace A;\n\n[Collection(ThemeCollection.Name)]\npublic class T\n{\n    class Nested { void M() => GuiTheme.Apply(x); }\n}\n", 0)]
     [InlineData("namespace A;\n\n[Collection(\"UI\")]\npublic class T\n{\n    // GuiTheme.Apply(x) is only named here\n}\n", 0)]
     [InlineData("GuiTheme.Apply(x);\n", 1)]
+    // #2176: a class with NO attribute after a themed one is judged on its own, in both namespace forms.
+    [InlineData("namespace A;\n\n[Collection(ThemeCollection.Name)]\npublic class T\n{\n    void M() => GuiTheme.Apply(x);\n}\n\npublic class U\n{\n    void M() => GuiTheme.Apply(x);\n}\n", 1)]
+    [InlineData("namespace A\n{\n    [Collection(ThemeCollection.Name)]\n    public class T\n    {\n        void M() => GuiTheme.Apply(x);\n    }\n\n    public class U\n    {\n        void M() => GuiTheme.Apply(x);\n    }\n}\n", 1)]
+    // #2176: an attribute on the declaration's own line, and a modifier the list used to lack, still cut a segment.
+    [InlineData("namespace A;\n\n[Collection(ThemeCollection.Name)] public class T\n{\n    void M() => GuiTheme.Apply(x);\n}\n\n[Collection(\"UI\")] public class U\n{\n    void M() => GuiTheme.Apply(x);\n}\n", 1)]
+    [InlineData("namespace A;\n\n[Collection(ThemeCollection.Name)]\npublic class T\n{\n    void M() => GuiTheme.Apply(x);\n}\n\npublic unsafe class U\n{\n    void M() => GuiTheme.Apply(x);\n}\n", 1)]
     public void TheScanJudgesItsOwnCases(string source, int expectedOffenders) => Offenders(source).Count.ShouldBe(expectedOffenders);
 
     [Fact]

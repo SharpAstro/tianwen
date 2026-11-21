@@ -40,6 +40,19 @@ def gh(*args):
     return subprocess.run(['gh', *args], check=True, capture_output=True).stdout
 
 
+def job_log(job_id):
+    """A job's log. It carries the console's colour codes, which a newer gh refuses to print without
+    --allow-escape-sequences and an older one (2.86 here) does not know as a flag at all, so the flag is tried first
+    and dropped when gh refuses it."""
+    path = f'repos/{REPO}/actions/jobs/{job_id}/logs'
+    try:
+        return gh('api', '--allow-escape-sequences', path)
+    except subprocess.CalledProcessError as refused:
+        if b'unknown flag' not in (refused.stderr or b''):
+            raise
+        return gh('api', path)
+
+
 def class_of(test_name):
     return test_name.split('(')[0].rsplit('.', 1)[0]
 
@@ -59,8 +72,7 @@ def linux_tests(run, job_pattern, work):
             continue
         cached = os.path.join(work, f'linux-{run}-{job_id}.log')
         if not os.path.exists(cached):
-            # A job log carries the console's colour codes, which gh refuses to print without this flag.
-            text = gh('api', '--allow-escape-sequences', f'repos/{REPO}/actions/jobs/{job_id}/logs').decode('utf-8', 'replace')
+            text = job_log(job_id).decode('utf-8', 'replace')
             with open(cached, 'w', encoding='utf-8') as f:
                 f.write(text)
         with open(cached, encoding='utf-8') as f:

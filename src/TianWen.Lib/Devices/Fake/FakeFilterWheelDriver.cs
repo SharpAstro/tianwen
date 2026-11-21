@@ -108,7 +108,7 @@ internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IServiceProvi
         }
     }
 
-    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(_isMoving ? -1 : _position);
+    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(IsMoving ? -1 : _position);
 
     public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default) => BeginSetPositionAsync(position, cancellationToken);
 }

@@ -45,15 +45,33 @@ public readonly record struct MasterAutoCropResult(
 /// <param name="Policy">What the walk's refused edges lose. <see cref="CoverageTrimPolicy.KeepEveryPixel"/>
 /// is for a person looking (every pixel that exists); the producing policy with a
 /// <see cref="CoverageTrimPolicy.DeclinedFraction"/> is for a model.</param>
-/// <param name="Margin">Fraction of each axis inset from every edge after the scan, clamped to 0 to 0.25.
-/// An inset that would leave 16 px or less on either axis is ignored.</param>
+/// <param name="Margin">Fraction of each axis inset from every edge after the scan, held to 0 to
+/// <see cref="MaxMargin"/> by the rule itself. An inset that would leave 16 px or less on either axis is ignored.</param>
 public sealed record MasterAutoCropRule(CoverageTrimPolicy Policy, double Margin = 0.0)
 {
+    /// <summary>The largest margin a rule holds: a quarter of each axis from every edge.</summary>
+    public const double MaxMargin = 0.25;
+
+    private readonly double _margin = HeldMargin(Margin);
+
+    /// <summary>The margin that is applied: what was given, held to 0 to <see cref="MaxMargin"/> (a value that is not a
+    /// number is none). The constructor, a <c>with</c> and <see cref="ForModel"/> all pass through here, so a caller
+    /// prints it as it stands. It was held in <see cref="ForModel"/> alone, and a rule from the constructor said 0.9
+    /// where 0.25 was applied.</summary>
+    public double Margin
+    {
+        get => _margin;
+        init => _margin = HeldMargin(value);
+    }
+
+    private static double HeldMargin(double margin) => double.IsNaN(margin) ? 0.0 : Math.Clamp(margin, 0.0, MaxMargin);
+
     /// <summary>The viewer's rule: a refused edge is left alone and there is no margin.</summary>
     public static MasterAutoCropRule ForViewing { get; } = new(CoverageTrimPolicy.KeepEveryPixel);
 
     /// <summary>The rule for a crop that feeds a model: the producing policy with its declined fraction
-    /// clamped to 0 to 0.25 (0 keeps a refused edge, as the viewer does), and the margin.</summary>
+    /// clamped to 0 to 0.25 (0 keeps a refused edge, as the viewer does), and the margin, which the rule holds to
+    /// its own range (<see cref="Margin"/>).</summary>
     public static MasterAutoCropRule ForModel(double declinedFraction, double margin = 0.0) =>
         new(declinedFraction > 0
             ? CoverageTrimPolicy.Default with { DeclinedFraction = Math.Clamp(declinedFraction, 0.0, 0.25) }
@@ -93,29 +111,20 @@ public static class MasterAutoCrop
         var union = image.LargestCoveredRectangle();
         if (union.Width <= 0 || union.Height <= 0)
         {
-            return new MasterAutoCropResult(union, FromCoverage: false, Declined: false);
+            // Nothing is covered, so there is nothing to inset: a margin that was asked for is reported as
+            // ignored, as it is when the inset would leave 16 px or less, and not passed over in silence.
+            return new MasterAutoCropResult(union, FromCoverage: false, Declined: false) { MarginIgnored = rule.Margin > 0 };
         }
 
         if (filePath is { Length: > 0 } path)
         {
             try
             {
-                if (IntegrationFitsWriter.TryReadCoverageMap(path, out var coverage))
+                if (TryCoverageRect(image, path, out var exact) && exact.Width > 0 && exact.Height > 0)
                 {
-                    try
-                    {
-                        var exact = image.CoverageCropRectangle(coverage);
-                        if (exact.Width > 0 && exact.Height > 0)
-                        {
-                            logger?.LogDebug("Auto-crop from the coverage plane: {W}x{H} at ({X},{Y})",
-                                exact.Width, exact.Height, exact.X, exact.Y);
-                            return WithMargin(image, new MasterAutoCropResult(exact, FromCoverage: true, Declined: false), rule);
-                        }
-                    }
-                    finally
-                    {
-                        coverage.Release();
-                    }
+                    logger?.LogDebug("Auto-crop from the coverage plane: {W}x{H} at ({X},{Y})",
+                        exact.Width, exact.Height, exact.X, exact.Y);
+                    return WithMargin(image, new MasterAutoCropResult(exact, FromCoverage: true, Declined: false), rule);
                 }
             }
             catch (Exception ex)
@@ -147,6 +156,32 @@ public static class MasterAutoCrop
         return WithMargin(image, result, rule);
     }
 
+    /// <summary>
+    /// The exact tier on its own: the rectangle the coverage sidecar beside <paramref name="masterPath"/> states for
+    /// <paramref name="image"/>. False when the master has no sidecar that says which pixels every frame covered;
+    /// true with an empty rectangle when it has one and nothing is covered. One routine for <see cref="Scan"/>
+    /// and for the callers that want the covered area and no edge walk (the dataset's sky patch and its gradient
+    /// fit), so the plane is read, thresholded and released the same way everywhere.
+    /// </summary>
+    public static bool TryCoverageRect(Image image, string masterPath, out PixelRect rect)
+    {
+        rect = PixelRect.Empty;
+        if (!IntegrationFitsWriter.TryReadCoverageMap(masterPath, out var coverage))
+        {
+            return false;
+        }
+
+        try
+        {
+            rect = image.CoverageCropRectangle(coverage);
+            return true;
+        }
+        finally
+        {
+            coverage.Release();
+        }
+    }
+
     /// <summary>Describes each refused edge the rule's policy took off, for a caller that prints it; empty
     /// when it took nothing.</summary>
     public static string DescribeDeclined(MasterAutoCropResult scan, MasterAutoCropRule rule)
@@ -169,7 +204,7 @@ public static class MasterAutoCrop
 
     private static MasterAutoCropResult WithMargin(Image image, MasterAutoCropResult scan, MasterAutoCropRule rule)
     {
-        var margin = Math.Clamp(rule.Margin, 0.0, 0.25);
+        var margin = rule.Margin;
         if (margin <= 0)
         {
             return scan;

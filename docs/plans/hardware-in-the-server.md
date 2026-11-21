@@ -521,9 +521,11 @@ first; none needs a decision.
    backed-off waiter starved and gave up, measured). **A replace on NTFS leaves the name absent for a
    moment**, with one replace (0.1 to 0.3 ms at rest, about one query in 25,000 beside two writers, and
    longer under load), so a single `File.Exists` or listing can call a file that exists gone, and a planner
-   that loaded "no pins" would save that back. A reader believes absence only after looks spread over about
-   130 ms (`SharedFile.TryOpenReadAsync`, and `ListAsync` for a file the last listing had; Windows only, a
-   Unix rename being atomic). One look 5 ms later still missed once in 60 runs. **A lock between every
+   that loaded "no pins" would save that back. A reader believes a file is gone only when no replace of it is in
+   progress: a write keeps a staging file beside the name until its replace is done, a miss with one beside it is
+   waited out, and a miss with none is confirmed by one more look (`SharedFile.TryOpenReadAsync`, and `ListAsync`
+   for a file the last listing had). `docs/architecture/runtime-data.md` has the rule, its measurements and the
+   fixed looks spread over about 130 ms that it replaced, which one read in CI missed at all four. **A lock between every
    reader and writer would make that exact, and measured, it wedges**: the real-time scanner holds a freshly
    replaced file in kernel mode (the System process, which a share check does not see), and with each
    replace taking the lock that hold stopped clearing, so every rename onto the file was refused for

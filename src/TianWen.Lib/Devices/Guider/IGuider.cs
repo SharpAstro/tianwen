@@ -482,7 +482,8 @@ public interface IGuider : IDeviceDriver
     /// <summary>
     /// Raised once per guide correction, on the guider's thread, with the error that guide frame measured
     /// and the frame's own time. This is the guide-sample source a session records from
-    /// (<c>Session.GuideSamples</c>, the light's <c>GUIDE*</c> cards); polling <see cref="GetStatsAsync"/>
+    /// (<c>Session.GuideSamples</c> for the graph, and each open exposure's own tally for the light's
+    /// <c>GUIDE*</c> cards); polling <see cref="GetStatsAsync"/>
     /// samples a guide frame twice or misses it (#821). Not a failure report: that is
     /// <see cref="GuidingErrorEvent"/>.
     /// </summary>

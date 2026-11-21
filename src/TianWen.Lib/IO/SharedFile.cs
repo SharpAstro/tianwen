@@ -34,12 +34,11 @@ namespace TianWen.Lib.IO;
 /// four looks (now, +5, +25, +100 ms) with nothing logged. That is the evidence. The mechanism is one of two
 /// that it cannot tell apart: several replaces' absent windows, one per look, or ONE window longer than the
 /// 130 ms the looks spanned (a writer descheduled inside its one replace). A one-off probe run in review on the
-/// desktop (its script is not in the repo; the on-demand shared-file-repeat workflow is the proof at CI scale;
-/// Release, 16 cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes) saw the name
-/// absent at 2
-/// of 266,782 looks (about 7.5e-6 per look), 0 nulls from 120,253 <see cref="TryOpenReadAsync"/> calls, and a
-/// staging file visible at both absent looks. Four independent misses would need a per-look rate near 0.2 on the
-/// runner, so one long window fits the CI miss at least as well as several. Neither is measured on the runner.
+/// desktop (Release, 16 cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes; its
+/// script is not in the repo) saw the name absent at 2 of 266,782 looks (about 7.5e-6 per look), 0 nulls from
+/// 120,253 <see cref="TryOpenReadAsync"/> calls, and a staging file visible at both absent looks. Four independent
+/// misses would need a per-look rate near 0.2 on the runner, so one long window fits the CI miss at least as well
+/// as several. Neither is measured on the runner. The on-demand shared-file-repeat workflow is the proof at CI scale.
 /// The rule below covers both, and is about what the looks show, not how many there are or how far apart: a
 /// write stages <c>name.guid.tmp</c> beside the name before it replaces it, and that file exists until the
 /// replace is done. Absence is believed only when a look finds no staging file beside the name (and, on Windows,
@@ -76,7 +75,7 @@ public static partial class SharedFile
     // Windows hides the name for a moment inside a replace, so one quiet miss may be the tail of a window that has
     // already closed; a second quiet look finds the file. Elsewhere a miss with no staging file is the answer, once
     // the name has been looked for after the staging file was (see the last look in TryOpenReadAsync).
-    private static int QuietLooksNeeded => OperatingSystem.IsWindows() ? 2 : 1;
+    internal static int QuietLooksNeeded => OperatingSystem.IsWindows() ? 2 : 1;
 
     // A write stages '<name>.<guid>.tmp' before it replaces the name and removes nothing until the replace is
     // done, so a staging file beside the name is the evidence that a replace is under way.
@@ -178,13 +177,25 @@ public static partial class SharedFile
     /// <param name="expected">Full paths the previous listing had, or null for a first listing.</param>
     public static async Task<IReadOnlyList<FileInfo>> ListAsync(DirectoryInfo folder, string suffix, IReadOnlyCollection<string>? expected,
         CancellationToken cancellationToken = default)
+        => (await ListCountingLooksAsync(folder, suffix, expected, cancellationToken)).Files;
+
+    /// <summary>
+    /// <see cref="ListAsync"/>, with how many times it looked at the folder. A listing that believes an absence stops
+    /// after its quiet looks; one that takes something for a replace under way looks again every few milliseconds
+    /// until the deadline. The count tells the two apart with no wall-clock bar, which is what a test of the rule at
+    /// the listing itself needs.
+    /// </summary>
+    internal static async Task<(IReadOnlyList<FileInfo> Files, int Looks)> ListCountingLooksAsync(DirectoryInfo folder, string suffix,
+        IReadOnlyCollection<string>? expected, CancellationToken cancellationToken = default)
     {
         var seen = new Dictionary<string, FileInfo>(StringComparer.OrdinalIgnoreCase);
         var started = Stopwatch.GetTimestamp();
         var quiet = 0;
         var lastLook = false;
+        var looks = 0;
         while (true)
         {
+            looks++;
             if (folder.Exists)
             {
                 foreach (var file in folder.EnumerateFiles("*" + suffix))
@@ -195,15 +206,15 @@ public static partial class SharedFile
 
             if (expected is null || AllSeen() || lastLook)
             {
-                return [.. seen.Values];
+                return ([.. seen.Values], looks);
             }
 
-            if (ReplaceInProgress(folder.FullName, "*.tmp"))
+            if (AnyBeingReplaced(folder.FullName, Missing(expected, seen)))
             {
                 quiet = 0;
                 if (Stopwatch.GetElapsedTime(started) >= AbsenceDeadline)
                 {
-                    return [.. seen.Values];
+                    return ([.. seen.Values], looks);
                 }
             }
             else if (++quiet >= QuietLooksNeeded)
@@ -228,6 +239,65 @@ public static partial class SharedFile
             }
             return true;
         }
+
+        static IEnumerable<string> Missing(IReadOnlyCollection<string> all, Dictionary<string, FileInfo> found)
+        {
+            foreach (var path in all)
+            {
+                if (!found.ContainsKey(path))
+                {
+                    yield return path;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether any of <paramref name="missing"/> has a staging file beside it in <paramref name="folder"/>, which is
+    /// a replace of THAT name under way. Asked per name, as <see cref="TryOpenReadAsync"/> asks: a listing used to
+    /// look for any <c>*.tmp</c> in the folder, so a crashed writer's orphan for ANOTHER file read as a replace in
+    /// progress and the first listing after an expected file was deleted waited out the whole deadline, a second,
+    /// before believing it (#2186).
+    /// </summary>
+    internal static bool AnyBeingReplaced(string folder, IEnumerable<string> missing)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return false;
+        }
+
+        // One pass over the folder's staging files, each asked whose it is: a look per missing name was a scan of the
+        // folder per name per look, for a listing that had lost many. The names are only gathered once a staging
+        // file is met, which is rare.
+        HashSet<string>? names = null;
+        foreach (var staging in Directory.EnumerateFiles(folder, "*.tmp"))
+        {
+            if (names is null)
+            {
+                names = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+                foreach (var path in missing)
+                {
+                    names.Add(Path.GetFileName(path));
+                }
+            }
+            if (names.Count == 0)
+            {
+                return false;
+            }
+
+            // What the per-name look matches is '<name>.*.tmp', so a staging file is a name's when the name is all of
+            // it before one of its dots and at least '.tmp' follows that dot.
+            var file = Path.GetFileName(staging);
+            for (var dot = file.IndexOf('.'); dot >= 0 && dot <= file.Length - 5; dot = file.IndexOf('.', dot + 1))
+            {
+                if (dot > 0 && names.Contains(file[..dot]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

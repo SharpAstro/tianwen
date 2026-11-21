@@ -668,7 +668,8 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteScrollable($"[autocrop] trimming the declined edges would leave nothing; kept.");
             }
 
-            var margin = Math.Clamp(rule.Margin, 0.0, 0.25);
+            // The applied fraction: MasterAutoCropRule.ForModel clamps it, so it is printed as it stands.
+            var margin = rule.Margin;
             if (scan.Margin is { } inset)
             {
                 consoleHost.WriteScrollable(
@@ -703,6 +704,7 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(2);
             }
             consoleHost.WriteScrollable($"[autocrop] wrote {dst}");
+            SayCroppedSidecars("autocrop", written);
             return Task.FromResult(0);
         });
 
@@ -761,6 +763,7 @@ internal sealed partial class ImageSubCommand(
             }
             consoleHost.WriteScrollable(
                 $"[crop] {result.SourceWidth}x{result.SourceHeight} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) -> {dst}");
+            SayCroppedSidecars("crop", result);
             return Task.FromResult(0);
         });
 
@@ -2575,12 +2578,6 @@ internal sealed partial class ImageSubCommand(
     }
 
     /// <summary>
-    /// Run the shared <see cref="MasterPreviewRenderer"/> -- same path the
-    /// stack subcommand uses for its <c>master_*.png</c> -- against
-    /// <paramref name="img"/>. SPCC is computed at render time and only
-    /// baked into the PNG; the source FITS stays untouched.
-    /// </summary>
-    /// <summary>
     /// Which balance <c>image sharpen</c> works from: an explicit <c>--white-balance</c> WINS over the input's own WB
     /// cards (an option on the command line is the user's intent, and the cards used to win silently, so an override
     /// was lost without a word), and the note names both triples when it replaced the file's. Null note when nothing
@@ -2625,6 +2622,12 @@ internal sealed partial class ImageSubCommand(
         return true;
     }
 
+    /// <summary>
+    /// Run the shared <see cref="MasterPreviewRenderer"/> -- same path the
+    /// stack subcommand uses for its <c>master_*.png</c> -- against
+    /// <paramref name="img"/>. SPCC is computed at render time and only
+    /// baked into the PNG; the source FITS stays untouched.
+    /// </summary>
     private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, (float R, float G, float B)? whiteBalanceOverride, ScreenedStars? starScreen, float backgroundSky, CancellationToken ct)
     {
         try
@@ -3118,6 +3121,20 @@ internal sealed partial class ImageSubCommand(
 
     private static string DefaultOut(string input, string suffix)
         => StripExtension(input) + suffix + ".fits";
+
+    /// <summary>Says which of the master's map sidecars were cropped with it, and any that were not, with the reason.</summary>
+    private void SayCroppedSidecars(string verb, MasterCropResult result)
+    {
+        if (result.Sidecars.Count > 0)
+        {
+            consoleHost.WriteScrollable($"[{verb}] its maps were cropped with it: {string.Join(", ", result.Sidecars)}");
+        }
+
+        foreach (var left in result.SidecarsLeftOut)
+        {
+            consoleHost.WriteScrollable($"[{verb}] not carried: {left}");
+        }
+    }
 
     /// <summary>
     /// Ensure <paramref name="path"/> ends with <c>.fits</c>. Used to harden

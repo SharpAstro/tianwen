@@ -218,6 +218,77 @@ public class PlanetarySequenceTests(ITestOutputHelper output) : IDisposable
         rig.Camera.VideoStarts.Length.ShouldBe(1, "nothing was begun");
     }
 
+    // The give-back must not throw. If it does, it is still run only once and the run still ends, one test an ending
+    // (pilot's review of #2307). On a finished run it was inside the work's try: caught as a failure of the work, it was
+    // run a second time and a Done already published became Failed.
+    [Fact(Timeout = 30_000)]
+    public async Task AGiveBackThatThrowsOnAFinishedRunIsRunOnceAndTheRunEndsFailedSayingSo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rig = await RigAsync(ct);
+        var runner = rig.Runner(output);
+        var sequence = new PlanetarySequence([Step(R, 3, 100, 2)], Sets: 3, Until: rig.Time.GetUtcNow() - TimeSpan.FromSeconds(1));
+
+        var givenBack = new List<bool>();
+        var failure = await Should.ThrowAsync<InvalidOperationException>(runner.RunAsync(sequence, Files(out _), () =>
+        {
+            givenBack.Add(runner.Progress.HasEnded);
+            throw new InvalidOperationException("the wheel's claim is not ours");
+        }, ct));
+
+        givenBack.ShouldBe([false], "run once, before the progress says the run ended");
+        failure.Message.ShouldContain("was not given back");
+        failure.Message.ShouldContain("the wheel's claim is not ours");
+        (runner.Progress.Phase, runner.Progress.FailureReason).ShouldBe((PlanetarySequencePhase.Failed, failure.Message),
+            "what the run claimed may still be held, so its end is not a clean Done");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AGiveBackThatThrowsOnAStoppedRunIsRunOnceAndTheRunStillEndsStopped()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rig = await RigAsync(ct);
+        var runner = rig.Runner(output);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var calls = 0;
+        var run = runner.RunAsync(new PlanetarySequence([Step(R, 3, 100, 1000)], Sets: 1), Files(out _), () =>
+        {
+            calls++;
+            throw new InvalidOperationException("the wheel's claim is not ours");
+        }, stop.Token);
+        for (var i = 0; i < 50 && runner.Progress.Phase is not PlanetarySequencePhase.Recording; i++)
+        {
+            await StepAsync(rig.Capture, 1, ct);
+        }
+        runner.Progress.Phase.ShouldBe(PlanetarySequencePhase.Recording);
+        await stop.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(run);
+        calls.ShouldBe(1);
+        runner.Progress.Phase.ShouldBe(PlanetarySequencePhase.Stopped, "the stop is the run's ending, and the caller's own exception is the one thrown");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AGiveBackThatThrowsOnAFailedRunIsRunOnceAndTheRunKeepsItsOwnFailure()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rig = await RigAsync(ct);
+        var runner = rig.Runner(output);
+
+        var calls = 0;
+        var failure = await Should.ThrowAsync<InvalidOperationException>(
+            runner.RunAsync(new PlanetarySequence([Step(R, 3, 100, 2), Step(9, 3, 100, 2)], Sets: 1), Files(out _), () =>
+            {
+                calls++;
+                throw new InvalidOperationException("the wheel's claim is not ours");
+            }, ct));
+
+        calls.ShouldBe(1);
+        failure.Message.ShouldStartWith("Step 2 asks for position 9", Case.Sensitive, "the run's own failure is the one thrown, not the give-back's");
+        (runner.Progress.Phase, runner.Progress.FailureReason).ShouldBe((PlanetarySequencePhase.Failed, failure.Message));
+    }
+
     [Theory]
     [InlineData(0, 1, 2, "A sequence runs its steps at least once")]
     [InlineData(1, 0, 2, "Step 1 needs a positive exposure")]

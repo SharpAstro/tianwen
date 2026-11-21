@@ -6,7 +6,8 @@ namespace TianWen.Lib.Sequencing;
 
 /// <summary>
 /// Reduces the guide-error history to the per-frame <see cref="GuidingStats"/> that rides in a light's
-/// FITS header. Pure and allocation-free over the caller's snapshot.
+/// FITS header. Pure over the caller's snapshot. Not allocation-free: <see cref="OverExposure"/> folds the samples
+/// through an <see cref="ExposureGuideTally"/>, which is immutable and so makes one per counted sample.
 /// </summary>
 public static class GuideStatistics
 {

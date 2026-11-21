@@ -28,10 +28,17 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
     private static readonly TimeSpan TickPeriod = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / StepsPerSecond);
 
     protected volatile int _position;
-    protected volatile bool _isMoving;
 
-    private ITimer? _movingTimer;
+    /// <summary>
+    /// The move under way, or null. ONE field holds everything about it (where it ends, its clock, its timer), so a
+    /// move begins, is replaced, is halted and ends in one atomic step each. There used to be three (a flag, the
+    /// timer and the move), set one after the other, and a callback of a replaced move that was already past its
+    /// identity check could clear the flag and dispose the timer of the move that replaced it (#2094).
+    /// </summary>
     private MovingState? _currentMove;
+
+    /// <summary>Whether a move is under way.</summary>
+    protected bool IsMoving => Volatile.Read(ref _currentMove) is not null;
 
     /// <summary>
     /// Sets position (absolute)
@@ -45,16 +52,16 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
 
         if (currentPosition != position)
         {
-            _isMoving = true;
-
             var state = new MovingState(position, TimeProvider.GetTimestamp());
-            Volatile.Write(ref _currentMove, state);
+            // Made dormant and started only once the move is the current one, so no callback runs for a move that is
+            // not yet (or no longer) it.
+            var timer = TimeProvider.CreateTimer(MovingTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            state.Timer = timer;
 
-            var movingTimer = TimeProvider.CreateTimer(MovingTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            // The move this one replaces loses its timer here; its callbacks already running return at the identity check.
+            Interlocked.Exchange(ref _currentMove, state)?.Timer?.Dispose();
 
-            Interlocked.Exchange(ref _movingTimer, movingTimer)?.Dispose();
-
-            movingTimer.Change(TickPeriod, TickPeriod);
+            timer.Change(TickPeriod, TickPeriod);
         }
 
         return Task.CompletedTask;
@@ -62,16 +69,15 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
 
     protected virtual Task BeginStopMovingAsync(CancellationToken cancellationToken = default)
     {
-        Interlocked.Exchange(ref _movingTimer, null)?.Dispose();
-        _isMoving = false;
+        Interlocked.Exchange(ref _currentMove, null)?.Timer?.Dispose();
         return Task.CompletedTask;
     }
 
     private void MovingTimerCallback(object? state)
     {
-        // A Halt clears _isMoving and disposes the timer, but a callback already on its way still gets here. So does one
+        // A Halt clears the move and disposes its timer, but a callback already on its way still gets here. So does one
         // of a move a newer move replaced: it must not step or end the newer move, which has a timer and clock of its own.
-        if (state is not MovingState move || !_isMoving || !ReferenceEquals(Volatile.Read(ref _currentMove), move))
+        if (state is not MovingState move || !ReferenceEquals(Volatile.Read(ref _currentMove), move))
         {
             return;
         }
@@ -92,8 +98,10 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
 
         if (nextPosition == move.End)
         {
-            _isMoving = false;
-            Interlocked.Exchange(ref _movingTimer, null)?.Dispose();
+            // Ends THIS move and nothing else: if a newer move replaced it since the check above, the exchange fails
+            // and that move stays current, with its own timer untouched. This move's timer goes either way.
+            Interlocked.CompareExchange(ref _currentMove, null, move);
+            move.Timer?.Dispose();
         }
     }
 
@@ -103,7 +111,7 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
 
         if (disposing)
         {
-            Interlocked.Exchange(ref _movingTimer, null)?.Dispose();
+            Interlocked.Exchange(ref _currentMove, null)?.Timer?.Dispose();
         }
     }
 
@@ -113,6 +121,9 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
         private long _stepsTaken;
 
         public int End { get; } = end;
+
+        /// <summary>The timer that steps this move, set once before the move becomes the current one.</summary>
+        public ITimer? Timer { get; set; }
 
         /// <summary>
         /// The steps this move has earned by now and not yet taken, by the time that elapsed since it began at

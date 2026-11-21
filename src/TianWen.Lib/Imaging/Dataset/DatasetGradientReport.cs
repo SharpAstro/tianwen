@@ -412,20 +412,9 @@ namespace TianWen.Lib.Imaging.Dataset
             // retains now carries one. Without it (a store from before that change) the behaviour is
             // unchanged rather than guessed at -- an estimate here would be a different fit silently
             // labelled the same.
-            var coveredRect = PixelRect.Empty;
-            if (IntegrationFitsWriter.TryReadCoverageMap(masterPath, out var coverage))
-            {
-                try
-                {
-                    // The viewer's own threshold for the same question, so the region fitted here and
-                    // the region a person sees cropped are the same region.
-                    coveredRect = master.CoverageCropRectangle(coverage);
-                }
-                finally
-                {
-                    coverage.Release();
-                }
-            }
+            // The viewer's own routine for the same question (the exact tier, no edge walk), so the region
+            // fitted here and the region a person sees cropped are the same region. Empty when there is no sidecar.
+            MasterAutoCrop.TryCoverageRect(master, masterPath, out var coveredRect);
 
             var masked = MaskAbsent(master, coveredRect, out var absentFraction);
             BackgroundExtractionResult baseline;

@@ -300,6 +300,18 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     internal ScaleLadder.Found? LastScaleLadder { get; private set; }
 
     /// <summary>
+    /// The scale prior a solve falls back on when the quad recovery gave none: the ratio this light path solved at
+    /// before, or null when nothing is remembered or the frame's scale came from the stars. The remembered ratio is
+    /// how wrong the light path's TYPED focal length is, and a scale the ladder read has no typed focal length behind
+    /// it. Its own function so the rule has a test: no real frame both declines the quad recovery and needs the
+    /// ladder on demand, and an end-to-end solve passes with the rule taken out (#2279).
+    /// </summary>
+    internal static QuadScaleRecovery.Recovery? RememberedScalePrior(SolveHintCache.Hint? remembered, bool scaleFromStars)
+        => remembered is { } hint && !scaleFromStars
+            ? new QuadScaleRecovery.Recovery(hint.ScaleRatio, Candidates: 0, RelativeSpread: 0f)
+            : null;
+
+    /// <summary>
     /// Test seam: what the quad seed did on the most recent solve (the top-level pass; a relocation
     /// retry's own quad seed is not reported). Like <see cref="LastParityRace"/>, its effect is the
     /// parity race STARTING where the frame is rather than where the header says, which the emitted
@@ -477,7 +489,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double? searchRadius = default,
         CancellationToken cancellationToken = default
     )
-        => SolveFromOriginAsync(image, imageDim, range, searchOrigin, searchRadius, allowPositionalSearch: true, cancellationToken);
+        => SolveFromOriginAsync(image, imageDim, range, searchOrigin, searchRadius, allowPositionalSearch: true, scaleFromStars: false, cancellationToken);
 
     /// <param name="allowPositionalSearch">
     /// False on the ONE retry a positional search may trigger, which is what bounds the recursion at
@@ -486,6 +498,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// the expensive half, is cached on the <see cref="Image"/>, so re-entering costs the query, the
     /// quad recovery and the race, not the detection.
     /// </param>
+    /// <param name="scaleFromStars">
+    /// True on the retry of a solve whose scale the ladder read off the stars: the retry is handed that scale as
+    /// <paramref name="imageDim"/>, which no longer says where it came from. It is passed rather than read back off
+    /// <see cref="LastScaleLadder"/>, which is a test seam on a singleton that every top-level solve resets, and a
+    /// guider solve and an imaging solve run at the same time.
+    /// </param>
     private async Task<PlateSolveResult> SolveFromOriginAsync(
         Image image,
         ImageDim? imageDim,
@@ -493,6 +511,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         WCS? searchOrigin,
         double? searchRadius,
         bool allowPositionalSearch,
+        bool scaleFromStars,
         CancellationToken cancellationToken
     )
     {
@@ -554,6 +573,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         else if (await TryFindScaleFromStarsAsync(image, origin, dtYr, cancellationToken) is { } fromStars)
         {
             dim = fromStars;
+            scaleFromStars = true;
         }
         else
         {
@@ -775,10 +795,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // the stars has no typed focal length behind it, so the ratio says nothing about it and is not applied;
         // the remembered parity still is, since that is the optics' and not the header's.
         var cachedHint = _hints.TryGet(image.ImageMeta);
-        var scaleFromStars = LastScaleLadder is not null;
-        if (scalePrior is null && cachedHint is { } cached && !scaleFromStars)
+        if (scalePrior is null && RememberedScalePrior(cachedHint, scaleFromStars) is { } remembered && cachedHint is { } cached)
         {
-            scalePrior = new QuadScaleRecovery.Recovery(cached.ScaleRatio, Candidates: 0, RelativeSpread: 0f);
+            scalePrior = remembered;
             _logger.LogDebug("CatalogPlateSolver: no quad recovery, using the scale this light path solved at before -- ratio {Ratio:F5} (implied {Implied:F4}\"/px against the header's {Header:F4})",
                 cached.ScaleRatio, dim.PixelScale / cached.ScaleRatio, dim.PixelScale);
         }
@@ -997,7 +1016,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             && TryFindOriginByPositionalSearch(detectedStars, origin, pixelScaleRad, cx, cy, dim, range, dtYr, searchRadius, cancellationToken) is { } relocated)
         {
             LastOriginSource = OriginSource.PositionalSearch;
-            var retry = await SolveFromOriginAsync(image, dim, range, relocated, searchRadius, allowPositionalSearch: false, cancellationToken).ConfigureAwait(false);
+            var retry = await SolveFromOriginAsync(image, dim, range, relocated, searchRadius, allowPositionalSearch: false, scaleFromStars, cancellationToken).ConfigureAwait(false);
 
             // Bounding the candidate CENTRES is not the same as bounding the sky examined: a frame
             // centred at the edge of the search area still reaches half a diagonal beyond it, and

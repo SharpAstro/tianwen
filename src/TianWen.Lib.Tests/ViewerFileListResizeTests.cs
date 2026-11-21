@@ -138,6 +138,32 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The drag itself, where it can be seen to act (#2164): the test above runs in a window so narrow that the list
+        /// already sits at its floor, so a drag that changed nothing passes it. Here the window leaves the list room, and a
+        /// drag narrower must make it strictly narrower, and a drag wider strictly wider again.
+        /// </summary>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public void InAWindowWithRoomADragMovesTheDividerBothWays(float dpiScale)
+        {
+            const uint wide = 2400;
+            using var renderer = new RgbaImageRenderer(wide, NarrowH);
+            var viewer = NewViewer(renderer, dpiScale);
+            var state = NewState();
+            viewer.Render(null, state);
+            var listWidth = viewer.FileList.Width;
+            // Premise: the list is well clear of its floor (60 design units), or the drags below could not show anything.
+            listWidth.ShouldBeGreaterThan(150f * dpiScale, "the wide window seats the list at more than its floor");
+
+            var narrower = DragDividerTo(viewer, state, 100f * dpiScale);
+            narrower.ShouldBeLessThan(listWidth, "a drag to the left of the divider narrows the list");
+
+            var wider = DragDividerTo(viewer, state, narrower + (80f * dpiScale));
+            wider.ShouldBeGreaterThan(narrower, "and a drag to the right widens it again");
+        }
+
+        /// <summary>
         /// However hard the divider is dragged, the panes tile the band: none goes negative and none
         /// overhangs.
         /// </summary>

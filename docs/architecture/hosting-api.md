@@ -468,7 +468,8 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
      sequence** (#1340, `POST` and `DELETE /api/v1/planetary/sequence`, `PlanetarySequenceRunner` in Lib) runs ON
      the capture going on: each step an interlude (the wheel turned and the focus offset taken, the stream started
      again at the step's settings) and one recording of its time or frames, all of a run in one folder. It claims
-     the OTA's wheel and focuser until it ends, the run is not interactive while it runs, and beside it the node
+     the OTA's wheel and focuser until just before its progress says it ended (given back first, so the end is
+     never published over a live claim), the run is not interactive while it runs, and beside it the node
      refuses the operator's own recording and any control that would change a step's stream; its progress is the
      state's `Sequence`. `docs/plans/live-planetary-capture.md`, "The sequence's core".
    - **A live view is the fourth** (`POST`, `GET` and `DELETE /api/v1/live`, `PUT /api/v1/live/controls`, `NodeLiveView`,

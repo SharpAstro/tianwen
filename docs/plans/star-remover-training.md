@@ -7037,7 +7037,32 @@ the first angle is a step after the model and not another arm:
     know: where a nebula's detail between 7 and 31 px is weak it is smoothed with the grain (the thin dark lanes of
     the Lagoon and Trifid plate come back softer), and the bright and dark pairs the builder left at bright stars are
     kept and now stand out of a smooth field. One pixel of one plate is newly absent (a Centaurus A plate's red, at
-    its right edge); no other plate gained an absent pixel.
+    its right edge); no other plate gained an absent pixel. **What the export does with such a pixel** (#2277, read
+    from `DatasetDegradationExporter`'s stars mode, 2026-11-21): a NaN in any channel that reaches the frame's
+    border is what `Image.AbsentPixels` calls absent, the canvas ring's rule, so the pixel is treated as ring. The
+    synthetic background and the noised plate leave the plate's own value there and draw no level and no noise on
+    it, the cell's mask hands it to the star renderer as absent, a value that is not finite is written through
+    with no star's shot noise added, and the stretch and the noise calibrations leave it out of what they measure.
+    The tile writer then clamps a NaN to 0 (`DatasetTileExporter.ExtractTileHalfs`), so a NaN that did reach an
+    exported cell would be a zero in the target and in all four input draws, the path of the square of zeros below;
+    it cannot by the bake's own rule, which samples cells only inside the NaN-free intersection of the session's
+    frames, and a pixel on the plate's right edge lies outside every cell of a dithered session, whose rectangle
+    of statistics stops short of the canvas edge (whether the Centaurus A session's does was not looked at). A
+    cell is not skipped for holding one. Under R4f's line the one stamp read that is handed the absent mask is
+    the halo over the plate's read of the measured saturated stars (`--halo-over-plate`,
+    `InjectionPopulation.PlateRingExcess`, 60 px stamp): a star whose stamp holds an absent or non-finite pixel
+    leaves the session's halo, never the cell, and a session with fewer than eight readable stars draws without
+    the option (`MinHaloOverPlateStars`). The read of a saturated star itself (`--saturated-measured`, which
+    R4f's line passes, a 36 px stamp) is handed no mask, so a zero ring does not refuse it; it does refuse a
+    stamp where master less plate is not finite, so a NaN pixel inside it, the case here, costs that star its
+    measurement: it is then drawn from its catalogue entry where the catalogue's pool would hold it (a star the
+    builder subtracted with the field's Moffat and the catalogue reads as clipped in a channel), and left out
+    otherwise. Where a drawn star lands depends on the
+    placement: in a random-placement export, R4f's line included, `InjectionPopulation.RandomPosition` draws a
+    position again when it lands on an absent pixel; under `--placement at-site` the star goes on its site
+    through `Jitter`, which has no such test. `AddLobes` leaves out a lobe that would land on one under both
+    placements, though R4f's line passes no `--star-lobes` and so draws no lobe at all. `MeasureBright` (`--bright-measured`, a 36 px stamp) refuses an absent stamp too, and R4f's
+    line does not pass that option.
   - **What that changes in the tiles, checked before the export** (`r4f-check.ps1`: the store's Tarantula session
     of 2024-10-02 and the three Helix sessions of 2025-08-09, exported with this line from both roots;
     `tile_grain.py`). The sparse sessions' 120 target tiles are the same bytes from either root. The Tarantula's 40
@@ -7112,7 +7137,27 @@ the first angle is a step after the model and not another arm:
     rule pull it toward the flat fill?) read, over the 89 plates with a zero ring, 0.01 % of the pixels within 20 px
     of the ring changed by over 10 %, against 0.00 % at 40 to 60 px; the worst plates 2.74 % near against 1.02 %
     far (figures from #2297's comment). A pull would show as the near band changing more with a sign; the medians
-    show none, and the worst plates differ by under two points of a band. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
+    show none, and the worst plates differ by under two points of a band. **What `grain_ring.py` itself read**
+    (#2298, run over the store on 2026-11-21 against the corrected plates, `starless-grain2`): of the 201 plates
+    89 hold a zero ring and on none is a ring pixel changed, and the 62 that differ from the first run all hold
+    one. Its `near_lowered` (valid pixels within 20 px of the ring that the rule lowered by over 10 % of their
+    value in any channel) is zero on 10 of the 62 and over zero on 52, with a median of 93.5 px a plate, 7,825 px
+    at most and 50,496 px in all. Against the band it is counted in (17.8 million valid pixels within 20 px of a
+    ring over the 89 plates, where the count is 50,503) that is 0.28 %. That band is the script's own and not the
+    one the figures above use: 20 steps along rows and columns from the ring, a diamond, where
+    `grain_ring_pull.py` measures 20 px in a straight line; and a pixel counts as lowered when the corrected
+    plate is under 0.9 of the stored one, which is a drop only where the stored value is over zero: a pixel the
+    rule left as it was counts too when a channel of it is under zero. On the three worst plates below that is
+    90 of the 7,825 px, 637 of the Rim Nebula's 6,936 and none of the third, so counting only a channel over
+    zero that dropped they read 4.28 %, 3.40 % and 2.69 %. The median
+    plate has 0.005 % of its band lowered, 22 plates have over 0.1 % and 9 over 1 %, and the worst are
+    narrowband frames: 4.33 % (eta Carinae of 2026-02-20 through the 3 nm filter, 7,825 of 180,917 px), 3.75 %
+    (the Rim Nebula in SII of 2024-07-06) and 2.69 % (another plate of that eta Carinae session); what lies at
+    their border was not looked at. The count has no far band of its own, so `grain_ring_pull.py` was run on
+    those three: changed by over 10 % either way, the two eta Carinae plates read 7.63 % within 20 px against
+    11.98 % at 40 to 60 px and 10.20 % against 21.48 %, and the Rim Nebula 9.60 % against 25.76 %. On all three
+    the sky beside the ring changed less than the sky further in, so what the count holds on them is what the
+    rule does anywhere on such a frame and not a pull toward the fill. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
     the guards and the kill rule are unchanged.
   - **Added 2026-11-20, before the cache exists and before any score: what the question reads, and two rows that
     read what this arm changes.** "The crowded rows read light between the stars" below shows that the Tarantula's
@@ -7186,7 +7231,10 @@ the first angle is a step after the model and not another arm:
     line on the held-out Tarantula.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
-    91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
+    91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1). R4e's 89.1 is a read through this chain and not its
+    registered read carried over: R4c, R4d and R4e were each run through it on 2026-11-20, and each arm's row is
+    kept as `row.txt` in its `-pcs+floor5` folder of the whole-master run (`C:/temp/tianwen-scratch/f2-whole-master`
+    on DE1). R4e reads 89.1 there, the same figure as its registered read with floor3 and the old protection.
   - **Guards, through the same chain,** R4c's: by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and
     over (the tiles with floor5); M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat
     at least 95 and dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 of zero on
@@ -7265,27 +7313,30 @@ the first angle is a step after the model and not another arm:
       "best" judge), read from its `val STEP held-out X window Y best Z at S lr L` lines in the logs
       `C:/temp/e2/r4faz-batch/r4faz.log`, `C:/temp/e2/r4d.log` (a GTX 1070 run, not Batch),
       `C:/temp/e2/r4eaz-batch/r4eaz.log`, `C:/temp/e2/r4caz-batch/r4caz.log` and
-      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **R4f was not slow from the start: at its first learning rate it was
-      ahead.** The rate was first halved from step 57,000 in R4e, 63,500 in R4d, 77,500 in R4c and 82,000 in R4f
-      (decided at step 81,500), so no one range of steps is "before the first halving" for all four, and at step
-      69,500 R4d's window of 1.04e-5 is one at the halved rate against R4f's 1.08e-5 at the first. At the first rate
-      the best windows were R4f 1.08e-5 (step 69,500), R4d 1.20e-5 (51,000), R4c 1.26e-5 (65,000) and R4e 1.50e-5
-      (44,500). **They part at the halvings:** aligned on each arm's own first halving, the median from step 30,000
+      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **Nothing in its first learning rate marks R4f as slow.** The rate was first
+      halved from step 57,000 in R4e, 63,500 in R4d, 77,500 in R4c and 82,000 in R4f (decided at step 81,500), so no
+      one range of steps is "before the first halving" for all four, and at step 69,500 R4d's window of 1.04e-5 is
+      one at the halved rate against R4f's 1.08e-5 at the first. At the first rate the best windows were R4f
+      1.08e-5 (step 69,500), R4d 1.20e-5 (51,000), R4c 1.26e-5 (65,000) and R4e 1.50e-5 (44,500); R4f's is the
+      lowest, which does not make it ahead, since each arm's figure is on its own draws and targets (the caveat
+      below). What needs no scale across arms is each arm against itself. **They part at the halvings:** aligned on each arm's own first halving, the median from step 30,000
       to the halving and then over the next 60,000 steps is R4d 1.96e-5 then 9.82e-6, R4e 2.11e-5 then 9.95e-6 and
       R4c 2.10e-5 then 1.01e-5 (each about half), where R4f's is 1.76e-5 then 1.49e-5 (a fall of 15 percent, over
       the 47,500 steps it ran after its first halving); R4d went on to 7.85e-6 at step 233,000. So the flat stretch
       before the stop does not separate R4f from the arms that went on: its halvings bought almost nothing, where
       theirs halved the objective. **Nor did the later steps hold weights as good as the
       best:** R4f's windows sat at 1.08e-5 to 1.16e-5 through step 72,000, then came a spike (held-out 4.88e-5 at
-      step 73,000, window 2.50e-5) with no recovery: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
+      step 73,000, window 2.50e-5) with no recovery to a new best: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
       lower, and the final window is 1.57e-5, 45 percent above the best. That is the shape R2n's note records (above,
       "the deeper net blew up"). The first resume (after step 72,000) is not its cause: replaying steps 72,500, 73,000
       and 73,500 gives the same digits (1.433862e-05, 4.882240e-05, 1.355304e-05). The run was moved to a new node
       twice (resumed after steps 72,000 and 110,000); R4c, R4e and R3x were moved too, and each set a new best after
       its earlier resumes (R4c after steps 40,000, 76,000 and 98,000; R4e after 100,000; R3x after 34,000, 72,000
-      and 104,000). Their last resumes gained little or nothing: R4c's, after step 128,000, set no new best (its
-      best stays 8.95e-6 at step 121,000 to the stop at 157,000, the lowest later window 9.01e-6), and R3x's, after
-      132,000, gained 0.15 percent (5.980e-6 to 5.971e-6). **These figures are not like for like across arms:** each arm's held-out objective is read
+      and 104,000). R4c's and R3x's last resumes gained little or nothing: R4c's, after step 128,000, set no new
+      best (its best stays 8.95e-6 at step 121,000 to the stop at 157,000, the lowest window after step 128,000
+      9.01e-6), and R3x's, after 132,000, gained 0.15 percent (5.980e-6 to 5.971e-6). R4e's one resume is also its
+      last, and its best fell by 14 percent after it (8.50e-6 at the resume, 7.28e-6 at step 170,500). **These figures are not like for like across arms:**
+      each arm's held-out objective is read
       on its own validation draws (R4f on synth31's, whose targets are the grain-free plates; R4d on synth29's and R4e
       on synth30's, on the stored plates), and this plan already calls a held-out loss on another arm's draws "not
       comparable" (arm A and B, above). The gap says R4f's curve was higher after the spike, not by how much the model
@@ -7314,6 +7365,83 @@ the first angle is a step after the model and not another arm:
       stopped learning early. Two things would separate the target from the training: the same arm run again
       (another seed, or the same seed on the other machine), and a trainer that keeps the weights of its best
       step. Neither is registered, and both are the owner's.
+  - **R4f run again, registered 2026-11-21 before its launch and before any score of it (seed 1,
+    `r4f_synth31_s1`). Nothing is changed from R4f but the seed.** The owner, 2026-11-21, on the two things the
+    read names: "yeah lets rerun R4f". The cache is R4f's own, already in the container (`r2-synth31/cache`), so
+    no export is made. The recipe is R4f's (the Batch task's, with `--levels 4 --max-ch 256 --clip-grad 8`). The
+    trainer is R4f's frozen one plus `--save-best` only (PR #2329), which writes the weights of the best step
+    beside the last step's and changes nothing the run computes: on a tiny cache with the arm's switches the
+    frozen trainer without the patch, with it, and with it and the switch end on the same weights to the bit, and
+    the best file equals the weights of a run stopped at that step. One Batch run on a low-priority T4, capped
+    at 36 hours, whose pool removes itself.
+    - **The question.** Was R4f's training an accident of one run, or does this target with this recipe train
+      so? Only when it trains as the others did does the arm answer what R4f was registered to ask.
+    - **The training is read first, from the trainer's log alone, before any row is scored.** One figure, the
+      one R4f's read aligns the arms on: the median of the window means over the 60,000 steps after the first
+      halving (or to the stop, the length then stated), as a share of the median from step 30,000 to that
+      halving. R4d reads 0.50, R4e 0.47, R4c 0.48 and R4f 0.848. **0.60 or under: trained as the others.
+      0.75 or over: stalled again.** Between the two it is called neither, and the rows are reported with that
+      said. The figure is read against the curve before it is called: R3x reads 0.80 on it (6.06e-6 over 7.60e-6,
+      its first halving at 101,000) and is not a stall. Its curve has two isolated spikes before the halving
+      (held-out 1.934e-5 at step 74,500 and 1.101e-5 at 75,500 against 6.8e-6 around them, back to 7.0e-6 by
+      77,000; 1.192e-5 at step 85,000, back to 6.8e-6 by 88,000), and both recovered within a few evaluations. It
+      set a new best (5.971e-6 at 148,500) 47,500 steps after the halving; a long first-rate stretch (71,000 steps
+      against 27,000 to 52,000 for the others) lifts the ratio. The spikes do not separate R4f from R3x: R4f's
+      window was back inside its level before the spike six evaluations after it (1.13e-5 at step 76,000, against
+      1.08e-5 to 1.16e-5 over steps 69,500 to 72,000), as R3x's was after five; its next evaluation, step 76,500,
+      was a second and larger spike (held-out 1.04e-4, the window back to 1.25e-5 only at step 80,000), which R3x
+      has no counterpart for. What separates them is the new best: R3x, R4d, R4e and R4c each set a new best
+      window after their first halving, and R4f set none to its stop. **So a ratio of 0.75 or over is called
+      stalled only when the run sets no new best window after its first halving; with a new best there it is
+      called neither, and the rows are reported with that said.** A new best is one the trainer's own log
+      prints (its "best ... at" column moving, which its plateau rule does for a window at least 0.1 percent
+      under the best so far); any such counts, and no larger size is asked of it. That holds over 0.85 as under it: a long
+      first-rate stretch can lift a run that went on improving past any ratio. R4f itself reads 0.848 and set
+      no new best, so an exact repeat of it is called stalled. Spikes are described and decide nothing. 0.60 or
+      under is trained, as launched; no threshold changes. **These sentences, from "The figure is read against the curve", were added after the
+      launch**, on the review of this registration (PR #2335), which found that the figure as launched would
+      have called R3x stalled: I had set the thresholds on R4c, R4d, R4e and R4f and left R3x out. The rule's
+      sentences were changed six times on 2026-11-21, each timed here against the trainer's log (it started at
+      10:00:46 and reads step 13,800 at 43.1 minutes and step 27,600 at 86.5):
+      (1) at 10:40, about step 12,600, the R3x sentence and a band of 0.75 to 0.85 read against "a spike, a new
+      best after the halving";
+      (2) at 10:44, about step 13,800, a second wording, "a spike with no recovery", with both signs needed for
+      stalled;
+      (3) at 10:45, about step 14,400, the clause that one sign alone is called neither;
+      (4) at 10:50, about step 15,800, the new best alone, spikes deciding nothing: the second wording was
+      withdrawn, since by it R4f had recovered too;
+      (5) at 11:27, about step 27,500, the test's reach to any ratio of 0.75 or over, R4f's 0.848 and its second
+      spike;
+      (6) at 12:07, about step 40,000, what counts as a new best.
+      What the changes alter against the launched sentence, "0.75 or over: stalled again", is one outcome: a
+      ratio of 0.75 or over with a new best after the halving read stalled as launched and reads neither now.
+      Changes (1) to (4) made that so for a ratio of 0.75 to 0.85, and change (5) for a ratio over 0.85. Every
+      held-out line of the log to step 39,000 is at the first learning rate, and the earliest first halving
+      among the other arms was at step 57,000. So nothing the figure reads existed yet. This note was first
+      written with change (3) and has been corrected since. The prediction's reasons below were reworded in
+      the same review (they first said R4c, R4d and R4e each differ from R4f by one change of the export, which
+      this plan's own lineage contradicts); the guess and its figures are as launched. The additions are the
+      owner's to refuse; refused, the rule is the one sentence as launched.
+    - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
+      guards, its kill rule and its two added rows stand as its registration and its read list them (the
+      Tarantula's crowded flat through the product's chain 93.3 or over and killed under R4d's 91.3; BP 17-19
+      with the level set aside 93.5; the dense cells' grain as trained 0.6 of R4d's). The 1:1 sheets are looked
+      at before any row is quoted.
+    - **The best step's weights are a reported column and decide nothing.** They are scored on the same rows
+      and set beside the last step's. No arm before was read on a best step, so no bar or kill rule applies to
+      them.
+    - **What each outcome says.** Trained as the others and the crowded flat at its bar: the grain-free target
+      works, and seed 0 was an accident of its training. Trained as the others and killed again: the grain in
+      the target is not what holds the crowded fields, the answer R4f could not give. Stalled again: the stall
+      is this target's with this recipe (two seeds of two) and the rows judge the target no more than R4f's
+      did; what is then worth reading is the best step's column against R4d, and the next step is the
+      trainer's (why the objective breaks and does not come back), not another export.
+    - **Prediction, written before the launch.** It trains as the others (my guess, two chances in three: R4c,
+      R4d and R4e train R3v's model and recipe on exports of the same line and none broke, and R4d is the one
+      change neighbour of R4f, its target; the earlier stalls this plan records are arm B's seed 1, R2n and
+      R3w). If
+      it does, the dense cells' grain as trained falls by a quarter or more against R4d's, and the crowded flat
+      rises over R4d's 91.3 but does not reach its bar of 93.3.
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
   the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
   2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
@@ -7348,7 +7476,31 @@ the first angle is a step after the model and not another arm:
     star and its halo flat out to about 120 px and leaves the master as it is beyond. On plain sky (HIP 80609)
     that flat level is the halo's own at 120 px, a pedestal of 20 / 15.5 / 6 sigma above the sky, never under
     it, with the spikes' residues 4 to 5 sigma under the pedestal. Over nebula (the Lagoon cell) the flat level
-    sits 3 to 6 sigma under its own rim, with a patch 20 to 30 sigma lower: a dent in the nebula. One session is
+    sits under its own rim by 3.4 to 5.8 sigma in R, 1.6 to 5.1 in B and, in G, from 0.3 above to 3.0 under (the plate's
+    own ring at 100 to 120 px; figures below), with a patch 20 to 30 sigma lower: a dent in the nebula. **Where the two
+    were read** (written 2026-11-21 for #2293; the registration named neither): `plate_halo_channels.py` takes a
+    session master, its plate and an x, y, both files from the store (`session-masters/<stem>.fits` and
+    `starless/plates/<stem>_plate.fits`). HIP 80609 is the star itself in the `flip=b` half of its session, stem
+    `ZWO-ASI533MC-Pro_Optolong-L-Quad-Enhance_HIP-80609_2026-04-21_ZWO ASI533MC Pro_HIP 80609_Optolong L-Quad Enhance_flip=b`,
+    at x 1362, y 2244: the plate's ring medians read 19.1 to 20.9 / 15.1 to 16.5 / 5.7 to 6.5 out to 100 px
+    against the master's 20.9 / 16.4 / 6.7 at 100 to 120 px. (The session's master with no flip is another frame;
+    the two brightest stars the review tried on it are not this star.) The Lagoon is the session of 2025-05-25
+    with no flip, stem
+    `ZWO-ASI585MC-Pro_Unidentified-Broadband-BlueCut_Lagoon-Nebula_2025-05-25_ZWO ASI585MC Pro_Lagoon Nebula_Unidentified-Broadband-BlueCut`,
+    at x 1920, y 1312: the plate reads 35.0 to 37.4 / 24.5 to 27.8 / 25.2 to 28.6 between 8 and 100 px against
+    40.8 / 27.5 / 30.3 at 100 to 120 px (the plate's own ring there; the master reads 40.6 / 27.8 / 30.9), and its 10th percentile falls to 10.1 / 4.9 / 2.0 at 22 to 40 px. Both
+    were run again on 2026-11-21 and read the same. **The star's own cell is not one of the 126 that pass the
+    gate, but its flattened disc reaches into six that do (three positions in each of two session ids):** the
+    session's cells at 1603, 1214, at 1603, 1342 and at 1731, 1342 lie 62, 69 and 30 px from the star, so the disc
+    of about 120 px reaches 58, 51 and 90 px into them. The same three positions pass under the session's `flip=a`
+    id as well (`bright-plate-cells.tsv`); that half is co-registered, the same star at 1920, 1312 with the same
+    dent (plate 10th percentile 12.3 / 7.2 / 3.7 at 22 to 40 px, flat level 39.3 to 42.8 / 27.3 to 31.0 / 26.0 to 29.5
+    between 8 and 100 px, as for the no-flip copy, against 45.5 / 30.9 / 30.4 at 100 to 120 px, the plate's own ring
+    there; the master reads 45.2 / 31.0 / 30.8), so the `flip=a` copy is the same sky, its targets drawn
+    separately. `flip=b` has no passing cell. The dent is therefore in R4g's own targets, on part of six cells of
+    126, and this registration did not say so. Only this star's reach was traced: the count is a floor, not the
+    count of dented cells, since other saturated stars over nebula in the passing cells (eta Carinae, Orion) were
+    not looked at, so "at least six" is what the table supports. One session is
     left out by name
     (`--exclude-session`), the Lagoon and Trifid of 2023-06-16 with its 8 cells: the Sagittarius master the
     question is read on is an OIII stack of 72 minutes from a frame of that camera's size, and whether its sky is
@@ -7418,7 +7570,10 @@ the first angle is a step after the model and not another arm:
     owner decides"; the faint stars left on bright background fall by a fifth on both cores; the star rows stay
     within a point of R4d's. What speaks against a clean pass: the dose is a twentieth of the draw, two thirds of
     the bright cells are one object through one filter, 126 cells is little sky, and the halo change that began
-    the nebula-taking is still in every main row.
+    the nebula-taking is still in every main row. (Added 2026-11-21, after the arm was read and killed, so it
+    moves no bar: a fifth thing spoke against it and was not listed. At least six of the 126 cells hold part of the dent
+    the builder leaves at a saturated star over nebula, "Where the two were read" above, which is the
+    broad-light-taken failure this arm tests, in its own targets.)
   - **Nothing is adopted;** adoption is the owner's.
   - **R4g's read, 2026-11-20 (seed 0, `r4g_synth29b1_s0`): KILLED. It leaves 41 % and 50 % of the faint stars on
     bright background, over the bars of 37 and 27; the Lagoon's broad light falls to 1.37, short of 1.3 by 0.07.**
@@ -7539,7 +7694,16 @@ the first angle is a step after the model and not another arm:
     faint stars the judge removed and ours left. (Corrected the same evening, below: the 2.3 points at 31 px are
     not the level either. A plate with the level alone taken reads 91.4.)
   - **Where those six points are** (`gaia_where.py`, the Tarantula's 21,903 stars of BP 17-19 seen, the level set
-    aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9).
+    aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9). One run of
+    `gaia_where.py` gives all three figures: it is handed the Tarantula scoring master and three plates of it,
+    StarXTerminator's as the judge, R4d's through the product's chain and R4d's as trained, and its first line
+    reads 96.6, 90.7 and 88.8 removed. The script scores a seeded draw of 40,000 of the frame's 441,821 BP 17 to 19
+    stars (`default_rng(1)`, the draw `gaia_compact.py` makes, so the totals agree); 21,903 of them are seen, and a
+    run gives the same stars. The plates are the whole-master run's (`w-sxt/tarantula_starless.fits`,
+    `w-r4d_synth29_s0-pcs+floor5/tarantula_starless.post.fits` and `w-r4d_synth29_s0/tarantula_starless.fits`
+    under `C:/temp/tianwen-scratch/f2-whole-master`, the master `synthetic-clusters/tarantula.fits`), and the
+    run's output is kept as `C:/temp/e2/explore/gaia-where.txt`. Run again on 2026-11-21 with the script as it is
+    on main since #2313, on the same plates: every figure and every bin label below came out the same.
 
     | split | bin | share of the stars | judge | R4d | the bin's part of the 5.9 points |
     |---|---|---|---|---|---|
@@ -7556,7 +7720,12 @@ the first angle is a step after the model and not another arm:
     | | 299 to 725 | 20 % | 97.1 | 83.6 | 2.7 |
     | background over the frame's sky, local rms | under 2 | 62 % | 98.3 | 94.5 | 2.3 |
     | | 2 to 5 | 38 % | 94.7 | 84.9 | 3.7 |
-    | | 5 and over | 0.7 % (155 stars) | 54.5, 35.3 | 76.0, 76.5 | -0.2 |
+    | | 5 to 10 | 0.6 % (121 stars) | 54.5 | 76.0 | -0.1 |
+    | | 10 to 20 | 0.2 % (34 stars) | 35.3 | 76.5 | -0.1 |
+
+    The background split has two more bins in the script, 20 to 50 and 50 and over, and a bin under 30 stars is
+    not printed. Neither holds a star here: the four rows above count 13,476, 8,272, 121 and 34 stars, which is
+    all 21,903.
 
     So 4.8 of the 5.9 points are stars under twice their seeing threshold, and 4.0 are in the two densest fifths,
     where the frame holds a catalogued star to every 2.5 to 10 square pixels (186 to 725 of them within 24 px, a

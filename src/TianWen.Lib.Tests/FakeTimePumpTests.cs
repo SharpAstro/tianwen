@@ -339,6 +339,71 @@ namespace TianWen.Lib.Tests
             time.HasTimerDueAfter(TimeSpan.Zero).ShouldBeFalse();
         }
 
+        /// <summary>
+        /// #2197: <c>ITimer.Change</c> answers false for a disposed timer, as the contract says, and does not put it
+        /// back in the record. It used to answer true whatever the inner timer said.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public void AChangeOnADisposedTimerAnswersFalseAndRecordsNothing()
+        {
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+            var fired = 0;
+            var timer = time.CreateTimer(_ => fired++, null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
+            timer.Change(TimeSpan.FromSeconds(20), Timeout.InfiniteTimeSpan).ShouldBeTrue("a live timer takes the change");
+            time.HasTimerDueAfter(TimeSpan.FromSeconds(15)).ShouldBeTrue();
+
+            timer.Dispose();
+
+            timer.Change(TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan).ShouldBeFalse();
+            time.HasTimerDueAfter(TimeSpan.Zero).ShouldBeFalse("a disposed timer is not recorded again");
+            time.Advance(TimeSpan.FromSeconds(30));
+            fired.ShouldBe(0);
+        }
+
+        /// <summary>
+        /// #2197: a wait that began before its timer exists finishes once the timer is made. What this pins is that the
+        /// wake is WIRED: the wait sleeps on the wrapper's change signal, so a timer made without signalling it would
+        /// leave this test hanging to its timeout. It does not tell a woken wait from one that looked again every
+        /// millisecond, as the wait used to: both finish within a millisecond of the timer, and nothing here has a
+        /// clock to tell them apart with (pilot's review of #2307).
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task AWaitForATimerIsWokenWhenTheTimerIsMade()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+            var wait = time.WaitForTimerDueAfterAsync(TimeSpan.FromSeconds(5), ct, "the deadline under test");
+            wait.IsCompleted.ShouldBeFalse("no timer exists yet, so a wait that is done already answered without looking");
+
+            // A timer that is not the one waited for wakes the wait and must not finish it. That is not asserted: the
+            // wait's continuation runs on another thread, so "still not done" read here would hold either way.
+            using var near = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
+
+            using var far = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
+            await wait;
+        }
+
+        /// <summary>
+        /// #2197: the same for a wait on a timer due inside a window, where an ADVANCE is what brings the timer into
+        /// the window: nothing is made or changed, only now moves. As above, it pins that an advance wakes the wait (a
+        /// missed wake hangs to the timeout), not that the wait does not poll.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task AWaitForATimerInsideAWindowIsWokenWhenAnAdvanceBringsItIn()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+            using var timer = time.CreateTimer(static _ => { }, null, TimeSpan.FromSeconds(100), Timeout.InfiniteTimeSpan);
+
+            var wait = time.WaitForTimerDueWithinAsync(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(20), ct, "the deadline under test");
+            wait.IsCompleted.ShouldBeFalse("the timer is 100 s out, past the window");
+
+            time.Advance(TimeSpan.FromSeconds(85));
+
+            await wait;
+        }
+
         /// <summary>The same window in <c>ITimer.Change</c>: the record and the inner timer are re-armed from one clock reading.</summary>
         [Fact(Timeout = 30_000)]
         public void AnAdvanceBetweenTheRecordAndTheInnerChangeLeavesThemAgreeing()

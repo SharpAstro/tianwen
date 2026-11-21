@@ -363,7 +363,14 @@ public static class ChunkedNafnetRunner
     /// (<see cref="NeedsStretch(Image, BitMatrix?)"/>), the depth's with <paramref name="blackPointSigma"/> times the
     /// channel's sky noise. Under the depth rule no single pixel decides it, which is the point of that rule (#2309): a
     /// frame whose deepest hole lifts its median past the threshold above its minimum is still stretched. A channel 0
-    /// with no sky noise to measure is not judged here; <see cref="Image.MtfStretchParametersFromSkyNoise"/> refuses it.</remarks>
+    /// with no sky noise to measure is not judged here; <see cref="Image.MtfStretchParametersFromSkyNoise"/> refuses it.
+    /// <para><b>What the depth's test does not read (#2336).</b> It reads how quiet the sky is and nothing of where the
+    /// median stands in the range, which is the rule's own measure: a frame the depth rule has stretched carries its
+    /// median at <see cref="AiNafnetInputs.TargetMedian"/> with depth times sigma near 0.19, so 0.125 or over means the
+    /// frame is already where the training frames are. The cost is a frame whose noise is no longer its own: one that
+    /// was denoised, or stretched and is quiet, reads as linear and is stretched, and its black point then lies close
+    /// under its sky, where real dark structure can fall beneath it and be clipped. No model with a depth in its
+    /// contract ships until a guard on what falls under the black point is measured and in.</para></remarks>
     internal static (bool Applied, float[]? OrigMin, double[]? Balances) InputStretchParameters(Image input, BitMatrix? absent, double? blackPointSigma)
     {
         if (!(blackPointSigma is { } gateDepth ? NeedsStretch(input, absent, gateDepth) : NeedsStretch(input, absent)))

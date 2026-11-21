@@ -466,8 +466,8 @@ namespace TianWen.Lib.Tests
             listedRows.Length.ShouldBe(4);
             foreach (var row in plainRows)
             {
-                File.ReadAllBytes(Path.Combine(listed, row.Tile)).ShouldBe(File.ReadAllBytes(Path.Combine(plain, row.Tile)));
-                File.ReadAllBytes(Path.Combine(listed, row.SigmaTile!)).ShouldBe(File.ReadAllBytes(Path.Combine(plain, row.SigmaTile!)));
+                File.ReadAllBytes(Path.Combine(listed, row.Tile)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(plain, row.Tile)));
+                File.ReadAllBytes(Path.Combine(listed, row.SigmaTile!)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(plain, row.SigmaTile!)));
             }
         }
 
@@ -1430,6 +1430,27 @@ namespace TianWen.Lib.Tests
                     .AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(options.OutDir, pair.Second.Tile))))
                 .ShouldBeTrue("the tiles are stretched from another black point");
 
+            // One folder holds one rule (#2336): an export by another black point into a folder that holds rows is
+            // refused before any work, with --force as without it, and the rows there stay as they were.
+            foreach (var force in new[] { false, true })
+            {
+                var byTheMinimum = atDepth with { BlackPointSigma = null, Force = force };
+                var refused = await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(byTheMinimum, logger: null, TestContext.Current.CancellationToken));
+                refused.Message.ShouldContain("one folder holds one rule");
+                refused.Message.ShouldContain("40 sky-noise sigma");
+            }
+            var intoTheMinimums = options with { BlackPointSigma = 60 };
+            (await Should.ThrowAsync<InvalidOperationException>(
+                async () => await DatasetDegradationExporter.RunAsync(intoTheMinimums, logger: null, TestContext.Current.CancellationToken)))
+                .Message.ShouldContain("at each channel's minimum");
+            ReadDegradationRows(atDepth.OutDir).ShouldAllBe(static r => r.StretchBlackPointSigma == 40);
+            ReadDegradationRows(atDepth.OutDir).Length.ShouldBe(depthRows.Length);
+            ReadDegradationRows(options.OutDir).Length.ShouldBe(rows.Length);
+            // The same rule into its own folder again is no refusal: every session is there already.
+            (await DatasetDegradationExporter.RunAsync(atDepth, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            ReadDegradationRows(atDepth.OutDir).Length.ShouldBe(depthRows.Length);
+
             // The same seed, the same bytes: every star and every tile, and reading the stars back changes none of them.
             var again = options with { OutDir = Path.Combine(_root, "stars-again"), MeasureInjection = true };
             (await DatasetDegradationExporter.RunAsync(again, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
@@ -1437,7 +1458,7 @@ namespace TianWen.Lib.Tests
                 .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
             foreach (var row in rows)
             {
-                File.ReadAllBytes(Path.Combine(again.OutDir, row.Tile)).ShouldBe(File.ReadAllBytes(Path.Combine(options.OutDir, row.Tile)));
+                File.ReadAllBytes(Path.Combine(again.OutDir, row.Tile)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(options.OutDir, row.Tile)));
             }
 
             var measure = File.ReadAllLines(Path.Combine(again.OutDir, DatasetDegradationExporter.InjectionMeasureFileName))
@@ -1584,7 +1605,7 @@ namespace TianWen.Lib.Tests
                 .Select(f => Path.GetRelativePath(correlated.OutDir, f)).Order(StringComparer.Ordinal).ShouldBe(files);
             foreach (var file in files)
             {
-                File.ReadAllBytes(Path.Combine(correlated.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(options.OutDir, file)), file);
+                File.ReadAllBytes(Path.Combine(correlated.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(options.OutDir, file)), file);
             }
             File.ReadAllText(Path.Combine(correlated.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
                 .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
@@ -1620,7 +1641,7 @@ namespace TianWen.Lib.Tests
                     .Select(f => Path.GetRelativePath(other.OutDir, f)).Order(StringComparer.Ordinal).ShouldBe(files);
                 foreach (var file in files)
                 {
-                    File.ReadAllBytes(Path.Combine(other.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(options.OutDir, file)), file);
+                    File.ReadAllBytes(Path.Combine(other.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(options.OutDir, file)), file);
                 }
                 File.ReadAllText(Path.Combine(other.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
                     .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
@@ -1707,7 +1728,7 @@ namespace TianWen.Lib.Tests
             files.Length.ShouldBeGreaterThan(4);
             foreach (var file in files)
             {
-                File.ReadAllBytes(Path.Combine(open.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(openFree.OutDir, file)), file);
+                File.ReadAllBytes(Path.Combine(open.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(openFree.OutDir, file)), file);
             }
             File.ReadAllText(Path.Combine(open.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
                 .ShouldBe(File.ReadAllText(Path.Combine(openFree.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
@@ -2094,8 +2115,8 @@ namespace TianWen.Lib.Tests
             Manifest(again).ShouldBe(Manifest(off));
             foreach (var file in files)
             {
-                File.ReadAllBytes(Path.Combine(again.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), file);
-                File.ReadAllBytes(Path.Combine(missing.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), $"a rig the file lacks draws none: {file}");
+                File.ReadAllBytes(Path.Combine(again.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(off.OutDir, file)), file);
+                File.ReadAllBytes(Path.Combine(missing.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(off.OutDir, file)), $"a rig the file lacks draws none: {file}");
             }
             Manifest(missing).ShouldBe(Manifest(off));
 
@@ -2151,7 +2172,7 @@ namespace TianWen.Lib.Tests
             Files(explicitOff).ShouldBe(files);
             foreach (var file in files)
             {
-                File.ReadAllBytes(Path.Combine(explicitOff.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), file);
+                File.ReadAllBytes(Path.Combine(explicitOff.OutDir, file)).ShouldBeTheSameBytesAs(File.ReadAllBytes(Path.Combine(off.OutDir, file)), file);
             }
             File.ReadAllText(Path.Combine(off.OutDir, DatasetDegradationExporter.InjectionManifestFileName)).ShouldNotContain("\"Measured\"", Case.Sensitive);
 
@@ -2189,7 +2210,7 @@ namespace TianWen.Lib.Tests
             foreach (var file in Directory.GetFiles(Path.Combine(off.OutDir, "tiles"), "*", SearchOption.AllDirectories))
             {
                 var rel = Path.GetRelativePath(off.OutDir, file);
-                File.ReadAllBytes(Path.Combine(on.OutDir, rel)).ShouldBe(File.ReadAllBytes(file), $"fell back, so as off: {rel}");
+                File.ReadAllBytes(Path.Combine(on.OutDir, rel)).ShouldBeTheSameBytesAs(File.ReadAllBytes(file), $"fell back, so as off: {rel}");
             }
         }
 
