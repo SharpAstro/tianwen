@@ -142,10 +142,10 @@ var predecessorStarted = GuiSuccession.PredecessorStartedOf(Environment.GetEnvir
 GuiSuccession.ClearFrom(Environment.SetEnvironmentVariable);
 if (predecessorId is { } predecessor)
 {
-    var gone = await GuiSuccession.WaitForPredecessorAsync(predecessor, predecessorStarted, GuiSuccession.PredecessorExitBudget, timeProvider,
+    var waited = await GuiSuccession.WaitForPredecessorAsync(predecessor, predecessorStarted, GuiSuccession.PredecessorExitBudget, timeProvider,
         CancellationToken.None);
-    logger.LogWarning("This window replaces {Predecessor}, whose display was lost (window {Generation} in a row){Gone}",
-        predecessor, generation, gone ? "" : "; it had not exited in time");
+    logger.LogWarning("This window replaces {Predecessor}, whose display was lost (window {Generation} in a row){Waited}",
+        predecessor, generation, GuiSuccession.Says(waited, GuiSuccession.PredecessorExitBudget));
     appState.RecordNotification(timeProvider.GetUtcNow(), NotificationSeverity.Warning,
         "The last window lost its display, so this one replaced it. The rig went on on this computer's node.");
 }

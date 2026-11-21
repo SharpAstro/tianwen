@@ -11,6 +11,23 @@ using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
 
+/// <summary>How a successor's wait for its predecessor ended (<see cref="GuiSuccession.WaitForPredecessorAsync"/>).</summary>
+public enum PredecessorWait
+{
+    /// <summary>The predecessor has exited, or had already.</summary>
+    Exited = 0,
+
+    /// <summary>The predecessor was still running when the budget ended; the successor starts anyway.</summary>
+    StillRunning = 1,
+
+    /// <summary>
+    /// A process under the predecessor's id, with ANOTHER start than the predecessor's, was still running after
+    /// the grace (<see cref="GuiSuccession.StrangerWait"/>): it is taken for another process that was given the id
+    /// since, and the predecessor for gone.
+    /// </summary>
+    TakenForAnother = 2,
+}
+
 /// <summary>
 /// A window replaced by a fresh process when its GPU cannot draw again (P7 of docs/plans/hardware-in-the-server.md, #937).
 /// The rig is the node's since P6, so nothing of the night is in the window: a successor finds the node, reads the session
@@ -197,8 +214,9 @@ public static class GuiSuccession
     internal static readonly TimeSpan PredecessorPollInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
-    /// Waits for the process this one replaces to exit, bounded by <paramref name="budget"/>: true once it has (or it had
-    /// already), false when it is still running at the end.
+    /// Waits for the process this one replaces to exit, bounded by <paramref name="budget"/>, and says how the wait
+    /// ended (<see cref="PredecessorWait"/>): it has exited (or had already), it was still running at the end, or a
+    /// process with another start was still under its id after the grace and was taken for another one.
     /// </summary>
     /// <remarks>
     /// The answer is always a LOOK at the process, taken at or after the end of the budget, never which of two callbacks
@@ -216,7 +234,7 @@ public static class GuiSuccession
     /// </para>
     /// </remarks>
     /// <param name="started">When the predecessor was started (<see cref="PredecessorStartedOf"/>), or null to trust the id alone.</param>
-    public static async Task<bool> WaitForPredecessorAsync(int processId, DateTimeOffset? started, TimeSpan budget, ITimeProvider timeProvider,
+    public static async Task<PredecessorWait> WaitForPredecessorAsync(int processId, DateTimeOffset? started, TimeSpan budget, ITimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         Process predecessor;
@@ -227,7 +245,7 @@ public static class GuiSuccession
         catch (ArgumentException)
         {
             // Gone already.
-            return true;
+            return PredecessorWait.Exited;
         }
 
         using (predecessor)
@@ -235,14 +253,38 @@ public static class GuiSuccession
             // Another start than the predecessor's: most likely another process, given the id since. It is still
             // waited for, but for StrangerGrace only (see there), and one that outlives the grace is no predecessor.
             var isThePredecessor = IsTheProcess(started, () => StartOf(predecessor));
-            var wait = isThePredecessor || budget < StrangerGrace ? budget : StrangerGrace;
+            var wait = isThePredecessor ? budget : StrangerWait(budget);
 
             // The window's own clock, the budget and the sleeps alike (#2021).
             var exited = await WaitForExitAsync(() => HasExited(predecessor), wait, timeProvider.System,
                 (delay, ct) => timeProvider.SleepAsync(delay, ct).AsTask(), cancellationToken).ConfigureAwait(false);
-            return exited || !isThePredecessor;
+            return exited ? PredecessorWait.Exited : isThePredecessor ? PredecessorWait.StillRunning : PredecessorWait.TakenForAnother;
         }
     }
+
+    /// <summary>
+    /// How long a process with another start than the predecessor's is waited for under <paramref name="budget"/>:
+    /// <see cref="StrangerGrace"/>, or the budget where that is the shorter. One rule for the wait and for the line
+    /// that reports it (<see cref="Says"/>), so the two cannot name different times.
+    /// </summary>
+    internal static TimeSpan StrangerWait(TimeSpan budget) => budget < StrangerGrace ? budget : StrangerGrace;
+
+    /// <summary>
+    /// What the successor's first log line adds about its wait, after "This window replaces ...": nothing when the
+    /// predecessor had exited, and otherwise why this window started with a process still under that id (#2381). A
+    /// process taken for another one gets its own words, with the time it was really waited for under
+    /// <paramref name="budget"/>: if it was the predecessor after all, misread across a clock step, this is the line a
+    /// later reader explains a hand-off to a dying window from.
+    /// </summary>
+    /// <param name="budget">The budget the wait was given, as passed to <see cref="WaitForPredecessorAsync"/>.</param>
+    public static string Says(PredecessorWait wait, TimeSpan budget) => wait switch
+    {
+        PredecessorWait.Exited => "",
+        PredecessorWait.StillRunning => "; it had not exited in time",
+        PredecessorWait.TakenForAnother => string.Create(CultureInfo.InvariantCulture,
+            $"; a process under its id that was started at another time was still running after {StrangerWait(budget).TotalSeconds:0.#} s and was taken for another process"),
+        _ => throw new ArgumentOutOfRangeException(nameof(wait), wait, null),
+    };
 
     /// <summary>
     /// Whether the process found under the predecessor's id is the predecessor: true unless both starts are known and
