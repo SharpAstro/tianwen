@@ -30,6 +30,15 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <see cref="MaxSubtractRadius"/> pixels from its star, so stars are grouped into tiles of twice that and the tiles
 /// run in four phases of a checkerboard: two tiles of one phase are a whole tile apart and no two windows of a phase
 /// overlap. The order inside a tile is the significance order.</para>
+/// <para><b>What makes that true, and where it is not exact (#2352).</b> The reach is from the STAR, and a fit moves:
+/// its window reaches <see cref="MaxFitRadius"/> from wherever it is centred. So a fit that ends further than
+/// <see cref="MaxRecentre"/> from its star is refused there and never followed (<see cref="RanAway"/>): one that was
+/// followed 364 px read what another tile of its phase was writing, and its row differed from run to run. With that,
+/// no overlap between two tiles of a phase was recorded on the test fields (17,144 reads and writes of one colour
+/// build, where 285 overlapped before). It is still not exact to the pixel: a fit may sit its drift allowance from its
+/// star and a centre is rounded, neither of which the tile's size counts, and a saturated star is worked from its
+/// plateau's centre and not from its peak. Two stars within a few pixels of facing tile edges, each at its full
+/// radius, can therefore share the outermost columns of their subtractions.</para>
 /// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, so the
 /// same image and seed give the same plate on any number of threads.</para>
 /// </remarks>
