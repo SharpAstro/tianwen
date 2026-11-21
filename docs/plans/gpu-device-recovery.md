@@ -200,11 +200,18 @@ holds the rules; `TianWen.UI.Gui/Program.cs` only applies them:
   because `vkDeviceWaitIdle` and `vkFreeMemory` block for ever on a hung device.
 - **The successor is marked by the ENVIRONMENT, never an argument**: `TIANWEN_GUI_SUCCESSOR_OF` names the
   process it replaces, and `TIANWEN_GUI_GENERATION` counts the windows in a row that have replaced one. A
-  user's own arguments stay the user's.
+  user's own arguments stay the user's. `TIANWEN_GUI_SUCCESSOR_OF_STARTED` is when that process started: an id
+  is handed out again once its process is gone, so the successor holds the process it finds under the id to
+  that start, and one started at another time is not waited for (#1414; it used to cost the whole budget and
+  a line saying the predecessor had not exited). The successor takes all three out of its own environment
+  once it has read them, so nothing it starts inherits them and reads as a successor.
 - **It waits for its predecessor to EXIT before it claims the gate** (the plan's open question on
   `InstanceGate`), for up to `PredecessorExitBudget` (15 s). Otherwise the gate would hand its start to the
   process that is dying, which would activate the dead window and exit. The predecessor releases the gate
-  before it exits, so a successor that runs out of budget still claims it.
+  before it exits, so a successor that runs out of budget still claims it. On Linux a predecessor that has
+  exited but waits for a slow parent to reap it counts as gone (`/proc/<pid>/stat`). On macOS that case is not
+  handled (#1414): there is no `/proc`, the state needs `proc_pidinfo`, and no CI leg here runs macOS tests to
+  check such a call, so the successor can wait its whole budget there.
 - **There is no manifest to hand over**, which is where ours differs from Drawboard's: the successor finds
   the node, reads the session it runs and beats presence from its first loop iteration, which is how an
   interactive run (polar alignment, a planetary live view) keeps the grace `NodeRunWatch` gives it. What a

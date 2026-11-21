@@ -48,6 +48,75 @@ public class GuiSuccessionTests
             .Environment[GuiSuccession.GenerationVariable].ShouldBe("1");
     }
 
+    /// <summary>
+    /// #1414: a process id is handed out again, so the successor is told when its predecessor started and holds the
+    /// process it finds to that. The rule is its own function so that every case can be read without a process.
+    /// </summary>
+    [Fact]
+    public void AProcessFoundUnderThePredecessorsIdIsHeldToThePredecessorsStart()
+    {
+        var started = new DateTimeOffset(2026, 11, 21, 3, 0, 0, TimeSpan.Zero);
+
+        GuiSuccession.IsTheProcess(started, () => started).ShouldBeTrue();
+        GuiSuccession.IsTheProcess(started, () => started + GuiSuccession.StartTolerance).ShouldBeTrue("two readings of one start may differ a little");
+        GuiSuccession.IsTheProcess(started, () => started - GuiSuccession.StartTolerance).ShouldBeTrue();
+        GuiSuccession.IsTheProcess(started, () => started + GuiSuccession.StartTolerance + TimeSpan.FromSeconds(1)).ShouldBeFalse("another process, started later");
+        GuiSuccession.IsTheProcess(started, () => started - TimeSpan.FromHours(1)).ShouldBeFalse();
+        // Nothing to hold it to, or nothing to read: the id is trusted, as it was before the start was passed.
+        GuiSuccession.IsTheProcess(null, () => started).ShouldBeTrue();
+        GuiSuccession.IsTheProcess(started, () => null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void TheSuccessorIsToldWhenItsPredecessorStarted()
+    {
+        var started = new DateTimeOffset(2026, 11, 21, 3, 0, 0, TimeSpan.FromHours(11));
+        var start = GuiSuccession.SuccessorFor("gui", [], processId: 4242, generation: 0, TimeSpan.Zero, started).ShouldNotBeNull();
+
+        start.Environment[GuiSuccession.PredecessorStartedVariable].ShouldBe(started.UtcTicks.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        GuiSuccession.PredecessorStartedOf(name => start.Environment.TryGetValue(name, out var value) ? value : null).ShouldBe(started);
+
+        // Not told: no variable, and never this process's own predecessor's start, which it inherited.
+        GuiSuccession.SuccessorFor("gui", [], 4242, 0, TimeSpan.Zero).ShouldNotBeNull()
+            .Environment.ContainsKey(GuiSuccession.PredecessorStartedVariable).ShouldBeFalse();
+        GuiSuccession.PredecessorStartedOf(Environment([])).ShouldBeNull();
+        GuiSuccession.PredecessorStartedOf(Environment(new() { [GuiSuccession.PredecessorStartedVariable] = "x" })).ShouldBeNull();
+        GuiSuccession.PredecessorStartedOf(Environment(new() { [GuiSuccession.PredecessorStartedVariable] = "0" })).ShouldBeNull();
+        GuiSuccession.PredecessorStartedOf(Environment(new() { [GuiSuccession.PredecessorStartedVariable] = "-5" })).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// #1414: once read, the succession's variables are taken out of this process's environment, so that nothing it
+    /// starts inherits them and reads as a successor.
+    /// </summary>
+    [Fact]
+    public void TheVariablesAreTakenOutOnceRead()
+    {
+        var environment = new Dictionary<string, string?>
+        {
+            [GuiSuccession.PredecessorVariable] = "77",
+            [GuiSuccession.PredecessorStartedVariable] = "638990000000000000",
+            [GuiSuccession.GenerationVariable] = "2",
+            ["TIANWEN_SOMETHING_ELSE"] = "kept",
+        };
+
+        GuiSuccession.ClearFrom((name, value) =>
+        {
+            if (value is null)
+            {
+                environment.Remove(name);
+            }
+            else
+            {
+                environment[name] = value;
+            }
+        });
+
+        environment.Keys.ShouldBe(["TIANWEN_SOMETHING_ELSE"]);
+        GuiSuccession.PredecessorOf(Environment(environment)).ShouldBeNull();
+        GuiSuccession.GenerationOf(Environment(environment)).ShouldBe(0);
+    }
+
     [Fact]
     public void AProcessAUserStartedIsGenerationNoughtWithNoPredecessor()
     {
@@ -109,14 +178,30 @@ public class GuiSuccessionTests
         var predecessor = await StartPredecessorAsync(ct);
         try
         {
-            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, started: null, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
                 .ShouldBeFalse("it was still running when the budget ran out");
 
-            var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, SystemTimeProvider.Instance, ct);
+            // #1414: with its start given, the same process is still the one waited for...
+            DateTimeOffset started;
+            using (var found = Process.GetProcessById(predecessor))
+            {
+                started = new DateTimeOffset(found.StartTime.ToUniversalTime(), TimeSpan.Zero);
+            }
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, started, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
+                .ShouldBeFalse("its own start names it, so it is waited for");
+            // ...and a process under that id with ANOTHER start is not the predecessor: the id was given out again, the
+            // predecessor is gone, and the whole budget is not spent on a stranger.
+            var before = Stopwatch.GetTimestamp();
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, started - TimeSpan.FromHours(1), GuiSuccession.PredecessorExitBudget,
+                    SystemTimeProvider.Instance, ct))
+                .ShouldBeTrue("a process started at another time is not the one this window replaces");
+            Stopwatch.GetElapsedTime(before).ShouldBeLessThan(GuiSuccession.PredecessorExitBudget / 2, "and it is answered at once, not at the budget's end");
+
+            var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, started, GuiSuccession.PredecessorExitBudget, SystemTimeProvider.Instance, ct);
             End(predecessor);
             (await waiting).ShouldBeTrue("it exited within the budget");
 
-            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, started, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
                 .ShouldBeTrue("a predecessor gone already needs no waiting for");
         }
         finally
