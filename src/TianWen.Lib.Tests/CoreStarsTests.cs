@@ -392,6 +392,37 @@ public class CoreStarsTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void AClippedStarsDiscCoversEveryPeakSetAsideForIt()
+    {
+        // The peaks within the top's radius and a local-peak window of its centre are the star's and are not judged again,
+        // so the star's disc has to hold them all, whatever reach the frame gives it. With the largest reach cut to 6 px
+        // neither the line nor the star's rings can reach past the top's rim by much (a 69 px top, radius 4.7 px): the
+        // disc is then the top, the window and a pixel, and nothing 9 px from the centre comes back with the core.
+        var (frame, model, catalogue) = ClippedStarScene();
+        catalogue.Add(new FrameStar(ClippedX + 0.4f, ClippedY - 0.3f, MagnitudeOf(400000)));
+        var input = ImageOf(frame);
+        var plain = ExtendedCoreMask.Find(input);
+        plain.Cores.Length.ShouldBe(1);
+        var gathered = Math.Sqrt(plain.Cores[0].FlatTopPx / Math.PI) + 5;
+        var options = CoreStars.Options.Default with { MaxReachPx = 6 };
+        var peaks = new List<CoreStars.CorePeak>();
+
+        var (footprint, report) = CoreStars.Find(input, plain, catalogue, options, peaks);
+
+        output.WriteLine($"{report}; peaks are gathered within {gathered:F2} px of the top's centre");
+        var star = OnTheTop(peaks).ShouldHaveSingleItem();
+        star.IsStar.ShouldBeTrue();
+        output.WriteLine($"the star holds {star.Radius} px");
+        star.Radius.ShouldBeGreaterThanOrEqualTo((int)Math.Ceiling(gathered + 1), "the disc is no smaller than the window its peaks were gathered from");
+        var own = footprint.ShouldNotBeNull();
+        foreach (var (dx, dy) in new[] { (9, 0), (0, -9), (-6, 6), (6, -7) })
+        {
+            (((dx * dx) + (dy * dy)) <= gathered * gathered).ShouldBeTrue($"the scene's premise: ({dx}, {dy}) is inside the window");
+            own[((ClippedY + dy) * Size) + ClippedX + dx].ShouldBeGreaterThan(0.99f, $"a peak set aside at ({dx}, {dy}) would lie in the star's disc");
+        }
+    }
+
+    [Fact]
     public void AFaintCataloguedStarOnAClippedTopDoesNotMakeItAStar()
     {
         var (frame, model, catalogue) = ClippedStarScene();

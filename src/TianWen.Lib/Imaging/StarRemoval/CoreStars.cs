@@ -303,10 +303,13 @@ public static class CoreStars
             // The brighter of what is seen and what is catalogued, as for any star: the top shows a clipped star fainter
             // than it is. Its reach is the farther of the frame's line at that magnitude and its own rings, read as the
             // line's stars were: the line is drawn through stars that do not clip and falls short of one that does (25 px
-            // for eta Carinae, whose light stands 26 sigmas over its sky at 27 px).
+            // for eta Carinae, whose light stands 26 sigmas over its sky at 27 px). And never short of the top and the
+            // window its peaks were gathered from, with a pixel for the centre's rounding: every peak set aside above lies
+            // inside the star's own disc, whatever the line and the rings say (a line read off few stars, a top too near
+            // the frame's edge for its rings, a top wider than the cap), so none is left neither judged nor covered.
             var magnitude = Math.Min(zeroPoint - (2.5 * Math.Log10(rim)), catalogued);
             var (tx, ty) = ((int)Math.Round(core.FlatTopX), (int)Math.Round(core.FlatTopY));
-            var reached = Reach(magnitude);
+            var reached = Math.Max(Reach(magnitude), within + 1);
             if (tx >= reach + 2 && ty >= reach + 2 && tx < width - reach - 2 && ty < height - reach - 2)
             {
                 reached = Math.Max(reached, RingReach(luminance, present, width, rings, profile, tx, ty, options.RingSigma * sigma));

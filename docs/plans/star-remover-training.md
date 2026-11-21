@@ -3004,8 +3004,12 @@ which held the wedge against the star's disc is not printed.
 bars, and `Core.FlatTopX`/`FlatTopY` for its centre), the top is one peak at its centre. It is a star when a catalogued
 star lies on the top (within its radius and the match radius) that can carry what the top's highest peak shows, by the
 same slack as for any peak: the top shows the least the star can be. Its peaks, within the top's radius and a local-peak
-window (5 px), are then its own and are not judged again. With no such star on it they are judged one by one as before,
-so a round clipped knot with a faint star on it stays with its core.
+window (5 px), are then its own and are not judged again. That takes in whatever else peaks there, a faint catalogued
+star or a knot 5 px past the rim: it is not judged by itself and goes with the star. So the star's disc is never
+smaller than that window and a pixel, whatever reach the frame gives it, and a peak set aside always lies inside the
+disc, where the remover's plate stands (the review of #2393 asked; the reach below was already far past the window on
+both masters, 40 and 45 px against 10 and 13, but nothing had made it so). With no such star on the top its peaks are
+judged one by one as before, so a round clipped knot with a faint star on it stays with its core.
 
 **Its reach.** The frame's line is drawn through stars that do not clip and falls short of one that does: 25 px for eta
 Carinae on the SII master (12.4 px at magnitude 10 and 2.3 px more per magnitude), where the star's light stands 26
