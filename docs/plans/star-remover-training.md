@@ -2905,7 +2905,8 @@ of 2022-01-04 reads 7.18 and was turned away by a hair: the old survey's gap, st
 at 5.5 and under, was this one star on both sides of the bar. The catalogue step does not catch it either:
 `tianwen image protect-cores` on the master of 2022-01-05 (the installed ASTAP database, 15,435 stars) prints "1 of 35
 compact peaks inside the cores are catalogued stars and stay removed". A flat top has no compact peak at its centre for
-the catalogued position to fall on; where the 35 lie and which one was matched is not read.
+the catalogued position to fall on; where the 35 lie and which one was matched is not read (it is since: the section
+after this one).
 
 **The measures.** `ExtendedCoreMask` reads the flat top at a source's peak and carries it on `Core`: `FlatTopPx` (the
 connected pixels at 0.9 of the brightest light near the peak), `FlatTopRoundness` (the axis ratio times how well the top
@@ -2934,9 +2935,9 @@ kept cores are each as they were (place, area and ratio) and Alcyone's is gone.
 ratio's ceiling and not fitted to a class: the shape bars are read off 37 stars the star rule already turns away, the
 size bar off three cases (1.3 against 71 and 128). A small, round, clipped object with a sharp edge and no wider light
 around it (a compact planetary nebula, a star-like nucleus) would read as a clipped star; none is among the 201 masters.
-On a plate-solved master the catalogue could arbitrate, which is not built. Eta Carinae stays with the Keyhole's core as
-before: taking a clipped star out of a real core is the catalogue step's work (it would have to read a flat top as one
-peak), and is not built either (#2373).
+On a plate-solved master the catalogue could arbitrate, which is not built. Eta Carinae stayed with the Keyhole's core
+under this rule: taking a clipped star out of a real core is the catalogue step's work (it has to read a flat top as one
+peak), which the section after this one builds (#2373).
 
 **A model's second look at the 77 (2026-11-21).** At the owner's suggestion the tiles were judged a second time, as a
 check beside his read and not in its place: one image of four views per core (`tiles.py`), no names, by four Sonnet
@@ -2965,6 +2966,81 @@ the clipped-star rule off, which lists the 77 cores of the sheets, Alcyone's las
 dotnet <build dir>/CoreMaskProbe.dll --max-core-over-flat-top 0 <sheets dir> <session-masters folder>
 python training/star-removal/coremask-probe/tiles.py <sheets dir>/survey.jsonl <session-masters folder> <sheets dir> <tiles dir>
 ```
+
+#### A clipped star on a real core: the catalogue leads on its flat top (2026-11-21)
+
+The case the section above left (#2373): a clipped star on a core that is a core. Of the 76 kept cores on the 201
+masters two have a star's flat top, both eta Carinae on the Keyhole: the SII master of 2024-03-07, which is plate-solved,
+and the colour master of 2023-02-24, which is not and was read here on a scratch copy solved with `tianwen solve`.
+
+**Where the catalogue step's peaks lie.** `CoreStars.Find` records every compact peak it judged; the probe's
+`--core-stars` mode prints them with the catalogued stars on the cores, from the installed ASTAP database as
+`image protect-cores` reads it.
+
+| | eta Carinae, SII 2024-03-07 | Alcyone, Pleiades 2022-01-05 (clipped-star rule off) |
+|---|---|---|
+| Flat top | 87 px, radius 5.3 px | 773 px, radius 15.7 px |
+| The catalogued star | magnitude 4.6, 0.6 px from the top's centre | magnitude 3.0 |
+| Peaks on the rim | 3, at 0.9 radii, 5,600 to 6,000 sigma | 11, at 1.0 to 1.1 radii, 4,700 to 9,900 sigma |
+| Peaks inside the top | none | 6, of 12 to 29 sigma, the nearest 1.6 px from the star |
+| A peak within the 1.5 px match radius | none (the nearest 4.5 px) | none |
+| Before the fix | 43 of 88 peaks are stars, eta Carinae not one | 1 of 35, Alcyone not one |
+
+The compact light is the smoothed light less a 15 px median. Across a clipped top the smoothed light is level and the
+median falls toward the rim, so the difference rises to the rim's inner edge: that is why the peaks stand there (a
+reading; where they stand is measured). On a wide top the miss is chance, a ripple of the plateau a tenth of a pixel
+outside the match radius.
+
+**What it does to the picture.** On the SII master StarXTerminator and R4d as trained both take eta Carinae out to
+nothing (ring medians at 0 to 48 px of 0, and of 0 to 1, in units of the crop's far scatter, against 1,265 at the centre
+of the master), and the protection puts the star back whole. On the colour copy the chance goes the other way and is
+worse: one of the four peaks about the top is matched (the fix makes those four one, and the count of stars is 111 with
+it and without), the star gets the line's reach of 28 px, and 193 pixels 6 to 20 px from the top's centre keep the
+input, a wedge of the star's own rim at 869 sigma by the median and 2,813 at most, which is the clip level. It stands in
+the starless plate of either remover as a white blob beside a star that is gone. Which of the peaks was matched and
+which held the wedge against the star's disc is not printed.
+
+**The rule.** Where the mask read a star's flat top on a core (`Core.HasStarTop`: the clipped-star rule's own three
+bars, and `Core.FlatTopX`/`FlatTopY` for its centre), the top is one peak at its centre. It is a star when a catalogued
+star lies on the top (within its radius and the match radius) that can carry what the top's highest peak shows, by the
+same slack as for any peak: the top shows the least the star can be. Its peaks, within the top's radius and a local-peak
+window (5 px), are then its own and are not judged again. That takes in whatever else peaks there, a faint catalogued
+star or a knot 5 px past the rim: it is not judged by itself and goes with the star. So the star's disc is never
+smaller than that window and a pixel, whatever reach the frame gives it, and a peak set aside always lies inside the
+disc, where the remover's plate stands (the review of #2393 asked; the reach below was already far past the window on
+both masters, 40 and 45 px against 10 and 13, but nothing had made it so). With no such star on the top its peaks are
+judged one by one as before, so a round clipped knot with a faint star on it stays with its core.
+
+**Its reach.** The frame's line is drawn through stars that do not clip and falls short of one that does: 25 px for eta
+Carinae on the SII master (12.4 px at magnitude 10 and 2.3 px more per magnitude), where the star's light stands 26
+sigma over its far sky at 27 px, 17 at 30 px, 12 at 36 px and 4 at 42 px. A disc of that reach would leave a ring of the
+star's halo around a hole. So a clipped star's reach is the farther of the line's and its own rings', read as the line's
+stars were (ring medians down to one sigma over the middle of its three outermost rings): 40 px on the SII master and 45
+px on the colour copy, where the master's rings stand 40 sigma at 30 px, 24 at 36 px, 15 at 42 px and nothing at 48 px.
+
+**What changes.** Nothing where no core has a star's top: with R4d's plates `image protect-cores` built from this
+change writes the same bytes as main's on the Andromeda, Tarantula and Sagittarius masters. On the SII master 44 of 86
+peaks are stars (43 of 88) and the star's place is the remover's plate, with either remover. On the colour copy 111 of
+253 (111 of 256): no pixel within 31 px of the top's centre keeps the input, the wedge is gone, and the nebula beside
+the star is as the removers left it, which on that frame is as the master has it.
+
+**What it does not do.** (1) A clipped star away from where its core's large-scale light peaks: the mask reads one top
+per core, at the map's peak. (2) A top under 50 px, the bar of the rule above. (3) Tell a star's far halo from a bright
+nebula's own fall-off. Ring medians cancel a slope and not a curvature, so on the peak of a bright smooth nebula the
+rings do not come down to one sigma and the reach is the cap (48 px, as for any star bright enough by the line). That is
+how the test's scene reads (a star on the peak of a nebula of 3,000 sigma); no master of the archive shows it, and on
+the colour copy, the brightest nebula at hand, the rings end before the cap. Inside that disc the remover's plate
+stands, which is right where the remover took the star and wrong where it dug a knot beside it. (4) The colour master
+itself: unsolved, the catalogue step does not run on it, as before.
+
+To print the peaks and draw them:
+
+```
+dotnet <build dir>/CoreMaskProbe.dll --core-stars --no-weights <out dir> <master.fits>
+python training/star-removal/coremask-probe/core_stars_where.py <out dir>/<stem>.corestars.json <master.fits> <out.png>
+```
+
+The probe is given the library's internals for this (the peaks are an internal overload a test reads too).
 
 #### Core protection without the stars: the catalogued stars inside a core stay removed (2026-11-20)
 

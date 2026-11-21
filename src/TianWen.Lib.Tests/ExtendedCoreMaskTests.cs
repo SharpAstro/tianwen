@@ -111,7 +111,7 @@ public class ExtendedCoreMaskTests(ITestOutputHelper output)
     }
 
     // A flat sky with noise and a list of Gaussians (centre, sigma px, amplitude in noise sigmas) added to it.
-    private static float[,] Painted(params (double X, double Y, double Sigma, double Amp)[] blobs)
+    internal static float[,] Painted(params (double X, double Y, double Sigma, double Amp)[] blobs)
     {
         var rng = new Random(7);
         var frame = new float[Size, Size];
@@ -183,7 +183,7 @@ public class ExtendedCoreMaskTests(ITestOutputHelper output)
 
     // A clipped star added to a frame: a flat top of the given radius at clipSigmas noise sigmas, and wings falling as a
     // power of the distance beyond it (what a profile cut off at the sensor's ceiling looks like).
-    private static float[,] WithClippedStar(float[,] frame, int cx, int cy, double topRadius, double power, double clipSigmas)
+    internal static float[,] WithClippedStar(float[,] frame, int cx, int cy, double topRadius, double power, double clipSigmas)
     {
         for (var y = 0; y < Size; y++)
         {
