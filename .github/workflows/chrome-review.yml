@@ -170,16 +170,22 @@ jobs:
                 | tr '\r\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' | cut -c1-300)"
               # A run that cost nothing and used no model never reached the model (#2318: 399 ms, one turn, cost 0,
               # empty modelUsage, is_error true, and nothing in the log).
-              stats="$(jq -r '[.[] | select(.type == "result")] | last // {} | "\(.num_turns // 0) \(.total_cost_usd // 0) \((.modelUsage // {}) | length)"' "$log" 2>/dev/null || true)"
-              read -r turns cost models <<< "${stats:-0 0 0}"
-              echo "last result: turns $turns, cost $cost, models used $models"
-              if [ "$models" = "0" ] && [ "${cost%%.*}" = "0" ] && ! printf '%s' "$cost" | grep -q '[1-9]'; then
-                noanswer=true
+              # jq makes the one zero-cost decision (cost 0 and no model used); the shell only reads its answer. An
+              # empty answer means the log could not be read, which is no evidence the run used nothing.
+              stats="$(jq -r '[.[] | select(.type == "result")] | last // {} | "\(.num_turns // 0) \(.total_cost_usd // 0) \((.modelUsage // {}) | length) \(((.total_cost_usd // 0) == 0 and ((.modelUsage // {}) | length) == 0))"' "$log" 2>/dev/null || true)"
+              if [ -n "$stats" ]; then
+                read -r turns cost models zero <<< "$stats"
+                echo "last result: turns $turns, cost $cost, models used $models"
+                if [ "$zero" = "true" ]; then
+                  noanswer=true
+                fi
               fi
             fi
             echo "no report; the agent's last word: ${why:-none kept}"
             # The reason says whose words it is here, where that is known: the comment and the check print it as it
             # stands, and the workflow's own reason below would otherwise read as the agent's.
+            # The comment names the artifact only when the file exists for the upload step to find.
+            if [ -s "$RUNNER_TEMP/claude-execution-output.json" ]; then echo "kept=true" >> "$GITHUB_OUTPUT"; fi
             if [ "$noanswer" = "true" ]; then
               echo "why=the run ended before the model answered (${turns:-0} turn(s), no tokens used): a refused OAuth token or a usage limit on the subscription, not a review of the diff${why:+; the CLI said: $why}" >> "$GITHUB_OUTPUT"
             else
@@ -211,7 +217,7 @@ jobs:
       # run that ended before the model answered, which the action's log leaves out (#2318).
       - name: Keep the execution file
         if: ${{ !cancelled() && steps.count.outputs.finished == 'false' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chrome-review-execution
           path: ${{ runner.temp }}/claude-execution-output.json
@@ -233,6 +239,7 @@ jobs:
           HIGH: ${{ steps.count.outputs.high }}
           OWN_WORKFLOW: ${{ steps.fingerprint.outputs.own_workflow }}
           WHY: ${{ steps.count.outputs.why }}
+          KEPT: ${{ steps.count.outputs.kept }}
         run: |
           if [ "$OWN_WORKFLOW" = "true" ]; then
             body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\n%s\n' "${SHA:0:7}" \
@@ -240,8 +247,10 @@ jobs:
           elif [ "$FINISHED" = "true" ]; then
             body="$(printf '<!-- chrome-review fp:%s high:%s -->\n### Chrome review of %s\n\n%s\n' "$FP" "$HIGH" "${SHA:0:7}" "$(cat "$OUT/report.md")")"
           else
-            body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish%s; see the run: %s\n' "${SHA:0:7}" \
-              "${WHY:+ ($WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (the action's execution file is kept there as the artifact chrome-review-execution, for 7 days)")"
+            kept=""
+            if [ "$KEPT" = "true" ]; then kept=" (the action's execution file is kept there as the artifact chrome-review-execution, for 7 days)"; fi
+            body="$(printf '<!-- chrome-review -->\n### Chrome review of %s\n\nThe review did not finish%s; see the run: %s%s\n' "${SHA:0:7}" \
+              "${WHY:+ ($WHY)}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "$kept")"
           fi
           id="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.body | startswith("<!-- chrome-review"))][0].id // empty')"
