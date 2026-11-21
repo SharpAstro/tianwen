@@ -7358,7 +7358,7 @@ the first angle is a step after the model and not another arm:
       10:00:46 and reads step 13,600 at 42.5 minutes and step 27,600 at 86.5): the first sentences at 10:40
       (about step 12,600), the new-best test in place of the spike at 10:50 (about step 15,700), and the test's
       reach to any ratio of 0.75 or over, R4f's 0.848 and its second spike at 11:27 (about step 27,500). The
-      sentence on what counts as a new best came at 12:10 (about step 41,000; the last line fetched, at 11:49,
+      sentence on what counts as a new best came at 12:07 (about step 40,000; the last line fetched, at 11:49,
       was step 33,000). Every line fetched to then is at the first learning rate, and the earliest first halving
       among the other arms was at step 57,000. So nothing the figure reads existed yet. The prediction's reasons below were reworded in
       the same review (they first said R4c, R4d and R4e each differ from R4f by one change of the export, which
