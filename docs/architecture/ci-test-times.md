@@ -484,6 +484,22 @@ all thirty, the type samples and the candidates are in #2345.
 A pumped viewer test (one that pumps the viewer until a master exists) allocates for as long as it runs, so its bytes
 follow the machine's speed: `ViewerPlanetaryLookTests` read 9.5 GiB in a slow run and 6.4 GiB in a fast one.
 
+**Fewer collections buy no time on the runners (#2359, closed unmerged).** The obvious next step was tried: the unit
+test steps with a 256 MB gen0 budget (`DOTNET_GCgen0size=0x10000000`), which cuts the gen0 collections of the six
+heaviest classes tenfold on a workstation (29,000 to 2,900). Its run against four runs on the same base that started
+within two minutes of it:
+
+| leg | with the budget | four controls | their mean |
+|---|---:|---|---:|
+| unit, ubuntu-24.04-arm (4 shards) | 840 s | 828 to 863 s | 845 s |
+| unit, ubuntu-latest (4 shards) | 1051 s | 956 to 1256 s | 1082 s |
+| unit, windows (5 shards) | 1281 s | 1029 to 1340 s | 1182 s |
+
+On the steady leg it is worth 5 s in 845, and on the other two the controls differ from each other by 300 s. So
+allocation is not what the suite's time is made of, and cutting it further is not a way to make CI faster: what would
+is the tests' own work, which is what their fields and fixtures are sized at. It also says how to read any timing
+claim here: one run against one run on the x64 or Windows legs shows nothing under about a quarter.
+
 ### How much memory a test needs (#2345)
 
 What a test allocates is not what it needs at once: 30 GiB allocated and dropped a megabyte at a time needs a megabyte.
