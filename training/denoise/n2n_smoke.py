@@ -2159,6 +2159,7 @@ def train(args):
               f"(none before 50 steps)", flush=True)
     fingerprint = resume_fingerprint(args, meta)
     start = 1
+    resumed = False
     # --init-from: the model begins at another run's saved weights (a continuation with a changed objective), with a
     # fresh optimiser, schedule and plateau history. A resume checkpoint of THIS run, when one exists, wins below.
     if should_init_from(args, resume_path):
@@ -2194,6 +2195,7 @@ def train(args):
             grad_hist.extend(hist)
         t0 = time.perf_counter() - ck["elapsed"]
         start = ck["step"] + 1
+        resumed = True
         print(f"resumed from {resume_path} after step {ck['step']} (best {val_best:.6e} at {val_best_step}, "
               f"{val_decays} halvings, lr {opt.param_groups[0]['lr']:.2e})", flush=True)
     # The main cache's target: its clean tile, or with --teacher the teacher's output on the draw (R2p).
@@ -2702,12 +2704,16 @@ def train(args):
         # Beside --out and never in its place: the arms before this were all scored on their last step.
         save(best_state, best_path_of(args.out), val_best_step)
     elif args.save_best:
-        # Said, so that a missing file is never read as a file that was lost on the way home.
+        # Said, so that a missing file is never read as a file that was lost on the way home. The resume is named only for
+        # a run that was resumed: on a fresh one "its best step (0) lies before that resume" read as if it had been (#2340).
         last = f"{val_hist[-1]:.6e}" if val_hist else "none"
+        causes = (f"the run judged fewer than {VAL_WINDOW} evaluations (it read {len(val_hist)}); its objective was never "
+                  f"a finite number (the last score: {last})")
+        if resumed:
+            causes += (f"; or it was resumed from a checkpoint made without the switch and its best step "
+                       f"({val_best_step}) lies before that resume")
         print(f"--save-best: nothing written. No step improved the held-out objective while the switch was on. The causes "
-              f"known: the run judged fewer than {VAL_WINDOW} evaluations (it read {len(val_hist)}); its objective was "
-              f"never a finite number (the last score: {last}); or it was resumed from a checkpoint made without the "
-              f"switch and its best step ({val_best_step}) lies before that resume.", flush=True)
+              f"known: {causes}.", flush=True)
     # The run is over and its outputs are written: a checkpoint left now would resume a finished run.
     if os.path.exists(resume_path):
         os.remove(resume_path)
