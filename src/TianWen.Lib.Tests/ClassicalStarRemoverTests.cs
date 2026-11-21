@@ -439,6 +439,23 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     public void TheOvershootMarginRefusesJustOverItAndAdmitsJustUnderItPerChannel(double red, double green, bool refused)
         => ClassicalStarRemover.AmplitudeOvershoots([red, green], [0.9f, 0.5f]).ShouldBe(refused);
 
+    // #2352: a fit may end 32 px from its star (the tiles' reach of 128 less a window's 96) or, for a saturated star
+    // with a plateau wider than that, the plateau's radius. Past the larger of the two, on either axis, it has left its
+    // star, and a centre that is not a number has left it too. The star is at (100, 100).
+    [Theory]
+    [InlineData(100.0, 100.0, 2.0, false)]                    // on its star
+    [InlineData(132.0, 100.0, 2.0, false)]                    // at the tiles' allowance, on x
+    [InlineData(132.5, 100.0, 2.0, true)]                     // just past it
+    [InlineData(100.0, 68.0, 2.0, false)]                     // at it on y, the other way
+    [InlineData(100.0, 67.5, 2.0, true)]
+    [InlineData(131.0, 133.0, 2.0, true)]                     // inside on one axis is not inside
+    [InlineData(160.0, 100.0, 60.0, false)]                   // a plateau's allowance is the larger
+    [InlineData(160.5, 100.0, 60.0, true)]
+    [InlineData(double.NaN, 100.0, 2.0, true)]
+    [InlineData(100.0, double.PositiveInfinity, 2.0, true)]
+    public void AFitHasLeftItsStarPastTheLargerOfTheTilesAllowanceAndTheStarsOwn(double x, double y, double drift, bool left)
+        => ClassicalStarRemover.RanAway(x, y, 100.0, 100.0, drift).ShouldBe(left);
+
     // #1873 review: a colour field with a dim channel, whose brightest covered sample (its sky 0.01 plus its brightest star, 20 x 0.003,
     // so about 0.07) sits under the luminance sky (the mean of 0.20, 0.08 and 0.01, about 0.097), must still have its stars subtracted.
     // Compared against the luminance sky, the guard left that channel a threshold of 0 and refused every star with light in it.
@@ -454,6 +471,35 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
         unsaturated.Length.ShouldBeGreaterThan(200);
         refused.ShouldBeLessThan(unsaturated.Length / 20, "an unequal channel sky is not a diverged fit");
+    }
+
+    // #2352: on this field the finder takes a second peak on the rim of a saturated star for a source of its own, and a
+    // Moffat fitted to a rim runs away. The one found 14 px from the star at (850, 850) ran 364 px on its first fit, to
+    // 24 px from the saturated star at (512, 900). Its second window was then cut THERE, on ground another tile of the
+    // same phase was subtracting from, and the refused row was recorded there too, with numbers that differed from run
+    // to run. A fit that has left its star is no fit: the row says where the source was found, and claims nothing.
+    [Fact(Timeout = 300_000)]
+    public async Task ASourceWhoseFitRunsAwayIsRecordedWhereItWasFoundAndNotWhereTheFitRanTo()
+    {
+        var field = MakeField(3, skies: [0.20, 0.08, 0.01], gains: [0.8, 1.0, 0.003]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var refused = plate.Stars.Where(static s => s.Outcome == StarFitOutcome.NoFit).ToArray();
+        foreach (var s in refused)
+        {
+            output.WriteLine($"refused: ({s.X:F2}, {s.Y:F2}) {s.Significance:F1} sigma, amplitude {s.Amplitude:G4}, width {s.WidthScale:F2}");
+        }
+
+        static bool Near(FittedStar s, double x, double y, double radius)
+            => (s.X - x) * (s.X - x) + (s.Y - y) * (s.Y - y) <= radius * radius;
+
+        // The rim source of the star at (850, 850) is recorded on that star, with no fit's numbers.
+        var onItsStar = refused.Where(static s => Near(s, 850.0, 850.0, 20.0)).ToArray();
+        onItsStar.Length.ShouldBe(1, "the source found on the rim of the star at (850, 850) is recorded there");
+        onItsStar[0].Amplitude.ShouldBe(0f, "a fit that ran away gives the row no amplitude");
+        onItsStar[0].WidthScale.ShouldBe(1f, "nor a width");
+        // The star at (512, 900) had no source refused on it, so nothing refused is recorded on it.
+        refused.Count(static s => Near(s, 512.0, 900.0, 40.0)).ShouldBe(0, "no row lies where another star's fit ran to");
     }
 
     // #1867: an UNSATURATED star whose centre is past the covered sky, its true peak (5.0) far above the clip but only a faint
