@@ -7056,7 +7056,8 @@ the first angle is a step after the model and not another arm:
     R4f's line passes, a 36 px stamp) is handed no mask, so a zero ring does not refuse it; it does refuse a
     stamp where master less plate is not finite, so a NaN pixel inside it, the case here, costs that star its
     measurement: it is then drawn from its catalogue entry where the catalogue's pool would hold it (a star the
-    catalogue reads as clipped in a channel), and left out otherwise. Where a drawn star lands depends on the
+    builder subtracted with the field's Moffat and the catalogue reads as clipped in a channel), and left out
+    otherwise. Where a drawn star lands depends on the
     placement: in a random-placement export, R4f's line included, `InjectionPopulation.RandomPosition` draws a
     position again when it lands on an absent pixel; under `--placement at-site` the star goes on its site
     through `Jitter`, which has no such test. `AddLobes` leaves out a lobe that would land on one under both
