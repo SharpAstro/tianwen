@@ -2945,16 +2945,24 @@ under the contour (eta Carinae and the Keyhole on six, the Rim Nebula's edge on 
 number 68 is two stars on a faint haze, which the owner's sentence above covers. The tile's third view misleads where a
 star is in the crop: linear to the brightest pixel shows the star and nothing else.
 
-To run the survey of the measures and the tiles:
+To run the survey of the measures:
 
 ```
-dotnet <build dir>/CoreMaskProbe.dll --max-peak-ratio 1e9 --max-core-over-flat-top 0 --no-weights <out dir> <session-masters folder>
-python training/star-removal/coremask-probe/flat_tops.py <out dir>/survey.jsonl
-python training/star-removal/coremask-probe/tiles.py <survey.jsonl> <session-masters folder> <its probe out dir> <tiles out dir>
+dotnet <build dir>/CoreMaskProbe.dll --max-peak-ratio 1e9 --max-core-over-flat-top 0 --no-weights <measures dir> <session-masters folder>
+python training/star-removal/coremask-probe/flat_tops.py <measures dir>/survey.jsonl
 ```
 
 `flat_tops.py` prints the table's rows by class from the probe's JSON and what the rule at given bars would turn away;
 the measures are the library's.
+
+The tiles take a probe run of their own, since `tiles.py` reads each core's weight plane and numbers the tiles as the
+contact sheets do. That run writes the weights (no `--no-weights`), keeps the star rule's bar at its default and turns
+the clipped-star rule off, which lists the 77 cores of the sheets, Alcyone's last:
+
+```
+dotnet <build dir>/CoreMaskProbe.dll --max-core-over-flat-top 0 <sheets dir> <session-masters folder>
+python training/star-removal/coremask-probe/tiles.py <sheets dir>/survey.jsonl <session-masters folder> <sheets dir> <tiles dir>
+```
 
 #### Core protection without the stars: the catalogued stars inside a core stay removed (2026-11-20)
 
