@@ -30,6 +30,15 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <see cref="MaxSubtractRadius"/> pixels from its star, so stars are grouped into tiles of twice that and the tiles
 /// run in four phases of a checkerboard: two tiles of one phase are a whole tile apart and no two windows of a phase
 /// overlap. The order inside a tile is the significance order.</para>
+/// <para><b>What makes that true, and where it is not exact (#2352).</b> The reach is from the STAR, and a fit moves:
+/// its window reaches <see cref="MaxFitRadius"/> from wherever it is centred. So a fit that ends further than
+/// <see cref="MaxRecentre"/> from its star is refused there and never followed (<see cref="RanAway"/>): one that was
+/// followed 364 px read what another tile of its phase was writing, and its row differed from run to run. With that,
+/// no overlap between two tiles of a phase was recorded on the test fields (17,144 reads and writes of one colour
+/// build, where 285 overlapped before). It is still not exact to the pixel: a fit may sit its drift allowance from its
+/// star and a centre is rounded, neither of which the tile's size counts, and a saturated star is worked from its
+/// plateau's centre and not from its peak. Two stars within a few pixels of facing tile edges, each at its full
+/// radius, can therefore share the outermost columns of their subtractions.</para>
 /// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, so the
 /// same image and seed give the same plate on any number of threads.</para>
 /// </remarks>
@@ -60,6 +69,26 @@ public static class ClassicalStarRemover
 
     private const int MaxFitRadius = 96;
     private const int TileSize = 2 * MaxSubtractRadius;
+
+    /// <summary>
+    /// How far from its star, on either axis, a fit may end and still be that star's. A fit's window reaches
+    /// <see cref="MaxFitRadius"/> from its centre and a tile's work is meant to stay within <see cref="MaxSubtractRadius"/>
+    /// of its stars, so a window cut around a centre further off than their difference reads ground that another tile of
+    /// the same phase may be writing.
+    /// </summary>
+    internal const int MaxRecentre = MaxSubtractRadius - MaxFitRadius;
+
+    /// <summary>
+    /// Whether a fit centred at (<paramref name="x"/>, <paramref name="y"/>) has left the star it was started on at
+    /// (<paramref name="starX"/>, <paramref name="starY"/>): further on either axis than <see cref="MaxRecentre"/> and
+    /// than the star's own <paramref name="drift"/> allowance (a saturated star's is its plateau's radius, which can be
+    /// the larger). A centre that is not a number has left it too.
+    /// </summary>
+    internal static bool RanAway(double x, double y, double starX, double starY, double drift)
+    {
+        var allowed = Math.Max(drift, MaxRecentre);
+        return !(Math.Abs(x - starX) <= allowed && Math.Abs(y - starY) <= allowed);
+    }
     private const int RefinementPasses = 2;
     private const int HoleSweepRounds = 3;
     private const float RemnantSigma = 50f;
@@ -780,6 +809,16 @@ public static class ClassicalStarRemover
                 if (result is not { } r || !(r.Amplitude > 0))
                 {
                     // A big star's light is mostly halo no field Moffat describes, and the wing fit's sky takes it.
+                    return fit.Saturated && previous is null ? SubtractProfile(fit, refX, refY, coreRadius, QuietSigma(refX, refY, sigma)) : fit;
+                }
+                if (RanAway(r.X, r.Y, refX, refY, drift))
+                {
+                    // A fit this far from its star is not that star's, on the frame or off it. It is refused here and
+                    // never followed: the next window would be cut where it ran to, which can be ground another tile of
+                    // this phase is subtracting from (#2352: on a 919-star field two sources on saturated stars' rims
+                    // ran 328 and 364 px on their first fit, their second fits read what a tile beside was writing, and
+                    // the refused row that came of it differed from run to run). None of its numbers is taken: the row
+                    // says where the star was found and that it has no fit.
                     return fit.Saturated && previous is null ? SubtractProfile(fit, refX, refY, coreRadius, QuietSigma(refX, refY, sigma)) : fit;
                 }
                 var wanted = WindowRadius(r.Amplitude, sigma, r.Width);
