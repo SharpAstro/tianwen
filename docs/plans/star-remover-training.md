@@ -2886,7 +2886,9 @@ python training/star-removal/coremask-probe/sheet.py <out dir>/survey.jsonl <ses
 ```
 
 `classify.py` reports the kept cores against the bounds the probe recorded and, given an earlier survey, lists what was
-dropped. The classification itself is the library's: the scripts only read the probe's JSON.
+dropped. The classification itself is the library's: the scripts only read the probe's JSON. Since the clipped-star rule
+of the next section (#2360) the probe at its defaults keeps 76 cores, not the 77 of this section and its sheets: with
+`--max-core-over-flat-top 0` before `<out dir>` it runs under the two rules above alone and lists the 77 again.
 
 #### A clipped star reads as a core: the star rule has a ceiling (2026-11-21)
 
@@ -2934,7 +2936,7 @@ size bar off three cases (1.3 against 71 and 128). A small, round, clipped objec
 around it (a compact planetary nebula, a star-like nucleus) would read as a clipped star; none is among the 201 masters.
 On a plate-solved master the catalogue could arbitrate, which is not built. Eta Carinae stays with the Keyhole's core as
 before: taking a clipped star out of a real core is the catalogue step's work (it would have to read a flat top as one
-peak), and is not built either.
+peak), and is not built either (#2373).
 
 **A model's second look at the 77 (2026-11-21).** At the owner's suggestion the tiles were judged a second time, as a
 check beside his read and not in its place: one image of four views per core (`tiles.py`), no names, by four Sonnet
