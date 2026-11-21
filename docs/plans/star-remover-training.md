@@ -7615,6 +7615,188 @@ the first angle is a step after the model and not another arm:
       R3w). If
       it does, the dense cells' grain as trained falls by a quarter or more against R4d's, and the crowded flat
       rises over R4d's 91.3 but does not reach its bar of 93.3.
+    - **The rerun's read, 2026-11-21 (seed 1, `r4f_synth31_s1`, the last step's weights): it trained as the
+      others did, and it is KILLED again. The Tarantula's crowded flat reads 91.0, under R4d's 91.3; every guard
+      held; both added rows are missed, and the dense cells hold as much grain as R4d's.** So the registered
+      outcome is the third: the grain in the target is not what holds the crowded fields.
+      - **The training, read first.** The Batch job ended by itself at step 207,500 of 480,000 ("converged: no
+        gain after the last halving") and its pool removed itself. The rate was halved from steps 52,000, 96,500,
+        157,500 and 180,500, and the best window moved after every one of them (8.98e-6 at step 84,000, 7.82e-6
+        at 126,000, 7.59e-6 at 145,000, 7.27e-6 at 168,000, 7.12e-6 at 195,500, the best). The registered
+        figure: the median of the window means from step 30,000 to the first halving is 1.85e-5 and over the
+        60,000 steps after it 9.66e-6, a ratio of 0.52 (R4d 0.50, R4e 0.47, R4c 0.48, R4f's first run 0.848).
+        0.60 or under is "trained as the others". The run was moved to another node once (resumed after step
+        128,000, best then 7.82e-6 at 126,000) and went on to new bests after it. As with every arm the figure is
+        on the arm's own draws and targets and is not a level to set beside another arm's.
+      - **Looked at before the rows** (the two sheets of the registered spots, each panel cut out at full size;
+        the notes were written before a row was opened). **The Tarantula's crowded field:** StarXTerminator's
+        plate is flat and dark, R4d's and seed 1's are mottled with reddish lumps of some tens of pixels, as
+        trained and through the chain; seed 1's cannot be told from R4d's by eye, and it shows a few compact
+        star-like residues R4d's panel does not show at those places. **The Tarantula's knots:** both of ours
+        take the bright compact knots StarXTerminator keeps; seed 1 keeps more of the upper knot's body than R4d
+        and has no purple cast there. **30 Doradus's core:** seed 1 as trained is close to StarXTerminator's, and
+        the purple patches R4d has (lower left of the core, the cluster at the upper left) are not in it; through
+        the chain both show small star-like dots round the core and a dark notch at the upper left. **The
+        Lagoon's core:** clean in all three, seed 1 with fewer faint dots than R4d. **M31's nucleus: seed 1 as
+        trained dims it and turns it yellow,** where StarXTerminator and R4d keep it white; through the chain it
+        is white again. **Bright stars:** their sheets were looked at after their rows had printed (Antares of
+        2026-04-21 and Electra of 2022-01-05 are left nearly whole, where R4d dims the core).
+      - **The rows.** Through the product's chain unless a row says "as trained"; R4d's and seed 0's tile rows
+        are those of their own steps, with floor5:
+
+        | row | R4d | R4f seed 0 | R4f seed 1 | bar | read |
+        |---|---|---|---|---|---|
+        | Tarantula crowded flat | 91.3 | 90.3 | **91.0** | at least 93.3, killed under 91.3 | **killed** |
+        | added row (1): Gaia BP 17-19 with the level set aside | 90.7 | 90.0 | 89.9 | at least 93.5 | missed |
+        | added row (2): grain in dense cell 4,4, as trained, R / G / B | 4.3 / 3.8 / 3.1 | 3.8 / 3.3 / 2.7 | 4.5 / 4.0 / 3.5 | at most 0.6 of R4d's | missed: 1.05 / 1.05 / 1.13 |
+        | added row (2): grain in dense cell 5,4, as trained | 4.7 / 4.6 / 3.6 | 4.4 / 4.0 / 3.3 | 4.8 / 4.4 / 3.8 | at most 0.6 of R4d's | missed: 1.02 / 0.96 / 1.06 |
+        | by count clean, 100-1000 and 1000 and over | 99.2, 100.0 | 99.1, 100.0 | 99.2, 100.0 | at least 98.5, 98 | held |
+        | M42 100-1000 by count clean | 93.4 | 92.6 | 94.1 | at least 88 | held |
+        | SMC 20-100 and 100-1000 by count clean | 98.9, 100.0 | 98.9, 100.0 | 98.9, 100.0 | at least 97 | held |
+        | Andromeda dark flat, dug | 98.5, 0.7 | 98.6, 0.7 | 98.5, 0.9 | at least 95, at most 3 | held |
+        | Tarantula dark flat | 96.5 | 96.1 | 95.9 | at least 91 | held |
+        | glow green median, Andromeda and Tarantula | -8.5, +106.5 | -82.8, -270.5 | -135.2, +120.1 | within 450, 500 | held |
+        | M31 nucleus with protection | 0.0 % | 0.0 % | 0.0 % | under 10 % | held |
+        | Sagittarius crowded flat | 97.0 | 97.6 | 98.0 | at least 96.3 | held |
+        | light taken from the Tarantula field, densest tenth and whole frame | 81, 82 % | 82, 84 % | 80, 81 % | at most 83, 84 % | held |
+        | light added on each master's nebula, as trained | 0.0 / 0.0 / 0.0 % | 0.0 / 0.1 / 0.0 % | 0.0 / 0.2 / 0.1 % | at most 1.0 % | held |
+        | the Lagoon's broad light taken, as trained | 2.67 | 1.51 | 1.07 | at most 4.0 | held |
+        | brightest tenth of the Tarantula's peaks standing, as trained | 17 of 77 | 17 of 77 | 18 of 77 | at least 11 | held |
+
+        The kill is by 0.3 of a point and stands as registered. The bar of 93.3 is missed by 2.3, and the plate
+        that holds what the target asks for reads 97.8 on this row (`grain_rule_post.py`, above).
+      - **Reported.** Purity 0.7 (R4d 0.8); the blotch line on the Tarantula's densest tenth 0.29 through the
+        chain (R4d 0.29) and 0.38 as trained. As trained: Andromeda's dark flat 71.2 with 24.4 % dug (R4d 69.4,
+        19.5); the Tarantula's 84.0 with 12.5 % left (80.3, 14.3; seed 0 had 70.0 and 28.1); its crowded flat
+        86.2 (86.7); BP 17-19 95.2 (95.4), and through the chain 95.7 (96.0); **the M31 nucleus taken in its
+        worst channel 38.9 %** (R4d 9.7, seed 0 27.2), which is what the sheet shows and which the protection
+        undoes; broad light taken on Andromeda and the Tarantula 2.99 and 4.05 (2.88 and 5.86); the Tarantula's
+        glow median -79 (-6.5). Light added on the Tarantula's nebula through the chain 1.05 % (R4d 0.65, seed 0
+        0.72; the guard is the row as trained). 30 Doradus's core, cell 4,6: 75.7 / 97.0 / 84.2, which is 96,
+        96 and 80 percent of the plate's 78.9 / 101.0 / 104.7 (R4d 44.4 / 49.4 / 39.7, seed 0 52.4 / 54.5 / 39.8),
+        on the row two seeds of one recipe have stood 39 to 75 % apart on. Faint stars left on bright background as trained: 20 % of 142 on
+        the Lagoon's core (R4d 29, seed 0 11) and 28 % of 321 on 30 Doradus (22, 25). Where the BP 17-19 stars are
+        left, with the level set aside: seed 1 takes fewer than R4d in the most crowded fifth (81.0 against 83.6,
+        StarXTerminator 97.1) and as many in the least crowded (94.2 against 94.0). The twin error: 1.45 sigma in
+        the mask as trained (seed 0 2.49) and 1.09 with floor5. The bright stars of #2292, 26 rows: inside 22 px
+        seed 1 leaves over 1.2 times R4d's on 15 and under R4d's by that factor on 3, 1.47 times at the median,
+        and on none more than the master holds; through the chain the rows are the model's own but Alcyone of
+        2022-01-05, which the chain hands back whole (4,033 against the model's 3,042): the chain scored here is
+        the build frozen on 2026-11-20, before the clipped-star rule.
+      - **The best step's weights (step 195,500, `--save-best`), reported and deciding nothing.** Scored on the
+        same rows under the name `r4f_synth31_s1best`, their two sheets looked at first (as the last step's,
+        M31's nucleus yellow as trained included). They read as the last step's do, 12,000 steps on: the
+        Tarantula's crowded flat 91.2 through the chain (the last step 91.0) and 86.9 as trained (86.2); BP 17-19
+        with the level set aside 90.1 (89.9); the dense cells 4.5 / 4.0 / 3.5 and 4.7 / 4.3 / 3.7 (4.5 / 4.0 /
+        3.5 and 4.8 / 4.4 / 3.8); Andromeda's dark flat 98.4 with 0.9 % dug and the Tarantula's 96.1; the
+        Sagittarius crowded flat 97.9; the glow's medians -157 and +120; the light taken from the Tarantula
+        field 80 and 81 %; by count clean 99.1 and 100.0; light added on the nebula as trained 0.0 / 0.3 /
+        0.0 %; the Lagoon's broad light 0.98; 18 of 77 peaks standing; the M31 nucleus taken as trained 42.4 %
+        in its worst channel (38.9) and 0.0 with protection; the twin error 1.44 and 1.08. So the last step
+        was not a worse model than the best one, and the weights the trainer keeps by default lose nothing on
+        this run.
+      - **Against the prediction.** It trained as the others, as guessed. The dense cells' grain as trained did
+        not fall by a quarter: it is 2 to 13 percent ABOVE R4d's in five of the six figures. The crowded flat
+        did not rise over 91.3. Two of three missed.
+      - **What it says, and one measurement made after the read to see why** (`train_fit_band.py`, not
+        registered). By its registration the arm is killed on both seeds and nothing is adopted. Seed 0 could
+        be put down to its training; this one cannot. The first guess for a model that keeps the grain of a
+        target that has none is that it cannot fit it, and that is not so: on the cache's own training cells of
+        the two Tarantula sessions, in the cache's stretched domain and in units of the target's noise, the
+        model's output on an input draw holds the target's grain and no more.
+
+        | training cells of | target, R / G / B | input draw | the model's output | output over target per cell, median (10th to 90th percentile) |
+        |---|---|---|---|---|
+        | the ASI585MC Pro session of 2024-10-02 (40 cells, the one the dense cells are on) | 2.7 / 2.4 / 2.1 | 19.6 / 21.2 / 17.5 | 2.6 / 2.3 / 2.0 | 0.95 / 0.95 / 0.98 (0.88 to 1.02) |
+        | the ASI533MC Pro session of 2022-12-01 (40 cells) | 2.0 / 2.3 / 2.2 | 12.4 / 14.7 / 10.2 | 1.9 / 2.2 / 1.9 | 0.97 / 0.94 / 0.94 (0.86 to 1.00) |
+
+        The model (`r4f_synth31_s1`) is fed the stored per-pixel plane it trained on, as `--cond-map` models must be;
+        it keeps 94 to 98 percent of the target's band, a little less, not more.
+        So the model gives its target back on the inputs it trained on, crowded sky included. What the pairs
+        ask of it is the other half: an input is its target plus light and nothing else (over the 40 cells no
+        pixel of an input stands half a sigma under its target, and 37 / 38 / 35 % by channel, the mean over the cells,
+        stand half a sigma over it; `train_fit_band.py` prints both shares), and that
+        light is the drawn stars, which the export draws down to 3 sigma. The grain was taken out of the plate
+        the target AND the input are made from, so no pair shows grain in the input that the target lacks, and
+        nothing asks the model to take it out of a real frame. On the real master of that session (row (2), a
+        linear frame and another unit than the table's) the dense cells read 4.5 / 4.0 / 3.5 and 4.8 / 4.4 / 3.8
+        where the stored plate reads 4.8 / 5.0 / 5.2 and 6.9 / 7.2 / 6.2: the model's plate keeps 61 to 94 percent
+        of the band the plate builder left there. That this light is the stars under the drawn floor is the
+        plan's reading of 2026-11-18 and is not measured here. The arm changed what the target looks like in
+        crowded sky and not what the model is asked to remove, which is why its two seeds and R4d read alike.
+      - **What follows from it, none of it registered and all of it the owner's.** The grain has to be in the
+        input and not in the target. Two ways are at hand: draw the stars under the floor, from each session's
+        own luminosity function, far enough down that the drawn light carries the band the real cells hold
+        (the export's floor is 3 sigma now and may not go under 2); or add the plate's own grain, the stored
+        plate less the rule's, to the input alone. The first draws only stars, so it cannot teach the model to
+        flatten a wisp; the second is the real residue and carries the weak nebula detail the rule smooths with
+        it (what the rule as a post step did at 30 Doradus's edge, above). **The owner's guard of 2026-10-20
+        stands over both:** unresolved glow belongs in the starless image, which is why the export refuses a
+        floor under 2 sigma and caps a tile's faint light (`LuminosityFunction`). What StarXTerminator drops is
+        the grain and what it keeps is the glow as a smooth surface at about 40 px and up (the note of
+        2026-11-18), so the smooth part of whatever is added to the input has to be in the target too. The
+        second way does that by construction (the rule keeps the 31 px glow). The first does it only if the
+        drawn stars' light, smoothed to that scale, is added to the target, which the export does not do today
+        and which lifts the floor the guard set.
+      - **How deep the first way would have to draw, simulated the same night: no depth is enough**
+        (`faint_depth_sim.py`). The session's catalogue holds 67,576 stars down to the builder's 5 sigma and
+        fits the export's law with a slope of 1.213 over 10 to 300 sigma; scaled to a dense cell's own count
+        there, the law expects 719 stars from 5 to 10 sigma in cell 4,4, where the catalogue has 761. A cell of
+        unit pixel noise with the law's stars drawn from a floor up to 5 sigma (the stars a stored plate still
+        holds), each a Gaussian of the catalogue's median width, read with `band.py`'s statistic:
+
+        | stars drawn from | cell 4,4: stars a cell, band | cell 5,4: stars a cell, band |
+        |---|---|---|
+        | none (noise alone) | 0, 0.85 | 0, 0.85 |
+        | 3 sigma (the export's floor now) | 1,109, 1.76 | 837, 1.62 |
+        | 2 sigma (the lowest the guard allows) | 2,594, 2.27 | 2,035, 2.07 |
+        | 1 sigma | 7,641, 2.77 | 5,951, 2.44 |
+        | 0.25 sigma | 46,508, 3.09 | 36,276, 2.82 |
+        | 0.1 sigma | 144,028, 3.20 | 112,292, 2.92 |
+        | the stored plate, measured (R / G / B) | 4.8 / 5.0 / 5.2 | 6.9 / 7.2 / 6.2 |
+
+        The band levels off: under about 1 sigma a deeper floor adds stars by the ten thousand and almost no
+        grain, since a fainter star adds less to the variance than the brighter ones already there. Drawn all
+        the way to 0.1 sigma the law's stars carry 3.2 and 2.9 where the plate holds 4.8 to 5.2 and 6.2 to
+        7.2, which is 38 to 44 percent of the plate's variance in the first cell and 16 to 22 in the second.
+        So the grain a crowded plate holds is not, for the most part, the law's stars under the detection
+        limit, and the reading of 2026-11-18 holds for a part of it only. What the rest is was not measured
+        (stars that cluster where the simulation scatters them evenly, what the builder left of the 1,300
+        stars it subtracted in the cell, weak nebula). It is a simulation of the law and not of the sky: one
+        width for every star, even scatter, the law held to the floor. For the two ways above it says that
+        drawing deeper cannot put the real grain into the input by itself, and that the plate's own grain
+        carries all of it, whatever it is made of.
+      - **What StarXTerminator's own plate reads on those cells, made the same night, and what it says of
+        row (2).** `band.py` on the judge's plate of the same session's master, with one less crowded cell
+        (1,1, 604 catalogued stars) beside the two dense ones:
+
+        | cell | the stored plate | StarXTerminator | R4d as trained | R4f seed 1 as trained |
+        |---|---|---|---|---|
+        | 4,4 | 4.8 / 5.0 / 5.2 | 5.3 / 5.3 / 3.8 | 4.3 / 3.8 / 3.1 | 4.5 / 4.0 / 3.5 |
+        | 5,4 | 6.9 / 7.2 / 6.2 | 2.9 / 2.1 / 1.8 | 4.7 / 4.6 / 3.6 | 4.8 / 4.4 / 3.8 |
+        | 1,1 | 5.2 / 6.0 / 4.6 | 0.8 / 1.1 / 1.3 | 3.9 / 4.4 / 2.9 | 3.8 / 4.2 / 2.9 |
+        | 4,6 (30 Doradus's core) | 78.9 / 101.0 / 104.7 | 82.5 / 103.9 / 106.1 | 44.4 / 49.4 / 39.7 | 75.7 / 97.0 / 84.2 |
+
+        In cell 1,1 the judge's plate is at the level of noise alone (0.85) and in cell 5,4 at 0.4 to 0.6 of
+        ours. In cell 4,4 it holds MORE than ours and as much as the stored plate: what that cell holds
+        between 9 and 41 px is something the judge keeps, so it is not grain, and row (2)'s bar there (0.6 of
+        R4d's, 2.6 / 2.3 / 1.9) lay under the judge's own figure. **Row (2) was misread in cell 4,4 from the
+        day it was written;** in cell 5,4 its bar was the judge's level (0.62 / 0.46 / 0.50 of R4d's). The row
+        should be read on cells where the judge's plate is flat, and cell 4,4 is not one.
+      - **Where the light sits** (`left_around_stars.py`: ours less the judge's on that master, channel mean,
+        stacked about the catalogued stars by significance, in the master's pixel sigma, less the same stack
+        about random places). About the stars of 10 sigma and over ours stands no more than 0.09 sigma over
+        the judge's in any ring, and under it by up to 0.9 sigma at the core of the 40 to 100 sigma stars. About the 13,484 stars of 7 to 10 sigma ours holds 0.1 to 0.2 sigma in the inner 3 px, 2 to 7
+        percent of the star. About the 29,849 stars of 5 to 7 sigma it holds 0.2 to 0.3 sigma in the inner
+        3 px (the star itself stands 2.9 sigma at its core) and then a level of 0.11 to 0.12 sigma a pixel
+        from 5 px out to 24 px over what it holds at random places; R4d's holds 0.13 to 0.15 there and the
+        stored plate 0.13 to 0.16. So what ours keeps and the judge takes is not the stars the catalogue has.
+        It is a faint light tens of pixels wide that stands where the faint stars are thick, which fits
+        stars that cluster and is still not shown to be stars. Over a whole cell ours stands 1.13 sigma a
+        pixel over the judge's on average in cell 1,1 and 1.08 in cell 5,4 (the level the plan read at 1.22 /
+        0.89 / 0.56 on the held-out Tarantula on 2026-11-20), and the 9 px mean of that difference has an rms
+        of 0.40 and 0.53 sigma, which is the mottle the sheet shows (the master, the judge's plate flat as
+        noise, ours, the stored plate and the difference, cells 1,1 and 5,4 at 1:1; sent to the owner).
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
   the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
   2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
