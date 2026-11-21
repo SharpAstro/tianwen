@@ -8410,6 +8410,129 @@ the first angle is a step after the model and not another arm:
     it was extended to twenty-four before either arm had a score, which lengthens a read and moves no bar.
     (6) The chain's core protection can put such a star back whole (#2308). (7) Nothing is registered on it, and
     whether it comes before or after R4f's and R4g's reads is the owner's.
+- **R4h and R4i, pre-registered 2026-11-21 at 20:10, before any export of either arm (the rounds that came later
+  are under "How this text came to be" below): the black point by sky noise trained in (#2309), beside a control
+  for the exporter.** The 40 sigma read above left the retrain to the owner.
+  His word on it, 2026-11-21: "yeah queue in afterR4f"; and asked whether two arms with a control or one arm from
+  the old exporter: "you decide". The session chose two arms, since the exporter has changed under R4d's recipe and
+  every later arm needs that baseline. Both are R4d's line (`export-synth.ps1 -BetaDraw 0.3,1.3,6,3 -FaintStars 3,1
+  -Extra --saturated-own-share,--saturated-measured,--halo-over-plate,--noise-as-recorded`), R3v's model and recipe
+  with R4d's flags, seed 0, and both are exported from one binary built from main on 2026-11-21.
+  - **The trainer both arms train from.** Not R4f's rerun copy as it stands: `C:/temp/e2/r4f1-run` is R3v's
+    `r3h-run` plus `--save-best` only and holds no black point code (its `n2n_smoke.py` has no
+    `load_black_point_sigma` or `BLACK_POINT_KEY`, the prepare step that writes `stretch_black_point_sigma` into the
+    cache's `meta.json`, and its `n2n_export.py` has no `stretchBlackPointSigma`, the contract writer; both arrived
+    with #2328, after #2329). Both arms train from one new frozen copy: that copy plus the black point parts of
+    #2328 in `n2n_smoke.py` and `n2n_export.py` (48 and 23 changed lines; main's two files are not copied whole,
+    only those changes are carried over; of `n2n_smoke.py`'s four hunks three apply by patch and the fourth, the
+    `black_point` argument of the `ExtraCache.open` call, was written by hand),
+    the same bytes for R4h and R4i, its `FROZEN-AT.txt` naming the commit. The
+    "ends on the same weights to the bit" check of R4f's rerun is repeated on that copy, covering the added parts
+    too (a tiny cache, the frozen copy without and with them, R4h's switches), all but that hand-written line: it
+    lies on the `--extra-cache` path, which neither arm takes and the check does not run, so nothing here shows it
+    right and nothing of either arm depends on it. The cache is prepared and the model
+    exported with that copy's scripts, never with R4f's. **The check, run 2026-11-21 at 20:33, before any cache of
+    either arm,** on the two-session preflight exports: the cache the new copy prepares from the export without a
+    depth is the rerun copy's, every file the same bytes; sixty steps with the arm's switches end on the same
+    weights to the bit, the last step's and the best step's; the new copy's prepare records
+    `stretch_black_point_sigma` 40 for the export at 40 sigma and no key for the other, and its exporter writes
+    `stretchBlackPointSigma` 40 into the one contract and nothing into the other.
+  - **Training alike.** Both arms are one Batch run each on a low-priority T4, capped at 36 hours, as R4f's rerun,
+    the same recipe, seed and step cap, so the control is a control. A pair that does not train alike (one
+    evicted past the cap, one stalled) is read as the Kill bullet below says.
+  - **Contract check, before the first score of either:** R4i's `contract.json` states `stretchBlackPointSigma`
+    40 and R4h's states none. A silent contract and an unset feed agree, so the loader would not refuse R4i and
+    the product would stretch at each channel's minimum, the mismatch #2309 exists to remove; the check is what
+    catches it. It is also read before each launch, per arm. R4i's prepare prints that it stretched from 40
+    sky-noise sigma and writes `stretch_black_point_sigma` 40 into the cache's `meta.json`; a cache of R4i's without
+    that key is not trained from. R4h's prepare prints "each channel's minimum" and writes no such key; a cache of
+    R4h's that carries one is not trained from, since that would spoil the control.
+  - **R4h, the control (synth32):** the black point at each channel's minimum, as in every export so far. Its data
+    differs from R4d's by what the exporter changed since `bh-bin8`; the knot fix of #2286 is known to change tiles.
+    A preflight on one session before the export (the new binary without the flag against `bh-bin11`'s tiles of
+    that session) says whether anything else does, and its result is written here before the export's first score.
+    **The preflight, run 2026-11-21 from 20:14 to 20:24, before the export:** the two sessions of `knot-check.ps1`
+    (the Tarantula of 2024-10-02 and the Helix of 2025-08-09) from the build frozen for these arms (`bh-bin12`,
+    main at "Black point tests: the re-run is shown to skip its sessions ..." (#2377)). Without the flag 1,602 of
+    its 1,603 files are `bh-bin11`'s bytes, all 1,600 tiles among them; the one that differs is
+    `degradations.jsonl`, whose rows now carry `StretchBlackPointSigma` (null here). So on these sessions R4h's
+    data is `bh-bin11`'s, and differs from R4d's by the knot fix alone. With `--black-point-sigma 40` all 1,600
+    image files differ and every row says 40.
+  - **R4i, the arm (synth33):** the same line with `--black-point-sigma 40`, and 40 sigma in its contract, so the
+    product stretches a frame for it as its tiles were stretched. One change from R4h.
+  - **Why 40.** The session's choice, not a measured optimum: the store's darkest pixels sit 8 to 228 sigma under
+    their sky with a median of 34, and 40 is the depth nearest that median that has been read. The reads at
+    inference cannot say which depth a model trained at one depth wants; they were read on a model trained on all
+    of them.
+  - **The training is read first,** by the rule registered for R4f's rerun: the median of the held-out window means
+    over the 60,000 steps after the first halving, over the median from step 30,000 to that halving. At 0.75 or over
+    with no new best after the first halving the run has stalled, and its rows are a stalled run's and not the
+    target's.
+  - **The question, on the models AS TRAINED, R4i against R4h** (the bright-star list's 26 rows and their sheets,
+    the share of StarXTerminator's take by ring, as in the 40 sigma read): (1) the two Pleiades nights read alike:
+    over the eight Pleiads the widest gap between the nights in the four rings from 8 to 80 px, leaving out a ring
+    where StarXTerminator takes under 3 sigma, is at most 25 points (R4d as it is: 113; R4d with the depth set at
+    inference: 15 to 20); AND (2) the innermost ring is taken under 80 percent on at most 4 of the 26 rows and on at
+    least 3 fewer than on R4h (R4d as it is: 7; at 40 sigma at inference 7, at 60 sigma 2).
+  - **Guards, on R4i:** every row of the 40 sigma read's table at its bar, read as trained or through the chain as
+    that table reads it (the chain is core protection and the dig-fill as shipped): the Tarantula's crowded flat at
+    least 90.3 and Sagittarius's 96.3; Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark
+    flat at least 91; the glow's green median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken
+    under 10 %; purity at most 1.0; the light taken from the Tarantula field at most 83 and 84 %; Gaia BP 17-19 with
+    the level set aside at least 89.7; light added on each master's nebula at most 1.0 %; the brightest tenth of
+    the Tarantula's peaks standing on at least 11 of 77; faint stars left on the Lagoon's core at most 37 % and on
+    30 Doradus at most 27 %; the Lagoon's broad light taken at most 2.67. Those bars were set from R4d. A row R4h
+    misses too is the exporter's and not the black point's: it is reported, and R4i is then held on that row to
+    a value worse than R4h's by no more than the allowance the bar gave R4d (the gap between the bar and R4d's own
+    figure in that table). For an at-least row that is R4h's value less the allowance; for an at-most row (dug,
+    glow median, M31's nucleus taken, purity, light taken, light added, faint stars left, broad light taken) it is R4h's value plus it
+    (on the Lagoon's faint stars 37 against R4d's 29 is 8 points).
+  - **Kill:** a guard fails on R4i, the pair having trained alike and neither having stalled. **Cleared:** both
+    halves of the question with every guard held, on the same terms. A stalled arm (the rule above), or a pair
+    that does not both train as the others, is neither killed nor cleared: its rows are reported, as R4f's rerun
+    was. Anything else is neither, and the rows say which half; that includes a ratio between 0.60 and 0.75, or
+    0.75 or over with a new best, which the R4f rerun rule calls neither.
+  - **R4h's own read:** every row above beside R4d's, as trained and through the chain. It has no bar of its own;
+    it is the baseline R4i is read against, and it says what the exporter's changes did to R4d's rows.
+  - **What a frame whose noise is no longer its own does (#2341), reported for R4i, deciding nothing about the
+    arm.** The depth's black point is 40 times the frame's sky noise under its sky, so on a denoised frame it lies
+    close under the sky and dark structure can fall beneath it. Each of the three scoring masters, smoothed by a
+    Gaussian of 1.5 px (which cuts white noise to about a fifth), goes through R4i as trained: the nebula guards
+    above (peaks standing, light added, broad light taken), and the sheets. Beside the share of covered pixels (the master's canvas ring, zeros or NaN, left out)
+    under the black point of the smoothed copy goes the share under median minus 40 sigma at the frame's own noise
+    of the unsmoothed master, so the figure has something to be read against, and where those pixels sit (lanes,
+    or holes and dead pixels). A guard failing there does not kill R4i; it says the guard #2341 asks for is needed
+    before any model with a depth ships.
+  - **Reported, no bar:** every row for both models as trained and with each post step as its own column; the
+    best step's weights (`.best.pt`) beside the last step's; all 26 ring rows; the colour of Merope's nebula on
+    both nights. The 1:1 sheets are looked at before any row is read.
+  - **Prediction.** R4h: every row within a point of R4d's, the peaks standing within 5 of R4d's 17. R4i: the
+    nights' gap falls to 10 to 25 points, so the first half is cleared; the innermost ring is taken under 80
+    percent on 3 to 5 rows (the bar is at most 4, so the range straddles it: 3 and 4 clear, 5 misses), counted by
+    the innermost ring, the measure the bar counts: Antares' 2026-04-21 and 2024-05-28
+    (56 and 71 at 40 sigma in the table above) among them and 2023-05-15 (81) not, though the sheets show the disc
+    left on all three sessions. The peaks guard
+    is the one most at risk, since the Tarantula's own black point is 10 sigma and at 40 its knots stand brighter,
+    and it is predicted to hold at 11 to 20 of 77 because the drawn knots are stretched the same way.
+  - **Nothing is adopted by these reads.** A cleared question goes to the owner with the numbers, and a second seed
+    is owed before any adoption.
+  - **How this text came to be, and what of it came after the export began.** The first text was pushed at
+    20:10:54 on 2026-11-21. Its review found that the trainer copy it named cannot write a depth, and four smaller
+    points; the review's fixer rewrote those parts at 20:19:34 (the trainer copy; both arms on a T4 capped at 36
+    hours, where the first text named no hardware at all and a draft that was never pushed had R4i on the GTX
+    1070; the contract check; the allowance on the at-most rows; what a stalled or uneven pair is; the count of
+    Antares' rows; #2341's report by covered pixels), and the session added the preflight's result and a first form
+    of this note at 20:27:58. Up to there nothing but the two-session preflight had been exported. **R4i's export
+    began at 20:28:41.** Four rounds came after that, all before any cache, training run or score existed: the
+    fixer's third at 20:44:20 (the pointer to the Kill bullet, M31's nucleus on the at-most list, the direction
+    taken out of the prediction's 3 to 5 rows, the hunk made by hand, the read before the launch), the
+    session's fourth at 20:56:35 (the read before the launch said per arm, the result of the trainer copy's
+    check, this note retitled), the session's fifth at 21:17:06, of wording only (the
+    prediction's 3 to 5 rows said to straddle the bar, where the text had them end at the bar's edge though 5 rows
+    miss a bar of at most 4; which hunk was written by hand, and that the trainer copy's check does not reach it;
+    the lead giving the first text's time in place of "before any export or score of either"), and a sixth, the
+    push that carries this sentence, which gives the fifth its time and changes nothing else.
+    The question, its bars and the guards' bars are as first pushed at 20:10:54; no round changed them.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
