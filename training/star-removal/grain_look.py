@@ -5,7 +5,7 @@ written into the script then; it is part of the third argument since the script 
 Per plate two 300 px cells at 2x: the cell where the rule took the most broad structure (the rms of stored less grain
 through a 9 px box), and the cell at the median of that measure among the cells it touched. Three pictures a cell on one
 stretch (black the stored crop's 1st percentile, white its 99.7th, asinh): the stored plate, the grain plate, and what
-was taken (stored less grain, about mid grey, at 4 times the contrast). Under each row: the cell, the taken structure's
+was taken (stored less grain, about mid grey, at 4 times the contrast). Above each row: the cell, the taken structure's
 rms in pixel noise, and the plate's own structure there (the stored crop's 9 px box less its 61 px box, rms in pixel
 noise), so a taken figure can be read against what there was."""
 import glob, os, sys

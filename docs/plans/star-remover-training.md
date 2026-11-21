@@ -7043,8 +7043,15 @@ the first angle is a step after the model and not another arm:
     synthetic background and the noised plate leave the plate's own value there and draw no level and no noise on
     it, the cell's mask hands it to the star renderer as absent, a value that is not finite is written through
     with no star's shot noise added, and the stretch and the noise calibrations leave it out of what they measure.
-    A cell is not skipped for holding one; the rule that skips is the measured bright star's, whose 60 px stamp
-    must hold no absent pixel.
+    The tile writer then clamps a NaN to 0 (`DatasetTileExporter.ExtractTileHalfs`), so a NaN that did reach an
+    exported cell would be a zero in the target and in all four input draws, the path of the square of zeros below;
+    it cannot by the bake's own rule, which samples cells only inside the NaN-free intersection of the session's
+    frames, and a pixel on the plate's right edge lies outside every cell. A cell is not skipped for holding one.
+    The one rule that looks for an absent pixel is the halo over the plate's read of the measured saturated stars
+    (`--halo-over-plate`, `InjectionPopulation.PlateRingExcess`, 60 px stamp): a star whose stamp holds an absent or
+    non-finite pixel leaves the session's halo, never the cell, and a session with fewer than eight readable stars
+    draws without the option (`MinHaloOverPlateStars`). R4f's line does not pass `--bright-measured`, whose 36 px
+    stamp is another read.
   - **What that changes in the tiles, checked before the export** (`r4f-check.ps1`: the store's Tarantula session
     of 2024-10-02 and the three Helix sessions of 2025-08-09, exported with this line from both roots;
     `tile_grain.py`). The sparse sessions' 120 target tiles are the same bytes from either root. The Tarantula's 40
