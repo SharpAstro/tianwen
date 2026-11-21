@@ -355,6 +355,57 @@ public partial class Image
     }
 
     /// <summary>
+    /// <see cref="MtfStretchParameters"/> with each channel's black point set by its SKY NOISE and not by its darkest
+    /// pixel: the black point is <paramref name="blackPointSigma"/> sky-noise sigma (<see cref="TryEstimateSkyNoise"/>)
+    /// under the channel's median, and the balance maps the median, which then stands that far above it, to
+    /// <paramref name="targetMedian"/>. <see cref="MtfStretchWith"/> applies them as it applies the measured ones.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why.</b> A channel's minimum is one pixel. On 123 colour masters it lay 8 to 228 sky sigma under the sky,
+    /// and three pixels of a frame decided how hard a model fed this stretch saw every star in it: two nights of one
+    /// field, differing by those pixels, came out as two different pictures (#2309). A depth in noise sigma is the same
+    /// on every frame and moves by nothing when a dark pixel does.</para>
+    /// <para><b>A pixel under the black point is clipped to it</b> by <see cref="MtfStretchWith"/> and comes back from
+    /// <see cref="MtfUnstretch"/> at the black point, so its own value is lost. At 40 sigma that is a hole or a dead
+    /// pixel, never sky.</para>
+    /// </remarks>
+    /// <param name="targetMedian">Output median each channel's median is mapped to.</param>
+    /// <param name="blackPointSigma">How many sky-noise sigma under its median each channel's black point lies; over 0.</param>
+    /// <param name="exclude">Pixels left out of the median and of the noise (the canvas ring).</param>
+    /// <exception cref="InvalidOperationException">A channel has no sky noise to give
+    /// (<see cref="TryEstimateSkyNoise"/> answered <see langword="false"/>): a black point by noise cannot be set, and
+    /// falling back to the minimum would put the frame in another domain without a word.</exception>
+    public (float[] OrigMin, double[] Balances) MtfStretchParametersFromSkyNoise(double targetMedian, double blackPointSigma, BitMatrix? exclude = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(blackPointSigma);
+        var channels = ChannelCount;
+        var origMin = new float[channels];
+        var balances = new double[channels];
+        var measured = new bool[channels];
+        // As in MtfStretchParameters, each channel is measured on its own, so they run side by side.
+        ParallelFor.Run(channels, c =>
+        {
+            if (!TryEstimateSkyNoise(c, exclude, out var sigma))
+            {
+                return;
+            }
+            var (min, shiftedMedian) = MinAndShiftedMedian(c, exclude);
+            var above = blackPointSigma * sigma;
+            origMin[c] = (float)(min + (double)shiftedMedian - above);
+            balances[c] = MidtonesBalanceFor(above, targetMedian);
+            measured[c] = true;
+        });
+        var missing = Array.IndexOf(measured, false);
+        if (missing >= 0)
+        {
+            throw new InvalidOperationException(
+                $"channel {missing} has no {SkyNoiseBlock} px block free of absent pixels with noise in it, so there is no sky noise to set a black point by");
+        }
+
+        return (origMin, balances);
+    }
+
+    /// <summary>
     /// One channel's minimum and its median above that minimum, NaN skipped: the two numbers the NAFNet
     /// pre-stretch reads, both its linearity test and the stretch itself, so the two cannot disagree
     /// about what the frame's floor is.

@@ -164,16 +164,30 @@ def export_mapped(model, a, nparam):
     with io.open(os.path.splitext(path)[0] + "_export.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(meta_out, f, indent=1)
     print(f"\nwritten {os.path.basename(os.path.splitext(path)[0])}_export.json")
-    print(f"written {os.path.basename(write_contract(path))}")
+    print(f"written {os.path.basename(write_contract(path, a.cache))}")
     return 0
 
 
-def write_contract(path):
+def cache_black_point(cache):
+    """The black point the cache's tiles were stretched from, as `--prepare` recorded it (n2n_smoke.BLACK_POINT_KEY): a
+    number of sky-noise sigma under each channel's median, or None for the channel's minimum (#2309)."""
+    if not cache:
+        return None
+    with io.open(os.path.join(cache, "meta.json"), encoding="utf-8") as f:
+        return json.load(f).get(S.BLACK_POINT_KEY)
+
+
+def write_contract(path, cache=None):
     """The model contract (#824, ModelContract in C#) beside a `mapped` export: what the graph was trained on, which the
     loader checks against what the runner feeds before it builds a session, and refuses the model without. Written from
     the trainer's own constants, never typed by hand: the domain the cache tiles are stored in (the exporter's whole-frame
     MTF stretch to n2n_operator.TARGET_MEDIAN), the plane's units (StretchedNoise.PlaneScale) and the weights' SHA-256.
-    The C# reader is strict, so this writes no field it does not know."""
+    The C# reader is strict, so this writes no field it does not know.
+
+    The stretch's black point is read from `cache` (#2309): where its export set it by sky noise the contract says how
+    deep (`stretchBlackPointSigma`), and the remover then stretches a frame that way; where it is each channel's minimum
+    the contract says nothing, as every contract before did. A build older than the field refuses a contract that has
+    it, which is right: it could not stretch that way."""
     import hashlib
 
     import n2n_operator as OP
@@ -192,6 +206,9 @@ def write_contract(path):
         ],
         "output": "output",
     }
+    black_point = cache_black_point(cache)
+    if black_point is not None:
+        contract["stretchBlackPointSigma"] = black_point
     out = os.path.splitext(path)[0] + ".contract.json"
     with io.open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(contract, f, indent=2)

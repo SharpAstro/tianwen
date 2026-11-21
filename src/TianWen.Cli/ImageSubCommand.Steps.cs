@@ -186,12 +186,19 @@ internal sealed partial class ImageSubCommand
                 + "filled to the sky around them, and the little light they leave is lowered a little (#2204; image fill-digs is the step "
                 + "alone). RC-Astro's plate is never touched. Give this to read the models' own output.",
         };
+        var blackPointSigmaOpt = new Option<double?>(BlackPointOption.Name)
+        {
+            Description = "With --model, for measurement only: stretch the frame with each channel's black point this many sky-noise "
+                + "sigma under its median, whatever the models' contracts say (#2309). A model is otherwise stretched as its "
+                + "contract states it was trained: at that depth, or from each channel's minimum where the contract is silent. "
+                + "This runs a model outside its contract, and the log says so.",
+        };
         var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator, or TianWen's own weights named with --model): the starless "
             + "plate and the stars it took out, each on its input's scale, so image add-stars puts them back exactly. Several masters "
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, coreCatalogueOpt, noFillDigsOpt },
+            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, coreCatalogueOpt, noFillDigsOpt, blackPointSigmaOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -202,13 +209,20 @@ internal sealed partial class ImageSubCommand
                 consoleHost.WriteScrollable("[remove-stars] --protect-cores and --no-protect-cores contradict each other; give one");
                 return 1;
             }
+            var blackPointSigma = parseResult.GetValue(blackPointSigmaOpt);
+            if (BlackPointOption.Refusal(blackPointSigma, applies: parseResult.GetValue(modelOpt) is { Length: > 0 },
+                    needs: "--black-point-sigma sets the stretch of TianWen's own models; it needs --model") is { } blackPointRefusal)
+            {
+                consoleHost.WriteScrollable($"[remove-stars] {blackPointRefusal}");
+                return 1;
+            }
             if (!TryReadMasters(paths, out var masters, out var wcs) || !OneGrid(masters))
             {
                 return 1;
             }
             // Weights named on the command line are a remover of this run's own, and closed with it; otherwise the registered one.
             using var own = parseResult.GetValue(modelOpt) is { Length: > 0 } models
-                ? OnnxTianWenStarRemover.Open(models, parseResult.GetValue(viewsOpt), parseResult.GetValue(monoAsRgbOpt), logger)
+                ? OnnxTianWenStarRemover.Open(models, parseResult.GetValue(viewsOpt), parseResult.GetValue(monoAsRgbOpt), logger, blackPointSigma)
                 : null;
             IStarRemover remover = own ?? starRemover;
             consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
