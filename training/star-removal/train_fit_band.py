@@ -2,6 +2,9 @@
 
     python -I train_fit_band.py <trainer dir> <cache> <checkpoint> <session substring> [more substrings...]
 
+A substring is looked for anywhere in a session's name, so a bare date takes every session of that night: 2024-10-02
+alone is the Tarantula's session and the SMC's. Name the object with the date to read one of them.
+
 For every training cell of the sessions named, in the cache's own (stretched) domain: the target (slot 0), the first
 input draw (slot 1) and the model's output on that draw. Prints, per channel and as medians over the cells, the plan's
 grain statistic (band.py's: through a 7 px median, the 9 px box mean less the 41 px one, rms over the inner tile) in
