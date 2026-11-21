@@ -7055,11 +7055,12 @@ the first angle is a step after the model and not another arm:
     the option (`MinHaloOverPlateStars`). The read of a saturated star itself (`--saturated-measured`, which
     R4f's line passes, a 36 px stamp) is handed no mask, so a zero ring does not refuse it; it does refuse a
     stamp where master less plate is not finite, so a NaN pixel inside it, the case here, costs that star its
-    measurement and it is drawn from its catalogue entry. Where a drawn star lands depends on the placement:
-    in a random-placement export, R4f's line included, `InjectionPopulation.RandomPosition` draws a position
-    again when it lands on an absent pixel; under `--placement at-site` the star goes on its site through
-    `Jitter`, which has no such test. `AddLobes` leaves out a lobe that would land on one under both
-    placements. `MeasureBright` (`--bright-measured`, a 36 px stamp) refuses an absent stamp too, and R4f's
+    measurement: it is then drawn from its catalogue entry where the catalogue's pool would hold it (a star the
+    catalogue reads as clipped in a channel), and left out otherwise. Where a drawn star lands depends on the
+    placement: in a random-placement export, R4f's line included, `InjectionPopulation.RandomPosition` draws a
+    position again when it lands on an absent pixel; under `--placement at-site` the star goes on its site
+    through `Jitter`, which has no such test. `AddLobes` leaves out a lobe that would land on one under both
+    placements, though R4f's line passes no `--star-lobes` and so draws no lobe at all. `MeasureBright` (`--bright-measured`, a 36 px stamp) refuses an absent stamp too, and R4f's
     line does not pass that option.
   - **What that changes in the tiles, checked before the export** (`r4f-check.ps1`: the store's Tarantula session
     of 2024-10-02 and the three Helix sessions of 2025-08-09, exported with this line from both roots;
