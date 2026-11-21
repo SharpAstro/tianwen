@@ -173,13 +173,15 @@ jobs:
               # result that lacks either one is no evidence that no tokens were used, so it never says "no tokens used".
               # jq makes the one zero-cost decision (cost 0 and no model used); the shell only reads its answer. An
               # empty answer means the log could not be read, which is no evidence the run used nothing.
-              stats="$(jq -r '[.[] | select(.type == "result")] | last // {} | "\(.num_turns // 0) \(.total_cost_usd // 0) \((.modelUsage // {}) | length) \((has(\"total_cost_usd\") and has(\"modelUsage\") and .total_cost_usd == 0 and (.modelUsage | length) == 0))"' "$log" 2>/dev/null || true)"
+              stats="$(jq -r '[.[] | select(.type == "result")] | last // {} | "\(.num_turns // 0) \(.total_cost_usd // 0) \((.modelUsage // {}) | length) \((has("total_cost_usd") and has("modelUsage") and .total_cost_usd == 0 and (.modelUsage | length) == 0))"' "$log" 2>/dev/null || true)"
               if [ -n "$stats" ]; then
                 read -r turns cost models zero <<< "$stats"
                 echo "last result: turns $turns, cost $cost, models used $models"
                 if [ "$zero" = "true" ]; then
                   noanswer=true
                 fi
+              else
+                echo "could not read the last result's cost fields"
               fi
             fi
             echo "no report; the agent's last word: ${why:-none kept}"
