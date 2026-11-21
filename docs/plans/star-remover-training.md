@@ -8427,15 +8427,22 @@ the first angle is a step after the model and not another arm:
     the same bytes for R4h and R4i, its `FROZEN-AT.txt` naming the commit. The
     "ends on the same weights to the bit" check of R4f's rerun is repeated on that copy, covering the added parts
     too (a tiny cache, the frozen copy without and with them, R4h's switches). The cache is prepared and the model
-    exported with that copy's scripts, never with R4f's.
+    exported with that copy's scripts, never with R4f's. **The check, run 2026-11-21 at 20:33, before any cache of
+    either arm,** on the two-session preflight exports: the cache the new copy prepares from the export without a
+    depth is the rerun copy's, every file the same bytes; sixty steps with the arm's switches end on the same
+    weights to the bit, the last step's and the best step's; the new copy's prepare records
+    `stretch_black_point_sigma` 40 for the export at 40 sigma and no key for the other, and its exporter writes
+    `stretchBlackPointSigma` 40 into the one contract and nothing into the other.
   - **Training alike.** Both arms are one Batch run each on a low-priority T4, capped at 36 hours, as R4f's rerun,
     the same recipe, seed and step cap, so the control is a control. A pair that does not train alike (one
     evicted past the cap, one stalled) is read as the Kill bullet below says.
   - **Contract check, before the first score of either:** R4i's `contract.json` states `stretchBlackPointSigma`
     40 and R4h's states none. A silent contract and an unset feed agree, so the loader would not refuse R4i and
     the product would stretch at each channel's minimum, the mismatch #2309 exists to remove; the check is what
-    catches it. It is also read before the launch: the prepare step prints that it stretched from 40 sky-noise sigma
-    and writes `stretch_black_point_sigma` into the cache's `meta.json`; a cache without it is not trained from.
+    catches it. It is also read before each launch, per arm. R4i's prepare prints that it stretched from 40
+    sky-noise sigma and writes `stretch_black_point_sigma` 40 into the cache's `meta.json`; a cache of R4i's without
+    that key is not trained from. R4h's prepare prints "each channel's minimum" and writes no such key; a cache of
+    R4h's that carries one is not trained from, since that would spoil the control.
   - **R4h, the control (synth32):** the black point at each channel's minimum, as in every export so far. Its data
     differs from R4d's by what the exporter changed since `bh-bin8`; the knot fix of #2286 is known to change tiles.
     A preflight on one session before the export (the new binary without the flag against `bh-bin11`'s tiles of
@@ -8504,13 +8511,19 @@ the first angle is a step after the model and not another arm:
     and it is predicted to hold at 11 to 20 of 77 because the drawn knots are stretched the same way.
   - **Nothing is adopted by these reads.** A cleared question goes to the owner with the numbers, and a second seed
     is owed before any adoption.
-  - **How this text came to be, all of it before any export.** The first text was pushed at 20:10:54 on
-    2026-11-21. Its review found that the trainer copy it named cannot write a depth, and four smaller points; the
-    review's fixer rewrote those parts at 20:19:34 (the trainer copy, both arms on a T4 capped at 36 hours, where
-    the first text named no hardware at all (a draft that was never pushed had R4i on the GTX 1070), the contract check, the allowance on the at-most rows, what a stalled or uneven pair is,
-    the count of Antares' rows, #2341's report by covered pixels), and the session added the preflight's result
-    and this note. The question, its bars and the guards' bars are as first pushed. Nothing but the two-session
-    preflight had been exported by then.
+  - **How this text came to be, and what of it came after the export began.** The first text was pushed at
+    20:10:54 on 2026-11-21. Its review found that the trainer copy it named cannot write a depth, and four smaller
+    points; the review's fixer rewrote those parts at 20:19:34 (the trainer copy; both arms on a T4 capped at 36
+    hours, where the first text named no hardware at all and a draft that was never pushed had R4i on the GTX
+    1070; the contract check; the allowance on the at-most rows; what a stalled or uneven pair is; the count of
+    Antares' rows; #2341's report by covered pixels), and the session added the preflight's result and a first form
+    of this note at 20:27:58. Up to there nothing but the two-session preflight had been exported. **R4i's export
+    began at 20:28:41.** Two rounds came after that, both before any cache, training run or score existed: the
+    fixer's third at 20:44:20 (the pointer to the Kill bullet, M31's nucleus on the at-most list, the direction
+    taken out of the prediction's 3 to 5 rows, the hunk made by hand, the read before the launch), and the
+    session's fourth, the push that carries this sentence (the read before the launch said per arm, the result of
+    the trainer copy's check, this note retitled). The question, its bars and the guards' bars are as first pushed
+    at 20:10:54; no round changed them.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
