@@ -225,8 +225,11 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         var verdict = ctx.Session.MountLimitVerdict;
         verdict.Kind.ShouldBe(MountLimitKind.Meridian, verdict.Describe());
         verdict.MountCannotBeStopped.ShouldBeTrue();
-        verdict.Describe().ShouldContain("stop it at the mount");
+        verdict.Describe().ShouldStartWith("Stop the mount by hand.");
         verdict.Describe().ShouldNotContain("Will stop tracking");
+        // The session's log is not read here: the line that acts is the verdict's own ActingNote, pinned in
+        // MountLimitsTests and read off the watcher's log in MountLimitWatcherTests.
+        verdict.ActingNote().ShouldStartWith("No command is sent");
         (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeTrue("nothing on the wire stops this mount");
 
         // Once latched it still says so, where it used to read "tracking is stopped".

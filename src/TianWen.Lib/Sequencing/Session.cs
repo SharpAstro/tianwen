@@ -740,7 +740,10 @@ internal partial record Session(
             return;
         }
 
-        _logger.LogError("Mount safety limit: {Verdict}. Responding with {Response}.", verdict.Describe(), verdict.Response);
+        // Describe() is a full sentence already, and ActingNote() says what is done about it: the response, or for a
+        // mount nothing here can stop, that no command is sent. It said "Responding with StopTracking" of such a mount,
+        // and a second line then repeated the verdict's own words (#2333).
+        _logger.LogError("Mount safety limit: {Verdict} {Acting}", verdict.Describe(), verdict.ActingNote());
         Volatile.Write(ref _limitActed, true);
         _limitReached = true;
         _mountStopCommanded = true;
@@ -763,18 +766,10 @@ internal partial record Session(
             await ResilientInvokeAsync(
                 mount, mount.ParkAsync, ResilientCallOptions.NonIdempotentAction, cancellationToken);
         }
-        else if (verdict.Response is MountLimitResponse.Park)
+        else if (verdict.Response is MountLimitResponse.Park && mount.CanSetTracking)
         {
-            _logger.LogWarning(mount.CanSetTracking
-                ? "Mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead."
-                : "Mount safety limit asked for a park, but this mount can neither park nor stop tracking.");
-        }
-
-        // Said only when neither the stop nor a park was made: a mount that cannot switch its tracking but was parked
-        // is not turning any more.
-        if (verdict.MountCannotBeStopped)
-        {
-            _logger.LogError("{Mount} cannot be stopped on command, so it is still turning towards the limit. Stop it at the mount.", mount.Name);
+            // A mount that can neither park nor stop was told so in the line that acts (ActingNote), once.
+            _logger.LogWarning("Mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead.");
         }
     }
 
