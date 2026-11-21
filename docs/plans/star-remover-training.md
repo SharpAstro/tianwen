@@ -7112,7 +7112,27 @@ the first angle is a step after the model and not another arm:
     rule pull it toward the flat fill?) read, over the 89 plates with a zero ring, 0.01 % of the pixels within 20 px
     of the ring changed by over 10 %, against 0.00 % at 40 to 60 px; the worst plates 2.74 % near against 1.02 %
     far (figures from #2297's comment). A pull would show as the near band changing more with a sign; the medians
-    show none, and the worst plates differ by under two points of a band. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
+    show none, and the worst plates differ by under two points of a band. **What `grain_ring.py` itself read**
+    (#2298, run over the store on 2026-11-21 against the corrected plates, `starless-grain2`): of the 201 plates
+    89 hold a zero ring and on none is a ring pixel changed, and the 62 that differ from the first run all hold
+    one. Its `near_lowered` (valid pixels within 20 px of the ring that the rule lowered by over 10 % of their
+    value in any channel) is zero on 10 of the 62 and over zero on 52, with a median of 93.5 px a plate, 7,825 px
+    at most and 50,496 px in all. Against the band it is counted in (17.8 million valid pixels within 20 px of a
+    ring over the 89 plates, where the count is 50,503) that is 0.28 %. That band is the script's own and not the
+    one the figures above use: 20 steps along rows and columns from the ring, a diamond, where
+    `grain_ring_pull.py` measures 20 px in a straight line; and a pixel counts as lowered when the corrected
+    plate is under 0.9 of the stored one, which is a drop only where the stored value is over zero: a pixel the
+    rule left as it was counts too when a channel of it is under zero. On the three worst plates below that is
+    90 of the 7,825 px, 637 of the Rim Nebula's 6,936 and none of the third, so counting only a channel over
+    zero that dropped they read 4.28 %, 3.40 % and 2.69 %. The median
+    plate has 0.005 % of its band lowered, 22 plates have over 0.1 % and 9 over 1 %, and the worst are
+    narrowband frames: 4.33 % (eta Carinae of 2026-02-20 through the 3 nm filter, 7,825 of 180,917 px), 3.75 %
+    (the Rim Nebula in SII of 2024-07-06) and 2.69 % (another plate of that eta Carinae session); what lies at
+    their border was not looked at. The count has no far band of its own, so `grain_ring_pull.py` was run on
+    those three: changed by over 10 % either way, the two eta Carinae plates read 7.63 % within 20 px against
+    11.98 % at 40 to 60 px and 10.20 % against 21.48 %, and the Rim Nebula 9.60 % against 25.76 %. On all three
+    the sky beside the ring changed less than the sky further in, so what the count holds on them is what the
+    rule does anywhere on such a frame and not a pull toward the fill. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
     the guards and the kill rule are unchanged.
   - **Added 2026-11-20, before the cache exists and before any score: what the question reads, and two rows that
     read what this arm changes.** "The crowded rows read light between the stars" below shows that the Tarantula's
