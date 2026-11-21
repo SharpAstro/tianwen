@@ -478,6 +478,19 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         ClassicalStarRemover.NearestCovered(x, y, Width, Height, covered, reach: 128).ShouldBe((standsX, standsY));
     }
 
+    // #2379: the decision itself, on a frame whose cover begins at column 200 and whose star's peak is at (200, 400).
+    [Theory]
+    [InlineData(160.0, 400.0, false, false, "40 px deep and 0 along: a star the edge cut, kept")]
+    [InlineData(160.0, 440.0, false, true, "40 px deep and 40 along: ran along the edge, left")]
+    [InlineData(0.0, 400.0, false, true, "nothing covered within reach: left")]
+    [InlineData(160.0, 400.0, true, true, "a saturated star is held on its centre: 40 px off the frame, left")]
+    [InlineData(200.0, 410.0, true, false, "a saturated star within the bound, kept")]
+    public void AnOffFrameCentreIsJudgedByHowFarItMovedAlongTheFrame(double x, double y, bool saturated, bool left, string why)
+    {
+        ClassicalStarRemover.HasLeftItsStar(x, y, 200.0, 400.0, 2.0, saturated, 1000, 800, static (px, _) => px >= 200, reach: 131)
+            .ShouldBe(left, why);
+    }
+
     [Fact]
     public void ACentreWithNothingCoveredInReachOrThatIsNotANumberStandsNowhere()
     {
@@ -545,12 +558,12 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // centre, off the frame, within a few pixels. That centre is 41 px from the peak the finder took at the edge, past
     // the 32 px a fit may end from its star, and measured on the centre itself the fit was refused as one that ran away
     // and the row put back at the edge. It has not left its star: straight out from the edge is where a star the edge
-    // cut IS, at any depth, and only a fit that went ALONG the edge has left. So the row is at the star's true centre.
+    // cut IS, as deep as the window reaches, and only a fit that went ALONG the edge has left. So the row is at the star's true centre.
     // Whether such a star is then subtracted is another rule's. This one is left as TooNarrow: a wing alone, fitted at
     // its true centre, asks for a core a third of the field's width, and the width is judged before the amplitude's
     // ceiling is. The outcome is asserted so that a change which leaves something else here is seen.
     [Fact(Timeout = 300_000)]
-    public async Task AStarStraightOutFromTheEdgeIsNotTakenForAFitThatRanAwayHoweverDeepItIs()
+    public async Task AStarStraightOutFromTheEdgeIsNotTakenForAFitThatRanAwayAsDeepAsTheWindowReaches()
     {
         const double Outside = 40.0;
         const double Y = 600.0;
