@@ -467,8 +467,10 @@ by type, to `<file>.types` (a sample from the runtime's allocation tick: it name
 Without the variable the probe is one null check a test.
 
 The probe appends to its file and never empties it, so a second run into the same file adds to the first. Name a new
-file for a run or delete the old one. The report says when a file holds a test more than once, and then both of its
-tables are the sum of the runs.
+file for a run or delete the old one. The report cannot tell a second run from a theory: it says when a NAME is on
+more than one line, which is either a second run appended to the file or rows of one theory whose display names xunit
+shortened to the same text (a string argument is cut at 50 characters). Its allocation tables then sum that name's
+lines, and its memory tables keep the hungriest of them.
 
 **Read the bytes and the collection counts, not the times, unless the machine is quiet.** On the laptop this was first
 run on (2026-11-21), five of six classes allocated within 2 percent of their first run, while the same six classes run
@@ -483,3 +485,81 @@ all thirty, the type samples and the candidates are in #2345.
 
 A pumped viewer test (one that pumps the viewer until a master exists) allocates for as long as it runs, so its bytes
 follow the machine's speed: `ViewerPlanetaryLookTests` read 9.5 GiB in a slow run and 6.4 GiB in a fast one.
+
+**Fewer collections buy no time on the runners (#2359, closed unmerged).** The obvious next step was tried: the unit
+test steps with a 256 MB gen0 budget (`DOTNET_GCgen0size=0x10000000`), which cuts the gen0 collections of the six
+heaviest classes tenfold on a workstation (29,000 to 2,900). Its run against four runs on the same base that started
+within two minutes of it:
+
+| leg | with the budget | four controls | their mean |
+|---|---:|---|---:|
+| unit, ubuntu-24.04-arm (4 shards) | 840 s | 828 to 863 s | 845 s |
+| unit, ubuntu-latest (4 shards) | 1051 s | 956 to 1256 s | 1082 s |
+| unit, windows (5 shards) | 1281 s | 1029 to 1340 s | 1182 s |
+
+On the steady leg it is worth 5 s in 845, and on the other two the controls differ from each other by 300 s. So
+allocation is not what the suite's time is made of, and cutting it further is not a way to make CI faster: what would
+is the tests' own work, which is what their fields and fixtures are sized at. It also says how to read any timing
+claim here: one run against one run on the x64 or Windows legs shows nothing under about a quarter.
+
+### How much memory a test needs (#2345)
+
+What a test allocates is not what it needs at once: 30 GiB allocated and dropped a megabyte at a time needs a megabyte.
+What it needs at once is what decides how many tests fit side by side on a runner, and what a fixture or a cache costs
+every test after it.
+
+    $env:TIANWEN_TEST_COST_FILE = "C:/temp/peaks.tsv"
+    $env:TIANWEN_TEST_COST_PEAKS = "1"
+    dotnet test TianWen.Lib.Tests -c Release --no-build --parallel none --filter "FullyQualifiedName~ViewerWaveletDeriveTests"
+    python tools/test-cost-report.py C:/temp/peaks.tsv --per-test 20
+
+With `TIANWEN_TEST_COST_PEAKS=1` a line gains three fields, in bytes, and the report two tables:
+
+- **the heap at the start**: the managed heap as the test began, collected until stable first. It is what the process
+  holds live BETWEEN tests: fixtures, caches, statics. A step up in it that never comes down is a cache or a leak, and
+  the test just before the first one whose start shows the step filled it (the heap is read in `Before`).
+  The start also holds the running class's own instance and fixtures, built before `Before` runs, so it is the
+  process's live heap PLUS the current class, and a class's fixture is released when its class ends.
+- **the heap's peak**: the highest heap read while the test ran (every 25 ms, and once as it ends). Less the start it
+  is what the test ADDED: its live objects and the garbage waiting for a collection at that moment.
+- **the working set's peak**: how large the process got, native memory and all. It also holds what the collector freed
+  and has not handed back, so it follows the tests before this one: it is the process's figure, not the test's.
+
+Serial runs only, as for the bytes. And a run for peaks is not a run for collection counts: a collection before every
+test moves when the collector runs (the same 30 classes read 12,503 / 2,655 / 804 collections without it and
+10,717 / 2,003 / 544 with it, in a run that also allocated 5 percent less).
+
+The first read (2026-11-21, the same 30 classes, serial, Release, win-arm64, 557 tests):
+
+| | |
+|---|---:|
+| the most one test added to the heap | 1,698 MiB |
+| tests that added 1 GiB or more | 14 |
+| tests that added 512 MiB to 1 GiB | 45 |
+| tests that added under 128 MiB | 390 |
+| the working set's peak over the run | 2,520 MiB |
+| the heap held between tests, at the start of the run | 40 MiB |
+| the heap held between tests, by the end | about 620 MiB |
+
+So a serial test process needs about 2.5 GiB at its worst, for these 30 classes: they were chosen by summed time, not
+by memory, so a fast class that builds big planes is not in the read (the other 31 percent of the suite has not been read). Four tests at once fit a 16 GB runner even if the four
+hungriest met: about 7.5 GiB of heap, the 0.6 held and four times 1.7. The six classes whose hungriest test adds more than a GiB are
+`ViewerPlanetaryLookTests`, `ViewerWaveletDeriveTests`, `ClassicalStarRemoverTests`, `DatasetDegradationExporterTests`,
+`SyntheticBackgroundTests` and `ViewerPlanetaryMasterTests`.
+
+**The 620 MiB held between tests arrives in four steps, and none is shown being given back.** (The last row reads
+644 MiB against about 620 at the end of the run: the 24 MiB is read as a fixture of the running class, counted in a
+start and released with its class, not as a step that came back. The probe does not prove it.) A step shows in the start of the
+test AFTER the one that left it, so the test named here is the one that ran just before the step, in this run's order:
+
+| the heap held | left by |
+|---|---|
+| 45 to about 220 MiB | `PlateSolverTests`: the first Tycho-2 walk (to 146), then its catalogue solves |
+| 219 to 367 MiB | `StretchTests_NewPipeline.GivenSyntheticStarFieldWhenSpccCalibratedThenWritesTiff` |
+| 382 to 439 MiB | `StretchTests_DebayeredImageUnlinked.GivenFitsFileWhenStretchingItShouldDisplay`, an RGGB frame's case |
+| 438 to 644 MiB | the same test's case on a real 60 s light, or what `PlanetaryLimbFitTests` builds before its first test |
+
+The first is the star catalogues, loaded once for the process and meant to be kept. What holds the other three (a
+static, a cache, a fixture that outlives its class) is NOT looked up: the probe says when the heap stepped, not who
+holds it. They cost memory and nothing else measured here: a held plane of floats has no references for the collector
+to walk.
