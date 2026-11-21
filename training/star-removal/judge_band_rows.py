@@ -11,8 +11,9 @@ judge keeps. Here the judge's plate sorts the cells: every 300 px cell of the fr
 grid and statistic, on the channels' mean, in the judge's own pixel sigma of the cell) is FLAT where the judge's band is
 under 1.5 (noise alone reads 0.85), STRUCTURE where it is 3 or over, and neither between. Per plate: on the flat cells
 its median band and the share of them it leaves under 1.5 (the mottle, which a remover should take); on the structure
-cells the median of its band over the judge's and the share within 0.8 to 1.25 (the detail, which it should keep). A
-rule that smooths reads well on the first and badly on the second; a model that leaves the mottle the other way round.
+cells the median of its band over the judge's and the share within 0.8 to 1.25, with the shares under and over that
+window (the detail, which it should keep; a plate that leaves its mottle on those cells reads over). A rule that
+smooths reads well on the first and low on the second; a model that leaves the mottle the other way round.
 A cell that holds an absent pixel, or exact zeros on over 1 % of it, is left out.
 """
 import sys
@@ -77,7 +78,8 @@ def main():
         f = np.array([b[c] for c in flat if c in b])
         s = np.array([b[c] / bj[c] for c in structure if c in b])
         left = f"{np.median(f):6.2f}  {100 * (f < FLAT).mean():5.1f} %" if len(f) else "   no flat cell"
-        right = f"{np.median(s):5.2f}  {100 * ((s >= 0.8) & (s <= 1.25)).mean():5.1f} %" if len(s) else "no structure cell"
+        right = (f"{np.median(s):5.2f}  {100 * ((s >= 0.8) & (s <= 1.25)).mean():5.1f} %  ({100 * (s < 0.8).mean():.1f} % under, "
+                 f"{100 * (s > 1.25).mean():.1f} % over)") if len(s) else "no structure cell"
         print(f"  {label:40s} {left}                  |  {right}")
 
 

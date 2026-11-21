@@ -13,12 +13,16 @@ read. Printed per plate:
     catalogued star of 10 sigma and over, and within 4 px of any catalogued star, each beside the share of the
     cell's AREA those pixels are. Grain that has nothing to do with the catalogued stars has a power share equal to
     the area share; what a subtraction leaves on a star lifts it;
-  - how much of the map a fit of one-signed light on the catalogued stars explains: the catalogue binned by
-    significance (5 to 7, 7 to 10, 10 to 20, 20 to 50, 50 and over), each bin's count map spread by a Gaussian of 2,
-    4 and 8 px and put through the same box means, fitted by least squares on one half of the cell and read on the
-    other, both ways (the mean of the two out-of-sample shares; under zero means worse than no fit at all).
+  - how much of the map a linear fit on the catalogued stars explains: the catalogue binned by significance (5 to
+    7, 7 to 10, 10 to 20, 20 to 50, 50 and over), each bin's count map spread by a Gaussian of 2, 4 and 8 px and put
+    through the same box means, fitted by least squares with an intercept and no bound on a coefficient's sign (so
+    a dark pit on a star fits as well as light on it) on one half of the cell and read on the other, both ways (the
+    mean of the two out-of-sample shares; under zero means worse than no fit at all). It sees only what is the
+    same for every star of a bin: a residue of either sign from star to star fits nothing, and the power shares
+    are what says where such a residue sits.
 
-The master itself, stars and all, is the control: its power sits on the stars and the fit explains a good part of it.
+The master itself, stars and all, is the control: its power sits on the stars and, without --median, the fit
+explains a good part of it. Through --median 7 the stars are gone from it and the fit separates little.
 """
 import csv
 import sys
@@ -94,7 +98,7 @@ def main():
             grain = passed(median_filter(plate[cut], median_px) if median_px else plate[cut])
             power = (grain - grain.mean()) ** 2
             print(f"  {label:26s} rms {grain.std() / pixel:6.2f}; power by a star of 10 sigma and over {100 * power[by_bright].sum() / power.sum():5.1f} %, "
-                  f"by any catalogued star {100 * power[by_any].sum() / power.sum():5.1f} %; one-signed light on the stars explains {100 * explained(grain, maps):6.1f} %")
+                  f"by any catalogued star {100 * power[by_any].sum() / power.sum():5.1f} %; a linear fit on the catalogued stars explains {100 * explained(grain, maps):6.1f} %")
 
 
 main()

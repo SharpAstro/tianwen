@@ -7862,8 +7862,9 @@ the first angle is a step after the model and not another arm:
         the law asks for 48 to 144 thousand stars in a cell that holds 600 to 1,300 catalogued ones. Light
         that tight about a detected star is nearer to what the builder left of each star it subtracted than
         to faint stars of their own.
-      - **Where the grain sits: between the catalogued stars for the models, and for a third on the bright
-        ones for the stored plate** (`grain_tied_to_stars.py`, 2026-11-22: each plate's 9 px box mean less its
+      - **Where the grain sits: in the flat cell the models' lies between the catalogued stars, a third of
+        the stored plate's on the bright ones, and the rule's plate keeps that third**
+        (`grain_tied_to_stars.py`, 2026-11-22: each plate's 9 px box mean less its
         41 px one as a map, without the 7 px median so that a star's own residue counts; the share of the
         map's power within 4 px of a catalogued star, beside the share of the cell's area those pixels are;
         rms in the judge's pixel sigma from neighbours' differences, a relative unit: white noise would read
@@ -7874,40 +7875,59 @@ the first angle is a step after the model and not another arm:
         | **1,1** (those pixels are 9 % and 28 % of the cell) | | | |
         | StarXTerminator | 0.23 | 8 % | 26 % |
         | the stored plate | 1.71 | 36 % | 47 % |
+        | the rule's plate (R4f's targets) | 1.38 | 49 % | 57 % |
+        | stored less rule, the layer the rule takes | 0.71 | 9 % | 25 % |
         | R4d as trained | 1.02 | 9 % | 35 % |
         | R4f seed 1 as trained | 1.01 | 10 % | 36 % |
         | the master, stars and all | 21.55 | 78 % | 81 % |
         | **5,4** (19 % and 49 % of the cell) | | | |
         | StarXTerminator | 0.67 | 18 % | 53 % |
         | the stored plate | 2.10 | 40 % | 56 % |
+        | the rule's plate (R4f's targets) | 1.72 | 48 % | 61 % |
+        | stored less rule, the layer the rule takes | 1.05 | 20 % | 43 % |
         | R4d as trained | 1.30 | 28 % | 56 % |
         | R4f seed 1 as trained | 1.29 | 26 % | 56 % |
         | the master, stars and all | 31.03 | 70 % | 76 % |
         | **4,4** (24 % and 52 % of the cell) | | | |
         | StarXTerminator | 1.37 | 39 % | 70 % |
         | the stored plate | 1.26 | 32 % | 54 % |
+        | the rule's plate (R4f's targets) | 0.67 | 43 % | 65 % |
+        | stored less rule, the layer the rule takes | 0.94 | 25 % | 48 % |
         | R4d as trained | 0.96 | 23 % | 53 % |
         | R4f seed 1 as trained | 1.03 | 22 % | 57 % |
         | the master, stars and all | 24.58 | 75 % | 85 % |
 
-        In cell 1,1 the stored plate holds 36 % of its grain's power on the 9 % of the cell that lies by a
-        bright catalogued star: what the builder left of the stars it subtracted (the black pits and the
-        leftover cores a 1:1 crop of the plate shows). The models do not copy that. Their power by those
-        stars is the area's share, and two thirds of it lies farther than 4 px from every star the catalogue
-        has. Through `band.py`'s 7 px median, which the registered rows read (`--median 7`), the same holds:
-        26 % for the stored plate in cell 1,1 and 9 to 10 % for the models, 39 % and 26 to 27 % in cell 5,4.
-        A fit of one-signed light on the catalogued stars (each significance bin's count map spread by 2, 4
-        and 8 px, fitted on one half of the cell and read on the other) explains 7 % of the models' map in
-        cell 1,1 and none of the stored plate's, against 34 to 61 % of the master's. So what the models keep
-        and the judge takes in a flat crowded cell is a soft mottle BETWEEN the catalogued stars and not
-        residue of the stars the catalogue has. The crop shows it over the whole cell where the master shows
-        a dense field of faint stars; that it is their light, under the builder's 5 sigma limit, fits and is
-        not shown here. It bears on the two ways above. The plate's own grain (stored less rule) is for a
-        third the builder's residue on bright stars, which is not what the models leave. And the light that
-        is left belongs to no star a catalogue cut at 5 sigma can name. In cell 4,4 the judge's own plate
-        holds 39 % of its power by the bright catalogued stars on 24 % of the area: a part of what it keeps
-        there is a few compact knots or stars it left, beside the nebula (the crops of cells 1,1 and 4,4
-        went to the owner).
+        **In the flat cell (1,1)** the stored plate holds 36 % of its grain's power on the 9 % of the cell
+        that lies by a bright catalogued star: what the builder left of the stars it subtracted (the black
+        pits and the leftover cores a 1:1 crop of the plate shows). The models do not copy that: 9 to 10 %,
+        the area's share, and two thirds of their power lies farther than 4 px from every star the catalogue
+        has. **It is not so in every cell.** In cell 5,4 the models hold 26 to 28 % by the bright stars on
+        19 % of the area, a third to two fifths of the stored plate's excess over the area's share there
+        (7 to 9 points of 21), and in cell 4,4 they are at the area's share again (22 to 23 % on 24 %).
+        Through `band.py`'s 7 px median, which the registered rows read (`--median 7`), the shares are 26 %
+        for the stored plate and 9 to 10 % for the models in cell 1,1, and 39 % and 26 to 27 % in cell 5,4.
+
+        **What the rule takes and what it keeps.** The layer the rule takes out of the plate (stored less
+        rule, what the second way above would add to the input) holds the area's share by the bright stars
+        in every cell: 9 %, 20 % and 25 % on 9, 19 and 24 % of the area. So that layer is grain between the
+        stars, as the models' is in the flat cell, and not the builder's residue. The residue stays in the
+        rule's plate, which holds 49 %, 48 % and 43 % of its power by the bright stars: where a star was
+        subtracted the detail is strong, so the rule keeps the plate there. R4f's targets were that plate.
+
+        A linear fit of the map on the catalogued stars (each significance bin's count map spread by 2, 4
+        and 8 px, of either sign, fitted on one half of the cell and read on the other; the run without the
+        median) explains 7 % of the models' map in cell 1,1 and none of the stored plate's, against 34 to
+        61 % of the master's. Through the median the master's own figure falls to 7 % in cell 1,1 (20 and
+        40 % in the other two), since the median takes the stars out, so there the fit separates nothing
+        and the power shares are what says where the grain sits.
+
+        So what the models keep and the judge takes in a flat crowded cell is a soft mottle BETWEEN the
+        catalogued stars and not residue of the stars the catalogue has. The crop shows it over the whole
+        cell where the master shows a dense field of faint stars; that it is their light, under the
+        builder's 5 sigma limit, fits and is not shown here. In cell 4,4 the judge's own plate holds 39 %
+        of its power by the bright catalogued stars on 24 % of the area: a part of what it keeps there is a
+        few compact knots or stars it left, beside the nebula (the crops of cells 1,1 and 4,4 went to the
+        owner).
       - **A row that reads both sides, tried on the scoring masters** (`judge_band_rows.py`). Row (2) read two
         cells picked by eye. Here the judge's own plate sorts every 300 px cell of a master: flat where its
         band is under 1.5 (noise alone reads 0.85), structure where it is 3 or over. Per plate, on the
@@ -7941,14 +7961,19 @@ the first angle is a step after the model and not another arm:
         **The structure side is not yet a measure of lost detail** (the review of this note asked). It reads
         the whole 9 to 41 px band on every cell where the judge's plate holds 3 or over, 30 Doradus's
         filaments among them, and the faint wisps the eye saw washed out are a small part of that. The models
-        read over the judge there (1.07 to 1.18) because they leave their mottle on those cells too. And the
-        rule's figure moves with who chooses the cells: 0.81 and 0.89 of the judge's when the judge's band
-        chooses them, 0.90 and 0.96 when the rule's own second plate does (`--choose-by`, 37 cells on the
-        Tarantula; the models then read 1.16 to 1.27), so a part of its shortfall against the judge was the
-        choice of cells and no loss against the judge is shown. What holds under either choice is the rule
-        against the models: the second try's median is 0.83 of R4d's through the chain on the Tarantula's
-        structure cells and 0.95 to 0.97 on Sagittarius's, which is the mottle taken and the detail lost
-        together. The washed-out wisps are on the sheets only.
+        read over the judge there (1.07 to 1.18) because they leave their mottle on those cells too: 36 to
+        42 % of their structure cells read over 1.25 of the judge's and 16 % under 0.8, where the rule has 6
+        and 10 % over and 42 and 36 % under. By the share inside the window the rule is even the higher, 52
+        and 55 % against 42, 48 and 48 %. And the rule's figure moves with who chooses the cells: 0.81 and
+        0.89 of the judge's when the judge's band chooses them, 0.90 and 0.96 when the rule's own second
+        plate does (`--choose-by`, 37 cells on the Tarantula). Each choice leans its own way. The judge's
+        band picks cells where the denominator reads high. The rule's picks cells where the numerator does,
+        which lifts the ratio by construction, and the models, which chose nothing, rise with it (1.16 to
+        1.27) because the added cells are ones where the judge reads under 3. So the two choices bound the
+        figure and neither is the measure; no loss against the judge is shown. What holds under either
+        choice is the rule against the models: the second try's median is 0.83 of R4d's through the chain
+        on the Tarantula's structure cells and 0.95 to 0.97 on Sagittarius's, which is the mottle taken and
+        whatever detail went with it. The washed-out wisps are on the sheets only.
 
         Whether a pair of this kind joins the scorecard, and at what bars, is the owner's; no arm or step is
         judged on it here. Putting it into the scorer as a reported pair, with a structure side that sets the
