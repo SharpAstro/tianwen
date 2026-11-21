@@ -7348,7 +7348,8 @@ the first angle is a step after the model and not another arm:
     star and its halo flat out to about 120 px and leaves the master as it is beyond. On plain sky (HIP 80609)
     that flat level is the halo's own at 120 px, a pedestal of 20 / 15.5 / 6 sigma above the sky, never under
     it, with the spikes' residues 4 to 5 sigma under the pedestal. Over nebula (the Lagoon cell) the flat level
-    sits 3 to 6 sigma under its own rim, with a patch 20 to 30 sigma lower: a dent in the nebula. **Where the two
+    sits under its own rim by 3.4 to 5.8 sigma in R, 1.7 to 5.1 in B and, in G, from 0.3 above to 3.0 under (the plate's
+    own ring at 100 to 120 px; figures below), with a patch 20 to 30 sigma lower: a dent in the nebula. **Where the two
     were read** (written 2026-11-21 for #2293; the registration named neither): `plate_halo_channels.py` takes a
     session master, its plate and an x, y, both files from the store (`session-masters/<stem>.fits` and
     `starless/plates/<stem>_plate.fits`). HIP 80609 is the star itself in the `flip=b` half of its session, stem
@@ -7359,12 +7360,18 @@ the first angle is a step after the model and not another arm:
     with no flip, stem
     `ZWO-ASI585MC-Pro_Unidentified-Broadband-BlueCut_Lagoon-Nebula_2025-05-25_ZWO ASI585MC Pro_Lagoon Nebula_Unidentified-Broadband-BlueCut`,
     at x 1920, y 1312: the plate reads 35.0 to 37.4 / 24.5 to 27.8 / 25.2 to 28.6 between 8 and 100 px against
-    40.8 / 27.5 / 30.3 at 100 to 120 px, and its 10th percentile falls to 10.1 / 4.9 / 2.0 at 22 to 40 px. Both
+    40.8 / 27.5 / 30.3 at 100 to 120 px (the plate's own ring there; the master reads 40.6 / 27.8 / 30.9), and its 10th percentile falls to 10.1 / 4.9 / 2.0 at 22 to 40 px. Both
     were run again on 2026-11-21 and read the same. **The star's own cell is not one of the 126 that pass the
-    gate, but its flattened disc reaches into three that do:** the session's cells at 1603, 1214, at 1603, 1342
-    and at 1731, 1342 lie 62, 69 and 30 px from the star, so the disc of about 120 px reaches 58, 51 and 90 px
-    into them. The dent is therefore in R4g's own targets, on part of three cells of 126, and this registration
-    did not say so (whether the session's two flip halves hold it in a passing cell was not looked at). One session is
+    gate, but its flattened disc reaches into six that do (three positions in each of two session ids):** the
+    session's cells at 1603, 1214, at 1603, 1342 and at 1731, 1342 lie 62, 69 and 30 px from the star, so the disc
+    of about 120 px reaches 58, 51 and 90 px into them. The same three positions pass under the session's `flip=a`
+    id as well (`bright-plate-cells.tsv`); that half is co-registered, the same star at 1920, 1312 with the same
+    dent (plate 10th percentile 12.3 / 7.2 / 3.7 at 22 to 40 px, flat level 39 to 45 / 27 to 31 / 26 to 29
+    against 45.5 / 30.9 / 30.4 at 100 to 120 px), so the `flip=a` copy is the same sky, its targets drawn
+    separately. `flip=b` has no passing cell. The dent is therefore in R4g's own targets, on part of six cells of
+    126, and this registration did not say so. Only this star's reach was traced: the count is a floor, not the
+    count of dented cells, since other saturated stars over nebula in the passing cells (eta Carinae, Orion) were
+    not looked at, so "at least six" is what the table supports. One session is
     left out by name
     (`--exclude-session`), the Lagoon and Trifid of 2023-06-16 with its 8 cells: the Sagittarius master the
     question is read on is an OIII stack of 72 minutes from a frame of that camera's size, and whether its sky is
@@ -7435,7 +7442,7 @@ the first angle is a step after the model and not another arm:
     within a point of R4d's. What speaks against a clean pass: the dose is a twentieth of the draw, two thirds of
     the bright cells are one object through one filter, 126 cells is little sky, and the halo change that began
     the nebula-taking is still in every main row. (Added 2026-11-21, after the arm was read and killed, so it
-    moves no bar: a fifth thing spoke against it and was not listed. Three of the 126 cells hold part of the dent
+    moves no bar: a fifth thing spoke against it and was not listed. At least six of the 126 cells hold part of the dent
     the builder leaves at a saturated star over nebula, "Where the two were read" above, which is the
     broad-light-taken failure this arm tests, in its own targets.)
   - **Nothing is adopted;** adoption is the owner's.
