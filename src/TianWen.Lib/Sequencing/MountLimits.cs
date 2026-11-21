@@ -211,10 +211,12 @@ public readonly record struct MountLimitVerdict(
     /// <para>
     /// Both callers return before this line for a verdict that only warns, but the member is public, so it is right
     /// for one too: a response of <see cref="MountLimitResponse.Warn"/> needs no command on any mount, and is not
-    /// said to be one a mount "cannot carry out".
+    /// said to be one a mount "cannot carry out". A latched verdict reads Warn as well (<see cref="MountLimits.Evaluate"/>
+    /// downgrades it once the limit has acted), and its limit was set to do more, so it says that instead.
     /// </para>
     /// </summary>
-    public string ActingNote() => Response is MountLimitResponse.Warn ? "No command is sent: the limit only warns."
+    public string ActingNote() => Latched ? "No command is sent: the limit was answered when it was reached, and is not answered twice."
+        : Response is MountLimitResponse.Warn ? "No command is sent: the limit only warns."
         : MountCannotBeStopped ? $"No command is sent: the configured response is {Response}, which this mount cannot carry out."
         : $"Responding with {Response}.";
 

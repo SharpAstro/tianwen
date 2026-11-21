@@ -511,6 +511,11 @@ public class MountLimitsTests
         new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0) { MountCannotBeStopped = true }
             .ActingNote().ShouldBe("No command is sent: the limit only warns.");
         new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0).ActingNote().ShouldBe("No command is sent: the limit only warns.");
+        // A latched verdict also reads Warn (Evaluate downgrades it), and its limit was set to do more: it is not said to only warn.
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true)
+            .ActingNote().ShouldBe("No command is sent: the limit was answered when it was reached, and is not answered twice.");
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true) { MountCannotBeStopped = true }
+            .ActingNote().ShouldBe("No command is sent: the limit was answered when it was reached, and is not answered twice.");
     }
 
     [Theory]
