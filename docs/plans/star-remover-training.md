@@ -7285,27 +7285,30 @@ the first angle is a step after the model and not another arm:
       "best" judge), read from its `val STEP held-out X window Y best Z at S lr L` lines in the logs
       `C:/temp/e2/r4faz-batch/r4faz.log`, `C:/temp/e2/r4d.log` (a GTX 1070 run, not Batch),
       `C:/temp/e2/r4eaz-batch/r4eaz.log`, `C:/temp/e2/r4caz-batch/r4caz.log` and
-      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **R4f was not slow from the start: at its first learning rate it was
-      ahead.** The rate was first halved from step 57,000 in R4e, 63,500 in R4d, 77,500 in R4c and 82,000 in R4f
-      (decided at step 81,500), so no one range of steps is "before the first halving" for all four, and at step
-      69,500 R4d's window of 1.04e-5 is one at the halved rate against R4f's 1.08e-5 at the first. At the first rate
-      the best windows were R4f 1.08e-5 (step 69,500), R4d 1.20e-5 (51,000), R4c 1.26e-5 (65,000) and R4e 1.50e-5
-      (44,500). **They part at the halvings:** aligned on each arm's own first halving, the median from step 30,000
+      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **Nothing in its first learning rate marks R4f as slow.** The rate was first
+      halved from step 57,000 in R4e, 63,500 in R4d, 77,500 in R4c and 82,000 in R4f (decided at step 81,500), so no
+      one range of steps is "before the first halving" for all four, and at step 69,500 R4d's window of 1.04e-5 is
+      one at the halved rate against R4f's 1.08e-5 at the first. At the first rate the best windows were R4f
+      1.08e-5 (step 69,500), R4d 1.20e-5 (51,000), R4c 1.26e-5 (65,000) and R4e 1.50e-5 (44,500); R4f's is the
+      lowest, which does not make it ahead, since each arm's figure is on its own draws and targets (the caveat
+      below). What needs no scale across arms is each arm against itself. **They part at the halvings:** aligned on each arm's own first halving, the median from step 30,000
       to the halving and then over the next 60,000 steps is R4d 1.96e-5 then 9.82e-6, R4e 2.11e-5 then 9.95e-6 and
       R4c 2.10e-5 then 1.01e-5 (each about half), where R4f's is 1.76e-5 then 1.49e-5 (a fall of 15 percent, over
       the 47,500 steps it ran after its first halving); R4d went on to 7.85e-6 at step 233,000. So the flat stretch
       before the stop does not separate R4f from the arms that went on: its halvings bought almost nothing, where
       theirs halved the objective. **Nor did the later steps hold weights as good as the
       best:** R4f's windows sat at 1.08e-5 to 1.16e-5 through step 72,000, then came a spike (held-out 4.88e-5 at
-      step 73,000, window 2.50e-5) with no recovery: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
+      step 73,000, window 2.50e-5) with no recovery to a new best: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
       lower, and the final window is 1.57e-5, 45 percent above the best. That is the shape R2n's note records (above,
       "the deeper net blew up"). The first resume (after step 72,000) is not its cause: replaying steps 72,500, 73,000
       and 73,500 gives the same digits (1.433862e-05, 4.882240e-05, 1.355304e-05). The run was moved to a new node
       twice (resumed after steps 72,000 and 110,000); R4c, R4e and R3x were moved too, and each set a new best after
       its earlier resumes (R4c after steps 40,000, 76,000 and 98,000; R4e after 100,000; R3x after 34,000, 72,000
-      and 104,000). Their last resumes gained little or nothing: R4c's, after step 128,000, set no new best (its
-      best stays 8.95e-6 at step 121,000 to the stop at 157,000, the lowest later window 9.01e-6), and R3x's, after
-      132,000, gained 0.15 percent (5.980e-6 to 5.971e-6). **These figures are not like for like across arms:** each arm's held-out objective is read
+      and 104,000). R4c's and R3x's last resumes gained little or nothing: R4c's, after step 128,000, set no new
+      best (its best stays 8.95e-6 at step 121,000 to the stop at 157,000, the lowest window after step 128,000
+      9.01e-6), and R3x's, after 132,000, gained 0.15 percent (5.980e-6 to 5.971e-6). R4e's one resume is also its
+      last, and its best fell by 14 percent after it (8.50e-6 at the resume, 7.28e-6 at step 170,500). **These figures are not like for like across arms:**
+      each arm's held-out objective is read
       on its own validation draws (R4f on synth31's, whose targets are the grain-free plates; R4d on synth29's and R4e
       on synth30's, on the stored plates), and this plan already calls a held-out loss on another arm's draws "not
       comparable" (arm A and B, above). The gap says R4f's curve was higher after the spike, not by how much the model
@@ -7334,6 +7337,83 @@ the first angle is a step after the model and not another arm:
       stopped learning early. Two things would separate the target from the training: the same arm run again
       (another seed, or the same seed on the other machine), and a trainer that keeps the weights of its best
       step. Neither is registered, and both are the owner's.
+  - **R4f run again, registered 2026-11-21 before its launch and before any score of it (seed 1,
+    `r4f_synth31_s1`). Nothing is changed from R4f but the seed.** The owner, 2026-11-21, on the two things the
+    read names: "yeah lets rerun R4f". The cache is R4f's own, already in the container (`r2-synth31/cache`), so
+    no export is made. The recipe is R4f's (the Batch task's, with `--levels 4 --max-ch 256 --clip-grad 8`). The
+    trainer is R4f's frozen one plus `--save-best` only (PR #2329), which writes the weights of the best step
+    beside the last step's and changes nothing the run computes: on a tiny cache with the arm's switches the
+    frozen trainer without the patch, with it, and with it and the switch end on the same weights to the bit, and
+    the best file equals the weights of a run stopped at that step. One Batch run on a low-priority T4, capped
+    at 36 hours, whose pool removes itself.
+    - **The question.** Was R4f's training an accident of one run, or does this target with this recipe train
+      so? Only when it trains as the others did does the arm answer what R4f was registered to ask.
+    - **The training is read first, from the trainer's log alone, before any row is scored.** One figure, the
+      one R4f's read aligns the arms on: the median of the window means over the 60,000 steps after the first
+      halving (or to the stop, the length then stated), as a share of the median from step 30,000 to that
+      halving. R4d reads 0.50, R4e 0.47, R4c 0.48 and R4f 0.848. **0.60 or under: trained as the others.
+      0.75 or over: stalled again.** Between the two it is called neither, and the rows are reported with that
+      said. The figure is read against the curve before it is called: R3x reads 0.80 on it (6.06e-6 over 7.60e-6,
+      its first halving at 101,000) and is not a stall. Its curve has two isolated spikes before the halving
+      (held-out 1.934e-5 at step 74,500 and 1.101e-5 at 75,500 against 6.8e-6 around them, back to 7.0e-6 by
+      77,000; 1.192e-5 at step 85,000, back to 6.8e-6 by 88,000), and both recovered within a few evaluations. It
+      set a new best (5.971e-6 at 148,500) 47,500 steps after the halving; a long first-rate stretch (71,000 steps
+      against 27,000 to 52,000 for the others) lifts the ratio. The spikes do not separate R4f from R3x: R4f's
+      window was back inside its level before the spike six evaluations after it (1.13e-5 at step 76,000, against
+      1.08e-5 to 1.16e-5 over steps 69,500 to 72,000), as R3x's was after five; its next evaluation, step 76,500,
+      was a second and larger spike (held-out 1.04e-4, the window back to 1.25e-5 only at step 80,000), which R3x
+      has no counterpart for. What separates them is the new best: R3x, R4d, R4e and R4c each set a new best
+      window after their first halving, and R4f set none to its stop. **So a ratio of 0.75 or over is called
+      stalled only when the run sets no new best window after its first halving; with a new best there it is
+      called neither, and the rows are reported with that said.** A new best is one the trainer's own log
+      prints (its "best ... at" column moving, which its plateau rule does for a window at least 0.1 percent
+      under the best so far); any such counts, and no larger size is asked of it. That holds over 0.85 as under it: a long
+      first-rate stretch can lift a run that went on improving past any ratio. R4f itself reads 0.848 and set
+      no new best, so an exact repeat of it is called stalled. Spikes are described and decide nothing. 0.60 or
+      under is trained, as launched; no threshold changes. **These sentences, from "The figure is read against the curve", were added after the
+      launch**, on the review of this registration (PR #2335), which found that the figure as launched would
+      have called R3x stalled: I had set the thresholds on R4c, R4d, R4e and R4f and left R3x out. The rule's
+      sentences were changed six times on 2026-11-21, each timed here against the trainer's log (it started at
+      10:00:46 and reads step 13,800 at 43.1 minutes and step 27,600 at 86.5):
+      (1) at 10:40, about step 12,600, the R3x sentence and a band of 0.75 to 0.85 read against "a spike, a new
+      best after the halving";
+      (2) at 10:44, about step 13,800, a second wording, "a spike with no recovery", with both signs needed for
+      stalled;
+      (3) at 10:45, about step 14,400, the clause that one sign alone is called neither;
+      (4) at 10:50, about step 15,800, the new best alone, spikes deciding nothing: the second wording was
+      withdrawn, since by it R4f had recovered too;
+      (5) at 11:27, about step 27,500, the test's reach to any ratio of 0.75 or over, R4f's 0.848 and its second
+      spike;
+      (6) at 12:07, about step 40,000, what counts as a new best.
+      What the changes alter against the launched sentence, "0.75 or over: stalled again", is one outcome: a
+      ratio of 0.75 or over with a new best after the halving read stalled as launched and reads neither now.
+      Changes (1) to (4) made that so for a ratio of 0.75 to 0.85, and change (5) for a ratio over 0.85. Every
+      held-out line of the log to step 39,000 is at the first learning rate, and the earliest first halving
+      among the other arms was at step 57,000. So nothing the figure reads existed yet. This note was first
+      written with change (3) and has been corrected since. The prediction's reasons below were reworded in
+      the same review (they first said R4c, R4d and R4e each differ from R4f by one change of the export, which
+      this plan's own lineage contradicts); the guess and its figures are as launched. The additions are the
+      owner's to refuse; refused, the rule is the one sentence as launched.
+    - **The read is R4f's, unchanged, on the last step's weights** as for every arm before: its bars, its
+      guards, its kill rule and its two added rows stand as its registration and its read list them (the
+      Tarantula's crowded flat through the product's chain 93.3 or over and killed under R4d's 91.3; BP 17-19
+      with the level set aside 93.5; the dense cells' grain as trained 0.6 of R4d's). The 1:1 sheets are looked
+      at before any row is quoted.
+    - **The best step's weights are a reported column and decide nothing.** They are scored on the same rows
+      and set beside the last step's. No arm before was read on a best step, so no bar or kill rule applies to
+      them.
+    - **What each outcome says.** Trained as the others and the crowded flat at its bar: the grain-free target
+      works, and seed 0 was an accident of its training. Trained as the others and killed again: the grain in
+      the target is not what holds the crowded fields, the answer R4f could not give. Stalled again: the stall
+      is this target's with this recipe (two seeds of two) and the rows judge the target no more than R4f's
+      did; what is then worth reading is the best step's column against R4d, and the next step is the
+      trainer's (why the objective breaks and does not come back), not another export.
+    - **Prediction, written before the launch.** It trains as the others (my guess, two chances in three: R4c,
+      R4d and R4e train R3v's model and recipe on exports of the same line and none broke, and R4d is the one
+      change neighbour of R4f, its target; the earlier stalls this plan records are arm B's seed 1, R2n and
+      R3w). If
+      it does, the dense cells' grain as trained falls by a quarter or more against R4d's, and the crowded flat
+      rises over R4d's 91.3 but does not reach its bar of 93.3.
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
   the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
   2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
