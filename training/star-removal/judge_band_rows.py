@@ -1,6 +1,10 @@
 """A two-sided read of the 9 to 41 px band against the judge's own plate, cell by cell (2026-11-21, a trial row).
 
-    python -I judge_band_rows.py <the judge's starless plate fits> <label>=<plate fits> ...
+    python -I judge_band_rows.py <the judge's starless plate fits> [--choose-by <plate fits>] <label>=<plate fits> ...
+
+--choose-by sorts the cells by another plate's band (in the judge's sigma, by the same two levels) and leaves the rest
+as it is: every figure is still read against the judge's plate. It answers whether a ratio over the judge's leans as
+it does only because the judge's own band chose the cells.
 
 R4f's added row (2) read "the grain in the dense cells" on two cells picked by eye, and one of them held structure the
 judge keeps. Here the judge's plate sorts the cells: every 300 px cell of the frame away from its border (band.py's
@@ -46,6 +50,12 @@ def bands(img, sig):
 
 
 def main():
+    specs = sys.argv[2:]
+    choose_by = None
+    if "--choose-by" in specs:
+        at = specs.index("--choose-by")
+        choose_by = specs[at + 1]
+        del specs[at:at + 2]
     judge = lum(sys.argv[1])
     h, w = judge.shape
     sig = {}
@@ -54,12 +64,14 @@ def main():
             if usable(judge[i * B - PAD:i * B + B + PAD, j * B - PAD:j * B + B + PAD]):
                 sig[(i, j)] = 1.4826 * float(np.median(np.abs(np.diff(judge[i * B:i * B + B, j * B:j * B + B], axis=1)))) / np.sqrt(2)
     bj = bands(judge, sig)
-    flat = [c for c, v in bj.items() if v < FLAT]
-    structure = [c for c, v in bj.items() if v >= STRUCTURE]
-    print(f"{len(bj)} cells read; the judge's plate is flat (band under {FLAT:g}) on {len(flat)} and holds structure ({STRUCTURE:g} or over) on {len(structure)}"
-          + (f"; its median band on the flat ones {np.median([bj[c] for c in flat]):.2f}" if flat else ""))
+    chosen = {c: v for c, v in bands(lum(choose_by), sig).items() if c in bj} if choose_by else bj
+    flat = [c for c, v in chosen.items() if v < FLAT]
+    structure = [c for c, v in chosen.items() if v >= STRUCTURE]
+    who = "the plate named by --choose-by" if choose_by else "the judge's plate"
+    print(f"{len(bj)} cells read; {who} is flat (band under {FLAT:g}) on {len(flat)} and holds structure ({STRUCTURE:g} or over) on {len(structure)}"
+          + (f"; the judge's median band on the flat ones {np.median([bj[c] for c in flat]):.2f}" if flat else ""))
     print(f"  {'plate':40s} flat cells: median band, share under {FLAT:g} | structure cells: band over the judge's, median, share within 0.8 to 1.25")
-    for spec in sys.argv[2:]:
+    for spec in specs:
         label, path = spec.split("=", 1)
         b = bands(lum(path), sig)
         f = np.array([b[c] for c in flat if c in b])
