@@ -33,6 +33,16 @@ internal sealed class NodeSuspendStop(IDeviceHub hub, ISuspendNotice notice, ITi
     ILogger<NodeSuspendStop> logger) : IHostedService
 {
     /// <summary>How long the stop may take: Windows waits about two seconds, and the callback itself leaves a margin.</summary>
+    /// <remarks>
+    /// It has a floor as well as that ceiling, and <c>NodeSuspendStopTests</c> holds it to both. A mount's stop is up to
+    /// four commands, one after another (the abort, each axis, tracking off). When the budget ends that work is left
+    /// behind and no longer waited for, it is not stopped: a command not yet made is still made, with a cancelled
+    /// token (<see cref="LoggerCatchExtensions"/> does not look at the token first), which a driver that honours its
+    /// token refuses and one that ignores it may yet send, if the suspend has not frozen the process by then. So
+    /// nothing is SURE to reach a mount after the budget, and a mount whose stop was cut off may drive on through the
+    /// suspend. That is why the budget stays most of what Windows gives, not under half of it. The half is a line
+    /// drawn, not a measurement: no mount's stop has been timed.
+    /// </remarks>
     internal static readonly TimeSpan Budget = TimeSpan.FromSeconds(1.5);
 
     public Task StartAsync(CancellationToken cancellationToken)

@@ -18,3 +18,4 @@
 [assembly: InternalsVisibleTo("PrecomputeSimbadMerge")]
 [assembly: InternalsVisibleTo("BakeComets")]
 [assembly: InternalsVisibleTo("BakeObjectImagery")]
+[assembly: InternalsVisibleTo("CoreMaskProbe")]

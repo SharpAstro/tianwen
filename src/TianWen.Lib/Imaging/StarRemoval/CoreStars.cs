@@ -30,6 +30,13 @@ public readonly record struct FrameStar(float X, float Y, float Magnitude);
 /// a star of a given magnitude stands over its sky, ring medians down to <see cref="Options.RingSigma"/> sigmas) is a
 /// straight line by magnitude through the half-magnitude medians. A star's footprint is a disc of that reach, feathered.
 /// The remover's own take is no measure of a footprint inside a core: it takes broad light there too.</para>
+/// <para><b>A clipped star is one peak at its flat top's centre (#2373).</b> Bright enough to clip, a star has no peak
+/// where the catalogue has it: the compact light is nothing across a flat top and rises to its rim, so the peaks stand
+/// around the rim, none within <see cref="Options.MatchPx"/> of the star but by chance, and the brightest star of the core
+/// came back with it. Where the mask read a star's flat top on a core (<see cref="ExtendedCoreMask.Core.HasStarTop"/>),
+/// the top is taken as one peak: a star when the catalogue has one on the top that can carry what the top's highest peak
+/// shows, by the same slack. Its reach is the farther of the line's and its own rings', since the line is drawn through
+/// stars that do not clip. A clipped star away from where its core's large-scale light peaks is not read this way.</para>
 /// <para>With too few stars to read a zero point, nothing is taken as a star and the mask is left as it was.</para>
 /// </remarks>
 public static class CoreStars
@@ -194,7 +201,6 @@ public static class CoreStars
         var visible = StatisticsHelper.NthSmallest(magnitudes.AsSpan().ToArray(), Math.Min(magnitudes.Length - 1, (int)(0.9 * magnitudes.Length))) + 1f;
         var rings = Rings(reach);
         var reaches = new List<(float Magnitude, int Radius)>();
-        Span<float> ring = stackalloc float[8 * (reach + 1)];
         var profile = new float[reach + 1];
         foreach (var (index, _) in calibration)
         {
@@ -204,32 +210,7 @@ public static class CoreStars
             }
             var star = stars[index];
             var (sx, sy) = ((int)MathF.Round(star.X), (int)MathF.Round(star.Y));
-            for (var r = 0; r <= reach; r++)
-            {
-                var count = 0;
-                foreach (var (dx, dy) in rings[r])
-                {
-                    var i = ((sy + dy) * width) + sx + dx;
-                    if (present[i])
-                    {
-                        ring[count++] = luminance[i];
-                    }
-                }
-                profile[r] = count > 0 ? StatisticsHelper.MedianFast(ring[..count]) : float.NaN;
-            }
-            // The star's own sky: the middle one of its three outermost rings.
-            var (a, b, c) = (profile[reach - 2], profile[reach - 1], profile[reach]);
-            var sky = MathF.Max(MathF.Min(a, b), MathF.Min(MathF.Max(a, b), c));
-            var radius = reach;
-            for (var r = 0; r <= reach; r++)
-            {
-                if (profile[r] - sky < options.RingSigma * sigma)
-                {
-                    radius = r;
-                    break;
-                }
-            }
-            reaches.Add((star.Magnitude, radius));
+            reaches.Add((star.Magnitude, RingReach(luminance, present, width, rings, profile, sx, sy, options.RingSigma * sigma)));
         }
         var (slope, intercept) = ReachLine(reaches);
         double Reach(double magnitude) => Math.Clamp(intercept + (slope * magnitude), 2.0, reach);
@@ -247,7 +228,7 @@ public static class CoreStars
             return value;
         }
         const int half = LocalPeakPx / 2;
-        var found = new List<(int X, int Y, float Height, bool Star, int Radius)>();
+        var candidates = new List<(int X, int Y, float Height)>();
         for (var y = half; y < height - half; y++)
         {
             for (var x = half; x < width - half; x++)
@@ -275,20 +256,84 @@ public static class CoreStars
                         }
                     }
                 }
-                if (!highest)
+                if (highest)
                 {
-                    continue;
+                    candidates.Add((x, y, here));
                 }
-                var seen = zeroPoint - (2.5 * Math.Log10(here));
-                if (grid.BrightestWithin(x, y, (float)options.MatchPx) is { } catalogued && seen >= catalogued - options.MagnitudeSlack)
+            }
+        }
+
+        // A clipped star on a core (#2373). Its top is flat, so the compact light is nothing at its middle and rises to its
+        // rim, where the median under it is lowest: the peaks stand around the rim and on ripples of the plateau, none of
+        // them on the catalogued position but by chance (eta Carinae in the Keyhole: three on the rim 4.6 to 5.0 px out,
+        // the star catalogued 0.6 px from the top's centre). Where the mask read a star's flat top on a core, the top is
+        // one peak at its centre: a star when the catalogue has one on it that can carry what its highest peak shows, which
+        // is the least the star can be. Its peaks are then its own and are not looked at again; with no such star they are
+        // judged one by one as before.
+        var found = new List<(int X, int Y, float Height, bool Star, int Radius)>();
+        var ofATop = new bool[candidates.Count];
+        foreach (var core in mask.Cores)
+        {
+            if (!core.HasStarTop)
+            {
+                continue;
+            }
+            var topRadius = Math.Sqrt(core.FlatTopPx / Math.PI);
+            var within = topRadius + LocalPeakPx;
+            var rim = 0f;
+            for (var k = 0; k < candidates.Count; k++)
+            {
+                var (dx, dy) = (candidates[k].X - core.FlatTopX, candidates[k].Y - core.FlatTopY);
+                if (!ofATop[k] && (dx * dx) + (dy * dy) <= within * within)
                 {
-                    // The brighter of what is seen and what is catalogued: a clipped star reads fainter than it is.
-                    found.Add((x, y, here, true, (int)Math.Round(Reach(Math.Min(seen, catalogued))) + 1));
+                    rim = MathF.Max(rim, candidates[k].Height);
                 }
-                else
-                {
-                    found.Add((x, y, here, false, 0));
-                }
+            }
+            if (!(rim > 0f)
+                || grid.BrightestWithin((float)core.FlatTopX, (float)core.FlatTopY, (float)(topRadius + options.MatchPx)) is not { } catalogued
+                || zeroPoint - (2.5 * Math.Log10(rim)) < catalogued - options.MagnitudeSlack)
+            {
+                continue;
+            }
+            for (var k = 0; k < candidates.Count; k++)
+            {
+                var (dx, dy) = (candidates[k].X - core.FlatTopX, candidates[k].Y - core.FlatTopY);
+                ofATop[k] |= (dx * dx) + (dy * dy) <= within * within;
+            }
+            // The brighter of what is seen and what is catalogued, as for any star: the top shows a clipped star fainter
+            // than it is. Its reach is the farther of the frame's line at that magnitude and its own rings, read as the
+            // line's stars were: the line is drawn through stars that do not clip and falls short of one that does (25 px
+            // for eta Carinae, whose light stands 26 sigmas over its sky at 27 px). And never short of the top and the
+            // window its peaks were gathered from, with a pixel for the centre's rounding: every peak set aside above lies
+            // inside the star's own disc, whatever the line and the rings say (a line read off few stars, a top too near
+            // the frame's edge for its rings, a top wider than the cap), so none is left neither judged nor covered.
+            var magnitude = Math.Min(zeroPoint - (2.5 * Math.Log10(rim)), catalogued);
+            var (tx, ty) = ((int)Math.Round(core.FlatTopX), (int)Math.Round(core.FlatTopY));
+            var reached = Math.Max(Reach(magnitude), within + 1);
+            if (tx >= reach + 2 && ty >= reach + 2 && tx < width - reach - 2 && ty < height - reach - 2)
+            {
+                reached = Math.Max(reached, RingReach(luminance, present, width, rings, profile, tx, ty, options.RingSigma * sigma));
+            }
+            // As high as that magnitude says, which is no less than its rim shows: a peak beside it holds its side only if
+            // it stands over the star itself.
+            found.Add((tx, ty, (float)Math.Pow(10, (zeroPoint - magnitude) / 2.5), true, (int)Math.Round(reached) + 1));
+        }
+        for (var k = 0; k < candidates.Count; k++)
+        {
+            if (ofATop[k])
+            {
+                continue;
+            }
+            var (x, y, here) = candidates[k];
+            var seen = zeroPoint - (2.5 * Math.Log10(here));
+            if (grid.BrightestWithin(x, y, (float)options.MatchPx) is { } catalogued && seen >= catalogued - options.MagnitudeSlack)
+            {
+                // The brighter of what is seen and what is catalogued: a clipped star reads fainter than it is.
+                found.Add((x, y, here, true, (int)Math.Round(Reach(Math.Min(seen, catalogued))) + 1));
+            }
+            else
+            {
+                found.Add((x, y, here, false, 0));
             }
         }
 
@@ -372,6 +417,38 @@ public static class CoreStars
         }
         Feather(footprint, width, height, options.FeatherPx, minX, minY, maxX, maxY);
         return (footprint, report);
+    }
+
+    // How far a star at (sx, sy) stands over its own sky: the first ring whose median is less than floor over the middle one
+    // of its three outermost rings, the last ring where none is. The caller keeps (sx, sy) a full reach inside the frame;
+    // profile is its scratch, one value per ring.
+    private static int RingReach(float[] luminance, bool[] present, int width, (int Dx, int Dy)[][] rings, float[] profile, int sx, int sy, double floor)
+    {
+        var reach = rings.Length - 1;
+        Span<float> ring = stackalloc float[8 * (reach + 1)];
+        for (var r = 0; r <= reach; r++)
+        {
+            var count = 0;
+            foreach (var (dx, dy) in rings[r])
+            {
+                var i = ((sy + dy) * width) + sx + dx;
+                if (present[i])
+                {
+                    ring[count++] = luminance[i];
+                }
+            }
+            profile[r] = count > 0 ? StatisticsHelper.MedianFast(ring[..count]) : float.NaN;
+        }
+        var (a, b, c) = (profile[reach - 2], profile[reach - 1], profile[reach]);
+        var sky = MathF.Max(MathF.Min(a, b), MathF.Min(MathF.Max(a, b), c));
+        for (var r = 0; r <= reach; r++)
+        {
+            if (profile[r] - sky < floor)
+            {
+                return r;
+            }
+        }
+        return reach;
     }
 
     // A straight line through the medians of the reach in half-magnitude bins; one level when fewer than two bins hold

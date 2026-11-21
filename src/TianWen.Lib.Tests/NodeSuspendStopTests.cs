@@ -131,26 +131,42 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
         var rig = new Rig(said);
         var silent = StubMount();
         var never = new TaskCompletionSource();
-        // Ignores its token, as a driver wedged in a native call would.
-        silent.AbortSlewAsync(Arg.Any<CancellationToken>()).Returns(_ => new ValueTask(never.Task));
+        var cutOffAtTicks = 0L;
+        // Ignores its token, as a driver wedged in a native call would. All it does with it is note WHEN it was
+        // cancelled, on the fake clock: a token's callbacks run inside the advance that fires the deadline's timer, at
+        // that timer's instant, so the reading is the deadline's own time whatever the thread pool does afterwards.
+        silent.AbortSlewAsync(Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<CancellationToken>().Register(() => Volatile.Write(ref cutOffAtTicks, rig.Clock.GetUtcNow().UtcTicks));
+            return new ValueTask(never.Task);
+        });
         var good = await SlewingTrackingMountAsync(ct);
         rig.Connect("silent", silent);
         rig.Connect("good", good);
 
         await rig.Service.StartAsync(ct);
+        var suspendedAt = rig.Clock.GetUtcNow();
         var stop = rig.Notice.RaiseSuspending();
-        var pumped = await rig.Clock.PumpUntilCompletedAsync(stop, TimeSpan.FromSeconds(30), cancellationToken: ct);
+        await rig.Clock.PumpUntilCompletedAsync(stop, TimeSpan.FromSeconds(30), cancellationToken: ct);
         await stop;
 
-        // Ended by the budget and not by the driver: the stop says it was cut off, and the driver has still not
-        // answered. How much fake time the pump moved does not say it (#2383). The deadline's timer fires at 1.5 s and
-        // the stop's continuation then runs on the thread pool; a pump that looks again before it has run finds
-        // nothing else waiting on the clock and takes one more step of its coarsest size, so the same stop read 1.5 s
-        // on a quiet runner and 6.5 s on a busy one. What the clock does say is the lower bound: nothing but the
-        // deadline ends this stop, and the deadline is not before the budget.
+        // Ended by the budget and not by the driver: the stop says it was cut off, and the driver's token was
+        // cancelled exactly the budget after the suspend. How much fake time the PUMP moved does not say it (#2383):
+        // the deadline's timer fires at 1.5 s and the stop's continuation then runs on the thread pool; a pump that
+        // looks again before it has run finds nothing else waiting on the clock and takes one more step of its
+        // coarsest size, so the same stop read 1.5 s on a quiet runner and 6.5 s on a busy one. The token's own
+        // instant is read inside the advance that fired it, where no runner moves it (#2388).
         said.Drain().ShouldContain("took longer than", Case.Sensitive, "the stop was cut off, and said so");
-        never.Task.IsCompleted.ShouldBeFalse("the driver never answered");
-        pumped.ShouldBeGreaterThanOrEqualTo(NodeSuspendStop.Budget);
+        var cutOffAt = Volatile.Read(ref cutOffAtTicks);
+        cutOffAt.ShouldNotBe(0L, "the driver's token was cancelled while it was still waiting");
+        TimeSpan.FromTicks(cutOffAt - suspendedAt.UtcTicks).ShouldBe(NodeSuspendStop.Budget, "at the budget, to the tick");
+        // And the budget is one its reasons allow, on both sides (#2394). Windows gives about two seconds before it
+        // suspends, so it is under that; and it is most of that, because a stop that is cut off may leave its mount
+        // driving, so it is not under half. The assertion above holds for any budget: these two are what a budget
+        // cut to a tenth of a second, or raised past the suspend, would fail.
+        var windowsGives = TimeSpan.FromSeconds(2);
+        NodeSuspendStop.Budget.ShouldBeLessThan(windowsGives, "the stop has ended before Windows suspends");
+        NodeSuspendStop.Budget.ShouldBeGreaterThanOrEqualTo(windowsGives / 2, "and a mount has most of that time to take its stop");
         (await good.IsSlewingAsync(ct)).ShouldBeFalse();
         (await good.IsTrackingAsync(ct)).ShouldBeFalse();
     }
