@@ -200,6 +200,48 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #2412: a loop that waits on a one-shot timer of the clock parks no sleep, and is advanced without the 50 ms
+        /// of real time the pump gives a sleep to park. A 30 s wait is six advances of the coarsest step: it used to
+        /// be six waits of 50 ms for a park that was never going to come.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task ALoopThatWaitsOnATimerOfTheClockIsAdvancedWithoutWaitingForASleepToPark()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            var exposure = Task.Delay(TimeSpan.FromSeconds(30), time.System, ct);
+
+            var pumped = await time.PumpUntilCompletedAsync(exposure, TimeSpan.FromMinutes(5), cancellationToken: ct);
+
+            pumped.ShouldBe(TimeSpan.FromSeconds(30), "five coarsest steps and then the step to the timer itself");
+            time.PacingWaitsRunOut.ShouldBe(0, "a one-shot timer was pending at every advance: something was waiting on the clock");
+        }
+
+        /// <summary>
+        /// And with NOTHING waiting on the clock, neither a sleep nor a timer, the pump still gives a sleep its 50 ms
+        /// to park before each advance, and counts that it ran out.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task WithNothingWaitingOnTheClockThePacingWaitRunsOutAndIsCounted()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            var wedged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            await Should.ThrowAsync<TimeoutException>(
+                () => time.PumpUntilCompletedAsync(wedged.Task, TimeSpan.FromSeconds(10), cancellationToken: ct));
+
+            time.PacingWaitsRunOut.ShouldBe(2, "two advances of the coarsest step reach the budget, each after its 50 ms");
+            wedged.SetResult();
+        }
+
+        /// <summary>
         /// #2081: the first parked sleep is waited for on its signal, and the wait ends with the loop as well.
         /// </summary>
         [Fact(Timeout = 30_000)]

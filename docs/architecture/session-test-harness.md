@@ -48,6 +48,11 @@ waits that YIELDED between looks, which was quick and was a busy loop: measured 
 pool thread that did nothing else. Since #2081 each wait ends on a SIGNAL (a sleep parks or leaves its park, the
 driven loop ends) and a timer is only its bound; the pool's queue has no signal, so that one wait gives the queue
 one turn and then looks again each millisecond. The waits, and why each is there:
+- before an advance, something is waiting on the clock: a sleep parked, or a ONE-SHOT TIMER pending (#2412). The
+  pump gives that 50 ms of real time to appear and then advances anyway, so pacing is never the stop condition.
+  The timer counts because an exposure waited for on a timer parks no sleep: with a parked sleep alone as the
+  rule, 578 advances of three session test classes waited out the whole 50 ms each, 29 s of 124, for a park that
+  was never going to come. `PacingWaitsRunOut` counts the advances that still do;
 - after an advance, the released sleeps leave their parks before the clock moves on, so a poll reads the instant
   it was released at;
 - before an advance, the pool's queued work is picked up, so what a timer woke (the imaging loop's tick) runs;

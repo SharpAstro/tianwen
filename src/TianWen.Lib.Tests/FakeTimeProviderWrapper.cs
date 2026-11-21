@@ -94,6 +94,14 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public TimeSpan ReParkWaited { get; private set; }
 
     /// <summary>
+    /// How many advances of this provider's pumps waited the whole pacing bound, 50 ms of real time, with nothing
+    /// waiting on the clock: no sleep parked and no one-shot timer pending. Each is real time spent for nothing the
+    /// pump can see, so a run where this is high has a loop that waits on something else (#2412). Read once the pump
+    /// has returned.
+    /// </summary>
+    public int PacingWaitsRunOut { get; private set; }
+
+    /// <summary>
     /// How long a wait of the pump goes between two looks when nothing signals what it waits for: the pool's queue has
     /// no event, so that wait looks again after this.
     /// </summary>
@@ -128,7 +136,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// runs out. The pump's one wait that must last an exact time, its dwell, is not made here
     /// (<see cref="ShortSleeper"/>).</para>
     /// </remarks>
-    private async ValueTask<bool> WaitUntilAsync(Func<bool> done, Task? ends, TimeSpan bound, CancellationToken cancellationToken, bool signalled = true)
+    private async ValueTask<bool> WaitUntilAsync(Func<bool> done, Task? ends, TimeSpan bound, CancellationToken cancellationToken, bool signalled = true, bool timers = false)
     {
         var start = global::System.Diagnostics.Stopwatch.GetTimestamp();
         while (true)
@@ -136,6 +144,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // Taken BEFORE the look: a change that lands between the look and the wait has already ended this task,
             // so the wait returns at once and the look is made again.
             var change = signalled ? NextParkChange : null;
+            // A wait that also reads the clock's timers ends on a timer recorded as well (#2412).
+            var timerChange = timers ? _recording.NextChange : null;
             Interlocked.Increment(ref _waitLooks);
             if (done())
             {
@@ -152,6 +162,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // Whole milliseconds, rounded UP: a delay of less than one is asked as zero, ends at once, and this would
             // be a busy loop again. The test's token ends it early; WhenAny never throws for that.
             var timer = Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling((look < left ? look : left).TotalMilliseconds)), cancellationToken);
+            if (timerChange is not null && change is not null)
+            {
+                change = Task.WhenAny(change, timerChange);
+            }
             await (change is null
                 ? ends is null ? Task.WhenAny(timer) : Task.WhenAny(ends, timer)
                 : ends is null ? Task.WhenAny(change, timer) : Task.WhenAny(change, ends, timer));
@@ -437,7 +451,18 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // instead of failing with a diagnosis. Waiting a short while and then advancing anyway
             // costs the paced case nothing (a waiter appears at once) and keeps the loop live for the
             // phases that have no waiter at all.
-            await WaitUntilAsync(() => WaiterCount > 0 || isDone(), ends, PacingBound, cancellationToken);
+            //
+            // A ONE-SHOT TIMER PENDING ON THE CLOCK IS SOMETHING WAITING ON IT TOO (#2412). An exposure waited for
+            // on a timer parks no sleep, so the pump waited the whole 50 ms of real time before each advance of it,
+            // for nothing: 578 advances and 29 s of the 124 s three session test classes pumped for, at 509 of
+            // which a one-shot timer was pending and the pool's queue empty. This is no looser than what most
+            // session tests have always run under: a fake camera or guider parked for the whole run keeps the
+            // waiter count above zero, so their pacing wait ends at once whatever the loop is doing, and what gives
+            // the loop its turn is the pool-quiet wait and the dwell below.
+            if (!await WaitUntilAsync(() => WaiterCount > 0 || HasOneShotTimerPending() || isDone(), ends, PacingBound, cancellationToken, timers: true))
+            {
+                PacingWaitsRunOut++;
+            }
 
             // And until the pool has no queued work. What a timer woke (the imaging loop's PeriodicTimer), and a loop
             // just started with Task.Run, are parked on nothing the pump can see, and a parked device keeps the waiter
@@ -567,6 +592,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         var step = TimeSpan.FromTicks(next - now);
         return step < finest ? finest : step > coarsest ? coarsest : step;
     }
+
+    /// <summary>Whether a live one-shot timer made on this clock is due after now: something waits on the clock for it.</summary>
+    private bool HasOneShotTimerPending()
+        => _recording.EarliestDueAfter(_fake.GetUtcNow().UtcTicks) != long.MaxValue;
 
     /// <summary>Whether a parked sleep is due by now and has not yet left its park.</summary>
     private bool HasReleasedParks()
