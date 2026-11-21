@@ -7539,7 +7539,16 @@ the first angle is a step after the model and not another arm:
     faint stars the judge removed and ours left. (Corrected the same evening, below: the 2.3 points at 31 px are
     not the level either. A plate with the level alone taken reads 91.4.)
   - **Where those six points are** (`gaia_where.py`, the Tarantula's 21,903 stars of BP 17-19 seen, the level set
-    aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9).
+    aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9). One run of
+    `gaia_where.py` gives all three figures: it is handed the Tarantula scoring master and three plates of it,
+    StarXTerminator's as the judge, R4d's through the product's chain and R4d's as trained, and its first line
+    reads 96.6, 90.7 and 88.8 removed. The script scores a seeded draw of 40,000 of the frame's 441,821 BP 17 to 19
+    stars (`default_rng(1)`, the draw `gaia_compact.py` makes, so the totals agree); 21,903 of them are seen, and a
+    run gives the same stars. The plates are the whole-master run's (`w-sxt/tarantula_starless.fits`,
+    `w-r4d_synth29_s0-pcs+floor5/tarantula_starless.post.fits` and `w-r4d_synth29_s0/tarantula_starless.fits`
+    under `C:/temp/tianwen-scratch/f2-whole-master`, the master `synthetic-clusters/tarantula.fits`), and the
+    run's output is kept as `C:/temp/e2/explore/gaia-where.txt`. Run again on 2026-11-21 with the script as it is
+    on main since #2313, on the same plates: every figure and every bin label below came out the same.
 
     | split | bin | share of the stars | judge | R4d | the bin's part of the 5.9 points |
     |---|---|---|---|---|---|
@@ -7556,7 +7565,12 @@ the first angle is a step after the model and not another arm:
     | | 299 to 725 | 20 % | 97.1 | 83.6 | 2.7 |
     | background over the frame's sky, local rms | under 2 | 62 % | 98.3 | 94.5 | 2.3 |
     | | 2 to 5 | 38 % | 94.7 | 84.9 | 3.7 |
-    | | 5 and over | 0.7 % (155 stars) | 54.5, 35.3 | 76.0, 76.5 | -0.2 |
+    | | 5 to 10 | 0.6 % (121 stars) | 54.5 | 76.0 | -0.1 |
+    | | 10 to 20 | 0.2 % (34 stars) | 35.3 | 76.5 | -0.1 |
+
+    The background split has two more bins in the script, 20 to 50 and 50 and over, and a bin under 30 stars is
+    not printed. Neither holds a star here: the four rows above count 13,476, 8,272, 121 and 34 stars, which is
+    all 21,903.
 
     So 4.8 of the 5.9 points are stars under twice their seeing threshold, and 4.0 are in the two densest fifths,
     where the frame holds a catalogued star to every 2.5 to 10 square pixels (186 to 725 of them within 24 px, a
