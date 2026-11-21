@@ -7048,14 +7048,19 @@ the first angle is a step after the model and not another arm:
     it cannot by the bake's own rule, which samples cells only inside the NaN-free intersection of the session's
     frames, and a pixel on the plate's right edge lies outside every cell of a dithered session, whose rectangle
     of statistics stops short of the canvas edge (whether the Centaurus A session's does was not looked at). A
-    cell is not skipped for holding one. Under R4f's line the one stamp read that is refused for an absent pixel
-    is the halo over the plate's read of the measured saturated stars (`--halo-over-plate`,
+    cell is not skipped for holding one. Under R4f's line the one stamp read that is handed the absent mask is
+    the halo over the plate's read of the measured saturated stars (`--halo-over-plate`,
     `InjectionPopulation.PlateRingExcess`, 60 px stamp): a star whose stamp holds an absent or non-finite pixel
     leaves the session's halo, never the cell, and a session with fewer than eight readable stars draws without
-    the option (`MinHaloOverPlateStars`). A drawn star is never placed on an absent pixel either, in any stars
-    export: `InjectionPopulation.RandomPosition` draws a position again when it lands on one, and `AddLobes`
-    leaves out a lobe that would. `MeasureBright` (`--bright-measured`, a 36 px stamp) refuses an absent stamp
-    too, and R4f's line does not pass that option.
+    the option (`MinHaloOverPlateStars`). The read of a saturated star itself (`--saturated-measured`, which
+    R4f's line passes, a 36 px stamp) is handed no mask, so a zero ring does not refuse it; it does refuse a
+    stamp where master less plate is not finite, so a NaN pixel inside it, the case here, costs that star its
+    measurement and it is drawn from its catalogue entry. Where a drawn star lands depends on the placement:
+    in a random-placement export, R4f's line included, `InjectionPopulation.RandomPosition` draws a position
+    again when it lands on an absent pixel; under `--placement at-site` the star goes on its site through
+    `Jitter`, which has no such test. `AddLobes` leaves out a lobe that would land on one under both
+    placements. `MeasureBright` (`--bright-measured`, a 36 px stamp) refuses an absent stamp too, and R4f's
+    line does not pass that option.
   - **What that changes in the tiles, checked before the export** (`r4f-check.ps1`: the store's Tarantula session
     of 2024-10-02 and the three Helix sessions of 2025-08-09, exported with this line from both roots;
     `tile_grain.py`). The sparse sessions' 120 target tiles are the same bytes from either root. The Tarantula's 40
