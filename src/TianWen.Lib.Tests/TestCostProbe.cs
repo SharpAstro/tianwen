@@ -52,6 +52,14 @@ namespace TianWen.Lib.Tests;
 /// small figures are noise; it names the type and not the call site. Serial runs only, as above.
 /// </para>
 /// <para>
+/// <b>The type sample runs late, so its edges are soft</b> (#2382). The runtime does not raise an allocation tick on
+/// the thread that allocated: it hands them to a listener from a dispatch thread of its own, some time after. Measured
+/// here (256 MB allocated on one thread, three runs): every tick arrived on one other thread, and as the allocating
+/// loop ended 83 to 98 percent of them had; the rest came within the next half second. So a test's last ticks can be
+/// missing from its lines and counted to the test after it, and clearing the sampler between tests keeps most of what
+/// came before out, not all of it. It is one more reason to read the megabytes and not the tail.
+/// </para>
+/// <para>
 /// <b>How much memory a test needed</b>, with <c>TIANWEN_TEST_COST_PEAKS=1</c> as well: three more fields on its line,
 /// in bytes. Before the test the heap is collected until it is stable (<c>GC.GetTotalMemory(true)</c>), so the first
 /// is what the process held live as the test began: fixtures, caches, statics. From then on the heap in use and the
@@ -101,8 +109,11 @@ public sealed class TestCostProbeAttribute : BeforeAfterTestAttribute
         {
             // Peaks: the heap is collected until it is stable first, so the test starts from what the process holds
             // live (and the running class's own instance and fixtures) and what it adds is its own. Before the mark,
-            // so these collections land on no line of the bytes file; the type sampler is cleared after them, so what
-            // they allocate (finalizers of the previous test's objects) is not this test's .types lines either.
+            // so these collections land on no line of the bytes file. The type sampler is cleared after them, which
+            // keeps MOST of what they allocate (finalizers of the previous test's objects) out of this test's .types
+            // lines, and not all of it (#2382): the runtime hands its allocation ticks to a listener from a thread of
+            // its own, after the fact, so one from the collection can arrive once the sampler is clear. See the
+            // remark on the class for how late.
             var peaks = PeakSampling is null
                 ? null
                 : new Peaks(heapAtStart: GC.GetTotalMemory(forceFullCollection: true), workingSetAtStart: Environment.WorkingSet);
