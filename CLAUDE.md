@@ -78,6 +78,10 @@ unchanged; `--output Detailed`, `--report-trx --report-trx-filename x.trx`, `--c
 5min` and `--minimum-expected-tests N` replace the VSTest `--logger` and `--blame-*` options, which now fail the run. The
 dump and TRX options exist on `TianWen.Lib.Tests` and `.Functional` only. Details: `docs/architecture/testing.md`.
 
+**A whole suite is CI's to run, not a workstation's**: locally, build the test project and run the tests of the change
+by `--filter`; the PR's checks are the full run. A whole local run needs the owner's ask or an intermittent failure to
+hunt (`docs/architecture/testing.md`).
+
 Packages are versioned centrally in `Directory.Packages.props`, never in a `.csproj`.
 
 ## Sibling Libraries and Releases
@@ -115,7 +119,8 @@ Full rules: `docs/architecture/testing.md`, `docs/architecture/session-test-harn
 - **No wall-clock timeout inside a test**: `[Fact(Timeout = ...)]` plus `TestContext.Current.CancellationToken`. A
   `Timeout` on a synchronous test does nothing. Never set `parallelAlgorithm: aggressive`.
 - A fake-clock `SleepAsync` throws on a cancelled token; a guider's `StopCaptureAsync` returns only once its loop exited.
-- Every test project carries `xunit.runner.json` AND copies it to the output. Diagnose a slow suite from one TRX, not reruns.
+- Every test project carries `xunit.runner.json` AND copies it to the output. Diagnose a slow suite from one TRX, not reruns;
+  what a test allocates from `TIANWEN_TEST_COST_FILE` (`docs/architecture/ci-test-times.md`).
 - **Drive a session loop with `FakeTimeProviderWrapper.PumpUntilCompletedAsync` and its progress probe**; never choose a
   step, never `SleepAsync(subExposure)` in a pump loop.
 - `TianWen.Lib.Tests.Simulators` is opt-in (`SimulatorGate`; `TIANWEN_ALPACA_SIM`, `TIANWEN_ASCOM_CI`) and skips, never

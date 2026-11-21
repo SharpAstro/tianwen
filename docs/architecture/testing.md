@@ -67,6 +67,14 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
   never on CI), is `[Trait("Category", "Timing")]` and its class is in the non-parallel `TimingCollection`, so it measures alone.
   What the code DOES (the primitive `HighResolutionWait.Arm` chose, the order of a pulse's events) is pinned in the normal suite
   (`HighResolutionWaitTests`, `DALCameraPulseTests`).
+- **A whole suite is CI's to run, not a workstation's** (#2345). The PR's checks run the unit suite in four shards of under
+  10 minutes each; on one machine the same suite is 57 minutes of summed test time after a whole build, and on a node
+  it holds pilot's one job slot for the length of it (a run of 2026-11-20 held it for over 35 minutes, for a PR that had
+  already merged). Locally, build the test project and run the tests of the change by `--filter`. A whole local run
+  is for when the owner asks for one, or for hunting an intermittent failure (the `test-run` skill).
+- **What a test allocates is measured, not guessed**: `TIANWEN_TEST_COST_FILE` and `tools/test-cost-report.py`
+  (`docs/architecture/ci-test-times.md`, "What the tests allocate"). Read bytes and collection counts; a time from a
+  busy machine says nothing.
 - **A test that takes 30 s or more on a CI runner is `[Trait("Category", "Heavy")]`** (the owner, 2026-10-10): the PR legs
   filter it out (`dotnet.yml`) and `heavy-tests.yml` runs it nightly against main and on dispatch; a local `dotnet test`
   runs everything. Tag by MEASUREMENT on a green x64 leg (its log prints each test's time), never by guess: 28 such tests
