@@ -29,8 +29,22 @@ public static class GuiSuccession
     /// <summary>The process a successor replaces, whose exit it waits for.</summary>
     public const string PredecessorVariable = "TIANWEN_GUI_SUCCESSOR_OF";
 
+    /// <summary>
+    /// When the process a successor replaces was started, in UTC ticks: what tells that process from another one the
+    /// system has since given the same id (#1414).
+    /// </summary>
+    public const string PredecessorStartedVariable = "TIANWEN_GUI_SUCCESSOR_OF_STARTED";
+
     /// <summary>How many windows in a row have replaced one that could not draw: 0 for one a user started.</summary>
     public const string GenerationVariable = "TIANWEN_GUI_GENERATION";
+
+    /// <summary>
+    /// How far apart two readings of one process's start may be and still be the same process. The start is not read
+    /// off one stored number everywhere: on Linux it is worked out from the system's boot time, which two processes can
+    /// read a little differently. An id is not handed out again within seconds of a start this close, so the width
+    /// costs nothing.
+    /// </summary>
+    internal static readonly TimeSpan StartTolerance = TimeSpan.FromSeconds(5);
 
     /// <summary>The most windows in a row that replace one that could not draw; the next one is not started.</summary>
     public const int MaxGeneration = 3;
@@ -56,6 +70,25 @@ public static class GuiSuccession
             ? pid
             : null;
 
+    /// <summary>When the process this one replaces was started, or null when it did not say (or a user started this one).</summary>
+    public static DateTimeOffset? PredecessorStartedOf(Func<string, string?> environment)
+        => long.TryParse(environment(PredecessorStartedVariable), NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
+            && ticks > 0 && ticks <= DateTimeOffset.MaxValue.UtcTicks
+            ? new DateTimeOffset(ticks, TimeSpan.Zero)
+            : null;
+
+    /// <summary>
+    /// Takes the succession's variables out of this process's environment once they have been read, so that nothing
+    /// this window starts (its node, a solver, a second window) inherits them and reads as a successor itself (#1414).
+    /// </summary>
+    /// <param name="set">Sets a variable of this process, null to remove it: <see cref="Environment.SetEnvironmentVariable(string, string?)"/>.</param>
+    public static void ClearFrom(Action<string, string?> set)
+    {
+        set(PredecessorVariable, null);
+        set(PredecessorStartedVariable, null);
+        set(GenerationVariable, null);
+    }
+
     /// <summary>
     /// How to start the window that replaces this one, <paramref name="executable"/> with this process's own
     /// <paramref name="arguments"/>, or null when it is not to be replaced: <see cref="MaxGeneration"/> windows in a row
@@ -63,7 +96,10 @@ public static class GuiSuccession
     /// </summary>
     /// <param name="generation">This process's generation (<see cref="GenerationOf"/>).</param>
     /// <param name="uptime">How long this window has run.</param>
-    public static ProcessStartInfo? SuccessorFor(string executable, IReadOnlyList<string> arguments, int processId, int generation, TimeSpan uptime)
+    /// <param name="processStarted">When this process was started, which the successor checks the id against; null to
+    /// pass the id alone.</param>
+    public static ProcessStartInfo? SuccessorFor(string executable, IReadOnlyList<string> arguments, int processId, int generation, TimeSpan uptime,
+        DateTimeOffset? processStarted = null)
     {
         var next = uptime >= HealthyUptime ? 1 : generation + 1;
         if (next > MaxGeneration)
@@ -81,6 +117,15 @@ public static class GuiSuccession
             start.ArgumentList.Add(argument);
         }
         start.Environment[PredecessorVariable] = processId.ToString(CultureInfo.InvariantCulture);
+        if (processStarted is { } started)
+        {
+            start.Environment[PredecessorStartedVariable] = started.UtcTicks.ToString(CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            // Never the start of this process's own predecessor, which it would otherwise pass on with the rest.
+            start.Environment.Remove(PredecessorStartedVariable);
+        }
         start.Environment[GenerationVariable] = next.ToString(CultureInfo.InvariantCulture);
         return start;
     }
@@ -138,8 +183,16 @@ public static class GuiSuccession
     /// which runs on the thread pool, while the budget's timer cancels without it: on a starved pool the budget won, and a
     /// predecessor that had exited 18 s earlier was reported still running (#1245). <see cref="Process.HasExited"/> on a
     /// process nobody is watching asks the system straight away (<c>kill(pid, 0)</c> on Unix, the handle on Windows).
+    /// <para>
+    /// <b>An id is not a process.</b> The system hands a process id out again once its process is gone, so the process
+    /// found under the predecessor's id may be another one, started since. Waiting for THAT one cost the whole budget
+    /// and logged that the predecessor "had not exited in time" (#1414). With <paramref name="started"/> given, a
+    /// process whose own start is not that one is not the predecessor, and the answer is that it has gone.
+    /// </para>
     /// </remarks>
-    public static async Task<bool> WaitForPredecessorAsync(int processId, TimeSpan budget, ITimeProvider timeProvider, CancellationToken cancellationToken)
+    /// <param name="started">When the predecessor was started (<see cref="PredecessorStartedOf"/>), or null to trust the id alone.</param>
+    public static async Task<bool> WaitForPredecessorAsync(int processId, DateTimeOffset? started, TimeSpan budget, ITimeProvider timeProvider,
+        CancellationToken cancellationToken)
     {
         Process predecessor;
         try
@@ -154,12 +207,56 @@ public static class GuiSuccession
 
         using (predecessor)
         {
+            if (!IsTheProcess(started, () => StartOf(predecessor)))
+            {
+                // Another process under the same id: the predecessor has exited and its id was given out again.
+                return true;
+            }
+
             // The window's own clock, the budget and the sleeps alike (#2021).
             return await WaitForExitAsync(() => HasExited(predecessor), budget, timeProvider.System,
                 (delay, ct) => timeProvider.SleepAsync(delay, ct).AsTask(), cancellationToken).ConfigureAwait(false);
         }
     }
 
+    /// <summary>
+    /// Whether the process found under the predecessor's id is the predecessor: true unless both starts are known and
+    /// they lie further apart than <see cref="StartTolerance"/>. A start that cannot be read (the process is another
+    /// user's, or ended as it was asked) leaves the id trusted, as it was before the start was passed at all.
+    /// </summary>
+    internal static bool IsTheProcess(DateTimeOffset? started, Func<DateTimeOffset?> startOfTheOneFound)
+        => started is not { } expected
+            || startOfTheOneFound() is not { } found
+            || (found - expected).Duration() <= StartTolerance;
+
+    /// <summary>
+    /// When this process was started, for the window that replaces it to tell it from another one given its id later
+    /// (<see cref="SuccessorFor"/>); null where the system will not say, and the successor then trusts the id alone.
+    /// </summary>
+    public static DateTimeOffset? ThisProcessStarted()
+    {
+        using var self = Process.GetCurrentProcess();
+        return StartOf(self);
+    }
+
+    private static DateTimeOffset? StartOf(Process process)
+    {
+        try
+        {
+            return new DateTimeOffset(process.StartTime.ToUniversalTime(), TimeSpan.Zero);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
+        {
+            // Exited as it was asked, or not ours to ask.
+            return null;
+        }
+    }
+
+    // On macOS the same gap as the one IsZombie closes on Linux is still open (#1414): kill(pid, 0) finds a process that
+    // has exited and waits for a slow parent to reap it, so the successor waits its whole budget. There is no /proc to
+    // read the state from; proc_pidinfo answers it, and nothing in this repository's CI can run a test of that call, so
+    // it is not written blind. The cost is bounded by the budget, and a predecessor whose parent has itself exited is
+    // reaped by launchd at once.
     private static bool HasExited(Process predecessor)
     {
         return predecessor.HasExited || (OperatingSystem.IsLinux() && IsZombie(predecessor.Id));

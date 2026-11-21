@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Time.Testing;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -259,6 +260,19 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// coalesced within the coarsest step, as it always was (<see cref="RecordingTimeProvider.EarliestDueAfter"/>
     /// says why). A test sets neither bound unless it has a reason to.
     /// </para>
+    /// <para>
+    /// <b>What one advance releases, and in what order.</b> Timers due by the new instant fire first, inside the advance.
+    /// Then every parked sleep it reached is released, the earliest target first and for one target in the order they
+    /// parked (<see cref="ReleaseDueParks"/>). They resume on the pool, so sleeps released together run concurrently:
+    /// the order is one of release, not of execution.
+    /// </para>
+    /// <para>
+    /// <b>A sleep that parks late can be stepped past.</b> It is never lost: its target is read from the clock as it
+    /// parks, and the next advance that reaches it releases it. But the step is chosen from the parks the pump can see,
+    /// and after an advance it waits only a bounded real time (the settle bound, 2 ms unless given) for what it released
+    /// to park again. A continuation a busy pool runs later than that parks after the next step was chosen, and wakes
+    /// up to one coarsest step late. <see cref="ReParkWaitsRunOut"/> counts the advances whose wait ran out.
+    /// </para>
     /// </summary>
     /// <param name="loopTask">The session-loop task to drive to completion.</param>
     /// <param name="maxFakeTime">Fake time the loop may go WITHOUT progressing before this throws
@@ -493,18 +507,51 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         return false;
     }
 
-    /// <summary>Releases every parked sleep whose target the clock has reached.</summary>
+    /// <summary>
+    /// Releases every parked sleep whose target the clock has reached: the earliest target first, and for one target in
+    /// the order the sleeps parked.
+    /// </summary>
+    /// <remarks>
+    /// That is the order they are RELEASED in, and so the order their continuations are queued to the pool. It does not
+    /// make them run one after another: a release completes its sleep asynchronously
+    /// (<c>RunContinuationsAsynchronously</c>), so two sleeps one advance releases resume on two pool threads at once,
+    /// and a test must not rely on which of them gets anywhere first. Only "a timer before a sleep" is a real order:
+    /// timers fire inside the clock's own advance, before any park is released. Before #1414 the release followed the
+    /// dictionary's enumeration, which is unspecified.
+    /// </remarks>
     private void ReleaseDueParks()
     {
-        var now = _fake.GetUtcNow().UtcTicks;
-        foreach (var (_, park) in _parkedSleeps)
+        if (DueParks(_fake.GetUtcNow().UtcTicks) is { } due)
         {
-            if (park.Target <= now)
+            foreach (var (_, park) in due)
             {
                 park.Release();
             }
         }
     }
+
+    /// <summary>The parked sleeps due by <paramref name="now"/>, in the order they are released; null for none.</summary>
+    private List<(long Id, Park Park)>? DueParks(long now)
+    {
+        List<(long Id, Park Park)>? due = null;
+        foreach (var (id, park) in _parkedSleeps)
+        {
+            if (park.Target <= now)
+            {
+                (due ??= []).Add((id, park));
+            }
+        }
+
+        due?.Sort(static (a, b) => a.Park.Target != b.Park.Target ? a.Park.Target.CompareTo(b.Park.Target) : a.Id.CompareTo(b.Id));
+        return due;
+    }
+
+    /// <summary>
+    /// The sleeps an advance to <paramref name="instant"/> would release, as the number each was parked under (1 for
+    /// this clock's first park), in the order of release. For the test of that order; nothing is released.
+    /// </summary>
+    internal long[] ParksAnAdvanceToWouldRelease(DateTimeOffset instant)
+        => DueParks(instant.UtcTicks) is { } due ? [.. due.ConvertAll(static d => d.Id)] : [];
 
     /// <summary>
     /// Advances the fake time provider by the specified duration, firing its due timers (inside the advance) and

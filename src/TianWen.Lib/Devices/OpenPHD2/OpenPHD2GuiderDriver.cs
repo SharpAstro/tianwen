@@ -904,8 +904,11 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     /// window on its own clock (<see cref="ITimeProvider"/>), and PHD2's <c>Timestamp</c> is another clock: the
     /// clock of the computer PHD2 runs on, which may not be this one, and the real one where this node's is
     /// anchored elsewhere (<c>TIANWEN_NOW</c>), where every PHD2 sample would fall outside every light. A step
-    /// arrives as soon as PHD2 has measured its frame, so its arrival less half the exposure is the frame's
-    /// middle, the instant the in-process guiders stamp.
+    /// arrives once PHD2 has downloaded and measured its frame, so its arrival less half the exposure is the
+    /// nearest this node can come to the frame's middle, the instant the in-process guiders stamp. It is NOT that
+    /// middle: it runs late by the frame's download, PHD2's measuring and the hop to this node, none of which the
+    /// step reports. PHD2's own <c>Timestamp</c> would not mend that either: it is the time of the event, not of the
+    /// exposure (#1414).
     /// </para>
     /// </summary>
     private void RaiseGuideCorrection(JsonElement step)
