@@ -1,11 +1,13 @@
 using System;
+using System.Globalization;
 using Shouldly;
 
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Whole-buffer comparisons for tests: two files' bytes, two planes. One vectorised pass, and a message built only when
-/// the two differ, which names the first place they do.
+/// Whole-buffer comparisons for tests: two files' bytes, two planes. One pass that allocates nothing (vectorised for
+/// bytes and the other element types the runtime compares bitwise; a float is compared element by element), and a
+/// message built only when the two differ, which names the first place they do.
 /// </summary>
 /// <remarks>
 /// Shouldly's <c>ShouldBe</c> on two arrays walks them as sequences and boxes every element on the way, so comparing two
@@ -38,8 +40,11 @@ internal static class SpanShould
         var lengths = actual.Length == expected.Length
             ? $"{actual.Length} elements each"
             : $"{actual.Length} elements where {expected.Length} were expected";
+        // The invariant culture, so a failure reads the same on every machine: a float's value written with the
+        // machine's own culture has a comma in half of Europe, and a test of this message would then fail there (#2354).
         var where = common < actual.Length && common < expected.Length
-            ? $"the first difference is at index {common}: {actual[common]} where {expected[common]} was expected"
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"the first difference is at index {common}: {actual[common]} where {expected[common]} was expected")
             : $"the two agree over the first {common}, which is all of the shorter one";
         return $"{(customMessage is null ? "" : customMessage + ": ")}the two are not the same ({lengths}); {where}";
     }

@@ -80,6 +80,12 @@ public sealed record ExposureGuideTally
     }
 
     /// <summary>The statistics so far, or <see langword="null"/> when no sample was counted (not zero).</summary>
+    /// <remarks>
+    /// Each RMS is taken about ZERO, the position the guider was holding, and not about the samples' own mean. PHD2's
+    /// "RMS" is a standard deviation, about the mean, so for the same samples <c>GUIDERMS</c> is never under PHD2's
+    /// figure and is over it by whatever steady offset the exposure had. That offset smears a sub as surely as scatter
+    /// does, which is why it is counted here (#1414).
+    /// </remarks>
     public GuidingStats? ToStats()
     {
         if (_count == 0)
