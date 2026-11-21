@@ -12,10 +12,11 @@ heap collected first), the highest heap while it ran and the highest working set
 the classes and the tests by what they ADDED to the heap (peak less start): a class's row is its hungriest test's,
 beside the highest working set of any of its tests.
 
-The probe appends to its file. A file that holds a test more than once holds more than one run: the allocation tables
-then SUM the runs (the tests column counts the lines) and the memory tables keep each test's hungriest run, and the
-first line of the output says how many tests are repeated. Name a new file for a run, or delete the old one, to read
-one run.
+The probe appends to its file. A name that repeats is either a second run appended to the file or
+rows of one theory whose display names xunit shortened to the same text (a string argument is cut at 50 characters),
+so the script cannot tell which. The allocation tables SUM the lines (the tests column counts lines), the memory
+tables keep each name's hungriest line, and the first line of the output says how many names repeat. If a second run
+was appended, name a new file for a run, or delete the old one, to read one run.
 
 Prints a markdown table of the classes by bytes allocated, with each one's share of the run's wall time spent in
 collector pauses, and with --per-test the single tests the same way.
@@ -85,7 +86,7 @@ def main():
                 row[i] += v
                 total[i] += v
             # A name seen again is a second run appended to the same file: summed here as the class's row is, so the
-            # two tables agree, and counted so the header can say so.
+            # two tables agree, and counted so the note can say so.
             test_row = tests.setdefault(name, [0, 0, 0, 0, 0, 0, 0])
             test_row[0] += 1
             for i, v in enumerate(nums, 1):
@@ -108,16 +109,17 @@ def main():
 
     repeated = sum(1 for row in tests.values() if row[0] > 1)
     if repeated:
-        print(f"NOTE: {repeated} of {len(tests)} tests appear more than once: the file holds more than one run, "
-              f"and every allocation figure below is their sum.\n")
+        print(f"NOTE: {repeated} of {len(tests)} test names appear on more than one line: either a second run was "
+              f"appended to the file, or rows of one theory share a shortened display name. Every allocation figure "
+              f"below is the sum of its lines, and a memory figure is its hungriest line's.\n")
     count, wall, alloc, g0, g1, g2, pause = total
-    print(f"{count} tests in {len(classes)} classes: {wall / 1000:.0f} s inside tests, {gib(alloc):.1f} GiB allocated, "
+    print(f"{count} lines in {len(classes)} classes: {wall / 1000:.0f} s inside tests, {gib(alloc):.1f} GiB allocated, "
           f"{g0}/{g1}/{g2} collections (gen0/1/2), {pause / 1000:.0f} s of collector pause "
           f"({100 * pause / wall if wall else 0:.0f}% of the time inside tests)\n")
     if test_memory:
         hungriest = max(test_memory.items(), key=lambda kv: kv[1][0])
         largest = max(test_memory.items(), key=lambda kv: kv[1][3])
-        print(f"Memory, from the {len(test_memory)} tests whose lines carry peaks: the most any test added to the heap "
+        print(f"Memory, from the {len(test_memory)} test names whose lines carry peaks: the most any test added to the heap "
               f"is {mib(hungriest[1][0]):.0f} MiB ({hungriest[0]}), and the process's working set peaked at "
               f"{mib(largest[1][3]):.0f} MiB ({largest[0]})\n")
     table(f"The {min(args.top, len(classes))} classes that allocate most", classes, args.top, 'class')
