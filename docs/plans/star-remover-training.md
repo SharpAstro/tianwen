@@ -7542,8 +7542,9 @@ the first angle is a step after the model and not another arm:
     aside; R4d through the chain against the judge; as trained R4d reads 88.8, so the chain gives 1.9). One run of
     `gaia_where.py` gives all three figures: it is handed the Tarantula scoring master and three plates of it,
     StarXTerminator's as the judge, R4d's through the product's chain and R4d's as trained, and its first line
-    reads 96.6, 90.7 and 88.8 removed. No draw is involved: every catalogued star the script sees in the master
-    is counted. The plates are the whole-master run's (`w-sxt/tarantula_starless.fits`,
+    reads 96.6, 90.7 and 88.8 removed. The script scores a seeded draw of 40,000 of the frame's 441,821 BP 17 to 19
+    stars (`default_rng(1)`, the draw `gaia_compact.py` makes, so the totals agree); 21,903 of them are seen, and a
+    run gives the same stars. The plates are the whole-master run's (`w-sxt/tarantula_starless.fits`,
     `w-r4d_synth29_s0-pcs+floor5/tarantula_starless.post.fits` and `w-r4d_synth29_s0/tarantula_starless.fits`
     under `C:/temp/tianwen-scratch/f2-whole-master`, the master `synthetic-clusters/tarantula.fits`), and the
     run's output is kept as `C:/temp/e2/explore/gaia-where.txt`. Run again on 2026-11-21 with the script as it is
