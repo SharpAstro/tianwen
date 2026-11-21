@@ -2857,6 +2857,22 @@ pixel: Andromeda (2068, 1484), peak ratio 2.55; the Tarantula (1460, 1516), 3.04
 1.90. Omega Centauri's centre is still left for #1363: its masters keep a core of 26,368 px and 1,216 px (peak ratio 1.55
 and 2.04), neither of which is the cluster's centre as such.
 
+**A person's read of the 77 kept cores (#2201, 2026-11-21): one is a single bright star.** The owner looked at the
+contact sheets of the 77 (`sheet.py` over the survey above, the tiles numbered in the order of the masters' names) and
+named number 77, the Pleiades master of 2022-01-05, as a single bright star. It is the kept core with the highest peak
+ratio, the 5.49 of the paragraph above, so "extended sources at 5.5 and under" does not hold for it. The core lies at
+(3260, 2164) and is 1,024 px; Alcyone is at (3262, 2160) on that master. Its source is 10,067,136 px, since the cluster's
+nebulosity joins most of the frame into one source, which is how a star's peak comes to read 5.49 over the map's. The
+master of the same field of 2022-01-04 keeps no core. What it costs is in the bright-star reads of #2292 (R4d, ring
+medians at 0 to 8 px less the sky, in the master's pixel sigma, R / G / B): on 2022-01-05 the master holds 22,412 /
+17,517 / 22,648, R4d as trained leaves 7,823 / 7,794 / 6,375, and through the product's chain the plate reads 22,412 /
+17,518 / 22,649, the star handed back whole; on 2022-01-04 the chain reads as the model does, 1,148 / 2,625 / 964 both
+ways. The bar of 6.0 is not moved here: the next highest kept ratio is 4.89 (a Large Magellanic Cloud master), and a bar
+set between the two would rest on one master and a gap of 0.6. What tells this star from a core is #2360's to measure.
+The owner's answer names number 77. The session's own look at the second sheet had also flagged number 68 (the
+Horsehead master of 2022-12-24, peak ratio 2.73, two stars inside the mask), which his answer does not name, and the
+session did not look through the first sheet.
+
 To run it (a heavy run, so through the node's queue; about 5 minutes on the 201 masters):
 
 ```
