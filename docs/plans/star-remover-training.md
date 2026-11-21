@@ -7278,7 +7278,7 @@ the first angle is a step after the model and not another arm:
       before the stop does not separate R4f from the arms that went on: its halvings bought almost nothing, where
       theirs halved the objective. **Nor did the later steps hold weights as good as the
       best:** R4f's windows sat at 1.08e-5 to 1.16e-5 through step 72,000, then came a spike (held-out 4.88e-5 at
-      step 73,000, window 2.50e-5) with no recovery: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
+      step 73,000, window 2.50e-5) with no recovery to a new best: only 7 of the 114 windows after step 72,500 reached 1.2e-5 or
       lower, and the final window is 1.57e-5, 45 percent above the best. That is the shape R2n's note records (above,
       "the deeper net blew up"). The first resume (after step 72,000) is not its cause: replaying steps 72,500, 73,000
       and 73,500 gives the same digits (1.433862e-05, 4.882240e-05, 1.355304e-05). The run was moved to a new node
@@ -7331,7 +7331,7 @@ the first angle is a step after the model and not another arm:
     - **The training is read first, from the trainer's log alone, before any row is scored.** One figure, the
       one R4f's read aligns the arms on: the median of the window means over the 60,000 steps after the first
       halving (or to the stop, the length then stated), as a share of the median from step 30,000 to that
-      halving. R4d reads 0.50, R4e 0.47, R4c 0.48 and R4f 0.85. **0.60 or under: trained as the others.
+      halving. R4d reads 0.50, R4e 0.47, R4c 0.48 and R4f 0.848. **0.60 or under: trained as the others.
       0.75 or over: stalled again.** Between the two it is called neither, and the rows are reported with that
       said. The figure is read against the curve before it is called: R3x reads 0.80 on it (6.06e-6 over 7.60e-6,
       its first halving at 101,000) and is not a stall. Its curve has two isolated spikes before the halving
@@ -7340,12 +7340,15 @@ the first angle is a step after the model and not another arm:
       set a new best (5.971e-6 at 148,500) 47,500 steps after the halving; a long first-rate stretch (71,000 steps
       against 27,000 to 52,000 for the others) lifts the ratio. The spikes do not separate R4f from R3x: R4f's
       window was back inside its level before the spike six evaluations after it (1.13e-5 at step 76,000, against
-      1.08e-5 to 1.16e-5 over steps 69,500 to 72,000), as R3x's was after five. What separates them is the new
-      best: R3x, R4d, R4e and R4c each set a new best window after their first halving, and R4f set none to its
-      stop. **So a ratio of 0.75 to 0.85 is called stalled only when the run sets no new best window after its
-      first halving; any other ratio in that band is called neither, and the rows are reported with that said.**
-      Spikes are described and decide nothing. Over 0.85 is stalled and 0.60 or under is trained, as launched; no
-      threshold changes. **These sentences, from "The figure is read against the curve", were added after the
+      1.08e-5 to 1.16e-5 over steps 69,500 to 72,000), as R3x's was after five; its next evaluation, step 76,500,
+      was a second and larger spike (held-out 1.04e-4, the window back to 1.25e-5 only at step 80,000), which R3x
+      has no counterpart for. What separates them is the new best: R3x, R4d, R4e and R4c each set a new best
+      window after their first halving, and R4f set none to its stop. **So a ratio of 0.75 or over is called
+      stalled only when the run sets no new best window after its first halving; with a new best there it is
+      called neither, and the rows are reported with that said.** That holds over 0.85 as under it: a long
+      first-rate stretch can lift a run that went on improving past any ratio. R4f itself reads 0.848 and set
+      no new best, so an exact repeat of it is called stalled. Spikes are described and decide nothing. 0.60 or
+      under is trained, as launched; no threshold changes. **These sentences, from "The figure is read against the curve", were added after the
       launch**, on the review of this registration (PR #2335), which found that the figure as launched would
       have called R3x stalled: I had set the thresholds on R4c, R4d, R4e and R4f and left R3x out. A first
       wording of them (a spike with no recovery) was withdrawn in the same review, since by it R4f had recovered
