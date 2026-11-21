@@ -200,12 +200,12 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // Taken before the look, as in the pump's own waits: the park that comes between the look and the wait
             // has already ended it. It was a 1 ms poll, which is a millisecond or 16 by the system's clock.
             var parked = NextParkChange;
-            if (WaiterCount != 0 || loopTask.IsCompleted)
+            if (WaiterCount != 0 || loopTask.IsCompleted || cancellationToken.IsCancellationRequested)
             {
                 return;
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
+            // A token cancelled DURING the wait throws, as the poll's delay did; one cancelled at a look returns.
             await Task.WhenAny(parked, loopTask).WaitAsync(cancellationToken);
         }
     }

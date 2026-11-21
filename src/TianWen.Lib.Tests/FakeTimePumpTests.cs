@@ -166,6 +166,71 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #2081: the pump holds no CPU while it waits. Nothing is parked on this clock and the loop never ends, so
+        /// every advance waits out the 50 ms the pump gives a sleep to park. It used to yield between two looks for
+        /// those 50 ms, about 70,000 looks an advance, on a pool thread that did nothing else (and over three session
+        /// test classes the process kept 4.6 cores busy while it pumped). It waits for the park's signal now, with a
+        /// timer as its bound: a handful of looks an advance.
+        /// </summary>
+        [Fact(Timeout = 60_000)]
+        public async Task ThePumpLooksAFewTimesAnAdvanceAndDoesNotSpinWhileItWaits()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            var wedged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var advances = 0;
+
+            // Three advances of the coarsest step reach a budget of 15 s of fake time.
+            await Should.ThrowAsync<TimeoutException>(
+                () => time.PumpUntilCompletedAsync(
+                    wedged.Task, TimeSpan.FromSeconds(15),
+                    onIteration: i =>
+                    {
+                        advances = i;
+                        return ValueTask.CompletedTask;
+                    },
+                    cancellationToken: ct));
+
+            advances.ShouldBe(3);
+            time.WaitLooks.ShouldBeLessThan(100, "a few looks for each of an advance's waits, where yielding made about 200,000");
+            wedged.SetResult();
+        }
+
+        /// <summary>
+        /// #2081: the first parked sleep is waited for on its signal, and the wait ends with the loop as well.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task TheFirstWaiterIsWaitedForOnItsSignalAndTheLoopsEndEndsTheWaitToo()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var loop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var waiting = time.WaitForFirstWaiterAsync(loop.Task, ct);
+            waiting.IsCompleted.ShouldBeFalse("nothing is parked and the loop runs on");
+            var sleeper = time.SleepAsync(TimeSpan.FromHours(1), cts.Token).AsTask();
+            await waiting;
+            time.WaiterCount.ShouldBe(1);
+
+            await cts.CancelAsync();
+            await Should.ThrowAsync<OperationCanceledException>(() => sleeper);
+            time.WaiterCount.ShouldBe(0);
+
+            // No sleep parks this time: the loop's end is what ends the wait.
+            var again = time.WaitForFirstWaiterAsync(loop.Task, ct);
+            again.IsCompleted.ShouldBeFalse();
+            loop.SetResult();
+            await again;
+        }
+
+        /// <summary>
         /// #1414: one advance that reaches several parked sleeps releases them earliest target first, and for one target
         /// in the order they parked. It used to follow a <see cref="ConcurrentDictionary{TKey, TValue}"/>'s enumeration,
         /// which is no order at all. This is the order of RELEASE: the sleeps still resume on the pool, at once.
