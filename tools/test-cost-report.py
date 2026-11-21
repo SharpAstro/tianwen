@@ -7,9 +7,11 @@ collections and the ms the collector held every thread, all read off the PROCESS
 test's only when the run was serial (`dotnet test ... --parallel none`); in a parallel run a line also holds what the
 tests beside it did.
 
-The probe appends to its file. A file that holds a test more than once holds more than one run: both tables then SUM
-the runs (the tests column counts the lines), and the first line of the output says how many tests are repeated. Name
-a new file for a run, or delete the old one, to read one run.
+The probe appends to its file. A name that repeats is either a second run appended to the file or
+rows of one theory whose display names xunit shortened to the same text (a string argument is cut at 50 characters),
+so the script cannot tell which. Both tables SUM the lines (the tests column counts lines), and the first line of the
+output says how many names repeat. If a second run was appended, name a new file for a run, or delete the old one, to
+read one run.
 
 Prints a markdown table of the classes by bytes allocated, with each one's share of the run's wall time spent in
 collector pauses, and with --per-test the single tests the same way.
@@ -62,7 +64,7 @@ def main():
                 row[i] += v
                 total[i] += v
             # A name seen again is a second run appended to the same file: summed here as the class's row is, so the
-            # two tables agree, and counted so the header can say so.
+            # two tables agree, and counted so the note can say so.
             test_row = tests.setdefault(name, [0, 0, 0, 0, 0, 0, 0])
             test_row[0] += 1
             for i, v in enumerate(nums, 1):
@@ -70,10 +72,11 @@ def main():
 
     repeated = sum(1 for row in tests.values() if row[0] > 1)
     if repeated:
-        print(f"NOTE: {repeated} of {len(tests)} tests appear more than once: the file holds more than one run, "
-              f"and every figure below is their sum.\n")
+        print(f"NOTE: {repeated} of {len(tests)} test names appear on more than one line: either a second run was "
+              f"appended to the file, or rows of one theory share a shortened display name. Every figure below is "
+              f"the sum of its lines.\n")
     count, wall, alloc, g0, g1, g2, pause = total
-    print(f"{count} tests in {len(classes)} classes: {wall / 1000:.0f} s inside tests, {gib(alloc):.1f} GiB allocated, "
+    print(f"{count} lines in {len(classes)} classes: {wall / 1000:.0f} s inside tests, {gib(alloc):.1f} GiB allocated, "
           f"{g0}/{g1}/{g2} collections (gen0/1/2), {pause / 1000:.0f} s of collector pause "
           f"({100 * pause / wall if wall else 0:.0f}% of the time inside tests)\n")
     table(f"The {min(args.top, len(classes))} classes that allocate most", classes, args.top, 'class')
