@@ -71,7 +71,7 @@ def main():
     who = "the plate named by --choose-by" if choose_by else "the judge's plate"
     print(f"{len(bj)} cells read; {who} is flat (band under {FLAT:g}) on {len(flat)} and holds structure ({STRUCTURE:g} or over) on {len(structure)}"
           + (f"; the judge's median band on the flat ones {np.median([bj[c] for c in flat]):.2f}" if flat else ""))
-    print(f"  {'plate':40s} flat cells: median band, share under {FLAT:g} | structure cells: band over the judge's, median, share within 0.8 to 1.25")
+    print(f"  {'plate':40s} flat cells: median band, share under {FLAT:g} | structure cells: band over the judge's, median, share within 0.8 to 1.25 (share under, share over)")
     for spec in specs:
         label, path = spec.split("=", 1)
         b = bands(lum(path), sig)

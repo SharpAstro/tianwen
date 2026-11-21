@@ -22,7 +22,8 @@ read. Printed per plate:
     are what says where such a residue sits.
 
 The master itself, stars and all, is the control: its power sits on the stars and, without --median, the fit
-explains a good part of it. Through --median 7 the stars are gone from it and the fit separates little.
+explains a good part of it. Through --median 7 the master's power still sits 77, 68 and 78 % on the bright stars,
+and the fit is a weak control (7, 20 and 40 % on the master by cell): the power shares are the control.
 """
 import csv
 import sys

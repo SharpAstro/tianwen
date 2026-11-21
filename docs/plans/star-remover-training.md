@@ -7863,7 +7863,7 @@ the first angle is a step after the model and not another arm:
         that tight about a detected star is nearer to what the builder left of each star it subtracted than
         to faint stars of their own.
       - **Where the grain sits: in the flat cell the models' lies between the catalogued stars, a third of
-        the stored plate's on the bright ones, and the rule's plate keeps that third**
+        the stored plate's on the bright ones, and the rule's plate keeps nearly all of that power**
         (`grain_tied_to_stars.py`, 2026-11-22: each plate's 9 px box mean less its
         41 px one as a map, without the 7 px median so that a star's own residue counts; the share of the
         map's power within 4 px of a catalogued star, beside the share of the cell's area those pixels are;
@@ -7902,24 +7902,30 @@ the first angle is a step after the model and not another arm:
         pits and the leftover cores a 1:1 crop of the plate shows). The models do not copy that: 9 to 10 %,
         the area's share, and two thirds of their power lies farther than 4 px from every star the catalogue
         has. **It is not so in every cell.** In cell 5,4 the models hold 26 to 28 % by the bright stars on
-        19 % of the area, a third to two fifths of the stored plate's excess over the area's share there
-        (7 to 9 points of 21), and in cell 4,4 they are at the area's share again (22 to 23 % on 24 %).
+        19 % of the area, 7 to 9 points of the stored plate's 21 over the area's share there, and in cell 4,4 they are at the area's share again (22 to 23 % on 24 %).
         Through `band.py`'s 7 px median, which the registered rows read (`--median 7`), the shares are 26 %
         for the stored plate and 9 to 10 % for the models in cell 1,1, and 39 % and 26 to 27 % in cell 5,4.
 
         **What the rule takes and what it keeps.** The layer the rule takes out of the plate (stored less
         rule, what the second way above would add to the input) holds the area's share by the bright stars
         in every cell: 9 %, 20 % and 25 % on 9, 19 and 24 % of the area. So that layer is grain between the
-        stars, as the models' is in the flat cell, and not the builder's residue. The residue stays in the
-        rule's plate, which holds 49 %, 48 % and 43 % of its power by the bright stars: where a star was
-        subtracted the detail is strong, so the rule keeps the plate there. R4f's targets were that plate.
+        stars, as the models' is in the flat cell, and not the builder's residue. In cells 1,1 and 5,4 the
+        residue stays in the rule's plate: measured in absolute power by the 10 sigma stars, it keeps 89 %
+        and 81 % of the stored plate's (its 49 % and 48 % are shares of a smaller total), consistent with the
+        rule keeping the plate where a subtracted star left strong detail. Cell 4,4 is not like that: there
+        the rule's plate keeps 38 % of the stored plate's power by the bright stars, the layer the rule takes
+        holds 43 % of it, and the rule's plate carries 28 % of the stored plate's total power, so its 43 %
+        there is a share of what is left. R4f's targets were that plate.
 
         A linear fit of the map on the catalogued stars (each significance bin's count map spread by 2, 4
         and 8 px, of either sign, fitted on one half of the cell and read on the other; the run without the
         median) explains 7 % of the models' map in cell 1,1 and none of the stored plate's, against 34 to
         61 % of the master's. Through the median the master's own figure falls to 7 % in cell 1,1 (20 and
-        40 % in the other two), since the median takes the stars out, so there the fit separates nothing
-        and the power shares are what says where the grain sits.
+        40 % in the other two), but the median does not take the stars out: the master's power by the bright
+        stars is still 77, 68 and 78 %. In cell 1,1 the fit then separates nothing (7.2 % for the master, 7.7
+        and 7.4 % for the models); in cells 5,4 and 4,4 it does separate (20 and 40 % for the master against
+        1.6 and 2.0 % for the stored plate). So through the median the fit is a weak control and the power
+        shares are what says where the grain sits.
 
         So what the models keep and the judge takes in a flat crowded cell is a soft mottle BETWEEN the
         catalogued stars and not residue of the stars the catalogue has. The crop shows it over the whole
