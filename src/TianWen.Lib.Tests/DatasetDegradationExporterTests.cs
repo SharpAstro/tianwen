@@ -1430,6 +1430,27 @@ namespace TianWen.Lib.Tests
                     .AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(options.OutDir, pair.Second.Tile))))
                 .ShouldBeTrue("the tiles are stretched from another black point");
 
+            // One folder holds one rule (#2336): an export by another black point into a folder that holds rows is
+            // refused before any work, with --force as without it, and the rows there stay as they were.
+            foreach (var force in new[] { false, true })
+            {
+                var byTheMinimum = atDepth with { BlackPointSigma = null, Force = force };
+                var refused = await Should.ThrowAsync<InvalidOperationException>(
+                    async () => await DatasetDegradationExporter.RunAsync(byTheMinimum, logger: null, TestContext.Current.CancellationToken));
+                refused.Message.ShouldContain("one folder holds one rule");
+                refused.Message.ShouldContain("40 sky-noise sigma");
+            }
+            var intoTheMinimums = options with { BlackPointSigma = 60 };
+            (await Should.ThrowAsync<InvalidOperationException>(
+                async () => await DatasetDegradationExporter.RunAsync(intoTheMinimums, logger: null, TestContext.Current.CancellationToken)))
+                .Message.ShouldContain("at each channel's minimum");
+            ReadDegradationRows(atDepth.OutDir).ShouldAllBe(static r => r.StretchBlackPointSigma == 40);
+            ReadDegradationRows(atDepth.OutDir).Length.ShouldBe(depthRows.Length);
+            ReadDegradationRows(options.OutDir).Length.ShouldBe(rows.Length);
+            // The same rule into its own folder again is no refusal: every session is there already.
+            (await DatasetDegradationExporter.RunAsync(atDepth, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            ReadDegradationRows(atDepth.OutDir).Length.ShouldBe(depthRows.Length);
+
             // The same seed, the same bytes: every star and every tile, and reading the stars back changes none of them.
             var again = options with { OutDir = Path.Combine(_root, "stars-again"), MeasureInjection = true };
             (await DatasetDegradationExporter.RunAsync(again, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
