@@ -43,7 +43,8 @@ Four defaults changed, and all change what the same input produces:
 - **A run unparks a parked mount at its first move** (`SessionConfiguration.UnparkMount`, on by
   default), never during the wait for dark. A goto or Home on its own still never unparks.
 - **`image remove-stars` protects cores by default** (`--no-protect-cores` turns it off; `--protect-cores` is
-  still accepted). No core is taken at the frame's edge or on a star, and the colour composition's
+  still accepted). No core is taken at the frame's edge or on a star, a clipped one with a wide flat top
+  included (#2360), and the colour composition's
   star splits protect them too (#2199). On a plate-solved master the catalogued stars inside a core stay
   removed (#2242; `--core-catalogue none` puts them back with the core), and `image protect-cores` is the step
   on its own.
