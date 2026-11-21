@@ -7037,7 +7037,14 @@ the first angle is a step after the model and not another arm:
     know: where a nebula's detail between 7 and 31 px is weak it is smoothed with the grain (the thin dark lanes of
     the Lagoon and Trifid plate come back softer), and the bright and dark pairs the builder left at bright stars are
     kept and now stand out of a smooth field. One pixel of one plate is newly absent (a Centaurus A plate's red, at
-    its right edge); no other plate gained an absent pixel.
+    its right edge); no other plate gained an absent pixel. **What the export does with such a pixel** (#2277, read
+    from `DatasetDegradationExporter`'s stars mode, 2026-11-21): a NaN in any channel that reaches the frame's
+    border is what `Image.AbsentPixels` calls absent, the canvas ring's rule, so the pixel is treated as ring. The
+    synthetic background and the noised plate leave the plate's own value there and draw no level and no noise on
+    it, the cell's mask hands it to the star renderer as absent, a value that is not finite is written through
+    with no star's shot noise added, and the stretch and the noise calibrations leave it out of what they measure.
+    A cell is not skipped for holding one; the rule that skips is the measured bright star's, whose 60 px stamp
+    must hold no absent pixel.
   - **What that changes in the tiles, checked before the export** (`r4f-check.ps1`: the store's Tarantula session
     of 2024-10-02 and the three Helix sessions of 2025-08-09, exported with this line from both roots;
     `tile_grain.py`). The sparse sessions' 120 target tiles are the same bytes from either root. The Tarantula's 40
@@ -7186,7 +7193,10 @@ the first angle is a step after the model and not another arm:
     line on the held-out Tarantula.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
-    91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
+    91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1). R4e's 89.1 is a read through this chain and not its
+    registered read carried over: R4c, R4d and R4e were each run through it on 2026-11-20, and each arm's row is
+    kept as `row.txt` in its `-pcs+floor5` folder of the whole-master run (`C:/temp/tianwen-scratch/f2-whole-master`
+    on DE1). R4e reads 89.1 there, the same figure as its registered read with floor3 and the old protection.
   - **Guards, through the same chain,** R4c's: by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and
     over (the tiles with floor5); M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat
     at least 95 and dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 of zero on
