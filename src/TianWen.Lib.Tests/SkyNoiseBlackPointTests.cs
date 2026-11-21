@@ -277,7 +277,10 @@ public class SkyNoiseBlackPointTests
         // The two rules part here, and this pins where (#2336): a frame with its sky at half the range above a black
         // corner is already stretched by the minimum's test (0.5 above its floor), while the depth's test reads only
         // its quiet sky (40 x 0.0025 = 0.10) and stretches it. That is the cost the remark on InputStretchParameters
-        // names, kept visible so that a guard for it changes this test on purpose.
+        // names, kept visible so that a guard for it (#2341) changes this test on purpose. Two more pin the same parting
+        // from their own sides and would change with it: UnderADepthTheLinearityTestReadsTheSkyNoiseAndNotTheDeepestPixel
+        // (the minimum says no, the depth says yes) and the 0.0025 case of
+        // UnderADepthTheMediansHeightAboveTheBlackPointIsWhatTheThresholdReads (the depth says yes at a sky of 0.5).
         var planes = new[] { NoisySky(seed: 53, 0.0025f, level: 0.5f), NoisySky(seed: 54, 0.0025f, level: 0.5f), NoisySky(seed: 55, 0.0025f, level: 0.5f) };
         foreach (var plane in planes)
         {
