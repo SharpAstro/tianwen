@@ -36,12 +36,14 @@ internal sealed class NodeSuspendStop(IDeviceHub hub, ISuspendNotice notice, ITi
     /// <remarks>
     /// It has a floor as well as that ceiling, and <c>NodeSuspendStopTests</c> holds it to both. A mount's stop is up to
     /// four commands, one after another (the abort, each axis, tracking off). When the budget ends that work is left
-    /// behind and no longer waited for, it is not stopped: a command not yet made is still made, with a cancelled
-    /// token (<see cref="LoggerCatchExtensions"/> does not look at the token first), which a driver that honours its
-    /// token refuses and one that ignores it may yet send, if the suspend has not frozen the process by then. So
-    /// nothing is SURE to reach a mount after the budget, and a mount whose stop was cut off may drive on through the
-    /// suspend. That is why the budget stays most of what Windows gives, not under half of it. The half is a line
-    /// drawn, not a measurement: no mount's stop has been timed.
+    /// behind and no longer waited for, it is not stopped. The command in flight is told through its token. Each
+    /// later one is made only once the one before it has returned, and then with a cancelled token
+    /// (<see cref="LoggerCatchExtensions"/> does not look at the token first): a driver that honours its token
+    /// refuses it, and one that ignores it may yet send it. Behind a command that never returns, no later one is made
+    /// at all. And all of it lasts only until the suspend freezes the process. So nothing is SURE to reach a mount
+    /// after the budget, and a mount whose stop was cut off may drive on through the suspend. That is why the budget
+    /// stays most of what Windows gives, not under half of it. The half is a line drawn, not a measurement: no
+    /// mount's stop has been timed.
     /// </remarks>
     internal static readonly TimeSpan Budget = TimeSpan.FromSeconds(1.5);
 
