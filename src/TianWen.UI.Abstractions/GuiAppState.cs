@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Threading;
 using DIR.Lib;
 using LAN.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -429,7 +430,16 @@ public class GuiAppState
     /// Writes are atomic via <c>ImmutableArray</c> reference swap (safe to read from
     /// the render thread while background tasks append).
     /// </summary>
-    public ImmutableArray<NotificationEntry> Notifications { get; private set; } = [];
+    /// <remarks>
+    /// Safe for two APPENDERS as well, which a plain swap is not (#2366): a handler on the UI thread and a discovery
+    /// finishing on a pool thread each read the array, inserted, and wrote it back, and the one that wrote second threw
+    /// the other's entry away. A user was not told why nothing happened because "Found 27 devices" was recorded in the
+    /// same instant. <see cref="RecordNotification"/> now swaps on the array it read and tries again when another
+    /// writer was first.
+    /// </remarks>
+    public ImmutableArray<NotificationEntry> Notifications => _notifications;
+
+    private ImmutableArray<NotificationEntry> _notifications = [];
 
     /// <summary>
     /// The Home tab's rig board, rebuilt once per frame by the telemetry poll and read by the tab. A
@@ -447,7 +457,14 @@ public class GuiAppState
 
     /// <summary>Unread-count since the user last opened the Notifications tab.
     /// Reset to 0 when that tab becomes active.</summary>
-    public int UnreadNotificationCount { get; set; }
+    public int UnreadNotificationCount
+    {
+        get => Volatile.Read(ref _unreadNotificationCount);
+        set => Volatile.Write(ref _unreadNotificationCount, value);
+    }
+
+    // Counted up from whichever thread records a notification, so through Interlocked and not ++ (#2366).
+    private int _unreadNotificationCount;
 
     /// <summary>Cap on <see cref="Notifications"/>. ~Two screens' worth of entries.</summary>
     public const int MaxNotifications = 500;
@@ -459,18 +476,19 @@ public class GuiAppState
     /// </summary>
     public void RecordNotification(DateTimeOffset when, NotificationSeverity severity, string message)
     {
-        var entry = new NotificationEntry(when, severity, message);
-        var current = Notifications;
-        var next = current.Insert(0, entry);
-        if (next.Length > MaxNotifications)
-        {
-            next = next.RemoveRange(MaxNotifications, next.Length - MaxNotifications);
-        }
-        Notifications = next;
+        ImmutableInterlocked.Update(ref _notifications, static (current, entry) => WithNotification(current, entry),
+            new NotificationEntry(when, severity, message));
         if (ActiveTab != GuiTab.Notifications)
         {
-            UnreadNotificationCount++;
+            Interlocked.Increment(ref _unreadNotificationCount);
         }
+    }
+
+    /// <summary>The feed with one more entry: newest first, and past <see cref="MaxNotifications"/> the oldest go.</summary>
+    internal static ImmutableArray<NotificationEntry> WithNotification(ImmutableArray<NotificationEntry> current, NotificationEntry entry)
+    {
+        var next = current.Insert(0, entry);
+        return next.Length > MaxNotifications ? next.RemoveRange(MaxNotifications, next.Length - MaxNotifications) : next;
     }
 
     /// <summary>
@@ -487,7 +505,7 @@ public class GuiAppState
     /// <summary>Empty the notification history. Called by the Notifications tab's Clear button.</summary>
     public void ClearNotifications()
     {
-        Notifications = [];
+        ImmutableInterlocked.InterlockedExchange(ref _notifications, []);
         UnreadNotificationCount = 0;
     }
 }

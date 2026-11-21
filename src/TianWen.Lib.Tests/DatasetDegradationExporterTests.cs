@@ -1419,7 +1419,9 @@ namespace TianWen.Lib.Tests
             // A black point by sky noise (#2309) exports the same draws too and says its depth on every row, where an
             // export from the minimum says nothing.
             var atDepth = options with { OutDir = Path.Combine(_root, "stars-black-point"), BlackPointSigma = 40 };
-            (await DatasetDegradationExporter.RunAsync(atDepth, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var atDepthRun = await DatasetDegradationExporter.RunAsync(atDepth, logger: null, TestContext.Current.CancellationToken);
+            atDepthRun.Failed.ShouldBe(0);
+            atDepthRun.Sessions.Length.ShouldBeGreaterThan(0);
             var depthRows = ReadDegradationRows(atDepth.OutDir);
             depthRows.Length.ShouldBe(rows.Length);
             depthRows.ShouldAllBe(static r => r.StretchBlackPointSigma == 40);
@@ -1447,8 +1449,12 @@ namespace TianWen.Lib.Tests
             ReadDegradationRows(atDepth.OutDir).ShouldAllBe(static r => r.StretchBlackPointSigma == 40);
             ReadDegradationRows(atDepth.OutDir).Length.ShouldBe(depthRows.Length);
             ReadDegradationRows(options.OutDir).Length.ShouldBe(rows.Length);
-            // The same rule into its own folder again is no refusal: every session is there already.
-            (await DatasetDegradationExporter.RunAsync(atDepth, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            // The same rule into its own folder again is no refusal: every session is there already, so each one the first
+            // run exported is skipped and none is exported a second time (#2350).
+            var atDepthAgain = await DatasetDegradationExporter.RunAsync(atDepth, logger: null, TestContext.Current.CancellationToken);
+            atDepthAgain.Failed.ShouldBe(0);
+            atDepthAgain.Sessions.ShouldBeEmpty("no session is exported again");
+            atDepthAgain.Skipped.ShouldBe(atDepthRun.Skipped + atDepthRun.Sessions.Length, "the first run's sessions are skipped, beside what it skipped itself");
             ReadDegradationRows(atDepth.OutDir).Length.ShouldBe(depthRows.Length);
 
             // The same seed, the same bytes: every star and every tile, and reading the stars back changes none of them.

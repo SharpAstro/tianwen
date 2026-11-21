@@ -41,13 +41,37 @@ namespace TianWen.Lib.Tests;
 /// </para>
 /// <para>
 /// <b>The file is appended to, never emptied</b>: a second run into the same file adds its lines after the first's.
-/// Name a new file for a run or delete the old one; the report says when a file holds a test more than once.
+/// Name a new file for a run or delete the old one. The report says when a NAME is on more than one line, and it
+/// cannot tell which of two things that is: a second run appended to the file, or rows of one theory whose display
+/// names xunit shortened to the same text (a string argument is cut at 50 characters). It sums that name's lines.
 /// </para>
 /// <para>
 /// <b>What was allocated</b>, with <c>TIANWEN_TEST_COST_TYPES=1</c> as well: the runtime's allocation tick (one event
 /// for about every 100 KB a thread allocates, naming the type of the object that crossed the mark) is summed per type
 /// over the test, and the eight largest go to <c>&lt;cost file&gt;.types</c> as test, type, sampled bytes. A sample, so
 /// small figures are noise; it names the type and not the call site. Serial runs only, as above.
+/// </para>
+/// <para>
+/// <b>The type sample runs late, so its edges are soft</b> (#2382). The runtime does not raise an allocation tick on
+/// the thread that allocated: it hands them to a listener from a dispatch thread of its own, some time after. Measured
+/// here (256 MB allocated on one thread, three runs): every tick arrived on one other thread, and as the allocating
+/// loop ended 83 to 98 percent of them had; the rest came within the next half second. So a test's last ticks can be
+/// missing from its lines, and what becomes of one depends on when it lands (#2389): between this test's end and the
+/// clear for the next test it is dropped and counted to no test, and after the clear it is counted to the next one.
+/// With peaks on, the collection that runs before the clear widens the first of those. So clearing the sampler
+/// between tests keeps most of what came before out, not all of it. It is one more reason to read the megabytes and
+/// not the tail.
+/// </para>
+/// <para>
+/// <b>How much memory a test needed</b>, with <c>TIANWEN_TEST_COST_PEAKS=1</c> as well: three more fields on its line,
+/// in bytes. Before the test the heap is collected until it is stable (<c>GC.GetTotalMemory(true)</c>), so the first
+/// is what the process held live as the test began: fixtures, caches, statics. From then on the heap in use and the
+/// working set are read every 25 ms and once more as the test ends, and the highest of each are the second and the
+/// third. The heap's peak less its start is what the test added: its live objects, and the garbage that was waiting
+/// for a collection at that moment. The working set also holds what the heap does not (native buffers, code) and
+/// memory the collector has freed and not yet handed back, so it follows the tests before this one too: read it for
+/// how large the PROCESS got, and the heap for whose doing that was. Serial runs only. A collection before every test
+/// moves when the collector runs, so take the collection counts and the pauses from a run without this.
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Assembly)]
@@ -59,7 +83,21 @@ public sealed class TestCostProbeAttribute : BeforeAfterTestAttribute
     private static readonly string? CostFile =
         Environment.GetEnvironmentVariable(FileVariable) is { Length: > 0 } named ? named : null;
 
-    private static readonly ConcurrentDictionary<string, Mark> Started = new();
+    /// <summary>The variable that asks for the memory peaks, with the value <c>1</c>.</summary>
+    internal const string PeaksVariable = "TIANWEN_TEST_COST_PEAKS";
+
+    private static readonly TimeSpan SampleEvery = TimeSpan.FromMilliseconds(25);
+
+    private static readonly ConcurrentDictionary<string, Running> Started = new();
+
+    // Reads the process every SampleEvery, for as long as the process lives, when peaks are asked for. Declared after
+    // Started and SampleEvery, which it uses: static initialisers run in the order they are written. A timer and not
+    // a loop: nothing waits between two readings.
+    private static readonly Timer? PeakSampling =
+        CostFile is not null && Environment.GetEnvironmentVariable(PeaksVariable) == "1"
+            ? new Timer(static _ => RaiseRunning(Environment.WorkingSet, GC.GetTotalMemory(forceFullCollection: false)),
+                null, SampleEvery, SampleEvery)
+            : null;
 
     private static readonly AllocationSampler? Sampler =
         CostFile is not null && Environment.GetEnvironmentVariable("TIANWEN_TEST_COST_TYPES") == "1" ? new AllocationSampler() : null;
@@ -72,19 +110,32 @@ public sealed class TestCostProbeAttribute : BeforeAfterTestAttribute
     {
         if (CostFile is not null)
         {
+            // Peaks: the heap is collected until it is stable first, so the test starts from what the process holds
+            // live (and the running class's own instance and fixtures) and what it adds is its own. Before the mark,
+            // so these collections land on no line of the bytes file. The type sampler is cleared after them, which
+            // keeps MOST of what they allocate (finalizers of the previous test's objects) out of this test's .types
+            // lines, and not all of it (#2382): the runtime hands its allocation ticks to a listener from a thread of
+            // its own, after the fact, so one from the collection can arrive once the sampler is clear. See the
+            // remark on the class for how late.
+            var peaks = PeakSampling is null
+                ? null
+                : new Peaks(heapAtStart: GC.GetTotalMemory(forceFullCollection: true), workingSetAtStart: Environment.WorkingSet);
             Sampler?.Clear();
-            Started[test.UniqueID] = Mark.Now();
+            Started[test.UniqueID] = new Running(Mark.Now(), peaks);
         }
     }
 
     public override void After(MethodInfo methodUnderTest, IXunitTest test)
     {
-        if (CostFile is null || !Started.TryRemove(test.UniqueID, out var start))
+        if (CostFile is null || !Started.TryRemove(test.UniqueID, out var running))
         {
             return;
         }
 
-        var line = Line(test.TestDisplayName, start, Mark.Now());
+        var end = Mark.Now();
+        // One more reading as the test ends: a test shorter than the sampler's step has no other.
+        running.Peaks?.Raise(Environment.WorkingSet, GC.GetTotalMemory(forceFullCollection: false));
+        var line = Line(test.TestDisplayName, running.Start, end, running.Peaks);
         var types = Sampler?.Largest(test.TestDisplayName, 8);
         lock (Writing)
         {
@@ -96,9 +147,71 @@ public sealed class TestCostProbeAttribute : BeforeAfterTestAttribute
         }
     }
 
-    /// <summary>One tab-separated line: test, wall ms, bytes allocated, gen0, gen1 and gen2 collections, collector pause ms.</summary>
-    internal static string Line(string test, Mark start, Mark end) => string.Create(CultureInfo.InvariantCulture,
-        $"{test}\t{Stopwatch.GetElapsedTime(start.Timestamp, end.Timestamp).TotalMilliseconds:F0}\t{end.Allocated - start.Allocated}\t{end.Gen0 - start.Gen0}\t{end.Gen1 - start.Gen1}\t{end.Gen2 - start.Gen2}\t{(end.Paused - start.Paused).TotalMilliseconds:F0}\n");
+    /// <summary>
+    /// One tab-separated line: test, wall ms, bytes allocated, gen0, gen1 and gen2 collections, collector pause ms. With
+    /// peaks, three more, in bytes: the heap at the test's start, the highest heap and the highest working set.
+    /// </summary>
+    internal static string Line(string test, Mark start, Mark end, Peaks? peaks = null)
+    {
+        var counters = string.Create(CultureInfo.InvariantCulture,
+            $"{test}\t{Stopwatch.GetElapsedTime(start.Timestamp, end.Timestamp).TotalMilliseconds:F0}\t{end.Allocated - start.Allocated}\t{end.Gen0 - start.Gen0}\t{end.Gen1 - start.Gen1}\t{end.Gen2 - start.Gen2}\t{(end.Paused - start.Paused).TotalMilliseconds:F0}");
+        return peaks is null
+            ? counters + "\n"
+            : string.Create(CultureInfo.InvariantCulture, $"{counters}\t{peaks.HeapAtStart}\t{peaks.Heap}\t{peaks.WorkingSet}\n");
+    }
+
+    /// <summary>One reading of the process, taken into every test running now.</summary>
+    private static void RaiseRunning(long workingSet, long heap)
+    {
+        foreach (var running in Started)
+        {
+            running.Value.Peaks?.Raise(workingSet, heap);
+        }
+    }
+
+    /// <summary>A test that has started: the counters as it began, and its peaks when they are asked for.</summary>
+    private sealed record Running(Mark Start, Peaks? Peaks);
+
+    /// <summary>
+    /// How high the process's memory went while one test ran: the managed heap the test started from, and the highest
+    /// heap and working set read from then on. A peak only rises.
+    /// </summary>
+    internal sealed class Peaks(long heapAtStart, long workingSetAtStart)
+    {
+        private long _heap = heapAtStart;
+        private long _workingSet = workingSetAtStart;
+
+        /// <summary>Bytes in managed objects as the test began, the heap having been collected until it was stable.</summary>
+        public long HeapAtStart { get; } = heapAtStart;
+
+        /// <summary>The most bytes in managed objects at any reading, garbage not yet collected included.</summary>
+        public long Heap => Interlocked.Read(ref _heap);
+
+        /// <summary>The largest working set of the process at any reading.</summary>
+        public long WorkingSet => Interlocked.Read(ref _workingSet);
+
+        /// <summary>Takes one reading. The sampler's thread and the test's own both call this, so each peak is raised by compare-and-swap.</summary>
+        public void Raise(long workingSet, long heap)
+        {
+            RaiseTo(ref _workingSet, workingSet);
+            RaiseTo(ref _heap, heap);
+        }
+
+        private static void RaiseTo(ref long peak, long reading)
+        {
+            // Ends once the reading is no longer above the peak: a lost swap means another reading raised it meanwhile.
+            for (var seen = Interlocked.Read(ref peak); reading > seen;)
+            {
+                var was = Interlocked.CompareExchange(ref peak, reading, seen);
+                if (was == seen)
+                {
+                    return;
+                }
+
+                seen = was;
+            }
+        }
+    }
 
     /// <summary>Sums the runtime's allocation ticks per type. Its own boxing shows up in the sample; it is small beside what it finds.</summary>
     private sealed class AllocationSampler : EventListener

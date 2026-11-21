@@ -76,13 +76,38 @@ public class GuiSuccessionTests
         start.Environment[GuiSuccession.PredecessorStartedVariable].ShouldBe(started.UtcTicks.ToString(System.Globalization.CultureInfo.InvariantCulture));
         GuiSuccession.PredecessorStartedOf(name => start.Environment.TryGetValue(name, out var value) ? value : null).ShouldBe(started);
 
-        // Not told: no variable, and never this process's own predecessor's start, which it inherited.
+        // Not told: no variable. (That a start it INHERITED is taken out is AStartThisProcessWasHandedIsNotPassedOn's:
+        // nothing in a test host's environment is there to inherit, so this line cannot show it.)
         GuiSuccession.SuccessorFor("gui", [], 4242, 0, TimeSpan.Zero).ShouldNotBeNull()
             .Environment.ContainsKey(GuiSuccession.PredecessorStartedVariable).ShouldBeFalse();
         GuiSuccession.PredecessorStartedOf(Environment([])).ShouldBeNull();
         GuiSuccession.PredecessorStartedOf(Environment(new() { [GuiSuccession.PredecessorStartedVariable] = "x" })).ShouldBeNull();
         GuiSuccession.PredecessorStartedOf(Environment(new() { [GuiSuccession.PredecessorStartedVariable] = "0" })).ShouldBeNull();
         GuiSuccession.PredecessorStartedOf(Environment(new() { [GuiSuccession.PredecessorStartedVariable] = "-5" })).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// #2362: a successor's environment starts as a copy of this process's own, so the start this process was itself
+    /// handed (its predecessor's) would go on to the successor with the rest. With no start of its own to give, it is
+    /// taken out, and the other two are written over.
+    /// </summary>
+    [Fact]
+    public void AStartThisProcessWasHandedIsNotPassedOn()
+    {
+        var environment = new Dictionary<string, string?>
+        {
+            [GuiSuccession.PredecessorVariable] = "77",
+            [GuiSuccession.PredecessorStartedVariable] = "638990000000000000",
+            [GuiSuccession.GenerationVariable] = "2",
+            ["TIANWEN_SOMETHING_ELSE"] = "kept",
+        };
+
+        GuiSuccession.Describe(environment, processId: 4242, processStarted: null, generation: 3);
+
+        environment.ContainsKey(GuiSuccession.PredecessorStartedVariable).ShouldBeFalse("that start is its predecessor's, not its own");
+        environment[GuiSuccession.PredecessorVariable].ShouldBe("4242");
+        environment[GuiSuccession.GenerationVariable].ShouldBe("3");
+        environment["TIANWEN_SOMETHING_ELSE"].ShouldBe("kept");
     }
 
     /// <summary>
@@ -189,13 +214,15 @@ public class GuiSuccessionTests
             }
             (await GuiSuccession.WaitForPredecessorAsync(predecessor, started, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
                 .ShouldBeFalse("its own start names it, so it is waited for");
-            // ...and a process under that id with ANOTHER start is not the predecessor: the id was given out again, the
-            // predecessor is gone, and the whole budget is not spent on a stranger.
-            var before = Stopwatch.GetTimestamp();
-            (await GuiSuccession.WaitForPredecessorAsync(predecessor, started - TimeSpan.FromHours(1), GuiSuccession.PredecessorExitBudget,
-                    SystemTimeProvider.Instance, ct))
+            // ...and a process under that id with ANOTHER start is taken for a stranger, given the id since: the whole
+            // budget is not spent on it (#1414), but it is still waited for a short grace, in case it is the predecessor
+            // after all (#2362). On a fake clock, which only the waiting moves: the process runs throughout, so where
+            // the clock stops is how long was waited, and no wall-clock bar is needed to tell the three apart.
+            var fake = new FakeTimeProviderWrapper();
+            var before = fake.GetUtcNow();
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, started - TimeSpan.FromHours(1), GuiSuccession.PredecessorExitBudget, fake, ct))
                 .ShouldBeTrue("a process started at another time is not the one this window replaces");
-            Stopwatch.GetElapsedTime(before).ShouldBeLessThan(GuiSuccession.PredecessorExitBudget / 2, "and it is answered at once, not at the budget's end");
+            (fake.GetUtcNow() - before).ShouldBe(GuiSuccession.StrangerGrace, "the grace: not the whole budget, and not no wait at all");
 
             var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, started, GuiSuccession.PredecessorExitBudget, SystemTimeProvider.Instance, ct);
             End(predecessor);

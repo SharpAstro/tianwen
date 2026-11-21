@@ -186,6 +186,21 @@ class EndToEnd(unittest.TestCase):
         self.assertFalse(os.path.exists(self.path("short.best.pt")))
         self.assertIn("--save-best: nothing written", done.stdout)
         self.assertIn("(it read 2)", done.stdout)
+        # A run that was never resumed is not told about a resume (#2340).
+        self.assertNotIn("resume", done.stdout.split("--save-best: nothing written")[1])
+
+    def test_an_objective_that_is_never_a_number_writes_nothing_beside_the_output_and_names_the_score(self):
+        # A learning rate no weight survives: the held-out objective is NaN from its first evaluation, so no step ever
+        # improves on the best, which is the second cause the line names. Twenty steps are four evaluations, so the first
+        # cause (fewer than three) is not what is read here.
+        done = self.train("nan.pt", 20, 0, "--save-best", "--lr", "1e30")
+        self.assertEqual(done.stdout.count("held-out nan"), 4, "every one of the four evaluations reads NaN")
+        self.assertTrue(os.path.exists(self.path("nan.pt")), "the last step's weights are written as for any run")
+        self.assertFalse(os.path.exists(self.path("nan.best.pt")))
+        self.assertIn("--save-best: nothing written", done.stdout)
+        self.assertIn("(it read 4)", done.stdout)
+        self.assertIn("never a finite number (the last score: nan)", done.stdout)
+        self.assertNotIn("resume", done.stdout.split("--save-best: nothing written")[1])
 
     def test_the_runs_here_are_on_the_cpu(self):
         done = self.train("where.pt", 5, 0)

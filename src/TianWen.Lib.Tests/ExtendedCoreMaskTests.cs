@@ -261,6 +261,34 @@ public class ExtendedCoreMaskTests(ITestOutputHelper output)
         mask.Cores[0].FlatTopRoundness.ShouldBeLessThan(0.75, "which is not round, so it is not a star's");
     }
 
+    [Fact]
+    public void ARoundClippedKnotWhoseLightFallsSlowlyKeepsItsCore()
+    {
+        // The kind two of Orion's tops are (#2371): one knot clipped a little, so its top is as round as a star's and its
+        // core is no larger than the top, and only its wings tell it from a star: two radii out the light is still two
+        // fifths of the top's, where a star's is under a fifth.
+        var frame = Painted((256, 256, 25, 600));
+        var ceiling = Sky + (0.85f * 600 * Noise);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                frame[y, x] = Math.Min(frame[y, x], ceiling);
+            }
+        }
+
+        var mask = ExtendedCoreMask.Find(ImageOf(frame));
+
+        output.WriteLine(string.Join("; ", mask.Cores.Select(c =>
+            $"({c.X}, {c.Y}) ratio {c.PeakRatio:F2}, core {c.CoreAreaPx} px, top {c.FlatTopPx} px round {c.FlatTopRoundness:F2} fall {c.FlatTopFall:F3}")));
+        mask.Cores.Length.ShouldBe(1, "a clipped knot whose light falls off slowly is no star, however round its top");
+        var core = mask.Cores[0];
+        core.FlatTopPx.ShouldBeGreaterThanOrEqualTo(50, "the top is wide enough for the rule to read");
+        core.FlatTopRoundness.ShouldBeGreaterThan(0.75, "the top is as round as a star's");
+        core.CoreAreaPx.ShouldBeLessThan(9 * core.FlatTopPx, "the core is no larger than the top either");
+        core.FlatTopFall.ShouldBeGreaterThan(0.3, "so the fall alone keeps this core");
+    }
+
     /// <summary>Returns a fixed plate on whatever scale it is handed the input on.</summary>
     private sealed class FixedRemover(float[,] model, float inputPeak) : IStarRemover
     {

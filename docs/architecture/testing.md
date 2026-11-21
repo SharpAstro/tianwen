@@ -72,6 +72,9 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
   it holds pilot's one job slot for the length of it (a run of 2026-11-20 held it for over 35 minutes, for a PR that had
   already merged). Locally, build the test project and run the tests of the change by `--filter`. A whole local run
   is for when the owner asks for one, or for hunting an intermittent failure (the `test-run` skill).
+- **What a test needs at once is measured too**: `TIANWEN_TEST_COST_PEAKS=1` beside the cost file adds the heap a
+  test started from, the heap's peak and the working set's (`docs/architecture/ci-test-times.md`, "How much memory a
+  test needs").
 - **What a test allocates is measured, not guessed**: `TIANWEN_TEST_COST_FILE` and `tools/test-cost-report.py`
   (`docs/architecture/ci-test-times.md`, "What the tests allocate"). Read bytes and collection counts; a time from a
   busy machine says nothing.
