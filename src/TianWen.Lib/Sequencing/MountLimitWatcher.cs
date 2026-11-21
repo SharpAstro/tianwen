@@ -227,9 +227,10 @@ public sealed class MountLimitWatcher(
             return;
         }
 
-        // Describe() is a full sentence already; no separator before the next one.
-        logger.LogError("{Mount} mount safety limit: {Verdict} Responding with {Response} (no session owns this mount).",
-            mount.Name, verdict.Describe(), verdict.Response);
+        // Describe() is a full sentence already; no separator before the next one. ActingNote() says what is done about
+        // it: the response, or for a mount nothing here can stop, that no command is sent (#2333).
+        logger.LogError("{Mount} mount safety limit: {Verdict} {Acting} No session owns this mount.",
+            mount.Name, verdict.Describe(), verdict.ActingNote());
         _acted[mountUri] = 0;
 
         // Stop tracking first in BOTH responses -- see Session.EnforceMountLimitsAsync's remarks: a
@@ -249,18 +250,10 @@ public sealed class MountLimitWatcher(
             await ResilientCall.InvokeAsync(
                 mount, mount.ParkAsync, ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
         }
-        else if (verdict.Response is MountLimitResponse.Park)
+        else if (verdict.Response is MountLimitResponse.Park && mount.CanSetTracking)
         {
-            logger.LogWarning(mount.CanSetTracking
-                ? "{Mount} mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead."
-                : "{Mount} mount safety limit asked for a park, but this mount can neither park nor stop tracking.", mount.Name);
-        }
-
-        // Said only when neither the stop nor a park was made: a mount that cannot switch its tracking but was parked
-        // is not turning any more.
-        if (verdict.MountCannotBeStopped)
-        {
-            logger.LogError("{Mount} cannot be stopped on command, so it is still turning towards the limit. Stop it at the mount.", mount.Name);
+            // A mount that can neither park nor stop was told so in the line that acts (ActingNote), once.
+            logger.LogWarning("{Mount} mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead.", mount.Name);
         }
     }
 }

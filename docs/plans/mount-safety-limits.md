@@ -757,6 +757,13 @@ Driven through the SDL inspector against `tianwen-gui`; every finding below was 
    `MountCannotBeStopped` (also on the wire, optional; `MountLimits.CannotBeStopped`): true where the mount cannot
    stop tracking and the configured response does not park it. Its sentence then says the mount is still turning
    and has to be stopped at the mount. Nothing stops such a mount; the limit can only say so.
+5. **The instruction was the sentence's last words, off the end of every card (#2333).** A Home card shows one
+   line of the verdict's sentence and the engine cuts the rest with an ellipsis: about 80 characters on a wide
+   card, about 30 on the narrowest, of a sentence that runs to 230. For a mount that cannot be stopped the
+   sentence now leads with what the operator has to do ("Stop the mount by hand."), the card's line and the
+   table's "LIMIT" cell carry the whole sentence as their hover, and the log says it once: the line that acts
+   ends in `MountLimitVerdict.ActingNote()`, which for such a mount reads "No command is sent" where it read
+   "Responding with StopTracking" and was followed by a second line repeating the verdict.
 
 ## Carried over from the 2026-08-29 handoff notes
 

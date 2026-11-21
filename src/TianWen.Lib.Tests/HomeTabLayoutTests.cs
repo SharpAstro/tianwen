@@ -1,5 +1,6 @@
 ﻿using Console.Lib;
 using DIR.Lib;
+using SharpAstro.Png;
 using Shouldly;
 using System;
 using System.Collections.Immutable;
@@ -274,6 +275,71 @@ namespace TianWen.Lib.Tests
             // The socket leads the label, in the same run as the text -- which only renders because the
             // painter resolves emoji runs to the emoji font per run.
             new RigDeviceLink(4, 6).Describe().ShouldStartWith("🔌");
+        }
+
+        /// <summary>The longest sentence a limit says: latched, on a mount nothing here can stop (#1483).</summary>
+        private static readonly MountLimitVerdict LatchedOnAMountThatCannotBeStopped =
+            new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0, Latched: true) { MountCannotBeStopped = true };
+
+        /// <summary>
+        /// #2333: a card shows ONE line of the limit's sentence and the engine cuts the rest with an ellipsis, so the whole
+        /// of it is the line's hover, and a press on the line is still a press on its card. At the narrowest card and a
+        /// wide one, at two scales; TIANWEN_KEEP_TEST_OUTPUT=1 keeps the renders, to be looked at.
+        /// </summary>
+        [Theory]
+        [InlineData(244, 1f)]
+        [InlineData(366, 1.5f)]
+        [InlineData(1600, 1f)]
+        public void ACardsLimitLineCarriesTheWholeSentenceOnItsHoverAndStillSelectsTheCard(int width, float dpiScale)
+        {
+            using var renderer = new RgbaImageRenderer((uint)width, (uint)(900 * dpiScale));
+            var bus = new SignalBus();
+            var selected = 0;
+            bus.Subscribe<SelectLocalContextSignal>(_ => selected++);
+            var tab = new HomeTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont(), Bus = bus };
+            var cards = ImmutableArray.Create(
+                FullCard("This computer") with { MountLimit = LatchedOnAMountThatCannotBeStopped },
+                Card("Backyard", running: true),
+                Card("Roof"));
+            // Cards, said outright: Auto would swap a window this narrow for the table.
+            tab.Render(new GuiAppState { HomeCards = cards, HomeBoardView = HomeBoardView.Cards },
+                new RectF32(0, 0, renderer.Width, renderer.Height), Now);
+
+            // Kept output only (TIANWEN_KEEP_TEST_OUTPUT=1): the render beside the test binary, to be looked at.
+            if (Environment.GetEnvironmentVariable("TIANWEN_KEEP_TEST_OUTPUT") == "1")
+            {
+                System.IO.File.WriteAllBytes(
+                    System.IO.Path.Combine(AppContext.BaseDirectory, $"hometab-limit-{width}-{dpiScale:0.0}.png"),
+                    PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height));
+            }
+
+            var sentence = LatchedOnAMountThatCannotBeStopped.Describe();
+            sentence.ShouldStartWith("Stop the mount by hand.", customMessage: "premise: what the one line shows is what to do");
+            var line = tab.GetRegisteredRegions().Where(r => r.Tooltip == sentence).ShouldHaveSingleItem();
+            var card = Cards(tab).Single(r => r.Result is HitResult.ButtonHit { Action: "HomeRig:This computer" });
+            line.X.ShouldBeGreaterThanOrEqualTo(card.X);
+            (line.X + line.Width).ShouldBeLessThanOrEqualTo(card.X + card.Width, "the line ends inside its card");
+
+            var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), () => { }) { Widgets = () => [tab] };
+            var (x, y) = (line.X + line.Width / 2f, line.Y + line.Height / 2f);
+            router.Handle(new InputEvent.MouseDown(x, y, ClickCount: 1));
+            router.Handle(new InputEvent.MouseUp(x, y));
+            bus.ProcessPending();
+            selected.ShouldBe(1, "a press on the limit's line selects the rig, as a press anywhere on the card does");
+        }
+
+        /// <summary>#2333: the table's cell holds one word ("LIMIT"), so what happened and what to do is its hover.</summary>
+        [Fact]
+        public void TheTablesLimitCellCarriesTheWholeSentenceOnItsHover()
+        {
+            // No prompt waiting on this rig: a waiting rig's badge takes the place of the row's last two cells, this one among them.
+            var cards = ImmutableArray.Create(Card("This computer", running: true) with { MountLimit = LatchedOnAMountThatCannotBeStopped });
+            var tree = HomeBoardLayout.Build(cards, HomeBoardStyle.Default, width: 150 * 8f, Now, view: HomeBoardView.Table);
+
+            var arranged = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, 150, 30), CellMeasureContext.PixelAuthored);
+
+            var cell = arranged.Where(a => a.Node.Tooltip == LatchedOnAMountThatCannotBeStopped.Describe()).ShouldHaveSingleItem();
+            cell.Node.ShouldBeOfType<Layout.Node.Leaf>().Content.ShouldBeOfType<Layout.Content.Text>().Value.ShouldBe("LIMIT");
         }
 
         [Fact]
