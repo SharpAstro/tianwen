@@ -56,8 +56,11 @@ namespace TianWen.Lib.Tests;
 /// the thread that allocated: it hands them to a listener from a dispatch thread of its own, some time after. Measured
 /// here (256 MB allocated on one thread, three runs): every tick arrived on one other thread, and as the allocating
 /// loop ended 83 to 98 percent of them had; the rest came within the next half second. So a test's last ticks can be
-/// missing from its lines and counted to the test after it, and clearing the sampler between tests keeps most of what
-/// came before out, not all of it. It is one more reason to read the megabytes and not the tail.
+/// missing from its lines, and what becomes of one depends on when it lands (#2389): between this test's end and the
+/// clear for the next test it is dropped and counted to no test, and after the clear it is counted to the next one.
+/// With peaks on, the collection that runs before the clear widens the first of those. So clearing the sampler
+/// between tests keeps most of what came before out, not all of it. It is one more reason to read the megabytes and
+/// not the tail.
 /// </para>
 /// <para>
 /// <b>How much memory a test needed</b>, with <c>TIANWEN_TEST_COST_PEAKS=1</c> as well: three more fields on its line,
