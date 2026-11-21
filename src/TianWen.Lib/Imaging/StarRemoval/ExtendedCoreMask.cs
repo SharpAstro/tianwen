@@ -21,12 +21,17 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// sigmas over the sky. One whose own peak stands <see cref="Options.MinPeakSigma"/> sigmas or more gets a core: where the
 /// map is at least <see cref="Options.CoreShare"/> of that peak, at most <see cref="Options.MaxAreaShare"/> of the source's
 /// area, its brightest blocks first, so a nebula filling the frame gives up only its brightest part.</para>
-/// <para>Two rules keep a core off what is not an extended source. <b>Edge:</b> a source whose map peak lies within
+/// <para>Three rules keep a core off what is not an extended source. <b>Edge:</b> a source whose map peak lies within
 /// <see cref="Options.EdgeReachPx"/> (56 px) of the border or of an absent pixel gets none, since the median window is cut
 /// there and a stack's coverage edge reads as a bright source. <b>Star:</b> a bright star's halo fills the 56 px median
 /// window only at a small share of the star's own height, so the map under it is low and the star's compact peak stands far
 /// over it; a source whose full-resolution p90 about the peak exceeds <see cref="Options.MaxPeakRatio"/> times the map's peak
-/// gets none, whereas an extended source's core IS the map and reads near 1 to 5.5.</para>
+/// gets none, whereas an extended source's core IS the map and reads near 1 to 5.5. <b>Clipped star (#2360):</b> that ratio
+/// has a ceiling. A star bright enough to clip has a flat top, the p90 is the clip level however bright the star is, and a
+/// top as wide as Alcyone's (31 px on the master that showed it) fills the window at a sixth of that level, so the brightest
+/// stars read under the bar. A source whose map peaks on a round flat top that falls off as a star does, and whose core is no
+/// more than <see cref="Options.MaxCoreOverFlatTop"/> times that top, gets none: the core is the star. A clipped star ON a
+/// real core (eta Carinae in the Keyhole) has a core many times its top and keeps it.</para>
 /// <para>The sky sigma is read from second differences along rows by their median; a frame whose differences are mostly zero (8-bit
 /// data) is read by their clipped spread instead, which on a float frame would count the galaxy's own gradients as noise.</para>
 /// </remarks>
@@ -54,6 +59,10 @@ public sealed class ExtendedCoreMask
     /// box about its peak (side the square root of the core's area) exceeds this multiple of the map's peak above the sky: that
     /// is a star's halo, not an extended source. The survey (2026-11) put stars at 7.2 and over and extended sources at 5.5 and
     /// under; the bar sits in that gap.</param>
+    /// <param name="MaxCoreOverFlatTop">A source whose map peaks on a clipped star's flat top (<see cref="Core.FlatTopPx"/>,
+    /// round and falling off as a star does) gets no core when its core is no more than this many times the top's area: the
+    /// core is then the star's own light. 9 is the disc of three top radii; on the survey (2026-11-21) the one star kept as a
+    /// core reads 1.3 and the two cores with a clipped star on them (eta Carinae) 71 and 128. 0 turns the rule off.</param>
     public sealed record Options(
         double CoreShare = 0.5,
         double MaxAreaShare = 0.01,
@@ -62,7 +71,8 @@ public sealed class ExtendedCoreMask
         int MinSourceBlocks = 16,
         int FeatherRadiusPx = 4,
         int EdgeReachPx = FilterBlocks * BlockPx,
-        double MaxPeakRatio = 6.0)
+        double MaxPeakRatio = 6.0,
+        double MaxCoreOverFlatTop = 9.0)
     {
         /// <summary>The defaults, measured on the owner's M31, Lagoon and Trifid frames (2026-10-19).</summary>
         public static readonly Options Default = new();
@@ -78,7 +88,29 @@ public sealed class ExtendedCoreMask
     /// <see cref="Options.EdgeReachPx"/>.</param>
     /// <param name="PeakRatio">The star rule's measure: the 90th percentile of the full-resolution light above the sky in a box
     /// about the peak, over the map's peak above the sky.</param>
-    public readonly record struct Core(int X, int Y, double PeakSigma, int SourceAreaPx, int CoreAreaPx, int EdgeDistancePx = 0, double PeakRatio = 0);
+    /// <param name="FlatTopPx">The clipped-star rule's first measure: how many connected pixels about the brightest one near
+    /// the peak stand at <see cref="FlatTopShare"/> of its light or over (0: the top runs past what the rule looks at, or
+    /// does not hold the peak).</param>
+    /// <param name="FlatTopRoundness">How round that top is: its axis ratio times how well it fills the ellipse of its second
+    /// moments, 1 for a filled disc.</param>
+    /// <param name="FlatTopFall">The light two top radii out from the top's centre, as a share of the top's (1 where it
+    /// cannot be read).</param>
+    public readonly record struct Core(
+        int X, int Y, double PeakSigma, int SourceAreaPx, int CoreAreaPx, int EdgeDistancePx = 0, double PeakRatio = 0,
+        int FlatTopPx = 0, double FlatTopRoundness = 0, double FlatTopFall = 1);
+
+    /// <summary>The share of the brightest pixel's light (over the sky) a pixel needs to belong to the flat top.</summary>
+    public const double FlatTopShare = 0.9;
+
+    // What makes a flat top a clipped star's. Read on the survey of 2026-11-21 (201 session masters, both star rules off so
+    // that every source is listed with its measures; docs/plans/star-remover-training.md, "A clipped star reads as a core"):
+    // the 37 stars with a top of 50 px or over fall to 0.010 to 0.144 of the top two radii out, the eleven kept cores of
+    // clipped nebula light (Orion, the Helix, the Tarantula, a Large Magellanic Cloud knot) to 0.221 and over, so the fall's
+    // bar is the geometric middle of that gap; 36 of the 37 stars are round to 0.80 or over. Roundness alone does not tell
+    // the two apart (two of Orion's tops read 0.83 and 0.87).
+    private const int MinStarTopPx = 50;
+    private const double MinStarTopRoundness = 0.75;
+    private const double MaxStarTopFall = 0.18;
 
     private ExtendedCoreMask(int width, int height, float[] weight, ImmutableArray<Core> cores, double skySigma, CoreStars.Report? starsLeftOut = null)
     {
@@ -273,11 +305,20 @@ public sealed class ExtendedCoreMask
             {
                 continue;
             }
+            // Clipped-star rule: the ratio above cannot read a clipped star whose flat top is wide, since the p90 is the clip
+            // level and the window under such a top is a large share of it. Where the map peaks on a star's flat top and the
+            // core is no larger than the star's own disc, the core is the star.
+            var flat = FlatTopAt(luminance, present, width, height, px, py, sky);
+            if (options.MaxCoreOverFlatTop > 0 && flat.IsStarTop && coreAreaPx <= options.MaxCoreOverFlatTop * flat.AreaPx)
+            {
+                continue;
+            }
             foreach (var m in top)
             {
                 keep[m] = true;
             }
-            found.Add((new Core(px, py, peak / sigma, members.Count * BlockPx * BlockPx, coreAreaPx, edge, ratio), peak));
+            found.Add((new Core(px, py, peak / sigma, members.Count * BlockPx * BlockPx, coreAreaPx, edge, ratio,
+                flat.AreaPx, flat.Roundness, flat.Fall), peak));
         }
 
         // Feathered OUTWARD: the cores grown by the blur's reach (three passes of its radius) first, so the blur's ramp lies
@@ -411,6 +452,115 @@ public sealed class ExtendedCoreMask
             }
         }
         return d;
+    }
+
+    // A flat top as the clipped-star rule reads it.
+    private readonly record struct FlatTop(int AreaPx, double Roundness, double Fall)
+    {
+        public static readonly FlatTop None = new(0, 0, 1);
+
+        public bool IsStarTop => AreaPx >= MinStarTopPx && Roundness >= MinStarTopRoundness && Fall <= MaxStarTopFall;
+    }
+
+    // The flat top at a source's peak: the connected pixels standing at FlatTopShare of the brightest light within half the
+    // median window of (px, py), how round they are, and how far the light has fallen two top radii out from their centre.
+    // None where the top does not hold the map's peak (its centre lies further from it than its own radius and a block) or
+    // runs past twice the window, which is wider than a star's top this rule is about.
+    private static FlatTop FlatTopAt(float[] luminance, bool[] present, int width, int height, int px, int py, float sky)
+    {
+        const int search = FilterBlocks * BlockPx / 2;
+        const int bound = 2 * FilterBlocks * BlockPx;
+        var (bx, by, best) = (-1, -1, float.NegativeInfinity);
+        for (var y = Math.Max(0, py - search); y <= Math.Min(height - 1, py + search); y++)
+        {
+            for (var x = Math.Max(0, px - search); x <= Math.Min(width - 1, px + search); x++)
+            {
+                var i = (y * width) + x;
+                if (present[i] && luminance[i] > best)
+                {
+                    (bx, by, best) = (x, y, luminance[i]);
+                }
+            }
+        }
+        var light = best - sky;
+        if (bx < 0 || !(light > 0))
+        {
+            return FlatTop.None;
+        }
+        var floor = sky + (float)(FlatTopShare * light);
+        const int side = (2 * bound) + 1;
+        var seen = new bool[side * side];
+        var open = new Stack<(int X, int Y)>();
+        open.Push((0, 0));
+        seen[(bound * side) + bound] = true;
+        var count = 0;
+        double sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+        // Offsets from the brightest pixel, so the moments keep their digits.
+        while (open.TryPop(out var at))
+        {
+            count++;
+            sx += at.X;
+            sy += at.Y;
+            sxx += at.X * at.X;
+            syy += at.Y * at.Y;
+            sxy += at.X * at.Y;
+            foreach (var (dx, dy) in (ReadOnlySpan<(int, int)>)[(at.X - 1, at.Y), (at.X + 1, at.Y), (at.X, at.Y - 1), (at.X, at.Y + 1)])
+            {
+                var (nx, ny) = (bx + dx, by + dy);
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height || !present[(ny * width) + nx] || luminance[(ny * width) + nx] < floor)
+                {
+                    continue;
+                }
+                if (Math.Abs(dx) > bound || Math.Abs(dy) > bound)
+                {
+                    return FlatTop.None;
+                }
+                var k = ((dy + bound) * side) + dx + bound;
+                if (!seen[k])
+                {
+                    seen[k] = true;
+                    open.Push((dx, dy));
+                }
+            }
+        }
+        var (cx, cy) = (sx / count, sy / count);
+        var radius = Math.Sqrt(count / Math.PI);
+        var (tx, ty) = (bx + cx, by + cy);
+        if (Math.Sqrt(((tx - px) * (tx - px)) + ((ty - py) * (ty - py))) > radius + BlockPx)
+        {
+            return FlatTop.None;
+        }
+
+        // Roundness from the second moments (a pixel is a square, so each variance carries its own 1/12): the axis ratio,
+        // times how well the top fills the ellipse of those moments. A disc of radius R has R^2 / 4 on each axis, so a filled
+        // ellipse holds 4 pi sqrt(major minor) pixels; a ragged or hollow top holds fewer.
+        var vxx = (sxx / count) - (cx * cx) + (1.0 / 12);
+        var vyy = (syy / count) - (cy * cy) + (1.0 / 12);
+        var vxy = (sxy / count) - (cx * cy);
+        var mean = (vxx + vyy) / 2;
+        var spread = Math.Sqrt(Math.Max(0, (mean * mean) - ((vxx * vyy) - (vxy * vxy))));
+        var (major, minor) = (mean + spread, Math.Max(mean - spread, 1e-12));
+        var roundness = Math.Sqrt(minor / major) * Math.Min(1.0, count / (4 * Math.PI * Math.Sqrt(major * minor)));
+
+        // The light two radii out, in a ring two pixels wide, by its median.
+        var inner = 2 * radius;
+        var reach = (int)Math.Ceiling(inner + 2);
+        var ring = new List<float>();
+        for (var y = Math.Max(0, (int)Math.Floor(ty) - reach); y <= Math.Min(height - 1, (int)Math.Ceiling(ty) + reach); y++)
+        {
+            for (var x = Math.Max(0, (int)Math.Floor(tx) - reach); x <= Math.Min(width - 1, (int)Math.Ceiling(tx) + reach); x++)
+            {
+                var d = Math.Sqrt(((x - tx) * (x - tx)) + ((y - ty) * (y - ty)));
+                if (d >= inner && d < inner + 2 && present[(y * width) + x])
+                {
+                    ring.Add(luminance[(y * width) + x]);
+                }
+            }
+        }
+        var fall = ring.Count > 0
+            ? Math.Max(0, (StatisticsHelper.MedianFast(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(ring)) - sky) / light)
+            : 1.0;
+        return new FlatTop(count, roundness, fall);
     }
 
     // The 90th percentile of the full-resolution light above the sky in a box of the given side about (px, py), over the

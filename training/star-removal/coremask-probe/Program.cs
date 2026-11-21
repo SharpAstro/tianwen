@@ -1,16 +1,48 @@
-// Usage: CoreMaskProbe <outDir> <session-masters folder | master.fits>...
+// Usage: CoreMaskProbe [--max-peak-ratio <ratio>] [--max-core-over-flat-top <times>] [--no-weights] <outDir> <session-masters folder | master.fits>...
 // The core mask of every master named (ExtendedCoreMask.Find at its defaults, as image remove-stars runs it by default),
-// one JSON line each in <outDir>/survey.jsonl: the cores with the two measures the rules read (EdgeDistancePx, PeakRatio), the area the
-// starless plate takes back, and the catalogued stars inside it. A core's weight plane is written to <outDir>/<stem>.weight.u8.
+// one JSON line each in <outDir>/survey.jsonl: the cores with the measures the rules read (EdgeDistancePx, PeakRatio, the
+// flat top's area, roundness and fall), the area the starless plate takes back, and the catalogued stars inside it. A
+// core's weight plane is written to <outDir>/<stem>.weight.u8.
+// --max-peak-ratio moves the star rule's bar: at a very high one the sources the rule turns away are listed too, each with
+// its ratio. --max-core-over-flat-top moves the clipped-star rule's (0 turns it off). With both rules off every source is
+// listed with every measure, which is how the stars they read are surveyed (#2360). --no-weights writes no weight planes.
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.StarRemoval;
 
-var outDir = args[0];
+var options = ExtendedCoreMask.Options.Default;
+var writeWeights = true;
+var at = 0;
+for (; at < args.Length && args[at].StartsWith("--", StringComparison.Ordinal); at++)
+{
+    if (args[at] == "--max-peak-ratio" && at + 1 < args.Length)
+    {
+        options = options with { MaxPeakRatio = double.Parse(args[++at], CultureInfo.InvariantCulture) };
+    }
+    else if (args[at] == "--max-core-over-flat-top" && at + 1 < args.Length)
+    {
+        options = options with { MaxCoreOverFlatTop = double.Parse(args[++at], CultureInfo.InvariantCulture) };
+    }
+    else if (args[at] == "--no-weights")
+    {
+        writeWeights = false;
+    }
+    else
+    {
+        Console.Error.WriteLine($"unknown switch: {args[at]}");
+        return 2;
+    }
+}
+if (args.Length - at < 2)
+{
+    Console.Error.WriteLine("usage: CoreMaskProbe [--max-peak-ratio <ratio>] [--max-core-over-flat-top <times>] [--no-weights] <outDir> <session-masters folder | master.fits>...");
+    return 2;
+}
+var outDir = args[at];
 Directory.CreateDirectory(outDir);
-var paths = args.Skip(1).SelectMany(a => Directory.Exists(a)
+var paths = args.Skip(at + 1).SelectMany(a => Directory.Exists(a)
     ? Directory.EnumerateFiles(a, "*.fits").Where(f => !Regex.IsMatch(f, @"\.(badpixels|coverage|rejection)\.fits$")).Order(StringComparer.Ordinal).ToArray()
     : new[] { a }).ToArray();
 using var jsonl = new StreamWriter(Path.Combine(outDir, "survey.jsonl"), false, new System.Text.UTF8Encoding(false));
@@ -19,7 +51,7 @@ foreach (var path in paths)
     var stem = Path.GetFileNameWithoutExtension(path);
     if (!Image.TryReadFitsFile(path, out var raw)) { Console.Error.WriteLine($"unreadable: {path}"); continue; }
     var image = MasterAlignment.MaskAbsent(raw);
-    var mask = ExtendedCoreMask.Find(image);
+    var mask = ExtendedCoreMask.Find(image, options);
     int full = 0, any = 0;
     foreach (var w in mask.Weight) { if (w >= 0.5f) full++; if (w > 0f) any++; }
     var inside = new SortedDictionary<string, int>();
@@ -44,7 +76,7 @@ foreach (var path in paths)
             }
         }
     }
-    if (mask.Cores.Length > 0)
+    if (writeWeights && mask.Cores.Length > 0)
     {
         var bytes = new byte[mask.Weight.Length];
         for (var i = 0; i < bytes.Length; i++) { bytes[i] = (byte)Math.Round(255 * mask.Weight[i]); }
@@ -53,11 +85,16 @@ foreach (var path in paths)
     jsonl.WriteLine(JsonSerializer.Serialize(new
     {
         stem, mask.Width, mask.Height, sigma = mask.SkySigma, hasCatalogue = File.Exists(csv),
-        edgeReachPx = ExtendedCoreMask.Options.Default.EdgeReachPx, maxPeakRatio = ExtendedCoreMask.Options.Default.MaxPeakRatio,
-        cores = mask.Cores.Select(c => new { c.X, c.Y, peak = Math.Round(c.PeakSigma, 1), c.SourceAreaPx, c.CoreAreaPx, c.EdgeDistancePx, peakRatio = Math.Round(c.PeakRatio, 2) }).ToArray(),
+        edgeReachPx = options.EdgeReachPx, maxPeakRatio = options.MaxPeakRatio, maxCoreOverFlatTop = options.MaxCoreOverFlatTop,
+        cores = mask.Cores.Select(c => new
+        {
+            c.X, c.Y, peak = Math.Round(c.PeakSigma, 1), c.SourceAreaPx, c.CoreAreaPx, c.EdgeDistancePx, peakRatio = Math.Round(c.PeakRatio, 2),
+            c.FlatTopPx, flatTopRoundness = Math.Round(c.FlatTopRoundness, 3), flatTopFall = Math.Round(c.FlatTopFall, 4),
+        }).ToArray(),
         fullPx = full, anyPx = any, inside, all,
     }));
     jsonl.Flush();
     image.Release();
     raw.Release();
 }
+return 0;
