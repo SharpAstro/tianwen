@@ -7037,7 +7037,32 @@ the first angle is a step after the model and not another arm:
     know: where a nebula's detail between 7 and 31 px is weak it is smoothed with the grain (the thin dark lanes of
     the Lagoon and Trifid plate come back softer), and the bright and dark pairs the builder left at bright stars are
     kept and now stand out of a smooth field. One pixel of one plate is newly absent (a Centaurus A plate's red, at
-    its right edge); no other plate gained an absent pixel.
+    its right edge); no other plate gained an absent pixel. **What the export does with such a pixel** (#2277, read
+    from `DatasetDegradationExporter`'s stars mode, 2026-11-21): a NaN in any channel that reaches the frame's
+    border is what `Image.AbsentPixels` calls absent, the canvas ring's rule, so the pixel is treated as ring. The
+    synthetic background and the noised plate leave the plate's own value there and draw no level and no noise on
+    it, the cell's mask hands it to the star renderer as absent, a value that is not finite is written through
+    with no star's shot noise added, and the stretch and the noise calibrations leave it out of what they measure.
+    The tile writer then clamps a NaN to 0 (`DatasetTileExporter.ExtractTileHalfs`), so a NaN that did reach an
+    exported cell would be a zero in the target and in all four input draws, the path of the square of zeros below;
+    it cannot by the bake's own rule, which samples cells only inside the NaN-free intersection of the session's
+    frames, and a pixel on the plate's right edge lies outside every cell of a dithered session, whose rectangle
+    of statistics stops short of the canvas edge (whether the Centaurus A session's does was not looked at). A
+    cell is not skipped for holding one. Under R4f's line the one stamp read that is handed the absent mask is
+    the halo over the plate's read of the measured saturated stars (`--halo-over-plate`,
+    `InjectionPopulation.PlateRingExcess`, 60 px stamp): a star whose stamp holds an absent or non-finite pixel
+    leaves the session's halo, never the cell, and a session with fewer than eight readable stars draws without
+    the option (`MinHaloOverPlateStars`). The read of a saturated star itself (`--saturated-measured`, which
+    R4f's line passes, a 36 px stamp) is handed no mask, so a zero ring does not refuse it; it does refuse a
+    stamp where master less plate is not finite, so a NaN pixel inside it, the case here, costs that star its
+    measurement: it is then drawn from its catalogue entry where the catalogue's pool would hold it (a star the
+    builder subtracted with the field's Moffat and the catalogue reads as clipped in a channel), and left out
+    otherwise. Where a drawn star lands depends on the
+    placement: in a random-placement export, R4f's line included, `InjectionPopulation.RandomPosition` draws a
+    position again when it lands on an absent pixel; under `--placement at-site` the star goes on its site
+    through `Jitter`, which has no such test. `AddLobes` leaves out a lobe that would land on one under both
+    placements, though R4f's line passes no `--star-lobes` and so draws no lobe at all. `MeasureBright` (`--bright-measured`, a 36 px stamp) refuses an absent stamp too, and R4f's
+    line does not pass that option.
   - **What that changes in the tiles, checked before the export** (`r4f-check.ps1`: the store's Tarantula session
     of 2024-10-02 and the three Helix sessions of 2025-08-09, exported with this line from both roots;
     `tile_grain.py`). The sparse sessions' 120 target tiles are the same bytes from either root. The Tarantula's 40
@@ -7206,7 +7231,10 @@ the first angle is a step after the model and not another arm:
     line on the held-out Tarantula.
   - **The question, through the product's chain** (core protection without the stars, then floor5; R4d re-read
     through it on 2026-11-20 before this registration): the Tarantula's crowded flat at least 93.3, which is R4d's
-    91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1).
+    91.3 plus 2 (R4c 90.3, R4e 89.1, StarXTerminator 96.1). R4e's 89.1 is a read through this chain and not its
+    registered read carried over: R4c, R4d and R4e were each run through it on 2026-11-20, and each arm's row is
+    kept as `row.txt` in its `-pcs+floor5` folder of the whole-master run (`C:/temp/tianwen-scratch/f2-whole-master`
+    on DE1). R4e reads 89.1 there, the same figure as its registered read with floor3 and the old protection.
   - **Guards, through the same chain,** R4c's: by count clean at least 98.5 at 100-1000 sigma and 98 at 1000 and
     over (the tiles with floor5); M42 100-1000 at least 88; SMC 20-100 and 100-1000 at least 97; Andromeda dark flat
     at least 95 and dug at most 3; Tarantula dark flat at least 91; the glow's green median within 450 of zero on
