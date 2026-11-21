@@ -299,6 +299,122 @@ public class CoreStarsTests(ITestOutputHelper output)
         mask.StarsLeftOut.ShouldBeNull();
     }
 
+    private const int ClippedX = 256, ClippedY = 256;
+    private const double ClippedTopRadius = 4.5;
+
+    // The eta Carinae kind (#2373): a wide bright nebula with a clipped star at its brightest part (the scene of
+    // ExtendedCoreMaskTests.AClippedStarOnARealCoreLeavesTheCoreItsProtection, whose core stays) and the grid of field stars
+    // the zero point is read from; the plate of a remover that took every star and left the nebula; and the catalogue of
+    // the field stars, without the clipped star, which each test adds as it needs it.
+    private static (float[,] Frame, float[,] Model, List<FrameStar> Catalogue) ClippedStarScene()
+    {
+        var model = ExtendedCoreMaskTests.Painted((ClippedX, ClippedY, 80, 3000));
+        var frame = new float[Size, Size];
+        Array.Copy(model, frame, model.Length);
+        ExtendedCoreMaskTests.WithClippedStar(frame, ClippedX, ClippedY, ClippedTopRadius, power: 6, clipSigmas: 40000);
+        var catalogue = new List<FrameStar>();
+        double[] peaks = [100, 250, 630, 1600];
+        var k = 0;
+        for (var sy = 60; sy <= 460; sy += 50)
+        {
+            for (var sx = 60; sx <= 460; sx += 50)
+            {
+                if (Math.Abs(sx - ClippedX) < 70 && Math.Abs(sy - ClippedY) < 70)
+                {
+                    continue;
+                }
+                var peak = peaks[k++ % peaks.Length];
+                catalogue.Add(new FrameStar(sx, sy, MagnitudeOf(peak)));
+                for (var y = sy - 9; y <= sy + 9; y++)
+                {
+                    for (var x = sx - 9; x <= sx + 9; x++)
+                    {
+                        var d2 = ((x - sx) * (x - sx)) + ((y - sy) * (y - sy));
+                        frame[y, x] += (float)(peak * Noise * Math.Exp(-d2 / (2.0 * StarWidth * StarWidth)));
+                    }
+                }
+            }
+        }
+        return (frame, model, catalogue);
+    }
+
+    // The peaks the step judged within the clipped star's top and a local-peak window beyond it.
+    private static List<CoreStars.CorePeak> OnTheTop(List<CoreStars.CorePeak> peaks)
+        => [.. peaks.Where(p => Math.Sqrt(Math.Pow(p.X - ClippedX, 2) + Math.Pow(p.Y - ClippedY, 2)) <= ClippedTopRadius + 5)];
+
+    [Fact]
+    public void AClippedStarOnACoreIsOnePeakAtItsTopsCentreAndStaysRemoved()
+    {
+        var (frame, model, catalogue) = ClippedStarScene();
+        var input = ImageOf(frame);
+        var starless = ImageOf(model);
+        var plain = ExtendedCoreMask.Find(input);
+        plain.Cores.Length.ShouldBe(1);
+        var core = plain.Cores[0];
+        output.WriteLine($"top {core.FlatTopPx} px at ({core.FlatTopX:F2}, {core.FlatTopY:F2}), round {core.FlatTopRoundness:F2}, fall {core.FlatTopFall:F3}, core {core.CoreAreaPx} px");
+        core.HasStarTop.ShouldBeTrue("the scene's premise: the core's large-scale light peaks on a clipped star's flat top");
+        Math.Sqrt(Math.Pow(core.FlatTopX - ClippedX, 2) + Math.Pow(core.FlatTopY - ClippedY, 2)).ShouldBeLessThan(0.5, "the top's centre is the star's");
+
+        // The defect's cause, on this frame: with no star catalogued there the top's peaks are judged one by one, and they
+        // stand on its rim. None is within the match radius of where the star is.
+        var before = new List<CoreStars.CorePeak>();
+        CoreStars.Find(input, plain, catalogue, options: null, before);
+        var rim = OnTheTop(before);
+        output.WriteLine("without the star catalogued: " + string.Join("; ", rim.Select(p => $"({p.X}, {p.Y}) {p.Height / plain.SkySigma:F0} sigma")));
+        rim.ShouldNotBeEmpty();
+        rim.ShouldAllBe(p => !p.IsStar);
+        rim.Min(p => Math.Sqrt(Math.Pow(p.X - ClippedX, 2) + Math.Pow(p.Y - ClippedY, 2))).ShouldBeGreaterThan(CoreStars.Options.Default.MatchPx,
+            "a clipped star has no peak where the catalogue has it");
+        Restored(plain.Apply(input, starless), frame, model, ClippedX, ClippedY).ShouldBe(1.0, 1e-3, "protection alone puts the star back with the core");
+
+        // Ten times what its top shows: the catalogue knows a clipped star brighter than the frame can.
+        catalogue.Add(new FrameStar(ClippedX + 0.4f, ClippedY - 0.3f, MagnitudeOf(400000)));
+        var peaks = new List<CoreStars.CorePeak>();
+        var (footprint, report) = CoreStars.Find(input, plain, catalogue, options: null, peaks);
+
+        output.WriteLine($"{report}");
+        var top = OnTheTop(peaks);
+        output.WriteLine("with it: " + string.Join("; ", top.Select(p => $"({p.X}, {p.Y}) star {p.IsStar} radius {p.Radius}")));
+        top.Count.ShouldBe(1, "the top is one peak, and its rim's peaks are not judged again");
+        top[0].IsStar.ShouldBeTrue();
+        (Math.Abs(top[0].X - ClippedX) <= 1 && Math.Abs(top[0].Y - ClippedY) <= 1).ShouldBeTrue($"the star is at its top's centre, not at ({top[0].X}, {top[0].Y})");
+        top[0].Radius.ShouldBeGreaterThan((int)Math.Ceiling(2 * ClippedTopRadius), "a clipped star reaches well past its own top");
+        top[0].Radius.ShouldBeLessThanOrEqualTo(CoreStars.Options.Default.MaxReachPx + 1 + (int)Math.Ceiling(CoreStars.Options.Default.FeatherPx), "and no further than any star may");
+        report.Stars.ShouldBe(1);
+        var own = footprint.ShouldNotBeNull();
+        own[(ClippedY * Size) + ClippedX].ShouldBeGreaterThan(0.99f);
+
+        var plate = ExtendedCoreMask.Find(input, ExtendedCoreMask.Options.Default, catalogue).Apply(input, starless);
+        foreach (var (dx, dy) in new[] { (0, 0), (4, 0), (0, -4), (-3, 3), (8, 0), (0, 12) })
+        {
+            Restored(plate, frame, model, ClippedX + dx, ClippedY + dy).ShouldBe(0.0, 1e-3, $"the star stays as the remover left it at ({dx}, {dy}) from its centre");
+        }
+    }
+
+    [Fact]
+    public void AFaintCataloguedStarOnAClippedTopDoesNotMakeItAStar()
+    {
+        var (frame, model, catalogue) = ClippedStarScene();
+        var input = ImageOf(frame);
+        var plain = ExtendedCoreMask.Find(input);
+        plain.Cores.Length.ShouldBe(1);
+        plain.Cores[0].HasStarTop.ShouldBeTrue();
+        var alone = new List<CoreStars.CorePeak>();
+        CoreStars.Find(input, plain, catalogue, options: null, alone);
+
+        // A hundredth of what the top's rim shows at the least: a star that faint cannot be the top, whatever lies on it.
+        var rimPeak = OnTheTop(alone).Max(p => p.Height) / plain.SkySigma;
+        catalogue.Add(new FrameStar(ClippedX + 0.4f, ClippedY - 0.3f, MagnitudeOf(rimPeak) + 5f));
+        var peaks = new List<CoreStars.CorePeak>();
+        var (_, report) = CoreStars.Find(input, plain, catalogue, options: null, peaks);
+
+        output.WriteLine($"{report}");
+        report.Stars.ShouldBe(0);
+        OnTheTop(peaks).ShouldBe(OnTheTop(alone), "its peaks are judged one by one, as with no star catalogued there");
+        var mask = ExtendedCoreMask.Find(input, ExtendedCoreMask.Options.Default, catalogue);
+        Restored(mask.Apply(input, ImageOf(model)), frame, model, ClippedX, ClippedY).ShouldBe(1.0, 1e-3, "the top comes back with the core");
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task TheEmbeddedCatalogueGivesTheLagoonsTwoBrightStars()
     {

@@ -95,9 +95,17 @@ public sealed class ExtendedCoreMask
     /// moments, 1 for a filled disc.</param>
     /// <param name="FlatTopFall">The light two top radii out from the top's centre, as a share of the top's (1 where it
     /// cannot be read).</param>
+    /// <param name="FlatTopX">The top's centre, frame pixels (meaningless where <paramref name="FlatTopPx"/> is 0).</param>
+    /// <param name="FlatTopY">The top's centre.</param>
     public readonly record struct Core(
         int X, int Y, double PeakSigma, int SourceAreaPx, int CoreAreaPx, int EdgeDistancePx = 0, double PeakRatio = 0,
-        int FlatTopPx = 0, double FlatTopRoundness = 0, double FlatTopFall = 1);
+        int FlatTopPx = 0, double FlatTopRoundness = 0, double FlatTopFall = 1, double FlatTopX = 0, double FlatTopY = 0)
+    {
+        /// <summary>Whether the flat top is a clipped star's: wide enough to read, round, and falling off as a star does.
+        /// A core that has one and is still a core is many times its top (<see cref="Options.MaxCoreOverFlatTop"/>): a
+        /// clipped star ON an extended source, which <see cref="CoreStars"/> then asks the catalogue about (#2373).</summary>
+        public bool HasStarTop => IsStarTop(FlatTopPx, FlatTopRoundness, FlatTopFall);
+    }
 
     /// <summary>The share of the brightest pixel's light (over the sky) a pixel needs to belong to the flat top.</summary>
     public const double FlatTopShare = 0.9;
@@ -111,6 +119,9 @@ public sealed class ExtendedCoreMask
     private const int MinStarTopPx = 50;
     private const double MinStarTopRoundness = 0.75;
     private const double MaxStarTopFall = 0.18;
+
+    private static bool IsStarTop(int areaPx, double roundness, double fall)
+        => areaPx >= MinStarTopPx && roundness >= MinStarTopRoundness && fall <= MaxStarTopFall;
 
     private ExtendedCoreMask(int width, int height, float[] weight, ImmutableArray<Core> cores, double skySigma, CoreStars.Report? starsLeftOut = null)
     {
@@ -318,7 +329,7 @@ public sealed class ExtendedCoreMask
                 keep[m] = true;
             }
             found.Add((new Core(px, py, peak / sigma, members.Count * BlockPx * BlockPx, coreAreaPx, edge, ratio,
-                flat.AreaPx, flat.Roundness, flat.Fall), peak));
+                flat.AreaPx, flat.Roundness, flat.Fall, flat.X, flat.Y), peak));
         }
 
         // Feathered OUTWARD: the cores grown by the blur's reach (three passes of its radius) first, so the blur's ramp lies
@@ -454,12 +465,12 @@ public sealed class ExtendedCoreMask
         return d;
     }
 
-    // A flat top as the clipped-star rule reads it.
-    private readonly record struct FlatTop(int AreaPx, double Roundness, double Fall)
+    // A flat top as the clipped-star rule reads it, with its centre in frame pixels.
+    private readonly record struct FlatTop(int AreaPx, double Roundness, double Fall, double X, double Y)
     {
-        public static readonly FlatTop None = new(0, 0, 1);
+        public static readonly FlatTop None = new(0, 0, 1, 0, 0);
 
-        public bool IsStarTop => AreaPx >= MinStarTopPx && Roundness >= MinStarTopRoundness && Fall <= MaxStarTopFall;
+        public bool IsStarTop => ExtendedCoreMask.IsStarTop(AreaPx, Roundness, Fall);
     }
 
     // The flat top at a source's peak: the connected pixels standing at FlatTopShare of the brightest light within half the
@@ -560,7 +571,7 @@ public sealed class ExtendedCoreMask
         var fall = ring.Count > 0
             ? Math.Max(0, (StatisticsHelper.MedianFast(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(ring)) - sky) / light)
             : 1.0;
-        return new FlatTop(count, roundness, fall);
+        return new FlatTop(count, roundness, fall, tx, ty);
     }
 
     // The 90th percentile of the full-resolution light above the sky in a box of the given side about (px, py), over the
