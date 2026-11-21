@@ -8410,6 +8410,66 @@ the first angle is a step after the model and not another arm:
     it was extended to twenty-four before either arm had a score, which lengthens a read and moves no bar.
     (6) The chain's core protection can put such a star back whole (#2308). (7) Nothing is registered on it, and
     whether it comes before or after R4f's and R4g's reads is the owner's.
+- **R4h and R4i, pre-registered 2026-11-21 before any export or score of either: the black point by sky noise
+  trained in (#2309), beside a control for the exporter.** The 40 sigma read above left the retrain to the owner.
+  His word on it, 2026-11-21: "yeah queue in afterR4f"; and asked whether two arms with a control or one arm from
+  the old exporter: "you decide". The session chose two arms, since the exporter has changed under R4d's recipe and
+  every later arm needs that baseline. Both are R4d's line (`export-synth.ps1 -BetaDraw 0.3,1.3,6,3 -FaintStars 3,1
+  -Extra --saturated-own-share,--saturated-measured,--halo-over-plate,--noise-as-recorded`), R3v's model and recipe
+  with R4d's flags from the trainer copy R4f's rerun trains from (`--save-best` added, shown to end on the same
+  weights), seed 0, and both are exported from one binary built from main on 2026-11-21.
+  - **R4h, the control (synth32):** the black point at each channel's minimum, as in every export so far. Its data
+    differs from R4d's by what the exporter changed since `bh-bin8`; the knot fix of #2286 is known to change tiles.
+    A preflight on one session before the export (the new binary without the flag against `bh-bin11`'s tiles of
+    that session) says whether anything else does, and its result is written here before the export's first score.
+  - **R4i, the arm (synth33):** the same line with `--black-point-sigma 40`, and 40 sigma in its contract, so the
+    product stretches a frame for it as its tiles were stretched. One change from R4h.
+  - **Why 40.** The session's choice, not a measured optimum: the store's darkest pixels sit 8 to 228 sigma under
+    their sky with a median of 34, and 40 is the depth nearest that median that has been read. The reads at
+    inference cannot say which depth a model trained at one depth wants; they were read on a model trained on all
+    of them.
+  - **The training is read first,** by the rule registered for R4f's rerun: the median of the held-out window means
+    over the 60,000 steps after the first halving, over the median from step 30,000 to that halving. At 0.75 or over
+    with no new best after the first halving the run has stalled, and its rows are a stalled run's and not the
+    target's.
+  - **The question, on the models AS TRAINED, R4i against R4h** (the bright-star list's 26 rows and their sheets,
+    the share of StarXTerminator's take by ring, as in the 40 sigma read): (1) the two Pleiades nights read alike:
+    over the eight Pleiads the widest gap between the nights in the four rings from 8 to 80 px, leaving out a ring
+    where StarXTerminator takes under 3 sigma, is at most 25 points (R4d as it is: 113; R4d with the depth set at
+    inference: 15 to 20); AND (2) the innermost ring is taken under 80 percent on at most 4 of the 26 rows and on at
+    least 3 fewer than on R4h (R4d as it is: 7; at 40 sigma at inference 7, at 60 sigma 2).
+  - **Guards, on R4i:** every row of the 40 sigma read's table at its bar, read as trained or through the chain as
+    that table reads it (the chain is core protection and the dig-fill as shipped): the Tarantula's crowded flat at
+    least 90.3 and Sagittarius's 96.3; Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark
+    flat at least 91; the glow's green median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken
+    under 10 %; purity at most 1.0; the light taken from the Tarantula field at most 83 and 84 %; Gaia BP 17-19 with
+    the level set aside at least 89.7; light added on each master's nebula at most 1.0 %; the brightest tenth of
+    the Tarantula's peaks standing on at least 11 of 77; faint stars left on the Lagoon's core at most 37 % and on
+    30 Doradus at most 27 %; the Lagoon's broad light taken at most 2.67. Those bars were set from R4d. A row R4h
+    misses too is the exporter's and not the black point's: it is reported, and R4i is then held on that row to
+    R4h's value less the allowance the bar gave R4d (the bar against R4d's own figure in that table).
+  - **Kill:** a guard fails on R4i. **Cleared:** both halves of the question with every guard held. Anything else
+    is neither, and the rows say which half.
+  - **R4h's own read:** every row above beside R4d's, as trained and through the chain. It has no bar of its own;
+    it is the baseline R4i is read against, and it says what the exporter's changes did to R4d's rows.
+  - **What a frame whose noise is no longer its own does (#2341), reported for R4i, deciding nothing about the
+    arm.** The depth's black point is 40 times the frame's sky noise under its sky, so on a denoised frame it lies
+    close under the sky and dark structure can fall beneath it. Each of the three scoring masters, smoothed by a
+    Gaussian of 1.5 px (which cuts white noise to about a fifth), goes through R4i as trained: the share of the
+    frame's pixels at or under the black point, the nebula guards above (peaks standing, light added, broad light
+    taken), and the sheets. A guard failing there does not kill R4i; it says the guard #2341 asks for is needed
+    before any model with a depth ships.
+  - **Reported, no bar:** every row for both models as trained and with each post step as its own column; the
+    best step's weights (`.best.pt`) beside the last step's; all 26 ring rows; the colour of Merope's nebula on
+    both nights. The 1:1 sheets are looked at before any row is read.
+  - **Prediction.** R4h: every row within a point of R4d's, the peaks standing within 5 of R4d's 17. R4i: the
+    nights' gap falls to 10 to 25 points, so the first half is cleared; the innermost ring is taken under 80
+    percent on 4 to 6 rows, Antares' three among them (no depth reached its disc), so the second half is at its
+    edge and more likely missed than cleared; the peaks guard is the one most at risk, since the Tarantula's own
+    black point is 10 sigma and at 40 its knots stand brighter, and it is predicted to hold at 11 to 20 of 77
+    because the drawn knots are stretched the same way.
+  - **Nothing is adopted by these reads.** A cleared question goes to the owner with the numbers, and a second seed
+    is owed before any adoption.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
