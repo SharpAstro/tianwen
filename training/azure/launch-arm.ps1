@@ -37,7 +37,10 @@ $vmDir = Join-Path $RunsDir "$Tag-vm"
 if (Test-Path (Join-Path $vmDir 'started.txt')) { throw "$Tag was started already ($vmDir/started.txt); remove it to launch again" }
 if (-not (Test-Path (Join-Path $Run 'n2n_smoke.py'))) { throw "$Run holds no n2n_smoke.py: -Run is the frozen run directory" }
 # This route syncs and fetches <name>.pt alone and deletes its VM, so the best step's weights would be written and lost.
-if ($TrainFlags -match '(^|\s)--save-best(\s|$)') { throw '--save-best is the Batch route''s (launch-batch.ps1): a VM run keeps only <name>.pt, so the best step''s weights would be lost with the VM' }
+# Any BEGINNING of the option is refused, not its full name alone (#2340): the trainer's argparse takes a beginning that
+# no other option shares for the option itself, and --save-best is the only one that begins --sa, so --sa, --save and
+# --save-b ask for it too. A frozen run's trainer is the one that reads the flags, so the guard is here and not in it.
+if ($TrainFlags -split '\s+' | Where-Object { $_.Length -ge 4 -and '--save-best'.StartsWith($_, [StringComparison]::Ordinal) }) { throw '--save-best is the Batch route''s (launch-batch.ps1): a VM run keeps only <name>.pt, so the best step''s weights would be lost with the VM' }
 if ($TeacherMembers -and $TeacherBlob) { throw '-TeacherBlob is a teacher made elsewhere and -TeacherMembers one built on the VM: give one' }
 if ([bool]$TeacherMembers -ne [bool]$MembersBlob) { throw '-TeacherMembers and -MembersBlob go together' }
 if ($TeacherMembers -and -not (Test-Path (Join-Path $Run 'n2n_teacher.py'))) { throw "$Run holds no n2n_teacher.py, which builds the teacher" }
