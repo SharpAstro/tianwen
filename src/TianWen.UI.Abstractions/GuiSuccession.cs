@@ -11,6 +11,23 @@ using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
 
+/// <summary>How a successor's wait for its predecessor ended (<see cref="GuiSuccession.WaitForPredecessorAsync"/>).</summary>
+public enum PredecessorWait
+{
+    /// <summary>The predecessor has exited, or had already.</summary>
+    Exited = 0,
+
+    /// <summary>The predecessor was still running when the budget ended; the successor starts anyway.</summary>
+    StillRunning = 1,
+
+    /// <summary>
+    /// A process under the predecessor's id, with ANOTHER start than the predecessor's, was still running after
+    /// the grace (<see cref="GuiSuccession.StrangerWait"/>): it is taken for another process that was given the id
+    /// since, and the predecessor for gone.
+    /// </summary>
+    TakenForAnother = 2,
+}
+
 /// <summary>
 /// A window replaced by a fresh process when its GPU cannot draw again (P7 of docs/plans/hardware-in-the-server.md, #937).
 /// The rig is the node's since P6, so nothing of the night is in the window: a successor finds the node, reads the session
@@ -24,23 +41,6 @@ namespace TianWen.UI.Abstractions;
 /// its start to the process that is dying. A boot loop is bounded twice: a generation cap, and a healthy uptime after which
 /// the count starts again.
 /// </remarks>
-/// <summary>How a successor's wait for its predecessor ended (<see cref="GuiSuccession.WaitForPredecessorAsync"/>).</summary>
-public enum PredecessorWait
-{
-    /// <summary>The predecessor has exited, or had already.</summary>
-    Exited = 0,
-
-    /// <summary>The predecessor was still running when the budget ended; the successor starts anyway.</summary>
-    StillRunning = 1,
-
-    /// <summary>
-    /// A process under the predecessor's id, with ANOTHER start than the predecessor's, was still running after
-    /// <see cref="GuiSuccession.StrangerGrace"/>: it is taken for another process that was given the id since, and the
-    /// predecessor for gone.
-    /// </summary>
-    TakenForAnother = 2,
-}
-
 public static class GuiSuccession
 {
     /// <summary>The process a successor replaces, whose exit it waits for.</summary>
@@ -253,7 +253,7 @@ public static class GuiSuccession
             // Another start than the predecessor's: most likely another process, given the id since. It is still
             // waited for, but for StrangerGrace only (see there), and one that outlives the grace is no predecessor.
             var isThePredecessor = IsTheProcess(started, () => StartOf(predecessor));
-            var wait = isThePredecessor || budget < StrangerGrace ? budget : StrangerGrace;
+            var wait = isThePredecessor ? budget : StrangerWait(budget);
 
             // The window's own clock, the budget and the sleeps alike (#2021).
             var exited = await WaitForExitAsync(() => HasExited(predecessor), wait, timeProvider.System,
@@ -263,17 +263,26 @@ public static class GuiSuccession
     }
 
     /// <summary>
+    /// How long a process with another start than the predecessor's is waited for under <paramref name="budget"/>:
+    /// <see cref="StrangerGrace"/>, or the budget where that is the shorter. One rule for the wait and for the line
+    /// that reports it (<see cref="Says"/>), so the two cannot name different times.
+    /// </summary>
+    internal static TimeSpan StrangerWait(TimeSpan budget) => budget < StrangerGrace ? budget : StrangerGrace;
+
+    /// <summary>
     /// What the successor's first log line adds about its wait, after "This window replaces ...": nothing when the
     /// predecessor had exited, and otherwise why this window started with a process still under that id (#2381). A
-    /// process taken for another one gets its own words: if it was the predecessor after all, misread across a clock
-    /// step, this is the line a later reader explains a hand-off to a dying window from.
+    /// process taken for another one gets its own words, with the time it was really waited for under
+    /// <paramref name="budget"/>: if it was the predecessor after all, misread across a clock step, this is the line a
+    /// later reader explains a hand-off to a dying window from.
     /// </summary>
-    public static string Says(PredecessorWait wait) => wait switch
+    /// <param name="budget">The budget the wait was given, as passed to <see cref="WaitForPredecessorAsync"/>.</param>
+    public static string Says(PredecessorWait wait, TimeSpan budget) => wait switch
     {
         PredecessorWait.Exited => "",
         PredecessorWait.StillRunning => "; it had not exited in time",
         PredecessorWait.TakenForAnother => string.Create(CultureInfo.InvariantCulture,
-            $"; a process under its id that was started at another time was still running after {StrangerGrace.TotalSeconds:0.#} s and was taken for another process"),
+            $"; a process under its id that was started at another time was still running after {StrangerWait(budget).TotalSeconds:0.#} s and was taken for another process"),
         _ => throw new ArgumentOutOfRangeException(nameof(wait), wait, null),
     };
 

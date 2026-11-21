@@ -93,10 +93,16 @@ public class GuiSuccessionTests
     [Fact]
     public void TheLogSaysHowTheWaitEndedAndSaysNothingWhenThePredecessorHadGone()
     {
-        GuiSuccession.Says(PredecessorWait.Exited).ShouldBe("");
-        GuiSuccession.Says(PredecessorWait.StillRunning).ShouldBe("; it had not exited in time");
-        GuiSuccession.Says(PredecessorWait.TakenForAnother)
+        var budget = GuiSuccession.PredecessorExitBudget;
+        GuiSuccession.Says(PredecessorWait.Exited, budget).ShouldBe("");
+        GuiSuccession.Says(PredecessorWait.StillRunning, budget).ShouldBe("; it had not exited in time");
+        GuiSuccession.Says(PredecessorWait.TakenForAnother, budget)
             .ShouldBe("; a process under its id that was started at another time was still running after 2 s and was taken for another process");
+        // The time is the one that was waited: a budget under the grace is the wait, and the line says that and not 2 s.
+        GuiSuccession.Says(PredecessorWait.TakenForAnother, TimeSpan.FromMilliseconds(500))
+            .ShouldBe("; a process under its id that was started at another time was still running after 0.5 s and was taken for another process");
+        GuiSuccession.StrangerWait(TimeSpan.FromMilliseconds(500)).ShouldBe(TimeSpan.FromMilliseconds(500));
+        GuiSuccession.StrangerWait(budget).ShouldBe(GuiSuccession.StrangerGrace);
     }
 
     /// <summary>
