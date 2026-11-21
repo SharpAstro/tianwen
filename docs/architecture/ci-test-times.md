@@ -467,8 +467,10 @@ by type, to `<file>.types` (a sample from the runtime's allocation tick: it name
 Without the variable the probe is one null check a test.
 
 The probe appends to its file and never empties it, so a second run into the same file adds to the first. Name a new
-file for a run or delete the old one. The report says when a file holds a test more than once, and then both of its
-tables are the sum of the runs.
+file for a run or delete the old one. The report cannot tell a second run from a theory: it says when a NAME is on
+more than one line, which is either a second run appended to the file or rows of one theory whose display names xunit
+shortened to the same text (a string argument is cut at 50 characters). Its allocation tables then sum that name's
+lines, and its memory tables keep the hungriest of them.
 
 **Read the bytes and the collection counts, not the times, unless the machine is quiet.** On the laptop this was first
 run on (2026-11-21), five of six classes allocated within 2 percent of their first run, while the same six classes run

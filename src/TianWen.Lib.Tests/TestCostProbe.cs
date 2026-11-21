@@ -41,7 +41,9 @@ namespace TianWen.Lib.Tests;
 /// </para>
 /// <para>
 /// <b>The file is appended to, never emptied</b>: a second run into the same file adds its lines after the first's.
-/// Name a new file for a run or delete the old one; the report says when a file holds a test more than once.
+/// Name a new file for a run or delete the old one. The report says when a NAME is on more than one line, and it
+/// cannot tell which of two things that is: a second run appended to the file, or rows of one theory whose display
+/// names xunit shortened to the same text (a string argument is cut at 50 characters). It sums that name's lines.
 /// </para>
 /// <para>
 /// <b>What was allocated</b>, with <c>TIANWEN_TEST_COST_TYPES=1</c> as well: the runtime's allocation tick (one event
