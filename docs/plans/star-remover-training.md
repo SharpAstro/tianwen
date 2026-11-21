@@ -7118,13 +7118,18 @@ the first angle is a step after the model and not another arm:
     one. Its `near_lowered` (valid pixels within 20 px of the ring that the rule lowered by over 10 % of their
     value in any channel) is zero on 10 of the 62 and over zero on 52, with a median of 93.5 px a plate, 7,825 px
     at most and 50,496 px in all. Against the band it is counted in (17.8 million valid pixels within 20 px of a
-    ring over the 89 plates, where the count is 50,503) that is 0.28 %. The median plate has 0.005 % of its band
-    lowered, 22 plates have over 0.1 % and 9 over 1 %, and the worst are narrowband frames with nebula at the
-    border: 4.33 % (eta Carinae of 2026-02-20 through the 3 nm filter, 7,825 of 180,917 px), 3.75 % (the Rim
-    Nebula in SII of 2024-07-06) and 2.69 % (another plate of that eta Carinae session). The count has no far
-    band of its own, so alone it does not say how much of that is the fill's pull and how much is what the rule
-    lowers anywhere on such a frame; the near against far figures above are that comparison, and they count a
-    change either way. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
+    ring over the 89 plates, where the count is 50,503) that is 0.28 %. That band is the script's own and not the
+    one the figures above use: 20 steps along rows and columns from the ring, a diamond, where
+    `grain_ring_pull.py` measures 20 px in a straight line; and a pixel counts as lowered when the corrected
+    plate is under 0.9 of the stored one, which is a drop only where the stored value is over zero. The median
+    plate has 0.005 % of its band lowered, 22 plates have over 0.1 % and 9 over 1 %, and the worst are
+    narrowband frames: 4.33 % (eta Carinae of 2026-02-20 through the 3 nm filter, 7,825 of 180,917 px), 3.75 %
+    (the Rim Nebula in SII of 2024-07-06) and 2.69 % (another plate of that eta Carinae session); what lies at
+    their border was not looked at. The count has no far band of its own, so `grain_ring_pull.py` was run on
+    those three: changed by over 10 % either way, the two eta Carinae plates read 7.63 % within 20 px against
+    11.98 % at 40 to 60 px and 10.20 % against 21.48 %, and the Rim Nebula 9.60 % against 25.76 %. On all three
+    the sky beside the ring changed less than the sky further in, so what the count holds on them is what the
+    rule does anywhere on such a frame and not a pull toward the fill. The tiles' check above stands: its two sessions' plates hold no zero ring. The question,
     the guards and the kill rule are unchanged.
   - **Added 2026-11-20, before the cache exists and before any score: what the question reads, and two rows that
     read what this arm changes.** "The crowded rows read light between the stars" below shows that the Tarantula's
