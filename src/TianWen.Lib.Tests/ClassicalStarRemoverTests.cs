@@ -34,6 +34,9 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     private sealed record Field(Image Image, float[][] Truth, List<Injected> Stars, (double X, double Y, double Peak, double Fwhm) Knot);
 
+    /// <summary>The plain mono field, for a test outside this class that only needs a plate of stars to fit.</summary>
+    internal static Image MonoField() => MakeField(1).Image;
+
     // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
     // smooth glow is not.
     private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null, double[]? gains = null)
