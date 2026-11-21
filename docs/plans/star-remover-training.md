@@ -7265,9 +7265,10 @@ the first angle is a step after the model and not another arm:
       "best" judge), read from its `val STEP held-out X window Y best Z at S lr L` lines in the logs
       `C:/temp/e2/r4faz-batch/r4faz.log`, `C:/temp/e2/r4d.log` (a GTX 1070 run, not Batch),
       `C:/temp/e2/r4eaz-batch/r4eaz.log`, `C:/temp/e2/r4caz-batch/r4caz.log` and
-      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **R4f was not slow from the start: at its first learning rate it was
-      ahead.** The rate was first halved from step 57,000 in R4e, 63,500 in R4d, 77,500 in R4c and 82,000 in R4f
-      (decided at step 81,500), so no one range of steps is "before the first halving" for all four, and at step
+      `C:/temp/e2/r3xaz-batch/r3xaz.log`. **R4f was not slow from the start: at its first learning rate its
+      windows were the lowest of the four** (each arm on its own validation draws, so this is no ranking of the
+      arms: the caveat below). The rate was first halved from step 57,000 in R4e, 63,500 in R4d, 77,500 in R4c
+      and 82,000 in R4f (decided at step 81,500), so no one range of steps is "before the first halving" for all four, and at step
       69,500 R4d's window of 1.04e-5 is one at the halved rate against R4f's 1.08e-5 at the first. At the first rate
       the best windows were R4f 1.08e-5 (step 69,500), R4d 1.20e-5 (51,000), R4c 1.26e-5 (65,000) and R4e 1.50e-5
       (44,500). **They part at the halvings:** aligned on each arm's own first halving, the median from step 30,000
@@ -7283,9 +7284,9 @@ the first angle is a step after the model and not another arm:
       and 73,500 gives the same digits (1.433862e-05, 4.882240e-05, 1.355304e-05). The run was moved to a new node
       twice (resumed after steps 72,000 and 110,000); R4c, R4e and R3x were moved too, and each set a new best after
       its earlier resumes (R4c after steps 40,000, 76,000 and 98,000; R4e after 100,000; R3x after 34,000, 72,000
-      and 104,000). Their last resumes gained little or nothing: R4c's, after step 128,000, set no new best (its
-      best stays 8.95e-6 at step 121,000 to the stop at 157,000, the lowest later window 9.01e-6), and R3x's, after
-      132,000, gained 0.15 percent (5.980e-6 to 5.971e-6). **These figures are not like for like across arms:** each arm's held-out objective is read
+      and 104,000). R4c's and R3x's last resumes gained little or nothing: R4c's, after step 128,000, set no new
+      best (its best stays 8.95e-6 at step 121,000 to the stop at 157,000, the lowest window after step 128,000
+      9.01e-6), and R3x's, after 132,000, gained 0.15 percent (5.980e-6 to 5.971e-6). **These figures are not like for like across arms:** each arm's held-out objective is read
       on its own validation draws (R4f on synth31's, whose targets are the grain-free plates; R4d on synth29's and R4e
       on synth30's, on the stored plates), and this plan already calls a held-out loss on another arm's draws "not
       comparable" (arm A and B, above). The gap says R4f's curve was higher after the spike, not by how much the model
