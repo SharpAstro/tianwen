@@ -8421,18 +8421,21 @@ the first angle is a step after the model and not another arm:
     `r3h-run` plus `--save-best` only and holds no black point code (its `n2n_smoke.py` has no
     `load_black_point_sigma` or `BLACK_POINT_KEY`, the prepare step that writes `stretch_black_point_sigma` into the
     cache's `meta.json`, and its `n2n_export.py` has no `stretchBlackPointSigma`, the contract writer; both arrived
-    with #2328, after #2329). Both arms train from one new frozen copy: that copy plus the `n2n_smoke.py` and
-    `n2n_export.py` parts of #2328, the same bytes for R4h and R4i, its `FROZEN-AT.txt` naming the commit. The
+    with #2328, after #2329). Both arms train from one new frozen copy: that copy plus the black point parts of
+    #2328 in `n2n_smoke.py` and `n2n_export.py` (48 and 23 changed lines; main's two files are not copied whole,
+    only those changes are carried over; three of the four hunks apply by patch and the fourth was written by hand),
+    the same bytes for R4h and R4i, its `FROZEN-AT.txt` naming the commit. The
     "ends on the same weights to the bit" check of R4f's rerun is repeated on that copy, covering the added parts
     too (a tiny cache, the frozen copy without and with them, R4h's switches). The cache is prepared and the model
     exported with that copy's scripts, never with R4f's.
   - **Training alike.** Both arms are one Batch run each on a low-priority T4, capped at 36 hours, as R4f's rerun,
     the same recipe, seed and step cap, so the control is a control. A pair that does not train alike (one
-    evicted past the cap, one stalled) is read as the next bullet says.
+    evicted past the cap, one stalled) is read as the Kill bullet below says.
   - **Contract check, before the first score of either:** R4i's `contract.json` states `stretchBlackPointSigma`
     40 and R4h's states none. A silent contract and an unset feed agree, so the loader would not refuse R4i and
     the product would stretch at each channel's minimum, the mismatch #2309 exists to remove; the check is what
-    catches it.
+    catches it. It is also read before the launch: the prepare step prints that it stretched from 40 sky-noise sigma
+    and writes `stretch_black_point_sigma` into the cache's `meta.json`; a cache without it is not trained from.
   - **R4h, the control (synth32):** the black point at each channel's minimum, as in every export so far. Its data
     differs from R4d's by what the exporter changed since `bh-bin8`; the knot fix of #2286 is known to change tiles.
     A preflight on one session before the export (the new binary without the flag against `bh-bin11`'s tiles of
@@ -8471,7 +8474,7 @@ the first angle is a step after the model and not another arm:
     misses too is the exporter's and not the black point's: it is reported, and R4i is then held on that row to
     a value worse than R4h's by no more than the allowance the bar gave R4d (the gap between the bar and R4d's own
     figure in that table). For an at-least row that is R4h's value less the allowance; for an at-most row (dug,
-    glow median, purity, light taken, light added, faint stars left, broad light taken) it is R4h's value plus it
+    glow median, M31's nucleus taken, purity, light taken, light added, faint stars left, broad light taken) it is R4h's value plus it
     (on the Lagoon's faint stars 37 against R4d's 29 is 8 points).
   - **Kill:** a guard fails on R4i, the pair having trained alike and neither having stalled. **Cleared:** both
     halves of the question with every guard held, on the same terms. A stalled arm (the rule above), or a pair
@@ -8494,17 +8497,17 @@ the first angle is a step after the model and not another arm:
     both nights. The 1:1 sheets are looked at before any row is read.
   - **Prediction.** R4h: every row within a point of R4d's, the peaks standing within 5 of R4d's 17. R4i: the
     nights' gap falls to 10 to 25 points, so the first half is cleared; the innermost ring is taken under 80
-    percent on 3 to 5 rows, by the innermost ring the measure the bar counts: Antares' 2026-04-21 and 2024-05-28
+    percent on 3 to 5 rows (the bar is at most 4, so the range's top end is at the bar's edge), by the innermost ring the measure the bar counts: Antares' 2026-04-21 and 2024-05-28
     (56 and 71 at 40 sigma in the table above) among them and 2023-05-15 (81) not, though the sheets show the disc
-    left on all three sessions. The second half is at its edge and more likely missed than cleared; the peaks guard
+    left on all three sessions. The peaks guard
     is the one most at risk, since the Tarantula's own black point is 10 sigma and at 40 its knots stand brighter,
     and it is predicted to hold at 11 to 20 of 77 because the drawn knots are stretched the same way.
   - **Nothing is adopted by these reads.** A cleared question goes to the owner with the numbers, and a second seed
     is owed before any adoption.
   - **How this text came to be, all of it before any export.** The first text was pushed at 20:10:54 on
     2026-11-21. Its review found that the trainer copy it named cannot write a depth, and four smaller points; the
-    review's fixer rewrote those parts at 20:19:34 (the trainer copy, both arms on a T4 where the first text had
-    R4i on the GTX 1070, the contract check, the allowance on the at-most rows, what a stalled or uneven pair is,
+    review's fixer rewrote those parts at 20:19:34 (the trainer copy, both arms on a T4 capped at 36 hours, where
+    the first text named no hardware at all (a draft that was never pushed had R4i on the GTX 1070), the contract check, the allowance on the at-most rows, what a stalled or uneven pair is,
     the count of Antares' rows, #2341's report by covered pixels), and the session added the preflight's result
     and this note. The question, its bars and the guards' bars are as first pushed. Nothing but the two-session
     preflight had been exported by then.
