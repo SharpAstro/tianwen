@@ -85,6 +85,13 @@ public sealed record ExposureGuideTally
     /// "RMS" is a standard deviation, about the mean, so for the same samples <c>GUIDERMS</c> is never under PHD2's
     /// figure and is over it by whatever steady offset the exposure had. That offset smears a sub as surely as scatter
     /// does, which is why it is counted here (#1414).
+    /// <para>
+    /// "Never under" rests on PHD2 dividing by the count and not by one less, and it does (#2362): its graph's RMS is
+    /// <c>GetPopulationSigma</c> of each axis (<c>graph.cpp</c>, <c>m_stats.rms_ra = m_noDitherRA.GetPopulationSigma()</c>),
+    /// whose variance is <c>(n * sumYSq - sumY * sumY) / (n * n)</c> (<c>guiding_stats.cpp</c>; OpenPHDGuiding/phd2's
+    /// master, read 2026-11-21). A root mean square about zero is never under a population deviation of the same
+    /// samples. Against the sample deviation, which divides by one less, it could be: samples +1 and -1 give 1.41.
+    /// </para>
     /// </remarks>
     public GuidingStats? ToStats()
     {

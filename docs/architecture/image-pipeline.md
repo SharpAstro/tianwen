@@ -488,7 +488,9 @@ bin-2 calibration frames TianWen had written were retagged (`_provenance/CORRECT
 `ImageMeta.Guiding` (`GuidingStats`) is written as `GUIDERMS` / `GUIRMSRA` / `GUIRMSDE` / `GUIDEPK` /
 `GUIDEN`, all arcsec. **The RMS cards are taken about zero, the position the guider was holding, and are
 not PHD2's RMS**, which is a standard deviation about the samples' own mean: for the same samples `GUIDERMS`
-is never under PHD2's figure, and is over it by whatever steady offset the exposure had (#1414). The session keeps one `ExposureGuideTally` per OTA, opened when that OTA's exposure
+is never under PHD2's figure, and is over it by whatever steady offset the exposure had (#1414). "Never under" holds
+because PHD2's figure is the POPULATION deviation, divided by the count (`GetPopulationSigma` in its `graph.cpp` and
+`guiding_stats.cpp`, #2362); against a sample deviation, divided by one less, it would not. The session keeps one `ExposureGuideTally` per OTA, opened when that OTA's exposure
 starts and fed every guide correction (#2100). It reduces the corrections over
 `[ExposureStartTime, +ExposureDuration]`. It never reads the 300-sample telemetry ring, which belongs to the
 graph, and it is never a rolling session average: that answers "how is the rig doing tonight", a different
