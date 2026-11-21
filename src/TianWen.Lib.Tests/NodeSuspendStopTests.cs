@@ -161,7 +161,7 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
         cutOffAt.ShouldNotBe(0L, "the driver's token was cancelled while it was still waiting");
         TimeSpan.FromTicks(cutOffAt - suspendedAt.UtcTicks).ShouldBe(NodeSuspendStop.Budget, "at the budget, to the tick");
         // And the budget is one its reasons allow, on both sides (#2394). Windows gives about two seconds before it
-        // suspends, so it is under that; and it is most of that, because a stop that is cut off leaves its mount
+        // suspends, so it is under that; and it is most of that, because a stop that is cut off may leave its mount
         // driving, so it is not under half. The assertion above holds for any budget: these two are what a budget
         // cut to a tenth of a second, or raised past the suspend, would fail.
         var windowsGives = TimeSpan.FromSeconds(2);
