@@ -24,6 +24,23 @@ namespace TianWen.UI.Abstractions;
 /// its start to the process that is dying. A boot loop is bounded twice: a generation cap, and a healthy uptime after which
 /// the count starts again.
 /// </remarks>
+/// <summary>How a successor's wait for its predecessor ended (<see cref="GuiSuccession.WaitForPredecessorAsync"/>).</summary>
+public enum PredecessorWait
+{
+    /// <summary>The predecessor has exited, or had already.</summary>
+    Exited = 0,
+
+    /// <summary>The predecessor was still running when the budget ended; the successor starts anyway.</summary>
+    StillRunning = 1,
+
+    /// <summary>
+    /// A process under the predecessor's id, with ANOTHER start than the predecessor's, was still running after
+    /// <see cref="GuiSuccession.StrangerGrace"/>: it is taken for another process that was given the id since, and the
+    /// predecessor for gone.
+    /// </summary>
+    TakenForAnother = 2,
+}
+
 public static class GuiSuccession
 {
     /// <summary>The process a successor replaces, whose exit it waits for.</summary>
@@ -197,8 +214,9 @@ public static class GuiSuccession
     internal static readonly TimeSpan PredecessorPollInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
-    /// Waits for the process this one replaces to exit, bounded by <paramref name="budget"/>: true once it has (or it had
-    /// already), false when it is still running at the end.
+    /// Waits for the process this one replaces to exit, bounded by <paramref name="budget"/>, and says how the wait
+    /// ended (<see cref="PredecessorWait"/>): it has exited (or had already), it was still running at the end, or a
+    /// process with another start was still under its id after the grace and was taken for another one.
     /// </summary>
     /// <remarks>
     /// The answer is always a LOOK at the process, taken at or after the end of the budget, never which of two callbacks
@@ -216,7 +234,7 @@ public static class GuiSuccession
     /// </para>
     /// </remarks>
     /// <param name="started">When the predecessor was started (<see cref="PredecessorStartedOf"/>), or null to trust the id alone.</param>
-    public static async Task<bool> WaitForPredecessorAsync(int processId, DateTimeOffset? started, TimeSpan budget, ITimeProvider timeProvider,
+    public static async Task<PredecessorWait> WaitForPredecessorAsync(int processId, DateTimeOffset? started, TimeSpan budget, ITimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         Process predecessor;
@@ -227,7 +245,7 @@ public static class GuiSuccession
         catch (ArgumentException)
         {
             // Gone already.
-            return true;
+            return PredecessorWait.Exited;
         }
 
         using (predecessor)
@@ -240,9 +258,24 @@ public static class GuiSuccession
             // The window's own clock, the budget and the sleeps alike (#2021).
             var exited = await WaitForExitAsync(() => HasExited(predecessor), wait, timeProvider.System,
                 (delay, ct) => timeProvider.SleepAsync(delay, ct).AsTask(), cancellationToken).ConfigureAwait(false);
-            return exited || !isThePredecessor;
+            return exited ? PredecessorWait.Exited : isThePredecessor ? PredecessorWait.StillRunning : PredecessorWait.TakenForAnother;
         }
     }
+
+    /// <summary>
+    /// What the successor's first log line adds about its wait, after "This window replaces ...": nothing when the
+    /// predecessor had exited, and otherwise why this window started with a process still under that id (#2381). A
+    /// process taken for another one gets its own words: if it was the predecessor after all, misread across a clock
+    /// step, this is the line a later reader explains a hand-off to a dying window from.
+    /// </summary>
+    public static string Says(PredecessorWait wait) => wait switch
+    {
+        PredecessorWait.Exited => "",
+        PredecessorWait.StillRunning => "; it had not exited in time",
+        PredecessorWait.TakenForAnother => string.Create(CultureInfo.InvariantCulture,
+            $"; a process under its id that was started at another time was still running after {StrangerGrace.TotalSeconds:0.#} s and was taken for another process"),
+        _ => throw new ArgumentOutOfRangeException(nameof(wait), wait, null),
+    };
 
     /// <summary>
     /// Whether the process found under the predecessor's id is the predecessor: true unless both starts are known and

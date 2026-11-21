@@ -87,6 +87,19 @@ public class GuiSuccessionTests
     }
 
     /// <summary>
+    /// #2381: the successor's log line says how its wait ended, and a process taken for another one gets words of its
+    /// own, so that a window that started beside a dying one can be explained from the log.
+    /// </summary>
+    [Fact]
+    public void TheLogSaysHowTheWaitEndedAndSaysNothingWhenThePredecessorHadGone()
+    {
+        GuiSuccession.Says(PredecessorWait.Exited).ShouldBe("");
+        GuiSuccession.Says(PredecessorWait.StillRunning).ShouldBe("; it had not exited in time");
+        GuiSuccession.Says(PredecessorWait.TakenForAnother)
+            .ShouldBe("; a process under its id that was started at another time was still running after 2 s and was taken for another process");
+    }
+
+    /// <summary>
     /// #2362: a successor's environment starts as a copy of this process's own, so the start this process was itself
     /// handed (its predecessor's) would go on to the successor with the rest. With no start of its own to give, it is
     /// taken out, and the other two are written over.
@@ -204,7 +217,7 @@ public class GuiSuccessionTests
         try
         {
             (await GuiSuccession.WaitForPredecessorAsync(predecessor, started: null, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
-                .ShouldBeFalse("it was still running when the budget ran out");
+                .ShouldBe(PredecessorWait.StillRunning, "it was still running when the budget ran out");
 
             // #1414: with its start given, the same process is still the one waited for...
             DateTimeOffset started;
@@ -213,7 +226,7 @@ public class GuiSuccessionTests
                 started = new DateTimeOffset(found.StartTime.ToUniversalTime(), TimeSpan.Zero);
             }
             (await GuiSuccession.WaitForPredecessorAsync(predecessor, started, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
-                .ShouldBeFalse("its own start names it, so it is waited for");
+                .ShouldBe(PredecessorWait.StillRunning, "its own start names it, so it is waited for");
             // ...and a process under that id with ANOTHER start is taken for a stranger, given the id since: the whole
             // budget is not spent on it (#1414), but it is still waited for a short grace, in case it is the predecessor
             // after all (#2362). On a fake clock, which only the waiting moves: the process runs throughout, so where
@@ -221,15 +234,23 @@ public class GuiSuccessionTests
             var fake = new FakeTimeProviderWrapper();
             var before = fake.GetUtcNow();
             (await GuiSuccession.WaitForPredecessorAsync(predecessor, started - TimeSpan.FromHours(1), GuiSuccession.PredecessorExitBudget, fake, ct))
-                .ShouldBeTrue("a process started at another time is not the one this window replaces");
+                .ShouldBe(PredecessorWait.TakenForAnother, "a process started at another time is not the one this window replaces, and the answer says so");
             (fake.GetUtcNow() - before).ShouldBe(GuiSuccession.StrangerGrace, "the grace: not the whole budget, and not no wait at all");
+
+            // A caller with less than the grace to spend gets its own budget and no more (#2381): half a second is
+            // waited for a stranger, not the two seconds of the grace.
+            var shortBudget = TimeSpan.FromMilliseconds(500);
+            var beforeShort = fake.GetUtcNow();
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, started - TimeSpan.FromHours(1), shortBudget, fake, ct))
+                .ShouldBe(PredecessorWait.TakenForAnother);
+            (fake.GetUtcNow() - beforeShort).ShouldBe(shortBudget, "a budget under the grace is the wait, the grace does not stretch it");
 
             var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, started, GuiSuccession.PredecessorExitBudget, SystemTimeProvider.Instance, ct);
             End(predecessor);
-            (await waiting).ShouldBeTrue("it exited within the budget");
+            (await waiting).ShouldBe(PredecessorWait.Exited, "it exited within the budget");
 
             (await GuiSuccession.WaitForPredecessorAsync(predecessor, started, TimeSpan.FromMilliseconds(50), SystemTimeProvider.Instance, ct))
-                .ShouldBeTrue("a predecessor gone already needs no waiting for");
+                .ShouldBe(PredecessorWait.Exited, "a predecessor gone already needs no waiting for");
         }
         finally
         {
