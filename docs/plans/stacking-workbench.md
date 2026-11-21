@@ -217,9 +217,15 @@ What exists, read from the code on 2026-11-19:
   (`WCS.CroppedTo`) and carries the alignment provenance (`AlignmentProvenance.ForCrop`) and the stack cards (`STACK_N`,
   `SNAPSHOT`, `REJ_TOT`, `REJ_RATE`, `STRATEGY`; the two rejection cards stay those of the uncropped master). `image
   autocrop` writes through the same routine, so its output carries the same. The pixels are read once per crop.
-- **The coverage, rejection and std-error sidecars are not cropped** with the master, and none is written beside the
-  crop; that was so for `autocrop` before #2244. A crop therefore has no coverage plane of its own, and `MasterAutoCrop.Scan` on
-  it falls back to the edge walk. Cropping the sidecars is the same rectangle on each, left for its own issue.
+- **The maps that describe the master's pixels are cropped with it** (#2274): coverage (or a drizzle master's weight
+  plane), the rejection fraction, the saturated-frame count and the standard error, each through its own reader and
+  writer and each by the same rectangle (`MasterCrop.CropLoaded`). A crop therefore keeps a coverage plane of its own,
+  so `MasterAutoCrop.Scan` on it answers from the exact tier, and SPCC still finds its saturation map. The rejection
+  map's `REJ_RATE` is the cropped map's own average. A map that is not on the master's grid is left out and named, a
+  map of an earlier file beside the output is removed first, and a refused crop touches none. The bad pixel map is
+  neither carried nor removed: it is the sensor's photosites, not the canvas's pixels, so a crop onto the master's
+  own path keeps the master's. One whole map is held at a time (read, cropped, given back), not four beside the
+  master. Until this was written both verbs left every map behind, as `autocrop` had before #2244.
 
 What the workbench needs, and why the display clip is not enough for it: a process after the crop must be handed the cropped
 pixels (a gradient fit must not see the ragged edge), an export must be the cropped image with a moved WCS, and the user must be

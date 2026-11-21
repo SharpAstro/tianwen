@@ -105,6 +105,22 @@ public static class DigFill
     /// <summary>A lift is at most this many times what the model took there.</summary>
     public const float MaxLiftOfTaken = 2f;
 
+    /// <summary>
+    /// The two corrections at one pixel, each held to its share of what the model took there: a lift of at most
+    /// <see cref="MaxLiftOfTaken"/> times it and a lowering of at most <see cref="MaxLoweringOfTaken"/> of it. A wish
+    /// in the other direction is no correction (a wanted lift below zero lifts nothing).
+    /// </summary>
+    /// <remarks>
+    /// Its own function so the lift's cap has a test: with the cap taken out, every scene in <c>DigFillTests</c> still
+    /// passed (2026-11-20, #2209). The reason as far as it is understood: a hole the model dug is itself a take, so
+    /// the lift a dig wants stays under twice the take, and a plate lying under a sky the input lies under too is
+    /// refused earlier, by the input's own floor (#2252). No scene that gets past both was found; the cap is the
+    /// bound for one that does.
+    /// </remarks>
+    internal static (float Up, float Down) Capped(float wantedLift, float standing, float taken)
+        => (MathF.Min(MathF.Max(wantedLift, 0f), MaxLiftOfTaken * taken),
+            MathF.Min(MathF.Max(standing, 0f), MaxLoweringOfTaken * taken));
+
     /// <summary>Light standing above the sky is lowered by at most this share of what the model took there.</summary>
     public const float MaxLoweringOfTaken = 0.05f;
 
@@ -325,8 +341,7 @@ public static class DigFill
                     {
                         var departure = smooth[i] / smoothWeight[i];
                         var lifted = pinned[i] - (MathF.Min(departure, 0f) * taper[i]);
-                        var up = MathF.Min(MathF.Max(lifted - oc[i], 0f), MaxLiftOfTaken * taken[i]);
-                        var down = MathF.Min(MathF.Max(departure, 0f) * taper[i], MaxLoweringOfTaken * taken[i]);
+                        var (up, down) = Capped(lifted - oc[i], departure * taper[i], taken[i]);
                         plane[y, px] = oc[i] + (trust[i] * ((lies[i] * up) - (stands[i] * down)));
                     }
                     else

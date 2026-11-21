@@ -116,6 +116,54 @@ public sealed class MasterAutoCropTests : IDisposable
         scan.Trims.ShouldBeNull();
     }
 
+    // #2294: an empty union returns before the margin is applied, and used to drop the fact that one was asked for.
+    [Fact]
+    public void AnEmptyUnionSaysTheMarginWasIgnoredWhenOneWasAskedFor()
+    {
+        var plane = new float[64, 64];
+        var master = new Image([plane], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f,
+            imageMeta: new ImageMeta { SensorType = SensorType.Monochrome });
+
+        MasterAutoCrop.Scan(master, MasterPath(), MasterAutoCropRule.ForModel(0.02, margin: 0.05)).MarginIgnored.ShouldBeTrue();
+        MasterAutoCrop.Scan(master, MasterPath(), MasterAutoCropRule.ForModel(0.02)).MarginIgnored.ShouldBeFalse("no margin was asked for");
+    }
+
+    // #2294: the stored margin is the applied one, so a caller prints it without clamping it a second time.
+    [Theory]
+    [InlineData(0.9, 0.25)]
+    [InlineData(-0.1, 0.0)]
+    [InlineData(0.1, 0.1)]
+    public void TheModelRuleStoresTheMarginItApplies(double asked, double stored)
+        => MasterAutoCropRule.ForModel(0.02, asked).Margin.ShouldBe(stored);
+
+    // The rule holds its own margin, however it is built (pilot's review of #2307): held in ForModel alone, a rule from
+    // the public constructor said 0.9 where 0.25 was applied.
+    [Fact]
+    public void TheRuleHoldsItsMarginHoweverItIsBuilt()
+    {
+        new MasterAutoCropRule(CoverageTrimPolicy.KeepEveryPixel, 0.9).Margin.ShouldBe(MasterAutoCropRule.MaxMargin);
+        (MasterAutoCropRule.ForViewing with { Margin = 0.9 }).Margin.ShouldBe(MasterAutoCropRule.MaxMargin);
+        (MasterAutoCropRule.ForViewing with { Margin = -1.0 }).Margin.ShouldBe(0.0);
+        new MasterAutoCropRule(CoverageTrimPolicy.KeepEveryPixel, double.NaN).Margin.ShouldBe(0.0, "not a number is no margin");
+        new MasterAutoCropRule(CoverageTrimPolicy.KeepEveryPixel, 0.1).Margin.ShouldBe(0.1);
+    }
+
+    // #2294: the exact tier as one routine, for the callers that want the covered area and no edge walk.
+    [Fact]
+    public void TheExactTierOnItsOwnAnswersOnlyWhereASidecarSaysWhatIsCovered()
+    {
+        var master = NoiseFrame(256, 256, static (_, _) => 1.0);
+        var path = MasterPath();
+        MasterAutoCrop.TryCoverageRect(master, path, out var none).ShouldBeFalse();
+        none.ShouldBe(PixelRect.Empty);
+
+        var inner = new PixelRect(32, 48, 160, 144);
+        IntegrationFitsWriter.WriteCoverageMap(path, CoveragePlane(256, 256, inner), frameCount: 24);
+
+        MasterAutoCrop.TryCoverageRect(master, path, out var exact).ShouldBeTrue();
+        exact.ShouldBe(inner);
+    }
+
     [Fact]
     public void ADeclinedEdgeIsKeptForAViewerAndTrimmedForAModel()
     {

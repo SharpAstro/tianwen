@@ -154,4 +154,141 @@ public class MasterCropTests : IDisposable
         result.Message.ShouldContain("30");
         File.Exists(output).ShouldBeFalse();
     }
+
+    // ---- the map sidecars are cropped with the master (#2274) ---------------------------------
+
+    /// <summary>A map on the master's grid whose value at (x, y) is <c>scale * (x + 100 y)</c>, so a crop's origin shows in it.</summary>
+    private static Image MapPlane(float scale, float maxValue)
+    {
+        var plane = new float[H, W];
+        for (var y = 0; y < H; y++)
+        {
+            for (var x = 0; x < W; x++)
+            {
+                plane[y, x] = scale * (x + (100 * y));
+            }
+        }
+
+        return new Image([plane], BitDepth.Float32, maxValue: maxValue, minValue: 0f, pedestal: 0f,
+            imageMeta: new ImageMeta { SensorType = SensorType.Monochrome });
+    }
+
+    [Fact]
+    public void CropFile_CropsTheMapsThatDescribeTheMastersPixelsWithIt()
+    {
+        var input = WriteMaster(AlignmentProvenance.Sidereal);
+        // Whole counts for the two count maps, a fraction for rejection, the master's own units for the standard error.
+        IntegrationFitsWriter.WriteCoverageMap(input, MapPlane(1f, 3000f), frameCount: 24);
+        IntegrationFitsWriter.WriteSaturationMap(input, MapPlane(1f, 3000f), frameCount: 24);
+        IntegrationFitsWriter.WriteRejectionMap(input, MapPlane(1f / 4000f, 1f), frameCount: 24, meanRejectionRate: 0.4);
+        IntegrationFitsWriter.WriteStandardErrorMap(input, MapPlane(1e-5f, 0.04f), frameCount: 24);
+        var output = Path.Combine(Path.GetDirectoryName(input)!, "cropped.fits");
+        var rect = new PixelRect(7, 4, 20, 15);
+
+        var result = MasterCrop.CropFile(input, rect, output);
+
+        result.Succeeded.ShouldBeTrue(result.Message);
+        result.Sidecars.ShouldBe(["coverage", "rejection", "saturation", "standard error"]);
+        result.SidecarsLeftOut.ShouldBeEmpty();
+
+        // Each map beside the output is the crop's size and starts at the crop's origin: its first pixel is the
+        // source's pixel at (7, 4).
+        var origin = 7 + (100 * 4);
+        IntegrationFitsWriter.TryReadCoverageMap(output, out var coverage).ShouldBeTrue();
+        (coverage!.Width, coverage.Height).ShouldBe((20, 15));
+        coverage[0, 0, 0].ShouldBe(origin, 0.5f);
+        coverage[0, 14, 19].ShouldBe(origin + 19 + (100 * 14), 0.5f);
+
+        IntegrationFitsWriter.TryReadSaturationMap(output, out var saturation).ShouldBeTrue();
+        (saturation!.Width, saturation.Height).ShouldBe((20, 15));
+        saturation[0, 0, 0].ShouldBe(origin, 0.5f);
+
+        IntegrationFitsWriter.TryReadRejectionMap(output, out var rejection).ShouldBeTrue();
+        (rejection!.Width, rejection.Height).ShouldBe((20, 15));
+        rejection[0, 0, 0].ShouldBe(origin / 4000f, 0.001f);
+
+        IntegrationFitsWriter.TryReadStandardErrorMap(output, out var standardError).ShouldBeTrue();
+        (standardError!.Width, standardError.Height).ShouldBe((20, 15));
+        (standardError[0, 0, 0] / (origin * 1e-5f)).ShouldBe(1f, 0.02f, "the standard error is stored as its logarithm, so it reads back to a ratio");
+
+        // The rejection map's own card is this map's average, not the uncropped one's (0.4 was written above). The
+        // sidecar is gzipped, so its header is read with the data and not by seeking past it.
+        using var rejectionFile = Image.OpenFitsHeader(IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.RejectionPathFor(output))!);
+        rejectionFile.ReadFirstImageHdu()!.Header.GetDoubleValue("REJ_RATE", -1).ShouldBeInRange(0.2, 0.3);
+    }
+
+    [Fact]
+    public void CropFile_LeavesNoMapOfAnEarlierFileBesideItsOutput()
+    {
+        // An integrated master carries coverage, rejection and standard error maps, and no saturation map.
+        var input = WriteMaster(AlignmentProvenance.Sidereal);
+        IntegrationFitsWriter.TryReadSaturationMap(input, out _).ShouldBeFalse("premise: this master has no saturation map");
+        var output = Path.Combine(Path.GetDirectoryName(input)!, "cropped.fits");
+        // A file that was at the output's path before had a saturation map and a coverage map of its own size.
+        IntegrationFitsWriter.WriteSaturationMap(output, MapPlane(1f, 3000f), frameCount: 3);
+        IntegrationFitsWriter.WriteCoverageMap(output, MapPlane(1f, 3000f), frameCount: 3);
+
+        var result = MasterCrop.CropFile(input, new PixelRect(7, 4, 20, 15), output);
+
+        result.Succeeded.ShouldBeTrue(result.Message);
+        result.Sidecars.ShouldBe(["coverage", "rejection", "standard error"]);
+        IntegrationFitsWriter.TryReadSaturationMap(output, out _).ShouldBeFalse("a map of other pixels must not be read as this crop's");
+        IntegrationFitsWriter.TryReadCoverageMap(output, out var coverage).ShouldBeTrue();
+        (coverage!.Width, coverage.Height).ShouldBe((20, 15), "and the coverage beside the output is this crop's, not the earlier file's");
+    }
+
+    // The bad pixel map is the sensor's and not on the canvas grid, so a crop does not carry it, and must not take it
+    // away either: a crop onto the master's own path deleted the master's bad pixel map without a word (pilot's review
+    // of #2307).
+    [Fact]
+    public void CropFile_OntoTheMastersOwnPathKeepsItsBadPixelMap()
+    {
+        var input = WriteMaster(AlignmentProvenance.Sidereal);
+        var badPixels = IntegrationFitsWriter.BadPixelPathFor(input);
+        File.WriteAllText(badPixels, "the sensor's");
+
+        var result = MasterCrop.CropFile(input, new PixelRect(7, 4, 20, 15), input);
+
+        result.Succeeded.ShouldBeTrue(result.Message);
+        result.Sidecars.ShouldBe(["coverage", "rejection", "standard error"]);
+        result.SidecarsLeftOut.ShouldBeEmpty();
+        File.Exists(badPixels).ShouldBeTrue("the crop names nothing in the sensor's map, so it is not the crop's to remove");
+        File.ReadAllText(badPixels).ShouldBe("the sensor's");
+        IntegrationFitsWriter.TryReadCoverageMap(input, out var coverage).ShouldBeTrue();
+        var map = coverage.ShouldNotBeNull();
+        (map.Width, map.Height).ShouldBe((20, 15), "and the maps on the canvas grid are this crop's");
+    }
+
+    [Fact]
+    public void CropFile_ARefusedCropWritesNoMapAndRemovesNone()
+    {
+        var input = WriteMaster(AlignmentProvenance.Sidereal);
+        IntegrationFitsWriter.WriteCoverageMap(input, MapPlane(1f, 3000f), frameCount: 24);
+        var output = Path.Combine(Path.GetDirectoryName(input)!, "cropped.fits");
+        IntegrationFitsWriter.WriteCoverageMap(output, MapPlane(1f, 3000f), frameCount: 3);
+
+        var result = MasterCrop.CropFile(input, new PixelRect(35, 0, 10, 10), output);
+
+        result.Succeeded.ShouldBeFalse();
+        result.Sidecars.ShouldBeEmpty();
+        IntegrationFitsWriter.TryReadCoverageMap(output, out var untouched).ShouldBeTrue("a refusal changes nothing on disk");
+        (untouched!.Width, untouched.Height).ShouldBe((W, H));
+    }
+
+    [Fact]
+    public void CropFile_AMapThatIsNotOnTheMastersGridIsLeftOutAndNamed()
+    {
+        var input = WriteMaster(AlignmentProvenance.Sidereal);
+        var small = new Image([new float[H / 2, W / 2]], BitDepth.Float32, maxValue: 24f, minValue: 0f, pedestal: 0f,
+            imageMeta: new ImageMeta { SensorType = SensorType.Monochrome });
+        IntegrationFitsWriter.WriteSaturationMap(input, small, frameCount: 24);
+        var output = Path.Combine(Path.GetDirectoryName(input)!, "cropped.fits");
+
+        var result = MasterCrop.CropFile(input, new PixelRect(7, 4, 20, 15), output);
+
+        result.Succeeded.ShouldBeTrue(result.Message);
+        result.Sidecars.ShouldBe(["coverage", "rejection", "standard error"], "the maps that are on the grid are still carried");
+        result.SidecarsLeftOut.ShouldHaveSingleItem().ShouldContain("saturation map is 20x15, not the master's 40x30");
+        IntegrationFitsWriter.TryReadSaturationMap(output, out _).ShouldBeFalse();
+    }
 }

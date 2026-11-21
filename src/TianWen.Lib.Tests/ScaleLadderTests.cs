@@ -136,6 +136,9 @@ public class ScaleLadderTests(ITestOutputHelper output)
 
         output.WriteLine($"of {pointedAway} panels pointed at a field that shares no sky with them, {declined} were declined");
         pointedAway.ShouldBeGreaterThanOrEqualTo(4, "premise: the mosaic holds panels a frame diagonal apart");
+        // The count itself, since docs/plans/plate-solver-performance.md quotes it: the manifest is frozen data, so a
+        // change in the manifest or in the rule above that moves it fails here instead of leaving the plan's figure stale.
+        pointedAway.ShouldBe(22);
 
         // The figure the plan quotes, pinned so it is a tested one. The invariant is the bar above (never a wrong
         // scale): an answer here would not be wrong if it were the frame's own scale, which a wide rung's frame can
@@ -151,7 +154,7 @@ public class ScaleLadderTests(ITestOutputHelper output)
         var frame = panel.Frames[0];
         var few = manifest.CatalogTuples().GetRange(0, QuadScaleRecovery.MinStars - 1);
 
-        // The ladder says a line for every rung it ends on or that answers, so no line is no rung asked.
+        // The ladder says a line for every rung it asks (ScaleLadder.TryFind, before the question), so no line is no rung asked.
         var fewCatalogue = new LinesLogger();
         ScaleLadder.TryFind(frame.DetectedPoints(), few, frame.Hint, panel.Width, panel.Height, fewCatalogue).ShouldBeNull();
         fewCatalogue.Lines.ShouldBeEmpty();

@@ -173,4 +173,20 @@ public class SolveHintCacheTests(ITestOutputHelper output)
         hint.Value.ScaleRatio.ShouldBe(1.0019f);
         hint.Value.WinnerIsStd.ShouldBeFalse();
     }
+
+    /// <summary>
+    /// The read side of "a ladder solve neither uses nor teaches the remembered ratio" (#2279). The store side is
+    /// pinned end to end (RealFrameSolveTests); this half is pinned on the rule itself, because the one real frame
+    /// that asks the ladder also gets its scale from the quad recovery and so never reaches the remembered ratio.
+    /// </summary>
+    [Fact]
+    public void TheRememberedRatioIsAScalePriorOnlyForAFrameThatStatedItsScale()
+    {
+        var remembered = new SolveHintCache.Hint(ScaleRatio: 1.0375f, WinnerIsStd: true);
+
+        CatalogPlateSolver.RememberedScalePrior(remembered, scaleFromStars: false).ShouldNotBeNull().Ratio.ShouldBe(1.0375f);
+        CatalogPlateSolver.RememberedScalePrior(remembered, scaleFromStars: true)
+            .ShouldBeNull("a scale read off the stars has no typed focal length for the ratio to correct");
+        CatalogPlateSolver.RememberedScalePrior(null, scaleFromStars: false).ShouldBeNull("nothing is remembered for this light path");
+    }
 }

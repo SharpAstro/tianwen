@@ -218,19 +218,11 @@ public static class DatasetMasterInventory
     internal static (int X, int Y) SkyPatchOf(Image image, string path, int patch)
     {
         var covered = new PixelRect(0, 0, image.Width, image.Height);
-        if (IntegrationFitsWriter.TryReadCoverageMap(path, out var coverage))
+        if (MasterAutoCrop.TryCoverageRect(image, path, out var exact))
         {
-            try
+            if (exact.Width > 0 && exact.Height > 0)
             {
-                var exact = image.CoverageCropRectangle(coverage);
-                if (exact.Width > 0 && exact.Height > 0)
-                {
-                    covered = exact;
-                }
-            }
-            finally
-            {
-                coverage.Release();
+                covered = exact;
             }
         }
         else

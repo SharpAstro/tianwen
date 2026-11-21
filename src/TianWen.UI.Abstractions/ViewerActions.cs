@@ -859,21 +859,6 @@ public static class ViewerActions
     }
 
     /// <summary>
-    /// Handles a toolbar action by dispatching to the appropriate state mutation.
-    /// Returns <c>true</c> if the action was fully handled, <c>false</c> if the caller
-    /// must handle it (e.g. <see cref="ToolbarAction.Open"/> or <see cref="ToolbarAction.PlateSolve"/>
-    /// which require DI services).
-    /// </summary>
-    /// <param name="split">The viewer's before/after split control, which owns its own state; null in a
-    /// host with no viewer widget, where <see cref="ToolbarAction.Compare"/> is simply inert.</param>
-    /// <param name="hasBeforePixels">Whether the backend is holding pre-enhance pixels, which decides
-    /// which comparison <see cref="ToolbarAction.Compare"/> turns on. Passed in rather than read from
-    /// state because it is a property of the GPU backend, not of the view state.</param>
-    /// <param name="hasCrop">Whether a display crop is in force, which is the next comparison
-    /// <see cref="ToolbarAction.Compare"/> reaches for when no pixels were retained. Both of the
-    /// viewer's press dispatchers pass it: the keyboard and the button must choose the same mode, and
-    /// this is the pair that has silently disagreed before.</param>
-    /// <summary>
     /// The largest denominator the zoom ladder reaches, i.e. 1:9. This is the shared vocabulary of the
     /// zoom control -- the keyboard's Ctrl+1..Ctrl+9, the dropdown's rows, and the wheel all speak it,
     /// and the dropdown's label list is BUILT from this so a change here cannot leave them disagreeing.
@@ -1062,6 +1047,21 @@ public static class ViewerActions
         ToolbarAction.BackgroundNeutralize,
     ];
 
+    /// <summary>
+    /// Handles a toolbar action by dispatching to the appropriate state mutation.
+    /// Returns <c>true</c> if the action was fully handled, <c>false</c> if the caller
+    /// must handle it (e.g. <see cref="ToolbarAction.Open"/> or <see cref="ToolbarAction.PlateSolve"/>
+    /// which require DI services).
+    /// </summary>
+    /// <param name="split">The viewer's before/after split control, which owns its own state; null in a
+    /// host with no viewer widget, where <see cref="ToolbarAction.Compare"/> is simply inert.</param>
+    /// <param name="hasBeforePixels">Whether the backend is holding pre-enhance pixels, which decides
+    /// which comparison <see cref="ToolbarAction.Compare"/> turns on. Passed in rather than read from
+    /// state because it is a property of the GPU backend, not of the view state.</param>
+    /// <param name="hasCrop">Whether a display crop is in force, which is the next comparison
+    /// <see cref="ToolbarAction.Compare"/> reaches for when no pixels were retained. Both of the
+    /// viewer's press dispatchers pass it: the keyboard and the button must choose the same mode, and
+    /// this is the pair that has silently disagreed before.</param>
     public static bool HandleToolbarAction(ViewerState state, IPreviewSource? source, ToolbarAction action, bool reverse = false,
         SplitCompareController? split = null, bool hasBeforePixels = false, bool hasCrop = false)
     {

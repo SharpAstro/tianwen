@@ -194,8 +194,8 @@ public enum ColourCalibrationSource
 /// RMS hides exactly the failure a sub is most often ruined by: one gust, one cable snag. A high peak
 /// against a low RMS is that signature, and averaging is what erases it.</param>
 /// <param name="SampleCount">Guide samples the statistics were computed from (FITS: GUIDEN). Present so
-/// an RMS derived from two samples is distinguishable from one derived from a hundred -- a short sub, a
-/// or a slow guide camera both produce the former.</param>
+/// an RMS derived from two samples is distinguishable from one derived from a hundred -- a short sub or a
+/// slow guide camera both produce the former.</param>
 public readonly record struct GuidingStats(
     float RmsTotal,
     float RmsRa,

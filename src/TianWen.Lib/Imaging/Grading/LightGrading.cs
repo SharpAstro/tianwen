@@ -45,10 +45,14 @@ public readonly record struct LightGradeKey(
     /// run under cloud that ended the cloud early and let the star-count check count a deterioration (#2151). Two figures
     /// keep a set together and still tell apart exposures a star count is not comparable across (1.4 and 1.5 s, 30 and 60 s).
     /// The expected-sky fitter keys its rows through this too, so a stored model and a live lookup agree.
-    /// Known edge: a bucket boundary sits exactly on every nominal exposure with three significant figures ending in 5
-    /// (12.5, 125, 1.25 s), so a set of those with a few ms of jitter can still split in two (12.494 s reads 12000,
-    /// 12.506 s reads 13000). Accepted: such exposures are rare, and a wider bucket would merge exposures that differ
-    /// by 10 percent.
+    /// <para>
+    /// The buckets are a two-figure step wide and start a quarter step BELOW each two-figure value, so 30 s owns
+    /// 29.75 to 30.75 s. Rounding to the nearest two figures put a boundary exactly on every nominal exposure with
+    /// three figures ending in 5 (12.5, 125, 1.25 s), and a set of those with a few ms of recorded jitter split in
+    /// two (12.494 s read 12000 and 12.506 s read 13000), each half graded against the wrong siblings (#2213). The
+    /// boundaries now sit at x.x25 and x.x75, which no camera offers as an exposure, and a two-figure exposure keeps
+    /// the key it had, so a stored model for 30, 60 or 300 s is still found.
+    /// </para>
     /// </summary>
     internal static long ExposureKeyMs(TimeSpan exposure)
     {
@@ -58,10 +62,13 @@ public readonly record struct LightGradeKey(
             return 0;
         }
         var step = Math.Pow(10, Math.Floor(Math.Log10(ms)) - 1);
-        return (long)Math.Round(Math.Round(ms / step, MidpointRounding.AwayFromZero) * step);
+        return (long)Math.Round(Math.Floor((ms + step / 4) / step) * step);
     }
 
-    /// <summary>The key in words, for the panel: the filter and the exposure, which are what tell two groups of one folder apart.</summary>
+    /// <summary>The key in words, for the panel: the filter and the exposure, which are what tell two groups of one folder apart.
+    /// The exposure shown is the group's KEY (<see cref="ExposureKeyMs"/>), exact for a two-figure exposure and the
+    /// bucket's own figure for any other: a set of 125 s exposures reads "120 s" (it read "130 s" while the key was
+    /// rounded to the nearest).</summary>
     public string Describe()
     {
         var exposure = ExposureMs % 1000 == 0 ? $"{ExposureMs / 1000} s" : $"{ExposureMs / 1000.0:0.###} s";

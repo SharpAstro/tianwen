@@ -1071,11 +1071,11 @@ public sealed class ViewerState
     public int? PendingFileListScrollTop { get; set; }
 
     /// <summary>
-    /// One-shot request to bring a file-list row into view, set by <see cref=ViewerActions.SelectFile/>
+    /// One-shot request to bring a file-list row into view, set by <see cref="ViewerActions.SelectFile"/>
     /// when the selection MOVES and consumed once by the next paint.
     /// </summary>
     /// <remarks>
-    /// Separate from <see cref=PendingFileListScrollTop/> because it asks a different question: that one
+    /// Separate from <see cref="PendingFileListScrollTop"/> because it asks a different question: that one
     /// places the list at a top index, this one asks for the least scroll that makes a row visible
     /// (<c>ListScrollController.EnsureVisible</c>), and is a no-op while the row already is. Both are
     /// one-shots for the same reason: applied every frame instead, the list would drag itself back to the
