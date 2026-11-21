@@ -22,8 +22,10 @@ read. Printed per plate:
     are what says where such a residue sits.
 
 The master itself, stars and all, is the control: its power sits on the stars and, without --median, the fit
-explains a good part of it. Through --median 7 the master's power still sits 77, 68 and 78 % on the bright stars,
-and the fit is a weak control (7, 20 and 40 % on the master by cell): the power shares are the control.
+explains a good part of it. Through --median 7 the stars are still in it and the fit is a weak control, so the power
+shares are the control. Measured on one master only, the 2026-10-12 store's Tarantula session of 2024-10-02, in cells
+1,1, 5,4 and 4,4 in that order: through the median 77, 68 and 78 % of the master's power still sits on the bright
+stars, and the fit explains 7, 20 and 40 % of it.
 """
 import csv
 import sys
