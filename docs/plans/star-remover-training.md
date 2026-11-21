@@ -8523,14 +8523,15 @@ the first angle is a step after the model and not another arm:
     1070; the contract check; the allowance on the at-most rows; what a stalled or uneven pair is; the count of
     Antares' rows; #2341's report by covered pixels), and the session added the preflight's result and a first form
     of this note at 20:27:58. Up to there nothing but the two-session preflight had been exported. **R4i's export
-    began at 20:28:41.** Three rounds came after that, all before any cache, training run or score existed: the
+    began at 20:28:41.** Four rounds came after that, all before any cache, training run or score existed: the
     fixer's third at 20:44:20 (the pointer to the Kill bullet, M31's nucleus on the at-most list, the direction
     taken out of the prediction's 3 to 5 rows, the hunk made by hand, the read before the launch), the
     session's fourth at 20:56:35 (the read before the launch said per arm, the result of the trainer copy's
-    check, this note retitled), and the session's fifth, the push that carries this sentence, of wording only (the
+    check, this note retitled), the session's fifth at 21:17:06, of wording only (the
     prediction's 3 to 5 rows said to straddle the bar, where the text had them end at the bar's edge though 5 rows
     miss a bar of at most 4; which hunk was written by hand, and that the trainer copy's check does not reach it;
-    the lead giving the first text's time in place of "before any export or score of either").
+    the lead giving the first text's time in place of "before any export or score of either"), and a sixth, the
+    push that carries this sentence, which gives the fifth its time and changes nothing else.
     The question, its bars and the guards' bars are as first pushed at 20:10:54; no round changed them.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
