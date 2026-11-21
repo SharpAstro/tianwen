@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using Shouldly;
 using Xunit;
 
@@ -48,5 +49,27 @@ public class SpanShouldTests
         SpanShould.ShouldBeTheSameAs(plane, [0.5f, 0.25f, 0.125f]);
         Should.Throw<ShouldAssertException>(() => SpanShould.ShouldBeTheSameAs<float>([0.5f, 0.25f, 0.125f], [0.5f, 0.2f, 0.125f]))
             .Message.ShouldContain("index 1: 0.25 where 0.2 was expected");
+    }
+
+    /// <summary>
+    /// #2354: the message reads the same on any machine. Written with the current culture, a float read "0,25" under a
+    /// comma-decimal one, and the test above failed there.
+    /// </summary>
+    [Fact]
+    public void TheMessageReadsTheSameUnderACommaDecimalCulture()
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+            0.25f.ToString().ShouldBe("0,25", "premise: this culture writes a comma");
+
+            Should.Throw<ShouldAssertException>(() => SpanShould.ShouldBeTheSameAs<float>([0.5f, 0.25f], [0.5f, 0.2f]))
+                .Message.ShouldBe("the two are not the same (2 elements each); the first difference is at index 1: 0.25 where 0.2 was expected");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
     }
 }
