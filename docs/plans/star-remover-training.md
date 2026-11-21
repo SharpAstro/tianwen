@@ -7797,6 +7797,100 @@ the first angle is a step after the model and not another arm:
         0.89 / 0.56 on the held-out Tarantula on 2026-11-20), and the 9 px mean of that difference has an rms
         of 0.40 and 0.53 sigma, which is the mottle the sheet shows (the master, the judge's plate flat as
         noise, ours, the stored plate and the difference, cells 1,1 and 5,4 at 1:1; sent to the owner).
+      - **The rule as a post step, tried a second time the same night: the rows are reached and the picture
+        is not** (`crowd_smooth_v2.py`, a prototype on R4d's chain plates; no product change). The first try
+        of 2026-11-20 read the crowded rows above the judge's and was no product step for what it looked like.
+        This one keeps the plate's own noise where the rule smooths, holds the bright nebula out, and sets
+        aside the surroundings of the bright stars the remover took (a peak of the stars layer over 200 sigma,
+        a 19 px box: 2,248 stars and 8.4 % of the Tarantula's frame) before the detail is measured, so that a
+        star's residue is not read as structure and kept as an island.
+
+        | row | R4d through the chain | the rule, first try, nebula held out | the second try | StarXTerminator |
+        |---|---|---|---|---|
+        | Tarantula crowded flat | 91.3 | 97.8 | 97.3 | 96.1 |
+        | Gaia BP 17-19, the scorer's row | 96.0 | 98.3 | 97.9 | 98.3 |
+        | Sagittarius crowded flat | 97.0 | 99.7 | 99.4 | 99.6 |
+        | Andromeda dark flat, dug | 98.5, 0.7 | 100.0, 0.0 | 100.0, 0.0 | 98.6, 1.4 |
+        | Tarantula dark flat, left | 96.5, 2.7 | 98.3, 1.5 | 98.5, 1.4 | 96.6, 2.7 |
+        | purity | 0.8 | 2.6 | 1.1 | 3.1 |
+        | light added on each master's nebula, % | 0.1 / 0.7 / 0.3 | 0.1 / 0.7 / 0.3 | 0.1 / 0.7 / 0.3 | |
+
+        By the rows it stands at the judge's on every crowded row with the guards held and purity back near
+        R4d's. Looked at on a stretch that shows the faint field (the judge's median less 4 to plus 30 pixel
+        sigma, the Tarantula's crowded field and 30 Doradus's edge at 1:1) it is not there. Where the judge's
+        plate is dark and flat, the rule's is a smooth reddish haze: the glow, which the judge takes with the
+        grain and the owner's guard keeps. The plate's own fine noise looks coarser beside the first try's
+        drawn noise, and no better with what stands over 2.5 sigma redrawn. The faint wisps at 30 Doradus's
+        edge are washed out as before, and a few islands still stand there. So the rows can be bought with a
+        rule and the look cannot yet: the scorecard's crowded rows do not read what the eye objects to here,
+        which is its blind side again. The sheets went to the owner.
+      - **The rule is not what the judge does, cell by cell** (`rule_against_judge_cells.py`: the same session's
+        master, the channels' mean, `band.py`'s statistic in the stored plate's own sigma, so the figures are
+        larger than the per-channel ones above; the rule's plate is the one R4f's targets were drawn from).
+
+        | cell | the stored plate | the rule's plate | R4f seed 1 as trained | StarXTerminator |
+        |---|---|---|---|---|
+        | 1,1 | 7.5 | 5.6 | 5.2 | 1.2 |
+        | 5,4 | 9.1 | 7.3 | 6.0 | 3.2 |
+        | 4,4 | 6.4 | 3.1 | 5.8 | 6.9 |
+        | 4,6 (30 Doradus's core) | 126.0 | 125.9 | 115.2 | 129.9 |
+
+        Where the judge flattens the field (cell 1,1) the rule leaves most of the band, 5.6 against 1.2, and
+        where the judge keeps it (cell 4,4) the rule halves it, 3.1 against 6.9. So R4f's targets were not what
+        the judge writes either: not free of the grain where it mattered, and smoothed where they should not
+        have been. The layer the rule takes out of the plate (stored less rule) has an rms of its 9 px mean of
+        0.47, 0.61 and 0.65 sigma in cells 1,1, 5,4 and 4,4, and it follows what ours keeps over the judge's with
+        a correlation of 0.55, 0.24 and -0.16. That weighs on the second way above: the plate's own grain, as
+        this rule draws it, is only partly what the judge takes and in cell 4,4 is structure it keeps.
+      - **Clustering does not make up what the luminosity function lacks, short of stars sitting on the
+        detected ones** (`faint_depth_sim.py --follow 20,8`: the same simulated stars on the same noise, placed
+        a second time where the catalogue's own stars are dense, their count map smoothed by a Gaussian of
+        20 px and of 8 px; the band with stars from 3, 1, 0.25 and 0.1 sigma):
+
+        | cell, and the plate's band R / G / B | even scatter | following the catalogue's density at 20 px | at 8 px |
+        |---|---|---|---|
+        | 1,1 (5.2 / 6.0 / 4.6) | 1.21, 1.73, 1.97, 2.04 | 1.19, 1.78, 1.99, 2.07 | 1.20, 1.90, 2.71, 3.49 |
+        | 5,4 (6.9 / 7.2 / 6.2) | 1.62, 2.44, 2.82, 2.92 | 1.63, 2.55, 2.86, 3.03 | 1.65, 2.86, 4.17, 5.29 |
+        | 4,4 (4.8 / 5.0 / 5.2) | 1.76, 2.77, 3.09, 3.20 | 1.83, 2.95, 3.31, 3.34 | 1.88, 3.22, 4.71, 6.17 |
+
+        Placed on the catalogue's density at 20 px the band rises by 0.2 at most over an even scatter. Placed
+        at 8 px, which is stars sitting on the detected ones, it reaches the plate's in cell 4,4 from a floor
+        of 0.25 sigma down and passes it at 0.1, and stays under it in cell 1,1 (3.49 against 4.6 to 6.0) and
+        cell 5,4 (5.29 against 6.2 to 7.2) even at 0.1 sigma, where the law asks for 48 to 144 thousand stars
+        in a cell that holds 600 to 1,300 catalogued ones. Light that tight about a detected star is nearer
+        to what the builder left of each star it subtracted than to faint stars of their own. What the plate's
+        grain is made of stays unmeasured.
+      - **A row that reads both sides, tried on the scoring masters** (`judge_band_rows.py`). Row (2) read two
+        cells picked by eye. Here the judge's own plate sorts every 300 px cell of a master: flat where its
+        band is under 1.5 (noise alone reads 0.85), structure where it is 3 or over. Per plate, on the
+        channels' mean: the median band on the flat cells with the share of them it leaves under 1.5, and on
+        the structure cells its band over the judge's with the share within 0.8 to 1.25.
+
+        | master and plate | flat cells: band, share under 1.5 | structure cells: over the judge's, share within 0.8 to 1.25 |
+        |---|---|---|
+        | **Tarantula** (49 cells: 2 flat, 31 structure) | | |
+        | R4d as trained | 3.60, 0 % | 1.18, 42 % |
+        | R4d through the chain | 3.29, 0 % | 1.07, 48 % |
+        | R4f seed 1 through the chain | 3.14, 0 % | 1.09, 48 % |
+        | the rule, first try, nebula held out | 1.36, 100 % | 0.81, 52 % |
+        | the rule, second try | 1.44, 100 % | 0.89, 55 % |
+        | **Sagittarius** (64 cells: 48 flat, 7 structure; the judge's own flat cells read 1.14) | | |
+        | R4d as trained | 1.59, 44 % | 0.99, 86 % |
+        | R4d through the chain | 1.53, 48 % | 0.99, 86 % |
+        | R4f seed 1 through the chain | 1.48, 54 % | 0.98, 100 % |
+        | the rule, first try, nebula held out | 1.17, 96 % | 0.92, 86 % |
+        | the rule, second try | 1.17, 96 % | 0.94, 86 % |
+        | **Andromeda** (77 cells: none flat, 9 structure) | | |
+        | R4d through the chain | no flat cell | 1.00, 89 % |
+        | R4f seed 1 through the chain | no flat cell | 0.99, 89 % |
+        | the rule, first try and second | no flat cell | 0.95, 89 % |
+
+        The models leave the mottle on the flat cells and keep the structure. The rule takes the mottle and
+        with it a tenth to a fifth of the structure's band on the Tarantula: that column is the number for
+        the wisps the eye saw washed out, which no row of the scorecard read. Only 2 of the Tarantula's 49
+        cells are flat by the judge, so its "crowded flat" row, which reads the sites of stars, is not this
+        row. Whether a pair of this kind joins the scorecard, and at what bars, is the owner's; no arm or step
+        is judged on it here.
 - **R4g, pre-registered 2026-11-20 before any export or score of it. One change from R4d: bright nebula cells join
   the draw, drawn on the stored plate, so their target keeps the nebula's own edges and knots.** The owner,
   2026-11-20, chose it with R4f ("That, plus the 1070 arm"): the arm put to him was training tiles on bright
