@@ -517,7 +517,9 @@ With `TIANWEN_TEST_COST_PEAKS=1` a line gains three fields, in bytes, and the re
 
 - **the heap at the start**: the managed heap as the test began, collected until stable first. It is what the process
   holds live BETWEEN tests: fixtures, caches, statics. A step up in it that never comes down is a cache or a leak, and
-  the first test that shows the step is the one that filled it.
+  the test just before the first one whose start shows the step filled it (the heap is read in `Before`).
+  The start also holds the running class's own instance and fixtures, built before `Before` runs, so it is the
+  process's live heap PLUS the current class, and a class's fixture is released when its class ends.
 - **the heap's peak**: the highest heap read while the test ran (every 25 ms, and once as it ends). Less the start it
   is what the test ADDED: its live objects and the garbage waiting for a collection at that moment.
 - **the working set's peak**: how large the process got, native memory and all. It also holds what the collector freed
@@ -539,12 +541,15 @@ The first read (2026-11-21, the same 30 classes, serial, Release, win-arm64, 557
 | the heap held between tests, at the start of the run | 40 MiB |
 | the heap held between tests, by the end | about 620 MiB |
 
-So a serial test process needs about 2.5 GiB at its worst. Four tests at once fit a 16 GB runner even if the four
+So a serial test process needs about 2.5 GiB at its worst, for these 30 classes: they were chosen by summed time, not
+by memory, so a fast class that builds big planes is not in the read (the other 31 percent of the suite has not been read). Four tests at once fit a 16 GB runner even if the four
 hungriest met: about 7.5 GiB of heap, the 0.6 held and four times 1.7. The six classes whose hungriest test adds more than a GiB are
 `ViewerPlanetaryLookTests`, `ViewerWaveletDeriveTests`, `ClassicalStarRemoverTests`, `DatasetDegradationExporterTests`,
 `SyntheticBackgroundTests` and `ViewerPlanetaryMasterTests`.
 
-**The 620 MiB held between tests arrives in four steps, and none is given back.** A step shows in the start of the
+**The 620 MiB held between tests arrives in four steps, and none is shown being given back.** (The last row reads
+644 MiB against about 620 at the end of the run: the 24 MiB is read as a fixture of the running class, counted in a
+start and released with its class, not as a step that came back. The probe does not prove it.) A step shows in the start of the
 test AFTER the one that left it, so the test named here is the one that ran just before the step, in this run's order:
 
 | the heap held | left by |

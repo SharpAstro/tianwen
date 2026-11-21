@@ -99,12 +99,14 @@ public sealed class TestCostProbeAttribute : BeforeAfterTestAttribute
     {
         if (CostFile is not null)
         {
-            Sampler?.Clear();
             // Peaks: the heap is collected until it is stable first, so the test starts from what the process holds
-            // live and what it adds is its own. Before the mark, so these collections land on no line.
+            // live (and the running class's own instance and fixtures) and what it adds is its own. Before the mark,
+            // so these collections land on no line of the bytes file; the type sampler is cleared after them, so what
+            // they allocate (finalizers of the previous test's objects) is not this test's .types lines either.
             var peaks = PeakSampling is null
                 ? null
                 : new Peaks(heapAtStart: GC.GetTotalMemory(forceFullCollection: true), workingSetAtStart: Environment.WorkingSet);
+            Sampler?.Clear();
             Started[test.UniqueID] = new Running(Mark.Now(), peaks);
         }
     }
