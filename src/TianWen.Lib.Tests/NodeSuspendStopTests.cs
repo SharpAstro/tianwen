@@ -169,6 +169,12 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
         NodeSuspendStop.Budget.ShouldBeGreaterThanOrEqualTo(windowsGives / 2, "and a mount has most of that time to take its stop");
         (await good.IsSlewingAsync(ct)).ShouldBeFalse();
         (await good.IsTrackingAsync(ct)).ShouldBeFalse();
+        // Behind a command that never returns no later one is made (the review of #2399): a mount's stop goes one
+        // command after another, so the silent mount, stuck in its abort, is asked for neither axis nor for tracking,
+        // though it can do both (StubMount). Were its abort to return at the cut-off, all three would be made at once,
+        // inside the advance that fires the deadline, so this does not pass by being looked at too early.
+        await silent.DidNotReceive().MoveAxisAsync(Arg.Any<TelescopeAxis>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await silent.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
     [Fact(Timeout = 30_000)]
