@@ -20,7 +20,7 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The counters are the process's</b>, so a line is one test's only in a SERIAL run (<c>--max-threads 1</c>): with four
+/// <b>The counters are the process's</b>, so a line is one test's only in a SERIAL run (<c>--parallel none</c>): with four
 /// tests at once each line also holds what the other three did in the same window, which is the question a second,
 /// parallel, run answers (who pays for whose garbage). <c>tools/test-cost-report.py</c> reads the file.
 /// </para>
@@ -33,6 +33,15 @@ namespace TianWen.Lib.Tests;
 /// <para>
 /// The window is the test method: xunit calls <see cref="Before"/> after the class is constructed and
 /// <see cref="After"/> before it is disposed, so what a constructor or a fixture allocates lands on no line.
+/// </para>
+/// <para>
+/// <b>The bytes are approximate</b> (<c>GC.GetTotalAllocatedBytes(precise: false)</c>): the runtime counts an
+/// allocation context when a thread has used it up, some kilobytes at a time, so a small test's figure is not exact
+/// and small tests are not to be ranked by it. It is the megabytes and gigabytes this is for.
+/// </para>
+/// <para>
+/// <b>The file is appended to, never emptied</b>: a second run into the same file adds its lines after the first's.
+/// Name a new file for a run or delete the old one; the report says when a file holds a test more than once.
 /// </para>
 /// <para>
 /// <b>What was allocated</b>, with <c>TIANWEN_TEST_COST_TYPES=1</c> as well: the runtime's allocation tick (one event
@@ -95,6 +104,11 @@ public sealed class TestCostProbeAttribute : BeforeAfterTestAttribute
     private sealed class AllocationSampler : EventListener
     {
         private const EventKeywords GcKeyword = (EventKeywords)0x1;
+
+        // EventListener's constructor calls OnEventSourceCreated, which turns the runtime's events on, so an allocation
+        // tick can reach OnEventWritten before this class's own constructor body runs. That is safe for a field with
+        // an initialiser: C# runs a class's field initialisers BEFORE its base constructor, so this is set by then.
+        // Keep it an initialiser; assigned in a constructor body it would be null in that window.
         private readonly ConcurrentDictionary<string, long> _bytes = new();
 
         public void Clear() => _bytes.Clear();
