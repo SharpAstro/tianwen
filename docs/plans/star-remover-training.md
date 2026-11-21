@@ -7352,15 +7352,24 @@ the first angle is a step after the model and not another arm:
       no new best, so an exact repeat of it is called stalled. Spikes are described and decide nothing. 0.60 or
       under is trained, as launched; no threshold changes. **These sentences, from "The figure is read against the curve", were added after the
       launch**, on the review of this registration (PR #2335), which found that the figure as launched would
-      have called R3x stalled: I had set the thresholds on R4c, R4d, R4e and R4f and left R3x out. A first
-      wording of them (a spike with no recovery) was withdrawn in the same review, since by it R4f had recovered
-      too. They went in in three steps on 2026-11-21, each timed against the trainer's log (it started at
-      10:00:46 and reads step 13,600 at 42.5 minutes and step 27,600 at 86.5): the first sentences at 10:40
-      (about step 12,600), the new-best test in place of the spike at 10:50 (about step 15,700), and the test's
-      reach to any ratio of 0.75 or over, R4f's 0.848 and its second spike at 11:27 (about step 27,500). The
-      sentence on what counts as a new best came at 12:07 (about step 40,000; the last line fetched, at 11:49,
-      was step 33,000). Every line fetched to then is at the first learning rate, and the earliest first halving
-      among the other arms was at step 57,000. So nothing the figure reads existed yet. The prediction's reasons below were reworded in
+      have called R3x stalled: I had set the thresholds on R4c, R4d, R4e and R4f and left R3x out. The rule's
+      sentences were changed six times on 2026-11-21, each timed here against the trainer's log (it started at
+      10:00:46 and reads step 13,800 at 43.1 minutes and step 27,600 at 86.5):
+      (1) at 10:40, about step 12,600, the R3x sentence and a band of 0.75 to 0.85 read against "a spike, a new
+      best after the halving";
+      (2) at 10:44, about step 13,800, a second wording, "a spike with no recovery", with both signs needed for
+      stalled;
+      (3) at 10:45, about step 14,400, the clause that one sign alone is called neither;
+      (4) at 10:50, about step 15,800, the new best alone, spikes deciding nothing: the second wording was
+      withdrawn, since by it R4f had recovered too;
+      (5) at 11:27, about step 27,500, the test's reach to any ratio of 0.75 or over, R4f's 0.848 and its second
+      spike;
+      (6) at 12:07, about step 40,000, what counts as a new best.
+      Change (5) is the one that alters an outcome the launched sentence gave: a ratio over 0.85 with a new best
+      after the halving read stalled as launched and reads neither now. Every held-out line of the log to step
+      39,000 is at the first learning rate, and the earliest first halving among the other arms was at step
+      57,000. So nothing the figure reads existed yet. This note was first written with change (3) and has been
+      corrected since, each time on the review's finding that a time or a count in it was wrong. The prediction's reasons below were reworded in
       the same review (they first said R4c, R4d and R4e each differ from R4f by one change of the export, which
       this plan's own lineage contradicts); the guess and its figures are as launched. The additions are the
       owner's to refuse; refused, the rule is the one sentence as launched.
