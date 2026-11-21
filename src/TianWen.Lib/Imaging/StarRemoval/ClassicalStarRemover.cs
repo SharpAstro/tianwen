@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -1963,6 +1964,30 @@ public static class ClassicalStarRemover
         /// <summary>A square window of a plane about a star: its pixels, their weights and their coordinates.</summary>
         private sealed record Window(int CentreX, int CentreY, int Radius, int[] Xs, int[] Ys, double[] Values, double[] Weights);
 
+        /// <summary>
+        /// Work rows of one solve, rented from the shared pool and handed back when the solve leaves scope (<c>using var</c>).
+        /// </summary>
+        /// <remarks>
+        /// A solve is one evaluation of a fit, and a fit evaluates some hundreds of times a star, so an array made per solve
+        /// was most of what the remover allocated: 24 GiB of <c>double[]</c> over the 17 tests of <c>ClassicalStarRemoverTests</c>
+        /// (#2345). What is rented is NOT cleared: a solve writes a row's element before it reads it, and both only where the
+        /// pixel's weight is above zero.
+        /// </remarks>
+        private readonly ref struct WorkRows
+        {
+            private readonly double[] _rented;
+
+            public WorkRows(int length)
+            {
+                _rented = ArrayPool<double>.Shared.Rent(length);
+                Span = _rented.AsSpan(0, length);
+            }
+
+            public Span<double> Span { get; }
+
+            public void Dispose() => ArrayPool<double>.Shared.Return(_rented);
+        }
+
         private Window? CutWindow(PointSource s, double radius, double saturationCut, double? atX = null, double? atY = null, float[]? plane = null)
         {
             plane ??= _lum;
@@ -2312,8 +2337,9 @@ public static class ClassicalStarRemover
             ata.Clear();
             atb.Clear();
             var n = w.Values.Length;
-            var b1 = new double[n];
-            var b2 = new double[n];
+            using var rows = new WorkRows(2 * n);
+            var b1 = rows.Span[..n];
+            var b2 = rows.Span[n..];
             for (var i = 0; i < n; i++)
             {
                 if (w.Weights[i] <= 0)
@@ -2367,7 +2393,8 @@ public static class ClassicalStarRemover
             ata.Clear();
             atb.Clear();
             var n = w.Values.Length;
-            var basis = new double[n];
+            using var rows = new WorkRows(n);
+            var basis = rows.Span;
             Span<double> row = stackalloc double[4];
             for (var i = 0; i < n; i++)
             {
