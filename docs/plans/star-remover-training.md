@@ -7707,12 +7707,15 @@ the first angle is a step after the model and not another arm:
 
         | training cells of | target, R / G / B | input draw | the model's output | output over target per cell, median (10th to 90th percentile) |
         |---|---|---|---|---|
-        | the ASI585MC Pro session of 2024-10-02 (40 cells, the one the dense cells are on) | 2.7 / 2.4 / 2.1 | 19.6 / 21.2 / 17.5 | 2.7 / 2.5 / 2.4 | 0.98 / 0.98 / 1.00 (0.93 to 1.11) |
-        | the ASI533MC Pro session of 2022-12-01 (40 cells) | 2.0 / 2.3 / 2.2 | 12.4 / 14.7 / 10.2 | 2.1 / 2.3 / 2.0 | 0.99 / 0.97 / 0.97 (0.88 to 1.15) |
+        | the ASI585MC Pro session of 2024-10-02 (40 cells, the one the dense cells are on) | 2.7 / 2.4 / 2.1 | 19.6 / 21.2 / 17.5 | 2.6 / 2.3 / 2.0 | 0.95 / 0.95 / 0.98 (0.88 to 1.02) |
+        | the ASI533MC Pro session of 2022-12-01 (40 cells) | 2.0 / 2.3 / 2.2 | 12.4 / 14.7 / 10.2 | 1.9 / 2.2 / 1.9 | 0.97 / 0.94 / 0.94 (0.86 to 1.00) |
 
+        The model (`r4f_synth31_s1`) is fed the stored per-pixel plane it trained on, as `--cond-map` models must be;
+        it keeps 94 to 98 percent of the target's band, a little less, not more.
         So the model gives its target back on the inputs it trained on, crowded sky included. What the pairs
         ask of it is the other half: an input is its target plus light and nothing else (over the 40 cells no
-        pixel of an input stands half a sigma under its target, and 36 % stand half a sigma over it), and that
+        pixel of an input stands half a sigma under its target, and 37 / 38 / 35 % by channel, the mean over the cells,
+        stand half a sigma over it; `train_fit_band.py` prints both shares), and that
         light is the drawn stars, which the export draws down to 3 sigma. The grain was taken out of the plate
         the target AND the input are made from, so no pair shows grain in the input that the target lacks, and
         nothing asks the model to take it out of a real frame. On the real master of that session (row (2), a

@@ -7,7 +7,9 @@ input draw (slot 1) and the model's output on that draw. Prints, per channel and
 grain statistic (band.py's: through a 7 px median, the 9 px box mean less the 41 px one, rms over the inner tile) in
 units of the TARGET's sigma of a 9 px mean for all three images, so they stand on one scale; the output's band over the
 target's per cell; and how much of the input differs from the target at all (the share of pixels that are the same
-value, which says whether anything but drawn stars separates the two). Cells whose target holds a block of 400 exact
+value, which says whether anything but drawn stars separates the two); and the mean over the cells of the share
+of pixels half a sigma under, and half a sigma over, the target. The model is fed the STORED per-pixel plane it trained
+on (cond_map checkpoints only; sigma.f16, slot 1), never the broadcast scalar. Cells whose target holds a block of 400 exact
 zeros (the knot defect, #2276) are left out.
 """
 import os
@@ -35,24 +37,37 @@ def band(c, sig):
 
 def main():
     mm, meta = S.open_cache(CACHE)
-    model, planes = S.load_model(CACHE, CKPT, "cpu")
+    model, _ = S.load_model(CACHE, CKPT, "cpu")
     model.eval()
+    if not model.cond_map:
+        # What S.denoise refuses: a model that conditions on the scalar is not the one this script is written for.
+        raise SystemExit(f"{CKPT} conditions on the tile's scalar sigma, not the stored per-pixel plane (cond_map is "
+                         f"false); this script feeds the stored plane and refuses a checkpoint trained otherwise")
+    sigma, has = S.open_sigma(CACHE, meta)
+    if sigma is None:
+        raise SystemExit(f"{CACHE} holds no sigma.f16, so the stored plane the model trained on cannot be read")
     train = set(meta["train_sessions"])
     for key in KEYS:
         cells = [i for i, k in enumerate(meta["keys"]) if key in k[0].lower() and k[0] in train]
-        rows, same, left = [], [], 0
+        rows, same, under, over, left = [], [], [], [], 0
         for i in cells:
             target = np.asarray(mm[i, S.SLOT_MASTER], np.float32)
             draw = np.asarray(mm[i, 1], np.float32)
             if (target == 0).all(axis=0).sum() >= 400:
                 left += 1
                 continue
+            if not has[i, 1]:
+                raise SystemExit(f"cell {i} has no stored plane for slot 1; the model cannot be fed what it trained on")
             with torch.no_grad():
-                out = model(S.with_sigma(torch.from_numpy(draw[None]), strength=1.0, planes=planes)).numpy()[0]
+                out = model(S.with_plane(torch.from_numpy(draw[None]),
+                                         np.asarray(sigma[i, 1], np.float32)[None])).numpy()[0]
             sig = [sigma_of(c) for c in target]
             rows.append([[band(img[c], sig[c]) for c in range(target.shape[0])] for img in (target, draw, out)])
             diff = np.abs(draw - target)
             same.append([float((diff[c] <= 0.25 * sig[c]).mean()) for c in range(target.shape[0])])
+            signed = draw - target
+            under.append([float((signed[c] <= -0.5 * sig[c]).mean()) for c in range(target.shape[0])])
+            over.append([float((signed[c] >= 0.5 * sig[c]).mean()) for c in range(target.shape[0])])
         r = np.array(rows)
         f = lambda v: " / ".join(f"{x:.1f}" for x in v)
         g = lambda v: " / ".join(f"{x:.2f}" for x in v)
@@ -68,6 +83,8 @@ def main():
         print(f"  the quieter half of the cells (target band {f(np.median(r[quiet, 0], axis=0))}): output {f(np.median(r[quiet, 2], axis=0))}; "
               f"the busier half (target {f(np.median(r[~quiet, 0], axis=0))}): output {f(np.median(r[~quiet, 2], axis=0))}")
         print(f"  share of an input's pixels within a quarter sigma of the target's (no star's light on them): median {g(np.median(np.array(same), axis=0))}")
+        print(f"  share of an input's pixels half a sigma UNDER the target's, mean over the cells: {g(np.mean(under, axis=0))}; "
+              f"half a sigma OVER it: {g(np.mean(over, axis=0))}")
 
 
 main()
