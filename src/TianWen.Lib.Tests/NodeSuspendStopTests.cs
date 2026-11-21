@@ -160,8 +160,13 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
         var cutOffAt = Volatile.Read(ref cutOffAtTicks);
         cutOffAt.ShouldNotBe(0L, "the driver's token was cancelled while it was still waiting");
         TimeSpan.FromTicks(cutOffAt - suspendedAt.UtcTicks).ShouldBe(NodeSuspendStop.Budget, "at the budget, to the tick");
-        // And the budget is the one the reason for it allows: Windows gives about two seconds before it suspends.
-        NodeSuspendStop.Budget.ShouldBeLessThan(TimeSpan.FromSeconds(2));
+        // And the budget is one its reasons allow, on both sides (#2394). Windows gives about two seconds before it
+        // suspends, so it is under that; and it is most of that, because a stop that is cut off leaves its mount
+        // driving, so it is not under half. The assertion above holds for any budget: these two are what a budget
+        // cut to a tenth of a second, or raised past the suspend, would fail.
+        var windowsGives = TimeSpan.FromSeconds(2);
+        NodeSuspendStop.Budget.ShouldBeLessThan(windowsGives, "the stop has ended before Windows suspends");
+        NodeSuspendStop.Budget.ShouldBeGreaterThanOrEqualTo(windowsGives / 2, "and a mount has most of that time to take its stop");
         (await good.IsSlewingAsync(ct)).ShouldBeFalse();
         (await good.IsTrackingAsync(ct)).ShouldBeFalse();
     }
