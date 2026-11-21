@@ -8437,6 +8437,13 @@ the first angle is a step after the model and not another arm:
     differs from R4d's by what the exporter changed since `bh-bin8`; the knot fix of #2286 is known to change tiles.
     A preflight on one session before the export (the new binary without the flag against `bh-bin11`'s tiles of
     that session) says whether anything else does, and its result is written here before the export's first score.
+    **The preflight, run 2026-11-21 from 20:14 to 20:24, before the export:** the two sessions of `knot-check.ps1`
+    (the Tarantula of 2024-10-02 and the Helix of 2025-08-09) from the build frozen for these arms (`bh-bin12`,
+    main at "Black point tests: the re-run is shown to skip its sessions ..." (#2377)). Without the flag 1,602 of
+    its 1,603 files are `bh-bin11`'s bytes, all 1,600 tiles among them; the one that differs is
+    `degradations.jsonl`, whose rows now carry `StretchBlackPointSigma` (null here). So on these sessions R4h's
+    data is `bh-bin11`'s, and differs from R4d's by the knot fix alone. With `--black-point-sigma 40` all 1,600
+    image files differ and every row says 40.
   - **R4i, the arm (synth33):** the same line with `--black-point-sigma 40`, and 40 sigma in its contract, so the
     product stretches a frame for it as its tiles were stretched. One change from R4h.
   - **Why 40.** The session's choice, not a measured optimum: the store's darkest pixels sit 8 to 228 sigma under
@@ -8476,8 +8483,8 @@ the first angle is a step after the model and not another arm:
   - **What a frame whose noise is no longer its own does (#2341), reported for R4i, deciding nothing about the
     arm.** The depth's black point is 40 times the frame's sky noise under its sky, so on a denoised frame it lies
     close under the sky and dark structure can fall beneath it. Each of the three scoring masters, smoothed by a
-    Gaussian of 1.5 px (which cuts white noise to about a fifth), goes through R4i as trained: the nebula guards above (peaks standing, light added, broad light
-    taken), and the sheets. Beside the share of covered pixels (the master's canvas ring, zeros or NaN, left out)
+    Gaussian of 1.5 px (which cuts white noise to about a fifth), goes through R4i as trained: the nebula guards
+    above (peaks standing, light added, broad light taken), and the sheets. Beside the share of covered pixels (the master's canvas ring, zeros or NaN, left out)
     under the black point of the smoothed copy goes the share under median minus 40 sigma at the frame's own noise
     of the unsmoothed master, so the figure has something to be read against, and where those pixels sit (lanes,
     or holes and dead pixels). A guard failing there does not kill R4i; it says the guard #2341 asks for is needed
@@ -8489,11 +8496,18 @@ the first angle is a step after the model and not another arm:
     nights' gap falls to 10 to 25 points, so the first half is cleared; the innermost ring is taken under 80
     percent on 3 to 5 rows, by the innermost ring the measure the bar counts: Antares' 2026-04-21 and 2024-05-28
     (56 and 71 at 40 sigma in the table above) among them and 2023-05-15 (81) not, though the sheets show the disc
-    left on all three sessions. The second half is at its edge and more likely missed than cleared; the peaks guard is the one most at risk, since the Tarantula's own
-    black point is 10 sigma and at 40 its knots stand brighter, and it is predicted to hold at 11 to 20 of 77
-    because the drawn knots are stretched the same way.
+    left on all three sessions. The second half is at its edge and more likely missed than cleared; the peaks guard
+    is the one most at risk, since the Tarantula's own black point is 10 sigma and at 40 its knots stand brighter,
+    and it is predicted to hold at 11 to 20 of 77 because the drawn knots are stretched the same way.
   - **Nothing is adopted by these reads.** A cleared question goes to the owner with the numbers, and a second seed
     is owed before any adoption.
+  - **How this text came to be, all of it before any export.** The first text was pushed at 20:10:54 on
+    2026-11-21. Its review found that the trainer copy it named cannot write a depth, and four smaller points; the
+    review's fixer rewrote those parts at 20:19:34 (the trainer copy, both arms on a T4 where the first text had
+    R4i on the GTX 1070, the contract check, the allowance on the at-most rows, what a stalled or uneven pair is,
+    the count of Antares' rows, #2341's report by covered pixels), and the session added the preflight's result
+    and this note. The question, its bars and the guards' bars are as first pushed. Nothing but the two-session
+    preflight had been exported by then.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
