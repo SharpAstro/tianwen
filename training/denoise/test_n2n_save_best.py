@@ -194,8 +194,7 @@ class EndToEnd(unittest.TestCase):
         # improves on the best, which is the second cause the line names. Twenty steps are four evaluations, so the first
         # cause (fewer than three) is not what is read here.
         done = self.train("nan.pt", 20, 0, "--save-best", "--lr", "1e30")
-        self.assertIn("held-out nan", done.stdout)
-        self.assertNotRegex(done.stdout, r"held-out \d")
+        self.assertEqual(done.stdout.count("held-out nan"), 4, "every one of the four evaluations reads NaN")
         self.assertTrue(os.path.exists(self.path("nan.pt")), "the last step's weights are written as for any run")
         self.assertFalse(os.path.exists(self.path("nan.best.pt")))
         self.assertIn("--save-best: nothing written", done.stdout)

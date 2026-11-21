@@ -2707,13 +2707,13 @@ def train(args):
         # Said, so that a missing file is never read as a file that was lost on the way home. The resume is named only for
         # a run that was resumed: on a fresh one "its best step (0) lies before that resume" read as if it had been (#2340).
         last = f"{val_hist[-1]:.6e}" if val_hist else "none"
-        causes = (f"the run judged fewer than {VAL_WINDOW} evaluations (it read {len(val_hist)}); its objective was never "
-                  f"a finite number (the last score: {last})")
+        causes = [f"the run judged fewer than {VAL_WINDOW} evaluations (it read {len(val_hist)})",
+                  f"its objective was never a finite number (the last score: {last})"]
         if resumed:
-            causes += (f"; or it was resumed from a checkpoint made without the switch and its best step "
-                       f"({val_best_step}) lies before that resume")
+            causes.append(f"it was resumed from a checkpoint made without the switch and its best step "
+                          f"({val_best_step}) lies before that resume")
         print(f"--save-best: nothing written. No step improved the held-out objective while the switch was on. The causes "
-              f"known: {causes}.", flush=True)
+              f"known: {'; '.join(causes[:-1])}; or {causes[-1]}.", flush=True)
     # The run is over and its outputs are written: a checkpoint left now would resume a finished run.
     if os.path.exists(resume_path):
         os.remove(resume_path)
