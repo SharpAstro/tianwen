@@ -7365,11 +7365,12 @@ the first angle is a step after the model and not another arm:
       (5) at 11:27, about step 27,500, the test's reach to any ratio of 0.75 or over, R4f's 0.848 and its second
       spike;
       (6) at 12:07, about step 40,000, what counts as a new best.
-      Change (5) is the one that alters an outcome the launched sentence gave: a ratio over 0.85 with a new best
-      after the halving read stalled as launched and reads neither now. Every held-out line of the log to step
-      39,000 is at the first learning rate, and the earliest first halving among the other arms was at step
-      57,000. So nothing the figure reads existed yet. This note was first written with change (3) and has been
-      corrected since, each time on the review's finding that a time or a count in it was wrong. The prediction's reasons below were reworded in
+      What the changes alter against the launched sentence, "0.75 or over: stalled again", is one outcome: a
+      ratio of 0.75 or over with a new best after the halving read stalled as launched and reads neither now.
+      Changes (1) to (4) made that so for a ratio of 0.75 to 0.85, and change (5) for a ratio over 0.85. Every
+      held-out line of the log to step 39,000 is at the first learning rate, and the earliest first halving
+      among the other arms was at step 57,000. So nothing the figure reads existed yet. This note was first
+      written with change (3) and has been corrected since. The prediction's reasons below were reworded in
       the same review (they first said R4c, R4d and R4e each differ from R4f by one change of the export, which
       this plan's own lineage contradicts); the guess and its figures are as launched. The additions are the
       owner's to refuse; refused, the rule is the one sentence as launched.
