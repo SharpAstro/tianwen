@@ -447,3 +447,35 @@ Linux and 934 on Windows (against 1067 and 1228), and the x64 shards start about
 | SessionImagingTests.GivenHighMinAltitudeWhenTargetDropsBelowThenImagingStopsEarly |  | 11.3 | 11.3 |
 | NodeLiveViewTests.ALiveViewNobodyWatchesStopsOnceTheGraceIsSpent |  | 10.3 | 11.1 |
 | NodePlanetaryTests.ACaptureNobodyWatchesStopsOnceTheGraceIsSpent |  | 10.2 | 10.9 |
+
+## What the tests allocate (#2345)
+
+The tables above are times. A test's time is not only its own work: the test host runs a workstation collector, so
+every collection stops every thread, and a test that allocates gigabytes slows each test running beside it.
+SharpAstro/Codecs measured that on its suite (its issue #92: half of one test's wall time in the full suite was
+collector pauses that other tests caused) and cut its suite from 276 to 71 GiB allocated. This is the same
+measurement here.
+
+    $env:TIANWEN_TEST_COST_FILE = "C:/temp/cost.tsv"
+    dotnet test TianWen.Lib.Tests -c Release --no-build --parallel none --filter "FullyQualifiedName~ClassicalStarRemoverTests"
+    python tools/test-cost-report.py C:/temp/cost.tsv --top 30 --per-test 15
+
+`TestCostProbe` (registered on the unit test assembly) appends one line a test: its wall time, the bytes allocated,
+the collections of each generation and the time the collector held every thread, all read off the PROCESS's counters.
+So a line is one test's only in a serial run (`--parallel none`). `TIANWEN_TEST_COST_TYPES=1` adds what was allocated,
+by type, to `<file>.types` (a sample from the runtime's allocation tick: it names the type, not the call site).
+Without the variable the probe is one null check a test.
+
+**Read the bytes and the collection counts, not the times, unless the machine is quiet.** On the laptop this was first
+run on (2026-11-21), five of six classes allocated within 2 percent of their first run, while the same six classes run
+twice in parallel with nothing changed took 185 s and 147 s. A wall-clock claim wants a CI runner and
+`tools/ci-test-timings.py <run> --before <run>`.
+
+The first read, the 30 unit classes with the most summed time (69 percent of the suite), serial, Release: 182 GiB
+allocated, 12,503 / 2,655 / 804 collections. A third of it is two classes whose garbage is product code's:
+`ClassicalStarRemoverTests` (32.5 GiB over 17 tests, 71 percent of it `double[]` from the per-star fits) and
+`SyntheticBackgroundTests` (31.0 GiB over 36 tests, `float[]` planes and `Complex[]` transform buffers). The table of
+all thirty, the type samples and the candidates are in #2345.
+
+A pumped viewer test (one that pumps the viewer until a master exists) allocates for as long as it runs, so its bytes
+follow the machine's speed: `ViewerPlanetaryLookTests` read 9.5 GiB in a slow run and 6.4 GiB in a fast one.
