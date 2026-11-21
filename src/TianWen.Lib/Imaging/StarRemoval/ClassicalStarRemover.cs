@@ -48,14 +48,18 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// along the edge. Such a fit is let off the drift allowance and held by <see cref="RanAway"/> alone, asked where
 /// the centre stands on the cover (<see cref="NearestCovered"/>), so it may sit 32 px from the star ALONG the edge,
 /// at any depth. That is 32 px of slack, not a few;</item>
+/// <item>a source fitted as TWO stars (<c>FitPair</c>) has each of them up to 2.5 of the field's FWHM from the fit it
+/// replaces, and each is subtracted about its own centre: 131 px plus that, and the FWHM is the image's, which no
+/// constant here bounds;</item>
 /// <item>a saturated star is worked from its plateau's centre and held to its plateau's radius, both measured from a
 /// peak the finder puts anywhere on the plateau.</item>
 /// </list>
-/// Two stars of one phase are more than 256 px apart on one axis, so their work can meet wherever two of those
-/// reaches add up to more than that: they do by 6 px for two subtractions on the frame, by 4 for a window against
-/// one, and by 30 more for each edge-cut star of the two. Each case needs both stars that close to FACING tile edges,
-/// and none was recorded on the test fields. Clipping a tile's work to its own ground would make it exact; it moves
-/// pixels in exactly those columns, so it is a change of its own.</para>
+/// So the first three are numbers and the last two are not. Two stars of one phase are more than 256 px apart on
+/// one axis, and their work can meet wherever two reaches add up to more than that: they do by 6 px for two
+/// subtractions on the frame, by 4 for a window against one, by 30 more for each edge-cut star of the two, and by
+/// 2.5 FWHM more for each pair. Each case needs both stars that close to FACING tile edges, and none was recorded on
+/// the test fields. Clipping a tile's work to its own ground would make it exact; it moves pixels in exactly those
+/// columns, so it is a change of its own (#2378).</para>
 /// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, so the
 /// same image and seed give the same plate on any number of threads, except where two tiles of a phase touch as the
 /// paragraph above counts.</para>
@@ -888,7 +892,7 @@ public static class ClassicalStarRemover
                     // A big star's light is mostly halo no field Moffat describes, and the wing fit's sky takes it.
                     return fit.Saturated && previous is null ? SubtractProfile(fit, refX, refY, coreRadius, QuietSigma(refX, refY, sigma)) : fit;
                 }
-                if (HasLeftItsStar(r.X, r.Y, refX, refY, drift))
+                if (HasLeftItsStar(r.X, r.Y, refX, refY, drift, fit.Saturated))
                 {
                     // A fit this far from its star is not that star's. It is refused here and never followed: the next
                     // window would be cut where it ran to, which can be ground another tile of this phase is
@@ -1765,10 +1769,15 @@ public static class ClassicalStarRemover
         // Orion master's 700-sigma star, its peak in the last present column, fitted 3 px beyond it and given up as
         // having wandered), and where no neighbour can have pulled a fit.
         // Whether a fit centred at (x, y) has left the star it was started on. On the covered frame that is RanAway of
-        // the centre. Off it, the centre is judged where it stands on the cover: a star the edge cut is straight out
-        // from its peak at any depth, and only a fit that went ALONG the edge has left it (NearestCovered, #2374). A
-        // centre with nothing covered within a subtraction's reach touches nothing, and has left.
-        private bool HasLeftItsStar(double x, double y, double starX, double starY, double drift)
+        // the centre. Off it, an UNSATURATED star's centre is judged where it stands on the cover: a star the edge cut
+        // is straight out from its peak at any depth, and only a fit that went ALONG the edge has left it
+        // (NearestCovered, #2374). A centre with nothing covered within a subtraction's reach touches nothing, and has
+        // left.
+        // A SATURATED star is held on the centre itself, off the frame as on it. Its plateau is in view, so its centre
+        // is by its peak and not at a depth; with half a plane of wing to go by, a fit trades depth against amplitude,
+        // and the amplitude ceiling that would catch that is for unsaturated stars alone. Past the bound it gets its
+        // profile, as it does on the frame.
+        private bool HasLeftItsStar(double x, double y, double starX, double starY, double drift, bool saturated)
         {
             if (!double.IsFinite(x) || !double.IsFinite(y))
             {
@@ -1776,7 +1785,7 @@ public static class ClassicalStarRemover
             }
             var px = Math.Round(x);
             var py = Math.Round(y);
-            if (px >= 0 && px < _width && py >= 0 && py < _height && !IsAbsent((int)px, (int)py))
+            if (saturated || (px >= 0 && px < _width && py >= 0 && py < _height && !IsAbsent((int)px, (int)py)))
             {
                 return RanAway(x, y, starX, starY, drift);
             }

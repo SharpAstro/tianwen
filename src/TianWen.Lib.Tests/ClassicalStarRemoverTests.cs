@@ -546,7 +546,9 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // the 32 px a fit may end from its star, and measured on the centre itself the fit was refused as one that ran away
     // and the row put back at the edge. It has not left its star: straight out from the edge is where a star the edge
     // cut IS, at any depth, and only a fit that went ALONG the edge has left. So the row is at the star's true centre.
-    // (Whether such a star is then subtracted is another rule's: this one peaks far over the ceiling and is not.)
+    // Whether such a star is then subtracted is another rule's. This one is left as TooNarrow: a wing alone, fitted at
+    // its true centre, asks for a core a third of the field's width, and the width is judged before the amplitude's
+    // ceiling is. The outcome is asserted so that a change which leaves something else here is seen.
     [Fact(Timeout = 300_000)]
     public async Task AStarStraightOutFromTheEdgeIsNotTakenForAFitThatRanAwayHoweverDeepItIs()
     {
@@ -564,8 +566,9 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             output.WriteLine($"beside the edge: ({s.X:F2}, {s.Y:F2}) {s.Outcome} {s.Significance:F1} sigma, amplitude {s.Amplitude:G4}, width {s.WidthScale:F2}");
         }
 
-        beside.Count(s => Math.Abs(s.X - (Ring - Outside)) < 6 && Math.Abs(s.Y - Y) < 6)
-            .ShouldBe(1, "the fit found the star where it is, 40 px outside the cover, and its row says so");
+        var atTheStar = beside.Where(s => Math.Abs(s.X - (Ring - Outside)) < 6 && Math.Abs(s.Y - Y) < 6).ToArray();
+        atTheStar.Length.ShouldBe(1, "the fit found the star where it is, 40 px outside the cover, and its row says so");
+        atTheStar[0].Outcome.ShouldBe(StarFitOutcome.TooNarrow, "a wing alone is too narrow for a star of this field, and stays in the plate");
         beside.Count(s => s.X >= Ring && s.Outcome == StarFitOutcome.NoFit && s.Amplitude == 0f)
             .ShouldBe(0, "it is not put back at the edge as a fit that ran away");
     }
