@@ -7121,7 +7121,10 @@ the first angle is a step after the model and not another arm:
     ring over the 89 plates, where the count is 50,503) that is 0.28 %. That band is the script's own and not the
     one the figures above use: 20 steps along rows and columns from the ring, a diamond, where
     `grain_ring_pull.py` measures 20 px in a straight line; and a pixel counts as lowered when the corrected
-    plate is under 0.9 of the stored one, which is a drop only where the stored value is over zero. The median
+    plate is under 0.9 of the stored one, which is a drop only where the stored value is over zero: a pixel the
+    rule left as it was counts too when a channel of it is under zero. On the three worst plates below that is
+    90 of the 7,825 px, 637 of the Rim Nebula's 6,936 and none of the third, so counting only a channel over
+    zero that dropped they read 4.28 %, 3.40 % and 2.69 %. The median
     plate has 0.005 % of its band lowered, 22 plates have over 0.1 % and 9 over 1 %, and the worst are
     narrowband frames: 4.33 % (eta Carinae of 2026-02-20 through the 3 nm filter, 7,825 of 180,917 px), 3.75 %
     (the Rim Nebula in SII of 2024-07-06) and 2.69 % (another plate of that eta Carinae session); what lies at
