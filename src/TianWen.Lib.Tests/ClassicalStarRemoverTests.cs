@@ -456,6 +456,37 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     public void AFitHasLeftItsStarPastTheLargerOfTheTilesAllowanceAndTheStarsOwn(double x, double y, double drift, bool left)
         => ClassicalStarRemover.RanAway(x, y, 100.0, 100.0, drift).ShouldBe(left);
 
+    // #2374: where a centre off the covered frame stands on it, which is what the rule above is asked about such a centre.
+    // A frame of 1000 x 800 whose outer 12 px are absent canvas when ringed.
+    [Theory]
+    [InlineData(500.4, 300.6, false, 500, 301)]     // on the frame and covered: itself, to the pixel
+    [InlineData(-40.3, 600.2, false, 0, 600)]       // left of a frame with no ring: straight back in
+    [InlineData(1500.0, 600.0, false, 999, 600)]    // far to the right: the depth does not matter
+    [InlineData(-10.0, -20.0, false, 0, 0)]         // past a corner: the corner
+    [InlineData(5.0, 600.0, true, 12, 600)]         // on the absent ring: the first covered column beside it
+    [InlineData(-28.0, 600.0, true, 12, 600)]       // outside the frame AND its ring
+    [InlineData(500.0, 795.0, true, 500, 787)]      // on the bottom ring: the last covered row
+    [InlineData(3.0, 4.0, true, 12, 12)]            // in the ring's corner: the cover's corner
+    public void ACentreOffTheCoverStandsOnTheCoveredPixelNearestToIt(double x, double y, bool ringed, int standsX, int standsY)
+    {
+        const int Width = 1000;
+        const int Height = 800;
+        Func<int, int, bool> covered = ringed
+            ? static (px, py) => px >= 12 && px < Width - 12 && py >= 12 && py < Height - 12
+            : static (_, _) => true;
+
+        ClassicalStarRemover.NearestCovered(x, y, Width, Height, covered, reach: 128).ShouldBe((standsX, standsY));
+    }
+
+    [Fact]
+    public void ACentreWithNothingCoveredInReachOrThatIsNotANumberStandsNowhere()
+    {
+        ClassicalStarRemover.NearestCovered(5.0, 400.0, 1000, 800, static (px, _) => px >= 200, reach: 128).ShouldBeNull("the cover begins 195 px away");
+        ClassicalStarRemover.NearestCovered(5.0, 400.0, 1000, 800, static (px, _) => px >= 133, reach: 128).ShouldBe((133, 400), "128 px away is in reach");
+        ClassicalStarRemover.NearestCovered(double.NaN, 400.0, 1000, 800, static (_, _) => true, reach: 128).ShouldBeNull();
+        ClassicalStarRemover.NearestCovered(5.0, double.NegativeInfinity, 1000, 800, static (_, _) => true, reach: 128).ShouldBeNull();
+    }
+
     // #1873 review: a colour field with a dim channel, whose brightest covered sample (its sky 0.01 plus its brightest star, 20 x 0.003,
     // so about 0.07) sits under the luminance sky (the mean of 0.20, 0.08 and 0.01, about 0.097), must still have its stars subtracted.
     // Compared against the luminance sky, the guard left that channel a threshold of 0 and refused every star with light in it.
@@ -498,8 +529,45 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         onItsStar.Length.ShouldBe(1, "the source found on the rim of the star at (850, 850) is recorded there");
         onItsStar[0].Amplitude.ShouldBe(0f, "a fit that ran away gives the row no amplitude");
         onItsStar[0].WidthScale.ShouldBe(1f, "nor a width");
+        // The other source whose first fit ran away, 328 px, was found on the rim of the star at (850, 150). Its row
+        // was on its star before the fix as well: its second fit, cut where the first ran to, found no star there, so
+        // the row kept where it was found. So this pins what such a row holds and would not have shown the defect;
+        // the star at (850, 850) above is the one that did (#2374).
+        var onTheOtherStar = refused.Where(static s => Near(s, 850.0, 150.0, 20.0)).ToArray();
+        onTheOtherStar.Length.ShouldBe(1, "the source found on the rim of the star at (850, 150) is recorded there");
+        onTheOtherStar[0].Amplitude.ShouldBe(0f);
+        onTheOtherStar[0].WidthScale.ShouldBe(1f);
         // The star at (512, 900) had no source refused on it, so nothing refused is recorded on it.
         refused.Count(static s => Near(s, 512.0, 900.0, 40.0)).ShouldBe(0, "no row lies where another star's fit ran to");
+    }
+
+    // #2374: a star 40 px outside the covered frame, of which only a wing shows at the edge. Its fit finds the true
+    // centre, off the frame, within a few pixels. That centre is 41 px from the peak the finder took at the edge, past
+    // the 32 px a fit may end from its star, and measured on the centre itself the fit was refused as one that ran away
+    // and the row put back at the edge. It has not left its star: straight out from the edge is where a star the edge
+    // cut IS, at any depth, and only a fit that went ALONG the edge has left. So the row is at the star's true centre.
+    // (Whether such a star is then subtracted is another rule's: this one peaks far over the ceiling and is not.)
+    [Fact(Timeout = 300_000)]
+    public async Task AStarStraightOutFromTheEdgeIsNotTakenForAFitThatRanAwayHoweverDeepItIs()
+    {
+        const double Outside = 40.0;
+        const double Y = 600.0;
+        // 30 sigma where its wing meets the first covered column.
+        var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
+        var peak = 30 * Sigma * Math.Pow(1.0 + Outside * Outside / (alpha * alpha), Beta);
+        var field = MakeField(1, extra: [new Injected(Ring - Outside, Y, peak, false)]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var beside = plate.Stars.Where(s => Math.Abs(s.Y - Y) < 12 && s.X < Ring + 6).ToArray();
+        foreach (var s in beside)
+        {
+            output.WriteLine($"beside the edge: ({s.X:F2}, {s.Y:F2}) {s.Outcome} {s.Significance:F1} sigma, amplitude {s.Amplitude:G4}, width {s.WidthScale:F2}");
+        }
+
+        beside.Count(s => Math.Abs(s.X - (Ring - Outside)) < 6 && Math.Abs(s.Y - Y) < 6)
+            .ShouldBe(1, "the fit found the star where it is, 40 px outside the cover, and its row says so");
+        beside.Count(s => s.X >= Ring && s.Outcome == StarFitOutcome.NoFit && s.Amplitude == 0f)
+            .ShouldBe(0, "it is not put back at the edge as a fit that ran away");
     }
 
     // #1867: an UNSATURATED star whose centre is past the covered sky, its true peak (5.0) far above the clip but only a faint
