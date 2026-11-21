@@ -4,8 +4,12 @@
 
 A line of the file is a test's display name, its wall time in ms, the bytes allocated, the gen0, gen1 and gen2
 collections and the ms the collector held every thread, all read off the PROCESS's counters. So the numbers are one
-test's only when the run was serial (`dotnet test ... --max-threads 1`); in a parallel run a line also holds what the
+test's only when the run was serial (`dotnet test ... --parallel none`); in a parallel run a line also holds what the
 tests beside it did.
+
+The probe appends to its file. A file that holds a test more than once holds more than one run: both tables then SUM
+the runs (the tests column counts the lines), and the first line of the output says how many tests are repeated. Name
+a new file for a run, or delete the old one, to read one run.
 
 Prints a markdown table of the classes by bytes allocated, with each one's share of the run's wall time spent in
 collector pauses, and with --per-test the single tests the same way.
@@ -57,8 +61,17 @@ def main():
             for i, v in enumerate(nums, 1):
                 row[i] += v
                 total[i] += v
-            tests[name] = [1, *nums]
+            # A name seen again is a second run appended to the same file: summed here as the class's row is, so the
+            # two tables agree, and counted so the header can say so.
+            test_row = tests.setdefault(name, [0, 0, 0, 0, 0, 0, 0])
+            test_row[0] += 1
+            for i, v in enumerate(nums, 1):
+                test_row[i] += v
 
+    repeated = sum(1 for row in tests.values() if row[0] > 1)
+    if repeated:
+        print(f"NOTE: {repeated} of {len(tests)} tests appear more than once: the file holds more than one run, "
+              f"and every figure below is their sum.\n")
     count, wall, alloc, g0, g1, g2, pause = total
     print(f"{count} tests in {len(classes)} classes: {wall / 1000:.0f} s inside tests, {gib(alloc):.1f} GiB allocated, "
           f"{g0}/{g1}/{g2} collections (gen0/1/2), {pause / 1000:.0f} s of collector pause "
