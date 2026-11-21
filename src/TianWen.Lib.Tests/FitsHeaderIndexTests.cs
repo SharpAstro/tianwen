@@ -63,6 +63,113 @@ public sealed class FitsHeaderIndexTests : IDisposable
 
     private FitsHeaderIndex Index() => FitsHeaderIndex.Load(Path.Combine(_dir, "index", "root.headers"));
 
+    /// <summary>
+    /// A 16-bit image of 4 x 4 written by hand, so that its header can repeat cards as Astro Pixel Processor's
+    /// does: 5 mandatory cards and 25 others, then <paramref name="repeated"/> of the others once more, then
+    /// END. With 10 repeated that is 41 cards in two blocks, which FITS.Lib parses to 31 in one.
+    /// </summary>
+    private string WriteWithRepeatedCards(string name, int repeated)
+    {
+        static string Card(string text) => text.PadRight(80);
+        var header = new StringBuilder();
+        header.Append(Card("SIMPLE  =                    T"));
+        header.Append(Card("BITPIX  =                   16"));
+        header.Append(Card("NAXIS   =                    2"));
+        header.Append(Card("NAXIS1  =                    4"));
+        header.Append(Card("NAXIS2  =                    4"));
+        for (var i = 0; i < 25; i++)
+        {
+            header.Append(Card($"MEDNR{i,-3}=                  {100 + i}"));
+        }
+        for (var i = 0; i < repeated; i++)
+        {
+            header.Append(Card($"MEDNR{i,-3}=                  {100 + i}"));
+        }
+        header.Append(Card("END"));
+        header.Append(' ', (2880 - header.Length % 2880) % 2880);
+
+        var dir = Path.Combine(_dir, "archive", "proc");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, name);
+        using var file = File.Create(path);
+        file.Write(Encoding.ASCII.GetBytes(header.ToString()));
+        file.Write(new byte[2880]);
+        return path;
+    }
+
+    // #1529: an Astro Pixel Processor integration writes 18 cards twice. FITS.Lib keeps one of each, so the PARSED
+    // header was a block shorter than the file's, the index stored that many bytes, they ended before the END
+    // card, and the replay read them for ever (28 GB of warnings from one archive scan). The stored header is the
+    // file's own, through its END.
+    [Fact]
+    public void AHeaderWithRepeatedCardsIsStoredThroughItsEndCardAndReplays()
+    {
+        var path = WriteWithRepeatedCards("integration.fits", repeated: 10);
+        Image.TryReadFitsHeader(path, out var read, out var parsedSize).ShouldBeTrue();
+        parsedSize.ShouldBe(2880, "31 cards are left of the 41 once the repeats are merged: one block");
+
+        var index = Index();
+        var onDisk = new FileInfo(path);
+        var stamp = new FileStamp(path, onDisk.Length, onDisk.LastWriteTimeUtc);
+        index.Remember(stamp, parsedSize, read);
+
+        index.TryGet(stamp, out var stored).ShouldBeTrue("the header replays, so it is stored");
+        stored.Length.ShouldBe(5760, "the two blocks the file's header takes, not the one the parsed header would");
+        FitsHeaderBlocks.HoldsEnd(stored).ShouldBeTrue();
+        Image.TryReadFitsHeaderFromBytes(path, stored, out var replayed).ShouldBeTrue();
+        FitsHeaderIndex.SameFrame(replayed, read).ShouldBeTrue();
+    }
+
+    // Bytes that end before a header's END card are not a header. They are refused before the parser sees them,
+    // which matters beyond tidiness: FITS.Lib before its 6.4 patch never returned from such bytes.
+    [Fact]
+    public void BytesWithNoEndCardAreNotAHeaderAndAreNotParsed()
+    {
+        var path = WriteWithRepeatedCards("integration.fits", repeated: 10);
+        var firstBlock = File.ReadAllBytes(path)[..2880];
+
+        FitsHeaderBlocks.HoldsEnd(firstBlock).ShouldBeFalse();
+        Image.TryReadFitsHeaderFromBytes(path, firstBlock, out _).ShouldBeFalse();
+    }
+
+    // Where a header ends in a file's bytes: at the end of the block that holds its END card, wherever the card
+    // sits in the block, and nowhere when there is none. A card that only BEGINS with END is not the END card.
+    [Theory]
+    [InlineData(0, 2880)]       // END is the first card
+    [InlineData(35, 2880)]      // END is the last card of the first block
+    [InlineData(36, 5760)]      // END is the first card of the second block
+    [InlineData(100, 8640)]     // somewhere in the third
+    public void AHeaderEndsWithTheBlockThatHoldsItsEndCard(int cardsBeforeEnd, int length)
+    {
+        var bytes = new byte[4 * 2880];
+        bytes.AsSpan().Fill((byte)' ');
+        for (var i = 0; i < cardsBeforeEnd; i++)
+        {
+            Encoding.ASCII.GetBytes($"ENDTIME{i % 10}= 1").CopyTo(bytes, i * 80);
+        }
+        Encoding.ASCII.GetBytes("END").CopyTo(bytes, cardsBeforeEnd * 80);
+
+        FitsHeaderBlocks.LengthThroughEnd(bytes).ShouldBe(length);
+        FitsHeaderBlocks.LengthThroughEnd(bytes.AsSpan(0, cardsBeforeEnd * 80)).ShouldBe(-1, "the cards before it hold no END card");
+
+        // Read from a stream, starting from one block as a parsed header would say: the same bytes.
+        FitsHeaderBlocks.ReadThroughEnd(new MemoryStream(bytes), atLeast: 2880).ShouldNotBeNull().Length.ShouldBe(length);
+        // A file that ends before the END card has no header to store.
+        FitsHeaderBlocks.ReadThroughEnd(new MemoryStream(bytes, 0, cardsBeforeEnd * 80), atLeast: 2880).ShouldBeNull();
+    }
+
+    // A header is followed for 32 blocks and no further: past that it is not a header this reads.
+    [Fact]
+    public void AHeaderWithNoEndCardWithinTheLimitIsNotRead()
+    {
+        var blanks = new byte[40 * 2880];
+        blanks.AsSpan().Fill((byte)' ');
+        var stream = new MemoryStream(blanks);
+
+        FitsHeaderBlocks.ReadThroughEnd(stream, atLeast: 2880).ShouldBeNull();
+        stream.Position.ShouldBe(32 * 2880, "it stops reading at the limit and does not walk the whole file");
+    }
+
     [Fact]
     public void AStoredHeader_ParsesToTheFrameTheFileReadGives()
     {
