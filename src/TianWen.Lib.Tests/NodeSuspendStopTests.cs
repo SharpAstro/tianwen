@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
@@ -38,10 +39,10 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
         public readonly NodeSuspendStop Service;
         private readonly List<(Uri, IDeviceDriver)> _connected = [];
 
-        public Rig()
+        public Rig(ILogger<NodeSuspendStop>? logger = null)
         {
             Hub.ConnectedDevices.Returns(_connected);
-            Service = new NodeSuspendStop(Hub, Notice, Clock, NullLogger<NodeSuspendStop>.Instance);
+            Service = new NodeSuspendStop(Hub, Notice, Clock, logger ?? NullLogger<NodeSuspendStop>.Instance);
         }
 
         public void Connect(string name, IDeviceDriver driver) => _connected.Add((new Uri($"Mount://FakeDevice/{name}"), driver));
@@ -126,7 +127,8 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
     public async Task A_mount_that_never_answers_is_cut_off_at_the_budget_and_the_others_still_stop()
     {
         var ct = TestContext.Current.CancellationToken;
-        var rig = new Rig();
+        var said = new RecordingLogger<NodeSuspendStop>();
+        var rig = new Rig(said);
         var silent = StubMount();
         var never = new TaskCompletionSource();
         // Ignores its token, as a driver wedged in a native call would.
@@ -140,7 +142,15 @@ public class NodeSuspendStopTests(ITestOutputHelper output)
         var pumped = await rig.Clock.PumpUntilCompletedAsync(stop, TimeSpan.FromSeconds(30), cancellationToken: ct);
         await stop;
 
-        pumped.ShouldBeLessThan(TimeSpan.FromSeconds(5), "ended by the 1.5 s budget, not by the driver");
+        // Ended by the budget and not by the driver: the stop says it was cut off, and the driver has still not
+        // answered. How much fake time the pump moved does not say it (#2383). The deadline's timer fires at 1.5 s and
+        // the stop's continuation then runs on the thread pool; a pump that looks again before it has run finds
+        // nothing else waiting on the clock and takes one more step of its coarsest size, so the same stop read 1.5 s
+        // on a quiet runner and 6.5 s on a busy one. What the clock does say is the lower bound: nothing but the
+        // deadline ends this stop, and the deadline is not before the budget.
+        said.Drain().ShouldContain("took longer than", Case.Sensitive, "the stop was cut off, and said so");
+        never.Task.IsCompleted.ShouldBeFalse("the driver never answered");
+        pumped.ShouldBeGreaterThanOrEqualTo(NodeSuspendStop.Budget);
         (await good.IsSlewingAsync(ct)).ShouldBeFalse();
         (await good.IsTrackingAsync(ct)).ShouldBeFalse();
     }
