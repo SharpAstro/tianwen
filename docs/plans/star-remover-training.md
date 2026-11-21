@@ -7902,7 +7902,8 @@ the first angle is a step after the model and not another arm:
         pits and the leftover cores a 1:1 crop of the plate shows). The models do not copy that: 9 to 10 %,
         the area's share, and two thirds of their power lies farther than 4 px from every star the catalogue
         has. **It is not so in every cell.** In cell 5,4 the models hold 26 to 28 % by the bright stars on
-        19 % of the area, 7 to 9 points of the stored plate's 21 over the area's share there, and in cell 4,4 they are at the area's share again (22 to 23 % on 24 %).
+        19 % of the area, 7 to 9 points of the stored plate's 21 over the area's share there, and in cell 4,4
+        they are at the area's share again (22 to 23 % on 24 %).
         Through `band.py`'s 7 px median, which the registered rows read (`--median 7`), the shares are 26 %
         for the stored plate and 9 to 10 % for the models in cell 1,1, and 39 % and 26 to 27 % in cell 5,4.
 
