@@ -464,8 +464,10 @@ measurement here.
 the collections of each generation and the time the collector held every thread, all read off the PROCESS's counters.
 So a line is one test's only in a serial run (`--parallel none`). `TIANWEN_TEST_COST_TYPES=1` adds what was allocated,
 by type, to `<file>.types` (a sample from the runtime's allocation tick: it names the type, not the call site).
-The sample runs late: the runtime hands its ticks to the probe from a thread of its own, and up to a sixth of a test's
-ticks were still on their way as it ended, so a test's tail can be counted to the test after it (#2382).
+The sample runs late: the runtime hands its ticks to the probe from a thread of its own. In the one measurement of it
+(256 MB allocated on a single thread, three runs; see `TestCostProbe`) 2 to 17 percent of the ticks were still on
+their way as the allocating ended. So a test's tail can be missing from its lines: dropped when the sampler is cleared
+for the next test, or counted to that test when it arrives after the clear (#2382, #2389).
 Without the variable the probe is one null check a test.
 
 The probe appends to its file and never empties it, so a second run into the same file adds to the first. Name a new
