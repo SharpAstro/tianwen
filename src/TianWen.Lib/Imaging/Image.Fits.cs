@@ -312,12 +312,16 @@ public partial class Image
         => TryReadFitsHeader(fileName, out frameInfo, out _);
 
     /// <summary>
-    /// As <see cref="TryReadFitsHeader(string, out Calibration.FrameInfo?)"/>, also reporting how many
-    /// leading bytes of the file hold everything the parse read, when that is replayable from memory
-    /// (<see cref="TryReadFitsHeaderFromBytes"/>): the image in the PRIMARY HDU of an uncompressed file,
-    /// whose header is the first <paramref name="replayableHeaderBytes"/> bytes. Zero for anything else
-    /// (a gzipped file, a tile-compressed or extension image), which the header index then never caches.
+    /// As <see cref="TryReadFitsHeader(string, out Calibration.FrameInfo?)"/>, also reporting whether
+    /// the header is replayable from memory (<see cref="TryReadFitsHeaderFromBytes"/>): the image in the
+    /// PRIMARY HDU of an uncompressed file. Zero for anything else (a gzipped file, a tile-compressed or
+    /// extension image), which the header index then never caches.
     /// </summary>
+    /// <param name="replayableHeaderBytes">For a replayable header, the size of the PARSED header. That
+    /// is the header's length in the file unless the parser merged repeated cards, which takes whole
+    /// blocks off it (#1529): the bytes to replay are the file's, through its END card
+    /// (<see cref="Calibration.FitsHeaderBlocks.ReadThroughEnd"/>), and this is where that read starts
+    /// looking.</param>
     internal static bool TryReadFitsHeader(
         string fileName, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo, out int replayableHeaderBytes)
     {
@@ -360,6 +364,15 @@ public partial class Image
     internal static bool TryReadFitsHeaderFromBytes(
         string fileName, byte[] header, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
     {
+        // Bytes with no END card are not a header and are never handed to the parser: a cached header is whole
+        // by construction (FitsHeaderBlocks.ReadThroughEnd), so such bytes are a damaged index, and before its
+        // 6.4 patch FITS.Lib read a header that ended before its END for ever (#1529).
+        if (!Calibration.FitsHeaderBlocks.HoldsEnd(header))
+        {
+            frameInfo = null;
+            return false;
+        }
+
         try
         {
             using var fits = new Fits(new MemoryStream(header, writable: false), compressed: false);

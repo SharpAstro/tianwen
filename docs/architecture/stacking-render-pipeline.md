@@ -742,7 +742,10 @@ reading.** The build, its discovery listing and the coverage report all call it 
 and a bake scanned the archive twice), and the CLI hands its scan to the build. An unchanged file's
 header comes from the root's `FitsHeaderIndex` (raw header BYTES under `<scratch-root>/_header-index`,
 keyed on path, size and write time, replayed through the same parse and stored only when the replay
-matches), which took a cold 26-minute scan of the USB disk to seconds. The same frames feed calibration
+matches), which took a cold 26-minute scan of the USB disk to seconds. A stored header is the FILE's, read
+through its END card (`FitsHeaderBlocks.ReadThroughEnd`), and never sized from the parsed header: FITS.Lib
+keeps one card of each repeated key, so a header that repeats enough cards parses a block short, and a
+cache cut there ended before END and was read for ever (#1529). The same frames feed calibration
 grouping, and a calibration frame under an `ExcludePathSegments` folder still calibrates, so a scan that
 skipped excluded folders would silently change a session's calibration. **A resume fingerprints the
 calibration a session CHOSE** (`CalibrationResolver.Choose`, the metadata-only half `ResolveAsync`

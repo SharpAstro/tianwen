@@ -25,6 +25,10 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// has to be invalidated. Only a header that replays is stored: the image in the primary HDU of an
 /// uncompressed file, checked on the way in by parsing the stored bytes and comparing the result
 /// with the file read's. Anything else is read from the file on every scan, as before.</para>
+/// <para><b>A stored header is whole: it runs through its END card as the FILE has it</b>
+/// (<see cref="FitsHeaderBlocks.ReadThroughEnd"/>), not for the size of the parsed header, which is smaller
+/// by a block when the parser merged enough repeated cards (#1529: five Astro Pixel Processor integrations
+/// in the archive, on each of which a scan read for ever and wrote warnings until its disk was full).</para>
 /// <para><b>A stamp is not a checksum.</b> A file rewritten in place to the same size within the same
 /// write-time tick would be served stale; every editor in this repository writes a new file and
 /// renames it, which moves the time.</para>
@@ -131,10 +135,14 @@ public sealed class FitsHeaderIndex
     }
 
     /// <summary>
-    /// Stores the first <paramref name="headerBytes"/> bytes of the file as its header, if parsing
-    /// them reproduces <paramref name="parsed"/> (the file read's own answer). A header that does not
-    /// replay is simply not stored.
+    /// Stores the file's header, read through its END card, if parsing it reproduces
+    /// <paramref name="parsed"/> (the file read's own answer). A header that does not replay is simply
+    /// not stored, and neither is one with no END card within reach.
     /// </summary>
+    /// <param name="headerBytes">The parsed header's size, as
+    /// <see cref="Image.TryReadFitsHeader(string, out FrameInfo?, out int)"/> reports it: zero for a file
+    /// that does not replay, and otherwise where the read STARTS looking for the END card. It is not the
+    /// header's length in the file when the parser merged repeated cards (#1529).</param>
     public void Remember(FileStamp stamp, int headerBytes, FrameInfo parsed)
     {
         if (headerBytes <= 0 || headerBytes > stamp.Length)
@@ -142,19 +150,18 @@ public sealed class FitsHeaderIndex
             return;
         }
 
-        byte[] header;
+        byte[]? header;
         try
         {
-            header = new byte[headerBytes];
             using var file = new FileStream(stamp.Path, FileMode.Open, FileAccess.Read, FileShare.Read, headerBytes);
-            file.ReadExactly(header);
+            header = FitsHeaderBlocks.ReadThroughEnd(file, headerBytes);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return;
         }
 
-        if (Image.TryReadFitsHeaderFromBytes(stamp.Path, header, out var replayed) && SameFrame(replayed, parsed))
+        if (header is not null && Image.TryReadFitsHeaderFromBytes(stamp.Path, header, out var replayed) && SameFrame(replayed, parsed))
         {
             _entries[stamp.Path] = new Entry(stamp.Length, stamp.LastWriteTimeUtc.Ticks, header);
             _dirty = true;

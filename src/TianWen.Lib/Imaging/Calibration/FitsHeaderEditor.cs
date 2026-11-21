@@ -53,7 +53,7 @@ public static class FitsHeaderEditor
 
     /// <summary>Longest header we will walk before declaring the file malformed (~1170 cards).
     /// A real primary header is one or two blocks; anything past this is not a header we understand.</summary>
-    private const int MaxHeaderBlocks = 32;
+    internal const int MaxHeaderBlocks = 32;
 
     /// <summary>Chunk the verification pass compares in. Rented rather than allocated, so the size is
     /// a throughput choice and not an allocation cost.</summary>
