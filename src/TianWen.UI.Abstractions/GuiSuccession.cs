@@ -46,6 +46,18 @@ public static class GuiSuccession
     /// </summary>
     internal static readonly TimeSpan StartTolerance = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// How long a successor still waits for a process under its predecessor's id whose start does NOT match
+    /// (<see cref="IsTheProcess"/>). Such a process is taken for another one, given the id since, and waiting the whole
+    /// budget for it cost 15 s (#1414). But the two ways of being wrong about it cost very different things (#2362): a
+    /// stranger that is waited for costs this long, while the real predecessor taken for a stranger would not be waited
+    /// for at all, and the wait is there so that this window does not start beside one that is still leaving. On Linux a
+    /// clock stepped between the two readings of its start does exactly that, since the start is worked out from the
+    /// wall-clock boot time. So a mismatch shortens the wait and does not skip it: a window that left with no teardown
+    /// is gone well inside this.
+    /// </summary>
+    internal static readonly TimeSpan StrangerGrace = TimeSpan.FromSeconds(2);
+
     /// <summary>The most windows in a row that replace one that could not draw; the next one is not started.</summary>
     public const int MaxGeneration = 3;
 
@@ -116,18 +128,30 @@ public static class GuiSuccession
         {
             start.ArgumentList.Add(argument);
         }
-        start.Environment[PredecessorVariable] = processId.ToString(CultureInfo.InvariantCulture);
+        Describe(start.Environment, processId, processStarted, next);
+        return start;
+    }
+
+    /// <summary>
+    /// Writes the succession's three variables into a successor's <paramref name="environment"/>, which starts as a
+    /// copy of this process's own. The id and the generation are always written over, and a start that is not passed
+    /// is REMOVED, so a successor is never told the start this process was itself handed, which is its own
+    /// predecessor's. <c>Program.cs</c> takes the variables out as soon as it has read them (<see cref="ClearFrom"/>),
+    /// so the app has nothing left to inherit by then; this is what holds for a host that does not.
+    /// </summary>
+    internal static void Describe(IDictionary<string, string?> environment, int processId, DateTimeOffset? processStarted, int generation)
+    {
+        environment[PredecessorVariable] = processId.ToString(CultureInfo.InvariantCulture);
         if (processStarted is { } started)
         {
-            start.Environment[PredecessorStartedVariable] = started.UtcTicks.ToString(CultureInfo.InvariantCulture);
+            environment[PredecessorStartedVariable] = started.UtcTicks.ToString(CultureInfo.InvariantCulture);
         }
         else
         {
             // Never the start of this process's own predecessor, which it would otherwise pass on with the rest.
-            start.Environment.Remove(PredecessorStartedVariable);
+            environment.Remove(PredecessorStartedVariable);
         }
-        start.Environment[GenerationVariable] = next.ToString(CultureInfo.InvariantCulture);
-        return start;
+        environment[GenerationVariable] = generation.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -187,7 +211,8 @@ public static class GuiSuccession
     /// <b>An id is not a process.</b> The system hands a process id out again once its process is gone, so the process
     /// found under the predecessor's id may be another one, started since. Waiting for THAT one cost the whole budget
     /// and logged that the predecessor "had not exited in time" (#1414). With <paramref name="started"/> given, a
-    /// process whose own start is not that one is not the predecessor, and the answer is that it has gone.
+    /// process whose own start is not that one is taken for another: it is waited for <see cref="StrangerGrace"/> at
+    /// most, in case it is the predecessor after all (#2362), and the answer is then that the predecessor has gone.
     /// </para>
     /// </remarks>
     /// <param name="started">When the predecessor was started (<see cref="PredecessorStartedOf"/>), or null to trust the id alone.</param>
@@ -207,15 +232,15 @@ public static class GuiSuccession
 
         using (predecessor)
         {
-            if (!IsTheProcess(started, () => StartOf(predecessor)))
-            {
-                // Another process under the same id: the predecessor has exited and its id was given out again.
-                return true;
-            }
+            // Another start than the predecessor's: most likely another process, given the id since. It is still
+            // waited for, but for StrangerGrace only (see there), and one that outlives the grace is no predecessor.
+            var isThePredecessor = IsTheProcess(started, () => StartOf(predecessor));
+            var wait = isThePredecessor || budget < StrangerGrace ? budget : StrangerGrace;
 
             // The window's own clock, the budget and the sleeps alike (#2021).
-            return await WaitForExitAsync(() => HasExited(predecessor), budget, timeProvider.System,
+            var exited = await WaitForExitAsync(() => HasExited(predecessor), wait, timeProvider.System,
                 (delay, ct) => timeProvider.SleepAsync(delay, ct).AsTask(), cancellationToken).ConfigureAwait(false);
+            return exited || !isThePredecessor;
         }
     }
 

@@ -202,8 +202,11 @@ holds the rules; `TianWen.UI.Gui/Program.cs` only applies them:
   process it replaces, and `TIANWEN_GUI_GENERATION` counts the windows in a row that have replaced one. A
   user's own arguments stay the user's. `TIANWEN_GUI_SUCCESSOR_OF_STARTED` is when that process started: an id
   is handed out again once its process is gone, so the successor holds the process it finds under the id to
-  that start, and one started at another time is not waited for (#1414; it used to cost the whole budget and
-  a line saying the predecessor had not exited). The successor takes all three out of its own environment
+  that start, and one started at another time is waited for 2 s at most and then taken as gone (#1414; it used
+  to cost the whole budget and a line saying the predecessor had not exited). The 2 s are there because being
+  wrong the other way is the costlier mistake: the real predecessor taken for a stranger would not be waited
+  for at all, and on Linux a clock stepped between the two readings of its start does that (#2362). The
+  successor takes all three out of its own environment
   once it has read them, so nothing it starts inherits them and reads as a successor.
 - **It waits for its predecessor to EXIT before it claims the gate** (the plan's open question on
   `InstanceGate`), for up to `PredecessorExitBudget` (15 s). Otherwise the gate would hand its start to the
