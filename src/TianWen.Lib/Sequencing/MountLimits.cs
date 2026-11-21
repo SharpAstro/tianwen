@@ -208,9 +208,14 @@ public readonly record struct MountLimitVerdict(
     /// can stop, that no command is sent. One wording for <c>Session.EnforceMountLimitsAsync</c> and
     /// <see cref="MountLimitWatcher"/>, which said "Responding with StopTracking" of a mount that takes no stop and then
     /// repeated the verdict's own words in a second line (#2333).
+    /// <para>
+    /// Both callers return before this line for a verdict that only warns, but the member is public, so it is right
+    /// for one too: a response of <see cref="MountLimitResponse.Warn"/> needs no command on any mount, and is not
+    /// said to be one a mount "cannot carry out".
+    /// </para>
     /// </summary>
-    public string ActingNote() => MountCannotBeStopped
-        ? $"No command is sent: the configured response is {Response}, which this mount cannot carry out."
+    public string ActingNote() => Response is MountLimitResponse.Warn ? "No command is sent: the limit only warns."
+        : MountCannotBeStopped ? $"No command is sent: the configured response is {Response}, which this mount cannot carry out."
         : $"Responding with {Response}.";
 
     private string ResponsePhrase() => Response switch

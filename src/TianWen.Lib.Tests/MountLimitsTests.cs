@@ -507,6 +507,10 @@ public class MountLimitsTests
         new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.StopTracking, 3.0) { MountCannotBeStopped = true }
             .ActingNote().ShouldBe("No command is sent: the configured response is StopTracking, which this mount cannot carry out.");
         new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Park, 3.0).ActingNote().ShouldBe("Responding with Park.");
+        // A limit that only warns sends no command on any mount, and is not said to be one this mount cannot carry out.
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0) { MountCannotBeStopped = true }
+            .ActingNote().ShouldBe("No command is sent: the limit only warns.");
+        new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Warn, 3.0).ActingNote().ShouldBe("No command is sent: the limit only warns.");
     }
 
     [Theory]
