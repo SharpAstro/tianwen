@@ -8410,8 +8410,9 @@ the first angle is a step after the model and not another arm:
     it was extended to twenty-four before either arm had a score, which lengthens a read and moves no bar.
     (6) The chain's core protection can put such a star back whole (#2308). (7) Nothing is registered on it, and
     whether it comes before or after R4f's and R4g's reads is the owner's.
-- **R4h and R4i, pre-registered 2026-11-21 before any export or score of either: the black point by sky noise
-  trained in (#2309), beside a control for the exporter.** The 40 sigma read above left the retrain to the owner.
+- **R4h and R4i, pre-registered 2026-11-21 at 20:10, before any export of either arm (the rounds that came later
+  are under "How this text came to be" below): the black point by sky noise trained in (#2309), beside a control
+  for the exporter.** The 40 sigma read above left the retrain to the owner.
   His word on it, 2026-11-21: "yeah queue in afterR4f"; and asked whether two arms with a control or one arm from
   the old exporter: "you decide". The session chose two arms, since the exporter has changed under R4d's recipe and
   every later arm needs that baseline. Both are R4d's line (`export-synth.ps1 -BetaDraw 0.3,1.3,6,3 -FaintStars 3,1
@@ -8423,10 +8424,13 @@ the first angle is a step after the model and not another arm:
     cache's `meta.json`, and its `n2n_export.py` has no `stretchBlackPointSigma`, the contract writer; both arrived
     with #2328, after #2329). Both arms train from one new frozen copy: that copy plus the black point parts of
     #2328 in `n2n_smoke.py` and `n2n_export.py` (48 and 23 changed lines; main's two files are not copied whole,
-    only those changes are carried over; three of the four hunks apply by patch and the fourth was written by hand),
+    only those changes are carried over; of `n2n_smoke.py`'s four hunks three apply by patch and the fourth, the
+    `black_point` argument of the `ExtraCache.open` call, was written by hand),
     the same bytes for R4h and R4i, its `FROZEN-AT.txt` naming the commit. The
     "ends on the same weights to the bit" check of R4f's rerun is repeated on that copy, covering the added parts
-    too (a tiny cache, the frozen copy without and with them, R4h's switches). The cache is prepared and the model
+    too (a tiny cache, the frozen copy without and with them, R4h's switches), all but that hand-written line: it
+    lies on the `--extra-cache` path, which neither arm takes and the check does not run, so nothing here shows it
+    right and nothing of either arm depends on it. The cache is prepared and the model
     exported with that copy's scripts, never with R4f's. **The check, run 2026-11-21 at 20:33, before any cache of
     either arm,** on the two-session preflight exports: the cache the new copy prepares from the export without a
     depth is the rerun copy's, every file the same bytes; sixty steps with the arm's switches end on the same
@@ -8504,7 +8508,8 @@ the first angle is a step after the model and not another arm:
     both nights. The 1:1 sheets are looked at before any row is read.
   - **Prediction.** R4h: every row within a point of R4d's, the peaks standing within 5 of R4d's 17. R4i: the
     nights' gap falls to 10 to 25 points, so the first half is cleared; the innermost ring is taken under 80
-    percent on 3 to 5 rows (the bar is at most 4, so the range's top end is at the bar's edge), by the innermost ring the measure the bar counts: Antares' 2026-04-21 and 2024-05-28
+    percent on 3 to 5 rows (the bar is at most 4, so the range straddles it: 3 and 4 clear, 5 misses), counted by
+    the innermost ring, the measure the bar counts: Antares' 2026-04-21 and 2024-05-28
     (56 and 71 at 40 sigma in the table above) among them and 2023-05-15 (81) not, though the sheets show the disc
     left on all three sessions. The peaks guard
     is the one most at risk, since the Tarantula's own black point is 10 sigma and at 40 its knots stand brighter,
@@ -8518,12 +8523,15 @@ the first angle is a step after the model and not another arm:
     1070; the contract check; the allowance on the at-most rows; what a stalled or uneven pair is; the count of
     Antares' rows; #2341's report by covered pixels), and the session added the preflight's result and a first form
     of this note at 20:27:58. Up to there nothing but the two-session preflight had been exported. **R4i's export
-    began at 20:28:41.** Two rounds came after that, both before any cache, training run or score existed: the
+    began at 20:28:41.** Three rounds came after that, all before any cache, training run or score existed: the
     fixer's third at 20:44:20 (the pointer to the Kill bullet, M31's nucleus on the at-most list, the direction
-    taken out of the prediction's 3 to 5 rows, the hunk made by hand, the read before the launch), and the
-    session's fourth, the push that carries this sentence (the read before the launch said per arm, the result of
-    the trainer copy's check, this note retitled). The question, its bars and the guards' bars are as first pushed
-    at 20:10:54; no round changed them.
+    taken out of the prediction's 3 to 5 rows, the hunk made by hand, the read before the launch), the
+    session's fourth at 20:56:35 (the read before the launch said per arm, the result of the trainer copy's
+    check, this note retitled), and the session's fifth, the push that carries this sentence, of wording only (the
+    prediction's 3 to 5 rows said to straddle the bar, where the text had them end at the bar's edge though 5 rows
+    miss a bar of at most 4; which hunk was written by hand, and that the trainer copy's check does not reach it;
+    the lead giving the first text's time in place of "before any export or score of either").
+    The question, its bars and the guards' bars are as first pushed at 20:10:54; no round changed them.
 - **The scorecard's blind side, found by the owner's eye (2026-11-19, #2245).** Asked for renders after weeks of
   rows alone, the owner pointed out within minutes, on the Lagoon, 30 Doradus and M31: flat blotches with floor3
   (#2243; their cause and floor4 are under "The dig floor inside bright nebula" below), bright stars back inside a core with core protection (#2242), faint residue stars as trained, and, once
