@@ -311,8 +311,9 @@ public static class CoreStars
             {
                 reached = Math.Max(reached, RingReach(luminance, present, width, rings, profile, tx, ty, options.RingSigma * sigma));
             }
-            // As high as the catalogue has it: a peak beside it holds its side only if it stands over the star itself.
-            found.Add((tx, ty, MathF.Max(rim, (float)Math.Pow(10, (zeroPoint - magnitude) / 2.5)), true, (int)Math.Round(reached) + 1));
+            // As high as that magnitude says, which is no less than its rim shows: a peak beside it holds its side only if
+            // it stands over the star itself.
+            found.Add((tx, ty, (float)Math.Pow(10, (zeroPoint - magnitude) / 2.5), true, (int)Math.Round(reached) + 1));
         }
         for (var k = 0; k < candidates.Count; k++)
         {
