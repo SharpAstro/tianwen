@@ -181,6 +181,86 @@ public class ExtendedCoreMaskTests(ITestOutputHelper output)
         mask.Cores.Length.ShouldBe(1, "the stars inside a knot are not in the box about its peak, so the knot keeps its core");
     }
 
+    // A clipped star added to a frame: a flat top of the given radius at clipSigmas noise sigmas, and wings falling as a
+    // power of the distance beyond it (what a profile cut off at the sensor's ceiling looks like).
+    private static float[,] WithClippedStar(float[,] frame, int cx, int cy, double topRadius, double power, double clipSigmas)
+    {
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var r = Math.Sqrt(((x - cx) * (x - cx)) + ((y - cy) * (y - cy)));
+                frame[y, x] += (float)(clipSigmas * Noise * (r <= topRadius ? 1.0 : Math.Pow(topRadius / r, power)));
+            }
+        }
+        return frame;
+    }
+
+    private static readonly ExtendedCoreMask.Options ClippedStarRuleOff = ExtendedCoreMask.Options.Default with { MaxCoreOverFlatTop = 0 };
+
+    [Fact]
+    public void AClippedStarWideEnoughToReadAsACoreGetsNone()
+    {
+        // The Alcyone kind (#2360): a top 40 px wide, so the 56 px median under it is most of the clip level and the star
+        // rule's ratio reads low however bright the star is.
+        var frame = WithClippedStar(Painted(), 256, 256, topRadius: 20, power: 4, clipSigmas: 20000);
+
+        var without = ExtendedCoreMask.Find(ImageOf(frame), ClippedStarRuleOff);
+        output.WriteLine(string.Join("; ", without.Cores.Select(c =>
+            $"({c.X}, {c.Y}) ratio {c.PeakRatio:F2}, core {c.CoreAreaPx} px, top {c.FlatTopPx} px round {c.FlatTopRoundness:F2} fall {c.FlatTopFall:F3}")));
+        without.Cores.Length.ShouldBe(1, "the star rule alone takes this star for an extended source: that is the defect");
+        var core = without.Cores[0];
+        core.PeakRatio.ShouldBeLessThan(ExtendedCoreMask.Options.Default.MaxPeakRatio, "a clipped top this wide holds the ratio under the bar");
+        core.FlatTopPx.ShouldBeInRange(1150, 1400, "the top is the disc that was painted (1,257 px) and the first pixels of its wings");
+        core.FlatTopRoundness.ShouldBeGreaterThan(0.9);
+        core.FlatTopFall.ShouldBeLessThan(0.1, "two radii out the light is a sixteenth of the top's");
+        core.CoreAreaPx.ShouldBeLessThan(9 * core.FlatTopPx, "the core is no larger than the star's own disc");
+
+        ExtendedCoreMask.Find(ImageOf(frame)).Cores.ShouldBeEmpty("a source whose core is a clipped star's flat top is the star");
+    }
+
+    [Fact]
+    public void AClippedStarOnARealCoreLeavesTheCoreItsProtection()
+    {
+        // The eta Carinae kind: a wide bright nebula, and a clipped star at its brightest part. The top is a star's by every
+        // measure, and the core is many times the top, so the core stays.
+        var frame = WithClippedStar(Painted((256, 256, 80, 3000)), 256, 256, topRadius: 4.5, power: 6, clipSigmas: 40000);
+
+        var mask = ExtendedCoreMask.Find(ImageOf(frame));
+
+        output.WriteLine(string.Join("; ", mask.Cores.Select(c =>
+            $"({c.X}, {c.Y}) ratio {c.PeakRatio:F2}, core {c.CoreAreaPx} px, top {c.FlatTopPx} px round {c.FlatTopRoundness:F2} fall {c.FlatTopFall:F3}")));
+        mask.Cores.Length.ShouldBe(1, "a clipped star on a real core does not take the core's protection away");
+        var core = mask.Cores[0];
+        core.FlatTopPx.ShouldBeGreaterThanOrEqualTo(50, "the top is wide enough for the rule to read");
+        core.FlatTopRoundness.ShouldBeGreaterThan(0.75);
+        core.FlatTopFall.ShouldBeLessThan(0.18, "the top is a star's by its fall too");
+        core.CoreAreaPx.ShouldBeGreaterThan(9 * core.FlatTopPx, "what keeps the core is its size against the star's top");
+    }
+
+    [Fact]
+    public void ABurntOutNebulaCoreKeepsItsCore()
+    {
+        // The Orion kind: a nebula's own light clipped into a flat top, here two knots side by side, so the top is not round.
+        var frame = Painted((238, 256, 20, 600), (274, 256, 20, 600));
+        var ceiling = Sky + (400 * Noise);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                frame[y, x] = Math.Min(frame[y, x], ceiling);
+            }
+        }
+
+        var mask = ExtendedCoreMask.Find(ImageOf(frame));
+
+        output.WriteLine(string.Join("; ", mask.Cores.Select(c =>
+            $"({c.X}, {c.Y}) ratio {c.PeakRatio:F2}, core {c.CoreAreaPx} px, top {c.FlatTopPx} px round {c.FlatTopRoundness:F2} fall {c.FlatTopFall:F3}")));
+        mask.Cores.Length.ShouldBe(1, "a clipped nebula core is still a core");
+        mask.Cores[0].FlatTopPx.ShouldBeGreaterThan(1000, "the clipped light is one wide top");
+        mask.Cores[0].FlatTopRoundness.ShouldBeLessThan(0.75, "which is not round, so it is not a star's");
+    }
+
     /// <summary>Returns a fixed plate on whatever scale it is handed the input on.</summary>
     private sealed class FixedRemover(float[,] model, float inputPeak) : IStarRemover
     {

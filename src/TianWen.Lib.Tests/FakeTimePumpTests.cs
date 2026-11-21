@@ -166,6 +166,33 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #1414: one advance that reaches several parked sleeps releases them earliest target first, and for one target
+        /// in the order they parked. It used to follow a <see cref="ConcurrentDictionary{TKey, TValue}"/>'s enumeration,
+        /// which is no order at all. This is the order of RELEASE: the sleeps still resume on the pool, at once.
+        /// </summary>
+        [Fact(Timeout = 30_000)]
+        public async Task OneAdvancesParksAreReleasedByTargetAndThenInTheOrderTheyParked()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero))
+            {
+                ExternalTimePump = true
+            };
+            var start = time.GetUtcNow();
+            // A sleep registers its park before its first await, so these are parks 1 to 6, in this order.
+            int[] seconds = [5, 1, 3, 1, 4, 3];
+            var sleeps = seconds.Select(s => time.SleepAsync(TimeSpan.FromSeconds(s), ct).AsTask()).ToArray();
+            time.WaiterCount.ShouldBe(seconds.Length, "premise: every sleep is parked");
+
+            time.ParksAnAdvanceToWouldRelease(start + TimeSpan.FromSeconds(6)).ShouldBe([2L, 4L, 3L, 6L, 5L, 1L]);
+            time.ParksAnAdvanceToWouldRelease(start + TimeSpan.FromSeconds(3)).ShouldBe([2L, 4L, 3L, 6L], "a park the advance does not reach stays");
+            time.ParksAnAdvanceToWouldRelease(start).ShouldBeEmpty();
+
+            time.Advance(TimeSpan.FromSeconds(6));
+            await Task.WhenAll(sleeps);
+        }
+
+        /// <summary>
         /// What #1122 is for: the pump steps to the next instant anything waits for, so a 100 ms poll wakes at its
         /// own target, not at the end of a step some test chose. A coarse timer and a day-long park sit beside it,
         /// standing in for the imaging loop's tick and a parked device; neither may pull the step past the sleep.

@@ -1969,27 +1969,34 @@ public static class ClassicalStarRemover
             var r = (int)Math.Clamp(Math.Ceiling(radius) + 2, Math.Ceiling(2.5 * lumPsf.Fwhm), MaxFitRadius);
             var cx = (int)Math.Round(atX ?? s.X);
             var cy = (int)Math.Round(atY ?? s.Y);
-            var xs = new List<int>();
-            var ys = new List<int>();
-            var vs = new List<double>();
-            var ws = new List<double>();
+            // The window's rows and columns are known before a pixel is read, so its four arrays are made at their size.
+            // Grown as lists and then copied, they cost three times that for every window of every star (#2345).
+            var (top, bottom) = (Math.Max(0, cy - r), Math.Min(_height - 1, cy + r));
+            var (left, right) = (Math.Max(0, cx - r), Math.Min(_width - 1, cx + r));
+            var count = Math.Max(0, bottom - top + 1) * Math.Max(0, right - left + 1);
+            var xs = new int[count];
+            var ys = new int[count];
+            var vs = new double[count];
+            var ws = new double[count];
             var weighted = 0;
-            for (var y = Math.Max(0, cy - r); y <= Math.Min(_height - 1, cy + r); y++)
+            var k = 0;
+            for (var y = top; y <= bottom; y++)
             {
-                for (var x = Math.Max(0, cx - r); x <= Math.Min(_width - 1, cx + r); x++)
+                for (var x = left; x <= right; x++)
                 {
                     var i = y * _width + x;
                     var v = plane[i];
                     // Saturation is judged on the luminance even when a channel is being solved.
                     var usable = float.IsFinite(v) && !IsAbsent(x, y) && _lum[i] < saturationCut;
-                    xs.Add(x);
-                    ys.Add(y);
-                    vs.Add(usable ? v : 0.0);
-                    ws.Add(usable ? 1.0 : 0.0);
+                    xs[k] = x;
+                    ys[k] = y;
+                    vs[k] = usable ? v : 0.0;
+                    ws[k] = usable ? 1.0 : 0.0;
                     weighted += usable ? 1 : 0;
+                    k++;
                 }
             }
-            return weighted >= 12 ? new Window(cx, cy, r, xs.ToArray(), ys.ToArray(), vs.ToArray(), ws.ToArray()) : null;
+            return weighted >= 12 ? new Window(cx, cy, r, xs, ys, vs, ws) : null;
         }
 
         /// <summary>Point sources bucketed by position, for "is anything within r of here".</summary>
@@ -2312,8 +2319,12 @@ public static class ClassicalStarRemover
             ata.Clear();
             atb.Clear();
             var n = w.Values.Length;
-            var b1 = new double[n];
-            var b2 = new double[n];
+            // A solve is one evaluation of a fit and a fit evaluates some hundreds of times a star, so rows made per solve
+            // were most of what the remover allocated (#2345). The rented rows are NOT cleared: b1 and b2 are written before
+            // they are read, and both only where the pixel's weight is above zero.
+            using var rows = ArrayPoolHelper.Rent<double>(2 * n);
+            var b1 = rows.AsSpan(0, n);
+            var b2 = rows.AsSpan(n, n);
             for (var i = 0; i < n; i++)
             {
                 if (w.Weights[i] <= 0)
@@ -2367,7 +2378,9 @@ public static class ClassicalStarRemover
             ata.Clear();
             atb.Clear();
             var n = w.Values.Length;
-            var basis = new double[n];
+            // Rented, not cleared (see SolvePair, #2345): basis[i] is written before it is read, only where the weight is above zero.
+            using var rows = ArrayPoolHelper.Rent<double>(n);
+            var basis = rows.AsSpan();
             Span<double> row = stackalloc double[4];
             for (var i = 0; i < n; i++)
             {

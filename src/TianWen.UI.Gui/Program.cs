@@ -136,9 +136,14 @@ const string GuiSingleInstanceEnvVar = "TIANWEN_GUI_SINGLE_INSTANCE";
 // otherwise hand this start to the process that is dying. The night is the node's, so the wait costs it nothing.
 var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 var generation = GuiSuccession.GenerationOf(Environment.GetEnvironmentVariable);
-if (GuiSuccession.PredecessorOf(Environment.GetEnvironmentVariable) is { } predecessor)
+var predecessorId = GuiSuccession.PredecessorOf(Environment.GetEnvironmentVariable);
+var predecessorStarted = GuiSuccession.PredecessorStartedOf(Environment.GetEnvironmentVariable);
+// Read, so taken out: what this window starts (its node, a solver) must not inherit them and read as a successor (#1414).
+GuiSuccession.ClearFrom(Environment.SetEnvironmentVariable);
+if (predecessorId is { } predecessor)
 {
-    var gone = await GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, timeProvider, CancellationToken.None);
+    var gone = await GuiSuccession.WaitForPredecessorAsync(predecessor, predecessorStarted, GuiSuccession.PredecessorExitBudget, timeProvider,
+        CancellationToken.None);
     logger.LogWarning("This window replaces {Predecessor}, whose display was lost (window {Generation} in a row){Gone}",
         predecessor, generation, gone ? "" : "; it had not exited in time");
     appState.RecordNotification(timeProvider.GetUtcNow(), NotificationSeverity.Warning,
@@ -942,7 +947,7 @@ if (displayLost || loopFault is not null)
     var why = loopFault is null ? "Display lost" : "Display failed";
     var uptime = System.Diagnostics.Stopwatch.GetElapsedTime(startedAt);
     if (Environment.ProcessPath is { } exe
-        && GuiSuccession.SuccessorFor(exe, args, Environment.ProcessId, generation, uptime) is { } successor)
+        && GuiSuccession.SuccessorFor(exe, args, Environment.ProcessId, generation, uptime, GuiSuccession.ThisProcessStarted()) is { } successor)
     {
         // Does not return. The file log writes through, so nothing is lost with the teardown skipped.
         GuiSuccession.LeaveFor(successor, why, instanceGate, logger);

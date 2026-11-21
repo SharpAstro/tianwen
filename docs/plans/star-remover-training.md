@@ -2857,6 +2857,25 @@ pixel: Andromeda (2068, 1484), peak ratio 2.55; the Tarantula (1460, 1516), 3.04
 1.90. Omega Centauri's centre is still left for #1363: its masters keep a core of 26,368 px and 1,216 px (peak ratio 1.55
 and 2.04), neither of which is the cluster's centre as such.
 
+**A person's read of the 77 kept cores (#2201, 2026-11-21): one is a single bright star.** The owner was sent the
+contact sheets of the 77 (`sheet.py` over the survey above, two sheets of 48 and 29 tiles numbered in the order of the
+masters' names) with the question whether any is a single bright star, and named number 77, the Pleiades master of
+2022-01-05. His answer was "77 pleiades", and asked whether that covered all 77 he said "i did look at both sheets".
+Number 77 is the kept core with the highest peak ratio,
+the 5.49 of the paragraph above, so "extended sources at 5.5 and under" does not hold for it. The core lies at
+(3260, 2164) and is 1,024 px; Alcyone is at (3262, 2160) on that master. Its source is 10,067,136 px, since the cluster's
+nebulosity joins most of the frame into one source, which is how a star's peak comes to read 5.49 over the map's. The
+master of the same field of 2022-01-04 keeps no core. What it costs is in the bright-star reads of #2292 (R4d, ring
+medians at 0 to 8 px less the sky, in the master's pixel sigma, R / G / B): on 2022-01-05 the master holds 22,412 /
+17,517 / 22,648, R4d as trained leaves 7,823 / 7,794 / 6,375, and through the product's chain the plate reads 22,412 /
+17,518 / 22,649, the star handed back whole; on 2022-01-04 the chain reads as the model does, 1,148 / 2,625 / 964 both
+ways. The bar of 6.0 is not moved here: the next highest kept ratio is 4.89 (a Large Magellanic Cloud master), and a bar
+set between the two would rest on one master and a gap of 0.6. What tells this star from a core is #2360's to measure.
+The owner's read names number 77 and no other. The session's own look at the second sheet had also flagged number 68
+(the Horsehead master of 2022-12-24, peak ratio 2.73, a pair of stars on the tile; its survey record lists 47 catalogued
+stars inside the core, 3 of them at 100 sigma and over or saturated), which his read of both sheets does not name. The
+read is his; the session did not look through the first sheet.
+
 To run it (a heavy run, so through the node's queue; about 5 minutes on the 201 masters):
 
 ```
@@ -2868,6 +2887,74 @@ python training/star-removal/coremask-probe/sheet.py <out dir>/survey.jsonl <ses
 
 `classify.py` reports the kept cores against the bounds the probe recorded and, given an earlier survey, lists what was
 dropped. The classification itself is the library's: the scripts only read the probe's JSON.
+
+#### A clipped star reads as a core: the star rule has a ceiling (2026-11-21)
+
+The single bright star of the owner's read above is not a matter of where the star rule's bar sits (#2360). He added to
+that read: "note that some of the tiles did have a bright star in there as well, but it wasn't a sole bright star without
+any actual core of a nebula/galaxy". So a bright star on a real core is what the protection is for, and the defect is a
+star with no core under it.
+
+**Why the ratio cannot see it.** The star rule divides the 90th percentile of the light about the peak by the 56 px
+median map. A star bright enough to clip has a flat top: the percentile is the clip level however bright the star is, and
+the wider the top, the more of the window it fills. Alcyone's top on the master of 2022-01-05 is 773 px (a disc of
+15.7 px radius), the 56 px median under it reads 0.162 of the top, and the ratio reads 5.49. The same star on the master
+of 2022-01-04 reads 7.18 and was turned away by a hair: the old survey's gap, stars at 7.2 and over and extended sources
+at 5.5 and under, was this one star on both sides of the bar. The catalogue step does not catch it either:
+`tianwen image protect-cores` on the master of 2022-01-05 (the installed ASTAP database, 15,435 stars) prints "1 of 35
+compact peaks inside the cores are catalogued stars and stay removed". A flat top has no compact peak at its centre for
+the catalogued position to fall on; where the 35 lie and which one was matched is not read.
+
+**The measures.** `ExtendedCoreMask` reads the flat top at a source's peak and carries it on `Core`: `FlatTopPx` (the
+connected pixels at 0.9 of the brightest light near the peak), `FlatTopRoundness` (the axis ratio times how well the top
+fills the ellipse of its second moments, 1 for a filled disc) and `FlatTopFall` (the light two top radii out, as a share
+of the top's). The probe with both star rules off lists every source of the 201 masters with them, 135 in all:
+
+| | sources | with a top of 50 px or over | roundness | fall |
+|---|---|---|---|---|
+| Stars (peak ratio over 6) | 58 | 37 | 0.71 to 0.98, median 0.95 | 0.010 to 0.144, median 0.020 |
+| Alcyone on 2022-01-05 (peak ratio 5.49) | 1 | 1 | 0.93 | 0.043 |
+| Kept cores of clipped nebula light: Orion (6), the Helix (3), the Tarantula, a Large Magellanic Cloud knot | 11 | 11 | 0.29 to 0.87 | 0.221 to 0.752 |
+| Kept cores with eta Carinae on the Keyhole | 2 | 2 | 0.94 and 0.97 | 0.083 and 0.036 |
+| Kept cores, the others | 63 | 0 | | |
+
+The fall tells a star's top from clipped nebula light, with a gap from 0.144 to 0.221. Roundness alone does not: two of
+Orion's tops read 0.83 and 0.87, and one star reads 0.71 (eta Carinae on a master where the star rule turns it away).
+What tells Alcyone from eta Carinae, a clipped star on a real core, is the core against the top: Alcyone's core is 1.3
+times its top, eta Carinae's two are 71 and 128 times theirs.
+
+**The rule.** A source whose map peaks on a flat top of 50 px or over that is round (0.75 or over) and falls off as a
+star does (0.18 or under, the geometric middle of the gap), and whose core is no more than `Options.MaxCoreOverFlatTop`
+(9, the disc of three top radii) times that top, gets no core. Run over the 201 masters at the new defaults, the 76 other
+kept cores are each as they were (place, area and ratio) and Alcyone's is gone.
+
+**What it rests on, and what it does not do.** One star was kept by the old rules, so the rule is derived from the
+ratio's ceiling and not fitted to a class: the shape bars are read off 37 stars the star rule already turns away, the
+size bar off three cases (1.3 against 71 and 128). A small, round, clipped object with a sharp edge and no wider light
+around it (a compact planetary nebula, a star-like nucleus) would read as a clipped star; none is among the 201 masters.
+On a plate-solved master the catalogue could arbitrate, which is not built. Eta Carinae stays with the Keyhole's core as
+before: taking a clipped star out of a real core is the catalogue step's work (it would have to read a flat top as one
+peak), and is not built either.
+
+**A model's second look at the 77 (2026-11-21).** At the owner's suggestion the tiles were judged a second time, as a
+check beside his read and not in its place: one image of four views per core (`tiles.py`), no names, by four Sonnet
+subagents of the session. The suggestion was a batch through the API; the token at hand had no batch right, which was
+not worked around. The second look names number 77 as the one sole star it is sure of. It also called numbers 4 and 10
+sole stars at medium confidence and nine tiles stars only. The session looked at all twelve at full size: ten have nebula
+under the contour (eta Carinae and the Keyhole on six, the Rim Nebula's edge on three, a small nebula on number 10), and
+number 68 is two stars on a faint haze, which the owner's sentence above covers. The tile's third view misleads where a
+star is in the crop: linear to the brightest pixel shows the star and nothing else.
+
+To run the survey of the measures and the tiles:
+
+```
+dotnet <build dir>/CoreMaskProbe.dll --max-peak-ratio 1e9 --max-core-over-flat-top 0 --no-weights <out dir> <session-masters folder>
+python training/star-removal/coremask-probe/flat_tops.py <out dir>/survey.jsonl
+python training/star-removal/coremask-probe/tiles.py <survey.jsonl> <session-masters folder> <its probe out dir> <tiles out dir>
+```
+
+`flat_tops.py` prints the table's rows by class from the probe's JSON and what the rule at given bars would turn away;
+the measures are the library's.
 
 #### Core protection without the stars: the catalogued stars inside a core stay removed (2026-11-20)
 
