@@ -167,6 +167,8 @@ public class FileLoggerProviderTests : IDisposable
 
     // A writer that is held up (a disk that has stopped taking writes) does not hold up the thread that logs, which is
     // the point of #541; past the cap a line is dropped, and the file says how many at the place they are missing.
+    // An Error or a Critical line is taken all the same: it is the line a reader of a log that fell behind is looking
+    // for, a crash's own line among them, which the lock this replaced would have waited for and written.
     [Fact(Timeout = 30_000)]
     public async Task PastItsCapALineIsDroppedAndTheFileSaysHowManyWhereTheyAreMissing()
     {
@@ -195,6 +197,10 @@ public class FileLoggerProviderTests : IDisposable
                 logger.LogInformation("lost {Number}", i);
             }
             provider.LinesDropped.ShouldBe(3);
+            logger.LogError("an error is kept");
+            logger.LogCritical("and so is the line of a crash");
+            logger.LogWarning("a warning is not");
+            provider.LinesDropped.ShouldBe(4);
 
             release.Set();
             provider.Flush().ShouldBeTrue();
@@ -206,10 +212,13 @@ public class FileLoggerProviderTests : IDisposable
                 "[INF] t: first",
                 .. Enumerable.Range(0, 10).Select(static i => $"[INF] t: kept {i}"),
                 "[WRN] TianWen.Build: 3 line(s) were dropped here: 10 waited to be written",
+                "[ERR] t: an error is kept",
+                "[CRT] t: and so is the line of a crash",
+                "[WRN] TianWen.Build: 1 line(s) were dropped here: 10 waited to be written",
                 "[INF] t: after",
             ];
             LinesAfterTheBanner(provider.LogFilePath).ShouldBe(expected);
-            provider.LinesDropped.ShouldBe(3, "the count is the provider's whole life's, said or not");
+            provider.LinesDropped.ShouldBe(4, "the count is the provider's whole life's, said or not");
         }
         finally
         {

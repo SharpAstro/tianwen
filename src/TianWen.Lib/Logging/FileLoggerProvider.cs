@@ -53,6 +53,11 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// The most lines that wait to be written. A disk that stops taking writes used to stop every thread that logged;
     /// now the queue would grow for as long as it lasted, so past this a line is dropped and counted
     /// (<see cref="LinesDropped"/>), and the file says how many at the place they are missing.
+    /// <para>
+    /// An Error or a Critical line is taken however many wait: it is the line a reader of a log that fell behind is
+    /// looking for, a crash's own line among them, and the lock this replaced would have waited and written it. So the
+    /// queue can pass the cap, by those lines alone.
+    /// </para>
     /// </summary>
     internal const int MostQueued = 100_000;
 
@@ -138,10 +143,20 @@ public sealed class FileLoggerProvider : ILoggerProvider
             ?? TryCreateNew(Path.Combine(logDir, $"{_appName}_{timestamp}_{Environment.ProcessId}.log"))
             ?? throw new IOException($"Could not create a log file for {_appName} under {logDir}: both the timestamped name and its process-id variant exist.");
         // Flushed by the writer thread after each batch it takes off the queue, and not after each line.
-        var writer = new StreamWriter(stream) { AutoFlush = false };
+        try
+        {
+            var writer = new StreamWriter(stream) { AutoFlush = false };
 
-        WriteBanner(writer, _appName, now);
-        return writer;
+            WriteBanner(writer, _appName, now);
+            return writer;
+        }
+        catch
+        {
+            // Nothing above is expected to throw (the banner swallows what a disk refuses), so this is only the
+            // promise that a file this made and cannot hand over is not left open.
+            stream.Dispose();
+            throw;
+        }
     }
 
     /// <summary>The file, created fresh, or null when it already exists (another process of this app
@@ -283,11 +298,12 @@ public sealed class FileLoggerProvider : ILoggerProvider
     }
 
     /// <summary>One entry, stamped with this provider's clock as it is logged, queued for the current day's file.</summary>
-    internal void Write(string level, string categoryName, string message, Exception? exception)
+    /// <param name="pastTheCap">An Error or a Critical line, which is taken however many wait (<see cref="MostQueued"/>).</param>
+    internal void Write(string level, string categoryName, string message, Exception? exception, bool pastTheCap = false)
     {
         // A closed log refuses a line, as its closed writer did: the caller hears of it and the line is not lost in silence.
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (Interlocked.Increment(ref _waiting) > _mostQueued)
+        if (Interlocked.Increment(ref _waiting) > _mostQueued && !pastTheCap)
         {
             Interlocked.Decrement(ref _waiting);
             Interlocked.Increment(ref _dropped);
@@ -479,6 +495,6 @@ internal sealed class FileLogger(string categoryName, FileLoggerProvider provide
             _ => "???"
         };
 
-        provider.Write(level, categoryName, formatter(state, exception), exception);
+        provider.Write(level, categoryName, formatter(state, exception), exception, pastTheCap: logLevel >= LogLevel.Error);
     }
 }
