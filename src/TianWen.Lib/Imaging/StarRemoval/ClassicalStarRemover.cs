@@ -277,9 +277,19 @@ public static class ClassicalStarRemover
     /// <paramref name="fillDugCores"/> false leaves out the hole sweep's dug-core trigger (#2449), so a test can show the
     /// pixel it fills and what it leaves alone; every plate is built with it.
     /// </summary>
-    internal static async Task<StarlessPlate> BuildAsync(
+    internal static Task<StarlessPlate> BuildAsync(
         Image image, StarlessPlateOptions? options, ILogger? logger, int tileThreads, TileAccessRecorder? recorder,
         bool fillDugCores, CancellationToken cancellationToken)
+        => BuildAsync(image, options, logger, tileThreads, recorder, fillDugCores, retestDugCores: false, cancellationToken);
+
+    /// <summary>
+    /// The same, with <paramref name="retestDugCores"/> true testing a star for a dug pixel in every round of the hole
+    /// sweep, also once it was refilled for one, so a test can show the redraws the sweep's guard prevents; no plate is
+    /// built that way.
+    /// </summary>
+    internal static async Task<StarlessPlate> BuildAsync(
+        Image image, StarlessPlateOptions? options, ILogger? logger, int tileThreads, TileAccessRecorder? recorder,
+        bool fillDugCores, bool retestDugCores, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
         options ??= StarlessPlateOptions.Default;
@@ -298,6 +308,7 @@ public static class ClassicalStarRemover
         builder.TileThreads = tileThreads;
         builder.Recorder = recorder;
         builder.FillDugCores = fillDugCores;
+        builder.RetestDugCores = retestDugCores;
         return await Task.Run(() => builder.Run(sw), cancellationToken);
     }
 
@@ -395,6 +406,12 @@ public static class ClassicalStarRemover
 
         /// <summary>Whether the hole sweep refills a dug core (#2449); false only in a test that shows what it does.</summary>
         public bool FillDugCores { get; set; } = true;
+
+        /// <summary>
+        /// Whether the hole sweep tests a star for a dug pixel again once it refilled it for one; true only in a test
+        /// that shows the redraws the guard prevents.
+        /// </summary>
+        public bool RetestDugCores { get; set; }
 
         // The cover as HasLeftItsStar is handed it, made at its first use and kept: the rule is asked for every fit of
         // every star, on every tile's thread. Two threads that make it at once make two that answer alike, and either
@@ -2058,7 +2075,7 @@ public static class ClassicalStarRemover
                     var dugCore = false;
                     for (var c = 0; c < _channels; c++)
                     {
-                        var (hole, dugHere) = CoreBelowItsSky(f, c, rms[c], testDug: !dugAlone[k]);
+                        var (hole, dugHere) = CoreBelowItsSky(f, c, rms[c], testDug: RetestDugCores || !dugAlone[k]);
                         if (hole is { } r && r > grow)
                         {
                             grow = r;

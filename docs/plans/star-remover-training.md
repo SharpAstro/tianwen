@@ -406,15 +406,19 @@ Read on that master against the plate main built (the noise from neighbour diffe
 
 Those refills are over-subtraction, not noise. At a star-free spot nothing was subtracted, so the whole trigger
 cannot fire there and its rate says nothing. The half that noise could trip is the dip: the lowest pixel within
-1.5 px more than 4 sigma under its annulus's median, the sigma that annulus's neighbour differences. Read alone on
-main's plate over a fixed 6 to 12 px annulus, in any channel, the dip fires at 2.5 % of 6,000 random star-free
-spots, against 55 % of the 10 to 30 sigma and 99 % of the 30 to 100 sigma stars whose core main left uninpainted.
+1.5 px sits more than 4 sigma under its annulus's median, where the sigma is the one that annulus's neighbour
+differences give. Read alone on main's plate over a fixed 6 to 12 px annulus, in any channel, the dip fires at 2.5 %
+of 6,000 random star-free spots, against 55 % of the 10 to 30 sigma and 99 % of the 30 to 100 sigma stars whose core
+main left uninpainted.
 
 A star refilled for a dug pixel alone is not tested for one again in the sweep's later rounds (it is still tested
 for a hole). The fill's own grain can sit under the gate, and a retest redraws the same disc with a new seed each
-round: with a retest every round the same master read 15,661 stars refilled, an inpaint fraction of 10.91 %, a
-30 to 100 sigma pit of 0.5 % and 250 holes. Without it, holes in the 10 to 50 sigma bands rose from 106 to 215 of
-16,474 stars, against the plate's null of 13.9 %. 82 of the 151 stars newly read as holes there were refilled by the
+round. The grain is drawn at the pixels' noise and the gate reads neighbour differences, which correlated noise
+makes smaller by the root of one less the correlation: on a test field correlated at 0.7, with two hundred shallow
+dug cores, a retest makes 21 redraws among the 178 stars refilled, and the build as shipped none. On the master,
+with a retest every round, the read was 15,661 stars refilled, an inpaint fraction of 10.91 %, a 30 to 100 sigma
+pit of 0.5 % and 250 holes. As shipped, holes in the 10 to 50 sigma bands rose from 106 to 215 of 16,474 stars,
+against the plate's null of 13.9 %. 82 of the 151 stars newly read as holes there were refilled by the
 trigger, and over the refilled stars of those bands the core's depth spreads wider (its 10th to 90th percentile from
 -1.9 to +1.0 to -2.4 to +1.7). Measured and not adopted, both with a retest every round: the trigger at 4 sigma of
 the sweep's rms (pits 5.4 % and 0.3 %, 5,957 stars refilled, inpaint 9.25 %, holes 158) and at 3 sigma of it (1.2 %

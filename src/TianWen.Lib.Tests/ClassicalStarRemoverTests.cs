@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Geometry;
@@ -41,18 +43,19 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
     // smooth glow is not. Dents: single pixels of the finished image moved by so many sigma after the stars are rendered (a
     // peak pixel lower than the star's profile, or a dark pixel of the input's own), in dentChannel alone or in every channel.
-    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null, double[]? gains = null, (int X, int Y, double Sigmas)[]? dents = null, int? dentChannel = null)
+    // Correlation: the noise's between neighbours, a stack's 0.35 unless a test asks for more (0.7 is the kernel's most).
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null, double[]? skies = null, double[]? gains = null, (int X, int Y, double Sigmas)[]? dents = null, int? dentChannel = null, double correlation = 0.35)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
-        var noise = CorrelatedNoise(rng, Size, Size, 0.35);
+        var noise = CorrelatedNoise(rng, Size, Size, correlation);
         var knot = (X: 700.0, Y: 300.0, Peak: 40 * Sigma, Fwhm: 3 * Fwhm);
 
         var truth = new float[channels][];
         for (var c = 0; c < channels; c++)
         {
             truth[c] = new float[Size * Size];
-            var cNoise = c == 0 ? noise : CorrelatedNoise(rng, Size, Size, 0.35);
+            var cNoise = c == 0 ? noise : CorrelatedNoise(rng, Size, Size, correlation);
             for (var y = 0; y < Size; y++)
             {
                 for (var x = 0; x < Size; x++)
@@ -725,6 +728,53 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         }
         without.Statistics.DugCores.ShouldBe(0);
         with.Statistics.DugCores.ShouldBeGreaterThanOrEqualTo(at.Length, "each was refilled by the dug-core trigger, which the hole test passed");
+    }
+
+    // How many stars each round of the hole sweep refilled for a dug pixel alone, read off the sweep's own debug line.
+    private static int[] DugCoresByRound(RecordingLogger log)
+        => [.. log.Messages
+            .Select(static m => Regex.Match(m, @"hole sweep (\d+): \d+ cores below their sky, (\d+) dug cores"))
+            .Where(static m => m.Success)
+            .OrderBy(static m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))
+            .Select(static m => int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture))];
+
+    // #2449, the sweep's guard: a star refilled for a dug pixel alone is not tested for one again in the later rounds. The
+    // fill's grain is drawn at the pixels' noise, and the gate reads a pixel against its annulus's neighbour differences,
+    // which noise correlated between neighbours makes smaller than that: by the root of one less the correlation, so 4
+    // sigma of them is 2.2 of the pixels' noise at 0.7 and 3.2 at the stack's own 0.35. At 0.7 a pixel of the grain sits
+    // under the gate often enough that a retest finds a refilled core dug again and redraws the same disc with the next
+    // round's seed; at 0.35 it almost never does, so this field's noise is correlated as far as the kernel goes. A grid
+    // of faint stars, each with its peak pixel 4.5 sigma low (over the gate, and under the 5 sigma at which the first
+    // fill takes a pixel itself), gives the sweep some two hundred cores to refill, so that a retest redraws a dozen and
+    // more. Built with a retest every round, the rounds' refills add up to more than the stars refilled (the premise:
+    // some were redrawn); built as every plate is, each star is refilled for a dug pixel in one round only.
+    [Fact(Timeout = 300_000)]
+    public async Task AStarRefilledForADugPixelAloneIsNotRefilledForOneAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Clear of the knot at (700, 300) and of the five saturated stars.
+        (int X, int Y)[] at =
+            [.. from y in Enumerable.Range(0, 13)
+                from x in Enumerable.Range(0, 16)
+                let p = (X: 62 + 60 * x, Y: 62 + 70 * y)
+                where new[] { (700, 300), (150, 150), (850, 150), (150, 850), (850, 850), (512, 900) }
+                    .All(q => Math.Abs(p.X - q.Item1) > 40 || Math.Abs(p.Y - q.Item2) > 40)
+                select p];
+        var image = MakeField(1, correlation: 0.7,
+            extra: [.. at.Select(static p => new Injected(p.X, p.Y, 40 * Sigma, false))],
+            dents: [.. at.Select(static p => (p.X, p.Y, -4.5))]).Image;
+        var (onceLog, everyLog) = (new RecordingLogger(), new RecordingLogger());
+        var once = await ClassicalStarRemover.BuildAsync(image, null, onceLog, tileThreads: -1, recorder: null, fillDugCores: true, ct);
+        var every = await ClassicalStarRemover.BuildAsync(image, null, everyLog, tileThreads: -1, recorder: null, fillDugCores: true, retestDugCores: true, ct);
+        var (onceRounds, everyRounds) = (DugCoresByRound(onceLog), DugCoresByRound(everyLog));
+
+        output.WriteLine($"{at.Length} stars planted with a low peak pixel");
+        output.WriteLine($"as built: {once.Statistics.DugCores} stars refilled for a dug core alone, by round {string.Join(", ", onceRounds)}");
+        output.WriteLine($"with a retest every round: {every.Statistics.DugCores} stars, by round {string.Join(", ", everyRounds)}");
+        everyRounds.Length.ShouldBeGreaterThan(1, "the sweep ran a later round");
+        everyRounds.Sum().ShouldBeGreaterThan(every.Statistics.DugCores + 2, "retested every round, some refilled cores read as dug again and are redrawn");
+        once.Statistics.DugCores.ShouldBeGreaterThan(0);
+        onceRounds.Sum().ShouldBe(once.Statistics.DugCores, "each star is refilled for a dug pixel in one round only");
     }
 
     // #2449: a dark pixel the INPUT holds in a star's core (7 sigma under the sky, beside its peak pixel), in the channel where
