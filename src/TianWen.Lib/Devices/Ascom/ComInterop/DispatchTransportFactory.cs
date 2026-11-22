@@ -31,7 +31,7 @@ internal static class DispatchTransportFactory
             {
                 try
                 {
-                    var transport = RemoteDispatchTransport.Create(exePath, progId, HandshakeTimeout);
+                    var transport = RemoteDispatchTransport.Create(exePath, progId, HandshakeTimeout, logger);
                     logger?.LogInformation(
                         "ASCOM {ProgId} hosted out-of-process ({Reason}) via {Exe}.", progId, reason, exePath);
                     return transport;

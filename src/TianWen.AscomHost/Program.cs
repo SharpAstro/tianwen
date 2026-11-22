@@ -27,7 +27,7 @@ if (args.Length < 1 || string.IsNullOrWhiteSpace(args[0]))
 var pipeName = args[0];
 
 // Whatever takes this helper down, and a task's exception nobody awaited, go to stderr first, as its other errors
-// do (#1811). It has no logger: the parent reads its stderr.
+// do (#1811). It has no logger: the parent drains its stderr into its own log.
 UnhandledExceptions.HookForTheProcess(
     (text, exception) => Console.Error.WriteLine($"[tianwen-ascomhost] {text}: {exception}"),
     (text, exception) => Console.Error.WriteLine($"[tianwen-ascomhost] {text}: {exception}"));

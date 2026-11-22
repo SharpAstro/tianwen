@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Devices.Ascom.ComInterop;
 
@@ -50,7 +51,7 @@ internal sealed class AscomHostProcess : IDisposable
     /// Creates the server pipe, spawns the helper (passing the pipe name), and waits for it to connect.
     /// Assigns the child to the kill-on-close job so it can't orphan us.
     /// </summary>
-    public static AscomHostProcess Spawn(string exePath, TimeSpan connectTimeout)
+    public static AscomHostProcess Spawn(string exePath, TimeSpan connectTimeout, ILogger? logger = null)
     {
         var pipeName = $"tianwen-ascomhost-{Guid.NewGuid():N}";
         var pipe = new NamedPipeServerStream(
@@ -83,6 +84,12 @@ internal sealed class AscomHostProcess : IDisposable
                 throw new IOException($"ASCOM host did not connect to pipe '{pipeName}' within {connectTimeout}. stderr: {stderr}");
             }
 
+            // From here the helper's stderr is drained line by line into the parent's log, so a managed crash of
+            // the helper mid-session (its UnhandledExceptions hook writes there) is not lost in an unread pipe (#1811).
+            // Started only after the connect, because the timeout path above reads the stream to its end itself.
+            process.ErrorDataReceived += (_, e) => LogHelperStderrLine(logger, e.Data);
+            process.BeginErrorReadLine();
+
             return new AscomHostProcess(process, pipe);
         }
         catch
@@ -94,6 +101,15 @@ internal sealed class AscomHostProcess : IDisposable
                 process.Dispose();
             }
             throw;
+        }
+    }
+
+    /// <summary>Writes one line the helper printed on stderr to <paramref name="logger"/>; a null line is the end of the stream.</summary>
+    internal static void LogHelperStderrLine(ILogger? logger, string? line)
+    {
+        if (!string.IsNullOrWhiteSpace(line))
+        {
+            logger?.LogError("tianwen-ascomhost: {Line}", line);
         }
     }
 

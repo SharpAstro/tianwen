@@ -46,7 +46,10 @@ builder.Services
     .WithTools<LogTools>();
 
 var app = builder.Build();
-// Whatever takes the server down, and a task's exception nobody awaited, are logged first (#1811): to stderr, as
-// every log line of this program is.
-UnhandledExceptionLog.HookForTheProcess(app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.AI.MCP"));
+// Whatever takes the server down, and a task's exception nobody awaited, are logged first (#1811). The console
+// logger hands a line to a background queue thread that the dying process may not outlive, so these two write to
+// stderr directly and synchronously (stdout is the JSON-RPC wire).
+UnhandledExceptions.HookForTheProcess(
+    (text, exception) => Console.Error.WriteLine($"[tianwen-mcp] {text}: {exception}"),
+    (text, exception) => Console.Error.WriteLine($"[tianwen-mcp] {text}: {exception}"));
 await app.RunAsync();
