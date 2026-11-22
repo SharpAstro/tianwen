@@ -462,6 +462,11 @@ of that exact name, in the Microsoft Store or elsewhere; the nearest are "Astro 
 two GitHub projects named AstroStacker and astro-stacker, and trademark registers were not searched. Still open in #1640: the
 executable's name (`tianwen-stack` is the working one) and the drawing.
 
+The owner's words the same day, on what the other two apps keep: "yes stand-alone. the existing gui currently only have live
+stacking planned, and the viewer will keep the planet stacking for now". So `tianwen-gui` gets its live stacking view and no
+more of this plan, and `tianwen-fits` keeps stacking a SER as it does today; whether that moves to Astro Photo Stacker once its
+planetary steps stand (W3) is not decided.
+
 ## Phasing
 
 | Phase | Scope | Depends on | Issue |
