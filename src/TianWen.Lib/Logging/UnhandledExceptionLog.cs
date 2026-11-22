@@ -16,10 +16,11 @@ namespace TianWen.Lib.Logging;
 /// <para><b>The crash is Critical and the unawaited exception is an Error.</b> The second does not end anything: the
 /// runtime raises it when the task is collected, which can be long after it faulted, so its line says what happened
 /// and not when.</para>
-/// <para><b>The file log's lock (#541).</b> A handler runs on the thread that crashed, or on the finalizer thread, and
-/// writes through the same lock as every other line. That lock is re-entrant, so a crash while this thread holds it
-/// writes; and one held by another thread is held for one line's write, which that thread finishes, since an
-/// unhandled exception on one thread does not stop the others before the handlers have run.</para>
+/// <para><b>The file log is drained before the crash handler returns (#541).</b> Its lines are queued and written by
+/// a thread of its own, so the crash line is not on disk when <c>LogCritical</c> returns; the handler then waits for
+/// every live <see cref="FileLoggerProvider"/> to write what it holds (<see cref="FileLoggerProvider.FlushAll"/>),
+/// for a bounded time. An unhandled exception on one thread does not stop the others before the handlers have run,
+/// so the writer thread is there to do it.</para>
 /// </remarks>
 public static class UnhandledExceptionLog
 {
@@ -30,8 +31,15 @@ public static class UnhandledExceptionLog
     /// <summary><see cref="HookForTheProcess"/> for a test, which takes the hooks off again by disposing the result.</summary>
     internal static IDisposable Hook(ILogger logger) => UnhandledExceptions.Hook(Crash(logger), Unobserved(logger));
 
-    private static Action<string, Exception?> Crash(ILogger logger)
-        => (text, exception) => logger.LogCritical(exception, "{What}", text);
+    internal static Action<string, Exception?> Crash(ILogger logger)
+        => (text, exception) =>
+        {
+            logger.LogCritical(exception, "{What}", text);
+            // The file log writes on a thread of its own (#541): the process is about to end, so what is queued,
+            // this line with it, is written before the handler returns.
+            // A log that does not get there in the time it is given (a dead disk) has nowhere left to say so.
+            _ = FileLoggerProvider.FlushAll();
+        };
 
     private static Action<string, Exception> Unobserved(ILogger logger)
         => (text, exception) => logger.LogError(exception, "{What}", text);
