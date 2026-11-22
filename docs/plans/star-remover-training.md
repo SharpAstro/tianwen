@@ -9431,7 +9431,9 @@ a dark globule** toward it. The instruments named below (`holes_look.py`, `floor
     model dug where its stars were stay as dug. A knot narrower than the core of the star on it reads as residue and
     is lowered. And the lowering is still cut per channel, so what it does take can change a colour.
   - **The product is the script, bit for bit.** `dig_fill_parity.py` on R4c seed 0: `tianwen image fill-digs` against
-    `whole_floor.py floor5`, no value different on the three masters (seven planes). Two tests hold the two gates:
+    `whole_floor.py floor5`, no value different on the three masters (seven planes); since #2433 the verb holds its
+    plate at or under the input by default, which floor5 does not, so the parity runs `fill-digs --keep-overshoot`
+    (and reads 0 pixels not bit-equal again). Two tests hold the two gates:
     a knot under stars 5 px apart is left bit for bit where a faint one is lowered, and one plate with a dip of 14
     sigmas is left alone where the input holds the dip and filled where the input is level.
   - **Cost** (`digfill-bench5.ps1`, each case run alone three times; peak working set the largest of the three,

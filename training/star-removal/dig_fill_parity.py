@@ -2,7 +2,9 @@
 
     python -I dig_fill_parity.py <w-tag> <cli> <out-dir> [scorecard.json]
 
-For each whole master (andromeda, tarantula, sag) it runs `<cli> image fill-digs` on the scorecard's input master and
+For each whole master (andromeda, tarantula, sag) it runs `<cli> image fill-digs --keep-overshoot` (the step alone,
+without the hold under the input the verb adds by default since #2433, which floor5 does not have) on the scorecard's
+input master and
 f2-whole-master/<w-tag>/<name>_starless.fits, writing <out-dir>/<name>_starless.filled.fits, and compares that with
 f2-whole-master/<w-tag>+floor5/<name>_starless.post.fits (whole_floor.py <w-tag> floor5). Nothing is written under the
 scratch root's own folders. Per master and channel it prints, in units of the input's noise sigma (1.4826 MAD of the input
