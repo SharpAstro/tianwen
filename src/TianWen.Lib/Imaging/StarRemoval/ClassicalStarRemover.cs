@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Sources;
 using TianWen.Lib.Stat;
@@ -26,45 +28,35 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// order of significance, each subtracted before the next, so a faint star is fitted on what its brighter neighbours
 /// left; one refinement pass then puts each star back and fits it again with every neighbour, brighter or fainter,
 /// already subtracted, and the finder runs again on the residual for stars a brighter one hid.</para>
-/// <para><b>Parallel by tiles that cannot touch.</b> A fit reads and a subtraction writes at most
-/// <see cref="MaxSubtractRadius"/> pixels from its star, so stars are grouped into tiles of twice that and the tiles
-/// run in four phases of a checkerboard: two tiles of one phase are a whole tile apart and no two windows of a phase
-/// overlap. The order inside a tile is the significance order.</para>
-/// <para><b>What makes that true, and where it is not exact (#2352).</b> The reach is from the STAR, and a fit moves:
-/// its window reaches <see cref="MaxFitRadius"/> from wherever it is centred. So a fit that ends further than
-/// <see cref="MaxRecentre"/> from its star is refused there and never followed (<see cref="RanAway"/>): one that was
-/// followed 364 px read what another tile of its phase was writing, and its row differed from run to run. With that,
-/// no overlap between two tiles of a phase was recorded on the test fields (17,144 reads and writes of one colour
-/// build, where 285 overlapped before).</para>
-/// <para><b>How far that is from exact (#2374).</b> The tile's size counts <see cref="MaxSubtractRadius"/> from the
-/// star, and a tile's work reaches from wherever a fit is CENTRED, which is not the star. With the half pixel a
-/// centre is rounded by:
-/// <list type="bullet">
-/// <item>a fit's window reaches 129 px from its star: <see cref="MaxFitRadius"/> from a centre that may be
-/// <see cref="MaxRecentre"/> away;</item>
-/// <item>the subtraction of a fit accepted ON the frame reaches 131 px: <see cref="MaxSubtractRadius"/> from a centre
-/// held to the star's drift allowance, 2 px;</item>
-/// <item>the subtraction of a fit accepted OFF the frame, a star the edge or the absent canvas cut, reaches 161 px
-/// along the edge. Such a fit is let off the drift allowance and held by <see cref="RanAway"/> alone, asked where
-/// the centre stands on the cover (<see cref="HasLeftItsStar"/>), so it may sit 32 px from the star ALONG the edge.
-/// That is 32 px of slack, not a few. Its DEPTH no rule holds; reach does, and the deeper a centre the less of the
-/// frame it reaches: a window cut more than <see cref="MaxFitRadius"/> outside the cover holds no pixel, and a
-/// subtraction more than <see cref="MaxSubtractRadius"/> outside writes none;</item>
-/// <item>a source fitted as TWO stars (<c>FitPair</c>) has each of them up to 2.5 of the field's FWHM from the fit it
-/// replaces, and each is subtracted about its own centre: 131 px plus that, and the FWHM is the image's, which no
-/// constant here bounds;</item>
-/// <item>a saturated star is worked from its plateau's centre and held to its plateau's radius, both measured from a
-/// peak the finder puts anywhere on the plateau.</item>
-/// </list>
-/// So the first three are numbers and the last two are not. Two stars of one phase are more than 256 px apart on
-/// one axis, and their work can meet wherever two reaches add up to more than that: they do by 6 px for two
-/// subtractions on the frame, by 4 for a window against one, by 30 more for each edge-cut star of the two, and by
-/// 2.5 FWHM more for each pair. Each case needs both stars that close to FACING tile edges, and none was recorded on
-/// the test fields. Clipping a tile's work to its own ground would make it exact; it moves pixels in exactly those
-/// columns, so it is a change of its own (#2378).</para>
-/// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, so the
-/// same image and seed give the same plate on any number of threads, except where two tiles of a phase touch as the
-/// paragraph above counts.</para>
+/// <para><b>Parallel by tiles that cannot touch, by construction (#2378).</b> Stars are grouped into tiles of twice
+/// <see cref="MaxSubtractRadius"/> by where they were found, and the tiles run in four phases of a checkerboard. A
+/// tile's work reads and writes the working planes on its GROUND alone (<see cref="TileGround"/>): the tile grown by
+/// <see cref="MaxSubtractRadius"/> on each side, cut to the frame. Two tiles of one phase are a whole tile apart, so
+/// their grounds share no pixel, and no tile of a phase reads what another writes, on any number of threads and for
+/// every kind of star. The order inside a tile is the significance order.</para>
+/// <para><b>Why the ground is a clip and not a promise.</b> The tile's size counts <see cref="MaxSubtractRadius"/>
+/// from the STAR, but a tile's work reaches from wherever a fit is CENTRED (#2374). With the half pixel a centre is
+/// rounded by: a fit's window reaches 129 px from its star (<see cref="MaxFitRadius"/> from a centre that may be
+/// <see cref="MaxRecentre"/> away); the subtraction of a fit accepted on the frame 131 px (from a centre within the
+/// drift allowance, 2 px); that of a star the edge or the absent canvas cut 161 px along the edge (held by
+/// <see cref="HasLeftItsStar"/> alone, 32 px along it); a source fitted as two stars (<c>FitPair</c>) 131 px plus 2.5
+/// of the image's FWHM; and a saturated star is worked from its plateau's centre, which the finder's peak can be a
+/// plateau's radius from. So two stars of one phase, each close to a FACING tile edge, could meet by a few pixels, or
+/// by tens, and where they did two threads wrote one pixel or one read what the other wrote. Every routine that reads
+/// or writes the planes on a tile's behalf (the window, both subtractions, the plateau's centre and count, the
+/// saturation test, the knot test's centre pixel, a giant's profile and its halo search, the ring medians) now takes
+/// the ground and loses what lies past it: a window or a subtraction that reached past its ground lacks those columns
+/// or rows there. Where no work reached past its ground a plate is the same to the bit as before; the test fields'
+/// plates were. What no tile writes (the sky map, its noise, the absent mask) is read freely.</para>
+/// <para><b>Why a fit that ran away is still refused (#2352).</b> A fit that ends further than <see cref="MaxRecentre"/>
+/// from its star is refused there and never followed (<see cref="RanAway"/>): it is not that star's fit. Before the
+/// ground, one that was followed 364 px read what another tile of its phase was writing, and its row differed from
+/// run to run; the ground would now hold such a window to its tile, but the fit would still be another star's.</para>
+/// <para>Checked, not argued: a DEBUG build records every rectangle a routine asked for and touched, with its ground
+/// (<see cref="TileAccessRecorder"/>), and a test asserts on a field of stars at facing tile edges that no touched
+/// rectangle leaves its ground.</para>
+/// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, and no
+/// two tiles of a phase share a pixel, so the same image and seed give the same plate on any number of threads.</para>
 /// </remarks>
 public static class ClassicalStarRemover
 {
@@ -92,15 +84,27 @@ public static class ClassicalStarRemover
     }
 
     private const int MaxFitRadius = 96;
-    private const int TileSize = 2 * MaxSubtractRadius;
+    internal const int TileSize = 2 * MaxSubtractRadius;
 
     /// <summary>
     /// How far from its star, on either axis, a fit may end and still be that star's. A fit's window reaches
-    /// <see cref="MaxFitRadius"/> from its centre and a tile's work is meant to stay within <see cref="MaxSubtractRadius"/>
-    /// of its stars, so a window cut around a centre further off than their difference reads ground that another tile of
-    /// the same phase may be writing.
+    /// <see cref="MaxFitRadius"/> from its centre and a tile's work is held to <see cref="MaxSubtractRadius"/> beyond its
+    /// tile (<see cref="TileGround"/>), so a window cut around a centre further off than their difference would reach
+    /// past the ground and lose what lies there.
     /// </summary>
     internal const int MaxRecentre = MaxSubtractRadius - MaxFitRadius;
+
+    /// <summary>
+    /// The ground of the tile at column <paramref name="tx"/> and row <paramref name="ty"/> of a frame of
+    /// <paramref name="width"/> by <paramref name="height"/>: the tile of <see cref="TileSize"/> grown by
+    /// <see cref="MaxSubtractRadius"/> on each side and cut to the frame, which is all its work may read or write
+    /// (#2378). The grounds of two tiles of one phase, two tiles apart, meet edge to edge and share no pixel.
+    /// </summary>
+    internal static PixelRect TileGround(int tx, int ty, int width, int height)
+        => PixelRect.Intersect(
+            new PixelRect(0, 0, width, height),
+            PixelRect.FromLTRB(tx * TileSize - MaxSubtractRadius, ty * TileSize - MaxSubtractRadius,
+                (tx + 1) * TileSize + MaxSubtractRadius, (ty + 1) * TileSize + MaxSubtractRadius));
 
     /// <summary>
     /// Whether a fit centred at (<paramref name="x"/>, <paramref name="y"/>) has left the star it was started on at
@@ -244,8 +248,18 @@ public static class ClassicalStarRemover
     /// Builds the starless plate of <paramref name="image"/>: a linear master, one channel (mono) or three
     /// (demosaiced colour). A one-channel colour mosaic is refused; demosaic it first.
     /// </summary>
-    public static async Task<StarlessPlate> BuildAsync(
+    public static Task<StarlessPlate> BuildAsync(
         Image image, StarlessPlateOptions? options = null, ILogger? logger = null, CancellationToken cancellationToken = default)
+        => BuildAsync(image, options, logger, tileThreads: -1, recorder: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="BuildAsync(Image, StarlessPlateOptions, ILogger, CancellationToken)"/> with the tiles of a phase fitted
+    /// on at most <paramref name="tileThreads"/> threads at once (-1: as many as the pool runs), and every rectangle the
+    /// build reads or writes recorded into <paramref name="recorder"/> in a DEBUG build: what the tests of #2378 drive.
+    /// </summary>
+    internal static async Task<StarlessPlate> BuildAsync(
+        Image image, StarlessPlateOptions? options, ILogger? logger, int tileThreads, TileAccessRecorder? recorder,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
         options ??= StarlessPlateOptions.Default;
@@ -261,13 +275,16 @@ public static class ClassicalStarRemover
 
         var sw = Stopwatch.StartNew();
         var builder = await CreateBuilderAsync(image, options, logger, cancellationToken);
+        builder.TileThreads = tileThreads;
+        builder.Recorder = recorder;
         return await Task.Run(() => builder.Run(sw), cancellationToken);
     }
 
     /// <summary>
-    /// The field profile <see cref="BuildAsync"/> would subtract every star of <paramref name="image"/> with, measured as it
-    /// measures it (the same calibration on the same found stars, so the same numbers) without fitting a star: what a plate
-    /// store built before profiles were kept is given one with.
+    /// The field profile <see cref="BuildAsync(Image, StarlessPlateOptions, ILogger, CancellationToken)"/> would subtract
+    /// every star of <paramref name="image"/> with, measured as it measures it (the same calibration on the same found
+    /// stars, so the same numbers) without fitting a star: what a plate store built before profiles were kept is given
+    /// one with.
     /// </summary>
     public static async Task<StarlessFieldProfile> MeasureFieldProfileAsync(
         Image image, StarlessPlateOptions? options = null, ILogger? logger = null, CancellationToken cancellationToken = default)
@@ -328,6 +345,9 @@ public static class ClassicalStarRemover
         public double[]? CompanionAmplitudes;
         public bool Saturated;
         public StarFitOutcome Outcome;
+        // The ground of the tile it was fitted in (#2378): its model is taken out and put back there and nowhere else,
+        // so a put-back outside the tile passes (DropDuplicates) restores exactly what the subtraction took.
+        public PixelRect Ground;
     }
 
     private sealed class Builder(
@@ -338,6 +358,20 @@ public static class ClassicalStarRemover
         private readonly int _width = image.Shape.Width;
         private readonly int _height = image.Shape.Height;
         private readonly BitMatrix? _absent = image.AbsentPixels();
+        // The ground of the work outside the tile passes (calibration, the masks, the report): the whole frame.
+        private readonly PixelRect _frame = new PixelRect(0, 0, image.Shape.Width, image.Shape.Height);
+        // The tile pass and its phase that is running, for the recorder; -1 outside the passes. Written only between the
+        // passes' parallel loops.
+        private int _pass = -1;
+        private int _phase = -1;
+        private int _passes;
+
+        /// <summary>At most this many tiles of a phase at once; -1 for as many as the pool runs.</summary>
+        public int TileThreads { get; set; } = -1;
+
+        /// <summary>Where a DEBUG build records every rectangle of the working planes it reads or writes; null for none.</summary>
+        public TileAccessRecorder? Recorder { get; set; }
+
         // The cover as HasLeftItsStar is handed it, made at its first use and kept: the rule is asked for every fit of
         // every star, on every tile's thread. Two threads that make it at once make two that answer alike, and either
         // may stand.
@@ -389,6 +423,24 @@ public static class ClassicalStarRemover
 
         private double BetaOf(in LinearResult r) => double.IsFinite(r.Beta) && r.Beta > 0 ? r.Beta : _beta;
 
+        // The square of half-width r about (cx, cy) that a routine reads or writes, cut to its ground (#2378): the pixels
+        // it may touch. Every read and write of the working planes made on a star's behalf goes through here or Bound.
+        private PixelRect Square(in PixelRect ground, int cx, int cy, int r, bool write, [CallerMemberName] string site = "")
+            => Bound(ground, PixelRect.FromLTRB(cx - r, cy - r, cx + r + 1, cy + r + 1), write, site);
+
+        private PixelRect Bound(in PixelRect ground, PixelRect reach, bool write, [CallerMemberName] string site = "")
+        {
+            var touched = PixelRect.Intersect(ground, reach);
+            Record(site, ground, reach, touched, write);
+            return touched;
+        }
+
+        // What a DEBUG build records of it (TileAccessRecorder): the reach cut to the frame alone, which is what it asked
+        // for, beside what the ground let it touch. Compiled out of Release, arguments and all.
+        [Conditional("DEBUG")]
+        private void Record(string site, in PixelRect ground, PixelRect reach, PixelRect touched, bool write)
+            => Recorder?.Add(new TileAccess(site, _pass, _phase, ground, PixelRect.Intersect(_frame, reach), touched, write));
+
         // A star's model at a pixel, peak 1: the Moffat with the field's residual table added once it exists.
         private double Model(MoffatPsf psf, int x, int y, double cx, double cy)
             => _correction is { } c ? c.Model(psf, x, y, cx, cy) : psf.PixelMean(x, y, cx, cy);
@@ -419,9 +471,9 @@ public static class ClassicalStarRemover
             var fits = new Fit[found.Length];
             var firstCrowded = Crowding(found);
             var giants = FindGiants(found);
-            RunTiled(found.Length, i => (found[i].X, found[i].Y), i => fits[i] = InsideGiant(found[i], giants)
-                ? new Fit { X = found[i].X, Y = found[i].Y, Width = 1.0, Outcome = StarFitOutcome.Merged, ChannelAmplitudes = new double[_channels], Significance = found[i].Significance }
-                : FitAndSubtract(found[i], null, firstCrowded[i]));
+            RunTiled(found.Length, i => (found[i].X, found[i].Y), (i, ground) => fits[i] = InsideGiant(found[i], giants)
+                ? new Fit { X = found[i].X, Y = found[i].Y, Width = 1.0, Outcome = StarFitOutcome.Merged, ChannelAmplitudes = new double[_channels], Significance = found[i].Significance, Ground = ground }
+                : FitAndSubtract(found[i], null, firstCrowded[i], ground));
             ct.ThrowIfCancellationRequested();
 
             var sources = found.ToList();
@@ -441,9 +493,9 @@ public static class ClassicalStarRemover
                 var fresh = residualFound.Where(r => !seen.AnyWithin(r.X, r.Y, lumPsf.Fwhm)).ToArray();
                 var freshFits = new Fit[fresh.Length];
                 var freshCrowded = Crowding(fresh, known);
-                RunTiled(fresh.Length, i => (fresh[i].X, fresh[i].Y), i => freshFits[i] = InsideGiant(fresh[i], giants)
-                    ? new Fit { X = fresh[i].X, Y = fresh[i].Y, Width = 1.0, Outcome = StarFitOutcome.Merged, ChannelAmplitudes = new double[_channels], Significance = fresh[i].Significance }
-                    : FitAndSubtract(fresh[i], null, freshCrowded[i]));
+                RunTiled(fresh.Length, i => (fresh[i].X, fresh[i].Y), (i, ground) => freshFits[i] = InsideGiant(fresh[i], giants)
+                    ? new Fit { X = fresh[i].X, Y = fresh[i].Y, Width = 1.0, Outcome = StarFitOutcome.Merged, ChannelAmplitudes = new double[_channels], Significance = fresh[i].Significance, Ground = ground }
+                    : FitAndSubtract(fresh[i], null, freshCrowded[i], ground));
                 sources.AddRange(fresh);
                 fitList.AddRange(freshFits);
                 logger?.LogDebug("ClassicalStarRemover: residual pass {Pass}: {Fresh} new sources.", pass + 1, fresh.Length);
@@ -464,13 +516,14 @@ public static class ClassicalStarRemover
             var crowded = Crowding(all);
             for (var pass = 0; pass < RefinementPasses; pass++)
             {
-                RunTiled(all.Length, i => (all[i].X, all[i].Y), i =>
+                RunTiled(all.Length, i => (all[i].X, all[i].Y), (i, ground) =>
                 {
                     if (fitList[i].Outcome == StarFitOutcome.Subtracted && fitList[i].Profile is null)
                     {
+                        // Its ground is this tile's: a source is tiled by where it was found, in every pass.
                         var before = fitList[i];
                         AddModel(before, +1);
-                        var refit = FitAndSubtract(all[i], before, crowded[i]);
+                        var refit = FitAndSubtract(all[i], before, crowded[i], ground);
                         if (refit.Outcome == StarFitOutcome.NoFit)
                         {
                             // A refit that failed is no evidence against the fit it was to improve: that one goes back
@@ -483,7 +536,7 @@ public static class ClassicalStarRemover
                     else if (fitList[i].Outcome == StarFitOutcome.NoFit)
                     {
                         // Given up beside a brighter star, which is out now: tried again.
-                        fitList[i] = FitAndSubtract(all[i], null, crowded[i]);
+                        fitList[i] = FitAndSubtract(all[i], null, crowded[i], ground);
                     }
                 });
                 ct.ThrowIfCancellationRequested();
@@ -579,9 +632,11 @@ public static class ClassicalStarRemover
             return found;
         }
 
-        // Four checkerboard phases of tiles; within a tile, the given order (the significance order).
-        private void RunTiled(int count, Func<int, (float X, float Y)> position, Action<int> body)
+        // Four checkerboard phases of tiles; within a tile, the given order (the significance order). The body is handed the
+        // tile's ground, and the work it does for a star reads and writes the planes there and nowhere else (#2378).
+        private void RunTiled(int count, Func<int, (float X, float Y)> position, Action<int, PixelRect> body)
         {
+            _pass = _passes++;
             var tilesX = (_width + TileSize - 1) / TileSize;
             var tilesY = (_height + TileSize - 1) / TileSize;
             var members = new List<int>[tilesX * tilesY];
@@ -595,6 +650,7 @@ public static class ClassicalStarRemover
             for (var phase = 0; phase < 4; phase++)
             {
                 ct.ThrowIfCancellationRequested();
+                _phase = phase;
                 var tiles = new List<int>();
                 for (var ty = phase >> 1; ty < tilesY; ty += 2)
                 {
@@ -606,17 +662,19 @@ public static class ClassicalStarRemover
                         }
                     }
                 }
-                ParallelFor.Run(tiles.Count, t =>
+                ParallelFor.Run(tiles.Count, TileThreads, t =>
                 {
                     if (members[tiles[t]] is { } list)
                     {
+                        var ground = TileGround(tiles[t] % tilesX, tiles[t] / tilesX, _width, _height);
                         foreach (var i in list)
                         {
-                            body(i);
+                            body(i, ground);
                         }
                     }
                 });
             }
+            _pass = _phase = -1;
         }
 
         // The field's PSF in the model the builder subtracts with: the medians over bright, unsaturated, isolated stars of
@@ -631,7 +689,7 @@ public static class ClassicalStarRemover
             for (var k = 0; k < found.Length && picks.Count < 300; k++)
             {
                 var s = found[k];
-                if (s.Significance is >= 30f and <= 1000f && !IsSaturated(s, out _) && !grid.AnyWithin(s.X, s.Y, isolation, except: k))
+                if (s.Significance is >= 30f and <= 1000f && !IsSaturated(s, out _, _frame) && !grid.AnyWithin(s.X, s.Y, isolation, except: k))
                 {
                     picks.Add(s);
                 }
@@ -645,7 +703,7 @@ public static class ClassicalStarRemover
             ParallelFor.Run(picks.Count, i =>
             {
                 var s = picks[i];
-                var window = CutWindow(s, 1.5 * WindowRadius(s.Peak, Math.Max(_rms[s.PeakY * _width + s.PeakX], 1e-12)), saturationCut: double.PositiveInfinity, plane: plane);
+                var window = CutWindow(s, 1.5 * WindowRadius(s.Peak, Math.Max(_rms[s.PeakY * _width + s.PeakX], 1e-12)), double.PositiveInfinity, _frame, plane: plane);
                 // Nothing is subtracted yet, so a window wide enough to see the wings also holds its neighbours' light:
                 // pixels within 2 FWHM of any other source take no part (with them a field rendered at beta 3.0 read 3.31).
                 if (window is { } cw)
@@ -689,7 +747,7 @@ public static class ClassicalStarRemover
             for (var k = 0; k < found.Length && picks.Count < 400; k++)
             {
                 var s = found[k];
-                if (s.Significance is >= 50f and <= 3000f && !IsSaturated(s, out _) && !grid.AnyWithin(s.X, s.Y, isolation, except: k))
+                if (s.Significance is >= 50f and <= 3000f && !IsSaturated(s, out _, _frame) && !grid.AnyWithin(s.X, s.Y, isolation, except: k))
                 {
                     picks.Add(k);
                 }
@@ -699,7 +757,7 @@ public static class ClassicalStarRemover
             {
                 var k = picks[i];
                 var s = found[k];
-                if (CutWindow(s, reach + 8.0, double.PositiveInfinity, plane: plane) is not { } window)
+                if (CutWindow(s, reach + 8.0, double.PositiveInfinity, _frame, plane: plane) is not { } window)
                 {
                     return;
                 }
@@ -801,13 +859,14 @@ public static class ClassicalStarRemover
             }
         }
 
-        private bool IsSaturated(PointSource s, out double plateau)
+        private bool IsSaturated(PointSource s, out double plateau, in PixelRect ground)
         {
             var radius = Math.Max(2, (int)Math.Ceiling(lumPsf.Fwhm));
+            var box = Square(ground, s.PeakX, s.PeakY, radius, write: false);
             var peak = double.NegativeInfinity;
-            for (var y = Math.Max(0, s.PeakY - radius); y <= Math.Min(_height - 1, s.PeakY + radius); y++)
+            for (var y = box.Top; y < box.Bottom; y++)
             {
-                for (var x = Math.Max(0, s.PeakX - radius); x <= Math.Min(_width - 1, s.PeakX + radius); x++)
+                for (var x = box.Left; x < box.Right; x++)
                 {
                     // Not Math.Max: one NaN of the absent canvas beside a star at the frame's edge made its plateau NaN,
                     // its saturation cut NaN and its every window empty, and a 700-sigma star of the Orion master was left.
@@ -826,9 +885,9 @@ public static class ClassicalStarRemover
             var sky = _sky[s.PeakY * _width + s.PeakX];
             var near = peak - 0.02 * (peak - sky);
             var count = 0;
-            for (var y = Math.Max(0, s.PeakY - radius); y <= Math.Min(_height - 1, s.PeakY + radius); y++)
+            for (var y = box.Top; y < box.Bottom; y++)
             {
-                for (var x = Math.Max(0, s.PeakX - radius); x <= Math.Min(_width - 1, s.PeakX + radius); x++)
+                for (var x = box.Left; x < box.Right; x++)
                 {
                     if (_lum[y * _width + x] >= near)
                     {
@@ -836,13 +895,14 @@ public static class ClassicalStarRemover
                     }
                 }
             }
-            return count >= 5 || NearFullScale(s, radius);
+            return count >= 5 || NearFullScale(box);
         }
 
         // A core within FullScaleFraction of its channel's brightest pixel is at the master's clip level whatever its
         // shape: a clipped star stacked over sub-pixel shifts has a rounded top, no flat one (9 Sgr in the Lagoon master,
         // 0.98 against a full scale of 0.99, was fitted unsaturated at 1.61 times the field's width and left as a knot).
-        private bool NearFullScale(PointSource s, int radius)
+        // The box is IsSaturated's, already cut to the star's ground.
+        private bool NearFullScale(in PixelRect box)
         {
             for (var c = 0; c < _channels; c++)
             {
@@ -852,9 +912,9 @@ public static class ClassicalStarRemover
                 {
                     continue;
                 }
-                for (var y = Math.Max(0, s.PeakY - radius); y <= Math.Min(_height - 1, s.PeakY + radius); y++)
+                for (var y = box.Top; y < box.Bottom; y++)
                 {
-                    for (var x = Math.Max(0, s.PeakX - radius); x <= Math.Min(_width - 1, s.PeakX + radius); x++)
+                    for (var x = box.Left; x < box.Right; x++)
                     {
                         if (plane[y * _width + x] >= level)
                         {
@@ -881,15 +941,16 @@ public static class ClassicalStarRemover
             return crowded;
         }
 
-        private Fit FitAndSubtract(PointSource s, Fit? previous, bool crowded)
+        // Everything it reads and writes of the working planes is on its tile's ground (#2378), which the fit keeps.
+        private Fit FitAndSubtract(PointSource s, Fit? previous, bool crowded, in PixelRect ground)
         {
-            var fit = new Fit { X = s.X, Y = s.Y, Width = 1.0, Outcome = StarFitOutcome.NoFit, ChannelAmplitudes = new double[_channels], Significance = s.Significance };
+            var fit = new Fit { X = s.X, Y = s.Y, Width = 1.0, Outcome = StarFitOutcome.NoFit, ChannelAmplitudes = new double[_channels], Significance = s.Significance, Ground = ground };
             var index = s.PeakY * _width + s.PeakX;
             var sigma = Math.Max(_rms[index], 1e-12);
             var sky = _sky[index];
-            fit.Saturated = IsSaturated(s, out var plateau);
+            fit.Saturated = IsSaturated(s, out var plateau, ground);
             fit.Plateau = plateau;
-            if (!fit.Saturated && s.Significance >= options.BetaFitSigma && CoreIsCompressed(s, sigma, sky, plateau))
+            if (!fit.Saturated && s.Significance >= options.BetaFitSigma && CoreIsCompressed(s, sigma, sky, plateau, ground))
             {
                 fit.Saturated = true;
             }
@@ -897,7 +958,7 @@ public static class ClassicalStarRemover
             // A saturated star's centre is its plateau's: on a flat top the finder's maximum lands wherever ties fall in
             // raster order, 4.9 px from Antares' centre and 9 px from Alnitak's, and a fit that found the true centre was
             // given up as having wandered. Its drift allowance is the plateau's radius.
-            var (refX, refY, drift, extent) = fit.Saturated ? PlateauCentre(s, plateau, sky) : (s.X, s.Y, 2.0, 0.0);
+            var (refX, refY, drift, extent) = fit.Saturated ? PlateauCentre(s, plateau, sky, ground) : (s.X, s.Y, 2.0, 0.0);
             var coreRadius = Math.Max(Math.Max(drift - 1.0, 1.0), extent);
             if (fit.Saturated && previous is null && drift - 1.0 >= GiantPlateauRadius)
             {
@@ -909,14 +970,14 @@ public static class ClassicalStarRemover
             var radius = WindowRadius(amplitude, sigma);
             if (fit.Saturated)
             {
-                radius = Math.Max(radius, 4.0 * lumPsf.Fwhm + 3.0 * Math.Sqrt(CountPlateau(s, plateau, sky) / Math.PI));
+                radius = Math.Max(radius, 4.0 * lumPsf.Fwhm + 3.0 * Math.Sqrt(CountPlateau(s, plateau, sky, ground) / Math.PI));
             }
             var saturationCut = fit.Saturated ? sky + 0.7 * (plateau - sky) : double.PositiveInfinity;
 
             LinearResult? result = null;
             for (var attempt = 0; attempt < 2; attempt++)
             {
-                if (CutWindow(s, radius, saturationCut, startX, startY) is not { } window)
+                if (CutWindow(s, radius, saturationCut, ground, startX, startY) is not { } window)
                 {
                     return fit;
                 }
@@ -943,11 +1004,11 @@ public static class ClassicalStarRemover
                 if (HasLeftItsStar(r.X, r.Y, refX, refY, drift, fit.Saturated))
                 {
                     // A fit this far from its star is not that star's. It is refused here and never followed: the next
-                    // window would be cut where it ran to, which can be ground another tile of this phase is
-                    // subtracting from (#2352: on a 919-star field two sources on saturated stars' rims ran 328 and
-                    // 364 px on their first fit, their second fits read what a tile beside was writing, and the refused
-                    // row that came of it differed from run to run). None of its numbers is taken: the row says where
-                    // the star was found and that it has no fit.
+                    // window would be cut where it ran to, about another star (#2352: on a 919-star field two sources on
+                    // saturated stars' rims ran 328 and 364 px on their first fit, and before every tile's work was held
+                    // to its ground, #2378, their second fits read what a tile beside was writing and the refused row
+                    // that came of it differed from run to run). None of its numbers is taken: the row says where the
+                    // star was found and that it has no fit.
                     // NO TEST REACHES THE SATURATED ARM of the line below (#2374). No saturated star's first fit left
                     // its star on any field of ClassicalStarRemoverTests, nor on three real masters of 148,008 sources
                     // (two ringed composites and a ringless drizzle), counted with this branch made to count and go
@@ -992,7 +1053,7 @@ public static class ClassicalStarRemover
                 return fit.Saturated && previous is null ? SubtractProfile(fit, refX, refY, coreRadius, QuietSigma(refX, refY, sigma)) : fit;
             }
             if (fit.Saturated
-                && Math.Abs(final.SkyAt((int)Math.Round(final.X), (int)Math.Round(final.Y)) - AnnulusMedian(final.X, final.Y, final.Radius, final.Radius + 6.0)) > HaloSkySigma * sigma)
+                && Math.Abs(final.SkyAt((int)Math.Round(final.X), (int)Math.Round(final.Y)) - AnnulusMedian(final.X, final.Y, final.Radius, final.Radius + 6.0, ground)) > HaloSkySigma * sigma)
             {
                 // A wing fit whose sky is far from the level just past its window has light the field's Moffat cannot
                 // hold: a halo it took by lowering its sky and raising its peak (the Horsehead master's 4,933-sigma star,
@@ -1007,7 +1068,7 @@ public static class ClassicalStarRemover
                 // Before a wide source is left as structure: a pair the matched filter merged into one peak is two stars
                 // at the field's width (the two brightest "knots" of the Centaurus A master, 672 and 402 sigma at 1.63
                 // and 1.61 times the field's width, are doubles 3 px apart).
-                if (!fit.Saturated && s.Significance >= options.NonlinearFitSigma && FitPair(s, final, sigma) is { } pair)
+                if (!fit.Saturated && s.Significance >= options.NonlinearFitSigma && FitPair(s, final, sigma, ground) is { } pair)
                 {
                     return pair;
                 }
@@ -1023,7 +1084,7 @@ public static class ClassicalStarRemover
             {
                 var px = (int)Math.Round(final.X);
                 var py = (int)Math.Round(final.Y);
-                if (px >= 0 && px < _width && py >= 0 && py < _height)
+                if (!Square(ground, px, py, 0, write: false).IsEmpty)
                 {
                     var observed = _lum[py * _width + px] - final.SkyAt(px, py);
                     var modelled = final.Amplitude * Model(LumPsf(final.Width, fit.Beta), px, py, final.X, final.Y);
@@ -1038,7 +1099,7 @@ public static class ClassicalStarRemover
             // A crowded star is classified at its free width but subtracted at the field's: a free width lets the
             // brighter of a close pair widen and take part of its companion (1.30 times the field's and 86 percent of
             // the amplitude, on a pair 1.33 FWHM apart, before this).
-            if (crowded && CutWindow(s, final.Radius, saturationCut, final.X, final.Y) is { } crowdedWindow)
+            if (crowded && CutWindow(s, final.Radius, saturationCut, ground, final.X, final.Y) is { } crowdedWindow)
             {
                 var fixedWidth = s.Significance >= options.NonlinearFitSigma || fit.Saturated
                     ? FitNonlinear(crowdedWindow, _lumAlpha, _beta, final.X, final.Y, fitBeta: false, fitWidth: false, corr: _correction)
@@ -1071,7 +1132,7 @@ public static class ClassicalStarRemover
             {
                 for (var c = 0; c < _channels; c++)
                 {
-                    fit.ChannelAmplitudes[c] = CutWindow(s, final.Radius, saturationCut, final.X, final.Y, _work[c]) is { } cw
+                    fit.ChannelAmplitudes[c] = CutWindow(s, final.Radius, saturationCut, ground, final.X, final.Y, _work[c]) is { } cw
                         ? SolveLinear(cw, ChannelPsf(c, final.Width, fit.Beta), final.X, final.Y, ChannelCorrection(c)).Amplitude
                         : 0.0;
                 }
@@ -1099,7 +1160,7 @@ public static class ClassicalStarRemover
         // fitted at the field's PSF, their predicted peak against the observed one. The flat-top test needs five pixels
         // within 2 percent of the peak, which an undersampled star never has: an 11,833-sigma star at 2.3 px FWHM, its
         // fitted peak past the master's full scale, was fitted as a star 1.72 times too wide and left as a knot.
-        private bool CoreIsCompressed(PointSource s, double sigma, double sky, double peak)
+        private bool CoreIsCompressed(PointSource s, double sigma, double sky, double peak, in PixelRect ground)
         {
             var above = peak - sky;
             if (!(above > 0))
@@ -1107,7 +1168,7 @@ public static class ClassicalStarRemover
                 return false;
             }
             var radius = LumPsf(1.0).RadiusAtLevel(above, sigma);
-            if (CutWindow(s, radius, sky + 0.5 * above) is not { } wings
+            if (CutWindow(s, radius, sky + 0.5 * above, ground) is not { } wings
                 || FitNonlinear(wings, _lumAlpha, _beta, s.X, s.Y, fitBeta: false, fitWidth: false, corr: _correction) is not { } w
                 || !(w.Amplitude > 0))
             {
@@ -1158,7 +1219,7 @@ public static class ClassicalStarRemover
         // height above sky), a drift allowance of its equal-area radius plus one, and its extent (its farthest pixel from
         // the centroid, which a giant's core fill must reach: an elongated plateau filled as its equal-area disc left
         // its ends as a bright rim in the Horsehead master); the found centre, 2 px and 0 when there is no plateau.
-        private (double X, double Y, double Drift, double Extent) PlateauCentre(PointSource s, double plateau, double sky)
+        private (double X, double Y, double Drift, double Extent) PlateauCentre(PointSource s, double plateau, double sky, in PixelRect ground)
         {
             var near = plateau - 0.02 * (plateau - sky);
             var reach = 64;
@@ -1166,9 +1227,10 @@ public static class ClassicalStarRemover
             var seedY = s.PeakY;
             var best = double.NegativeInfinity;
             var look = Math.Max(2, (int)Math.Ceiling(2.0 * lumPsf.Fwhm));
-            for (var y = Math.Max(0, s.PeakY - look); y <= Math.Min(_height - 1, s.PeakY + look); y++)
+            var lookBox = Square(ground, s.PeakX, s.PeakY, look, write: false);
+            for (var y = lookBox.Top; y < lookBox.Bottom; y++)
             {
-                for (var x = Math.Max(0, s.PeakX - look); x <= Math.Min(_width - 1, s.PeakX + look); x++)
+                for (var x = lookBox.Left; x < lookBox.Right; x++)
                 {
                     if (_lum[y * _width + x] > best)
                     {
@@ -1182,6 +1244,8 @@ public static class ClassicalStarRemover
             {
                 return (s.X, s.Y, 2.0, 0.0);
             }
+            // The flood stays within reach of its seed and on the ground.
+            var flood = Square(ground, seedX, seedY, reach, write: false);
             var seen = new HashSet<long>();
             var stack = new Stack<(int X, int Y)>();
             stack.Push((seedX, seedY));
@@ -1200,7 +1264,7 @@ public static class ClassicalStarRemover
                     {
                         var nx = x + dx;
                         var ny = y + dy;
-                        if (nx < 0 || ny < 0 || nx >= _width || ny >= _height || Math.Abs(nx - seedX) > reach || Math.Abs(ny - seedY) > reach)
+                        if (!flood.Contains(nx, ny))
                         {
                             continue;
                         }
@@ -1269,16 +1333,15 @@ public static class ClassicalStarRemover
         // median in 1 px rings out to MaxSubtractRadius, less the sky in the outermost rings, cut where the luminance
         // profile stays under a quarter sigma. Empirical, so it holds whatever halo the star has; a median ignores the
         // neighbours and the thin spikes, which stay (spikes are left whole, the plan's decision). The plateau is filled.
-        private float[][] SymmetricProfile(double cx, double cy, double plateauRadius, double sigma, bool monotone, out double[] skyOut)
+        private float[][] SymmetricProfile(double cx, double cy, double plateauRadius, double sigma, bool monotone, in PixelRect ground, out double[] skyOut)
         {
             const int Sectors = 8;
             var reachMax = MaxSubtractRadius;
             var bins = new List<float>?[_channels, reachMax, Sectors];
-            var x0 = (int)Math.Round(cx);
-            var y0 = (int)Math.Round(cy);
-            for (var y = Math.Max(0, y0 - reachMax); y <= Math.Min(_height - 1, y0 + reachMax); y++)
+            var box = Square(ground, (int)Math.Round(cx), (int)Math.Round(cy), reachMax, write: false);
+            for (var y = box.Top; y < box.Bottom; y++)
             {
-                for (var x = Math.Max(0, x0 - reachMax); x <= Math.Min(_width - 1, x0 + reachMax); x++)
+                for (var x = box.Left; x < box.Right; x++)
                 {
                     var dx = x - cx;
                     var dy = y - cy;
@@ -1529,9 +1592,11 @@ public static class ClassicalStarRemover
         // A big saturated star taken out by its own symmetric light (SymmetricProfile) about its plateau's centre, then,
         // for the biggest, a reflection halo about its own centre: a filter's ring is usually displaced from its star,
         // so a profile centred on the star smears it over the sectors and leaves it (Alnitak's, behind an L-Quad).
+        // Read, searched and subtracted on the fit's ground (#2378): a giant is worked about its plateau's centre, which can
+        // stand a plateau's radius from where the finder put it, so its profile's rings are what reach furthest past a tile.
         private Fit SubtractProfile(Fit fit, double cx, double cy, double plateauRadius, double sigma)
         {
-            var profile = SymmetricProfile(cx, cy, plateauRadius, sigma, monotone: true, out var farSky);
+            var profile = SymmetricProfile(cx, cy, plateauRadius, sigma, monotone: true, fit.Ground, out var farSky);
             fit.ProfileFloor = farSky;
             fit.ProfileMargin = ProfileClampSigma * sigma;
             var reach = profile[0].Length;
@@ -1558,16 +1623,16 @@ public static class ClassicalStarRemover
             fit.SubtractRadius = reach;
             fit.Outcome = StarFitOutcome.Subtracted;
             AddModel(fit, -1);
-            if (plateauRadius >= HaloSearchPlateauRadius && FindHaloCentre(cx, cy, plateauRadius, sigma) is { } halo)
+            if (plateauRadius >= HaloSearchPlateauRadius && FindHaloCentre(cx, cy, plateauRadius, sigma, fit.Ground) is { } halo)
             {
-                var haloProfile = SymmetricProfile(halo.X, halo.Y, 0.0, sigma, monotone: false, out var haloFloor);
+                var haloProfile = SymmetricProfile(halo.X, halo.Y, 0.0, sigma, monotone: false, fit.Ground, out var haloFloor);
                 if (haloProfile[0].Length > 0)
                 {
                     fit.HaloProfile = haloProfile;
                     fit.HaloX = halo.X;
                     fit.HaloY = halo.Y;
                     fit.HaloFloor = haloFloor;
-                    AddProfileAt(halo.X, halo.Y, haloProfile, -1, haloFloor, fit.ProfileMargin);
+                    AddProfileAt(halo.X, halo.Y, haloProfile, -1, fit.Ground, haloFloor, fit.ProfileMargin);
                 }
             }
             return fit;
@@ -1578,7 +1643,9 @@ public static class ClassicalStarRemover
         // of eight sectors' trimmed means, every second pixel, against the outer rings' level), summed over the rings past
         // the plateau. A ring counts only where at least four consecutive rings stand half a sigma above the sky; null when
         // no centre has one.
-        private (double X, double Y)? FindHaloCentre(double cx, double cy, double plateauRadius, double sigma)
+        // Every second pixel, on the lattice the frame alone would start it on: the ground cuts rows and columns off, and
+        // the samples it leaves are the ones read before #2378.
+        private (double X, double Y)? FindHaloCentre(double cx, double cy, double plateauRadius, double sigma, in PixelRect ground)
         {
             const int Sectors = 8;
             const int Rings = 100;
@@ -1600,9 +1667,12 @@ public static class ClassicalStarRemover
                     Array.Clear(counts);
                     var x0 = (int)Math.Round(hx);
                     var y0 = (int)Math.Round(hy);
-                    for (var y = Math.Max(0, y0 - Rings); y <= Math.Min(_height - 1, y0 + Rings); y += 2)
+                    var box = Square(ground, x0, y0, Rings, write: false);
+                    var firstY = OnLattice(Math.Max(0, y0 - Rings), box.Top);
+                    var firstX = OnLattice(Math.Max(0, x0 - Rings), box.Left);
+                    for (var y = firstY; y < box.Bottom; y += 2)
                     {
-                        for (var x = Math.Max(0, x0 - Rings); x <= Math.Min(_width - 1, x0 + Rings); x += 2)
+                        for (var x = firstX; x < box.Right; x += 2)
                         {
                             var dx = x - hx;
                             var dy = y - hy;
@@ -1667,6 +1737,9 @@ public static class ClassicalStarRemover
                 }
             }
             return best;
+
+            // The first index from `from` on that is an even step from `anchor`, which is never past it.
+            static int OnLattice(int anchor, int from) => anchor + (from - anchor + 1) / 2 * 2;
         }
 
         // The sky noise where a giant's light no longer reaches: the background map's rms in a ring 100 to 128 px out
@@ -1703,11 +1776,11 @@ public static class ClassicalStarRemover
             var giants = new List<(double X, double Y, double Radius, int SeedX, int SeedY)>();
             foreach (var s in found)
             {
-                if (s.Significance < 50f || !IsSaturated(s, out var plateau) || giants.Any(g => (g.X - s.X) * (g.X - s.X) + (g.Y - s.Y) * (g.Y - s.Y) <= g.Radius * g.Radius))
+                if (s.Significance < 50f || !IsSaturated(s, out var plateau, _frame) || giants.Any(g => (g.X - s.X) * (g.X - s.X) + (g.Y - s.Y) * (g.Y - s.Y) <= g.Radius * g.Radius))
                 {
                     continue;
                 }
-                var (cx, cy, drift, _) = PlateauCentre(s, plateau, _sky[s.PeakY * _width + s.PeakX]);
+                var (cx, cy, drift, _) = PlateauCentre(s, plateau, _sky[s.PeakY * _width + s.PeakX], _frame);
                 if (drift - 1.0 >= GiantPlateauRadius)
                 {
                     giants.Add((cx, cy, drift - 1.0 + 2.0 * lumPsf.Fwhm, s.PeakX, s.PeakY));
@@ -1731,14 +1804,14 @@ public static class ClassicalStarRemover
             return false;
         }
 
-        private int CountPlateau(PointSource s, double plateau, double sky)
+        private int CountPlateau(PointSource s, double plateau, double sky, in PixelRect ground)
         {
             var near = plateau - 0.02 * (plateau - sky);
             var count = 0;
-            var r = MaxFitRadius / 2;
-            for (var y = Math.Max(0, s.PeakY - r); y <= Math.Min(_height - 1, s.PeakY + r); y++)
+            var box = Square(ground, s.PeakX, s.PeakY, MaxFitRadius / 2, write: false);
+            for (var y = box.Top; y < box.Bottom; y++)
             {
-                for (var x = Math.Max(0, s.PeakX - r); x <= Math.Min(_width - 1, s.PeakX + r); x++)
+                for (var x = box.Left; x < box.Right; x++)
                 {
                     if (_lum[y * _width + x] >= near)
                     {
@@ -1749,15 +1822,16 @@ public static class ClassicalStarRemover
             return count;
         }
 
-        // Adds (sign +1) or subtracts (sign -1) a star's model from every channel, and keeps the luminance the channels' mean.
+        // Adds (sign +1) or subtracts (sign -1) a star's model from every channel, and keeps the luminance the channels' mean;
+        // on the fit's ground alone (#2378), so a put-back restores exactly what the subtraction took.
         private void AddModel(in Fit fit, int sign)
         {
             if (fit.Profile is { } profile)
             {
-                AddProfileAt(fit.X, fit.Y, profile, sign, fit.ProfileFloor, fit.ProfileMargin);
+                AddProfileAt(fit.X, fit.Y, profile, sign, fit.Ground, fit.ProfileFloor, fit.ProfileMargin);
                 if (fit.HaloProfile is { } halo)
                 {
-                    AddProfileAt(fit.HaloX, fit.HaloY, halo, sign, fit.HaloFloor, fit.ProfileMargin);
+                    AddProfileAt(fit.HaloX, fit.HaloY, halo, sign, fit.Ground, fit.HaloFloor, fit.ProfileMargin);
                 }
                 return;
             }
@@ -1773,10 +1847,8 @@ public static class ClassicalStarRemover
             var r = fit.SubtractRadius;
             var cx = (int)Math.Round(fit.X);
             var cy = (int)Math.Round(fit.Y);
-            var y0 = Math.Max(0, cy - r);
-            var y1 = Math.Min(_height - 1, cy + r);
-            var x0 = Math.Max(0, cx - r);
-            var x1 = Math.Min(_width - 1, cx + r);
+            var box = Square(fit.Ground, cx, cy, r, write: true);
+            var (y0, y1, x0, x1) = (box.Top, box.Bottom - 1, box.Left, box.Right - 1);
             var r2 = (r + 0.5) * (r + 0.5);
             for (var c = 0; c < _channels; c++)
             {
@@ -1837,14 +1909,13 @@ public static class ClassicalStarRemover
         // symmetric light (the second-lowest of eight sectors) still holds some of its spikes' light, and between eighteen
         // spikes of the Antares-field giant it dug notches 4 to 20 sigma deep where there was no star light left to take.
         // A put-back adds the whole model; only DropDuplicates puts a profile star back.
-        private void AddProfileAt(double fx, double fy, float[][] profile, int sign, double[]? floor = null, double margin = 0.0)
+        private void AddProfileAt(double fx, double fy, float[][] profile, int sign, in PixelRect ground, double[]? floor = null, double margin = 0.0)
         {
             var reach = profile[0].Length;
-            var cx = (int)Math.Round(fx);
-            var cy = (int)Math.Round(fy);
-            for (var y = Math.Max(0, cy - reach); y <= Math.Min(_height - 1, cy + reach); y++)
+            var box = Square(ground, (int)Math.Round(fx), (int)Math.Round(fy), reach, write: true);
+            for (var y = box.Top; y < box.Bottom; y++)
             {
-                for (var x = Math.Max(0, cx - reach); x <= Math.Min(_width - 1, cx + reach); x++)
+                for (var x = box.Left; x < box.Right; x++)
                 {
                     var d = Math.Sqrt((x - fx) * (x - fx) + (y - fy) * (y - fy));
                     if (d >= reach || IsAbsent(x, y))
@@ -2061,7 +2132,7 @@ public static class ClassicalStarRemover
             var amplitude = Math.Abs(f.ChannelAmplitudes[channel]);
             var annulus = SkyAnnulus(ReachAt(f, sigma, channel) + 2.0, core + 2.0);
             var plane = _work[channel];
-            var sky = AnnulusMedianPlane(plane, f.X, f.Y, annulus, annulus + 6.0);
+            var sky = AnnulusMedianPlane(plane, f.X, f.Y, annulus, annulus + 6.0, _frame);
             if (!double.IsFinite(sky))
             {
                 return null;
@@ -2128,7 +2199,7 @@ public static class ClassicalStarRemover
                 var psf = ChannelPsf(c, f.Width, f.Beta);
                 var core = Math.Max(Math.Max(1.5, psf.Fwhm), f.Saturated ? holeRadius : 0.0);
                 var annulus = SkyAnnulus(ReachAt(f, sigma, c) + 2.0, core + 2.0);
-                var sky = AnnulusMedianPlane(_work[c], f.X, f.Y, annulus, annulus + 6.0);
+                var sky = AnnulusMedianPlane(_work[c], f.X, f.Y, annulus, annulus + 6.0, _frame);
                 if (!double.IsFinite(sky))
                 {
                     continue;
@@ -2145,7 +2216,8 @@ public static class ClassicalStarRemover
         /// <summary>A square window of a plane about a star: its pixels, their weights and their coordinates.</summary>
         private sealed record Window(int CentreX, int CentreY, int Radius, int[] Xs, int[] Ys, double[] Values, double[] Weights);
 
-        private Window? CutWindow(PointSource s, double radius, double saturationCut, double? atX = null, double? atY = null, float[]? plane = null)
+        // Cut to the ground (#2378): a window that reaches past it lacks those rows and columns, as one at the frame's edge does.
+        private Window? CutWindow(PointSource s, double radius, double saturationCut, in PixelRect ground, double? atX = null, double? atY = null, float[]? plane = null)
         {
             plane ??= _lum;
             var r = (int)Math.Clamp(Math.Ceiling(radius) + 2, Math.Ceiling(2.5 * lumPsf.Fwhm), MaxFitRadius);
@@ -2153,9 +2225,10 @@ public static class ClassicalStarRemover
             var cy = (int)Math.Round(atY ?? s.Y);
             // The window's rows and columns are known before a pixel is read, so its four arrays are made at their size.
             // Grown as lists and then copied, they cost three times that for every window of every star (#2345).
-            var (top, bottom) = (Math.Max(0, cy - r), Math.Min(_height - 1, cy + r));
-            var (left, right) = (Math.Max(0, cx - r), Math.Min(_width - 1, cx + r));
-            var count = Math.Max(0, bottom - top + 1) * Math.Max(0, right - left + 1);
+            var box = Square(ground, cx, cy, r, write: false);
+            var (top, bottom) = (box.Top, box.Bottom - 1);
+            var (left, right) = (box.Left, box.Right - 1);
+            var count = box.Width * box.Height;
             var xs = new int[count];
             var ys = new int[count];
             var vs = new double[count];
@@ -2359,11 +2432,11 @@ public static class ClassicalStarRemover
         // a sane separation and the pair explains the window decisively better than one star at the field's width and no
         // worse than the wide fit that called the source a knot; the pair is then subtracted, its fainter star as the
         // fit's companion. Null otherwise, and the source stays a knot.
-        private Fit? FitPair(PointSource s, LinearResult wide, double sigma)
+        private Fit? FitPair(PointSource s, LinearResult wide, double sigma, in PixelRect ground)
         {
             var fwhmPx = LumPsf(1.0).Fwhm;
             var radius = Math.Max(wide.Radius, 4.0 * fwhmPx);
-            if (CutWindow(s, radius, double.PositiveInfinity, wide.X, wide.Y) is not { } window
+            if (CutWindow(s, radius, double.PositiveInfinity, ground, wide.X, wide.Y) is not { } window
                 || FitNonlinear(window, _lumAlpha, _beta, wide.X, wide.Y, fitBeta: false, fitWidth: false, corr: _correction) is not { } single)
             {
                 return null;
@@ -2466,13 +2539,14 @@ public static class ClassicalStarRemover
                 CompanionY = cy2,
                 ChannelAmplitudes = new double[_channels],
                 CompanionAmplitudes = new double[_channels],
+                Ground = ground,
             };
             fit.SubtractRadius = (int)Math.Clamp(
                 Math.Ceiling(Math.Max(psf.RadiusAtLevel(fit.Amplitude, 0.1 * sigma), _correction is { } table ? table.Reach : 0.0)),
                 window.Radius, MaxSubtractRadius);
             for (var c = 0; c < _channels; c++)
             {
-                if (CutWindow(s, window.Radius, double.PositiveInfinity, px, py, _work[c]) is { } cw)
+                if (CutWindow(s, window.Radius, double.PositiveInfinity, ground, px, py, _work[c]) is { } cw)
                 {
                     var r = SolvePair(cw, ChannelPsf(c, 1.0), px, py, cx2, cy2, ChannelCorrection(c));
                     fit.ChannelAmplitudes[c] = double.IsFinite(r.A1) ? r.A1 : 0.0;
@@ -2752,7 +2826,7 @@ public static class ClassicalStarRemover
                 {
                     reach += Math.Sqrt((f.CompanionX - f.X) * (f.CompanionX - f.X) + (f.CompanionY - f.Y) * (f.CompanionY - f.Y));
                 }
-                var around = profileStar ? AnnulusMedian(f.X, f.Y, reach, reach + 4.0) : double.NaN;
+                var around = profileStar ? AnnulusMedian(f.X, f.Y, reach, reach + 4.0, _frame) : double.NaN;
                 var r = (int)Math.Ceiling(reach);
                 for (var y = Math.Max(0, cy - r); y <= Math.Min(_height - 1, cy + r); y++)
                 {
@@ -2875,7 +2949,7 @@ public static class ClassicalStarRemover
                     var radius = Math.Max(1.0, psf.Fwhm);
                     var holeRadius = f.Saturated ? Math.Max(radius, CoreRadius(f, sigma)) : radius;
                     var annulus = SkyAnnulus(ReachAt(f, sigma) + 2.0, Math.Max(holeRadius + 2.0, 3.0 * psf.Fwhm));
-                    var plateSky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0);
+                    var plateSky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0, _frame);
                     var r = (int)Math.Ceiling(holeRadius);
                     double sum = 0, sum2 = 0, holeSum = 0;
                     int count = 0, holeCount = 0;
@@ -2957,7 +3031,7 @@ public static class ClassicalStarRemover
         {
             var radius = Math.Max(1.5, psf.Fwhm);
             var annulus = SkyAnnulus(psf.RadiusAtLevel(f.Amplitude, sigma) + 2.0, radius + 2.0);
-            var sky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0);
+            var sky = AnnulusMedian(f.X, f.Y, annulus, annulus + 6.0, _frame);
             if (!double.IsFinite(sky))
             {
                 return null;
@@ -2981,18 +3055,17 @@ public static class ClassicalStarRemover
             return n > 0 && sum / Math.Sqrt(n) < -HoleSigma ? radius : null;
         }
 
-        // The plate's median over an annulus, absent pixels left out; NaN where nothing is present.
-        private double AnnulusMedian(double cx, double cy, double inner, double outer) => AnnulusMedianPlane(_lum, cx, cy, inner, outer);
+        // The plate's median over an annulus on the ground, absent pixels left out; NaN where nothing is present.
+        private double AnnulusMedian(double cx, double cy, double inner, double outer, in PixelRect ground)
+            => AnnulusMedianPlane(_lum, cx, cy, inner, outer, ground);
 
-        private double AnnulusMedianPlane(float[] plane, double cx, double cy, double inner, double outer)
+        private double AnnulusMedianPlane(float[] plane, double cx, double cy, double inner, double outer, in PixelRect ground)
         {
             var values = new List<float>();
-            var r = (int)Math.Ceiling(outer);
-            var x0 = (int)Math.Round(cx);
-            var y0 = (int)Math.Round(cy);
-            for (var y = Math.Max(0, y0 - r); y <= Math.Min(_height - 1, y0 + r); y++)
+            var box = Square(ground, (int)Math.Round(cx), (int)Math.Round(cy), (int)Math.Ceiling(outer), write: false);
+            for (var y = box.Top; y < box.Bottom; y++)
             {
-                for (var x = Math.Max(0, x0 - r); x <= Math.Min(_width - 1, x0 + r); x++)
+                for (var x = box.Left; x < box.Right; x++)
                 {
                     var d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
                     if (d2 >= inner * inner && d2 <= outer * outer && !IsAbsent(x, y) && float.IsFinite(plane[y * _width + x]))
@@ -3033,7 +3106,7 @@ public static class ClassicalStarRemover
                 var worst = double.PositiveInfinity;
                 for (var c = 0; c < _channels && !double.IsNaN(worst); c++)
                 {
-                    var sky = AnnulusMedianPlane(_work[c], cx, cy, annulus, annulus + 6.0);
+                    var sky = AnnulusMedianPlane(_work[c], cx, cy, annulus, annulus + 6.0, _frame);
                     var sigma = _channelRms[c][cy * _width + cx];
                     if (!double.IsFinite(sky) || !(sigma > 0))
                     {

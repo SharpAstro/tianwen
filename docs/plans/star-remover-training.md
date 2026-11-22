@@ -373,6 +373,16 @@ gradients; that is the owner's call once the report is in.
    the plate's measured lag-1 correlation (a three-tap kernel solved for it), so a filled hole has the
    plate's grain.
 
+**Parallel by tiles, and where that is written down.** Step 3 runs in tiles of 256 px, in four checkerboard
+phases whose tiles are fitted at once. The rule that keeps two tiles of a phase apart, and every reach it has
+to hold, is documented in one place: the class remark on `ClassicalStarRemover`. Since #2378 each tile's work
+reads and writes the working planes on its own ground alone (the tile grown by 128 px on each side, cut to the
+frame), so the rule holds by construction. The residual #2374 counted, two stars of one phase near facing tile
+edges sharing a few columns (more for a giant, worked from a plateau centre that can lie in the next tile), is
+gone: work that reached past its ground now loses those columns or rows instead of sharing them, and the same
+image and seed give the same plate on any number of threads. A master on which no tile's work reached past its
+ground gets the same plate, to the bit, as before; the five synthetic fields of the remover's tests did.
+
 **The report** (`tianwen dataset starless-plates`, a JSONL store and a markdown table, the shape of
 `gradient-report`), per master: stars found, subtracted, left as knots, inpainted; and four measures.
 

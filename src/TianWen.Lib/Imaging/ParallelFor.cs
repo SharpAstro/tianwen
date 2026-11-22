@@ -30,6 +30,22 @@ internal static class ParallelFor
     }
 
     /// <summary>
+    /// <see cref="Run(int, Action{int})"/> with at most <paramref name="maxDegreeOfParallelism"/> bodies at once; -1 is
+    /// as many as the scheduler runs, as there.
+    /// </summary>
+    public static void Run(int count, int maxDegreeOfParallelism, Action<int> body)
+    {
+        try
+        {
+            Parallel.For(0, count, new ParallelOptions { MaxDegreeOfParallelism = maxDegreeOfParallelism }, body);
+        }
+        catch (AggregateException wrapped) when (wrapped.InnerExceptions.Count > 0)
+        {
+            ExceptionDispatchInfo.Capture(wrapped.InnerExceptions[0]).Throw();
+        }
+    }
+
+    /// <summary>
     /// <paramref name="body"/> over [0, <paramref name="count"/>) in contiguous bands, a few per core, each given as its first
     /// index and one past its last: for a kernel whose rows are independent, so a band's set-up (a stackalloc, a span) is paid
     /// once a band rather than once a row. A kernel that only GATHERS into its own row, as a stack's fold does, gives the same

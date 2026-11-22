@@ -123,7 +123,10 @@ public sealed record StarlessPlateStatistics(
     float FieldWidthScale, float FieldBeta, float HoleNullRate, ImmutableArray<float> NoiseCorrelation, double Seconds,
     SpeckleReport? Speckles = null);
 
-/// <summary>What <see cref="ClassicalStarRemover.BuildAsync"/> returns: the starless plate and the record of what made it.</summary>
+/// <summary>
+/// What <see cref="ClassicalStarRemover.BuildAsync(Image, StarlessPlateOptions, Microsoft.Extensions.Logging.ILogger, System.Threading.CancellationToken)"/>
+/// returns: the starless plate and the record of what made it.
+/// </summary>
 /// <param name="Plate">The starless plate, same shape, units, pedestal and metadata as the input.</param>
 /// <param name="Subtracted">Pixels a subtracted star's model reached above a tenth of the local sigma.</param>
 /// <param name="Inpainted">Pixels replaced by the fill.</param>
