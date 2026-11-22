@@ -882,6 +882,64 @@ public class RemoteSessionMirrorTests
     }
 
     [Fact]
+    public async Task ANodeOnThisComputersClockIsNotMovedByARoundTripThatWasSlowOneWay()
+    {
+        // #1569. The offset is NTP's: the node's stamp against the middle of the round trip. A request that waited (a busy
+        // machine's thread pool) and an answer that did not put the stamp after the middle, so a node on this very clock
+        // read as 300 ms ahead and its exposure's start was moved 300 ms back: across a second's edge in the parity
+        // test, whose node and mirror share the system clock. Half the round trip is the most that sample can be wrong
+        // by, so an offset no larger than that is not told from zero, and is not applied.
+        var started = new DateTimeOffset(2026, 7, 26, 19, 59, 30, TimeSpan.Zero);
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        session.CameraStates.Returns([new CameraExposureState(0, started, TimeSpan.FromSeconds(120), 7, "L", 980,
+            CameraState.Exposing, 15.0, false)]);
+        FakeTimeProviderWrapper? clock = null;
+        var (mirror, _, mirrorsClock) = BuildMirrorWithClock(_ =>
+        {
+            // The request's leg takes 600 ms; the node, on the same clock, stamps its answer, which arrives at once.
+            var shared = clock.ShouldNotBeNull();
+            shared.Advance(TimeSpan.FromMilliseconds(600));
+            return Json(ResponseEnvelope<SessionStateDto>.Ok(SessionStateDto.FromSession(session, nodeNow: shared.GetUtcNow())));
+        });
+        clock = mirrorsClock;
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.CameraStates.ShouldHaveSingleItem().ExposureStart.ShouldBe(started);
+    }
+
+    [Theory]
+    [InlineData(1)]      // just past half the round trip: the smallest offset that is one
+    [InlineData(-1000)]  // a node a second behind at the middle
+    public async Task AnOffsetLargerThanHalfItsRoundTripIsStillApplied(int nodeAheadOfTheHalfMs)
+    {
+        // The other side of the same edge: past half the round trip the two clocks do differ, and the start is moved by
+        // what was measured, the sample's error with it (which is the estimate's, and was always there).
+        var started = new DateTimeOffset(2026, 7, 26, 19, 59, 30, TimeSpan.Zero);
+        var session = Observing(Substitute.For<ISessionTelemetry>());
+        session.CameraStates.Returns([new CameraExposureState(0, started, TimeSpan.FromSeconds(120), 7, "L", 980,
+            CameraState.Exposing, 15.0, false)]);
+        FakeTimeProviderWrapper? clock = null;
+        var (mirror, _, mirrorsClock) = BuildMirrorWithClock(_ =>
+        {
+            // A round trip of 600 ms, all of it the request's leg, and a node whose clock reads the given amount past
+            // (or short of) what a clock on the same time would: so it reads 300 ms more than that ahead of the middle.
+            var shared = clock.ShouldNotBeNull();
+            shared.Advance(TimeSpan.FromMilliseconds(600));
+            var nodeNow = shared.GetUtcNow() + TimeSpan.FromMilliseconds(nodeAheadOfTheHalfMs);
+            return Json(ResponseEnvelope<SessionStateDto>.Ok(SessionStateDto.FromSession(session, nodeNow: nodeNow)));
+        });
+        clock = mirrorsClock;
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        var measured = TimeSpan.FromMilliseconds(300 + nodeAheadOfTheHalfMs);
+        mirror.CameraStates.ShouldHaveSingleItem().ExposureStart.ShouldBe(started - measured);
+    }
+
+    [Fact]
     public async Task ACameraThatHasNotStartedAnExposureIsNotShiftedByTheClockSkew()
     {
         // A camera reports DateTimeOffset.MinValue until its first exposure (the whole of Cooling and rough focus). A node
