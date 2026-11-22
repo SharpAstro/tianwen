@@ -138,7 +138,12 @@ public sealed record ExplorerFileProperties
         DateTimeOffset? dateTaken = null;
         try
         {
-            dateTaken = new DateTimeOffset(new DateTime(hdu.ObservationDate.Ticks, DateTimeKind.Utc));
+            // A missing DATE-OBS may come back as the default (year 1) rather than throw: that is no date taken.
+            var observed = hdu.ObservationDate;
+            if (header.ContainsKey("DATE-OBS") && observed.Ticks > 0)
+            {
+                dateTaken = new DateTimeOffset(new DateTime(observed.Ticks, DateTimeKind.Utc));
+            }
         }
         catch (Exception)
         {
