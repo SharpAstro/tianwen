@@ -95,7 +95,7 @@ Full rules: `docs/architecture/sibling-builds-and-releases.md`; the org-wide ver
 - **One property, `UseLocalSiblings`, switches all of them to ProjectReference, and only when EVERY sibling folder exists
   under its repo's current name.** `dotnet msbuild src/TianWen.Lib/TianWen.Lib.csproj -getProperty:UseLocalSiblings`;
   override with `-p:UseLocalSiblings=false`. CI always uses packages.
-- A sibling gated on it must be in its `Exists(...)` list and in `open-vs.ps1`'s project list (`LocalSiblingsListsTests`).
+- A sibling gated on it must be in its `Exists(...)` list (unchecked) and in `open-vs.ps1`'s project list (`LocalSiblingsListsTests` checks that half).
 - No CPM opt-outs in `src/`. Never a local nupkg feed or `dotnet pack` to skip a release: commit, push, wait for NuGet.
 - `TianWen.UI.Web` is in `TianWen.slnx`; only `.E2E` stays out (run it explicitly).
 - A new CI job that builds or publishes needs both halves of the `VERSION_PREFIX` hand-off and `DOTNET_NOLOGO: 1`.

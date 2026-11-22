@@ -28,7 +28,12 @@ public partial class LocalSiblingsListsTests
     [GeneratedRegex(@"<Project Path=""\.\./(?<project>[^""]+\.csproj)""")]
     private static partial Regex OpenedProject { get; }
 
+    // A <Project> inside an XML comment is not loaded by Visual Studio, so it must not count as opened.
+    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
+    private static partial Regex XmlComment { get; }
+
     [Fact]
+    [Trait("Category", "Invariant")]
     public void EverySiblingTheBuildSwitchesToSourceIsInTheSolutionVisualStudioOpens()
     {
         if (ChromeMeasuresThroughTheEngineTests.FindSourceRoot() is not { } src)
@@ -43,12 +48,12 @@ public partial class LocalSiblingsListsTests
         var gate = Gate.Match(props);
         gate.Success.ShouldBeTrue("Directory.Build.props still sets UseLocalSiblings from one condition");
         var gated = GatedProject.Matches(gate.Groups["gate"].Value).Select(static m => m.Groups["project"].Value.Replace('\\', '/')).ToArray();
-        // The premise: the gate was found and read. It holds 28 projects today, and a pattern that stopped matching
-        // would leave this test comparing nothing with something.
-        gated.Length.ShouldBeGreaterThanOrEqualTo(28, "every Exists(...) of the gate was read");
+        // The premise: every Exists(...) of the gate was read, so a pattern that stopped matching cannot leave this
+        // test comparing nothing with something.
+        gated.Length.ShouldBeGreaterThan(0, "the gate holds at least one sibling");
         gate.Groups["gate"].Value.Split("Exists(").Length.ShouldBe(gated.Length + 1, "and none of them was missed");
 
-        var opened = OpenedProject.Matches(script).Select(static m => m.Groups["project"].Value).ToHashSet(StringComparer.Ordinal);
+        var opened = OpenedProject.Matches(XmlComment.Replace(script, string.Empty)).Select(static m => m.Groups["project"].Value).ToHashSet(StringComparer.Ordinal);
 
         gated.Where(project => !opened.Contains(project)).ShouldBeEmpty(
             "a sibling the build switches to source is missing from open-vs.ps1's Siblings folder: add it there");

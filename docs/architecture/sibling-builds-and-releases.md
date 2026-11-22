@@ -42,8 +42,9 @@ anymore.** Trade-off: a missing checkout of *any* listed sibling flips the whole
 
 **`open-vs.ps1` generates `TianWen.local.slnx`** at the repo root (gitignored) by re-rooting
 `src/TianWen.slnx` and appending a `/Siblings/` folder, so Go To Definition lands in sibling *source*.
-Its project list **must** match the `UseLocalSiblings` `Exists(...)` conjunction and **nothing enforces
-that**: it had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs`
+Its project list **must** contain every project of the `UseLocalSiblings` `Exists(...)` conjunction, and
+`LocalSiblingsListsTests` enforces that direction (gate subset of script). The gaps left: the script may list
+more than the gate, and an entry whose project no longer exists on disk is not checked. It had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs`
 now) and was missing three others. A generated solution with unresolvable entries loads with them
 silently unloaded rather than failing, so touch one file and re-read the other.
 
@@ -218,8 +219,9 @@ The rules:
 - **No CPM opt-outs left in `src/`**, and a new one needs a real technical justification, not "this
   project is not in the solution" (being outside a solution never had any bearing on CPM).
 - **A sibling gated on `UseLocalSiblings` must also be in that property's own `Exists(...)` list**, and
-  `open-vs.ps1`'s project list must match the same conjunction -- nothing enforces either, and a
-  generated solution with unresolvable entries loads with them silently unloaded.
+  `open-vs.ps1`'s project list must contain the same conjunction -- `LocalSiblingsListsTests` enforces the
+  `open-vs.ps1` half; nothing yet checks that a ProjectReference gated on `UseLocalSiblings` has its project in the
+  `Exists(...)` list. A generated solution with unresolvable entries loads with them silently unloaded.
 - **`TianWen.UI.Web` is IN `TianWen.slnx`; only `.E2E` stays out** (`IsTestProject` + Playwright, so a
   solution-wide `dotnet test` would sweep a suite needing a browser) and `dotnet.yml` compiles it. The
   web host consumes `UI.Abstractions` from `.razor`, which no `--include=*.cs` grep sees and no
