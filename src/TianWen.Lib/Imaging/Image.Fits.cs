@@ -365,8 +365,9 @@ public partial class Image
         string fileName, byte[] header, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
     {
         // Bytes with no END card are not a header and are never handed to the parser: a cached header is whole
-        // by construction (FitsHeaderBlocks.ReadThroughEnd), so such bytes are a damaged index, and before its
-        // 6.4 patch FITS.Lib read a header that ended before its END for ever (#1529).
+        // by construction (FitsHeaderBlocks.ReadThroughEnd), so such bytes are a damaged index, and until
+        // FITS.Lib#11 (a 6.4 patch) FITS.Lib read a header that ended before its END for ever (#1529). The index
+        // refuses such an entry itself (FitsHeaderIndex.TryGet); this is the same answer for any other caller.
         if (!Calibration.FitsHeaderBlocks.HoldsEnd(header))
         {
             frameInfo = null;
