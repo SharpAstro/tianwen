@@ -9,6 +9,8 @@
 # to nothing and VS silently loaded an unloadable-project solution. LAN.Lib,
 # SharpAstro.Codecs and WebGl.Renderer were simply missing. A generated file is not
 # self-checking, so re-read Directory.Build.props when you touch either one.
+# Since #560 a test reads both: LocalSiblingsListsTests fails when a project of the
+# switch is missing here. (It does not check that an entry here still exists on disk.)
 #
 # NB: the stb_image port itself (StbImageSharp.csproj) is deliberately not listed.
 # TianWen consumes only the SharpAstro.* codecs, not the port.
