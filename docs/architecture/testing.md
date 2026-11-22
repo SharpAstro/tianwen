@@ -78,6 +78,13 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
 - **What a test allocates is measured, not guessed**: `TIANWEN_TEST_COST_FILE` and `tools/test-cost-report.py`
   (`docs/architecture/ci-test-times.md`, "What the tests allocate"). Read bytes and collection counts; a time from a
   busy machine says nothing.
+- **A zero or sub-kilobyte allocation bound is asserted on the least of several readings**
+  (`AllocationReadings.Least`, #1331), and every reading is written to the test's output. An allocation the call
+  makes shows in every pass, so a call that allocates can never read zero; a one-off landing on the measuring
+  thread from elsewhere shows in one. `RaDecCellEnumerationTests.ANineCellWalkAllocatesNothing` read 5,336 B once
+  in 87 full-suite runs for a walk with no allocating path. What the one-off is, is not known: tiered
+  compilation's promotion was the guess, and an allocation-free walk called 60,000 times in a fresh process never
+  read anything but 0 B. A bound with room for a few kilobytes ("less than half a frame") needs none of this.
 - **A test that takes 30 s or more on a CI runner is `[Trait("Category", "Heavy")]`** (the owner, 2026-10-10): the PR legs
   filter it out (`dotnet.yml`) and `heavy-tests.yml` runs it nightly against main and on dispatch; a local `dotnet test`
   runs everything. Tag by MEASUREMENT on a green x64 leg (its log prints each test's time), never by guess: 28 such tests
