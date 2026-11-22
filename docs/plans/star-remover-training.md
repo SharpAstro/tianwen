@@ -757,7 +757,8 @@ leftover fractions are not to be compared**, and a plate's noise as its differen
 store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
 
 **What the new plates change in R4h's training pairs: almost nothing on six of the seven sessions read, and on
-Centaurus A what the guard changed** (`plate_pairs_compare.py`). R4h's export line
+Centaurus A the drawn stars at 5 times the noise and over, and its input draws** (`plate_pairs_compare.py`). R4h's
+export line
 (synth32's, with its frozen binary and options) was run over seven of its sessions, once from `starless` and once
 from `starless-2449`. The run from `starless` gives synth32's own 2,800 tiles back to the byte, so the two runs
 differ by the plates alone. Both choose the same 40 cells in every session. Differences are in the tile's own noise
@@ -799,10 +800,20 @@ drawn from the rows themselves, and on six of the seven sessions nearly all of t
 the rows differ, 1.8 % on eta Carinae); on Centaurus A (23,783 of 68,433 rows, 34.8 %) they are not, which is the
 table's 98.8 % at the same place and its amplitude ratios of 0.274 and 1.386.
 
+**Centaurus A's change is measured to be the earlier store's, not the clip's or the refill's.** The same export line
+was run on that one session from `starless-1867`, the store built with the guard and before the clip and the refill.
+Against the run from `starless` it gives the table's row again: the inputs differ by 0.098 at the median cell and
+0.327 at the worst, the star count is the same in 8 of the 160 draws, 98.8 % of the stars are at the same place, and
+the amplitude of those at 5 times the noise and over spreads from 0.275 to 1.386. Against the run from
+`starless-2449` nothing of the stars is left to differ: the same count in all 160 draws, every one of the 115,615
+stars at the same place, every amplitude ratio 1.000, and inputs and targets within 0.003 at the median cell (0.184
+at the worst, a cell whose target moved by as much). What `starless-1867` has over `starless` is the guard, by that
+store's own account; no build with the guard alone taken out was run.
+
 So, on six of the seven sessions, the pairs are nearly the same through the line's own design: it draws its
 backgrounds (`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and it
 draws its stars from a list the builder's changes left almost row for row. Centaurus A is the exception, and its
-change is the guard's, not the refill's.
+change was already in the store of 2026-11-01.
 
 **R4g's plate targets barely change either.** R4g's extra export (its 126 bright cells of ten sessions, the stars
 drawn on the plate itself, `--background plate`) was run the same way from both roots; the run from `starless` gives
@@ -815,7 +826,8 @@ over nebula, which spoke against R4g's targets, is another defect and the refill
 
 **What it leaves for an arm.** Neither kind of arm run so far would see the new plates: R4h's line draws its
 backgrounds and would train on R4h's data, on six of the seven sessions, to within a few hundredths of the noise
-(Centaurus A's inputs differ by 0.098 at the median cell and 0.327 at the worst, by the guard, not the refill), and
+(Centaurus A's inputs differ by 0.098 at the median cell and 0.327 at the worst, all of it already between
+`starless` and `starless-1867`), and
 R4g's bright cells hold almost none of what the refill takes. An arm of R4h's line on the new plates would
 therefore test the guard and the builder's other changes on the masters they move (33 of the 138 by their star
 counts), and not the refill, which changes no star row on the Tarantula session and almost no pair; none is
