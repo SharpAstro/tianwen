@@ -400,7 +400,12 @@ dark pixel the input holds, where no model took light, is left. A plate's record
 
 Read on that master against the plate main built (the noise from neighbour differences, so the stored plate reads
 13.1 %, 29.8 % and 3.0 % this way): of the stars whose core main left uninpainted, the pit falls from 13.1 % to
-0.7 % of the 10 to 30 sigma ones and from 29.8 % to 0.5 % of the 30 to 100 sigma ones, under the random spots' 3.0 %.
+0.7 % of the 10 to 30 sigma ones and from 29.8 % to 0.5 % of the 30 to 100 sigma ones, under the random spots' 3.0 %. That the 24 % is not noise: the trigger's dip half alone, read with the same
+neighbour-difference noise on main's plate, fires at 2.85 % in any channel at 6,000 random star-free spots, against 56 %
+of the subtracted 10 to 30 sigma stars and 99 % of the 30 to 100 sigma ones (input less plate over depth is near automatic
+at a bright subtracted core, so the dip half is the whole trigger there). A star refilled for a dug pixel alone is not
+retested for it in later sweep rounds (`dugAlone`), which is why the redraws, and the holes below, are fewer than a
+retest every round would give.
 15,661 stars are refilled (24 % of the subtracted), the inpaint fraction goes from 8.05 % to 10.91 %, and the 9 to
 41 px band of the crowded cells moves by 0.2 at most. Holes in the 10 to 50 sigma bands rose from 106 to 250 of
 16,474 stars, against the plate's null of 13.9 %. 109 of the 186 stars newly read as holes there were refilled by the
