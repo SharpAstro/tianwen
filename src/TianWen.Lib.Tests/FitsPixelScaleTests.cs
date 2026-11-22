@@ -325,6 +325,31 @@ public class FitsPixelScaleTests
             }
         });
 
+    /// <summary>Adds cards from their literal 80-column images, for a card whose exact text matters:
+    /// <c>AddValue(key, 80.0, ...)</c> formats the double as <c>80</c>, an integer card, so it cannot
+    /// write the float card <c>80.0</c> that other software does.</summary>
+    private static void AddLiteralCards(string path, params string[] cardImages)
+        => MutateFirstImageHeader(path, header =>
+        {
+            foreach (var image in cardImages)
+            {
+                header.AddCard(new HeaderCard(image));
+            }
+        });
+
+    [Fact]
+    public void AFloatApertureCardIsReadAsTheApertureLikeAFloatFocalLength()
+    {
+        // The card's text is literally "80.0", a float card, which GetIntValue does not coerce (it
+        // returns its default, -1): read through the integer getter the aperture was absent.
+        var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "float-aptdia.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(path);
+        AddLiteralCards(path, "APTDIA  =                 80.0 / aperture diameter [mm]");
+
+        Image.TryReadFitsHeader(path, out var read).ShouldBeTrue();
+        read.Meta.Aperture.ShouldBe(80);
+    }
+
     private static void MutateFirstImageHeader(string path, Action<Header> mutate)
     {
         // An HDU's image data is tiled lazily off the stream it was read from, so the SOURCE must
