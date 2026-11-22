@@ -388,6 +388,13 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return;
         }
 
+        // A project file that cannot be read now is someone's edit caught half way. It is left as it is: this run's
+        // keys are found again by the next run, and a person's edit is not.
+        if ((await WorkbenchProjectFile.ReadAsync(folder, cancellationToken)).Project is null)
+        {
+            return;
+        }
+
         await SharedFile.UpdateJsonAsync(
             WorkbenchProjectFile.PathIn(folder),
             WorkbenchJsonContext.Default.WorkbenchProject,

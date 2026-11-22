@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -129,6 +130,9 @@ internal sealed class AddOperation(string id, bool takesAnother = false) : Opera
 {
     public int Runs { get; private set; }
 
+    /// <summary>Called at the start of each run, after it is counted: what happens elsewhere while a step works.</summary>
+    public Action? DuringRun { get; set; }
+
     public override OperationDescription Description { get; } = new(
         id, Version: 1, Title: "Add", Verb: "none", OperationOutputKind.Stored,
         ExtraInputs: takesAnother ? [new OperationInputRole("other", "The image added to this one.")] : [],
@@ -145,6 +149,7 @@ internal sealed class AddOperation(string id, bool takesAnother = false) : Opera
         CancellationToken cancellationToken)
     {
         Runs++;
+        DuringRun?.Invoke();
         if (!inputs[0].TryRead(out var image, out var wcs, out var refusal))
         {
             return ValueTask.FromResult(OperationOutcome.BadInput(refusal));
@@ -168,6 +173,30 @@ internal sealed class AddOperation(string id, bool takesAnother = false) : Opera
         say?.Invoke($"added {settings.Amount}");
         OperationOutput.Write(new Image([plane], BitDepth.Float32, maxValue: 100f, minValue: 0f, pedestal: 0f, imageMeta: image.ImageMeta), outputPath, wcs);
         return ValueTask.FromResult(OperationOutcome.Done);
+    }
+}
+
+/// <summary>A stored operation that writes half a result and then fails, and counts how often it ran.</summary>
+internal sealed class BreakOperation : Operation<AddSettings>
+{
+    public const string WhyItFails = "the fit did not converge";
+
+    public int Runs { get; private set; }
+
+    public override OperationDescription Description { get; } = new(
+        "break", Version: 1, Title: "Break", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: []);
+
+    protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override ImmutableArray<string> CommandLine(AddSettings settings, IReadOnlyList<string> inputs, string output)
+        => [Description.Id, inputs[0], "-o", output];
+
+    public override ValueTask<OperationOutcome> RunAsync(AddSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        CancellationToken cancellationToken)
+    {
+        Runs++;
+        File.WriteAllText(outputPath, "half a result");
+        return ValueTask.FromResult(OperationOutcome.Failed(WhyItFails));
     }
 }
 
@@ -373,6 +402,129 @@ public sealed class WorkbenchRunnerTests : IDisposable
         (await File.ReadAllBytesAsync(master, ct)).ShouldBe(original);
         intoStore.Refusal.ShouldNotBeNull().ShouldContain("never writes into the step store");
         File.Exists(Path.Combine(folder, StepStore.FolderName, "mine.fits")).ShouldBeFalse();
+    }
+
+    // A run can last minutes, and a person (or the application) may save the project meanwhile. What they saved is
+    // kept: the run puts its keys only on the edits that are still the ones it planned (the review of #2470).
+    [Fact(Timeout = 120_000)]
+    public async Task AnEditMadeToTheProjectFileDuringARunSurvivesItAndTakesNoKeyOfAResultItDidNotMake()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, master) = await ProjectAsync("meanwhile", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", m, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("add", Amount(2)))));
+        // What is saved while the first step runs: another amount for the second edit, and one more image.
+        var saved = JsonSerializer.Serialize(
+            WorkbenchFixtures.Project(
+                WorkbenchFixtures.Picture("m", master, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("add", Amount(9))),
+                WorkbenchFixtures.Picture("late", master, WorkbenchFixtures.Edit("add", Amount(7)))),
+            WorkbenchJsonContext.Default.WorkbenchProject);
+        _add.DuringRun = () =>
+        {
+            if (_add.Runs == 1)
+            {
+                File.WriteAllText(WorkbenchProjectFile.PathIn(folder), saved);
+            }
+        };
+
+        var report = await _runner.RunAsync(folder, cancellationToken: ct);
+
+        States(report).ShouldBe([StepState.Ran, StepState.Ran], "the run made what it had planned");
+        var onDisk = (await WorkbenchProjectFile.ReadAsync(folder, ct)).Project.ShouldNotBeNull();
+        onDisk.Images.Select(static image => image.Name).ShouldBe(["m", "late"], "the image added meanwhile is still there");
+        var changed = onDisk.Images[0].Edits[1];
+        changed.Settings.ShouldNotBeNull()["amount"].ShouldNotBeNull().GetValue<float>().ShouldBe(9f, "and so is the changed setting");
+        changed.Key.ShouldBeNull("an edit changed meanwhile takes no key of a result it did not make");
+        onDisk.Images[0].Edits[0].Key.ShouldBe(report.Images[0].Steps[0].Key, "an edit that is still the planned one takes its key");
+        onDisk.Images[1].Edits[0].Key.ShouldBeNull();
+
+        // The next run works on what was saved.
+        _add.DuringRun = null;
+        var next = await _runner.RunAsync(folder, cancellationToken: ct);
+        States(next, image: 0).ShouldBe([StepState.Kept, StepState.Ran]);
+        States(next, image: 1).ShouldBe([StepState.Ran]);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AProjectFileThatCannotBeReadWhenARunEndsIsLeftAsItIs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("half-edit", m => WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", m, WorkbenchFixtures.Edit("add", Amount(1)))));
+        const string halfWay = "{ \"images\": [ { \"name\": \"m\", ";
+        _add.DuringRun = () => File.WriteAllText(WorkbenchProjectFile.PathIn(folder), halfWay);
+
+        var report = await _runner.RunAsync(folder, cancellationToken: ct);
+
+        States(report).ShouldBe([StepState.Ran]);
+        (await File.ReadAllTextAsync(WorkbenchProjectFile.PathIn(folder), ct)).ShouldBe(halfWay, "an edit caught half way is not written over with the run's own copy");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AnExportThatCannotBeWrittenIsARefusalAndTheRunIsStillRecorded()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("export-refused", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("stored", m, WorkbenchFixtures.Edit("add", Amount(1))),
+            WorkbenchFixtures.Picture("derived", m, WorkbenchFixtures.Edit(CropOperation.Id, new JsonObject { ["x"] = 0, ["y"] = 0, ["width"] = 10, ["height"] = 10 }))));
+        // A folder stands where the file should go, so nothing can be written under that name.
+        var taken = Directory.CreateDirectory(Path.Combine(folder, "taken.fits")).FullName;
+
+        var stored = await _runner.RunAsync(folder, new WorkbenchRunOptions { Image = "stored", ExportPath = taken }, ct);
+        var derived = await _runner.RunAsync(folder, new WorkbenchRunOptions { Image = "derived", ExportPath = taken }, ct);
+        var overProject = await _runner.RunAsync(folder, new WorkbenchRunOptions { Image = "stored", ExportPath = WorkbenchProjectFile.PathIn(folder) }, ct);
+
+        stored.Refusal.ShouldNotBeNull().ShouldContain("cannot be written");
+        stored.Exported.ShouldBeNull();
+        stored.Succeeded.ShouldBeFalse();
+        derived.Refusal.ShouldNotBeNull().ShouldContain("cannot be written");
+        Directory.Exists(taken).ShouldBeTrue();
+        overProject.Refusal.ShouldNotBeNull().ShouldContain("never writes over the project file");
+        var project = (await WorkbenchProjectFile.ReadAsync(folder, ct)).Project.ShouldNotBeNull("the project file is still a project");
+        project.Images[0].Edits[0].Key.ShouldBe(stored.Images[0].Steps[0].Key, "the step that ran is recorded, whatever became of the export");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AnOriginalThatCannotBeReadIsARefusalOfThatImageAndNeverAThrow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, master) = await ProjectAsync("unreadable", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("held", m, WorkbenchFixtures.Edit("add", Amount(1)))));
+        // A name that will not open as a file has no key: a folder is refused as a permission is, and a missing file as an I/O error.
+        StepKey.OfFile(folder).ShouldBeEmpty();
+        StepKey.OfFile(Path.Combine(folder, "none.fits")).ShouldBeEmpty();
+
+        WorkbenchReport status;
+        await using (new FileStream(master, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            // Another program holds the original and shares nothing.
+            status = await _runner.StatusAsync(folder, cancellationToken: ct);
+        }
+
+        status.Images[0].Refusal.ShouldNotBeNull().ShouldContain("cannot be read");
+        States(status).ShouldBe([StepState.Blocked]);
+        status.Succeeded.ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AStepThatFailsLeavesNothingInTheStoreAndIsTriedAgainNextTime()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var breaking = new BreakOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([breaking, _add]));
+        var (folder, _) = await ProjectAsync("failed", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", m, WorkbenchFixtures.Edit("break"), WorkbenchFixtures.Edit("add"))));
+        var store = Path.Combine(folder, StepStore.FolderName);
+
+        var report = await runner.RunAsync(folder, cancellationToken: ct);
+
+        States(report).ShouldBe([StepState.Refused, StepState.Blocked]);
+        report.Images[0].Steps[0].Message.ShouldBe(BreakOperation.WhyItFails);
+        report.Images[0].Steps[0].Output.ShouldBeNull();
+        Directory.GetFiles(store).ShouldBeEmpty("no result, and no index naming one");
+        Directory.GetFileSystemEntries(Path.Combine(store, ".staging")).ShouldBeEmpty("the half-written result went with its staging folder");
+        _add.Runs.ShouldBe(0, "the step after a failed one does not run");
+
+        (await runner.RunAsync(folder, cancellationToken: ct)).Images[0].Steps[0].State.ShouldBe(StepState.Refused);
+        breaking.Runs.ShouldBe(2, "nothing was kept, so it is tried again");
     }
 
     [Fact(Timeout = 120_000)]
