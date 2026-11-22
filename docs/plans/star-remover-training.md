@@ -640,6 +640,111 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
   star, which teaches a net to leave one. Either such sites are kept out of at-site placement or the speckle teacher
   outweighs them.
 
+#### The store rebuilt with the dug-core refill (2026-11-23)
+
+The owner's "3. yes" of 2026-11-22 (below, "What the crowded grain is ..."): the builder's residue fixed together with
+the tile clip, then the plates rebuilt once with the build's commit beside them. Nothing here is an arm: nothing is
+registered, exported or scored on the new plates.
+
+**What was built.** The 138 sessions the export trains on, by a frozen build of main at the merge of PR #2454 (the
+dug-core refill, #2449), into a root of its own beside the store's (`starless-2449`; its
+`stats/starless-plates.provenance.jsonl` holds the commit and the builder's options). 138 of 138 plates, none failed,
+4 h 48 min. The store's own `starless` root stays as it is: it was built on 2026-10-13 and 14, and the current line
+reads it, R4h's and R4i's exports among them. PR #2460, merged after that build, adds a test's switch for the order a
+phase's tiles are visited in and leaves a plate's build as it was (read off its diff; no plate was rebuilt to show
+it).
+
+**Three builder changes separate it from `starless`, and one of them is material.** Read with
+`plate_store_compare.py` on the stores' own report lines, and on the Tarantula session of 2024-10-02 by its pixels:
+
+- **The guard of #1867** (a diverged fit is refused before it is subtracted; the store of 2026-11-01,
+  `starless-1867`, was built with it).
+  Between `starless` and `starless-1867`, over the 201 masters both hold, the speckle rates do not move (2.47 % and
+  5.30 % of the 0 to 20 and 20 to 100 sigma sites against 2.47 % and 5.31 %), the inpaint fraction changes by 0.00 at
+  the median and by more than 0.05 points on one master, and the Tarantula session's plate is the same to the byte.
+  Star counts differ on 33 of the 138 masters, by 280 of 68,433 found at most (Centaurus A, 2023-04-02). There the
+  rebuilt plate keeps 248 sources the stored one had subtracted (`plate_kept_now.py`): threshold detections (median
+  significance 5.0 in the stored list), 5 % of them in the inner third of the frame, the rest toward its edge, and
+  the 1:1 crops of the fullest cells show the low-coverage strips at the frame's top, not stars. Against
+  `starless-1867` 34 remain, at the finder's threshold on both plates.
+- **The tile clip (#2378) and whatever else changed before the refill.** The plate main built just before the refill
+  differs from the stored one in 8.1 % of its pixels, in 0.06 % by more than one sigma, and in 40 of 67,576 star
+  rows.
+- **The refill (#2449).** 9.1 % of the pixels, 3.95 % by more than one sigma.
+
+**The check on the plan's own master.** The rebuilt store's plate of the Tarantula session of 2024-10-02 is the same
+to the byte as the one the figures of "A dug core is refilled" above were read on (the plate, the star list, the
+stars plate and both masks), and the pit read against the stored plate repeats: 13.1 % and 29.8 % to 0.7 % and 0.3 %
+on the stars whose core the stored plate left uninpainted, under the random spots' 3.0 %.
+
+**The store against `starless`, on the builder's own statistics** (`plate_store_compare.py`; the 138 masters, 7.94
+million subtracted stars on each side):
+
+- **1,317,640 dug cores are refilled, 16.6 % of the subtracted stars.**
+- **Speckles** (a core pixel more than 4 sigma under the sky 6 to 12 px out), summed: 2.21 % to 0.45 % of the 0 to 20
+  sigma sites, 5.56 % to 1.45 % of the 20 to 100, 0.83 % to 0.49 % of the 100 to 1,000. By the texture under the
+  star, the median over masters against the class's own null, as the table of 2026-10-03 above has it:
+
+  | Band | Smooth | Textured | Strongly textured |
+  |---|---|---|---|
+  | 0-20 | 1.2 to 0.2 against 0.2 (116 to 44 of 138 over twice) | 4.7 to 0.7 against 1.8 (52 to 7 of 87) | 14.8 to 5.8 against 14.6 (8 to 1 of 33) |
+  | 20-100 | **4.1 to 0.9 against 0.2 (131 to 105 of 138)** | 20.3 to 4.4 against 2.7 and 2.9 (34 to 17 of 42) | 33.8 to 14.9 against 18.9 and 19.3 (3 to 1 of 6) |
+  | 100-1000 | 0.5 to 0.3 against 0.2 (90 to 56 of 138) | 2.2 to 1.9 against 3.1 (1 of 11 both) | |
+
+  On smooth sky a dark pixel is left at about one star in 110 of significance 20 to 100, where it was one in 24; the
+  null is one in 500. The measure reads 3 px round the star and the trigger 1.5 px; whether what is left sits between
+  the two is not measured.
+- **The price in drawn pixels.** A plate's inpaint fraction grows by 1.0 point at the median (5.14 % to 6.44 %), by
+  2.8 at the 90th percentile and by 8.3 at most (eta Carinae at 135 mm, 2022-12-24: 24.1 % to 32.3 %, 66,258 of its
+  185,536 subtracted stars refilled). Four masters grow by more than 5 points and three are over 25 % inpainted where
+  one was. By band, the stars whose core is drawn: 14 % to 24 % (5 to 10 sigma), 27 % to 49 % (10 to 20), 53 % to
+  79 % (20 to 50), 91 % to 98 % (50 to 100). "Where the hole question lands" above names the case: filled cores so
+  many that they shape what a net calls background.
+- **Holes** (a core whose mean sits low) rise in every band, 25,757 to 37,371 in all (0.19 to 1.62 % of a band's
+  stars before, 0.33 to 1.87 % after), against a null of 6.8 % at the median master, as on the Tarantula session.
+
+**What a refilled core looks like** (`plate_refill_cores.py`: the mean within 2 px less the median 6 to 10 px out,
+in widths of the same reading at 6,000 star-free spots of the plate; "bright" is over that null's 99.5th percentile,
+which noise gives 0.5 %). Four masters, the stars refilled on the rebuilt plate and not inpainted on the stored one:
+
+| master | star width (FWHM) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
+|---|---|---|---|---|---|---|---|
+| eta Carinae at 135 mm, 2022-12-24 | 1.9 px | 46,644 | +0.39 to +0.42 | 0.0 to 0.0 % | +0.63 to +0.48 | 0.1 to 0.0 % | +0.5, 0.0 % |
+| Centaurus A, 2023-04-02 | 2.5 px | 8,164 | +0.78 to +1.23 | 0.2 to 1.0 % | +0.86 to +1.53 | 0.2 to 2.5 % | +0.8 to +0.9, 0.0 to 0.1 % |
+| Vela SNR P5, 2024-02-10 | 2.6 px | 8,302 | +1.35 to +1.64 | 1.4 to 5.2 % | +1.51 to +1.88 | 2.9 to 8.9 % | +1.4 to +1.8, 2.5 to 7.0 % |
+| Running Chicken (QHY294C), 2026-02-20 | 3.0 px | 11,668 | +0.87 to +1.78 | 0.2 to 1.8 % | +0.71 to +1.86 | 0.2 to 1.8 % | +0.8 to +0.9, 0.1 to 0.3 % |
+
+On the sharpest of the four the refilled core keeps its level. On the three with wider stars it reads 0.3 to 1.2
+widths brighter than before, and on two of them brighter than the cores the sweep did not touch (+1.2 to +1.9
+against +0.8 to +0.9). The fill is drawn from the disc's surroundings, and those carry the positive residue of a wing
+the profile under-fits, which the pit had offset in the mean. At 1:1 (the crops the script writes, looked at for the
+first and the last master) the dark pixels are gone on both; on the wider-star master each refilled core is a soft
+bump like the residues round it, and none is a bright core. A plain finder (the luminance smoothed by the PSF, less the same smoothed six times
+wider, 5 of the filtered plate's own sigma) puts a new source on 0.5 to 1.7 % of the refilled cores, and on the
+sharpest master it loses more at them than it gains (1,081 against 385).
+
+**The leftover count rises, and it is not more sources.** The builder's own count at 5 to 10 sigma goes from 531,074
+to 580,963 (+9.4 %; 185,620 to 212,866 at a subtracted star, 345,454 to 368,097 away from every one), the bands above
+it by 1 to 4 %. The report above calls it the measure that decides whether a plate can be a target, so it was read
+apart (`plate_leftover_scale.py`, every master). One plain finder at one fixed level on both plates counts 814,009
+sources on the stored plates and 808,105 on the rebuilt ones (-0.7 %; per master from -1.8 % at the 10th percentile
+to +2.1 % at the 90th, 31 masters over 1 % more, +7.4 % at most, on Centaurus A, the master of the edge strips
+above). What moved is the scale the builder counts in: in a crowded field its finder's noise is capped by what the
+plate's pixel differences predict, a dug core is a dark pixel beside a bright one, and refilling it narrows those
+differences. The predicted noise falls by 0.5 % at the median master, 1.7 % at the 10th percentile and 5.4 % on eta
+Carinae at 135 mm, where the builder's count rises 18.5 % and the fixed-level count falls 3.6 %. Over the masters the
+builder's change follows that rise in significance with a correlation of 0.54. Not explained in full: the same plain
+finder at each plate's own capped level counts 3.7 % more, where the builder counts 9.4 % more. **The two stores'
+leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
+store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
+
+**What it leaves for an arm.** An export of R4h's command and binary over the new root (`-PlatesRoot`) would differ
+from R4h by the plates alone, and the plates by the refill in all but the sizes above. What the refill can move in a
+model is narrow by this section's own argument: a plate's pit is in the net's input and in its target, so the net
+learns to keep it, not to dig one, and the pit teaches a dig only where a star is injected at a subtracted site.
+Against that stand the drawn cores of four in five 20 to 50 sigma stars and the brighter refills of the wider-star
+masters. No arm is registered: the owner's call.
+
 ### R1: the injector
 
 Designed 2026-10-03, before any code, from R0's plates and the exporter as it stands
@@ -9224,6 +9329,7 @@ nothing is registered, exported or scored for it.
     grain-rule plates outside bright nebula), the check first. The check, below, argues for a different target.
   - **"3. yes"**: the plate builder's residue on bright subtracted stars (black pits and leftover cores) is fixed
     together with #2378 (the tile clip), then the plates are rebuilt once with the build's commit recorded beside them.
+    Done on 2026-11-23: "The store rebuilt with the dug-core refill" under R0.
   - **The glow guard of 2026-10-20, reframed** (about 15:00): "can we re-screen the starlight [of] the milkyway
     without blowing up the stars". The test, what it found and the hold of the starless at or under its input are
     #2433 (PR #2435); there, at 16:00, the owner chose to hold by default with a switch that keeps the remover's own
