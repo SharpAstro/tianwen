@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Shouldly;
@@ -174,17 +175,29 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         (await File.ReadAllTextAsync(path, ct)).ShouldBe("new");
     }
 
-    // Why the next three tests wait on the wall clock, which a unit test otherwise must not: SharedFile has no clock
-    // seam. What it waits on is ANOTHER process's rename, so it polls the real file system and measures with a
-    // Stopwatch, and a fake clock would test a wait that never happens in production. So the replace really takes
-    // its 300 ms (it has to outlast the 130 ms the old fixed looks spanned, or the test passes on the old rule), and
-    // the orphan test really spends the one second deadline, because the deadline passing is the thing it pins.
-    // Each has the test's token as its own deadline; none of them loops without sleeping.
+    // The next three tests ran on the wall clock until #2191: the replace took a real 300 ms on a thread of its own and
+    // the reader's deadline was a real second, and on a loaded runner the thread got its turn after the second had
+    // passed, twice (the test took 1.7 s and 2.1 s where a pass took 0.3). The reader then called the name gone, rightly,
+    // in a test that says it must not. Now the reader measures and sleeps on the clock it is given, a fake one here, and
+    // says when it is about to wait; the replace is made from that hook, at a wait of the reader's own. The files and
+    // the looks at them are real. Nothing is raced, and the orphan test no longer spends a real second.
+    //
+    // The replace is finished at the reader's 30th wait, 150 ms of its clock in: past the 130 ms the old fixed looks
+    // spanned (now, +5, +25, +100 ms), so a reader that counted looks instead of watching the staging file fails here.
+    private const int WaitsBeforeTheReplaceEnds = 30;
+
+    private static Action ReplaceAtWait(int wait, string staging, string path, StrongBox<int> waits)
+        => () =>
+        {
+            if (++waits.Value == wait)
+            {
+                File.Move(staging, path);
+            }
+        };
 
     /// <summary>
     /// The name is absent while a staging file sits beside it, which is a replace under way: the reader keeps
-    /// looking for as long as that lasts instead of counting a fixed number of looks. Here the replace takes
-    /// 300 ms to finish, longer than the old fixed looks (about 130 ms) lasted, and the file must still be read.
+    /// looking for as long as that lasts instead of counting a fixed number of looks.
     /// </summary>
     [Fact(Timeout = 60_000)]
     public async Task AReaderDoesNotBelieveANameGoneWhileAReplaceIsInProgress()
@@ -193,25 +206,18 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         var path = Path.Combine(_folders.Create("shared-appdata-").FullName, "record.json");
         var staging = $"{path}.{Guid.NewGuid():N}.tmp";
         await File.WriteAllTextAsync(staging, "new", ct);
+        var clock = new FakeTimeProviderWrapper();
+        var started = clock.GetUtcNow();
+        var waits = new StrongBox<int>();
 
-        var replacing = ReplaceAfterAWhile(staging, path, ct);
+        await using var stream = await SharedFile.TryOpenReadAsync(path, clock, ReplaceAtWait(WaitsBeforeTheReplaceEnds, staging, path, waits), ct)
+            ?? throw new Xunit.Sdk.XunitException("the reader called the name gone during a replace");
 
-        await using var stream = await SharedFile.TryOpenReadAsync(path, ct) ?? throw new Xunit.Sdk.XunitException("the reader called the name gone during a replace");
-        await replacing;
         using var reader = new StreamReader(stream);
         (await reader.ReadToEndAsync(ct)).ShouldBe("new");
+        waits.Value.ShouldBe(WaitsBeforeTheReplaceEnds, "it waited until the replace was done, and not once more");
+        (clock.GetUtcNow() - started).ShouldBe(TimeSpan.FromMilliseconds(150), "longer than the 130 ms the old fixed looks spanned");
     }
-
-    // The writer whose replace takes 300 ms, on a thread of its own. On the pool it waited its turn behind the rest
-    // of the suite: on a CI runner that was longer than the second a reader gives a staging file before taking it
-    // for a crashed writer's orphan, and the reader then called the name gone, rightly, in a test that says it must
-    // not (#2190: both failures ran 1.1 s and 1.7 s, where a pass takes 0.3).
-    private static Task ReplaceAfterAWhile(string staging, string path, CancellationToken ct)
-        => Task.Factory.StartNew(() =>
-        {
-            ct.WaitHandle.WaitOne(300);
-            File.Move(staging, path);
-        }, ct, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
     /// <summary>The same for a listing that expects a file: a replace under way is waited out.</summary>
     [Fact(Timeout = 60_000)]
@@ -222,12 +228,16 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         var path = Path.Combine(folder.FullName, "one.json");
         var staging = $"{path}.{Guid.NewGuid():N}.tmp";
         await File.WriteAllTextAsync(staging, "new", ct);
+        var clock = new FakeTimeProviderWrapper();
+        var started = clock.GetUtcNow();
+        var waits = new StrongBox<int>();
 
-        var replacing = ReplaceAfterAWhile(staging, path, ct);
+        var (listed, looks) = await SharedFile.ListCountingLooksAsync(folder, ".json", [path], ct, clock,
+            ReplaceAtWait(WaitsBeforeTheReplaceEnds, staging, path, waits));
 
-        var listed = await SharedFile.ListAsync(folder, ".json", [path], ct);
-        await replacing;
         listed.Select(f => f.FullName).ShouldBe([path]);
+        looks.ShouldBe(WaitsBeforeTheReplaceEnds + 1, "one look before each wait, and the one that found the file");
+        (clock.GetUtcNow() - started).ShouldBe(TimeSpan.FromMilliseconds(150));
     }
 
     /// <summary>A file deleted for good has no replace beside it, so it is reported absent. (That it is answered without the deadline is not pinned here: a wall-clock bar is opt-in.)</summary>
@@ -295,8 +305,15 @@ public class SharedAppDataFileTests(ITestOutputHelper output) : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var path = Path.Combine(_folders.Create("shared-appdata-").FullName, "record.json");
         await File.WriteAllTextAsync($"{path}.{Guid.NewGuid():N}.tmp", "orphan", ct);
+        var clock = new FakeTimeProviderWrapper();
+        var started = clock.GetUtcNow();
+        var waits = new StrongBox<int>();
 
-        (await SharedFile.TryOpenReadAsync(path, ct)).ShouldBeNull();
+        (await SharedFile.TryOpenReadAsync(path, clock, () => waits.Value++, ct)).ShouldBeNull();
+
+        // The deadline itself, on the reader's clock: it gave the staging file its whole second, in 5 ms looks, and no more.
+        (clock.GetUtcNow() - started).ShouldBe(SharedFile.AbsenceDeadline);
+        waits.Value.ShouldBe(200);
     }
 
     /// <summary>

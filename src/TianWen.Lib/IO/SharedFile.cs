@@ -70,7 +70,7 @@ public static partial class SharedFile
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan LockWaitBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan AbsenceLook = TimeSpan.FromMilliseconds(5);
-    private static readonly TimeSpan AbsenceDeadline = TimeSpan.FromSeconds(1);
+    internal static readonly TimeSpan AbsenceDeadline = TimeSpan.FromSeconds(1);
 
     // Windows hides the name for a moment inside a replace, so one quiet miss may be the tail of a window that has
     // already closed; a second quiet look finds the file. Elsewhere a miss with no staging file is the answer, once
@@ -118,11 +118,21 @@ public static partial class SharedFile
     /// only when no replace is in progress (see remarks).
     /// </summary>
     /// <returns>Null when the file does not exist.</returns>
-    public static async Task<FileStream?> TryOpenReadAsync(string path, CancellationToken cancellationToken = default)
+    public static Task<FileStream?> TryOpenReadAsync(string path, CancellationToken cancellationToken = default)
+        => TryOpenReadAsync(path, SystemTimeProvider.Instance, waiting: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="TryOpenReadAsync(string, CancellationToken)"/> on a clock that is given, saying when it is about to
+    /// wait before it looks again. For a test of the rule: the file system it looks at is the real one, and what a
+    /// test stages there (a rename, at a look of the reader's own) is what another process would do, but how long
+    /// the reader has waited is then counted and not raced (#2191: a test that renamed after a real 300 ms lost to
+    /// the real second of the deadline on a loaded runner, twice).
+    /// </summary>
+    internal static async Task<FileStream?> TryOpenReadAsync(string path, ITimeProvider time, Action? waiting, CancellationToken cancellationToken)
     {
         var directory = DirectoryOf(path);
         var stagingPattern = Path.GetFileName(path) + ".*.tmp";
-        var started = Stopwatch.GetTimestamp();
+        var started = time.GetTimestamp();
         var quiet = 0;
         while (true)
         {
@@ -141,7 +151,7 @@ public static partial class SharedFile
             if (ReplaceInProgress(directory, stagingPattern))
             {
                 quiet = 0;
-                if (Stopwatch.GetElapsedTime(started) >= AbsenceDeadline)
+                if (time.GetElapsedTime(started) >= AbsenceDeadline)
                 {
                     // A staging file that never turns into a replace is an orphan of a crashed writer.
                     return null;
@@ -160,7 +170,8 @@ public static partial class SharedFile
                 continue;
             }
 
-            await SystemTimeProvider.Instance.SleepAsync(AbsenceLook, cancellationToken);
+            waiting?.Invoke();
+            await time.SleepAsync(AbsenceLook, cancellationToken);
         }
     }
 
@@ -185,11 +196,15 @@ public static partial class SharedFile
     /// until the deadline. The count tells the two apart with no wall-clock bar, which is what a test of the rule at
     /// the listing itself needs.
     /// </summary>
+    /// <param name="time">The clock the deadline is measured and the waits are slept on; the system's when null. See
+    /// the reader's overload for why a test gives one.</param>
+    /// <param name="waiting">Called each time the listing is about to wait before it looks again.</param>
     internal static async Task<(IReadOnlyList<FileInfo> Files, int Looks)> ListCountingLooksAsync(DirectoryInfo folder, string suffix,
-        IReadOnlyCollection<string>? expected, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<string>? expected, CancellationToken cancellationToken = default, ITimeProvider? time = null, Action? waiting = null)
     {
+        time ??= SystemTimeProvider.Instance;
         var seen = new Dictionary<string, FileInfo>(StringComparer.OrdinalIgnoreCase);
-        var started = Stopwatch.GetTimestamp();
+        var started = time.GetTimestamp();
         var quiet = 0;
         var lastLook = false;
         var looks = 0;
@@ -212,7 +227,7 @@ public static partial class SharedFile
             if (AnyBeingReplaced(folder.FullName, Missing(expected, seen)))
             {
                 quiet = 0;
-                if (Stopwatch.GetElapsedTime(started) >= AbsenceDeadline)
+                if (time.GetElapsedTime(started) >= AbsenceDeadline)
                 {
                     return ([.. seen.Values], looks);
                 }
@@ -225,7 +240,8 @@ public static partial class SharedFile
                 continue;
             }
 
-            await SystemTimeProvider.Instance.SleepAsync(AbsenceLook, cancellationToken);
+            waiting?.Invoke();
+            await time.SleepAsync(AbsenceLook, cancellationToken);
         }
 
         bool AllSeen()
