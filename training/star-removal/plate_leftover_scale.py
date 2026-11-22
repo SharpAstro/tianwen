@@ -81,7 +81,7 @@ if __name__ == "__main__":
         a = os.path.join(old_root, "plates", stem + "_plate.fits")
         b = os.path.join(new_root, "plates", stem + "_plate.fits")
         if name in old and os.path.exists(a) and os.path.exists(b):
-            jobs.append((name, float(r["Statistics"]["FwhmPx"][0]), a, b))
+            jobs.append((name, float(r["Statistics"]["FwhmPx"][-1]), a, b))
     print(f"{len(jobs)} masters", flush=True)
     rows = []
     with Pool(procs) as pool, open(out, "w", encoding="utf-8", newline="\n") as fh:

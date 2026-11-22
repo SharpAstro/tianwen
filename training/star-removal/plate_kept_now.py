@@ -70,7 +70,9 @@ print(f"  place: {np.mean(r < 1 / 3) * 100:.0f} % in the inner third of the half
 cell = 128
 hist, ye, xe = np.histogram2d(qy, qx, bins=[np.arange(0, h + 1, cell), np.arange(0, w + 1, cell)])
 print(f"  128 px cells holding any: {(hist > 0).sum()} of {hist.size}; the fullest three hold {np.sort(hist.ravel())[-3:][::-1].astype(int).tolist()}")
-sig_all = 1.4826 * np.median(np.abs(lo - np.median(lo)))
+pres_lo = np.isfinite(lo) & (lo != 0)
+med_all = np.median(lo[pres_lo])
+sig_all = 1.4826 * np.median(np.abs(lo[pres_lo] - med_all))
 rows = []
 for _ in range(3):
     iy, ix = np.unravel_index(np.argmax(hist), hist.shape)
@@ -78,13 +80,14 @@ for _ in range(3):
     hist[iy, ix] = 0
     y0, x0 = int(ye[iy]), int(xe[ix])
     sl = (slice(y0, y0 + cell), slice(x0, x0 + cell))
-    med = np.median(lo[sl])
-    sd = 1.4826 * np.median(np.abs(lo[sl] - med))
+    cell_ok = pres_lo[sl]
+    med = np.median(lo[sl][cell_ok])
+    sd = 1.4826 * np.median(np.abs(lo[sl][cell_ok] - med))
     lo_v, hi_v = med - 6 * sd, med + 20 * sd
     panels = [np.clip((img[sl] - lo_v) / (hi_v - lo_v), 0, 1) for img in (lm, lo, ln)]
     gap = np.ones((cell, 2))
     rows.append(np.concatenate([p if i == 0 else np.concatenate([gap, p], axis=1) for i, p in enumerate(panels)], axis=1))
-    print(f"  look crop at x {x0}, y {y0}: {n_here} kept-now sources; the cell's level over the frame's median, in the frame's spread: {(med - np.median(lo)) / sig_all:+.1f}")
+    print(f"  look crop at x {x0}, y {y0}: {n_here} kept-now sources; the cell's level over the frame's median, in the frame's spread: {(med - med_all) / sig_all:+.1f}")
 sheet = np.concatenate([r_ if i == 0 else np.concatenate([np.ones((2, r_.shape[1])), r_], axis=0) for i, r_ in enumerate(rows)], axis=0)
 sheet = np.repeat(np.repeat(sheet, 3, axis=0), 3, axis=1)
 Image.fromarray((sheet * 255).astype(np.uint8)).save(out_png)

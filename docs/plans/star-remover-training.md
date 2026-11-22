@@ -655,23 +655,29 @@ reads it, R4h's and R4i's exports among them. PR #2460, merged after that build,
 phase's tiles are visited in and leaves a plate's build as it was (read off its diff; no plate was rebuilt to show
 it).
 
-**Three builder changes separate it from `starless`, and one of them is material.** Read with
+**The guard of #1867, the refill and everything else since the stored build separate it from `starless`, and the refill is the material one.** Read with
 `plate_store_compare.py` on the stores' own report lines, and on the Tarantula session of 2024-10-02 by its pixels:
 
 - **The guard of #1867** (a diverged fit is refused before it is subtracted; the store of 2026-11-01,
   `starless-1867`, was built with it).
   Between `starless` and `starless-1867`, over the 201 masters both hold, the speckle rates do not move (2.47 % and
   5.30 % of the 0 to 20 and 20 to 100 sigma sites against 2.47 % and 5.31 %), the inpaint fraction changes by 0.00 at
-  the median and by more than 0.05 points on one master, and the Tarantula session's plate is the same to the byte.
+  the median and by more than 0.05 points on two masters, the largest by 1.63 points (eta Carinae, 2025-01-14: 11.69 % to
+  10.07 %; the rebuilt store has it at 10.91 %, so the guard moved it by more than the refill did, and the
+  `starless` against `starless-2449` inpaint figures below carry that move), and the Tarantula session's plate is the same to the byte.
   Star counts differ on 33 of the 138 masters, by 280 of 68,433 found at most (Centaurus A, 2023-04-02). There the
   rebuilt plate keeps 248 sources the stored one had subtracted (`plate_kept_now.py`): threshold detections (median
   significance 5.0 in the stored list), 5 % of them in the inner third of the frame, the rest toward its edge, and
   the 1:1 crops of the fullest cells show the low-coverage strips at the frame's top, not stars. Against
   `starless-1867` 34 remain, at the finder's threshold on both plates.
-- **The tile clip (#2378) and whatever else changed before the refill.** The plate main built just before the refill
+- **The tile clip (#2378) and everything else that changed before the refill**, the runaway-fit refusal of PR #2363
+  (#2352) and its follow-up PR #2379 among it, which change which fits are subtracted. The plate main built just before the refill
   differs from the stored one in 8.1 % of its pixels, in 0.06 % by more than one sigma, and in 40 of 67,576 star
-  rows.
-- **The refill (#2449).** 9.1 % of the pixels, 3.95 % by more than one sigma.
+  rows (read on the Tarantula session of 2024-10-02 alone, and for that whole bucket, not the clip alone). Over the 138
+  masters `starless-1867` against `starless-2449` differs in the found count on 3, in the subtracted count on 14 and in
+  the knots on 34; the clip alone is not shown to cause that.
+- **The refill (#2449).** 9.1 % of the pixels, 3.95 % by more than one sigma (the Tarantula session of 2024-10-02 again,
+  where 24 % of the stars were refilled against 16.6 % store-wide).
 
 **The check on the plan's own master.** The rebuilt store's plate of the Tarantula session of 2024-10-02 is the same
 to the byte as the one the figures of "A dug core is refilled" above were read on (the plate, the star list, the
@@ -708,7 +714,7 @@ million subtracted stars on each side):
 in widths of the same reading at 6,000 star-free spots of the plate; "bright" is over that null's 99.5th percentile,
 which noise gives 0.5 %). Four masters, the stars refilled on the rebuilt plate and not inpainted on the stored one:
 
-| master | star width (FWHM) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
+| master | star width (FWHM, first channel's) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
 |---|---|---|---|---|---|---|---|
 | eta Carinae at 135 mm, 2022-12-24 | 1.9 px | 46,644 | +0.39 to +0.42 | 0.0 to 0.0 % | +0.63 to +0.48 | 0.1 to 0.0 % | +0.5, 0.0 % |
 | Centaurus A, 2023-04-02 | 2.5 px | 8,164 | +0.78 to +1.23 | 0.2 to 1.0 % | +0.86 to +1.53 | 0.2 to 2.5 % | +0.8 to +0.9, 0.0 to 0.1 % |
@@ -727,15 +733,15 @@ sharpest master it loses more at them than it gains (1,081 against 385).
 **The leftover count rises, and it is not more sources.** The builder's own count at 5 to 10 sigma goes from 531,074
 to 580,963 (+9.4 %; 185,620 to 212,866 at a subtracted star, 345,454 to 368,097 away from every one), the bands above
 it by 1 to 4 %. The report above calls it the measure that decides whether a plate can be a target, so it was read
-apart (`plate_leftover_scale.py`, every master). One plain finder at one fixed level on both plates counts 814,009
-sources on the stored plates and 808,105 on the rebuilt ones (-0.7 %; per master from -1.8 % at the 10th percentile
-to +2.1 % at the 90th, 31 masters over 1 % more, +7.4 % at most, on Centaurus A, the master of the edge strips
+apart (`plate_leftover_scale.py`, every master). One plain finder at one fixed level on both plates counts 872,649
+sources on the stored plates and 862,855 on the rebuilt ones (-1.1 %; per master from -2.0 % at the 10th percentile
+to +0.9 % at the 90th, 14 masters over 1 % more, +6.3 % at most, on Centaurus A, the master of the edge strips
 above). What moved is the scale the builder counts in: in a crowded field its finder's noise is capped by what the
 plate's pixel differences predict, a dug core is a dark pixel beside a bright one, and refilling it narrows those
 differences. The predicted noise falls by 0.5 % at the median master, 1.7 % at the 10th percentile and 5.4 % on eta
-Carinae at 135 mm, where the builder's count rises 18.5 % and the fixed-level count falls 3.6 %. Over the masters the
+Carinae at 135 mm, where the builder's count rises 18.5 % and the fixed-level count falls 4.5 %. Over the masters the
 builder's change follows that rise in significance with a correlation of 0.54. Not explained in full: the same plain
-finder at each plate's own capped level counts 3.7 % more, where the builder counts 9.4 % more. **The two stores'
+finder at each plate's own capped level counts 3.3 % more, where the builder counts 9.4 % more. **The two stores'
 leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
 store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
 
@@ -760,9 +766,10 @@ keeps each session's noise as recorded. The stars under the tile's noise, the dr
 sit at the same places with other amplitudes on six of the seven sessions (the ratio's median 1.000, its 10th to 90th
 percentile 0.4 to 2.2); why they are drawn anew is not traced, and the inputs' 0.03 to 0.10 of a sigma is of the size
 such stars give. Centaurus A moves most because the guard of #1867 changes its star list (the same star count in
-8 of its 160 draws). The cause of the whole is the line's own design: it draws its backgrounds
-(`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and the stars it
-draws come from the star list, whose fits the refill leaves alone.
+8 of its 160 draws). That the whole change is small follows from the line's own design: it draws its backgrounds
+(`--background synthetic`), so a plate gives the background its strength per scale and no pixel. The amplitude change of
+the faint stars is not explained by that: the star list they come from is the same in its rows, so what moves them is
+untraced.
 
 **R4g's plate targets barely change either.** R4g's extra export (its 126 bright cells of ten sessions, the stars
 drawn on the plate itself, `--background plate`) was run the same way from both roots; the run from `starless` gives
