@@ -214,8 +214,8 @@ Tracked by #848 (P1 to P10) and #2429 (P11).
 | P5 | CI `publish-apps` publishes the DLL on win-x64 / win-arm64 into the viewer tree (reaches MSIX + tarball) | DONE 2026-09-02, first exercised on the next dispatch |
 | P6 | Tarball registration in `FileAssociationRegistrar` (+ a `SER` group) | DONE 2026-09-02 |
 | P7 | Verification through the real shell pipeline on this machine: temporary per-user registration of the published DLL, `IShellItemImageFactory::GetImage(THUMBNAILONLY)` on a real light, keys removed afterwards | see the log below |
-| P8 | Verification on a SIGNED MSIX install (sign a copy with `build-msix.ps1 -SignPackage`, install, browse a folder of `.fits`) | OPEN: needs the next dispatch's package |
-| P10 | The surrogate keeps its heap: `IdleHeapCollapse` (collapse once a burst goes quiet), an exactly sized read from `IStream::Stat`, `ComObject.FinalRelease` on the stream, GC policy in the csproj, and the false lifetime claims corrected | DONE, issue #294; the re-measure against a real surrogate is OPEN |
+| P8 | Verification on a SIGNED MSIX install (sign a copy with `build-msix.ps1 -SignPackage`, install, browse a folder of `.fits`) | DONE 2026-11-22, #848: the Store's signed package (10.0.3416.0) drew a folder of 320 FITS lights through its `com:SurrogateServer` registration |
+| P10 | The surrogate keeps its heap: `IdleHeapCollapse` (collapse once a burst goes quiet), an exactly sized read from `IStream::Stat`, `ComObject.FinalRelease` on the stream, GC policy in the csproj, and the false lifetime claims corrected | DONE, issue #294; the re-measure in a real surrogate is DONE 2026-11-22 (#848: peak 919 MB private, the process exited afterwards). Open: a sampled curve through the end of a burst (when it exited, and whether `IdleHeapCollapse` ran first, was not caught), and the CFA-binning win, #2456 |
 | P11 | Detail columns (#2429): `ExplorerFileProperties` reader, `AstroPropertyStore` in the DLL, manifest `desktop2:DesktopPropertyHandler` + second `com:Class`, `build-msix.ps1` Clsid check, HKLM registration in `FileAssociationRegistrar` | DONE in code; verification on a signed MSIX install and an elevated tarball registration OPEN |
 | P9 | Later, if wanted: `TypeOverlay` / `Treatment` registry hints (photo border instead of drop shadow); a strided FITS read for very large frames (reads 1/N^2 of the pixels from a seekable stream); a viewer file-list strip reading the shell cache | NOT STARTED |
 
@@ -266,12 +266,14 @@ every field of `STATSTG` and a trimmed struct is a stack corruption that looks l
 cause). And the native `IStream` is released with `ComObject.FinalRelease` as soon as its bytes are
 copied out, rather than at a finalization this process never reaches.
 
-**What is still open**: the re-measure. Every number above is from the issue's own process inspection and
-from reading the allocation path; nothing here has yet been re-measured against a real surrogate after
-the fix, which needs a folder of large frames outside OneDrive and a cold thumbnail cache. And the
-**bigger** win is untouched by design -- binning the CFA mosaic per colour BEFORE the debayer, so a 256 px
-answer never allocates a full-resolution three-plane image at all. That changes the picture, so it wants
-the harness first.
+**The re-measure in a real surrogate (2026-11-22, #848, closed on it).** The Store's signed package
+(10.0.3416.0) drew a local folder of 320 FITS lights of 17 MB each. Sampled once a second, the surrogate
+holding `tianwen-thumb.dll` peaked at 919 MB private and 990 MB working set, and had exited about six
+minutes later, so nothing was held idle as in #294. When it exited, and whether `IdleHeapCollapse` ran
+first, was not caught; the owner took "it closed and didn't linger" as enough. Still open by design: the
+**bigger** win, binning the CFA mosaic per colour BEFORE the debayer, so a 256 px answer never allocates a
+full-resolution three-plane image at all. That is what would cut a burst's peak, and it wants the harness
+first. It is tracked as #2456.
 
 ## Traps, for the next person
 

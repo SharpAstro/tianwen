@@ -9164,6 +9164,123 @@ Files (DE1): R3y's Q1 export is made by `training/star-removal/flank-q1-export.p
 `f2-eval-master/<model>+floor`, `+fill`, `+floor2`, `+floor3` and `f2-whole-master/w-r3v_synth22_s0+floor`, `+fill`, `+floor2`, `+floor3`;
 floor3's reads are `check3-floor3-real.txt`, `check3-floor3-twin.txt`, `check3-floor3-r3s.txt` and the sheets `saturated-smc-m42.png` and `caps.png`.
 
+#### What the crowded grain is, faint stars left on bright nebula, and the owner's word (2026-11-22)
+
+The afternoon's findings and decisions, here so that they are not only in a session's notes. Nothing below is an arm:
+nothing is registered, exported or scored for it.
+
+- **The owner's decisions.**
+  - **R4h beside R4i** (14:15, "you can launch beside"): R4h's Batch job runs beside R4i's, two low-priority T4 pools at
+    once, as "Training alike" in R4h's and R4i's registration above has it. Its cache upload was held to 5 Mb/s from
+    15:45 at the owner's ask, which moves its launch by some hours, and at 16:50: "continue with upload and azure
+    train as planned". The 1070 stays idle until there is new work for it.
+  - **"2. yes"**: write up and pre-register the input-grain arm (input from the stored plates, target from the
+    grain-rule plates outside bright nebula), the check first. The check, below, argues for a different target.
+  - **"3. yes"**: the plate builder's residue on bright subtracted stars (black pits and leftover cores) is fixed
+    together with #2378 (the tile clip), then the plates are rebuilt once with the build's commit recorded beside them.
+  - **The glow guard of 2026-10-20, reframed** (about 15:00): "can we re-screen the starlight [of] the milkyway
+    without blowing up the stars". The test, what it found and the hold of the starless at or under its input are
+    #2433 (PR #2435); there, at 16:00, the owner chose to hold by default with a switch that keeps the remover's own
+    plate for the scorers (`--keep-overshoot`).
+- **The input-grain check, part one: a synthetic target cannot tell faint nebula from the mottle.** R4d's line trains
+  on synthetic backgrounds (`--background synthetic`): seeded random shapes scaled per scale to the plate's strength.
+  One seed over the stored plate and over the grain-rule plate draws the same shapes (fine-part correlation 0.74 to
+  0.98 on four Tarantula cells; `dataset synthetic-background --seed 7 --no-noise --no-knots --steer 0.5,2,0.8,1`),
+  so an input from one and a target from the other can be built, and what differs between them is the grain: band 2.6
+  to 3.8 in the crowded cells. But the difference is largest on faint nebula (cell 4,4 of the Tarantula session of
+  2024-10-02, where the judge keeps structure: 3.8), it is 18 % of the texture on 30 Doradus's core, and no mask taken
+  from the image separates faint nebula from the mottle: the large-scale level is 10.2, 11.0 and 12.9 sigma in cells
+  1,1, 5,4 and 4,4, so a 20 sigma mask holds none of them out, and the orientation coherence is 0.19 in both 4,4 and
+  5,4 against 0.25 for random blobs. Such a target would teach the model to wash out faint nebula.
+- **Part two: where the difference is grain, it follows the faint stars Gaia has and the finder misses**
+  (`grain_gaia.py`, `grain_gaia_whole.py`, also on #2203). Gaia DR3 to BP 21 against each grain map (9 px box mean
+  less 41 px, channels' mean). Each Gaia star the finder did not detect (no detection within 2 px) is drawn as a
+  Gaussian of 1.2 px at 10^(-0.4 BP) through the same box means; the null is the same stars shifted by 37 px. On the
+  Tarantula session of 2024-10-02 the plate finder's limit is BP 18.6 to 18.7 (the median BP of its 5 to 7 sigma
+  detections), and each cell holds 18,000 to 21,000 Gaia stars it did not find, 2,300 to 2,500 of them brighter than
+  that limit.
+
+  | cell | ours less StarXTerminator, against the undetected BP 18 to 21 [null] | the stored plate's own grain | the master (control), against the DETECTED stars |
+  |---|---|---|---|
+  | 1,1 | +0.60 [+0.02] | +0.49 | +0.88 |
+  | 5,4 | +0.36 [+0.03] | +0.39 | +0.79 |
+  | 4,4 | -0.11 [+0.03] | +0.29 | +0.93 |
+
+  On the held-out Tarantula master, all 64 full 300 px cells, by crowding (Gaia stars to BP 21 per cell) and level
+  (the cell's median over the sky, in sky sigma):
+
+  | cells | median correlation [null] | cells over 0.3 | grain rms, sky sigma | cells |
+  |---|---|---|---|---|
+  | least crowded third, level under 5 | +0.55 [0.00] | 90 % | 0.16 | 21 |
+  | middle third, level under 5 | +0.41 [0.00] | 79 % | 0.25 | 14 |
+  | middle third, level 5 to 20 | +0.01 [-0.01] | 0 % | 1.84 | 8 |
+  | most crowded third, level under 5 | +0.39 [+0.06] | one cell | 0.29 | 1 |
+  | most crowded third, level 5 to 20 | +0.32 [0.00] | 50 % | 0.52 | 20 |
+
+  Where the difference between ours and the judge is fine grain (rms 0.2 to 0.5 sky sigma), it follows the light of
+  catalogued stars the finder misses, BP 18 to 21. Where it is large (faint nebula, rms 1.8, and the session's cell
+  4,4) it does not: that difference is nebula. The stored plates hold the same faint stars (0.29 to 0.49), so targets
+  built from them teach the model to keep them. A correlation of 0.3 to 0.6 is a share of the grain, not all of it:
+  positions are good to about a pixel, every star is drawn with one width, and BP is noisy at 20 to 21. **What it
+  points to, the owner's call:** a truth plate that also subtracts the Gaia stars the finder misses, at their
+  catalogue positions, instead of a grain rule. First measure such a forced subtraction on these cells (how much of
+  the grain it takes, what it does to the nebula), then register an arm on it. The rebuilt plates need disk: the
+  caches of closed arms on the training machine are being LZX-compressed for it (nothing deleted).
+- **Faint stars on bright nebula: ours leaves a small remnant where StarXTerminator's plate is clean**
+  (`nebula_faint_stars.py`, on the held-out Sagittarius master, whose bright nebula is the Lagoon's core). The owner:
+  "'+' stars in lets say lagoon, that are barely brighter than the nebulosity, somehow SXT seems to be able to deal
+  with them but we struggle. my theory is that the bright background signal manages to get these stars visible that
+  would otherwise be drowned in noise". Catalogued stars (`tianwen solve --export-gaia`) with no brighter one within
+  6 px; bright nebula is a 32 px block 20 sky sigma or more over the sky (79 blocks); a star's light is its 2 px disc
+  over the annulus 5 to 9 px out.
+
+  | Gaia BP | where | share taken, SXT / ours | ours over SXT at the star by more than 3 sky sigma |
+  |---|---|---|---|
+  | 14 to 15 | dark sky (17,863 stars) | 1.18 / 1.03 | (read on the nebula only; on dark sky a bump over 3 sigma is left at 0 % / 1 %) |
+  | 14 to 15 | bright nebula (92) | 0.65 / 0.48 | 14 % (random spots of the nebula: 1.2 %) |
+  | 10 to 14 | bright nebula (152) | | 15 % (and darker by over 3 on 31 %) |
+  | 15 to 17 | bright nebula (140) | 0.02 to 0.05 for both | 2 to 3 % |
+
+  **How "share taken" is defined here, and how it differs from the row's.** `nebula_faint_stars.py` counts the master
+  less the plate over the star's disc with NO correction, so a broad level the plate takes counts as the star: dark sky
+  reads 1.18 / 1.03, over 1, for that reason. The row below (`nebula_stars_row.py`) subtracts the stars layer's own
+  annulus median, on purpose, so a broad level taken does not count. Tables 1 and 3 therefore INCLUDE broad light taken
+  and are not comparable with the row's baseline table (the headline "SXT 0.63, ours 0.19 to 0.30" is on this measure;
+  the row's figures for the Lagoon are 0.50 and 0.11 on stars of 20 to 150 sky sigma, and 0.31 to 0.32 for R4d through
+  the chain at BP 13.5 to 15.5). They are not recomputed with the row's definition: the row's baseline is the figure
+  to quote. "Ours" in tables 1 and 3 and in the headline is R4d (seed 0) through the product's chain (cores
+  protected, floor5), its whole-master plate of the Sagittarius master, beside the judge's plate of the same master.
+
+  At equal light as the model sees it (the export's stretch: the stretched disc light in the stretched sky noise),
+  StarXTerminator takes 0.63 of a star on the bright nebula at 32 to 128 and ours 0.19 to 0.30; on dark sky both take
+  all of it. The remnant is real and it is the nebula under the star that does it. The owner's theory is not what the
+  numbers say: on the bright nebula the pixel noise is 2.9 times the sky's (its shot noise), so a star there stands out
+  less in the data, and the export's stretch is nearly linear across it (the sky at 0.250, the bright nebula at
+  0.262), so the stretch neither hides nor lifts it. A guess, unverified: training rarely shows a star on bright
+  nebula (0.5 % of the training pixels are bright background, #2245) and the synthetic backgrounds are smooth, so a
+  small peak on textured nebula reads as texture. Two ways on: a scorer row and an arm with more stars on bright
+  nebula. The 1:1 sheet of the worst cases was sent to the owner; the Hourglass, which the chain protects as a core on
+  purpose, is left out of it.
+- **The row, the owner's word "score now" (2026-11-22, `nebula_stars_row.py`, run by `score_whole.py` on every score
+  and carried in the row).** Catalogued stars (BP, no brighter one within 6 px) whose light in a 2 px disc over the
+  annulus 5 to 9 px out is 20 to 150 sky sigma: faint in the data's terms, so the same stars on every master, where a
+  band of magnitude is not. On bright nebula (a 32 px block 20 sky sigma or more over the sky) and, as the control,
+  on dark sky (under 5): the median share of each star's light the plate took (the stars layer's disc less its own
+  annulus median, over the master's, so neither a broad level taken nor the nebula's structure counts) and the share
+  of stars it took under half of ("left"). The config names each master's Gaia CSV (`"gaia"`,
+  `scorecard.example.json`). Baseline, the plates already scored:
+
+  | master | stars on bright nebula | StarXTerminator: taken, left | R4d as trained: taken, left | dark sky (control): taken, left, SXT / R4d |
+  |---|---|---|---|---|
+  | Sagittarius (the Lagoon) | 180 | 0.50, 50.6 % | 0.11, 62.8 % | 1.06 / 1.00, 0.3 % / 4.3 % |
+  | Tarantula | 26 | 1.09, 0.0 % | 1.10, 0.0 % | 1.03 / 0.97, 0.0 % / 0.0 % |
+  | Andromeda (the galaxy's disc) | 2,037 | 1.03, 10.8 % | 1.01, 12.1 % | 1.00 / 0.97, 4.6 % / 6.5 % |
+
+  The gap is the Lagoon's, the one master of the three with bright emission nebula; on the Tarantula's few bright
+  nebula stars and on M31's disc ours is level with the judge. R4d through the product's chain (cores protected,
+  floor5) reads like R4d as trained on these stars (by BP 13.5 to 15.5 on the Lagoon: taken 0.32 against 0.31). The
+  row is reported, no bar: R4h's and R4i's registrations predate it and do not judge on it.
+
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
 **Issues:** #2243 (floor3 leaves flat patches where it fills inside bright nebula: the subject here), #2252 (a square
