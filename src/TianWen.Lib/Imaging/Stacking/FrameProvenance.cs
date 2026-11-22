@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using TianWen.Lib.Imaging.Calibration;
 
 namespace TianWen.Lib.Imaging.Stacking
 {
@@ -51,45 +52,29 @@ namespace TianWen.Lib.Imaging.Stacking
             try
             {
                 using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 2880);
-                var block = new byte[2880];
-                for (var guard = 0; guard < 64; guard++)
+                var found = (Keyword: keyword, Value: (string?)null);
+                // 64 blocks, as this reader has always followed a header: twice what the header editor allows.
+                FitsHeaderBlocks.WalkCards(fs, ref found, static (ReadOnlySpan<byte> bytes, ref (string Keyword, string? Value) wanted) =>
                 {
-                    var offset = 0;
-                    while (offset < block.Length)
+                    if (!FitsHeaderBlocks.KeywordIs(bytes, wanted.Keyword))
                     {
-                        var got = fs.Read(block, offset, block.Length - offset);
-                        if (got <= 0)
-                        {
-                            return null;
-                        }
-                        offset += got;
+                        return false;
                     }
-                    for (var i = 0; i < 2880; i += 80)
+                    var value = Encoding.ASCII.GetString(bytes).AsSpan(10).Trim();
+                    if (value.Length > 0 && value[0] == '\'')
                     {
-                        var card = Encoding.ASCII.GetString(block, i, 80);
-                        var key = card.AsSpan(0, 8).Trim();
-                        if (key.SequenceEqual("END"))
+                        var end = value[1..].IndexOf('\'');
+                        if (end >= 0)
                         {
-                            return null;
+                            wanted.Value = value[1..(end + 1)].Trim().ToString();
+                            return true;
                         }
-                        if (!key.SequenceEqual(keyword))
-                        {
-                            continue;
-                        }
-                        var value = card.AsSpan(10).Trim();
-                        if (value.Length > 0 && value[0] == '\'')
-                        {
-                            var end = value[1..].IndexOf('\'');
-                            if (end >= 0)
-                            {
-                                return value[1..(end + 1)].Trim().ToString();
-                            }
-                        }
-                        var slash = value.IndexOf('/');
-                        return (slash >= 0 ? value[..slash] : value).Trim().ToString();
                     }
-                }
-                return null;
+                    var slash = value.IndexOf('/');
+                    wanted.Value = (slash >= 0 ? value[..slash] : value).Trim().ToString();
+                    return true;
+                }, maxBlocks: 64);
+                return found.Value;
             }
             catch (IOException)
             {
