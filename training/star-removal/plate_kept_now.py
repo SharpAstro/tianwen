@@ -3,13 +3,15 @@
     python -I plate_kept_now.py <master.fits> <stored plate.fits> <stored stars.csv> <rebuilt plate.fits>
                                 <rebuilt stars.csv> <fwhm px> <out.png>
 
-A plain finder on both plates (the luminance smoothed by the PSF at `<fwhm px>`, which is the luminance width, the
-LAST element of the stats' `FwhmPx` (the builder's lumPsf.Fwhm); the plan's 388 and 33 on Centaurus A are at 2.111, and
-the count against starless-1867 is on a knife edge: 31 at 2.1, 32 at 2.1113827, 35 at 2.12; less the same smoothed six times wider; local maxima
+A plain finder on both plates (the luminance smoothed by the PSF, less the same smoothed six times wider; local maxima
 over 5 of the filtered plate's own robust sigma). A source of the rebuilt plate with none within 1.5 px on the stored
 plate, and no star the rebuilt build subtracted within 3 px, is "kept now". For each: the nearest star of the stored
 list and of the rebuilt list with its outcome, and the source's place in the frame. The sheet shows the three 128 px
 cells holding the most of them: master, stored plate, rebuilt plate, at 3x by pixel repetition on one stretch.
+
+`<fwhm px>` is the luminance's star width, the LAST element of `FwhmPx` in the store's report line (the builder's
+`lumPsf.Fwhm`), not the first channel's. The count moves with it by a source or two: on Centaurus A the plan's 388
+and 33 are at 2.111 px, and against the store of 2026-11-01 the count is 31 at 2.1, 32 at 2.1113827 and 35 at 2.12.
 """
 import csv
 import sys
