@@ -1033,7 +1033,9 @@ with the box quiet. A recording the camera stalled in is reported apart and made
 - **The DAL's frame wait keeps its reader's context**, so the stream's thread wakes the reader straight, never through the pool.
 - **The recording's writer runs on a thread of its own too**: the loop shares its queue's lock and the byte pool's with it, and a
   pool writer held off while it held one held the loop up behind it.
-- **The loop's running Debug lines are written by the pool** (a host's file log is one lock for the process, flushed under it),
+- **The loop's running Debug lines are written by the pool** (a host's file log was one lock for the process, flushed under
+  it, when this was measured; since #541 it queues a line and writes it on a thread of its own, and whether these lines can go
+  back to a plain `LogDebug` has not been measured, so the extension stays),
   and so are the DAL's pan and gain lines on the stream's thread, all through one extension (`LogDebugOffThread`): a write that
   throws there costs the line, never the process (#1628), and a time a reader needs is carried in the line, never read off its write.
 - **A capture's ring takes the planes the last ring of its shape left** (`RingPlaneShelf`): a ring of 1,024 large float planes
