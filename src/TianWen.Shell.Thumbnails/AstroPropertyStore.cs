@@ -231,7 +231,10 @@ namespace TianWen.Shell.Thumbnails
                     ExplorerFileProperties read;
                     try
                     {
-                        read = ExplorerFileProperties.Read(new ComStream(stream));
+                        // Disposing the adapter only closes the managed Stream; the IStream's reference is
+                        // released by ReleaseStream below.
+                        using var adapter = new ComStream(stream);
+                        read = ExplorerFileProperties.Read(adapter);
                     }
                     catch (Exception)
                     {
