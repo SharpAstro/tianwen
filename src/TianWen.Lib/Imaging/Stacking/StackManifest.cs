@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging.Calibration;
 
 namespace TianWen.Lib.Imaging.Stacking
 {
@@ -151,73 +152,48 @@ namespace TianWen.Lib.Imaging.Stacking
         public static string DigestData(string path)
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
-            var block = new byte[2880];
             while (true)
             {
-                long naxis = -1;
-                long bitpix = 0;
-                long npix = 1;
-                var sawEnd = false;
-                while (!sawEnd)
-                {
-                    if (!ReadFull(fs, block))
+                var shape = (Naxis: -1L, Bitpix: 0L, Npix: 1L);
+                // A header is followed to its END however long it is, as this reader always has: the file's own end is
+                // what bounds it. A file that ends inside a header has nothing to digest.
+                if (FitsHeaderBlocks.WalkCards(fs, ref shape, static (ReadOnlySpan<byte> bytes, ref (long Naxis, long Bitpix, long Npix) hdu) =>
                     {
-                        return "";
-                    }
-                    for (var i = 0; i < 2880; i += 80)
-                    {
-                        var card = Encoding.ASCII.GetString(block, i, 80);
-                        var key = card.AsSpan(0, 8).Trim();
-                        if (key.SequenceEqual("END"))
-                        {
-                            sawEnd = true;
-                            break;
-                        }
+                        var card = Encoding.ASCII.GetString(bytes);
                         if (card[8] != '=')
                         {
-                            continue;
+                            return false;
                         }
+                        var key = card.AsSpan(0, 8).Trim();
                         var val = card.AsSpan(10, 20).Trim();
                         if (key.SequenceEqual("BITPIX"))
                         {
-                            _ = long.TryParse(val, out bitpix);
+                            _ = long.TryParse(val, out hdu.Bitpix);
                         }
                         else if (key.SequenceEqual("NAXIS"))
                         {
-                            _ = long.TryParse(val, out naxis);
+                            _ = long.TryParse(val, out hdu.Naxis);
                         }
                         else if (key.StartsWith("NAXIS") && long.TryParse(val, out var axis))
                         {
-                            npix *= axis;
+                            hdu.Npix *= axis;
                         }
-                    }
+                        return false;
+                    }, maxBlocks: int.MaxValue) is not FitsHeaderBlocks.Walk.End)
+                {
+                    return "";
                 }
 
-                if (naxis <= 0)
+                if (shape.Naxis <= 0)
                 {
                     // NAXIS=0 is an empty HDU with no data unit, so the next block starts the next
                     // header. This is the normal shape of an fpack primary.
                     continue;
                 }
 
-                var dataBytes = Math.Abs(bitpix) / 8 * npix;
+                var dataBytes = Math.Abs(shape.Bitpix) / 8 * shape.Npix;
                 return ContentDigest.OfStream(fs, dataBytes);
             }
-        }
-
-        private static bool ReadFull(Stream stream, byte[] buffer)
-        {
-            var offset = 0;
-            while (offset < buffer.Length)
-            {
-                var got = stream.Read(buffer, offset, buffer.Length - offset);
-                if (got <= 0)
-                {
-                    return false;
-                }
-                offset += got;
-            }
-            return true;
         }
 
         /// <summary>Writes atomically. A half-written manifest that still parses is worse than none:

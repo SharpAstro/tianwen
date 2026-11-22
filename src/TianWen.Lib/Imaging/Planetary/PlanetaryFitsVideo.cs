@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using SharpAstro.Ser;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -227,9 +228,6 @@ public static class PlanetaryFitsVideo
     /// </summary>
     private sealed class RawHeader
     {
-        private const int Block = 2880;
-        private const int Card = 80;
-
         private RawHeader(SortedDictionary<string, string> cards, long dataOffset)
         {
             Cards = cards;
@@ -245,24 +243,23 @@ public static class PlanetaryFitsVideo
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             var cards = new SortedDictionary<string, string>(StringComparer.Ordinal);
-            var block = new byte[Block];
-            for (long offset = 0; ; offset += Block)
-            {
-                stream.ReadExactly(block);
-                for (var at = 0; at < Block; at += Card)
+            // Followed to its END however long it is, as before. A file that ends first has no header to read, and
+            // says so the way the read that used to find it did.
+            if (FitsHeaderBlocks.WalkCards(stream, ref cards, static (ReadOnlySpan<byte> bytes, ref SortedDictionary<string, string> seen) =>
                 {
-                    var card = Encoding.ASCII.GetString(block, at, Card);
+                    var card = Encoding.ASCII.GetString(bytes);
                     var keyword = card[..8].TrimEnd();
-                    if (keyword == "END")
+                    if (card.AsSpan(8, 2).SequenceEqual("= ") && !seen.ContainsKey(keyword))
                     {
-                        return new RawHeader(cards, offset + Block);
+                        seen[keyword] = ValueOf(card[10..]);
                     }
-                    if (card.AsSpan(8, 2).SequenceEqual("= ") && !cards.ContainsKey(keyword))
-                    {
-                        cards[keyword] = ValueOf(card[10..]);
-                    }
-                }
+                    return false;
+                }, maxBlocks: int.MaxValue) is not FitsHeaderBlocks.Walk.End)
+            {
+                throw new EndOfStreamException($"{path} ends inside its header, before the END card");
             }
+            // The walk leaves the stream at the end of END's block, which is where the data begins.
+            return new RawHeader(cards, stream.Position);
         }
 
         // A card's value: a quoted string (a doubled quote is a quote), or what stands before the comment's slash.
