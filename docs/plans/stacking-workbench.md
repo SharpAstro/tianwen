@@ -463,9 +463,11 @@ two GitHub projects named AstroStacker and astro-stacker, and trademark register
 executable's name (`tianwen-stack` is the working one) and the drawing.
 
 The owner's words the same day, on what the other two apps keep: "yes stand-alone. the existing gui currently only have live
-stacking planned, and the viewer will keep the planet stacking for now". So `tianwen-gui` gets its live stacking view and no
-more of this plan, and `tianwen-fits` keeps stacking a SER as it does today; whether that moves to Astro Photo Stacker once its
-planetary steps stand (W3) is not decided.
+stacking planned, and the viewer will keep the planet stacking for now", and then "but we should also be able to handle .ser
+in the stacker app". So `tianwen-gui` gets its live stacking view and no more of this plan. Astro Photo Stacker handles a SER
+through its planetary steps (W3), as this plan had it, and `tianwen-fits` keeps stacking a SER as it does today: for a time
+both do, on the same engine (`PlanetaryBestStack`, `PlanetaryAuto`, `PlanetarySharpening`). Whether the viewer's is retired
+later is not decided.
 
 ## Phasing
 
