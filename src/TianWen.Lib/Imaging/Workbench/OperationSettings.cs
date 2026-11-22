@@ -78,6 +78,7 @@ public sealed record GradientSettings
 [JsonSerializable(typeof(CropSettings))]
 [JsonSerializable(typeof(LinearFitSettings))]
 [JsonSerializable(typeof(GradientSettings))]
+[JsonSerializable(typeof(EnhanceSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }

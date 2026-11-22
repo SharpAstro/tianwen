@@ -27,6 +27,10 @@ public static class WorkbenchServiceCollectionExtensions
             sp.GetRequiredService<IBackgroundExtractor>(),
             sp.GetRequiredService<IGradientCorrector>(),
             sp.GetService<ILogger<GradientOperation>>()));
+        // The enhance runs on the host's pipeline, with whatever enhancers the host registered; a host that registered
+        // none gets a pipeline of none, whose every step is then left out.
+        services.TryAddSingleton<SharpenPipeline>();
+        services.AddSingleton<IOperation>(static sp => new EnhanceOperation(sp.GetRequiredService<SharpenPipeline>(), sp.GetService<ILogger<EnhanceOperation>>()));
         services.TryAddSingleton(static sp => new OperationCatalog(sp.GetServices<IOperation>()));
         services.TryAddSingleton<WorkbenchRunner>();
         return services;

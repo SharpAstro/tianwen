@@ -135,6 +135,16 @@ public sealed class SharpenPipeline(
         => LinearEnhanceProgram.For(CapabilitiesFor(input, options));
 
     /// <summary>
+    /// The enhancer registered for each role, by name, with "none" where a role has none: what an enhance step's key
+    /// holds beside its settings (<c>docs/architecture/workbench-operations.md</c>), so a result one set of enhancers
+    /// made is never taken for another's. Whether a role SERVES a given image is <see cref="CapabilitiesFor"/>'s to
+    /// say; this only names what is here.
+    /// </summary>
+    public string DescribeRoles()
+        => $"deblur {deblurrer?.Name ?? "none"}; gradient {gradientCorrector?.Name ?? "none"}; stars {starRemover?.Name ?? "none"}; "
+            + $"stellar {stellarSharpener?.Name ?? "none"}; deconvolve {nonStellarDeconvolver?.Name ?? "none"}; denoise {denoiser?.Name ?? "none"}";
+
+    /// <summary>
     /// The finite-input boundary every enhancer stands behind: interior holes are interpolated from
     /// their neighbours, a canvas ring no crop removed becomes the pipeline's zero ring, and only what
     /// is left after both falls back to the per-channel mean. The same instance comes back when there

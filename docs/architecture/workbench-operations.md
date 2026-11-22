@@ -176,12 +176,17 @@ Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the c
 
 - **The remaining operations.** The other colour steps (#2465: `match-psf`, `deblur`, `denoise`, `remove-stars`,
   `protect-cores`, `fill-digs`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`, `align`, `combine`), the
-  canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary steps (#2468).
+  deep-sky frame steps (#2467) and the planetary steps (#2468).
 - **A step with two results** (star removal: the starless plate and the stars), and a second image that starts from
   one of them (#2465). The store's index entry and the project's `inputs` are where it goes.
 - **A set of frames as an input** (calibrate, register, integrate; #2467), and an operation that writes no pixels
   (plate solve, statistics; #2469).
 - **Preconditions and how an operation previews**: the facts are W9's (#2236), the preview W12's (#2239).
-- **The enhance program's steps.** `SharpenStep` and its records stay the pipeline's in-memory program; an operation's
-  settings are a JSON class that the operation turns into those records in one place
-  ([stacking-workbench.md](../plans/stacking-workbench.md), "An operation").
+- **The enhance program's steps as edits of their own.** `EnhanceOperation` (#2466) runs the canonical program as ONE
+  step: its settings say which steps of `LinearEnhanceProgram` are kept, and that record turns them into the
+  `SharpenStep` records, which stay the pipeline's in-memory program
+  ([stacking-workbench.md](../plans/stacking-workbench.md), "An operation"). `image sharpen` takes its program from
+  the operation (`Start`, `ProgramAsync`) and adds only its own stretches. What serves an enhance is the pipeline's
+  word (`SharpenPipeline.DescribeRoles`). Each step shown and switched by itself is W6's (#1646).
+- **Progress.** An operation reports lines (`say`); the engines' own `IProgress` (a step's percentage) is not passed
+  through the contract yet, and the window (W2, #1642) needs it.
