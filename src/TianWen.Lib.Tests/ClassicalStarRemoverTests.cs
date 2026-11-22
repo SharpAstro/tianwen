@@ -921,9 +921,10 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     [
         new Injected(600.0, 262.0, 1.0e7, true),
         new Injected(262.0, 600.0, 1.0e7, true),
+        new Injected(650.0, 513.0, 1.0e7, true),
         new Injected(255.7, 830.0, 1.0e5, true),
-        new Injected(253.0, 420.0, 2.0e5, true),
-        new Injected(515.0, 420.0, 2.0e5, true),
+        new Injected(253.0, 420.0, 200.0, true),
+        new Injected(515.0, 420.0, 200.0, true),
         new Injected(Ring - 1.0, 250.0, 20.0, true),
     ]);
 
