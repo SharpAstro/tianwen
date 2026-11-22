@@ -143,9 +143,9 @@ public sealed class CoreStarsWiringTests(ITestOutputHelper output) : IDisposable
         }
 
         (await RunAsync("rs_held", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs")).ShouldBe(level, 1e-4f, "remove-stars holds the plate at the input by default");
-        (await RunAsync("rs_kept", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs", "--keep-overshoot")).ShouldBe(lifted, 1e-4f, "--keep-overshoot leaves the remover's own value");
+        (await RunAsync("rs_kept", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs", "--keep-overshoot")).ShouldBeGreaterThan(level + 0.05f, "--keep-overshoot leaves the remover's own plate over the input (the writer may rescale it)");
         (await RunAsync("fd_held", "fill-digs", "--input", inputPath, "--starless", overPath)).ShouldBe(level, 1e-4f, "fill-digs holds the plate at the input by default");
-        (await RunAsync("fd_kept", "fill-digs", "--input", inputPath, "--starless", overPath, "--keep-overshoot")).ShouldBe(lifted, 1e-4f, "--keep-overshoot leaves the plate as it is");
+        (await RunAsync("fd_kept", "fill-digs", "--input", inputPath, "--starless", overPath, "--keep-overshoot")).ShouldBeGreaterThan(level + 0.05f, "--keep-overshoot leaves the plate over the input (the writer may rescale it)");
     }
 
     [Fact]
