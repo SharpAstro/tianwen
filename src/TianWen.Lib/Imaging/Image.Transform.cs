@@ -367,7 +367,8 @@ public partial class Image
 
     /// <summary>
     /// The Lanczos clamping threshold: the ratio of negative-lobe to positive-lobe contribution above
-    /// which the negative lobes are attenuated (PixInsight's rule, PCL <c>LanczosInterpolation</c>).
+    /// which the negative lobes are attenuated (PixInsight's rule, PCL <c>LanczosInterpolation</c>, used under the
+    /// PixInsight Class Library License: NOTICE carries its acknowledgment and its text).
     /// PixInsight ships 0.3; this is 0.7, measured (2026-09-12, the sweep in the plan's R1 section):
     /// on a 2.12 px mono Gaussian at half phase the clamp at 0.3 lifts every star's skirt, 0.73 px of
     /// second-moment FWHM in quadrature (the half-maximum width is untouched at every threshold), and
@@ -384,8 +385,9 @@ public partial class Image
     /// weights normalised over the taps that exist (a tap outside the plane or on a NaN drops out), so
     /// a constant plane stays constant and an integer position returns the pixel exactly (the kernel
     /// is 1 at zero and 0 at every other integer). NaN where no tap is left.
-    /// <para>With a <paramref name="clampThreshold"/> below 1, PixInsight's rule (PCL
-    /// <c>LanczosInterpolation</c>) verbatim: the weighted samples are summed by SIGN into a positive
+    /// <para>With a <paramref name="clampThreshold"/> below 1, the one part here that is not the textbook kernel:
+    /// PixInsight's rule (PCL <c>LanczosInterpolation</c>), re-implemented from its source and credited in NOTICE
+    /// with its licence. The weighted samples are summed by SIGN into a positive
     /// part (sp, wp) and a negative part (sn, wn, both stored as magnitudes); with r = sn / sp, a
     /// sample whose negative lobes outweigh its positive ones (r at or above 1) is the positive lobes
     /// alone, one above the threshold has its negative part scaled by 1 - ((r - t) / (1 - t))^2, and one
