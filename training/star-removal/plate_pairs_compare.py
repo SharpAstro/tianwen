@@ -2,8 +2,10 @@
 
     python -I plate_pairs_compare.py <export A> <export B> [<reference export for A> [<plates A> <plates B>]]
 
-A and B are two outputs of one `tianwen dataset degrade --mode stars` line over the same sessions, A from the stored
-plates and B from the rebuilt ones. Per session: the cells each chose; over the cells both hold, the target tile
+A and B are two outputs of one `tianwen dataset degrade --mode stars` line, A from the older plate store and B from
+the newer one (the stored plates against the rebuilt ones, or a store built between them on either side). The
+sessions both hold are compared; one that only A or only B holds is named and left out (an export
+of one session can stand on either side). Per session: the cells each chose; over the cells both hold, the target tile
 (`_master.f16`), the four input draws (`_degNNN.f16`) and the noise plane (`.sigma.f16`), B against A in units of A's
 noise plane; and the injected stars (`injections.jsonl`), whether the same stars were drawn at the same places and
 how their amplitudes moved, apart for the stars under the tile's noise and for those at 5 times it and over (the
@@ -49,7 +51,13 @@ def star_rows(plates, session):
 a_root, b_root = sys.argv[1], sys.argv[2]
 ref = sys.argv[3] if len(sys.argv) > 3 else None
 plates = (sys.argv[4], sys.argv[5]) if len(sys.argv) > 5 else None
-sessions = sorted(os.listdir(os.path.join(b_root, "tiles")))
+held_a, held_b = set(os.listdir(os.path.join(a_root, "tiles"))), set(os.listdir(os.path.join(b_root, "tiles")))
+sessions = sorted(held_a & held_b)
+for side, only in (("A", held_a - held_b), ("B", held_b - held_a)):
+    if only:
+        print(f"only in {side}, not compared: {len(only)} session(s): " + "; ".join(sorted(only)))
+if not sessions:
+    sys.exit("the two exports share no session")
 if ref:
     same = diff = missing = 0
     for s in sessions:
