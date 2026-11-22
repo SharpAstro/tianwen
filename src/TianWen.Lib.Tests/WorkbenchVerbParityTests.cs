@@ -197,6 +197,60 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         ShouldBeTheSameFile(flat.Output.ShouldNotBeNull(), verbs[NamedOutput(flat)], "the gradient fit of an auto-crop");
     }
 
+    // Every option of a line, not only the ones a default run prints: a wrong --surface, --divide, --exclude or --margin
+    // makes a different file, and this holds each to its verb's, to the byte. (backend graxpert is not here: it needs
+    // the model's weights, which a unit test has not; its line is `--backend graxpert` alone.)
+    [Fact(Timeout = 300_000)]
+    public async Task EveryOptionOfAGradientAndAnAutoCropLineIsHeldToItsVerb()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-options-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "ringed", WorkbenchFixtures.Master(seed: 5, ring: 12));
+        JsonObject Classical(Action<JsonObject> tune)
+        {
+            var settings = new JsonObject { ["backend"] = "classical", ["degree"] = 1, ["downsample"] = 2 };
+            tune(settings);
+            return settings;
+        }
+
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("surface", master, WorkbenchFixtures.Edit(GradientOperation.Id, Classical(s => s["surface"] = true))),
+            WorkbenchFixtures.Picture("divide", master, WorkbenchFixtures.Edit(GradientOperation.Id, Classical(s => s["divide"] = true))),
+            WorkbenchFixtures.Picture("exclude", master, WorkbenchFixtures.Edit(GradientOperation.Id,
+                Classical(s => s["exclusions"] = new JsonArray(new JsonArray(40, 40, 120, 40, 120, 100, 40, 100))))),
+            WorkbenchFixtures.Picture("margin", master, WorkbenchFixtures.Edit(CropOperation.Id,
+                new JsonObject { ["auto"] = true, ["trimDeclined"] = 0.1, ["margin"] = 0.03 })),
+            WorkbenchFixtures.Picture("margin-flat", master,
+                WorkbenchFixtures.Edit(CropOperation.Id, new JsonObject { ["auto"] = true, ["margin"] = 0.02 }),
+                WorkbenchFixtures.Edit(GradientOperation.Id, Classical(s => s["surface"] = true)))), ct);
+        var runner = new WorkbenchRunner(Catalog());
+
+        var all = await runner.RunAsync(folder, cancellationToken: ct);
+
+        all.Succeeded.ShouldBeTrue(string.Join("; ", all.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        var lines = all.Images.SelectMany(static image => image.Steps).Select(static step => string.Join(' ', step.CommandLine)).ToList();
+        lines.ShouldContain(line => line.Contains("--surface"));
+        lines.ShouldContain(line => line.Contains("--divide"));
+        lines.ShouldContain(line => line.Contains("--exclude"));
+        lines.ShouldContain(line => line.Contains("--margin 0.03"));
+        var verbs = await ReplayThroughTheVerbsAsync(all, folder, ct);
+        foreach (var image in all.Images)
+        {
+            foreach (var step in image.Steps)
+            {
+                // A stored step is held to its file; a crop is derived, so the exported file is what the verb is held to.
+                if (step.Output is { } result)
+                {
+                    ShouldBeTheSameFile(result, verbs[NamedOutput(step)], $"{image.Name}, step {step.Index + 1} ({step.Operation})");
+                }
+            }
+        }
+
+        var exported = await runner.RunAsync(folder, new WorkbenchRunOptions { Image = "margin", ExportPath = Path.Combine(folder, "margin-exported.fits") }, ct);
+        var crop = exported.Images.Single(static image => image.Name == "margin").Steps[0];
+        ShouldBeTheSameFile(exported.Exported.ShouldNotBeNull(exported.Refusal), verbs[NamedOutput(crop)], "the exported auto-crop with a margin");
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task TheWorkbenchVerbSaysWhatWillRunRunsItAndThenKeepsIt()
     {

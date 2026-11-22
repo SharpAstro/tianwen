@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Imaging.Workbench;
 
@@ -180,6 +182,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             {
                 return new WorkbenchReport([], $"an export never writes into the step store: {target}");
             }
+
+            if (SamePath(WorkbenchProjectFile.PathIn(folder), target))
+            {
+                return new WorkbenchReport([], $"an export never writes over the project file: {target}");
+            }
         }
 
         ImmutableArray<string> asked = options.Image is { } name ? [name] : [.. images.Select(static image => image.Name)];
@@ -328,16 +335,23 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return $"'{name}' has no edit switched on: its result is its own file, {head.File}";
         }
 
-        if (Path.GetDirectoryName(exportPath) is { Length: > 0 } directory)
+        try
         {
-            Directory.CreateDirectory(directory);
-        }
+            if (Path.GetDirectoryName(exportPath) is { Length: > 0 } directory)
+            {
+                Directory.CreateDirectory(directory);
+            }
 
-        if (head.File is { } stored)
+            if (head.File is { } stored)
+            {
+                // A stored result is already the file its verb writes.
+                File.Copy(stored, exportPath, overwrite: true);
+                return null;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A stored result is already the file its verb writes.
-            File.Copy(stored, exportPath, overwrite: true);
-            return null;
+            return $"{exportPath} cannot be written: {ex.Message}";
         }
 
         if (operation is not IDerivedOperation)
@@ -352,23 +366,61 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return $"'{name}' cannot be made, so there is nothing to export";
         }
 
-        var outcome = await operation.RunAsync(head.Settings, inputs, exportPath, Named(say, head), cancellationToken);
-        return outcome.Succeeded ? null : outcome.Message;
+        try
+        {
+            var outcome = await operation.RunAsync(head.Settings, inputs, exportPath, Named(say, head), cancellationToken);
+            return outcome.Succeeded ? null : outcome.Message;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return $"{exportPath} cannot be written: {ex.Message}";
+        }
     }
 
-    // The project file with this run's keys and results in it, written only when one of them changed.
+    // The project file with this run's keys and results in it, written only when one of them changed. A run can last
+    // minutes, so the file is read again under the file's lock and the keys go onto the edits that are still the ones
+    // the run planned: an edit made to project.json meanwhile is kept, and an edit changed since gets no key of a
+    // result it did not make.
     private static async Task RecordAsync(string folder, WorkbenchProject project, Planner planner, CancellationToken cancellationToken)
+    {
+        if (!TryRecord(folder, project, planner, out _))
+        {
+            return;
+        }
+
+        await SharedFile.UpdateJsonAsync(
+            WorkbenchProjectFile.PathIn(folder),
+            WorkbenchJsonContext.Default.WorkbenchProject,
+            onDisk =>
+            {
+                TryRecord(folder, onDisk ?? project, planner, out var recorded);
+                return recorded;
+            },
+            logger: null,
+            cancellationToken);
+    }
+
+    // The keys and outputs of this run's plan put onto what is in <paramref name="current"/>, wherever the edit is still
+    // the planned one; true when that changed anything.
+    private static bool TryRecord(string folder, WorkbenchProject current, Planner planner, out WorkbenchProject recorded)
     {
         var changed = false;
         var images = ImmutableArray.CreateBuilder<ProjectImage>();
-        foreach (var image in OrEmpty(project.Images))
+        foreach (var image in OrEmpty(current.Images))
         {
-            var plan = planner.Plan(image.Name);
-            var edits = ImmutableArray.CreateBuilder<ProjectEdit>(plan.Steps.Count);
-            foreach (var step in plan.Steps)
+            if (!planner.Knows(image.Name) || planner.Plan(image.Name) is not { } plan || !string.Equals(plan.Image.Path, image.Path, StringComparison.Ordinal))
             {
-                var edit = step.Edit;
-                if (step is { Node: { } node, State: StepState.Kept or StepState.Ran or StepState.Derived })
+                images.Add(image);
+                continue;
+            }
+
+            var edits = ImmutableArray.CreateBuilder<ProjectEdit>(OrEmpty(image.Edits).Length);
+            for (var index = 0; index < OrEmpty(image.Edits).Length; index++)
+            {
+                var edit = image.Edits[index];
+                if (index < plan.Steps.Count
+                    && plan.Steps[index] is { Node: { } node, State: StepState.Kept or StepState.Ran or StepState.Derived } step
+                    && SameEdit(step.Edit, edit))
                 {
                     var output = node.File is { } file ? Path.GetRelativePath(folder, file).Replace('\\', '/') : null;
                     if (!string.Equals(edit.Key, node.Key, StringComparison.Ordinal) || !string.Equals(edit.Output, output, StringComparison.Ordinal))
@@ -386,11 +438,16 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             images.Add(image with { Digest = digest, Edits = edits.ToImmutable() });
         }
 
-        if (changed)
-        {
-            await WorkbenchProjectFile.WriteAsync(folder, project with { Images = images.ToImmutable() }, cancellationToken);
-        }
+        recorded = changed ? current with { Images = images.ToImmutable() } : current;
+        return changed;
     }
+
+    // Two edits that ask for the same step: the operation, its switch, its settings and the images it takes.
+    private static bool SameEdit(ProjectEdit planned, ProjectEdit onDisk)
+        => string.Equals(planned.Operation, onDisk.Operation, StringComparison.Ordinal)
+            && planned.Enabled == onDisk.Enabled
+            && OrEmpty(planned.Inputs).SequenceEqual(OrEmpty(onDisk.Inputs), StringComparer.Ordinal)
+            && JsonNode.DeepEquals(planned.Settings ?? new JsonObject(), onDisk.Settings ?? new JsonObject());
 
     private static Action<string>? Named(Action<string>? say, Node node)
         => say is null ? null : line => say($"[{node.Label}] {line}");
@@ -484,6 +541,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         // The images being planned, outermost first. An image named again while it is in here takes itself.
         private readonly List<string> _planning = [];
+
+        public bool Knows(string name) => byName.ContainsKey(name);
 
         public ImagePlan Plan(string name)
         {

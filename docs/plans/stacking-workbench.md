@@ -229,7 +229,7 @@ What exists, read from the code on 2026-11-19:
   optional margin. It releases the coverage image it reads. The viewer calls it with `MasterAutoCropRule.ForViewing`.
 - `DatasetMasterInventory.SkyPatchOf` keeps its own exact-else-union answer: its fallback runs no edge walk, and taking the
   routine's tier would trim the walk's edges and move the patch.
-- `image autocrop` is the CLI verb, and **it calls `MasterAutoCrop.Scan`** with `MasterAutoCropRule.ForModel(--trim-declined,
+- `image autocrop` is the CLI verb, and **it builds `CropSettings` and calls `CropOperation`**, whose `TryResolve` calls `MasterAutoCrop.Scan` with `MasterAutoCropRule.ForModel(--trim-declined,
   --margin)`, keeping only parsing and printing. A rectangle the user gives is `image crop <input> --x --y --width --height [-o]` (#2244;
   the owner, 2026-11-19: "we can add a crop verb, takes in four parameters, but that is a seperate thing"). It calls
   `MasterCrop` in Lib, which refuses a rectangle not wholly inside the image in words and writes nothing, moves the WCS

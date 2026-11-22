@@ -37,8 +37,9 @@ The rules that bite:
 - **A verb's work is its operation's routine.** The verb builds the settings from its options and calls the
   operation; the runner reaches the same method through `IOperation`. `image linear-fit` calls
   `LinearFitOperation.RunAsync`; `image flatten` calls `GradientOperation.ExtractAsync` and writes with
-  `OperationOutput.Write`; `CropOperation` calls `MasterCrop` and `MasterAutoCrop.Scan`, which is all `image crop` and
-  `image autocrop` call. An operation adds nothing between its routines. `WorkbenchVerbParityTests` runs every step's
+  `OperationOutput.Write`; `image crop` and `image autocrop` build `CropSettings` and call `CropOperation.TryResolve`
+  (the four numbers, or `MasterAutoCrop.Scan`, handing the scan back for the verb's declined and margin lines) and
+  `CropOperation.Write` (`MasterCrop`); `--dry-run` stops between the two. An operation adds nothing between its routines. `WorkbenchVerbParityTests` runs every step's
   printed command line through the real `tianwen image` command and compares the files to the byte.
 - **A setting is a settable property with its default.** The JSON source generator gives an absent init-only property
   its type's default, not the declared one, so `{ get; set; } = default` is the only form. The type goes into

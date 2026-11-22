@@ -649,14 +649,20 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            // What a refused edge loses is CoverageTrimPolicy's, not this verb's: the Lib routine
-            // applies the producing policy (the one the stacker uses), so this verb and a master
-            // written by `tianwen stack` crop identically, which they did not while this logic lived
-            // here: the CLI removed V1045 Ori's strip exactly and the bake kept it.
-            var rule = MasterAutoCropRule.ForModel(
-                parseResult.GetValue(trimDeclinedOpt), parseResult.GetValue(marginOpt));
-            var scan = MasterAutoCrop.Scan(src, input, rule, logger);
-            var rect = scan.Rect;
+            // The rectangle is CropOperation's: the verb builds its settings from the options, and the operation
+            // resolves them (what a refused edge loses is CoverageTrimPolicy's, so this verb, the workbench and a
+            // master written by `tianwen stack` crop identically). The verb words what the scan did from its result.
+            var settings = new CropSettings
+            {
+                Auto = true,
+                TrimDeclined = parseResult.GetValue(trimDeclinedOpt),
+                Margin = parseResult.GetValue(marginOpt),
+            };
+            var operation = new CropOperation(logger);
+            var resolved = operation.TryResolve(settings, src, input, say: null, out var resolution, out var refusal);
+            var rule = MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin);
+            var scan = resolution.Scan.GetValueOrDefault();
+            var rect = resolution.Rectangle;
 
             if (scan.DeclinedTrim is { } declined)
             {
@@ -685,9 +691,9 @@ internal sealed partial class ImageSubCommand(
                 $"[autocrop] {src.Width}x{src.Height} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) "
                 + $"via the {tier}{(scan.Declined ? ", one or more edges DECLINED (band never settled)" : "")}");
 
-            if (rect.Width <= 0 || rect.Height <= 0)
+            if (!resolved)
             {
-                consoleHost.WriteError("The scan left nothing; refusing to write an empty crop.");
+                consoleHost.WriteError(refusal);
                 return Task.FromResult(2);
             }
             if (parseResult.GetValue(dryRunOpt))
@@ -698,7 +704,7 @@ internal sealed partial class ImageSubCommand(
             // Written through the same routine as `image crop`, so the output carries the alignment
             // provenance (canvas origin, reference frame) moved by the crop offset as well as the WCS.
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_autocrop"));
-            var written = MasterCrop.CropLoaded(input, src, wcs, rect, dst);
+            var written = CropOperation.Write(input, src, wcs, rect, dst);
             if (!written.Succeeded)
             {
                 consoleHost.WriteError(written.Message);
@@ -719,7 +725,7 @@ internal sealed partial class ImageSubCommand(
     /// numbers are exactly the crop or nothing: a rectangle not wholly inside the image is refused in
     /// words and no file is written. The WCS and the alignment provenance move with the crop.
     ///
-    /// <para>This calls <see cref="MasterCrop"/> and nothing of its own.</para>
+    /// <para>This builds <see cref="CropSettings"/> and calls <see cref="CropOperation"/> and nothing of its own.</para>
     /// </summary>
     private Command BuildCropCommand()
     {
@@ -751,12 +757,30 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            var rect = new PixelRect(
-                parseResult.GetValue(xOpt), parseResult.GetValue(yOpt),
-                parseResult.GetValue(widthOpt), parseResult.GetValue(heightOpt));
+            var settings = new CropSettings
+            {
+                X = parseResult.GetValue(xOpt),
+                Y = parseResult.GetValue(yOpt),
+                Width = parseResult.GetValue(widthOpt),
+                Height = parseResult.GetValue(heightOpt),
+            };
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_crop"));
 
-            var result = MasterCrop.CropFile(input, rect, dst);
+            if (!Image.TryReadFitsFile(input, out var image, out var wcs))
+            {
+                consoleHost.WriteError($"{input} could not be read as a FITS image");
+                return Task.FromResult(2);
+            }
+
+            // The rectangle is validated and written by CropOperation, as the workbench does.
+            if (!new CropOperation(logger).TryResolve(settings, image, input, say: null, out var resolution, out var refusal))
+            {
+                consoleHost.WriteError(refusal);
+                return Task.FromResult(2);
+            }
+
+            var rect = resolution.Rectangle;
+            var result = CropOperation.Write(input, image, wcs, rect, dst);
             if (!result.Succeeded)
             {
                 consoleHost.WriteError(result.Message);

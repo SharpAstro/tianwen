@@ -17,16 +17,18 @@ namespace TianWen.Lib.Imaging.Workbench;
 /// (docs/plans/stacking-workbench.md, "Crop and auto-crop"). One operation: auto-crop is a setting, not a second one.
 /// </summary>
 /// <remarks>
-/// <para>Its routines are the two verbs': <see cref="MasterCrop"/> for <c>image crop</c>, and
-/// <see cref="MasterAutoCrop.Scan"/> followed by <see cref="MasterCrop"/> for <c>image autocrop</c>. It adds nothing
-/// to them.</para>
+/// <para>It is the two verbs' routine: <c>image crop</c> and <c>image autocrop</c> build its settings from their
+/// options and call <see cref="TryResolve"/> (the rectangle: the four numbers, or <see cref="MasterAutoCrop.Scan"/>)
+/// and <see cref="Write"/> (<see cref="MasterCrop"/>), and the workbench runs the same two. The verb reads the scan
+/// result off <see cref="CropResolution"/> for its declined and margin lines, and its <c>--dry-run</c> stops between
+/// the two.</para>
 /// <para><b>Derived.</b> The edit holds the rectangle or the rule; the pixels are cut out of the input when the step
 /// after it asks, and no file is written. Written as a file (an export, or the verb), a crop of a FILE carries what
 /// the file holds beyond its pixels: the alignment and stack cards and the map sidecars
 /// (<see cref="MasterCrop.CropLoaded"/>). A crop handed on in memory is the pixels and the moved plate solution
 /// only, which is all the stored operations read.</para>
 /// </remarks>
-public sealed class CropOperation(ILogger<CropOperation>? logger = null) : DerivedOperation<CropSettings>
+public sealed class CropOperation(ILogger? logger = null) : DerivedOperation<CropSettings>
 {
     /// <summary>The operation's id.</summary>
     public const string Id = "crop";
@@ -124,11 +126,12 @@ public sealed class CropOperation(ILogger<CropOperation>? logger = null) : Deriv
             image = null;
             wcs = null;
             if (!input.TryRead(out var source, out var sourceWcs, out refusal)
-                || !TryResolve(settings, source, input.Path, say: null, out var rectangle, out refusal))
+                || !TryResolve(settings, source, input.Path, say: null, out var resolution, out refusal))
             {
                 return false;
             }
 
+            var rectangle = resolution.Rectangle;
             image = source.Crop(rectangle);
             wcs = sourceWcs?.CroppedTo(rectangle.X, rectangle.Y);
             return true;
@@ -141,16 +144,13 @@ public sealed class CropOperation(ILogger<CropOperation>? logger = null) : Deriv
     {
         var input = inputs[0];
         if (!input.TryRead(out var image, out var wcs, out var refusal)
-            || !TryResolve(settings, image, input.Path, say, out var rectangle, out refusal))
+            || !TryResolve(settings, image, input.Path, say, out var resolution, out refusal))
         {
             return ValueTask.FromResult(OperationOutcome.BadInput(refusal));
         }
 
-        // The crop of a file carries what the file holds beyond its pixels, which is all the two verbs do. A derived
-        // image has no file behind it and so nothing more to carry.
-        var result = input.Path is { } path
-            ? MasterCrop.CropLoaded(path, image, wcs, rectangle, outputPath)
-            : MasterCrop.Crop(image, wcs, provenance: null, rectangle, outputPath);
+        var rectangle = resolution.Rectangle;
+        var result = Write(input.Path, image, wcs, rectangle, outputPath);
         if (!result.Succeeded)
         {
             return ValueTask.FromResult(OperationOutcome.BadInput(result.Message));
@@ -170,28 +170,56 @@ public sealed class CropOperation(ILogger<CropOperation>? logger = null) : Deriv
         return ValueTask.FromResult(OperationOutcome.Done);
     }
 
-    // The rectangle the settings mean for this image: the four numbers, or what the scan finds. False with the reason
-    // when it is not a crop of the image.
-    private bool TryResolve(CropSettings settings, Image image, string? path, Action<string>? say, out PixelRect rectangle, [NotNullWhen(false)] out string? refusal)
+    /// <summary>
+    /// The rectangle the settings mean for this image: the four numbers, or what the scan finds. False with the reason
+    /// when it is not a crop of the image; <paramref name="resolution"/> still holds the scan's answer then, so a verb
+    /// can say what the scan did before it refuses.
+    /// </summary>
+    /// <param name="settings">The edit's settings.</param>
+    /// <param name="image">The image the rectangle is for.</param>
+    /// <param name="path">The file it was read from, which the scan reads the coverage sidecar of; null for a derived image.</param>
+    /// <param name="say">Told what the scan kept; null for a caller that words it itself.</param>
+    /// <param name="resolution">The rectangle, and the scan when <see cref="CropSettings.Auto"/>.</param>
+    /// <param name="refusal">Why not, in words.</param>
+    public bool TryResolve(CropSettings settings, Image image, string? path, Action<string>? say, out CropResolution resolution,
+        [NotNullWhen(false)] out string? refusal)
     {
+        PixelRect rectangle;
         if (settings.Auto)
         {
             var scan = MasterAutoCrop.Scan(image, path, MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin), logger);
             rectangle = scan.Rect;
+            resolution = new CropResolution(rectangle, scan);
             say?.Invoke($"the scan keeps {rectangle.Width}x{rectangle.Height} at ({rectangle.X},{rectangle.Y}) of {image.Width}x{image.Height}, "
                 + $"by the {(scan.FromCoverage ? "coverage plane" : "edge walk")}");
             if (rectangle.Width <= 0 || rectangle.Height <= 0)
             {
-                refusal = "the scan left nothing to keep";
+                refusal = "the scan left nothing to keep, so no empty crop is written";
                 return false;
             }
         }
         else
         {
             rectangle = new PixelRect(settings.X, settings.Y, settings.Width, settings.Height);
+            resolution = new CropResolution(rectangle, null);
         }
 
         refusal = MasterCrop.Validate(rectangle, image.Width, image.Height);
         return refusal is null;
     }
+
+    /// <summary>
+    /// Writes <paramref name="rectangle"/> of an image as a FITS file, as both verbs do. The crop of a FILE carries what
+    /// the file holds beyond its pixels, which is all the two verbs do; a derived image (no <paramref name="inputPath"/>)
+    /// has no file behind it and so nothing more to carry. A refusal writes nothing.
+    /// </summary>
+    public static MasterCropResult Write(string? inputPath, Image image, WCS? wcs, PixelRect rectangle, string outputPath)
+        => inputPath is { } path
+            ? MasterCrop.CropLoaded(path, image, wcs, rectangle, outputPath)
+            : MasterCrop.Crop(image, wcs, provenance: null, rectangle, outputPath);
 }
+
+/// <summary>What <see cref="CropOperation.TryResolve"/> found.</summary>
+/// <param name="Rectangle">The rectangle to cut.</param>
+/// <param name="Scan">The scan that found it; null when the settings gave the four numbers.</param>
+public readonly record struct CropResolution(PixelRect Rectangle, MasterAutoCropResult? Scan);
