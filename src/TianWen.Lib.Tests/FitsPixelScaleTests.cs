@@ -325,6 +325,27 @@ public class FitsPixelScaleTests
             }
         });
 
+    private static void AddDoubleCards(string path, params (string Key, double Value)[] cards)
+        => MutateFirstImageHeader(path, header =>
+        {
+            foreach (var (key, value) in cards)
+            {
+                header.AddValue(key, value, "");
+            }
+        });
+
+    [Fact]
+    public void AFloatApertureCardIsReadAsTheApertureLikeAFloatFocalLength()
+    {
+        // APTDIA = 80.0 is a float card, which the integer getters do not coerce: it used to read as absent.
+        var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "float-aptdia.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(path);
+        AddDoubleCards(path, ("APTDIA", 80.0));
+
+        Image.TryReadFitsHeader(path, out var read).ShouldBeTrue();
+        read.Meta.Aperture.ShouldBe(80);
+    }
+
     private static void MutateFirstImageHeader(string path, Action<Header> mutate)
     {
         // An HDU's image data is tiled lazily off the stream it was read from, so the SOURCE must

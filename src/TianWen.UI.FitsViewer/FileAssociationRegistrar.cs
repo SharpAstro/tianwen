@@ -62,7 +62,7 @@ namespace TianWen.UI.FitsViewer
             return 1;
         }
 
-        /// <summary>Removes what <see cref="Register"/> wrote on Windows; other platforms have nothing registered by it here.</summary>
+        /// <summary>Removes what <see cref="Register"/> wrote on Windows. The Linux registration (desktop entry, MIME XML, xdg-mime default) is not undone.</summary>
         internal static int Unregister(string group, ILogger logger)
         {
             if (!ExtensionGroups.TryGetValue(group, out var extensions))
@@ -113,11 +113,28 @@ namespace TianWen.UI.FitsViewer
                         classesKey.DeleteSubKeyTree($@"{ext}\ShellEx\{handlerId}", throwOnMissingSubKey: false);
                     }
 
+                    // Register created these parents; leave none empty behind.
+                    DeleteIfEmpty(classesKey, $@"{ext}\OpenWithProgids");
+                    DeleteIfEmpty(classesKey, $@"{ext}\ShellEx");
+                    DeleteIfEmpty(classesKey, ext);
+
                     logger.LogInformation("Unregistered {Extension}", ext);
                 }
 
-                classesKey.DeleteSubKeyTree(ProgId, throwOnMissingSubKey: false);
-                classesKey.DeleteSubKeyTree(@"CLSID\" + thumbClsid, throwOnMissingSubKey: false);
+                // The ProgId and the thumbnail CLSID are shared by every group: they go only when no extension
+                // of another group still names them, or that group's registration would be left dangling.
+                var others = OtherGroupsExtensions(extensions);
+                var progIdInUse = others.Any(e => HasValue(classesKey, $@"{e}\OpenWithProgids", ProgId));
+                var thumbInUse = others.Any(e => HasDefault(classesKey, $@"{e}\ShellEx\{handlerId}", thumbClsid));
+                if (!progIdInUse)
+                {
+                    classesKey.DeleteSubKeyTree(ProgId, throwOnMissingSubKey: false);
+                }
+
+                if (!thumbInUse)
+                {
+                    classesKey.DeleteSubKeyTree(@"CLSID\" + thumbClsid, throwOnMissingSubKey: false);
+                }
 
                 UnregisterPropertyHandler(extensions, logger);
 
@@ -156,11 +173,49 @@ namespace TianWen.UI.FitsViewer
                 }
 
                 using var classesKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Classes", writable: true);
-                classesKey?.DeleteSubKeyTree(@"CLSID\" + clsid, throwOnMissingSubKey: false);
+                using var handlersRead = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(PropertyHandlersKey);
+                var inUse = handlersRead is not null && OtherGroupsExtensions(extensions).Any(e => HasDefault(handlersRead, e, clsid));
+                if (!inUse)
+                {
+                    classesKey?.DeleteSubKeyTree(@"CLSID\" + clsid, throwOnMissingSubKey: false);
+                }
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
             {
                 logger.LogWarning("Explorer detail columns are not unregistered: the HKLM keys need an elevated process ({Reason}).", ex.Message);
+            }
+        }
+
+        /// <summary>The extensions of every group other than the one whose extensions are given.</summary>
+        private static string[] OtherGroupsExtensions(string[] extensions)
+            => [.. ExtensionGroups.Values.SelectMany(g => g).Where(e => !extensions.Contains(e, StringComparer.OrdinalIgnoreCase))];
+
+        [SupportedOSPlatform("windows")]
+        private static bool HasValue(Microsoft.Win32.RegistryKey root, string subKey, string valueName)
+        {
+            using var key = root.OpenSubKey(subKey);
+            return key?.GetValue(valueName) is not null;
+        }
+
+        [SupportedOSPlatform("windows")]
+        private static bool HasDefault(Microsoft.Win32.RegistryKey root, string subKey, string expected)
+        {
+            using var key = root.OpenSubKey(subKey);
+            return key is not null && string.Equals(key.GetValue(null) as string, expected, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [SupportedOSPlatform("windows")]
+        private static void DeleteIfEmpty(Microsoft.Win32.RegistryKey root, string subKey)
+        {
+            bool empty;
+            using (var key = root.OpenSubKey(subKey))
+            {
+                empty = key is not null && key.SubKeyCount == 0 && key.ValueCount == 0;
+            }
+
+            if (empty)
+            {
+                root.DeleteSubKey(subKey, throwOnMissingSubKey: false);
             }
         }
 

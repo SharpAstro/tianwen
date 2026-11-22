@@ -82,6 +82,36 @@ public class ExplorerFilePropertiesTests
         p.FocalLengthMm.ShouldBeNull();
     }
 
+    [Fact]
+    public void AFloatApertureCardGivesAnFStopFromTheUnroundedFocalLength()
+    {
+        using var stream = Fits(32, 24, 16, ("FOCALLEN", "270.5"), ("APTDIA", "80.0"));
+
+        var p = ExplorerFileProperties.Read(stream);
+
+        p.FNumber.ShouldNotBeNull();
+        p.FNumber.Value.ShouldBe(3.38125, 1e-9);
+    }
+
+    [Fact]
+    public void ASerWhoseTrailerReadThrowsKeepsItsHeaderFields()
+    {
+        var start = new DateTime(2026, 5, 1, 21, 0, 0, DateTimeKind.Utc);
+        var bytes = ((MemoryStream)Ser(4, true, start, TimeSpan.FromMilliseconds(10))).ToArray();
+
+        // Reads fail once past the frame block, where the timestamp trailer starts.
+        var frameBlockEnd = bytes.Length - (4 * 8);
+        using var stream = new ThrowingPastStream(new MemoryStream(bytes), frameBlockEnd);
+
+        var p = ExplorerFileProperties.Read(stream);
+
+        p.CameraModel.ShouldBe("ZWO ASI662MC");
+        p.Author.ShouldBe("Grace Hopper");
+        p.Width.ShouldBe(16u);
+        p.Duration.ShouldBeNull();
+        p.FrameRate.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("qhy268m", "QHYCCD")]
     [InlineData("Canon EOS 6D", "Canon")]
@@ -280,6 +310,36 @@ public class ExplorerFilePropertiesTests
             BytesRead += n;
             return n;
         }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>Seekable; a read that starts at or past <c>limit</c> throws, like a device that drops out mid-file.</summary>
+    private sealed class ThrowingPastStream(Stream inner, long limit) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => inner.Position >= limit ? throw new IOException("The device is gone.") : inner.Read(buffer, offset, count);
+
+        public override int Read(Span<byte> buffer)
+            => inner.Position >= limit ? throw new IOException("The device is gone.") : inner.Read(buffer);
 
         protected override void Dispose(bool disposing)
         {

@@ -16,8 +16,8 @@ namespace TianWen.Lib.Imaging;
 /// value. A FITS header becomes an <see cref="ImageMeta"/> in one place, <c>ParseImageMetaFromHeader</c>, so
 /// this reader adds no card parsing of its own beyond asking whether a card is present at all.</para>
 /// <para><b>Read never throws</b>: it sits under a COM boundary, so a malformed or truncated input gives
-/// <see cref="Empty"/>, except that a SER whose header read keeps the fields read before a damaged or short
-    /// timestamp trailer. A FITS whose header cannot be parsed gives <see cref="Empty"/>.</para>
+/// <see cref="Empty"/>, except that a SER keeps the header fields when its timestamp trailer is short
+/// or damaged. A FITS whose header cannot be parsed gives <see cref="Empty"/>.</para>
 /// <para>A FITS data block and a SER frame block are skipped by seeking, never read. A SER's per-frame timestamp
 /// trailer is read at its first and last entry only.</para>
 /// </remarks>
