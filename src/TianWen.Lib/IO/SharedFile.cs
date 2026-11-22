@@ -36,7 +36,7 @@ namespace TianWen.Lib.IO;
 /// 130 ms the looks spanned (a writer descheduled inside its one replace). A one-off probe run in review on the
 /// desktop (Release, 16 cores, two writers calling <see cref="WriteAsync"/> flat out for 20 s, 20,265 writes; its
 /// script is not in the repo) saw the name absent at 2 of 266,782 looks (about 7.5e-6 per look), 0 nulls from
-/// 120,253 <see cref="TryOpenReadAsync"/> calls, and a staging file visible at both absent looks. Four independent
+/// 120,253 <see cref="TryOpenReadAsync(string, CancellationToken)"/> calls, and a staging file visible at both absent looks. Four independent
 /// misses would need a per-look rate near 0.2 on the runner, so one long window fits the CI miss at least as well
 /// as several. Neither is measured on the runner. The on-demand shared-file-repeat workflow is the proof at CI scale.
 /// The rule below covers both, and is about what the looks show, not how many there are or how far apart: a
@@ -47,7 +47,7 @@ namespace TianWen.Lib.IO;
 /// and the name as gone. The look at the name and the look for a staging file are two looks, and a replace that
 /// finishes between them shows in neither, so the last look before an absence is believed is always at the name.
 /// A file deleted for good has no staging file, so it is answered after one 5 ms relook
-/// (<see cref="TryOpenReadAsync"/>, and <see cref="ListAsync"/> for a file the last listing had).</para>
+/// (<see cref="TryOpenReadAsync(string, CancellationToken)"/>, and <see cref="ListAsync"/> for a file the last listing had).</para>
 /// <para>Why not a lock between readers and writers, which would make that exact: measured, it wedges. The
 /// real-time scanner holds a freshly replaced file in kernel mode (the System process, invisible to a share
 /// check), and with a replace taking the directory's lock that hold stopped clearing: every rename onto the file
@@ -175,7 +175,7 @@ public static partial class SharedFile
         }
     }
 
-    /// <inheritdoc cref="TryOpenReadAsync"/>
+    /// <inheritdoc cref="TryOpenReadAsync(string, CancellationToken)"/>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public static async Task<FileStream> OpenReadAsync(string path, CancellationToken cancellationToken = default)
         => await TryOpenReadAsync(path, cancellationToken) ?? throw new FileNotFoundException($"Could not find file '{path}'.", path);
@@ -270,7 +270,7 @@ public static partial class SharedFile
 
     /// <summary>
     /// Whether any of <paramref name="missing"/> has a staging file beside it in <paramref name="folder"/>, which is
-    /// a replace of THAT name under way. Asked per name, as <see cref="TryOpenReadAsync"/> asks: a listing used to
+    /// a replace of THAT name under way. Asked per name, as <see cref="TryOpenReadAsync(string, CancellationToken)"/> asks: a listing used to
     /// look for any <c>*.tmp</c> in the folder, so a crashed writer's orphan for ANOTHER file read as a replace in
     /// progress and the first listing after an expected file was deleted waited out the whole deadline, a second,
     /// before believing it (#2186).
