@@ -62,6 +62,108 @@ namespace TianWen.UI.FitsViewer
             return 1;
         }
 
+        /// <summary>Removes what <see cref="Register"/> wrote on Windows; other platforms have nothing registered by it here.</summary>
+        internal static int Unregister(string group, ILogger logger)
+        {
+            if (!ExtensionGroups.TryGetValue(group, out var extensions))
+            {
+                logger.LogError("Unknown extension group: {Group}. Supported: {Supported}", group, string.Join(", ", ExtensionGroups.Keys));
+                return 1;
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                logger.LogWarning("--unregister is only implemented on Windows");
+                return 1;
+            }
+
+            return UnregisterWindows(extensions, logger);
+        }
+
+        [SupportedOSPlatform("windows")]
+        private static int UnregisterWindows(string[] extensions, ILogger logger)
+        {
+            try
+            {
+                using var classesKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Classes", writable: true);
+                if (classesKey is null)
+                {
+                    logger.LogError(@"Cannot open HKCU\Software\Classes for writing");
+                    return 1;
+                }
+
+                var thumbClsid = ThumbnailRenderer.ShellExtensionClsid.ToString("B");
+                var handlerId = ThumbnailRenderer.ThumbnailProviderHandlerId.ToString("B");
+                foreach (var ext in extensions)
+                {
+                    using (var openWith = classesKey.OpenSubKey($@"{ext}\OpenWithProgids", writable: true))
+                    {
+                        openWith?.DeleteValue(ProgId, throwOnMissingValue: false);
+                    }
+
+                    // Only our own entry: another app's thumbnail provider on the extension stays.
+                    bool ours;
+                    using (var shellEx = classesKey.OpenSubKey($@"{ext}\ShellEx\{handlerId}"))
+                    {
+                        ours = shellEx is not null && string.Equals(shellEx.GetValue(null) as string, thumbClsid, StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    if (ours)
+                    {
+                        classesKey.DeleteSubKeyTree($@"{ext}\ShellEx\{handlerId}", throwOnMissingSubKey: false);
+                    }
+
+                    logger.LogInformation("Unregistered {Extension}", ext);
+                }
+
+                classesKey.DeleteSubKeyTree(ProgId, throwOnMissingSubKey: false);
+                classesKey.DeleteSubKeyTree(@"CLSID\" + thumbClsid, throwOnMissingSubKey: false);
+
+                UnregisterPropertyHandler(extensions, logger);
+
+                SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0x0000 /* SHCNF_IDLIST */, nint.Zero, nint.Zero);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to unregister file associations");
+                return 1;
+            }
+        }
+
+        /// <summary>Removes the HKLM property handler keys <see cref="RegisterPropertyHandler"/> wrote; one warning when not elevated.</summary>
+        [SupportedOSPlatform("windows")]
+        private static void UnregisterPropertyHandler(string[] extensions, ILogger logger)
+        {
+            var clsid = ThumbnailRenderer.PropertyHandlerClsid.ToString("B");
+            try
+            {
+                using (var handlers = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(PropertyHandlersKey, writable: true))
+                {
+                    foreach (var ext in extensions)
+                    {
+                        bool ours;
+                        using (var extKey = handlers?.OpenSubKey(ext))
+                        {
+                            ours = extKey is not null && string.Equals(extKey.GetValue(null) as string, clsid, StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        if (ours)
+                        {
+                            handlers?.DeleteSubKeyTree(ext, throwOnMissingSubKey: false);
+                        }
+                    }
+                }
+
+                using var classesKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Classes", writable: true);
+                classesKey?.DeleteSubKeyTree(@"CLSID\" + clsid, throwOnMissingSubKey: false);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+            {
+                logger.LogWarning("Explorer detail columns are not unregistered: the HKLM keys need an elevated process ({Reason}).", ex.Message);
+            }
+        }
+
         [SupportedOSPlatform("windows")]
         private static int RegisterWindows(string exePath, string[] extensions, ILogger logger)
         {

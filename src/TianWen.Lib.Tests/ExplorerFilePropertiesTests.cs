@@ -88,6 +88,9 @@ public class ExplorerFilePropertiesTests
     [InlineData("Player One Ares-C", "Player One")]
     [InlineData("Starlight Xpress Trius", "Starlight Xpress")]
     [InlineData("My ZWO", null)]
+    [InlineData("FLIR Blackfly S", null)]
+    [InlineData("FLI PL16803", "Finger Lakes Instrumentation")]
+    [InlineData("FLI", "Finger Lakes Instrumentation")]
     [InlineData("", null)]
     public void TheCameraMakerIsDerivedFromAKnownBrandAtTheStart(string instrument, string? maker)
         => ExplorerFileProperties.CameraMakerOf(instrument).ShouldBe(maker);

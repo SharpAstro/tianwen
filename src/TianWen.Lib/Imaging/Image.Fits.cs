@@ -542,7 +542,8 @@ public partial class Image
         // Some software emits the keyword as "FOCLEN" instead; accept either.
         var focalLength = (int)Math.Round(hdu.Header.GetDoubleValue("FOCALLEN",
             hdu.Header.GetDoubleValue("FOCLEN", -1.0)));
-        var aperture = hdu.Header.GetIntValue("APTDIA", -1);
+        // APTDIA is often a float too ("80.0"), which GetIntValue does not coerce either.
+        var aperture = (int)Math.Round(hdu.Header.GetDoubleValue("APTDIA", -1.0));
         // DATASEC / BIASSEC are IRAF section strings, 1-based and inclusive; FitsSection is the one
         // place that convention is converted. TRIMSEC is accepted as DATASEC's synonym only when
         // DATASEC is absent: where both exist they can differ (TRIMSEC is what a pipeline chose to

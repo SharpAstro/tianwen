@@ -73,6 +73,12 @@ var registerOption = new Option<string?>("--register")
     Arity = ArgumentArity.ZeroOrOne
 };
 
+var unregisterOption = new Option<string?>("--unregister")
+{
+    Description = "Remove what --register wrote for an extension group (default: FITS)",
+    Arity = ArgumentArity.ZeroOrOne
+};
+
 // Forces a new window even when an instance already has this folder open, for the times the
 // whole point is to compare two views of one directory side by side.
 var newWindowOption = new Option<bool>("--new-window")
@@ -90,12 +96,14 @@ var rootCommand = new RootCommand(
 {
     pathArg,
     registerOption,
+    unregisterOption,
     newWindowOption
 };
 
 // SetAction captures parsed values; --help/--version bypass this action automatically
 var actionCalled = false;
 string? registerGroup = null;
+string? unregisterGroup = null;
 string? inputArg = null;
 var newWindow = false;
 
@@ -108,6 +116,11 @@ rootCommand.SetAction((parseResult, _) =>
     if (Array.Exists(args, a => a is "--register"))
     {
         registerGroup = parseResult.GetValue(registerOption) ?? "FITS";
+    }
+
+    if (Array.Exists(args, a => a is "--unregister"))
+    {
+        unregisterGroup = parseResult.GetValue(unregisterOption) ?? "FITS";
     }
 
     inputArg = parseResult.GetValue(pathArg);
@@ -138,6 +151,12 @@ if (!actionCalled)
 if (registerGroup is not null)
 {
     return FileAssociationRegistrar.Register(registerGroup, logger);
+}
+
+// --unregister: remove what --register wrote and exit
+if (unregisterGroup is not null)
+{
+    return FileAssociationRegistrar.Unregister(unregisterGroup, logger);
 }
 
 string? initialFilePath = null;

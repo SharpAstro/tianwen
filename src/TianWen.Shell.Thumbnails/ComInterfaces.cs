@@ -132,7 +132,7 @@ namespace TianWen.Shell.Thumbnails
     /// <c>PROPVARIANT</c> (propidl.h), declared IN FULL: 24 bytes on x64 and arm64 (a 2-byte type, three
     /// reserved words, then a 16-byte union whose widest member is a pointer pair such as <c>CALPWSTR</c> or
     /// <c>BLOB</c>). The caller of <c>GetValue</c> owns the struct and the callee writes all of it, so a
-    /// trimmed declaration would have the shell clear 24 bytes over a shorter one -- or the handler write
+    /// trimmed declaration would have the shell clear 24 bytes over a shorter one, or the handler write
     /// past it. The union is two 8-byte slots: <see cref="data"/> at offset 8 (a number, a FILETIME, or a
     /// vector's element count in its low 4 bytes) and <see cref="data2"/> at offset 16 (the vector's element
     /// pointer, as a <c>CALPWSTR</c> is <c>{ULONG cElems; PWSTR* pElems}</c>). Strings and vectors are

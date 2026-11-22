@@ -16,7 +16,8 @@ namespace TianWen.Lib.Imaging;
 /// value. A FITS header becomes an <see cref="ImageMeta"/> in one place, <c>ParseImageMetaFromHeader</c>, so
 /// this reader adds no card parsing of its own beyond asking whether a card is present at all.</para>
 /// <para><b>Read never throws</b>: it sits under a COM boundary, so a malformed or truncated input gives
-/// <see cref="Empty"/> or the fields read before the damage.</para>
+/// <see cref="Empty"/>, except that a SER whose header read keeps the fields read before a damaged or short
+    /// timestamp trailer. A FITS whose header cannot be parsed gives <see cref="Empty"/>.</para>
 /// <para>A FITS data block and a SER frame block are skipped by seeking, never read. A SER's per-frame timestamp
 /// trailer is read at its first and last entry only.</para>
 /// </remarks>
@@ -48,12 +49,13 @@ public sealed record ExplorerFileProperties
     private static ReadOnlySpan<byte> SerMagic => "LUCAM-RECORDER"u8;
 
     // Matched at the start of INSTRUME / TELESCOP, case-insensitively; the first hit wins. The value is the
-    // maker as the brand writes it.
+    // maker as the brand writes it. A prefix that is a whole word ends in a space ("FLI "), so FLIR is not FLI;
+    // the bare name "FLI" is matched by MakerOf as an exact value.
     private static readonly (string Prefix, string Maker)[] CameraMakers =
     [
         ("ZWO", "ZWO"), ("QHY", "QHYCCD"), ("Canon", "Canon"), ("Nikon", "Nikon"), ("Sony", "Sony"),
         ("Atik", "Atik"), ("Moravian", "Moravian Instruments"), ("Player One", "Player One"), ("PlayerOne", "Player One"),
-        ("SBIG", "SBIG"), ("FLI", "Finger Lakes Instrumentation"), ("Altair", "Altair Astro"), ("ToupTek", "ToupTek"),
+        ("SBIG", "SBIG"), ("FLI ", "Finger Lakes Instrumentation"), ("Altair", "Altair Astro"), ("ToupTek", "ToupTek"),
         ("Starlight Xpress", "Starlight Xpress"),
     ];
 
@@ -78,10 +80,11 @@ public sealed record ExplorerFileProperties
             return null;
         }
 
-        var trimmed = name.AsSpan().TrimStart();
+        var trimmed = name.AsSpan().Trim();
         foreach (var (prefix, maker) in table)
         {
-            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || (prefix[^1] == ' ' && trimmed.Equals(prefix.AsSpan().TrimEnd(), StringComparison.OrdinalIgnoreCase)))
             {
                 return maker;
             }
@@ -160,6 +163,13 @@ public sealed record ExplorerFileProperties
         double? focal = meta.FocalLength > 0 ? meta.FocalLength : null;
         double? aperture = meta.Aperture > 0 ? meta.Aperture : null;
 
+        // ImageMeta holds both as whole millimetres; the f-number is taken from the cards' own values where
+        // they are numbers, so 270.5 / 80.0 is not rounded before the division. Same card names as the one parse.
+        var rawFocal = header.GetDoubleValue("FOCALLEN", header.GetDoubleValue("FOCLEN", -1.0));
+        var rawAperture = header.GetDoubleValue("APTDIA", -1.0);
+        double? fNumber = rawFocal > 0 && rawAperture > 0 ? rawFocal / rawAperture
+            : focal is { } f0 && aperture is { } a0 ? f0 / a0 : null;
+
         var tags = ImmutableArray.CreateBuilder<string>();
         if (meta.Filter.RawName?.Trim() is { Length: > 0 } filterName)
         {
@@ -179,7 +189,7 @@ public sealed record ExplorerFileProperties
             LensMaker = OpticsMakerOf(meta.Telescope),
             ExposureSeconds = hasExposure ? meta.ExposureDuration.TotalSeconds : null,
             FocalLengthMm = focal,
-            FNumber = focal is { } f && aperture is { } a ? f / a : null,
+            FNumber = fNumber,
             IsoSpeed = meta.Iso is > 0 and <= ushort.MaxValue ? (ushort)meta.Iso : null,
             DateTaken = dateTaken,
             Subject = NullIfBlank(meta.ObjectName),
@@ -225,13 +235,22 @@ public sealed record ExplorerFileProperties
             return props;
         }
 
-        Span<byte> tick = stackalloc byte[8];
-        source.Position = trailerStart;
-        source.ReadExactly(tick);
-        var first = BitConverter.ToInt64(tick);
-        source.Position = trailerStart + ((frames - 1) * 8);
-        source.ReadExactly(tick);
-        var last = BitConverter.ToInt64(tick);
+        long first, last;
+        try
+        {
+            Span<byte> tick = stackalloc byte[8];
+            source.Position = trailerStart;
+            source.ReadExactly(tick);
+            first = BitConverter.ToInt64(tick);
+            source.Position = trailerStart + ((frames - 1) * 8);
+            source.ReadExactly(tick);
+            last = BitConverter.ToInt64(tick);
+        }
+        catch (Exception ex) when (ex is IOException or NotSupportedException or ObjectDisposedException)
+        {
+            // A damaged trailer costs the duration and rate only; the header fields already read stay.
+            return props;
+        }
 
         if (first <= 0 || last <= first || last > DateTime.MaxValue.Ticks)
         {
