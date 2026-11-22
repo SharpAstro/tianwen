@@ -59,6 +59,40 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
     /// uniformly.</summary>
     public const int AutoSelectMinFrameCount = 60;
 
+    /// <summary>
+    /// The skip reason for a FORCED drizzle whose group has fewer frames than the drizzle needs (#1992, #2419). Where the
+    /// group REGISTERED enough and it was a frame filter that took it under the minimum (the star-quality filter, the
+    /// cloud filter, or the two together), the reason says which, how many each left out, and what keeps the frames.
+    /// </summary>
+    /// <remarks>
+    /// The gate counts the <paramref name="matched"/> frames that are integrated, and goes on doing so: a drizzle's coverage
+    /// is made of those, and a gate that counted the group before the filters would run a forced drizzle on 20 frames of 60.
+    /// But both filters are on by default, so a group of 60 to 63 lights is skipped when a few are left out, and
+    /// "requires >= 60 matched frames (got 57)" sent the reader to the registration, which had matched all 61.
+    /// </remarks>
+    /// <param name="matched">The frames left to integrate, after both filters.</param>
+    /// <param name="leftOutForQuality">What the star-quality filter left out, which runs first, on everything that registered.</param>
+    /// <param name="leftOutForCloud">What the cloud filter left out of the frames the quality filter kept.</param>
+    public static string ForcedSkipReason(IntegrationStrategyKind kind, int minFrames, int matched, int leftOutForQuality, int leftOutForCloud)
+    {
+        var registered = matched + leftOutForQuality + leftOutForCloud;
+        var plain = $"{kind} requires >= {minFrames} matched frames (got {matched}";
+        if (registered < minFrames || registered == matched)
+        {
+            // Short before any filter, or no filter left anything out: the registration is where to look.
+            return plain + ")";
+        }
+
+        const string Lower = "--drizzle-min-frames lowers the minimum)";
+        return (leftOutForQuality, leftOutForCloud) switch
+        {
+            (0, _) => $"{plain}: {leftOutForCloud} of {registered} were left out for cloud or twilight; --reject-cloud false keeps them, {Lower}",
+            (_, 0) => $"{plain}: {leftOutForQuality} of {registered} were left out by the star-quality filter; --quality-reject-sigma 0 keeps them, {Lower}",
+            _ => $"{plain}: of {registered} registered, {leftOutForQuality} were left out by the star-quality filter and {leftOutForCloud} for cloud or twilight; "
+                + $"--quality-reject-sigma 0 and --reject-cloud false keep them, {Lower}",
+        };
+    }
+
     private readonly IntegrationCostModel _costs;
     private readonly int _minFrameCount;
 

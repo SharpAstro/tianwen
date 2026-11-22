@@ -21,14 +21,18 @@ public class CloudEmptiedGroupTests
     public void AGroupTheFilterEmptiesSaysSoRatherThanBlamingRegistration(int matchedBeforeCloud, int leftOut, string? expected)
         => CloudRejection.EmptiedGroupReason(matchedBeforeCloud, leftOut).ShouldBe(expected);
 
-    // #1992: a forced drizzle needs 60 matched frames, counted after the cloud filter. A group that had them before the filter
-    // says that the filter took it under, and what keeps the frames; one that registration left short says only how many it got.
+    // #1992, #2419: a forced drizzle needs 60 matched frames, counted after the star-quality and the cloud filter, which are
+    // both on by default. A group that REGISTERED enough says which filter took it under and what keeps the frames; one that
+    // registration left short, or that no filter touched, says only how many it got.
     [Theory]
-    [InlineData(57, 4, "BayerDrizzle requires >= 60 matched frames (got 57: 4 of 61 were left out for cloud or twilight; --reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)")]
-    [InlineData(59, 1, "BayerDrizzle requires >= 60 matched frames (got 59: 1 of 60 were left out for cloud or twilight; --reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)")]
-    [InlineData(20, 40, "BayerDrizzle requires >= 60 matched frames (got 20: 40 of 60 were left out for cloud or twilight; --reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)")]
-    [InlineData(57, 0, "BayerDrizzle requires >= 60 matched frames (got 57)")]  // no cloud involved
-    [InlineData(50, 4, "BayerDrizzle requires >= 60 matched frames (got 50)")]  // 54 before the filter: short without it too
-    public void AForcedDrizzleTheFilterTookUnderItsMinimumSaysSo(int matched, int leftOut, string expected)
-        => CloudRejection.ForcedDrizzleSkipReason(IntegrationStrategyKind.BayerDrizzle, 60, matched, leftOut).ShouldBe(expected);
+    [InlineData(57, 0, 4, "BayerDrizzle requires >= 60 matched frames (got 57: 4 of 61 were left out for cloud or twilight; --reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)")]
+    [InlineData(59, 0, 1, "BayerDrizzle requires >= 60 matched frames (got 59: 1 of 60 were left out for cloud or twilight; --reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)")]
+    [InlineData(20, 0, 40, "BayerDrizzle requires >= 60 matched frames (got 20: 40 of 60 were left out for cloud or twilight; --reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)")]
+    [InlineData(57, 4, 0, "BayerDrizzle requires >= 60 matched frames (got 57: 4 of 61 were left out by the star-quality filter; --quality-reject-sigma 0 keeps them, --drizzle-min-frames lowers the minimum)")]
+    [InlineData(57, 3, 1, "BayerDrizzle requires >= 60 matched frames (got 57: of 61 registered, 3 were left out by the star-quality filter and 1 for cloud or twilight; --quality-reject-sigma 0 and --reject-cloud false keep them, --drizzle-min-frames lowers the minimum)")]
+    [InlineData(57, 0, 0, "BayerDrizzle requires >= 60 matched frames (got 57)")]  // no filter involved: the registration is short
+    [InlineData(50, 0, 4, "BayerDrizzle requires >= 60 matched frames (got 50)")]  // 54 registered: short without the filter too
+    [InlineData(50, 3, 4, "BayerDrizzle requires >= 60 matched frames (got 50)")]  // 57 registered: short without either
+    public void AForcedDrizzleAFilterTookUnderItsMinimumSaysWhich(int matched, int leftOutForQuality, int leftOutForCloud, string expected)
+        => DrizzleStrategy.ForcedSkipReason(IntegrationStrategyKind.BayerDrizzle, 60, matched, leftOutForQuality, leftOutForCloud).ShouldBe(expected);
 }

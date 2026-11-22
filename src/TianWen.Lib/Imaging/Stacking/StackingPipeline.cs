@@ -1411,6 +1411,7 @@ public sealed class StackingPipeline(
         // threshold, capped at the worst 20% by severity (the 80% keep
         // floor in FrameQualityFilter). One log line per dropped frame
         // so the audit is per-frame, not just a count.
+        var leftOutForQuality = 0;
         if (options.QualityRejectSigma is { } qSigma && qSigma > 0f && matched.Count >= 4)
         {
             var metricsArr = new FrameMetrics[matched.Count];
@@ -1465,6 +1466,7 @@ public sealed class StackingPipeline(
                         }
                     }
                 }
+                leftOutForQuality = matched.Count - filtered.Count;
                 matched = filtered;
             }
             else
@@ -1695,9 +1697,9 @@ public sealed class StackingPipeline(
             }
             if (matched.Count < drizzleOpts.MinFrameCount)
             {
-                // Counted AFTER the cloud filter, because a drizzle's coverage is made of the frames that are integrated.
-                // The reason says when it was that filter which took the group under the minimum (#1992).
-                var drizzleReason = CloudRejection.ForcedDrizzleSkipReason(kindName, drizzleOpts.MinFrameCount, matched.Count, leftOutForCloud);
+                // Counted AFTER the star-quality and the cloud filter, because a drizzle's coverage is made of the frames that
+                // are integrated. The reason says when it was a filter that took the group under the minimum (#1992, #2419).
+                var drizzleReason = DrizzleStrategy.ForcedSkipReason(kindName, drizzleOpts.MinFrameCount, matched.Count, leftOutForQuality, leftOutForCloud);
                 logger.LogWarning("  [skip] {Reason}; drizzle coverage would be too sparse", drizzleReason);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,

@@ -495,10 +495,12 @@ Over the two nights the stacker and the viewer agree on 490 of 506 frames, so `-
 
 `--reject-cloud false` turns it off.
 
-**A forced drizzle counts the frames the filter kept (#1992).** `BayerDrizzle` and `TilePipelinedDrizzle` need 60 matched
-frames (`--drizzle-min-frames`), counted after this filter, because a drizzle's coverage is made of the frames that are
-integrated. So a forced drizzle of 60 to 63 lights is skipped when a few are left out, and the skip says that it was the
-filter that took the group under the minimum and names the two ways on (`CloudRejection.ForcedDrizzleSkipReason`).
+**A forced drizzle counts the frames the filters kept (#1992, #2419).** `BayerDrizzle` and `TilePipelinedDrizzle` need 60
+matched frames (`--drizzle-min-frames`), counted after the star-quality filter and this one, because a drizzle's coverage is
+made of the frames that are integrated. Both filters are on by default, so a forced drizzle of 60 to 63 lights is skipped
+when a few are left out. The skip says which filter took the group under the minimum, how many each left out, and what keeps
+the frames (`--quality-reject-sigma 0`, `--reject-cloud false`): `DrizzleStrategy.ForcedSkipReason`, driven through the
+pipeline by `StackingCloudEmptiedGroupTest`.
 
 **The sky trend's reach follows the exposure.** The fit needs ten earlier clear frames, or four spanning 20 minutes
 (`SkyTrendMinFramesOverSpan`, `SkyTrendMinSpan`), within the 60 minute `LocalWindow`. At 1 minute subs (both nights above) the
