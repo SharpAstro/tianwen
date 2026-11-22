@@ -118,4 +118,21 @@ internal static class CloudRejection
         => leftOut > 0 && matchedBeforeCloud >= 2 && matchedBeforeCloud - leftOut < 2
             ? $"{leftOut} of {matchedBeforeCloud} matched frames left out for cloud or twilight, fewer than 2 remain"
             : null;
+
+    /// <summary>
+    /// The skip reason for a FORCED drizzle whose group has fewer frames than the drizzle needs (#1992). Where it was THIS
+    /// filter that took the group under the minimum (it had enough before <paramref name="leftOut"/> of them were left out),
+    /// the reason says so and names the two ways on.
+    /// </summary>
+    /// <remarks>
+    /// The gate counts the <paramref name="matched"/> frames that are integrated, and goes on doing so: a drizzle's coverage
+    /// is made of those, and a gate that counted the group before the filter would run a forced drizzle on 20 frames of 60.
+    /// But the filter is on by default, so a group of 60 to 63 lights that drizzled before #1988 is skipped when a few are
+    /// left out, and "requires >= 60 matched frames (got 57)" sent the reader to the registration, which had matched all 61.
+    /// </remarks>
+    public static string ForcedDrizzleSkipReason(IntegrationStrategyKind kind, int minFrames, int matched, int leftOut)
+        => leftOut > 0 && matched + leftOut >= minFrames
+            ? $"{kind} requires >= {minFrames} matched frames (got {matched}: {leftOut} of {matched + leftOut} were left out for cloud or twilight; "
+                + "--reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)"
+            : $"{kind} requires >= {minFrames} matched frames (got {matched})";
 }

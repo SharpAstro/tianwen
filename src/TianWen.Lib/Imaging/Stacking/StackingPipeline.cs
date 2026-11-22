@@ -1695,12 +1695,14 @@ public sealed class StackingPipeline(
             }
             if (matched.Count < drizzleOpts.MinFrameCount)
             {
-                logger.LogWarning("  [skip] {Kind} needs >= {Min} matched frames (got {Got}); drizzle coverage would be too sparse",
-                    kindName, drizzleOpts.MinFrameCount, matched.Count);
+                // Counted AFTER the cloud filter, because a drizzle's coverage is made of the frames that are integrated.
+                // The reason says when it was that filter which took the group under the minimum (#1992).
+                var drizzleReason = CloudRejection.ForcedDrizzleSkipReason(kindName, drizzleOpts.MinFrameCount, matched.Count, leftOutForCloud);
+                logger.LogWarning("  [skip] {Reason}; drizzle coverage would be too sparse", drizzleReason);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
-                    SkipReason: $"{kindName} requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})",
+                    SkipReason: drizzleReason,
                     Stages: timings.Snapshot());
             }
         }
