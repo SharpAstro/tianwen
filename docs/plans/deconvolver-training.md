@@ -3307,7 +3307,8 @@ staged 2.81, predates the registration fix); the beta semantics need no re-stack
    clamped Lanczos-3 for this reason (PCL: "strong undershoot (aka ringing) artifacts when the
    negative lobes of the interpolation function fall over bright isolated pixels or edges").
 
-   **The clamp is PCL `LanczosInterpolation`'s rule verbatim** (weighted samples summed by sign, r =
+   **The clamp is PCL `LanczosInterpolation`'s rule, re-implemented from its source and credited in
+   `NOTICE`** (weighted samples summed by sign, r =
    negative over positive; r at or above 1 keeps the positive lobes alone, r above the threshold t
    scales the negative part by 1 - ((r - t) / (1 - t))^2), **at a threshold of 0.7, measured, not
    PixInsight's 0.3.** The sweep (a 2.12 px mono Gaussian field, 12 stars, at half phase; a per-plane
