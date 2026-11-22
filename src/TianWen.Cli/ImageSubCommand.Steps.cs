@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.StarRemoval;
+using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.Cli;
 
@@ -48,26 +49,34 @@ internal sealed partial class ImageSubCommand
             Arguments = { referenceArg, targetsArg },
             Options = { outputOpt, rejectHighOpt },
         };
-        cmd.SetAction((parseResult, ct) =>
+        // The fit itself is the operation an edit list runs (docs/plans/stacking-workbench.md, W1), so this verb and a
+        // project's step are one routine. It fits one master onto the reference, so several are several runs of it.
+        var linearFit = new LinearFitOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
+            var reference = parseResult.Required(referenceArg);
             var targets = parseResult.Required(targetsArg);
-            if (!TryReadMasters([parseResult.Required(referenceArg), .. targets], out var masters, out var wcs) || !OneGrid(masters))
+            var settings = new LinearFitSettings { RejectHigh = parseResult.GetValue(rejectHighOpt) };
+            if (linearFit.Refusal(settings) is { } refusal)
             {
-                return Task.FromResult(1);
+                consoleHost.WriteError($"[linear-fit] {refusal}");
+                return 1;
             }
-            for (var i = 1; i < masters.Count; i++)
+            foreach (var target in targets)
             {
-                var fit = LinearFit.Measure(masters[i], masters[0], LinearFit.DefaultRejectLow, parseResult.GetValue(rejectHighOpt));
-                if (!double.IsFinite(fit.Slope) || fit.Slope <= 0)
+                var outcome = await linearFit.RunAsync(
+                    settings,
+                    [OperationInput.FromFile(target), OperationInput.FromFile(reference)],
+                    StepOutput(target, "_linearfit", parseResult.GetValue(outputOpt), targets.Length),
+                    line => consoleHost.WriteScrollable($"[linear-fit] {line}"),
+                    ct);
+                if (!outcome.Succeeded)
                 {
-                    consoleHost.WriteError($"[linear-fit] {targets[i - 1]}: no line fits ({fit.Pixels} pixels).");
-                    return Task.FromResult(1);
+                    consoleHost.WriteError($"[linear-fit] {outcome.Message}");
+                    return 1;
                 }
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[linear-fit] {Path.GetFileName(targets[i - 1])}: {fit.Offset:G5} + {fit.Slope:G5} x ({fit.Pixels} pixels, mean absolute deviation {fit.MeanAbsoluteDeviation:G4})"));
-                WriteStep(LinearFit.Apply(masters[i], fit), StepOutput(targets[i - 1], "_linearfit", parseResult.GetValue(outputOpt), targets.Length), wcs, "linear-fit");
             }
-            return Task.FromResult(0);
+            return 0;
         });
         return cmd;
     }

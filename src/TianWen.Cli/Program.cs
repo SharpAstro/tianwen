@@ -63,6 +63,8 @@ builder.Services
     // product is licensed, else TianWen's own model where the role has one.
     // AddRcAstroAi() calls AddTianWenAi() internally, so the in-house baseline stands.
     .AddRcAstroAi()
+    // After the AI registration, so the gradient operation takes that call's corrector (GraXpert where installed).
+    .AddWorkbench()
     .AddSingleton<IVirtualTerminal, VirtualTerminal>()
     .AddSingleton<DocumentCache>()
     .AddSingleton<IConsoleHost, ConsoleHost>();
@@ -255,6 +257,10 @@ var rootCommand = new RootCommand
             services.GetService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
             services.GetService<ILogger<DatasetSubCommand>>(),
             services.GetService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
+        new WorkbenchSubCommand(
+            consoleHost,
+            services.GetRequiredService<TianWen.Lib.Imaging.Workbench.OperationCatalog>(),
+            services.GetRequiredService<TianWen.Lib.Imaging.Workbench.WorkbenchRunner>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };

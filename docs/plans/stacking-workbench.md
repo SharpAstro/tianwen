@@ -1,6 +1,6 @@
 # Stacking Workbench: from a folder of frames to a finished picture, in one window
 
-**Status: W0 DECIDED 2026-11-22, W10 PARTIAL (image crop and the W10 audit are done), the rest NOT STARTED.** A plan the owner decided W0 of (the owner, 2026-10-17: "do we already have a milestone
+**Status: W0 DECIDED 2026-11-22, W1 PARTIAL (its first leg: the operation contract, the step store, the project and the runner, with three operations), W10 PARTIAL (image crop and the W10 audit are done), the rest NOT STARTED.** A plan the owner decided W0 of (the owner, 2026-10-17: "do we already have a milestone
 for a GUI based stacking app? not just planetary etc", then "yeah lets do that"). Milestone `stacking-workbench`.
 
 **Re-cut 2026-11-19** from a stacker into the processing application: image editing as operations, a non-destructive edit list,
@@ -168,10 +168,22 @@ edit list, the command line shown under a step (rule 3).
 | How it previews | **In the shader** (stretch, white balance, crop: free while dragging), **on a region** (run on the visible part of the image and shown split: denoise, deblur) or **not at all** (a whole-frame fit such as gradient or SPCC, whose answer for a region is a different answer) |
 | Progress and cancel | The engine's own `IProgress`, as rule 6 |
 
+**What the code holds so far** (W1's first leg, #1641; [workbench-operations.md](../architecture/workbench-operations.md)):
+the id and version, the settings, the images an operation takes, how its output is kept (stored or derived), what serves
+it, its command line, and the lines it reports. The preconditions come with the facts (W9), how it previews with the
+panel that shows it (W12), and an operation that writes no pixels with the first one wrapped (plate solve).
+
 **There is one description, not two.** `SharpenStep` and its records (`DeblurStep`, `GradientCorrectionStep`, `RemoveStarsStep`,
 the stretch steps, `RecombineStep`) are already a typed list of operation settings that `SharpenPipeline` runs; they are not
 serialisable today. W1 decides whether those records become the operation settings or are wrapped by them, and whichever it picks
 there is no second hierarchy beside them.
+
+**W1 picked: wrapped** (2026-11-23, #1641). An operation's settings are a class of settable properties, each with its
+default, read and written through a source-generated JSON context. The records cannot be that as they stand: they are
+immutable and positional, they are one hierarchy that a JSON file could only tell apart by a type tag, and one of them
+(`WhiteBalanceStep`) holds a measured calibration, which is a result and not a setting. So the records stay what they
+are, the pipeline's program in memory, and the enhance operation turns its settings into them in one place when it is
+wrapped. No operation carries a step of its own beside them.
 
 **A preview on a region is honest about what it is.** An operation whose thresholds are in noise units of the whole frame, or whose
 model normalises over the whole input, does not give the same pixels on a crop as on the frame. The description says which
@@ -191,7 +203,9 @@ rule taken to the file level:
 - **An edit has an on/off switch and its settings can be reopened.** That is DSN-1's "Edits (original untouched)" panel, and its
   button reads Keep rather than Apply.
 - **One image can feed several lists.** Star removal makes two images (starless and stars) from one; a combine takes several
-  lists' heads as its inputs by key. So the structure is a graph of keys, drawn per image as a list.
+  lists' heads as its inputs by key. So the structure is a graph of keys, drawn per image as a list. In the project file an
+  edit names the other images it takes (`inputs`), each as its own edits leave it; images that take one another in a circle
+  are refused. A step with two results comes with star removal's own leg.
 - **Reordering edits** is possible wherever the preconditions still hold, and costs a re-run from the first moved edit. It is not
   in the first version ([Decisions for the owner](#decisions-for-the-owner), 7).
 
@@ -240,7 +254,11 @@ able to set the rectangle by hand.
   covers", "the largest covered rectangle"), resolved against the input when the step runs, so a workflow carries the rule from
   one master to the next. By hand: drag the frame, fix an aspect ratio, type the four edges.
 - **Its output is derived, not stored.** The edit holds the rectangle; `Image.Crop` on its input takes milliseconds and no file
-  is written. Widening the crop later is a changed setting, as DSN-1 v6 draws it.
+  is written. Widening the crop later is a changed setting, as DSN-1 v6 draws it. Built as `CropOperation` (#1641): the
+  rule is its `auto` setting, resolved by `MasterAutoCrop.Scan` each time the step is made. Handed to the next step it is
+  the pixels and the moved plate solution; the cards and the map sidecars `image crop` carries go with it only when it is
+  written as a file from a file. An operation that reads a map sidecar after a crop (SPCC's saturation map, #2284) has to
+  settle how the maps travel first.
 - **While the frame is dragged the display clip draws it**, over the uncropped texture, so nothing is uploaded again. The clip
   and `Image.Crop` are given the same rectangle from one place; that they agree to the pixel is a test.
 - **The rectangle solver is in Lib** (rule 1, and the repo's rule that pure math lives in `TianWen.Lib`): the viewer and
@@ -504,6 +522,33 @@ listed above wrapped around its existing routine, with no logic of its own. Sinc
 store addressed by the step's key, so a step run before is found and not run again. Derived steps (crop) store nothing. `tianwen workbench run|status` drives it, so the whole
 contract is tested in CI with no window: a project run twice re-runs nothing, a changed setting re-runs only the steps after it, and
 each step's output is bit-identical to its CLI verb's.
+
+**The first leg is built** (2026-11-23). How the code does it is
+[workbench-operations.md](../architecture/workbench-operations.md); in short:
+
+- **The contract** is `Operation<TSettings>` in `TianWen.Lib.Imaging.Workbench`. A verb builds the settings from its
+  options and calls the operation, and the runner reaches the same method, so the two are one routine.
+- **A step's key** is a digest of its inputs' keys, the operation's id and version, its settings in canonical form and
+  what serves it. An original file's key is the digest of its bytes. Nothing is decided by a date.
+- **The step store** is `store/` in the project's folder: one file a stored step, named by its key, and an index of what
+  the store wrote. A result appears whole or not at all.
+- **The project** is `project.json`: the images, each an original file and its edits, and the other images an edit takes.
+- **The runner** pulls from the end: a step whose result is in the store needs nothing before it.
+- **Three operations**: crop (derived; a rectangle, or the auto-crop rule), gradient (stored; `image flatten`'s routine)
+  and linear fit (stored; it takes its reference from another image).
+- **`tianwen workbench status|run|operations`**, and `run --export` to write a derived result as the file its verb writes.
+- **The tests** are the three the phase names. The third runs every step's printed command line through the real
+  `tianwen image` command and compares the two files to the byte, which holds rule 3 as well as rule 1.
+
+**Still to do in W1**, each a leg of its own with its own issue, and #1641 stays open until the last:
+
+1. The other colour steps (#2465): `match-psf`, `deblur`, `denoise`, `remove-stars` (two results: the starless plate and
+   the stars), `protect-cores`, `fill-digs`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`, `align`, `combine`.
+2. The canonical enhance (#2466): `image sharpen`, its settings turned into the `SharpenStep` records.
+3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
+   image.
+4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour.
+5. An operation that writes no pixels (#2469): plate solve, statistics.
 
 ### W2 The app's shell
 
