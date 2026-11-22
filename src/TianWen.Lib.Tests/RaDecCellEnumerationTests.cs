@@ -173,13 +173,16 @@ public class RaDecCellEnumerationTests(ITestOutputHelper output)
         output.WriteLine($"indexer walk: {indexerCount} candidates, {indexerBytes} B");
         indexerBytes.ShouldBeGreaterThan(1024, "the indexer builds a list per cell; the premise of this test is that it allocates");
 
-        var structBytes = MeasureBytes(() => WalkStruct(starGrid, probes), out var structCount);
-        output.WriteLine($"struct walk:  {structCount} candidates, {structBytes} B");
+        // The least of several readings (#1331): an allocation the walk makes shows in every pass, and a one-off that
+        // lands on this thread from elsewhere (5,336 B, once in 87 full-suite runs) shows in one. Every reading is
+        // written, so the next one-off is in the run's output with its size and its place.
+        var structBytes = AllocationReadings.Least(() => WalkStruct(starGrid, probes), out var structCount, out var structReadings);
+        output.WriteLine($"struct walk:  {structCount} candidates, {structBytes} B at least (readings: {string.Join(", ", structReadings)})");
         structCount.ShouldBe(indexerCount);
         structBytes.ShouldBe(0L);
 
-        var dsoBytes = MeasureBytes(() => WalkStruct(dsoGrid, probes), out var dsoCount);
-        output.WriteLine($"deep-sky struct walk: {dsoCount} candidates, {dsoBytes} B");
+        var dsoBytes = AllocationReadings.Least(() => WalkStruct(dsoGrid, probes), out var dsoCount, out var dsoReadings);
+        output.WriteLine($"deep-sky struct walk: {dsoCount} candidates, {dsoBytes} B at least (readings: {string.Join(", ", dsoReadings)})");
         dsoBytes.ShouldBe(0L);
     }
 

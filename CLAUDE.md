@@ -115,6 +115,7 @@ Full rules: `docs/architecture/testing.md`, `docs/architecture/session-test-harn
 - **A wall-clock latency bar is opt-in** (`TIANWEN_TIMING_TESTS=1`, `TimingTestGate`, `TimingCollection`) and never widened.
 - **A test of 30 s or more on CI is `[Trait("Category", "Heavy")]`**, tagged by measurement, never by guess.
 - **A shared fixture plus an assertion about a FIRST write is an order dependency**: establish the precondition in the test.
+- **A zero-allocation bound is asserted on the least of several readings** (`AllocationReadings.Least`), never on one.
 - **Any test that drives a `Session` is `[Collection("Session")]`** (it calls `SessionTestHelper.CreateSessionAsync`).
 - **No wall-clock timeout inside a test**: `[Fact(Timeout = ...)]` plus `TestContext.Current.CancellationToken`. A
   `Timeout` on a synchronous test does nothing. Never set `parallelAlgorithm: aggressive`.
