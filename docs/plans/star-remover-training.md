@@ -9237,9 +9237,9 @@ nothing is registered, exported or scored for it.
   annulus median, on purpose, so a broad level taken does not count. Tables 1 and 3 therefore INCLUDE broad light taken
   and are not comparable with the row's baseline table (the headline "SXT 0.63, ours 0.19 to 0.30" is on this measure;
   the row's figures for the Lagoon are 0.50 and 0.11 on stars of 20 to 150 sky sigma, and 0.31 to 0.32 for R4d through
-  the chain at BP 13.5 to 15.5). They are not recomputed here: that needs the owner's masters and plates. The plate
-  behind "ours" was not recorded in this run's notes; the row's baseline names its plate (R4d as trained), so quote
-  that one.
+  the chain at BP 13.5 to 15.5). They are not recomputed with the row's definition: the row's baseline is the figure
+  to quote. "Ours" in tables 1 and 3 and in the headline is R4d (seed 0) through the product's chain (cores
+  protected, floor5), its whole-master plate of the Sagittarius master, beside the judge's plate of the same master.
 
   At equal light as the model sees it (the export's stretch: the stretched disc light in the stretched sky noise),
   StarXTerminator takes 0.63 of a star on the bright nebula at 32 to 128 and ours 0.19 to 0.30; on dark sky both take

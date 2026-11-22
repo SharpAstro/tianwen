@@ -18,9 +18,9 @@ Plates are made at one view (how a model ships) into <out root>/<tag>/ and reuse
 plates are linked in with --plates. Glue only: every number is parsed from the checks' own output.
     python score_whole.py <tag> --config scorecard.local.json --model a.onnx [b.onnx ...] [--views 1]
     python score_whole.py <tag> --config scorecard.local.json --plates andromeda=... tarantula=... sag=...
-The machine's paths (the three masters, the tianwen executable, the output root) come from a config file, which
-`scorecard.example.json` shows and `scorecard.local.json` (ignored by git) holds; each can be given on the command line
-instead (--master NAME=PATH, --cli, --out-root). Nothing in this folder names a machine.
+The machine's paths (the three masters, each one's Gaia CSV, the tianwen executable, the output root) come from a config
+file, which `scorecard.example.json` shows and `scorecard.local.json` (ignored by git) holds; each can be given on the
+command line instead (--master NAME=PATH, --gaia NAME=CSV, --cli, --out-root). Nothing in this folder names a machine.
 """
 import argparse
 import json
@@ -40,7 +40,7 @@ from nebula_stars_parse import parse_row
 NAMES = ('andromeda', 'tarantula', 'sag')
 p = argparse.ArgumentParser()
 p.add_argument('tag')
-p.add_argument('--config', help='JSON with "cli", "out_root" and "masters" {andromeda, tarantula, sag}; '
+p.add_argument('--config', help='JSON with "cli", "out_root", and "masters" and "gaia" {andromeda, tarantula, sag}; '
                                 'default scorecard.local.json beside this script when present')
 p.add_argument('--cli', help='the tianwen executable (overrides the config)')
 p.add_argument('--out-root', help='where <tag>/ is made (overrides the config)')
