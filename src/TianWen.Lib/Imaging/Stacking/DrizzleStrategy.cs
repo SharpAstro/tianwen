@@ -73,7 +73,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
     /// <param name="matched">The frames left to integrate, after both filters.</param>
     /// <param name="leftOutForQuality">What the star-quality filter left out, which runs first, on everything that registered.</param>
     /// <param name="leftOutForCloud">What the cloud filter left out of the frames the quality filter kept.</param>
-    public static string ForcedSkipReason(IntegrationStrategyKind kind, int minFrames, int matched, int leftOutForQuality, int leftOutForCloud)
+    internal static string ForcedSkipReason(IntegrationStrategyKind kind, int minFrames, int matched, int leftOutForQuality, int leftOutForCloud)
     {
         var registered = matched + leftOutForQuality + leftOutForCloud;
         var plain = $"{kind} requires >= {minFrames} matched frames (got {matched}";
