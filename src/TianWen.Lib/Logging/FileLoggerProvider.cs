@@ -141,7 +141,6 @@ public sealed class FileLoggerProvider : ILoggerProvider
         var writer = new StreamWriter(stream) { AutoFlush = false };
 
         WriteBanner(writer, _appName, now);
-        writer.Flush();
         return writer;
     }
 
@@ -258,13 +257,15 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// stop a process from starting or logging.
     /// </para>
     /// </summary>
-    private static void WriteBanner(StreamWriter writer, string appName, DateTimeOffset now)
+    internal static void WriteBanner(StreamWriter writer, string appName, DateTimeOffset now)
     {
         try
         {
             var stamp = now.ToString("HH:mm:ss.fff zzz");
             writer.WriteLine($"[{stamp}] [INF] {BannerCategory}: {appName} {BuildInfo.Describe()}");
             writer.WriteLine($"[{stamp}] [INF] {BannerCategory}: install {BuildInfo.InstallFolder}");
+            // The writer does not flush by itself: a disk that refuses the banner is refused here, inside the catch.
+            writer.Flush();
         }
         catch (IOException)
         {

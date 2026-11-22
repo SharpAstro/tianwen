@@ -249,6 +249,29 @@ public class FileLoggerProviderTests : IDisposable
         LinesAfterTheBanner(provider.LogFilePath).ShouldBe(["[CRT] t: the writer's own last line", "[INF] t: an ordinary line"]);
     }
 
+    [Fact]
+    public void ABannerTheDiskRefusesIsSwallowedAtStart()
+    {
+        using var writer = new StreamWriter(new RefusingStream()) { AutoFlush = false };
+
+        Should.NotThrow(() => FileLoggerProvider.WriteBanner(writer, "Test", TimeProvider.System.GetLocalNow()));
+    }
+
+    /// <summary>A stream whose every write fails, as a full disk's does.</summary>
+    private sealed class RefusingStream : Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new IOException("disk full");
+    }
+
     private string NewLogsRoot() => _folders.Create("filelog").FullName;
 
     /// <summary>The provider holds its file for writing, so a reader has to permit that.</summary>
