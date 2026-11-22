@@ -10,7 +10,10 @@ blue's shoulder under Andromeda's bright stars and leave light in the Tarantula'
   - the Sagittarius Triplet's crowded stars flat (mono, as three planes), and M31's nucleus taken (the guard, at most 5 %).
   - every master's bright extended light (nebula_rows.py, #2245): the share of it a fill made BRIGHTER than the input, the
     broad light taken, and the input's bright compact peaks left standing. The star rows above pass a flat patch, a star
-    put back inside a protected core and nebula taken with the stars; these do not. No faint star left on nebula is read.
+    put back inside a protected core and nebula taken with the stars; these do not.
+  - every master's faint catalogued stars on bright nebula (nebula_stars_row.py, 2026-11-22): the median share of each
+    star's light the plate took and the share of stars it took under half of, beside the same on dark sky. It needs
+    the config's "gaia" CSV per master (`tianwen solve <master> --export-gaia <csv>`).
 Plates are made at one view (how a model ships) into <out root>/<tag>/ and reused when present; a judge's existing
 plates are linked in with --plates. Glue only: every number is parsed from the checks' own output.
     python score_whole.py <tag> --config scorecard.local.json --model a.onnx [b.onnx ...] [--views 1]
@@ -160,6 +163,17 @@ for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
     lines = run([py, '-I', HERE / 'nebula_rows.py', MASTERS[k], plates[k], '--name', label]).splitlines()
     score[k]['nebula'] = lines[0]
     nebula[k] = next(x for x in lines if x.startswith('short: '))[len('short: '):]
+# Faint catalogued stars on bright nebula (the owner, 2026-11-22: the Lagoon's "+" stars). The catalogue of each master is
+# the config's "gaia" CSV; a master without one is a KeyError, never a skipped row.
+nebstars = {}
+for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
+    line = run([py, '-I', HERE / 'nebula_stars_row.py', MASTERS[k], cfg['gaia'][k], plates[k], '--name', label]).strip().splitlines()[-1]
+    m = re.match(rf'^nebstars {label} bright n (\d+) taken ([-\d.]+) left ([-\d.]+) %? ?\| dark n (\d+) taken ([-\d.]+) left ([-\d.]+) %?$', line)
+    if not m:
+        raise KeyError(f'nebula_stars_row.py printed no row for {k} ("{line}"); see {out / "score.log"}')
+    score[k]['nebula_stars'] = {'bright_n': int(m[1]), 'bright_taken': m[2], 'bright_left': m[3],
+                                'dark_n': int(m[4]), 'dark_taken': m[5], 'dark_left': m[6]}
+    nebstars[k] = f"{label} stars on nebula taken {m[2]} left {m[3]}%"
 (out / 'score.json').write_text(json.dumps(score, indent=1))
 
 def glow_field(d):
@@ -174,6 +188,7 @@ row = (f"{a.tag:>10} | And dark flat {A['dark_flat']:5.1f} dug {A['dark_dug']:5.
        f"{T['profile']['R'][0]:+.2f}/{T['profile']['G'][0]:+.2f}/{T['profile']['B'][0]:+.2f} | Tar crowded {T['crowded_flat']:5.1f} "
        f"BP17-19 {T['bp1719']:5.1f} purity {T['purity']:.1f} | Sag crowded {S['crowded_flat']:5.1f} | nucleus "
        f"{'/'.join(f'{x:.1f}' for x in score['nucleus'])} % | And glow {glow_field(A)} | Tar glow {glow_field(T)}"
-       f" | {nebula['andromeda']} | {nebula['tarantula']} | {nebula['sag']}")
+       f" | {nebula['andromeda']} | {nebula['tarantula']} | {nebula['sag']} | {nebstars['sag']} | {nebstars['tarantula']}"
+       f" | {nebstars['andromeda']}")
 (out / 'row.txt').write_text(row + '\n')
 print(row)

@@ -9224,7 +9224,7 @@ nothing is registered, exported or scored for it.
   6 px; bright nebula is a 32 px block 20 sky sigma or more over the sky (79 blocks); a star's light is its 2 px disc
   over the annulus 5 to 9 px out.
 
-  | Gaia G | where | share taken, SXT / ours | ours over SXT at the star by more than 3 sky sigma |
+  | Gaia BP | where | share taken, SXT / ours | ours over SXT at the star by more than 3 sky sigma |
   |---|---|---|---|
   | 14 to 15 | dark sky (17,863 stars) | 1.18 / 1.03 | (read on the nebula only; on dark sky a bump over 3 sigma is left at 0 % / 1 %) |
   | 14 to 15 | bright nebula (92) | 0.65 / 0.48 | 14 % (random spots of the nebula: 1.2 %) |
@@ -9238,9 +9238,28 @@ nothing is registered, exported or scored for it.
   less in the data, and the export's stretch is nearly linear across it (the sky at 0.250, the bright nebula at
   0.262), so the stretch neither hides nor lifts it. A guess, unverified: training rarely shows a star on bright
   nebula (0.5 % of the training pixels are bright background, #2245) and the synthetic backgrounds are smooth, so a
-  small peak on textured nebula reads as texture. Two ways on, neither started: a scorer row (catalogued stars left
-  standing on bright nebula), and an arm with more stars on bright nebula. The 1:1 sheet of the worst cases was sent
-  to the owner; the Hourglass, which the chain protects as a core on purpose, is left out of it.
+  small peak on textured nebula reads as texture. Two ways on: a scorer row and an arm with more stars on bright
+  nebula. The 1:1 sheet of the worst cases was sent to the owner; the Hourglass, which the chain protects as a core on
+  purpose, is left out of it.
+- **The row, the owner's word "score now" (2026-11-22, `nebula_stars_row.py`, run by `score_whole.py` on every score
+  and carried in the row).** Catalogued stars (BP, no brighter one within 6 px) whose light in a 2 px disc over the
+  annulus 5 to 9 px out is 20 to 150 sky sigma: faint in the data's terms, so the same stars on every master, where a
+  band of magnitude is not. On bright nebula (a 32 px block 20 sky sigma or more over the sky) and, as the control,
+  on dark sky (under 5): the median share of each star's light the plate took (the stars layer's disc less its own
+  annulus median, over the master's, so neither a broad level taken nor the nebula's structure counts) and the share
+  of stars it took under half of ("left"). The config names each master's Gaia CSV (`"gaia"`,
+  `scorecard.example.json`). Baseline, the plates already scored:
+
+  | master | stars on bright nebula | StarXTerminator: taken, left | R4d as trained: taken, left | dark sky (control): taken, left, SXT / R4d |
+  |---|---|---|---|---|
+  | Sagittarius (the Lagoon) | 180 | 0.50, 50.6 % | 0.11, 62.8 % | 1.06 / 1.00, 0.3 % / 4.3 % |
+  | Tarantula | 26 | 1.09, 0.0 % | 1.10, 0.0 % | 1.03 / 0.97, 0.0 % / 0.0 % |
+  | Andromeda (the galaxy's disc) | 2,037 | 1.03, 10.8 % | 1.01, 12.1 % | 1.00 / 0.97, 4.6 % / 6.5 % |
+
+  The gap is the Lagoon's, the one master of the three with bright emission nebula; on the Tarantula's few bright
+  nebula stars and on M31's disc ours is level with the judge. R4d through the product's chain (cores protected,
+  floor5) reads like R4d as trained on these stars (by BP 13.5 to 15.5 on the Lagoon: taken 0.32 against 0.31). The
+  row is reported, no bar: R4h's and R4i's registrations predate it and do not judge on it.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
