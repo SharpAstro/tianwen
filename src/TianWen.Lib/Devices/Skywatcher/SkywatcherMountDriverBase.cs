@@ -9,6 +9,7 @@ using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Guider;
 using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Devices.Skywatcher;
@@ -1035,10 +1036,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 // decel/accel transients comparable to a short pulse's length, and real
                 // firmware rejects :G while the motor is running (error !2).
                 await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
-                commanded.TrySetResult();
                 try
                 {
-                    await TimeProvider.SleepAsync(duration, cancellationToken);
+                    // The timer first, the caller second (PulseHold, #2330).
+                    await PulseHold.RunAsync(TimeProvider, duration, commanded, cancellationToken);
                 }
                 finally
                 {
@@ -1062,10 +1063,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                     await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
                     await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
                     await SendCommandAsync('J', '1', null, cancellationToken);
-                    commanded.TrySetResult();
                     try
                     {
-                        await TimeProvider.SleepAsync(duration, cancellationToken);
+                        await PulseHold.RunAsync(TimeProvider, duration, commanded, cancellationToken);
                     }
                     finally
                     {
@@ -1111,10 +1111,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
             await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
             await SendCommandAsync('J', '2', null, cancellationToken);
-            commanded.TrySetResult();
             try
             {
-                await TimeProvider.SleepAsync(duration, cancellationToken);
+                await PulseHold.RunAsync(TimeProvider, duration, commanded, cancellationToken);
             }
             finally
             {

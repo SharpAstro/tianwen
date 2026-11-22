@@ -255,7 +255,8 @@ Full rules: `docs/architecture/session-invariants.md`, `docs/architecture/driver
   a limit event. `default(PointingState)` is `Normal`: place a test mount by sync. `MountLimitWatcher` enforces with no
   session running.
 - **A guide pulse is two methods**: `StartPulseGuideAsync` starts and returns; `PulseGuideAsync` starts and waits. A
-  test of the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=...)]`.
+  test of the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=...)]`. A driver that times a pulse
+  itself holds it through `PulseHold.RunAsync`: the timer is armed before the caller is told (#2330).
 - **Every hot-path driver call goes through `Session.ResilientInvokeAsync`** with a preset (`IdempotentRead`,
   `NonIdempotentAction`, `AbsoluteMove`). A lost exposure throws nothing: `DALCameraDriver` gives it up itself.
 - **A command that fails backward needs verified retry** (`SendCommandVerifiedAsync`); do not widen it to every command.
