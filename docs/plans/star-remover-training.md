@@ -756,7 +756,8 @@ more, where the builder counts 9.4 % more. **The two stores'
 leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
 store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
 
-**What the new plates change in R4h's training pairs: almost nothing on six of the seven sessions, and on Centaurus A the stars under the noise** (`plate_pairs_compare.py`). R4h's export line
+**What the new plates change in R4h's training pairs: almost nothing on six of the seven sessions read, and on
+Centaurus A what the guard changed** (`plate_pairs_compare.py`). R4h's export line
 (synth32's, with its frozen binary and options) was run over seven of its sessions, once from `starless` and once
 from `starless-2449`. The run from `starless` gives synth32's own 2,800 tiles back to the byte, so the two runs
 differ by the plates alone. Both choose the same 40 cells in every session. Differences are in the tile's own noise
@@ -815,8 +816,10 @@ over nebula, which spoke against R4g's targets, is another defect and the refill
 **What it leaves for an arm.** Neither kind of arm run so far would see the new plates: R4h's line draws its
 backgrounds and would train on R4h's data, on six of the seven sessions, to within a few hundredths of the noise
 (Centaurus A's inputs differ by 0.098 at the median cell and 0.327 at the worst, by the guard, not the refill), and
-R4g's bright cells hold almost none of what the refill takes. On those six sessions an arm could show nothing a
-second seed would not show, and none is proposed. What the refill changes is the plate's pixels at moderately bright stars on smooth sky, so the new plates
+R4g's bright cells hold almost none of what the refill takes. An arm of R4h's line on the new plates would
+therefore test the guard and the builder's other changes on the masters they move (33 of the 138 by their star
+counts), and not the refill, which changes no star row on the Tarantula session and almost no pair; none is
+proposed. What the refill changes is the plate's pixels at moderately bright stars on smooth sky, so the new plates
 matter where those pixels are the target or the product: a recipe that puts plate pixels of ordinary star fields in
 its targets (none is in the line; the plates' leftover faint stars are why it draws its backgrounds), the
 grain-rule plates, and the builder as the remover that needs no model. No arm is registered: the owner's call.
