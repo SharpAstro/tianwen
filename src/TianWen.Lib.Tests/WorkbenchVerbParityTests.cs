@@ -74,6 +74,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         new DeblurOperation(Deblurrer),
         new DenoiseOperation(Denoiser),
         new RemoveStarsOperation(Remover),
+        new CombineOperation(Remover, Deblurrer, Denoiser),
         new CropOperation(),
         new LinearFitOperation(),
         new GradientOperation(new ClassicalBackgroundExtractor(), Substitute.For<IGradientCorrector>()),
@@ -352,6 +353,42 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         var back = WorkbenchFixtures.Read(Of("red-back").Steps[0].Output.ShouldNotBeNull());
         var original = WorkbenchFixtures.Read(red);
         back[0, 100, 100].ShouldBe(original[0, 100, 100], original[0, 100, 100] * 1e-4f);
+    }
+
+    /// <summary>
+    /// The recipe as one step (#2465): red, green and blue made one colour image, held to the file image combine writes,
+    /// once as it is by default and once with the steps a stand-in enhancer can serve switched on.
+    /// </summary>
+    [Fact(Timeout = 600_000)]
+    public async Task TheColourRecipeAsOneStepIsTheFileImageCombineWrites()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-combine-").FullName;
+        var red = WriteField(folder, "red", Field(noiseSeed: 1));
+        var green = WriteField(folder, "green", Field(noiseSeed: 2));
+        var blue = WriteField(folder, "blue", Field(noiseSeed: 3));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("green", green),
+            WorkbenchFixtures.Picture("blue", blue),
+            WorkbenchFixtures.Picture("plain", red, WorkbenchFixtures.Edit(CombineOperation.Id, null, "green", "blue")),
+            WorkbenchFixtures.Picture("worked", red, WorkbenchFixtures.Edit(CombineOperation.Id,
+                new JsonObject { ["linearFit"] = "red", ["matchPsf"] = true, ["starless"] = true, ["catalogue"] = "none", ["lrgb"] = true, ["colourSigma"] = 2, ["denoise"] = true, ["denoiseStrength"] = 0.4 },
+                "green", "blue"))), ct);
+        var runner = new WorkbenchRunner(Catalog());
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        var verbs = await ReplayThroughTheVerbsAsync(report, folder, ct);
+        foreach (var image in report.Images.Where(static image => image.Steps.Length > 0))
+        {
+            var result = image.Steps[0].Output.ShouldNotBeNull();
+            ShouldBeTheSameFile(result, verbs[result], image.Name);
+            WorkbenchFixtures.Read(result).ChannelCount.ShouldBe(3, "one colour image");
+        }
+
+        report.Images[3].Steps[0].CommandLine.ShouldContain("--starless");
+        report.Images[3].Steps[0].Key.ShouldNotBe(report.Images[2].Steps[0].Key);
     }
 
     [Fact(Timeout = 300_000)]

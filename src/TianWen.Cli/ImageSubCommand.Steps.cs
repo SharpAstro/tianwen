@@ -289,14 +289,6 @@ internal sealed partial class ImageSubCommand
         return option;
     }
 
-    // The catalogued stars of a solved frame, for core protection; null with one line saying why where there are none.
-    // The routine is Lib's (CoreCatalogue), which the operations an edit list runs call too.
-    private Task<IReadOnlyList<FrameStar>?> CoreCatalogueAsync(string verb, string? choice, WCS? wcs, int width, int height, CancellationToken ct)
-        => CoreCatalogue.ReadAsync(CoreCatalogue.Parse(choice), wcs, width, height, objectDb, line => consoleHost.WriteScrollable($"[{verb}] {line}"), ct);
-
-    private void SayCores(string verb, string path, ExtendedCoreMask mask)
-        => CoreCatalogue.Describe(Path.GetFileName(path), mask, line => consoleHost.WriteScrollable($"[{verb}] {line}"));
-
     // -------- tianwen image fill-digs ----------------------------------
 
     private Command BuildFillDigsCommand()
