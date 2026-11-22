@@ -1261,7 +1261,9 @@ contract change, so it bumps `NodeWire.Version`.
 The fields above cross whole: each observation's `CatalogIndex`, filter plan, gain, offset and
 priority; the mount's J2000 position, altitude and axis angle; frame metrics; guide stats; the settle
 progress, star profile and calibration overlay; each camera's cooling; and the exposure start measured
-against the node's clock.
+against the node's clock. The offset is the midpoint of the shortest round trip in a window, and one no larger
+than half that round trip is not applied (#1569): that is the most the sample can be wrong by, so the two
+clocks are not told apart, which is every poll of a node on the viewer's own computer.
 
 ### P5b part 4: a run is on, and says so
 

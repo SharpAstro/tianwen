@@ -391,13 +391,25 @@ namespace TianWen.RemoteClient
         private long _lastContactTicks;
 
         /// <summary>
-        /// How far this computer's clock is ahead of the node's, measured as each state arrives (P5b part 3). A camera's
+        /// How far the node's clock is ahead of this computer's, measured as each state arrives (P5b part 3). A camera's
         /// exposure start is on the node's clock and a countdown subtracts it from this one's, so the start is moved by it.
         /// </summary>
         // How far the node's clock is ahead of this computer's, from the state polls (LAN.Lib's LanClockOffset: NTP's midpoint of
         // the shortest round trip in a window). A camera's ExposureStart is on the node's clock, and the countdown subtracts it
         // from this one's.
         private readonly LanClockOffset _nodeClock = new();
+
+        // Whether that offset is one at all (#1569). A sample can be wrong by half its round trip, the legs being as
+        // lopsided as they like, so an offset no larger than that is not told from zero: a node on this computer's own
+        // clock, which a GUI beside its node is, measured as a few hundred milliseconds off whenever a busy machine held
+        // the request longer than the answer, and its exposure start moved by that. Written by the poll alone, right
+        // after it observes, so the offset and the round trip it compares are one sample's.
+        private volatile bool _nodeClockIsApart;
+
+        /// <summary>A time on the node's clock, on this computer's: moved by the measured offset when there is one, and
+        /// left as it is when the two clocks cannot be told apart.</summary>
+        private DateTimeOffset OnThisClock(DateTimeOffset nodeTime)
+            => _nodeClockIsApart ? _nodeClock.ToLocal(nodeTime) : nodeTime;
 
         private void StampContact() =>
             Interlocked.Exchange(ref _lastContactTicks, _timeProvider.GetUtcNow().UtcTicks);
@@ -692,6 +704,8 @@ namespace TianWen.RemoteClient
                 if (state.NodeNowUtc is { } nodeNow)
                 {
                     _nodeClock.Observe(askedAt, nodeNow, answeredAt);
+                    // One tick over the half, for the midpoint's own rounding.
+                    _nodeClockIsApart = Math.Abs(_nodeClock.Offset.Ticks) * 2 > _nodeClock.RoundTrip.Ticks + 1;
                 }
                 _nodeSendsFrameTokens = state.Frames is not null;
                 foreach (var token in state.Frames ?? [])
@@ -1489,7 +1503,7 @@ namespace TianWen.RemoteClient
                 {
                     builder.Add(new CameraExposureState(
                         camera.OtaIndex,
-                        _nodeClock.ToLocal(camera.ExposureStart),
+                        OnThisClock(camera.ExposureStart),
                         TimeSpan.FromSeconds(camera.SubExposureSeconds),
                         camera.FrameNumber,
                         camera.FilterName,
