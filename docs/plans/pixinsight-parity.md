@@ -90,8 +90,9 @@ PixInsight*) processing workspace, begun June 2026, at 1.0 beta 10 on 2026-11-18
 unpacked Linux beta (`DSPX-1.0.0-beta.10-linux-x64.tar.xz`, 395 MB, never run): the bundled manual's process folders,
 the licence files and the shipped models. Our `stacking-workbench` and `pixinsight-parity` are the nearest things this
 repo has to a "full editing application"; **there was no milestone for one** when this was read, and the stacking
-workbench's W0 (where it lives and what it is called, #1640) is still the owner's open decision. The same day the
-workbench plan was re-cut into that application (processes, a non-destructive edit list, workflows with gates, a guided
+workbench's W0 (where it lives and what it is called, #1640) was then the owner's open decision. It was decided on
+2026-11-22: a product of its own, named Astro Photo Stacker. The same day as this reading the workbench plan was re-cut into
+that application (operations, called processes until 2026-11-22, a non-destructive edit list, workflows with gates, a guided
 and a windowed view): [stacking-workbench.md](stacking-workbench.md), "The re-cut of 2026-11-19".
 
 What DSPX is, and what each point means for us:
