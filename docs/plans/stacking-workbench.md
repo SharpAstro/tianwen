@@ -1,6 +1,6 @@
 # Stacking Workbench: from a folder of frames to a finished picture, in one window
 
-**Status: NOT STARTED.** A plan for the owner to decide on before any code (the owner, 2026-10-17: "do we already have a milestone
+**Status: W0 DECIDED 2026-11-22, W10 PARTIAL (image crop and the W10 audit are done), the rest NOT STARTED.** A plan the owner decided W0 of (the owner, 2026-10-17: "do we already have a milestone
 for a GUI based stacking app? not just planetary etc", then "yeah lets do that"). Milestone `stacking-workbench`.
 
 **Re-cut 2026-11-19** from a stacker into the processing application: image editing as operations, a non-destructive edit list,
@@ -435,7 +435,7 @@ that name. Every non-empty Missing cell names the open issue that carries it.
 
 - **A. A mode of `tianwen-fits`** (Astro Photo Viewer): already in the Store and on macOS, already stacks a SER. But the viewer is a
   viewer; a project, a step bar and batches change what the Store app is, and its size.
-- **B. A new app, `tianwen-stack` (name open), in this repo**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
+- **B. A new app in this repo, the product Astro Photo Stacker (the executable's name, `tianwen-stack` here, is open)**: an AOT binary on the same SdlVulkan and DIR.Lib stack, sharing the
   viewer's widgets and `StandaloneViewerHost`. One more binary to package (a release asset, a `.dmg`, perhaps an MSIX), and the
   viewer gains "Open in the workbench".
 - **C. A tab of `tianwen-gui`**: the GUI is the rig's app, bound to its node; processing yesterday's data should not need a node,
