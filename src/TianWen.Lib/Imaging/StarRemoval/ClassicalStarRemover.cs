@@ -2058,7 +2058,7 @@ public static class ClassicalStarRemover
                     var dugCore = false;
                     for (var c = 0; c < _channels; c++)
                     {
-                        var (hole, dugHere) = CoreBelowItsSky(f, c, rms[c]);
+                        var (hole, dugHere) = CoreBelowItsSky(f, c, rms[c], testDug: !dugAlone[k]);
                         if (hole is { } r && r > grow)
                         {
                             grow = r;
@@ -2156,8 +2156,10 @@ public static class ClassicalStarRemover
 
         // The sweep's two tests of a subtracted star's core in one channel, both against that channel's median in an annulus
         // beyond the star and in the per-pixel noise at its centre: a hole (HoleRadius) and a dug pixel (DugCore). No hole
-        // and no dug pixel where that noise or that sky is unknown.
-        private (double? HoleRadius, bool Dug) CoreBelowItsSky(in Fit f, int channel, float[] rms)
+        // and no dug pixel where that noise or that sky is unknown. A star already refilled for a dug pixel alone is not
+        // tested for one again (testDug false): the fill's own grain can sit under the gate, and redrawing the same disc
+        // every round would only reroll it.
+        private (double? HoleRadius, bool Dug) CoreBelowItsSky(in Fit f, int channel, float[] rms, bool testDug = true)
         {
             var cx = (int)Math.Clamp(Math.Round(f.X), 0, _width - 1);
             var cy = (int)Math.Clamp(Math.Round(f.Y), 0, _height - 1);
@@ -2179,7 +2181,7 @@ public static class ClassicalStarRemover
             {
                 return (null, false);
             }
-            return (HoleRadius(f, plane, core, annulus, sky, sigma), FillDugCores && DugCore(f, channel, sky, annulus));
+            return (HoleRadius(f, plane, core, annulus, sky, sigma), FillDugCores && testDug && DugCore(f, channel, sky, annulus));
         }
 
         // Whether the subtraction dug a core pixel (#2449): a pixel within DugCoreSearch px of the fit's centre that sits
@@ -2201,7 +2203,9 @@ public static class ClassicalStarRemover
             var r = (int)Math.Ceiling(DugCoreSearch);
             var (top, bottom) = (Math.Max(0, y0 - r), Math.Min(_height - 1, y0 + r));
             var (left, right) = (Math.Max(0, x0 - r), Math.Min(_width - 1, x0 + r));
-            // Most cores have no pixel under their sky at all, and need no noise measured.
+            // A precheck that skips little: the minimum of the roughly 7 pixels in the search disc is under the annulus
+            // MEDIAN almost every time, so the noise below is measured for nearly every subtracted star, channel and round.
+            // It only spares a core whose every pixel is at or over its sky.
             var lowest = double.PositiveInfinity;
             for (var y = top; y <= bottom; y++)
             {
