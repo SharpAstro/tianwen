@@ -37,8 +37,19 @@ public sealed record ProjectImage
     /// input (a linear fit's reference).</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>The original file, absolute or relative to the project's folder. Never written.</summary>
+    /// <summary>The original file, absolute or relative to the project's folder. Never written. Empty for an image
+    /// that starts from another (<see cref="From"/>).</summary>
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>In place of a file: the image of this project it starts from, as that image's own edits leave it. So
+    /// one image can go on from where another stops: the masters of a colour image before and after the run they all
+    /// go through together.</summary>
+    public string? From { get; set; }
+
+    /// <summary>With <see cref="From"/>: start from this extra result of that image in place of its main one
+    /// (<see cref="OperationDescription.ExtraResults"/>): the stars its star removal took out. It is the result of
+    /// the last of that image's edits that gives one of this name.</summary>
+    public string? Result { get; set; }
 
     /// <summary>The digest of the file when a run last read it, so a listing can say the file changed since. The run
     /// itself never trusts it: it digests the file again.</summary>

@@ -27,6 +27,11 @@ public sealed record OperationSetting(string Name, string Summary, string? Measu
 /// names fewer images leaves out the last ones.</param>
 public sealed record OperationInputRole(string Name, string Summary, bool Optional = false);
 
+/// <summary>A result an operation gives beyond its main one: the stars a star removal took out.</summary>
+/// <param name="Name">What an image of a project names to start from it (<see cref="ProjectImage.Result"/>).</param>
+/// <param name="Summary">What it is.</param>
+public sealed record OperationResultRole(string Name, string Summary);
+
 /// <summary>
 /// What an operation is, said once: the edit list, the step store, the command line shown under a step and a window's
 /// panel all read this.
@@ -46,7 +51,18 @@ public sealed record OperationDescription(
     string Verb,
     OperationOutputKind Output,
     ImmutableArray<OperationInputRole> ExtraInputs,
-    ImmutableArray<OperationSetting> Settings);
+    ImmutableArray<OperationSetting> Settings)
+{
+    /// <summary>The results it gives beyond its main one, each kept in the store under a key of its own.</summary>
+    public ImmutableArray<OperationResultRole> ExtraResults { get; init; } = [];
+
+    /// <summary>
+    /// True for an operation several images go through in ONE run, on one scale, each getting its own result
+    /// (<see cref="IJointOperation"/>): a deblur, a denoise, a star removal. An edit of such an operation names the
+    /// other images of its run, any number of them, and <see cref="ExtraInputs"/> is empty.
+    /// </summary>
+    public bool Joint { get; init; }
+}
 
 /// <summary>Why an operation did not give a result: which of the verbs' exit codes it is.</summary>
 public enum OperationFailure

@@ -34,6 +34,13 @@ public static class WorkbenchServiceCollectionExtensions
         // GetService: the embedded catalogue answers for the stars inside a protected core, and a host without it still
         // protects cores (those stars then stay with them).
         services.AddSingleton<IOperation>(static sp => new ProtectCoresOperation(sp.GetService<ICelestialObjectDB>()));
+        // The operations several masters go through in one run. GetService for each enhancer: a role nothing serves here
+        // makes its step say so when it runs, and every other operation still works.
+        services.AddSingleton<IOperation, MatchPsfOperation>();
+        services.AddSingleton<IOperation>(static sp => new DeblurOperation(sp.GetService<IImageDeblurrer>()));
+        services.AddSingleton<IOperation>(static sp => new DenoiseOperation(sp.GetService<IDenoiseEnhancer>()));
+        services.AddSingleton<IOperation>(static sp => new RemoveStarsOperation(
+            sp.GetService<IStarRemover>(), sp.GetService<ICelestialObjectDB>(), sp.GetService<ILogger<RemoveStarsOperation>>()));
         services.AddSingleton<IOperation>(static sp => new GradientOperation(
             sp.GetRequiredService<IBackgroundExtractor>(),
             sp.GetRequiredService<IGradientCorrector>(),
