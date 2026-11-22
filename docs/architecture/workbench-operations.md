@@ -247,7 +247,8 @@ Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the c
 - **The remaining operations.** The other colour steps (#2465: `match-psf`, `deblur`, `denoise`, `remove-stars`,
   `protect-cores`, `fill-digs`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`, `align`, `combine`), the
   canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary steps (#2468).
-- **The colour recipe as one step** (`image combine`), and `image denoise --colour` (#2465).
+- **`image denoise --colour`** (#2465): three planes denoised as one colour image, where the order of the planes is
+  their colour, so it is not a run several images share.
 - **A set of frames as an input** (calibrate, register, integrate; #2467), and an operation that writes no pixels
   (plate solve, statistics; #2469).
 - **Preconditions and how an operation previews**: the facts are W9's (#2236), the preview W12's (#2239).
