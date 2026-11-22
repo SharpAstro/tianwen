@@ -225,7 +225,8 @@ public unsafe class AstroPropertyStoreTests
             .ShouldBe(S_OK);
 
         uint count = 99;
-        Should.NotThrow(() => store.GetCount(&count).ShouldBe(S_OK));
+        // An exception escaping here would fail the test, so a plain call is the assertion.
+        store.GetCount(&count).ShouldBe(S_OK);
         count.ShouldBe(0u);
     }
 
