@@ -80,6 +80,10 @@ public sealed record ImageReport(
 /// <param name="Exported">The file an export wrote; null when none was asked for or it failed.</param>
 public sealed record WorkbenchReport(ImmutableArray<ImageReport> Images, string? Refusal, string? Exported = null)
 {
+    /// <summary>Something a person should know that is not a refusal (the run's results could not be recorded in an
+    /// unreadable project file); the run still succeeded. Null when there is nothing to say.</summary>
+    public string? Note { get; init; }
+
     /// <summary>True when nothing was refused: the project read, every image has its file, and no step is refused or blocked.</summary>
     public bool Succeeded => Refusal is null
         && Images.All(static image => image.Refusal is null
@@ -223,9 +227,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         // The report is read off the plan before the project file takes this run's keys, so "changed since the last
         // run" is said against the run before this one.
         var report = new WorkbenchReport([.. images.Select(image => planner.Plan(image.Name).Report())], refusal, exported);
-        if (run)
+        if (run && await RecordAsync(folder, project, planner, cancellationToken) is { } note)
         {
-            await RecordAsync(folder, project, planner, cancellationToken);
+            report = report with { Note = note };
         }
 
         return report;
@@ -381,31 +385,42 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     // minutes, so the file is read again under the file's lock and the keys go onto the edits that are still the ones
     // the run planned: an edit made to project.json meanwhile is kept, and an edit changed since gets no key of a
     // result it did not make.
-    private static async Task RecordAsync(string folder, WorkbenchProject project, Planner planner, CancellationToken cancellationToken)
+    // Returns a note when the file could not be read under the lock (missing, or saved half way): it is then left as
+    // it is, never overwritten with the run's start-of-run copy, and the next run finds the results again by their keys.
+    private static async Task<string?> RecordAsync(string folder, WorkbenchProject project, Planner planner, CancellationToken cancellationToken)
     {
         if (!TryRecord(folder, project, planner, out _))
         {
-            return;
+            return null;
         }
 
-        // A project file that cannot be read now is someone's edit caught half way. It is left as it is: this run's
-        // keys are found again by the next run, and a person's edit is not.
-        if ((await WorkbenchProjectFile.ReadAsync(folder, cancellationToken)).Project is null)
+        try
         {
-            return;
-        }
+            await SharedFile.UpdateJsonAsync(
+                WorkbenchProjectFile.PathIn(folder),
+                WorkbenchJsonContext.Default.WorkbenchProject,
+                onDisk =>
+                {
+                    if (onDisk is null)
+                    {
+                        // Thrown before anything is staged, so the file stays as the person left it.
+                        throw new ProjectUnreadableException();
+                    }
 
-        await SharedFile.UpdateJsonAsync(
-            WorkbenchProjectFile.PathIn(folder),
-            WorkbenchJsonContext.Default.WorkbenchProject,
-            onDisk =>
-            {
-                TryRecord(folder, onDisk ?? project, planner, out var recorded);
-                return recorded;
-            },
-            logger: null,
-            cancellationToken);
+                    TryRecord(folder, onDisk, planner, out var recorded);
+                    return recorded;
+                },
+                logger: null,
+                cancellationToken);
+            return null;
+        }
+        catch (ProjectUnreadableException)
+        {
+            return $"{WorkbenchProjectFile.PathIn(folder)} could not be read at the end of the run, so this run's results are not recorded in it; the next run finds them again";
+        }
     }
+
+    private sealed class ProjectUnreadableException : Exception;
 
     // The keys and outputs of this run's plan put onto what is in <paramref name="current"/>, wherever the edit is still
     // the planned one; true when that changed anything.

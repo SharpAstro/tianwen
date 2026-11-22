@@ -660,7 +660,8 @@ internal sealed partial class ImageSubCommand(
             };
             var operation = new CropOperation(logger);
             var resolved = operation.TryResolve(settings, src, input, say: null, out var resolution, out var refusal);
-            var rule = MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin);
+            // Auto is set, so the resolution always carries the rule the scan ran under.
+            var rule = resolution.Rule ?? MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin);
             var scan = resolution.Scan.GetValueOrDefault();
             var rect = resolution.Rectangle;
 
