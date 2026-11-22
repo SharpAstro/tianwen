@@ -186,7 +186,8 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// logged across midnight calls <see cref="Flush"/> first.</summary>
     public string LogFilePath => _logFilePath;
 
-    /// <summary>Lines dropped because <see cref="MostQueued"/> were waiting already, since the provider was made.</summary>
+    /// <summary>Lines dropped since the provider was made: because <see cref="MostQueued"/> were waiting already, or,
+    /// for an Error or a Critical line, <see cref="UrgentHeadroom"/> times that.</summary>
     internal long LinesDropped => Interlocked.Read(ref _dropped);
 
     /// <summary>Lines the writer could not write (a full disk, a file gone).</summary>

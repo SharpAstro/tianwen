@@ -44,6 +44,12 @@ the run log of the first campaign.
 
 Tracked by #824, #870.
 
+**The warp kernel is shared too: every bake resamples its subs with clamped Lanczos-3**
+(`WarpInterpolation.Lanczos3Clamped`, the default of `tianwen stack` and of `tianwen dataset build` since
+2026-09-12; chosen in [deconvolver-training.md](deconvolver-training.md), R1, and its clamping rule is credited in
+`NOTICE`, #2441). Whether a different anti-ringing rule gives better frames is #2444, an investigation and not a
+decision: a kernel that changes is a new store for every training here.
+
 **The trainer IS in the repo since 2026-09-02 (`training/denoise/`, E0 passed; see `training/README.md`
 for what came across and what stayed on D:). The rest of this section is the state it was written
 against, kept because the layout below is still the target: only `denoise/` exists, and `common/` is

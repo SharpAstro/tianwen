@@ -121,7 +121,7 @@ public sealed class FitsHeaderIndexTests : IDisposable
     }
 
     // Bytes that end before a header's END card are not a header. They are refused before the parser sees them,
-    // which matters beyond tidiness: FITS.Lib before its 6.4 patch never returned from such bytes.
+    // which matters beyond tidiness: until FITS.Lib#11 the library never returned from such bytes.
     [Fact]
     public void BytesWithNoEndCardAreNotAHeaderAndAreNotParsed()
     {
@@ -130,6 +130,54 @@ public sealed class FitsHeaderIndexTests : IDisposable
 
         FitsHeaderBlocks.HoldsEnd(firstBlock).ShouldBeFalse();
         Image.TryReadFitsHeaderFromBytes(path, firstBlock, out _).ShouldBeFalse();
+    }
+
+    // #2410. An index written before #1529 could hold a header cut before its END card. Such an entry is a MISS:
+    // it is not served, the scan reads the file (FitsFolderFrameSource.TryReadFrameInfo does exactly the three steps
+    // below), and the header is stored again, whole. Asserted on the index's own answer and counts, so a lost refusal
+    // fails here at once, whatever the parser would have made of such bytes.
+    [Fact]
+    public void AStoredHeaderThatEndsBeforeItsEndCardIsAMissAndIsStoredAgainWhole()
+    {
+        var path = WriteWithRepeatedCards("integration.fits", repeated: 10);
+        Image.TryReadFitsHeader(path, out var read, out var parsedSize).ShouldBeTrue();
+        var onDisk = new FileInfo(path);
+        var stamp = new FileStamp(path, onDisk.Length, onDisk.LastWriteTimeUtc);
+
+        // The index as the older build left it: this file's first block, which ends before the END card.
+        var index = Index();
+        var cut = File.ReadAllBytes(path)[..2880];
+        FitsHeaderBlocks.HoldsEnd(cut).ShouldBeFalse("premise: the first block of a two-block header holds no END");
+        index.Plant(stamp, cut);
+        index.Count.ShouldBe(1);
+
+        index.TryGet(stamp, out var served).ShouldBeFalse("an entry with no END card is not a header, so it is not served");
+        served.ShouldBeNull();
+        (index.Hits, index.Misses).ShouldBe((0, 1), "and it is a miss, which is what sends the scan to the file");
+
+        index.Remember(stamp, parsedSize, read);
+
+        index.TryGet(stamp, out var stored).ShouldBeTrue("the file's header is stored in its place");
+        stored.Length.ShouldBe(5760, "whole: both of its blocks");
+        FitsHeaderBlocks.HoldsEnd(stored).ShouldBeTrue();
+    }
+
+    // #1529, the library's half: a FILE that ends before its header's END card. FITS.Lib read it for ever until
+    // FITS.Lib#11; now it throws, the read answers false, and a scan passes the file by. Run off the test's thread
+    // under the test's own timeout, so that a library that lost the fix fails this test and does not hang the suite
+    // (the read would still spin on its thread until the process ends: that loop is the library's, and its own tests
+    // hold it).
+    [Fact(Timeout = 60_000)]
+    public async Task AFileThatEndsBeforeItsHeadersEndCardIsNotAFrame()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var whole = WriteWithRepeatedCards("integration.fits", repeated: 10);
+        var cut = Path.Combine(Path.GetDirectoryName(whole) ?? _dir, "cut.fits");
+        File.WriteAllBytes(cut, File.ReadAllBytes(whole)[..2880]);
+
+        var read = await Task.Run(() => Image.TryReadFitsHeader(cut, out _), ct).WaitAsync(ct);
+
+        read.ShouldBeFalse("a header with no END card within the file is a truncated file, not a frame");
     }
 
     // Where a header ends in a file's bytes: at the end of the block that holds its END card, wherever the card

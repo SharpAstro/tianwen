@@ -484,7 +484,8 @@ Our context, as given:
 
 - **Citation:** PixInsight Class Library, `include/pcl/LanczosInterpolation.h` (GitLab, master).
 - **Verified:** source read. https://gitlab.com/pixinsight/PCL/-/raw/master/include/pcl/LanczosInterpolation.h
-- **Code / licence:** PixInsight Class Library License Version 2.0.
+- **Code / licence:** PixInsight Class Library License Version 2.0.1 (29 December 2025). The rule is re-implemented in
+  `Image.Lanczos3Finish`, and `NOTICE` carries the licence's acknowledgment and its text (#2441).
 - **What:** samples accumulated by sign (`sp`, `wp` and `sn`, `wn`); r = sn/sp; if r >= 1 return sp/wp; if r passes the
   threshold, sn and wn are scaled by 1 - ((r - t)/(1 - t))^2; default threshold 0.3F. "Lanczos interpolation generates
   strong undershoot (aka ringing) artifacts when the negative lobes of the interpolation function fall over bright isolated
