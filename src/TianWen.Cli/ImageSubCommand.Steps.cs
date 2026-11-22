@@ -368,11 +368,18 @@ internal sealed partial class ImageSubCommand
         var inputOpt = new Option<string>("--input") { Description = "The master the stars were removed from.", Required = true };
         var starlessOpt = new Option<string>("--starless") { Description = "Its starless plate as the models left it (image remove-stars --model ... --no-fill-digs --keep-overshoot).", Required = true };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <starless>_filled.fits." };
+        var keepOvershootOpt = new Option<bool>("--keep-overshoot")
+        {
+            Description = "Leave the filled plate where it stands over the input. By default it is then held at or under the input, as "
+                + "image remove-stars holds it (#2433), so this step on the plate remove-stars --no-protect-cores --no-fill-digs "
+                + "--keep-overshoot wrote gives what remove-stars --no-protect-cores writes.",
+        };
         var cmd = new Command("fill-digs", "The step image remove-stars runs after TianWen's own models, alone (DigFill, #2204): where a star was "
             + "taken, a hole dug under it is filled to the sky around it and light left standing is lowered a little, each bounded by "
-            + "what the model took there. No model runs. Not for an RC-Astro plate, which has no digs to fill.")
+            + "what the model took there; then the plate is held at or under the input, as remove-stars does last. No model runs. "
+            + "Not for an RC-Astro plate, which has no digs to fill.")
         {
-            Options = { inputOpt, starlessOpt, outputOpt },
+            Options = { inputOpt, starlessOpt, outputOpt, keepOvershootOpt },
         };
         cmd.SetAction(parseResult =>
         {
@@ -385,7 +392,7 @@ internal sealed partial class ImageSubCommand
             {
                 return 1;
             }
-            var (plate, share) = DigFill.Apply(input[0], starless[0]);
+            var (plate, share) = NarrowbandCombination.FillDigsAlone(input[0], starless[0], holdAtOrUnderPlane: !parseResult.GetValue(keepOvershootOpt));
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                 $"[fill-digs] {Path.GetFileName(starlessPath)}: dig-fill step covered {share:P1} of the pixels"));
             WriteStep(plate, StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), wcs, "fill-digs");

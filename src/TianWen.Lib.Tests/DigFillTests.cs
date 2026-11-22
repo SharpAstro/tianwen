@@ -499,6 +499,38 @@ public class DigFillTests
     }
 
     [Fact]
+    public async Task TheFillStepAloneOnTheRemoversOwnPlateIsTheSplitsPlate()
+    {
+        // image fill-digs on the plate image remove-stars --no-protect-cores --no-fill-digs --keep-overshoot wrote gives what
+        // image remove-stars --no-protect-cores writes, bit for bit (#2433). The remover digs under its star AND stands over its
+        // input on the top quarter of the frame, so both the fill and the hold have work to do.
+        var (frame, model) = Scene(dig: 4f);
+        for (var y = 0; y < Size / 4; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                model[y, x] = frame[y, x] + (2 * Noise);
+            }
+        }
+        var input = ImageOf(frame);
+        var ct = TestContext.Current.CancellationToken;
+        var own = new FixedRemover(model, PeakOf(frame), takesDigFill: true);
+
+        var (raw, _, _, _) = await NarrowbandCombination.SplitStarsAsync(
+            [input], own, protectCores: null, fillDigs: false, catalogStars: null, holdAtOrUnderPlane: false, ct);
+        var (split, _, _, splitShare) = await NarrowbandCombination.SplitStarsAsync([input], own, protectCores: null, fillDigs: true, ct);
+        var (alone, aloneShare) = NarrowbandCombination.FillDigsAlone(input, raw[0]);
+        var (kept, _) = NarrowbandCombination.FillDigsAlone(input, raw[0], holdAtOrUnderPlane: false);
+
+        splitShare.ShouldNotBeNull();
+        aloneShare.ShouldBe(splitShare[0]);
+        ShouldBeBitForBit(alone, split[0]);
+        MeanAtStar(alone).ShouldBeInRange(-0.75, 0.75, "the dig is filled");
+        kept[0, 4, 4].ShouldBeGreaterThan(frame[4, 4], "the premise: with --keep-overshoot the plate still stands over its input");
+        alone[0, 4, 4].ShouldBe(frame[4, 4], "held at its input");
+    }
+
+    [Fact]
     public async Task TheSplitFillsAgainstTheOriginalInputAfterCoreProtection()
     {
         // A galaxy (a Gaussian of 60 px at 400 sigma) with a compact nucleus, as ExtendedCoreMaskTests builds it, and one

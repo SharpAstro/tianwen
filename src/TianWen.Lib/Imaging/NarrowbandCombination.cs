@@ -142,6 +142,28 @@ public static class NarrowbandCombination
     }
 
     /// <summary>
+    /// <c>image fill-digs</c>, the split's last two steps on a plate the remover wrote: the dig fill (<see cref="DigFill.Apply"/>)
+    /// and then, unless <paramref name="holdAtOrUnderPlane"/> is false, the hold at or under the plane (<see cref="AtOrUnderPlane"/>,
+    /// #2433). On the plate of <c>image remove-stars --no-protect-cores --no-fill-digs --keep-overshoot</c> it gives the plate of
+    /// <c>image remove-stars --no-protect-cores</c> bit for bit, so the step alone and the one command agree. The caller keeps
+    /// <paramref name="plate"/>; what comes back may be that same image when nothing was filled and nothing held.
+    /// </summary>
+    public static (Image Plate, double Share) FillDigsAlone(Image plane, Image plate, bool holdAtOrUnderPlane = true)
+    {
+        var (filled, share) = DigFill.Apply(plane, plate);
+        if (!holdAtOrUnderPlane)
+        {
+            return (filled, share);
+        }
+        var held = AtOrUnderPlane(filled, plane);
+        if (!ReferenceEquals(filled, plate))
+        {
+            filled.Release();
+        }
+        return (held, share);
+    }
+
+    /// <summary>
     /// <paramref name="broadband"/> with <paramref name="line"/>'s emission in it: the line's continuum taken out against the
     /// broadband at <paramref name="continuumScale"/> (<see cref="ContinuumSubtractor.Subtract"/>), then added at
     /// <paramref name="weight"/> times what a line value is worth in the broadband (<see cref="LineToBroadband"/>, which
