@@ -10,7 +10,8 @@ against its own null per plate: the same reading at 6,000 random spots with no l
 Groups: refilled (subtracted on both plates, not inpainted on the stored one, inpainted on the rebuilt one), untouched
 (not inpainted on either), inpainted on both.
 
-Sources: a plain finder run the same way on both plates (the luminance smoothed by the PSF, less the same smoothed six
+Sources: a plain finder run the same way on both plates (the luminance smoothed by the PSF at the luminance width, the LAST element of the stats' `FwhmPx` (the builder's
+lumPsf.Fwhm), which is what `<fwhm px>` must be to reproduce the plan, e.g. 2.1113827 on Centaurus A; less the same smoothed six
 times wider; a local maximum over 5 of the filtered plate's own robust sigma). A source of the rebuilt plate with none
 within 1.5 px on the stored plate is new; it is placed by what it sits on, and the stored plate's filtered value at
 that pixel says whether it was already nearly one (4 sigma or more) or not there.
