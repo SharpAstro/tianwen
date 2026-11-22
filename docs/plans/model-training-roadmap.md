@@ -48,7 +48,9 @@ Tracked by #824, #870.
 (`WarpInterpolation.Lanczos3Clamped`, the default of `tianwen stack` and of `tianwen dataset build` since
 2026-09-12; chosen in [deconvolver-training.md](deconvolver-training.md), R1, and its clamping rule is credited in
 `NOTICE`, #2441). Whether a different anti-ringing rule gives better frames is #2444, an investigation and not a
-decision: a kernel that changes is a new store for every training here.
+decision: a kernel that changes is a new store for every training here. That rule's licence forbids the use of its
+code for "training machine learning systems"; the owner reads that (2026-11-22, #2441) as aimed at training models on
+PCL's source, not at resampling frames with a rule taken from it, so the bakes are unchanged.
 
 **The trainer IS in the repo since 2026-09-02 (`training/denoise/`, E0 passed; see `training/README.md`
 for what came across and what stayed on D:). The rest of this section is the state it was written
