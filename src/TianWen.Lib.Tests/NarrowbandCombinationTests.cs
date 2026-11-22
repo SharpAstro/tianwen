@@ -64,6 +64,90 @@ public class NarrowbandCombinationTests
         back[0, 0, 7].ShouldBe(a[0, 0, 7], 1e-3f);
     }
 
+    /// <summary>A remover that lifts the left half of its input and lowers the right half.</summary>
+    private sealed class LiftingRemover : IStarRemover
+    {
+        public string Name => "Test/Lifting";
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var src = input.GetChannelSpan(0);
+            var plane = new float[input.Height, input.Width];
+            for (var y = 0; y < input.Height; y++)
+            {
+                for (var x = 0; x < input.Width; x++)
+                {
+                    plane[y, x] = src[(y * input.Width) + x] + (x < input.Width / 2 ? 0.05f : -0.05f);
+                }
+            }
+            return Task.FromResult(new Image([plane], BitDepth.Float32, 1f, 0f, 0f, input.ImageMeta));
+        }
+    }
+
+    /// <summary>
+    /// A plate that stands over its plane is held at the plane (#2433), so its stars are never negative and plate plus stars is
+    /// the plane; a pixel the remover lowered keeps the remover's output bit for bit, and an absent pixel stays absent.
+    /// </summary>
+    [Fact]
+    public async Task TheSplitHoldsThePlateAtOrUnderItsPlane()
+    {
+        var plane = Plane(1000f, nanAt: 2);
+        var remover = new LiftingRemover();
+        var ct = TestContext.Current.CancellationToken;
+
+        var raw = (await NarrowbandCombination.StarlessAsync([plane], remover, ct))[0];
+        var (starless, stars) = await NarrowbandCombination.SplitStarsAsync([plane], remover, ct);
+
+        float.IsNaN(starless[0][0, 0, 2]).ShouldBeTrue("an absent pixel stays absent");
+        float.IsNaN(stars[0][0, 0, 2]).ShouldBeTrue("and so do its stars");
+        for (var x = 0; x < 10; x++)
+        {
+            if (x == 2)
+            {
+                continue;
+            }
+            var p = plane[0, 0, x];
+            if (x < 5)
+            {
+                raw[0, 0, x].ShouldBeGreaterThan(p, "premise: the remover lifted the left half over its plane");
+                starless[0][0, 0, x].ShouldBe(p, "held at the plane");
+            }
+            else
+            {
+                starless[0][0, 0, x].ShouldBe(raw[0, 0, x], "a pixel the remover lowered keeps its output bit for bit");
+            }
+            stars[0][0, 0, x].ShouldBeGreaterThanOrEqualTo(0f, "a stars layer holds no negative light");
+            stars[0][0, 0, x].ShouldBe(p - starless[0][0, 0, x]);
+        }
+    }
+
+    /// <summary>
+    /// With the hold switched off the plate is the remover's own, bit for bit, so a measurement still sees its overshoot: the
+    /// stars go negative where it stood over its plane, and plate plus stars is still the plane.
+    /// </summary>
+    [Fact]
+    public async Task TheSplitLeavesThePlateAsTheRemoverWroteItWhenAskedTo()
+    {
+        var plane = Plane(1000f, nanAt: 2);
+        var remover = new LiftingRemover();
+        var ct = TestContext.Current.CancellationToken;
+
+        var raw = (await NarrowbandCombination.StarlessAsync([plane], remover, ct))[0];
+        var (starless, stars) = await NarrowbandCombination.SplitStarsAsync([plane], remover, holdAtOrUnderPlane: false, ct);
+
+        float.IsNaN(starless[0][0, 0, 2]).ShouldBeTrue("an absent pixel stays absent");
+        for (var x = 0; x < 10; x++)
+        {
+            if (x == 2)
+            {
+                continue;
+            }
+            starless[0][0, 0, x].ShouldBe(raw[0, 0, x], "the remover's plate, unclamped");
+            stars[0][0, 0, x].ShouldBe(plane[0, 0, x] - raw[0, 0, x]);
+        }
+        stars[0][0, 0, 0].ShouldBeLessThan(0f, "premise: the lifted half has negative stars when not held");
+    }
+
     /// <summary>A deblurrer that lifts every value by a gain, as sharpening lifts a star's peak, and stops at the ceiling of
     /// <c>[0, 1]</c> as BlurX's output does.</summary>
     private sealed class SharpeningDeblurrer(float gain) : IImageDeblurrer

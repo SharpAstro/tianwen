@@ -30,7 +30,7 @@ for line in open(f"{S}/tiles-manifest.jsonl", encoding="utf-8"):
     if '"Frame":"master"' in line and '"NoiseSigma":[' in line:
         r = json.loads(line); rows.setdefault(r["Tile"].split("/")[1], r)
 help_text = subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
-flags = [f for f in ("--no-fill-digs", "--no-protect-cores") if f in help_text]
+flags = [f for f in ("--no-fill-digs", "--no-protect-cores", "--keep-overshoot") if f in help_text]
 tag = "".join(f.replace("--", "-") for f in flags) or "-plain"
 
 

@@ -9133,8 +9133,8 @@ the first angle is a step after the model and not another arm:
     are worked down before another day-long run. The cluster scenes do not join (R4a was killed).
 
 Every script here that runs the remover (`transplant.py`, `site_remove.py`, `crowd_texture.py`, `wb_invariance.py`,
-`flatten_invariance.py`) gives the model AS TRAINED: it passes `--no-fill-digs` and `--no-protect-cores` where the
-build has them (the rows in this plan were made with a build from before both steps). No model reads another's cached
+`flatten_invariance.py`) gives the model AS TRAINED: it passes `--no-fill-digs`, `--no-protect-cores` and `--keep-overshoot` where the
+build has them (the rows in this plan were made with a build from before all three steps). No model reads another's cached
 plate: `site_remove.py` keeps them apart by folder (`SITE_OUT`, one per model, set by `site-run.sh`), the others by
 naming the output for the model as well as the session. `site_core.py` and `site_core_ch.py` read either: `SITE_OUT`'s
 folder, or transplant.py's with `TIANWEN_SR_MODEL` to pick the model.
@@ -9431,7 +9431,9 @@ a dark globule** toward it. The instruments named below (`holes_look.py`, `floor
     model dug where its stars were stay as dug. A knot narrower than the core of the star on it reads as residue and
     is lowered. And the lowering is still cut per channel, so what it does take can change a colour.
   - **The product is the script, bit for bit.** `dig_fill_parity.py` on R4c seed 0: `tianwen image fill-digs` against
-    `whole_floor.py floor5`, no value different on the three masters (seven planes). Two tests hold the two gates:
+    `whole_floor.py floor5`, no value different on the three masters (seven planes); since #2433 the verb holds its
+    plate at or under the input by default, which floor5 does not, so the parity runs `fill-digs --keep-overshoot`
+    (and reads 0 pixels not bit-equal again). Two tests hold the two gates:
     a knot under stars 5 px apart is left bit for bit where a faint one is lowered, and one plate with a dip of 14
     sigmas is left alone where the input holds the dip and filled where the input is level.
   - **Cost** (`digfill-bench5.ps1`, each case run alone three times; peak working set the largest of the three,
@@ -9442,6 +9444,48 @@ a dark globule** toward it. The instruments named below (`holes_look.py`, `floor
     |---|---|---|
     | 12.2 megapixel colour (the Andromeda master) | 2,738 MB, 8.5 s | 2,878 MB, 9.3 s |
     | 24.4 megapixel colour (that master joined to its mirror image) | 5,054 MB, 16.3 s | 5,081 MB, 18.2 s |
+
+#### The starless held at or under its input: the stars are never negative (2026-11-22, #2433)
+
+The owner's test of the glow guard: "can we re-screen the starlight [lots] of the milkyway without blowing up the
+stars. we could test this against some of our frames", both edits measured apart (`screen_back.py`). Each held-out
+master and each starless are stretched with the master's own stretch; the stars layer is the unscreen of the two, so an
+untouched screen-back gives the master again. Then (a) the starless gets a further midtones transfer of 0.3 and the
+stars go back on unchanged, and (b) the stars layer gets it and goes back onto the original starless. Isolated
+catalogued stars' half-flux diameter over the stretched master's, the share whose peak clips, and the fog (what the
+screen adds between stars, in the master's display-space sky noise):
+
+| master and split | stars layer between stars | (a) HFD, clipped, fog | (b) HFD, clipped, fog |
+|---|---|---|---|
+| Tarantula, the whole master given (a)'s stretch | | x1.11, 5.5 % | |
+| Tarantula, StarXTerminator | 1.49 | x1.07, 2.8 %, 0.90 | x1.11, 5.5 %, 2.63 |
+| Tarantula, R4d through the chain | 0.23 | x1.11, 2.8 %, 0.13 | x1.07, 5.5 %, 0.41 |
+| Sagittarius, StarXTerminator | 0.13 | x1.25, 3.0 %, 0.08 | x1.00, 5.8 %, 0.23 |
+| Sagittarius, R4d through the chain | 0.02 | x1.25, 3.0 %, 0.01 | x0.99, 5.8 %, 0.03 |
+| Andromeda, StarXTerminator | 0.13 | x1.08, 2.2 %, 0.08 | x1.09, 5.3 %, 0.23 |
+| Andromeda, R4d through the chain | 0.12 | x1.08, 2.2 %, 0.07 | x1.09, 5.3 %, 0.21 |
+
+Screening the stars back onto a harder-stretched starless (a) does not blow them up for either split, and halves the
+cores that clip against stretching the whole master. Stretching the stars layer (b) does, for StarXTerminator's on the
+Tarantula: its stars layer holds the LMC's glow, which a stars stretch turns into a haze six times ours (a 2x crop of
+both was sent to the owner). That is the practical reason behind the glow guard, for anyone who stretches the stars.
+
+**The flaw the test found, fixed here.** StarXTerminator's plate never stands over its input, so its display-space
+unscreen layer screens back exactly. TianWen's stood over its input on 4 to 16 % of the pixels, mostly by a few
+hundredths to a few tenths of the noise, and that screen-back missed by more than the display-space sky noise on 0.32 % (Tarantula), 0.12 % (Sagittarius)
+and 0.90 % (Andromeda) of them, 35 to 40 % of those 3 to 6 px from a catalogued star: a faint ring outside the core once
+the stars are screened back. `NarrowbandCombination.SplitStarsAsync` now holds every plate at or under its plane last,
+after the cores and the dig fill (`AtOrUnderPlane`), so plate plus stars is the plane and the stars are never negative,
+whatever the remover did (the layer the product returns is the additive plane less plate, so a screen blend of it is not
+exact; the exact screen-back is `screen_back.py`'s own display-space unscreen layer, which no product code produces). On the three masters that changes 5.8 to 16.8 % of the pixels, lowers a frame's mean by 0.006
+to 0.026 of the noise, and takes that script's screen-back error to a double's rounding (1e-16, the script computes in float64) with every other
+figure above unchanged. The ring itself is a fill brighter than the sky beside a star; the clamp caps it at the input. Teaching the
+model not to overshoot (a one-sided term in the loss) would be an arm of its own.
+
+`image remove-stars --keep-overshoot` (and the split's `holdAtOrUnderPlane: false`) leaves the plate as the remover wrote it, for
+measurement: the scorers (`score_whole.py`, `score-arm.ps1`) and the `--no-fill-digs` helpers pass it with `--no-protect-cores`
+and `--no-fill-digs`, so a row is the model's own output as past rows were and the `added` row (#2245) still sees an overshoot.
+`sky_noise` in `screen_back.py` is a strided sample of far pixel pairs with the zero canvas ring masked out. The pedestal and fog columns of the table above were measured with the earlier unit (first 200,000 far pixels, consecutive differences, ring not excluded) and were not re-run with this one, so a re-run differs slightly.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 

@@ -22,7 +22,7 @@ def as_trained_flags():
     """The options that switch off the dig-fill and core protection, where this build has them: every row these scripts
     give is the model AS TRAINED. A build from before those steps has neither option and needs neither."""
     text = subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
-    return [f for f in ("--no-fill-digs", "--no-protect-cores") if f in text]
+    return [f for f in ("--no-fill-digs", "--no-protect-cores", "--keep-overshoot") if f in text]
 
 
 MODEL = os.path.splitext(os.path.basename(onnx))[0]

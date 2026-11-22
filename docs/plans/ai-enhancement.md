@@ -520,7 +520,7 @@ per rule and points here.
     against the original input (the order it was scored in), and only for a remover whose `IStarRemover.TakesDigFill`
     is true. That is `OnnxTianWenStarRemover` alone: **RC-Astro's plate is never touched.** The stars are the input less
     the filled plate, so `image add-stars` still gives the input back.
-  - **Turning it off:** `image remove-stars --model ... --no-fill-digs` writes the models' own output; the scoring
+  - **Turning it off:** `image remove-stars --model ... --no-fill-digs --keep-overshoot` writes the models' own output; the scoring
     scripts (`score-arm.ps1`, `score_whole.py`) pass it, beside `--no-protect-cores`, so their rows stay the model
     alone. `image fill-digs --input <master> --starless <plate>` is the step on its own, with no model run.
   - **It is the Python step, to the bit.** It was chosen and scored as "floor3" of
@@ -528,8 +528,10 @@ per rule and points here.
     reasons for each rule and the scores: `docs/plans/star-remover-training.md`), so `DigFill` reproduces scipy's filters exactly (the Gaussian's
     truncation, border and summing order, the median, the maximum, the dilation, the linear zoom). On the three whole
     masters of the scorecard (two colour, one mono) its output equals the Python's bit for bit at every pixel;
-    `training/star-removal/dig_fill_parity.py` is that comparison. A change to a constant or a filter there is a
-    change to a scored step: re-run the parity, and re-score.
+    `training/star-removal/dig_fill_parity.py` is that comparison, of `image fill-digs --keep-overshoot`: since #2433
+    the verb also holds its plate at or under the input by default, a step the Python does not have (run with that
+    build on R4c seed 0, 0 pixels not bit-equal on the seven planes of the three masters). A change to a constant or a
+    filter there is a change to a scored step: re-run the parity, and re-score.
   - **It fades where its sky cannot be trusted (floor4).** Inside bright, structured nebula the pixels of removed
     stars form one large blob, the sky under it is spread in from far away, and filling to it drew flat patches over
     real dark structure. So the scatter of the plate outside those pixels is read under the Gaussian that made the

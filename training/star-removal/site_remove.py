@@ -27,7 +27,7 @@ def as_trained_flags():
     gives is the model AS TRAINED. A build from before those steps has neither option and needs neither. The same
     question transplant.py asks; asked of the build once, where it used to be asked once per flag for every plate."""
     text = subprocess.run([CLI, "image", "remove-stars", "--help"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
-    return [f for f in ("--no-fill-digs", "--no-protect-cores") if f in text]
+    return [f for f in ("--no-fill-digs", "--no-protect-cores", "--keep-overshoot") if f in text]
 
 
 

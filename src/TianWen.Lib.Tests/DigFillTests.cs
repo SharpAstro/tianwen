@@ -480,10 +480,13 @@ public class DigFillTests
         onShare.ShouldNotBeNull();
         onShare[0].ShouldBeGreaterThan(0);
 
-        ShouldBeBitForBit(off[0], raw);
-        offShare.ShouldBeNull("switched off: the model's output, bit for bit");
-        ShouldBeBitForBit(other[0], raw);
-        otherShare.ShouldBeNull("a remover that does not take it (RC-Astro) is never touched");
+        // Off, the fill leaves the model's output as it is; the split then only holds it at or under the input (#2433), which
+        // here moves a pixel the scale's round trip left a rounding error over the input.
+        var held = NarrowbandCombination.AtOrUnderPlane(raw, input);
+        ShouldBeBitForBit(off[0], held);
+        offShare.ShouldBeNull("switched off: the model's output, held at or under the input");
+        ShouldBeBitForBit(other[0], held);
+        otherShare.ShouldBeNull("a remover that does not take it (RC-Astro) is never filled");
 
         // The stars are the input less the FILLED plate, so plate plus stars is still the input.
         for (var y = 0; y < Size; y++)
@@ -493,6 +496,38 @@ public class DigFillTests
                 onStars[0][0, y, x].ShouldBe(frame[y, x] - on[0][0, y, x]);
             }
         }
+    }
+
+    [Fact]
+    public async Task TheFillStepAloneOnTheRemoversOwnPlateIsTheSplitsPlate()
+    {
+        // image fill-digs on the plate image remove-stars --no-protect-cores --no-fill-digs --keep-overshoot wrote gives what
+        // image remove-stars --no-protect-cores writes, bit for bit (#2433). The remover digs under its star AND stands over its
+        // input on the top quarter of the frame, so both the fill and the hold have work to do.
+        var (frame, model) = Scene(dig: 4f);
+        for (var y = 0; y < Size / 4; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                model[y, x] = frame[y, x] + (2 * Noise);
+            }
+        }
+        var input = ImageOf(frame);
+        var ct = TestContext.Current.CancellationToken;
+        var own = new FixedRemover(model, PeakOf(frame), takesDigFill: true);
+
+        var (raw, _, _, _) = await NarrowbandCombination.SplitStarsAsync(
+            [input], own, protectCores: null, fillDigs: false, catalogStars: null, holdAtOrUnderPlane: false, ct);
+        var (split, _, _, splitShare) = await NarrowbandCombination.SplitStarsAsync([input], own, protectCores: null, fillDigs: true, ct);
+        var (alone, aloneShare) = NarrowbandCombination.FillDigsAlone(input, raw[0]);
+        var (kept, _) = NarrowbandCombination.FillDigsAlone(input, raw[0], holdAtOrUnderPlane: false);
+
+        splitShare.ShouldNotBeNull();
+        aloneShare.ShouldBe(splitShare[0]);
+        ShouldBeBitForBit(alone, split[0]);
+        MeanAtStar(alone).ShouldBeInRange(-0.75, 0.75, "the dig is filled");
+        kept[0, 4, 4].ShouldBeGreaterThan(frame[4, 4], "the premise: with --keep-overshoot the plate still stands over its input");
+        alone[0, 4, 4].ShouldBe(frame[4, 4], "held at its input");
     }
 
     [Fact]
