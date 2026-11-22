@@ -34,6 +34,9 @@ import numpy as np
 from astropy.io import fits
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))        # the arm driver runs this with -I, which leaves the script's folder off sys.path
+from nebula_stars_parse import parse_row
+
 NAMES = ('andromeda', 'tarantula', 'sag')
 p = argparse.ArgumentParser()
 p.add_argument('tag')
@@ -42,6 +45,8 @@ p.add_argument('--config', help='JSON with "cli", "out_root" and "masters" {andr
 p.add_argument('--cli', help='the tianwen executable (overrides the config)')
 p.add_argument('--out-root', help='where <tag>/ is made (overrides the config)')
 p.add_argument('--master', nargs='+', default=[], metavar='NAME=PATH', help='an input master (overrides the config)')
+p.add_argument('--gaia', nargs='+', default=[], metavar='NAME=CSV', help="a master's Gaia CSV, `tianwen solve <master> --export-gaia <csv>` "
+                                                                      "(overrides the config's 'gaia')")
 p.add_argument('--model', nargs='+')
 p.add_argument('--views', default='1')
 p.add_argument('--plates', nargs='+', default=[])
@@ -53,7 +58,9 @@ cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else
 CLI = a.cli or cfg.get('cli')
 OUT_ROOT = a.out_root or cfg.get('out_root')
 MASTERS = {k: Path(v) for k, v in {**cfg.get('masters', {}), **dict(x.split('=', 1) for x in a.master)}.items()}
-missing = [what for what, v in (('cli', CLI), ('out_root', OUT_ROOT), *((f'masters.{n}', MASTERS.get(n)) for n in NAMES)) if not v]
+GAIA = {k: v for k, v in {**cfg.get('gaia', {}), **dict(x.split('=', 1) for x in a.gaia)}.items()}
+missing = [what for what, v in (('cli', CLI), ('out_root', OUT_ROOT), *((f'masters.{n}', MASTERS.get(n)) for n in NAMES),
+                                *((f'gaia.{n}', GAIA.get(n)) for n in NAMES)) if not v]
 if missing:
     raise SystemExit(f'not set (config or command line): {", ".join(missing)}')
 out = Path(OUT_ROOT) / a.tag
@@ -164,16 +171,15 @@ for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
     score[k]['nebula'] = lines[0]
     nebula[k] = next(x for x in lines if x.startswith('short: '))[len('short: '):]
 # Faint catalogued stars on bright nebula (the owner, 2026-11-22: the Lagoon's "+" stars). The catalogue of each master is
-# the config's "gaia" CSV; a master without one is a KeyError, never a skipped row.
+# the config's "gaia" CSV (checked up front with the other settings), never a skipped row.
 nebstars = {}
 for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
-    line = run([py, '-I', HERE / 'nebula_stars_row.py', MASTERS[k], cfg['gaia'][k], plates[k], '--name', label]).strip().splitlines()[-1]
-    m = re.match(rf'^nebstars {label} bright n (\d+) taken ([-\d.]+) left ([-\d.]+) %? ?\| dark n (\d+) taken ([-\d.]+) left ([-\d.]+) %?$', line)
-    if not m:
+    line = run([py, '-I', HERE / 'nebula_stars_row.py', MASTERS[k], GAIA[k], plates[k], '--name', label]).strip().splitlines()[-1]
+    m = parse_row(line, label)
+    if m is None:
         raise KeyError(f'nebula_stars_row.py printed no row for {k} ("{line}"); see {out / "score.log"}')
-    score[k]['nebula_stars'] = {'bright_n': int(m[1]), 'bright_taken': m[2], 'bright_left': m[3],
-                                'dark_n': int(m[4]), 'dark_taken': m[5], 'dark_left': m[6]}
-    nebstars[k] = f"{label} stars on nebula taken {m[2]} left {m[3]}%"
+    score[k]['nebula_stars'] = m
+    nebstars[k] = f"{label} stars on nebula taken {m['bright_taken']} left {m['bright_left']}{'' if m['bright_left'] == '-' else '%'}"
 (out / 'score.json').write_text(json.dumps(score, indent=1))
 
 def glow_field(d):

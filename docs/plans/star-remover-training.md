@@ -9231,6 +9231,16 @@ nothing is registered, exported or scored for it.
   | 10 to 14 | bright nebula (152) | | 15 % (and darker by over 3 on 31 %) |
   | 15 to 17 | bright nebula (140) | 0.02 to 0.05 for both | 2 to 3 % |
 
+  **How "share taken" is defined here, and how it differs from the row's.** `nebula_faint_stars.py` counts the master
+  less the plate over the star's disc with NO correction, so a broad level the plate takes counts as the star: dark sky
+  reads 1.18 / 1.03, over 1, for that reason. The row below (`nebula_stars_row.py`) subtracts the stars layer's own
+  annulus median, on purpose, so a broad level taken does not count. Tables 1 and 3 therefore INCLUDE broad light taken
+  and are not comparable with the row's baseline table (the headline "SXT 0.63, ours 0.19 to 0.30" is on this measure;
+  the row's figures for the Lagoon are 0.50 and 0.11 on stars of 20 to 150 sky sigma, and 0.31 to 0.32 for R4d through
+  the chain at BP 13.5 to 15.5). They are not recomputed here: that needs the owner's masters and plates. The plate
+  behind "ours" was not recorded in this run's notes; the row's baseline names its plate (R4d as trained), so quote
+  that one.
+
   At equal light as the model sees it (the export's stretch: the stretched disc light in the stretched sky noise),
   StarXTerminator takes 0.63 of a star on the bright nebula at 32 to 128 and ours 0.19 to 0.30; on dark sky both take
   all of it. The remnant is real and it is the nebula under the star that does it. The owner's theory is not what the

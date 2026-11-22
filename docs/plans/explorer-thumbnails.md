@@ -173,8 +173,8 @@ Tracked by #848.
 | P5 | CI `publish-apps` publishes the DLL on win-x64 / win-arm64 into the viewer tree (reaches MSIX + tarball) | DONE 2026-09-02, first exercised on the next dispatch |
 | P6 | Tarball registration in `FileAssociationRegistrar` (+ a `SER` group) | DONE 2026-09-02 |
 | P7 | Verification through the real shell pipeline on this machine: temporary per-user registration of the published DLL, `IShellItemImageFactory::GetImage(THUMBNAILONLY)` on a real light, keys removed afterwards | see the log below |
-| P8 | Verification on a SIGNED MSIX install (sign a copy with `build-msix.ps1 -SignPackage`, install, browse a folder of `.fits`) | OPEN: needs the next dispatch's package |
-| P10 | The surrogate keeps its heap: `IdleHeapCollapse` (collapse once a burst goes quiet), an exactly sized read from `IStream::Stat`, `ComObject.FinalRelease` on the stream, GC policy in the csproj, and the false lifetime claims corrected | DONE, issue #294; the re-measure against a real surrogate is OPEN |
+| P8 | Verification on a SIGNED MSIX install (sign a copy with `build-msix.ps1 -SignPackage`, install, browse a folder of `.fits`) | DONE 2026-11-22, #848: the Store's signed package (10.0.3416.0) drew a folder of 320 FITS lights through its `com:SurrogateServer` registration |
+| P10 | The surrogate keeps its heap: `IdleHeapCollapse` (collapse once a burst goes quiet), an exactly sized read from `IStream::Stat`, `ComObject.FinalRelease` on the stream, GC policy in the csproj, and the false lifetime claims corrected | DONE, issue #294; the re-measure in a real surrogate is DONE 2026-11-22 (#848: peak 919 MB private, the process exited afterwards). Open: a sampled curve through the end of a burst (when it exited, and whether `IdleHeapCollapse` ran first, was not caught), and the CFA-binning win, #2456 |
 | P9 | Later, if wanted: `TypeOverlay` / `Treatment` registry hints (photo border instead of drop shadow); a strided FITS read for very large frames (reads 1/N^2 of the pixels from a seekable stream); a viewer file-list strip reading the shell cache | NOT STARTED |
 
 ## Verification log
@@ -231,7 +231,7 @@ minutes later, so nothing was held idle as in #294. When it exited, and whether 
 first, was not caught; the owner took "it closed and didn't linger" as enough. Still open by design: the
 **bigger** win, binning the CFA mosaic per colour BEFORE the debayer, so a 256 px answer never allocates a
 full-resolution three-plane image at all. That is what would cut a burst's peak, and it wants the harness
-first.
+first. It is tracked as #2456.
 
 ## Traps, for the next person
 

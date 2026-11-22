@@ -43,7 +43,6 @@ d, _ = cKDTree(det).query(np.stack([gx, gy], 1), distance_upper_bound=2.0)
 undet = ~np.isfinite(d)
 print(f"{len(gmag)} Gaia stars to BP 21 on the frame, {len(det)} sources detected, {undet.sum()} Gaia stars undetected")
 side = B + 2 * PAD
-sky = None
 rows = []
 for i in range(1, (H - PAD) // B):
     for j in range(1, (W - PAD) // B):
@@ -85,4 +84,3 @@ for dname, dsel in (("least crowded third", a[:, 2] < dens[0]), ("middle third",
             continue
         print(f"  {dname:20s} ({np.median(a[s, 2]):6.0f} stars) nebula {nname:13s}: corr {np.median(a[s, 4]):+.2f} "
               f"[{np.median(a[s, 5]):+.2f}], over 0.3 in {(a[s, 4] > 0.3).mean() * 100:3.0f} %; grain rms {np.median(a[s, 6]):.2f}; {s.sum()} cells")
-np.save(sys.argv[1].rsplit("/", 1)[-1].replace(".fits", "") + "_grain_gaia_cells.npy", a)
