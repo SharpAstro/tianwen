@@ -167,6 +167,21 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             planner.Plan(image.Name);
         }
 
+        if (options.ExportPath is { } wanted)
+        {
+            // No original is ever written, and the store holds only what it wrote itself.
+            var target = Path.GetFullPath(wanted);
+            if (images.Any(image => SamePath(planner.Plan(image.Name).Path, target)))
+            {
+                return new WorkbenchReport([], $"an export never writes over an original: {target} is an image of the project");
+            }
+
+            if (target.StartsWith(store.Folder + Path.DirectorySeparatorChar, PathComparison))
+            {
+                return new WorkbenchReport([], $"an export never writes into the step store: {target}");
+            }
+        }
+
         ImmutableArray<string> asked = options.Image is { } name ? [name] : [.. images.Select(static image => image.Name)];
         // An image is made as far as it can be planned: a refused edit stops what is after it, never what is before.
         foreach (var each in asked)
@@ -241,6 +256,14 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         if (node.Operation is not { } operation || node.Step is not { } step || step.State is StepState.Refused or StepState.Blocked)
         {
             return null;
+        }
+
+        if (operation is not IDerivedOperation && store.Find(node.Key) is { } made)
+        {
+            // Another image of the project has the same step, and this run has made it already: one result, one run.
+            node.File = made;
+            step.State = StepState.Kept;
+            return OperationInput.FromFile(made);
         }
 
         var inputs = await EnsureInputsAsync(node, step, store, say, cancellationToken);
@@ -373,6 +396,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         => say is null ? null : line => say($"[{node.Label}] {line}");
 
     private static ImmutableArray<T> OrEmpty<T>(ImmutableArray<T> items) => items.IsDefault ? [] : items;
+
+    // Two names of one file, as the file system this runs on compares them.
+    private static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static bool SamePath(string one, string other) => string.Equals(Path.GetFullPath(one), Path.GetFullPath(other), PathComparison);
 
     /// <summary>Something a step can take: an original file, or a step's result.</summary>
     private sealed class Node

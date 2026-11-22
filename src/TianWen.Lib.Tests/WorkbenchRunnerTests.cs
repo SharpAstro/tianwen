@@ -350,6 +350,32 @@ public sealed class WorkbenchRunnerTests : IDisposable
     }
 
     [Fact(Timeout = 120_000)]
+    public async Task AStepTwoImagesShareRunsOnceAndAnExportNeverWritesOverAnOriginalOrIntoTheStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, master) = await ProjectAsync("shared", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("one", m, WorkbenchFixtures.Edit("add", Amount(3))),
+            WorkbenchFixtures.Picture("other", m, WorkbenchFixtures.Edit("add", Amount(3)))));
+
+        var report = await _runner.RunAsync(folder, cancellationToken: ct);
+
+        _add.Runs.ShouldBe(1, "the same operation on the same bytes with the same settings is one step");
+        States(report, image: 0).ShouldBe([StepState.Ran]);
+        States(report, image: 1).ShouldBe([StepState.Kept]);
+        report.Images[1].Steps[0].Output.ShouldBe(report.Images[0].Steps[0].Output);
+
+        var original = await File.ReadAllBytesAsync(master, ct);
+        var overOriginal = await _runner.RunAsync(folder, new WorkbenchRunOptions { Image = "one", ExportPath = master }, ct);
+        var intoStore = await _runner.RunAsync(folder, new WorkbenchRunOptions { Image = "one", ExportPath = Path.Combine(folder, StepStore.FolderName, "mine.fits") }, ct);
+
+        overOriginal.Refusal.ShouldNotBeNull().ShouldContain("never writes over an original");
+        overOriginal.Exported.ShouldBeNull();
+        (await File.ReadAllBytesAsync(master, ct)).ShouldBe(original);
+        intoStore.Refusal.ShouldNotBeNull().ShouldContain("never writes into the step store");
+        File.Exists(Path.Combine(folder, StepStore.FolderName, "mine.fits")).ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 120_000)]
     public async Task AStepWhoseLaterResultIsKeptIsNotMadeAgain()
     {
         var ct = TestContext.Current.CancellationToken;
