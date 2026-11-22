@@ -456,11 +456,17 @@ is out as the home of the workbench. That leans to B; the final pick and the nam
 widened to the full processing application DSPX points at, and the plan was re-cut
 ([The re-cut of 2026-11-19](#the-re-cut-of-2026-11-19)).
 
+**Decided 2026-11-22: a product of its own, named Astro Photo Stacker.** The owner reserved that name in Partner Center that
+day, beside Astro Photo Viewer (`tianwen-fits`). A Store product of its own is B. A search the same day found no application
+of that exact name, in the Microsoft Store or elsewhere; the nearest are "Astro Stacker: Star Images" on Apple's App Store and
+two GitHub projects named AstroStacker and astro-stacker, and trademark registers were not searched. Still open in #1640: the
+executable's name (`tianwen-stack` is the working one) and the drawing.
+
 ## Phasing
 
 | Phase | Scope | Depends on | Issue |
 |---|---|---|---|
-| W0 | The owner picks where it lives (A, B or C) and its name | | #1640 |
+| W0 | The owner picks where it lives (A, B or C) and its name. **Decided 2026-11-22: B, Astro Photo Stacker** | | #1640 |
 | W1 | The operation contract, the edit list, the step store and the project, headless | W0 | #1641 |
 | W2 | The app's shell: the guided view's step bar, the views, jobs | W1, and W9 for a workflow with gates | #1642 |
 | W3 | The planetary steps | W2 | #1643 |
@@ -479,7 +485,9 @@ W10 waits on nothing, the owner's W0 included: its verbs are useful from the com
 
 ### W0 Where it lives
 
-Tracked as #1640. Decided by the owner from the three choices above, with the name.
+Tracked as #1640. Decided by the owner from the three choices above, with the name. **Decided 2026-11-22**: B, a product of
+its own, named Astro Photo Stacker ([Where it lives](#where-it-lives-w0-the-owners-decision)). The executable's name is
+still open, and W1 does not wait on it.
 
 ### W1 The step runner and the project, headless
 
@@ -572,7 +580,8 @@ star removal protects (#1658). Last, because nothing before it depends on it.
 
 Each with a recommendation. The first is W0's; the rest came out of DSN-1's questions and this plan.
 
-1. **The name**, and B confirmed as where it lives (#1640).
+1. **The name**, and B confirmed as where it lives (#1640). **Decided 2026-11-22: Astro Photo Stacker, a product of its
+   own (B).** The executable's name is still open.
 2. **Does the guided view stop at every step, or run until a step needs you** (a failed solve, frames to review)?
    **Decided 2026-11-19: run until needed, with a switch, and any step can be started directly**, which runs or re-runs what is
    before it ([The guided view](#the-guided-view-is-a-workflow-drawn-as-steps)).
