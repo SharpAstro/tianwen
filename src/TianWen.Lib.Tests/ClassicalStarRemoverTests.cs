@@ -918,7 +918,9 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // tile above its plateau's centre, and its ring reads 7 rows past that tile's ground), and 7 pairs of requests of
     // two tiles of one phase overlap (the test's met). No write is among them: a write reaches 104 px and a read 128,
     // so two tiles of a phase, 256 px apart, never have a write meet a request.
-    private static Field TileEdgeField() => MakeField(1, extra:
+    private static Field TileEdgeField(int channels = 1) => MakeField(channels, extra: TileEdgeStars());
+
+    private static Injected[] TileEdgeStars() =>
     [
         new Injected(600.0, 262.0, 1.0e7, true),
         new Injected(262.0, 600.0, 1.0e7, true),
@@ -927,7 +929,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         new Injected(253.0, 420.0, 200.0, true),
         new Injected(515.0, 420.0, 200.0, true),
         new Injected(Ring - 1.0, 250.0, 20.0, true),
-    ]);
+    ];
 
     // #2378: the grounds of the tiles of one phase share no pixel, so work held to its ground cannot meet another tile's;
     // and each holds its own tile, with MaxSubtractRadius round it wherever the frame allows.
@@ -1027,8 +1029,10 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             .ShouldBeEmpty("every rectangle a routine asks for through Square or Bound is cut to its tile's ground");
     }
 
-    // #2378: with every tile's work held to its ground, the plate is the same whether a phase's tiles run one at a time,
-    // in a fixed order, or all at once, to the bit; on the field where their work reaches furthest.
+    // #2378: with every tile's work held to its ground, the plate is the same whether a phase's tiles run one at a time
+    // or all at once, to the bit; on the field where their work reaches furthest. This varies only how many tile passes
+    // run at once (a race could still hide in a schedule this run happens not to take); the deterministic proof of the
+    // tiles' independence is ThePlateDoesNotDependOnTheOrderOfAPhasesTiles.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "Heavy")]
     public async Task ThePlateDoesNotDependOnHowManyTilesRunAtOnce()
@@ -1045,6 +1049,32 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             // A row's amplitudes are an array, which a record compares by reference.
             (many.Stars[k] with { ChannelAmplitudes = default }).ShouldBe(one.Stars[k] with { ChannelAmplitudes = default }, $"row {k}");
             many.Stars[k].ChannelAmplitudes.SequenceEqual(one.Stars[k].ChannelAmplitudes).ShouldBeTrue($"row {k}");
+        }
+    }
+
+    // N1.3 of #2451: the tiles of a phase are visited forward and reversed on one thread each; if any tile read or wrote
+    // what another of its phase does, the order would show in the plate. Mono, and colour (the _lum writes and the colour
+    // branch of AddModel and AddProfileAt), on the same stars.
+    [Theory(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task ThePlateDoesNotDependOnTheOrderOfAPhasesTiles(int channels)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var image = TileEdgeField(channels).Image;
+        var forward = await ClassicalStarRemover.BuildAsync(image, null, null, 1, null, true, false, ClassicalStarRemover.TileOrder.Forward, ct);
+        var reversed = await ClassicalStarRemover.BuildAsync(image, null, null, 1, null, true, false, ClassicalStarRemover.TileOrder.Reversed, ct);
+
+        for (var c = 0; c < channels; c++)
+        {
+            forward.Plate.GetChannelSpan(c).SequenceEqual(reversed.Plate.GetChannelSpan(c)).ShouldBeTrue($"channel {c}");
+        }
+        reversed.Stars.Length.ShouldBe(forward.Stars.Length);
+        for (var k = 0; k < forward.Stars.Length; k++)
+        {
+            (reversed.Stars[k] with { ChannelAmplitudes = default }).ShouldBe(forward.Stars[k] with { ChannelAmplitudes = default }, $"row {k}");
+            reversed.Stars[k].ChannelAmplitudes.SequenceEqual(forward.Stars[k].ChannelAmplitudes).ShouldBeTrue($"row {k}");
         }
     }
 

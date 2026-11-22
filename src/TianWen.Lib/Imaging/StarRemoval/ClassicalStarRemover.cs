@@ -57,7 +57,8 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// tile edges that every such request is cut to its ground. That every read and write goes through those two is the
 /// code review's claim, not the test's.</para>
 /// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, and no
-/// two tiles of a phase share a pixel, so the same image and seed give the same plate on any number of threads.</para>
+/// two tiles of a phase share a pixel, so the same image and seed give the same plate on any number of threads. A test builds the plate with each phase's tiles forward and reversed on one thread and compares
+/// them to the bit, which checks that no tile of a phase depends on another of it; it checks the tile passes only.</para>
 /// </remarks>
 public static class ClassicalStarRemover
 {
@@ -259,6 +260,13 @@ public static class ClassicalStarRemover
     private const float DefaultBeta = 3f;
     private const float DefaultFwhm = 2.5f;
     private static readonly double[] WidthGrid = { 0.7, 0.85, 1.0, 1.2, 1.4, 2.0 };
+    /// <summary>The order a phase's tiles are visited in (a seam for tests; production is forward).</summary>
+    internal enum TileOrder
+    {
+        Forward,
+        Reversed,
+    }
+
     private const float MaxSeedBeta = 6f;
     private const double SizingBeta = 4.0;
     private static readonly float[] BandEdges = { 5f, 10f, 20f, 50f, 100f, float.PositiveInfinity };
@@ -288,9 +296,18 @@ public static class ClassicalStarRemover
     /// sweep, also once it was refilled for one, so a test can show the redraws the sweep's guard prevents; no plate is
     /// built that way.
     /// </summary>
-    internal static async Task<StarlessPlate> BuildAsync(
+    internal static Task<StarlessPlate> BuildAsync(
         Image image, StarlessPlateOptions? options, ILogger? logger, int tileThreads, TileAccessRecorder? recorder,
         bool fillDugCores, bool retestDugCores, CancellationToken cancellationToken)
+        => BuildAsync(image, options, logger, tileThreads, recorder, fillDugCores, retestDugCores, TileOrder.Forward, cancellationToken);
+
+    /// <summary>
+    /// The same, with the tiles of each phase visited in <paramref name="tileOrder"/>: a test runs them reversed on one
+    /// thread to show deterministically that no tile of a phase depends on another of it.
+    /// </summary>
+    internal static async Task<StarlessPlate> BuildAsync(
+        Image image, StarlessPlateOptions? options, ILogger? logger, int tileThreads, TileAccessRecorder? recorder,
+        bool fillDugCores, bool retestDugCores, TileOrder tileOrder, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
         options ??= StarlessPlateOptions.Default;
@@ -307,6 +324,7 @@ public static class ClassicalStarRemover
         var sw = Stopwatch.StartNew();
         var builder = await CreateBuilderAsync(image, options, logger, cancellationToken);
         builder.TileThreads = tileThreads;
+        builder.TileOrder = tileOrder;
         builder.Recorder = recorder;
         builder.FillDugCores = fillDugCores;
         builder.RetestDugCores = retestDugCores;
@@ -401,6 +419,9 @@ public static class ClassicalStarRemover
 
         /// <summary>At most this many tiles of a phase at once; -1 for as many as the pool runs.</summary>
         public int TileThreads { get; set; } = -1;
+
+        /// <summary>The order the tiles of a phase are visited in; reversed only in a test.</summary>
+        public TileOrder TileOrder { get; set; } = TileOrder.Forward;
 
         /// <summary>Where a DEBUG build records every rectangle of the working planes it reads or writes; null for none.</summary>
         public TileAccessRecorder? Recorder { get; set; }
@@ -703,6 +724,10 @@ public static class ClassicalStarRemover
                             tiles.Add(ty * tilesX + tx);
                         }
                     }
+                }
+                if (TileOrder == TileOrder.Reversed)
+                {
+                    tiles.Reverse();
                 }
                 ParallelFor.Run(tiles.Count, TileThreads, t =>
                 {
