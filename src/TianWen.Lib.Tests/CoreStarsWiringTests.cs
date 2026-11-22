@@ -90,6 +90,64 @@ public sealed class CoreStarsWiringTests(ITestOutputHelper output) : IDisposable
 
     private static float PeakOf(float[,] frame) => frame.Cast<float>().Max();
 
+    /// <summary>Lifts every pixel of its plate over the input by a fixed amount, as a model whose plate overshoots does.</summary>
+    private sealed class LiftingRemover(float lift) : IStarRemover
+    {
+        public string Name => "Test/Lifting";
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var plane = new float[input.Height, input.Width];
+            for (var y = 0; y < input.Height; y++)
+            {
+                for (var x = 0; x < input.Width; x++)
+                {
+                    plane[y, x] = input.GetChannelSpan(0)[y * input.Width + x] + lift;
+                }
+            }
+            return Task.FromResult(new Image([plane], BitDepth.Float32, 1f, 0f, 0f, input.ImageMeta));
+        }
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task KeepOvershootDecidesWhetherRemoveStarsAndFillDigsHoldThePlateAtTheInput()
+    {
+        // An inverted "!" on --keep-overshoot would clamp or unclamp every scorer row, so both verbs are parsed here.
+        var ct = TestContext.Current.CancellationToken;
+        const float level = 0.4f, lifted = 0.6f;
+        var plane = new float[16, 16];
+        var over = new float[16, 16];
+        for (var y = 0; y < 16; y++)
+        {
+            for (var x = 0; x < 16; x++)
+            {
+                plane[y, x] = level;
+                over[y, x] = lifted;
+            }
+        }
+        var dir = _folders.Create("keep-overshoot-verb-").FullName;
+        var inputPath = Write(plane, dir, "master", wcs: null);
+        var overPath = Write(over, dir, "master_over", wcs: null);
+        var (command, said) = ImageCommand(new LiftingRemover(lifted - level), null);
+
+        async Task<float> RunAsync(string name, params string[] args)
+        {
+            var outPath = Path.Combine(dir, name + ".fits");
+            var exit = await command.Parse([.. args, "-o", outPath]).InvokeAsync(cancellationToken: ct);
+            foreach (var line in said)
+            {
+                output.WriteLine(line);
+            }
+            exit.ShouldBe(0);
+            return Read(outPath)[0, 8, 8];
+        }
+
+        (await RunAsync("rs_held", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs")).ShouldBe(level, 1e-4f, "remove-stars holds the plate at the input by default");
+        (await RunAsync("rs_kept", "remove-stars", inputPath, "--no-protect-cores", "--no-fill-digs", "--keep-overshoot")).ShouldBe(lifted, 1e-4f, "--keep-overshoot leaves the remover's own value");
+        (await RunAsync("fd_held", "fill-digs", "--input", inputPath, "--starless", overPath)).ShouldBe(level, 1e-4f, "fill-digs holds the plate at the input by default");
+        (await RunAsync("fd_kept", "fill-digs", "--input", inputPath, "--starless", overPath, "--keep-overshoot")).ShouldBe(lifted, 1e-4f, "--keep-overshoot leaves the plate as it is");
+    }
+
     [Fact]
     public async Task TheSplitLeavesACataloguedStarInsideACoreInTheStars()
     {

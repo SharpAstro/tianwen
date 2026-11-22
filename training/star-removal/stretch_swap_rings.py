@@ -7,7 +7,7 @@ For every star of bright_star_list.tsv whose name ends in <night> (2022-01-05 an
 bright_star_sheet.py on the changed frame at the star's pinned x, y, with the three plates under the labels
 stretch_swap_table.py reads ("sxt", "r4d as trained" for the changed frame's plate, "r4d on the frame as it is"), and
 writes its ring medians under a "=== " line. The plates come from `tianwen image remove-stars <frame> --model <onnx>
---views 1 --no-stars --no-protect-cores --no-fill-digs` (ours, on the changed frame and on the frame as it is) and
+--views 1 --no-stars --no-protect-cores --no-fill-digs --keep-overshoot` (ours, on the changed frame and on the frame as it is) and
 from the same verb with the registered remover (StarXTerminator, on the frame as it is). A sheet a star is written to
 <sheet folder> when one is given.
 

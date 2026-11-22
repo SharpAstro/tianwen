@@ -25,7 +25,7 @@ print("|---|---|---|---|---|---|---|")
 for name in ("andromeda", "tarantula", "sag"):
     master = cfg["masters"][name]; plate = f"{S}/f2-whole-master/{tag}/{name}_starless.fits"
     ours = f"{out_dir}/{name}_starless.filled.fits"
-    subprocess.run([cli, "image", "fill-digs", "--input", master, "--starless", plate, "-o", ours], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([cli, "image", "fill-digs", "--input", master, "--starless", plate, "--keep-overshoot", "-o", ours], check=True, stdout=subprocess.DEVNULL)
     a = np.asarray(fits.getdata(ours), np.float32); b = np.asarray(fits.getdata(f"{S}/f2-whole-master/{tag}+floor5/{name}_starless.post.fits"), np.float32)
     x = np.asarray(fits.getdata(master), np.float32); o = np.asarray(fits.getdata(plate), np.float32)
     if a.ndim == 2: a, b, x, o = a[None], b[None], x[None], o[None]
