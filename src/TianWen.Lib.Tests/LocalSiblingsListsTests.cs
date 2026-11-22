@@ -47,15 +47,46 @@ public partial class LocalSiblingsListsTests
 
         var gate = Gate.Match(props);
         gate.Success.ShouldBeTrue("Directory.Build.props still sets UseLocalSiblings from one condition");
-        var gated = GatedProject.Matches(gate.Groups["gate"].Value).Select(static m => m.Groups["project"].Value.Replace('\\', '/')).ToArray();
+
+        MissingFromTheScript(gate.Groups["gate"].Value, script).ShouldBeEmpty(
+            "a sibling the build switches to source is missing from open-vs.ps1's Siblings folder: add it there");
+    }
+
+    /// <summary>
+    /// The comparison itself, on two small texts (#2421): the real script holds no commented-out project, so on the real
+    /// files alone the stripping of XML comments could be deleted and nothing would say so.
+    /// </summary>
+    [Fact]
+    public void AProjectTheScriptOnlyHoldsInsideACommentIsMissingFromIt()
+    {
+        const string Gate = @"'$(UseLocalSiblings)' == ''
+      AND Exists('$(MSBuildThisFileDirectory)..\..\One.Lib\src\One.Lib\One.Lib.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\Two.Lib\Two.Lib.csproj')";
+        const string Opened = @"  <Folder Name=""/Siblings/"">
+    <Project Path=""../One.Lib/src/One.Lib/One.Lib.csproj"" />
+    <Project Path=""../Two.Lib/Two.Lib.csproj"" />
+    <Project Path=""../Extra.Lib/Extra.Lib.csproj"" />
+  </Folder>";
+
+        MissingFromTheScript(Gate, Opened).ShouldBeEmpty("both are opened, and one more than the gate holds is no fault");
+        MissingFromTheScript(Gate, Opened.Replace(@"    <Project Path=""../Two.Lib/Two.Lib.csproj"" />", @"    <!-- <Project Path=""../Two.Lib/Two.Lib.csproj"" /> -->"))
+            .ShouldBe(["Two.Lib/Two.Lib.csproj"], "a project inside a comment is one Visual Studio does not load");
+        MissingFromTheScript(Gate, Opened.Replace(@"    <Project Path=""../Two.Lib/Two.Lib.csproj"" />", ""))
+            .ShouldBe(["Two.Lib/Two.Lib.csproj"]);
+    }
+
+    /// <summary>The projects of a gate's condition that a script's Siblings folder does not open, as the gate names them
+    /// with forward slashes.</summary>
+    private static string[] MissingFromTheScript(string gate, string script)
+    {
+        var gated = GatedProject.Matches(gate).Select(static m => m.Groups["project"].Value.Replace('\\', '/')).ToArray();
         // The premise: every Exists(...) of the gate was read, so a pattern that stopped matching cannot leave this
-        // test comparing nothing with something.
+        // comparing nothing with something.
         gated.Length.ShouldBeGreaterThan(0, "the gate holds at least one sibling");
-        gate.Groups["gate"].Value.Split("Exists(").Length.ShouldBe(gated.Length + 1, "and none of them was missed");
+        gate.Split("Exists(").Length.ShouldBe(gated.Length + 1, "and none of them was missed");
 
         var opened = OpenedProject.Matches(XmlComment.Replace(script, string.Empty)).Select(static m => m.Groups["project"].Value).ToHashSet(StringComparer.Ordinal);
 
-        gated.Where(project => !opened.Contains(project)).ShouldBeEmpty(
-            "a sibling the build switches to source is missing from open-vs.ps1's Siblings folder: add it there");
+        return [.. gated.Where(project => !opened.Contains(project))];
     }
 }

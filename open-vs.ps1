@@ -3,7 +3,8 @@
 # then opens it in Visual Studio. This gives Go To Definition into every sibling
 # that Directory.Build.props' UseLocalSiblings switch project-references.
 #
-# THIS LIST MUST MATCH THAT SWITCH'S Exists(...) CONJUNCTION. It had drifted badly,
+# THIS LIST MUST CONTAIN EVERY PROJECT OF THAT SWITCH'S Exists(...) CONJUNCTION. It may
+# hold more (Fonts.Lib is here for Go To Definition and is not in the switch). It had drifted badly,
 # in a way nothing could catch: the codec projects pointed at ../StbImageSharp, a repo
 # that no longer exists (it is ../Codecs now), so seven of the entries below resolved
 # to nothing and VS silently loaded an unloadable-project solution. LAN.Lib,

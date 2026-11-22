@@ -44,9 +44,10 @@ anymore.** Trade-off: a missing checkout of *any* listed sibling flips the whole
 `src/TianWen.slnx` and appending a `/Siblings/` folder, so Go To Definition lands in sibling *source*.
 Its project list **must** contain every project of the `UseLocalSiblings` `Exists(...)` conjunction, and
 `LocalSiblingsListsTests` enforces that direction (gate subset of script). The gaps left: the script may list
-more than the gate, and an entry whose project no longer exists on disk is not checked. It had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs`
-now) and was missing three others. A generated solution with unresolvable entries loads with them
-silently unloaded rather than failing, so touch one file and re-read the other.
+more than the gate, and an entry whose project no longer exists on disk is not checked. The list had drifted to
+`../StbImageSharp` for all seven codec projects (that repo is `../Codecs` now) and was missing three others. A
+generated solution with unresolvable entries loads with them silently unloaded rather than failing, so touch
+one file and re-read the other.
 
 **After a rebase, a build failure in sibling code is usually the SIBLING, not the rebase.** A local
 build compiles against whatever each clone has checked out, so main moving to a newer sibling API
