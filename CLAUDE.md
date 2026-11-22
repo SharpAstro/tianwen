@@ -159,8 +159,10 @@ General coding rules in full: `docs/architecture/coding-rules.md`.
   `new CancellationTokenSource(delay)` (`NoWallClockDeadlineTests`).
 - **`TIANWEN_NOW`** (ISO-8601, ideally with an offset) anchors the whole process clock to a simulated instant that then
   runs at real rate (`StartupTimeOverride`, wired once in `AddExternal`).
-- **Every program hooks `UnhandledExceptionLog.HookForTheProcess` once**, as soon as it has a logger: a crash and a
-  task's exception nobody awaited reach its log with their stack (#1811). `EveryProgramLogsItsUnhandledExceptions`.
+- **Every program hooks its unhandled exceptions once**: `UnhandledExceptionLog.HookForTheProcess` as soon as it has a
+  logger, or `UnhandledExceptions.HookForTheProcess` with a stderr writer where it keeps no file log (`tianwen-mcp`,
+  `tianwen-ascomhost`). A crash and a task's exception nobody awaited reach the log, or stderr, with their stack
+  (#1811). `EveryProgramLogsItsUnhandledExceptions`.
 - **The file log writes on a thread of its own** (`FileLoggerProvider`, #541): a line is on disk after `Flush()`, not
   after `Log`. The crash handler, a process exit and `Dispose` drain it; code that ends the process any other way
   (`Environment.FailFast`) owes `FileLoggerProvider.FlushAll()` first, and a test that reads a log file flushes first.

@@ -4,9 +4,10 @@ using Microsoft.Extensions.Logging;
 namespace TianWen.Lib.Logging;
 
 /// <summary>
-/// <see cref="UnhandledExceptions"/> written to a program's log (#1811). Every TianWen program calls
-/// <see cref="HookForTheProcess"/> once, as soon as it has a logger; <c>EveryProgramLogsItsUnhandledExceptions</c> holds
-/// a new one to it.
+/// <see cref="UnhandledExceptions"/> written to a program's log (#1811). Every TianWen program that keeps a file log
+/// calls <see cref="HookForTheProcess"/> once, as soon as it has a logger. The two that keep none
+/// (<c>tianwen-mcp</c>, <c>tianwen-ascomhost</c>) call <see cref="UnhandledExceptions.HookForTheProcess"/> with a
+/// writer to stderr instead. <c>EveryProgramLogsItsUnhandledExceptions</c> holds a new program to one of the two.
 /// </summary>
 /// <remarks>
 /// <para><b>Why.</b> A windowed program has no console to die on. A crash in <c>tianwen-gui</c> or <c>tianwen-fits</c>
