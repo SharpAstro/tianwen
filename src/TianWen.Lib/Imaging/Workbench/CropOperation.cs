@@ -187,9 +187,10 @@ public sealed class CropOperation(ILogger? logger = null) : DerivedOperation<Cro
         PixelRect rectangle;
         if (settings.Auto)
         {
-            var scan = MasterAutoCrop.Scan(image, path, MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin), logger);
+            var rule = MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin);
+            var scan = MasterAutoCrop.Scan(image, path, rule, logger);
             rectangle = scan.Rect;
-            resolution = new CropResolution(rectangle, scan);
+            resolution = new CropResolution(rectangle, scan, rule);
             say?.Invoke($"the scan keeps {rectangle.Width}x{rectangle.Height} at ({rectangle.X},{rectangle.Y}) of {image.Width}x{image.Height}, "
                 + $"by the {(scan.FromCoverage ? "coverage plane" : "edge walk")}");
             if (rectangle.Width <= 0 || rectangle.Height <= 0)
@@ -201,7 +202,7 @@ public sealed class CropOperation(ILogger? logger = null) : DerivedOperation<Cro
         else
         {
             rectangle = new PixelRect(settings.X, settings.Y, settings.Width, settings.Height);
-            resolution = new CropResolution(rectangle, null);
+            resolution = new CropResolution(rectangle, null, null);
         }
 
         refusal = MasterCrop.Validate(rectangle, image.Width, image.Height);
@@ -222,4 +223,5 @@ public sealed class CropOperation(ILogger? logger = null) : DerivedOperation<Cro
 /// <summary>What <see cref="CropOperation.TryResolve"/> found.</summary>
 /// <param name="Rectangle">The rectangle to cut.</param>
 /// <param name="Scan">The scan that found it; null when the settings gave the four numbers.</param>
-public readonly record struct CropResolution(PixelRect Rectangle, MasterAutoCropResult? Scan);
+/// <param name="Rule">The rule the scan ran under, so a verb prints its applied margin as it stands; null with <paramref name="Scan"/>.</param>
+public readonly record struct CropResolution(PixelRect Rectangle, MasterAutoCropResult? Scan, MasterAutoCropRule? Rule);
