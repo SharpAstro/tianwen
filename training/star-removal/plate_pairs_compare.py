@@ -2,8 +2,9 @@
 
     python -I plate_pairs_compare.py <export A> <export B> [<reference export for A> [<plates A> <plates B>]]
 
-A and B are two outputs of one `tianwen dataset degrade --mode stars` line, A from the stored plates and B from the
-rebuilt ones. The sessions both hold are compared; one that only A or only B holds is named and left out (an export
+A and B are two outputs of one `tianwen dataset degrade --mode stars` line, A from the older plate store and B from
+the newer one (the stored plates against the rebuilt ones, or a store built between them on either side). The
+sessions both hold are compared; one that only A or only B holds is named and left out (an export
 of one session can stand on either side). Per session: the cells each chose; over the cells both hold, the target tile
 (`_master.f16`), the four input draws (`_degNNN.f16`) and the noise plane (`.sigma.f16`), B against A in units of A's
 noise plane; and the injected stars (`injections.jsonl`), whether the same stars were drawn at the same places and
