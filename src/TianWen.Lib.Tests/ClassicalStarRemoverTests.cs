@@ -966,11 +966,12 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         }
     }
 
-    // #2378, the check the issue asked for: every rectangle of the working planes a build reads or writes, recorded with the
-    // ground it was held to, on the field of stars where a tile's work reaches furthest. No touched rectangle leaves its
-    // ground, so no tile of a phase reads what another of its phase writes; and the field is one where work ASKED for more,
-    // so the assertion is not over a field the clip never had to cut. Only a DEBUG build records (Category=DebugOnly runs it
-    // on the Debug leg); Release skips.
+    // #2378, the check the issue asked for: every rectangle a routine asks for through Square or Bound, recorded with the
+    // ground it was held to, on the field of stars where a tile's work reaches furthest. No requested rectangle, once cut,
+    // leaves its ground. That every read and write of the working planes goes through those two is the code review's claim,
+    // not this test's. The field is one where work ASKED for more than its ground and where tiles of one phase would have
+    // met without the ground (met > 0), so the assertion is not over a field the clip never had to cut. Only a DEBUG build
+    // records (Category=DebugOnly runs it on the Debug leg); Release skips.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "DebugOnly")]
     public async Task NoTileReadsOrWritesPastItsGround()
@@ -1015,9 +1016,10 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Nearest(plate, Ring - 1.0, 250.0, 6.0).ShouldNotBeNull().Outcome.ShouldBe(StarFitOutcome.Subtracted, "the star the edge cuts");
         tileWork.Length.ShouldBeGreaterThan(1000);
         pastGround.ShouldNotBeEmpty("the field has work that reached past its tile's ground");
+        met.ShouldBeGreaterThan(0, "premise: two tiles of one phase would have met on this field without the ground");
 
         accesses.Where(static a => !a.Touched.IsEmpty && !a.Ground.Contains(a.Touched))
-            .ShouldBeEmpty("no rectangle a tile reads or writes leaves its ground");
+            .ShouldBeEmpty("every rectangle a routine asks for through Square or Bound is cut to its tile's ground");
     }
 
     // #2378: with every tile's work held to its ground, the plate is the same whether a phase's tiles run one at a time,

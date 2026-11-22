@@ -52,9 +52,10 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// from its star is refused there and never followed (<see cref="RanAway"/>): it is not that star's fit. Before the
 /// ground, one that was followed 364 px read what another tile of its phase was writing, and its row differed from
 /// run to run; the ground would now hold such a window to its tile, but the fit would still be another star's.</para>
-/// <para>Checked, not argued: a DEBUG build records every rectangle a routine asked for and touched, with its ground
-/// (<see cref="TileAccessRecorder"/>), and a test asserts on a field of stars at facing tile edges that no touched
-/// rectangle leaves its ground.</para>
+/// <para>Checked, not argued: a DEBUG build records every rectangle a routine asks for through Square or Bound, and what
+/// it was cut to, with its ground (<see cref="TileAccessRecorder"/>), and a test asserts on a field of stars at facing
+/// tile edges that every such request is cut to its ground. That every read and write goes through those two is the
+/// code review's claim, not the test's.</para>
 /// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, and no
 /// two tiles of a phase share a pixel, so the same image and seed give the same plate on any number of threads.</para>
 /// </remarks>
