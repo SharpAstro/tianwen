@@ -205,7 +205,14 @@ rule taken to the file level:
 - **One image can feed several lists.** Star removal makes two images (starless and stars) from one; a combine takes several
   lists' heads as its inputs by key. So the structure is a graph of keys, drawn per image as a list. In the project file an
   edit names the other images it takes (`inputs`), each as its own edits leave it; images that take one another in a circle
-  are refused. A step with two results comes with star removal's own leg.
+  are refused.
+- **An image can start from another** (`from`), or from an extra result of one of its steps (`result`): the stars a star
+  removal took out are an image of their own that way (#2465).
+- **Several images can go through one run.** Deblur, denoise, star removal and the blur match put masters through together
+  on one scale. Each master's list names the others, the run's key is made from all of them in sorted order, and it
+  happens once; the lists that did not start it find their results in the store. A window draws that as one edit on
+  each of the images; in the file each is an image that starts from the master as it was before the run, which is what
+  keeps the graph free of circles ([workbench-operations.md](../architecture/workbench-operations.md)).
 - **Reordering edits** is possible wherever the preconditions still hold, and costs a re-run from the first moved edit. It is not
   in the first version ([Decisions for the owner](#decisions-for-the-owner), 7).
 
@@ -543,9 +550,9 @@ each step's output is bit-identical to its CLI verb's.
 **Still to do in W1**, each a leg of its own with its own issue, and #1641 stays open until the last:
 
 1. The other colour steps (#2465). Built: `align`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`,
-   `fill-digs` and `protect-cores`, which take fixed images and give one result. Left: `match-psf`, `deblur`, `denoise`
-   and `remove-stars` (two results: the starless plate and the stars), which put several masters through one run, and
-   `combine`, the recipe as one step.
+   `fill-digs`, `protect-cores`, and the four that put several masters through one run, `match-psf`, `deblur`, `denoise`
+   and `remove-stars` (two results: the starless plate and the stars). Left: `combine`, the recipe as one step, and
+   `denoise --colour`.
 2. The canonical enhance (#2466): `image sharpen`, its settings turned into the `SharpenStep` records.
 3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
    image.
