@@ -73,6 +73,9 @@ var appState = sp.GetRequiredService<GuiAppState>();
 // service would do). Changed hints a redraw so a rig that appears/disappears while the no-profile
 // screen is showing doesn't wait for the 1Hz clock-tick fallback redraw.
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gui");
+// A windowed app has no console to die on: whatever takes it down, and a task's exception nobody awaited, go to
+// its log first, with the stack (#1811).
+UnhandledExceptionLog.HookForTheProcess(logger);
 // The renderer's GPU forensics (rejected submits, device loss, recovery, slow GPU frames) default to
 // stderr, which only a launcher that redirects it ever keeps: point them at this app's log file,
 // before anything touches Vulkan.

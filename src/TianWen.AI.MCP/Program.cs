@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TianWen.AI.MCP.Tools;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.Logging;
 
 // MCP server hosts read-only debugging tools over stdio JSON-RPC. Spawned by
 // Claude Code (or another MCP-aware client) as a child process; the client
@@ -44,4 +45,8 @@ builder.Services
     .WithTools<CatalogTools>()
     .WithTools<LogTools>();
 
-await builder.Build().RunAsync();
+var app = builder.Build();
+// Whatever takes the server down, and a task's exception nobody awaited, are logged first (#1811): to stderr, as
+// every log line of this program is.
+UnhandledExceptionLog.HookForTheProcess(app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.AI.MCP"));
+await app.RunAsync();

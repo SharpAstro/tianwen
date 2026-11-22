@@ -47,6 +47,9 @@ var sp = services.BuildServiceProvider();
 StartupTrace.Mark("di");
 var state = sp.GetRequiredService<ViewerState>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.FitsViewer");
+// A windowed app has no console to die on, and one opened by a double click has no stderr anyone keeps: whatever
+// takes it down, and a task's exception nobody awaited, go to its log first, with the stack (#1811).
+UnhandledExceptionLog.HookForTheProcess(logger);
 // The renderer's GPU forensics default to stderr, which a double-clicked viewer never keeps: point
 // them at this app's log file, before anything touches Vulkan.
 SdlVulkanLog.Logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("SdlVulkan.Renderer");
