@@ -921,7 +921,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     [
         new Injected(600.0, 262.0, 1.0e7, true),
         new Injected(262.0, 600.0, 1.0e7, true),
-        new Injected(650.0, 512.0, 1.0e9, true),
+        new Injected(650.0, 513.0, 1.0e7, true),
         new Injected(255.7, 830.0, 1.0e5, true),
         new Injected(253.0, 420.0, 200.0, true),
         new Injected(515.0, 420.0, 200.0, true),
@@ -988,14 +988,12 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         {
             output.WriteLine($"  past its ground: {a.Site}, pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, touched {a.Touched}");
         }
-        foreach (var a in tileWork.Where(static a => (a.Site == "SymmetricProfile" && a.Asked.Width > 200) || (a.Write && a.Asked.Width > 100)))
-        {
-            output.WriteLine($"  big ask: {a.Site} pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, write {a.Write}");
-        }
         output.WriteLine($"{accesses.Length} rectangles recorded,{tileWork.Length} in the tile passes ({tileWork.Count(static a => a.Write)} writes); "
             + $"{pastGround.Length} asked past their ground: {string.Join(", ", pastGround.GroupBy(static a => a.Site).Select(static g => $"{g.Key} {g.Count()}"))}");
 
-        // What would have met without the ground: two tiles of one phase whose asked rectangles overlap, one of them a write.
+        // What would have met without the ground: two tiles of one phase whose asked rectangles overlap. A write cannot be
+        // the one, by the sizes (a write reaches 104 px, a read 128, and two tiles of a phase are 256 px apart), so the
+        // meeting that exists is two requests for the same pixels, which is what a clip-less read past a tile would share.
         var met = 0;
         foreach (var phase in tileWork.GroupBy(static a => (a.Pass, a.Phase)))
         {
@@ -1004,7 +1002,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             {
                 for (var j = i + 1; j < tiles.Length; j++)
                 {
-                    met += tiles[i].Sum(a => tiles[j].Count(b => (a.Write || b.Write) && a.Asked.IntersectsWith(b.Asked)));
+                    met += tiles[i].Sum(a => tiles[j].Count(b => a.Asked.IntersectsWith(b.Asked)));
                     // And what does meet: nothing, which is the claim itself, read off the touched rectangles.
                     var touchedI = tiles[i].Where(static a => !a.Touched.IsEmpty).ToArray();
                     var touchedJ = tiles[j].Where(static a => !a.Touched.IsEmpty).ToArray();
