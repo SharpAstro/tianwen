@@ -75,7 +75,7 @@ var registerOption = new Option<string?>("--register")
 
 var unregisterOption = new Option<string?>("--unregister")
 {
-    Description = "Remove what --register wrote for an extension group (default: FITS)",
+    Description = "Remove what --register wrote for an extension group (default: FITS); Windows only, and keeps the keys the other group still uses",
     Arity = ArgumentArity.ZeroOrOne
 };
 

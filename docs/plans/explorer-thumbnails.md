@@ -198,7 +198,7 @@ shell may not ask this handler at all (the same whole-root provider behaviour as
 - Tarball: `FileAssociationRegistrar` writes the CLSID's `InprocServer32` under `HKLM\SOFTWARE\Classes` and
   `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers\<ext>`. Windows reads
   property handlers from there only, never per user, so an unelevated registration logs one warning and leaves
-  the thumbnails and associations as they were. `--unregister` removes what `--register` wrote: the ProgId, the `OpenWithProgids` entries, the thumbnail CLSID and `ShellEx` keys and, when elevated, the property handler's CLSID and `PropertyHandlers` keys (an unelevated run logs one warning for those).
+  the thumbnails and associations as they were. `--unregister` removes what `--register` wrote: the ProgId, the `OpenWithProgids` entries, the thumbnail CLSID and `ShellEx` keys and, when elevated, the property handler's CLSID and `PropertyHandlers` keys (an unelevated run logs one warning for those). The ProgId, the thumbnail CLSID and the property handler CLSID stay while an extension of the other group (`FITS` or `SER`) still names them. `--unregister` is Windows only: the Linux registration is not undone, and on any other platform it logs a warning and returns 1.
 
 ## Phasing
 

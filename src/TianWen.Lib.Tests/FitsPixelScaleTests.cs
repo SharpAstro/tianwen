@@ -325,22 +325,26 @@ public class FitsPixelScaleTests
             }
         });
 
-    private static void AddDoubleCards(string path, params (string Key, double Value)[] cards)
+    /// <summary>Adds cards from their literal 80-column images, for a card whose exact text matters:
+    /// <c>AddValue(key, 80.0, ...)</c> formats the double as <c>80</c>, an integer card, so it cannot
+    /// write the float card <c>80.0</c> that other software does.</summary>
+    private static void AddLiteralCards(string path, params string[] cardImages)
         => MutateFirstImageHeader(path, header =>
         {
-            foreach (var (key, value) in cards)
+            foreach (var image in cardImages)
             {
-                header.AddValue(key, value, "");
+                header.AddCard(new HeaderCard(image));
             }
         });
 
     [Fact]
     public void AFloatApertureCardIsReadAsTheApertureLikeAFloatFocalLength()
     {
-        // APTDIA = 80.0 is a float card, which the integer getters do not coerce: it used to read as absent.
+        // The card's text is literally "80.0", a float card, which GetIntValue does not coerce (it
+        // returns its default, -1): read through the integer getter the aperture was absent.
         var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "float-aptdia.fits");
         ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(path);
-        AddDoubleCards(path, ("APTDIA", 80.0));
+        AddLiteralCards(path, "APTDIA  =                 80.0 / aperture diameter [mm]");
 
         Image.TryReadFitsHeader(path, out var read).ShouldBeTrue();
         read.Meta.Aperture.ShouldBe(80);
