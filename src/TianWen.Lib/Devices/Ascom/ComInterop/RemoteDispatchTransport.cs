@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Globalization;
 using System.Runtime.Versioning;
@@ -27,9 +28,9 @@ internal sealed class RemoteDispatchTransport : IDispatchTransport
     }
 
     /// <summary>Spawns the helper, connects, and creates the COM object for <paramref name="progId"/>.</summary>
-    public static RemoteDispatchTransport Create(string exePath, string progId, TimeSpan handshakeTimeout)
+    public static RemoteDispatchTransport Create(string exePath, string progId, TimeSpan handshakeTimeout, ILogger? logger = null)
     {
-        var host = AscomHostProcess.Spawn(exePath, handshakeTimeout);
+        var host = AscomHostProcess.Spawn(exePath, handshakeTimeout, logger);
         try
         {
             int handle;

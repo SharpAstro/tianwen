@@ -35,6 +35,8 @@ if (node.Keeper)
 {
     using var keeperLogging = LoggerFactory.Create(logging => logging.AddProvider(new FileLoggerProvider("Keeper")));
     var keeperLogger = keeperLogging.CreateLogger("TianWen.Keeper");
+    // The keeper is a process of its own: what takes IT down goes to its log too (#1811).
+    UnhandledExceptionLog.HookForTheProcess(keeperLogger);
     if (!OperatingSystem.IsWindows())
     {
         NodeDetachment.FromTheClient(keeperLogger);
@@ -189,6 +191,9 @@ using (held)
     // LAN announcement then reads the same file rather than minting a second one beside it.
     var identity = app.Services.GetRequiredService<NodeIdentity>();
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    // Whatever takes the node down, and a task's exception nobody awaited, go to its log first (#1811): the keeper's
+    // journal says THAT it died, and this is the stack that says why.
+    UnhandledExceptionLog.HookForTheProcess(logger);
     logger.LogInformation("TianWen Server {Version} starting on {Socket}{Lan} (node {NodeId}){Spawned}{Fake}{LocalOnly}{AfterCrash}",
         identity.Version, socketPath, listening.LanPort is { } p ? $" and TCP {p}" : "", identity.NodeId,
         node.Spawned ? ", started by a client" : "", node.FakeDevicesOnly ? ", fake devices only" : "",

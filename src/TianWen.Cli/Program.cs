@@ -84,6 +84,8 @@ builder.Logging.AddFilter("System", LogLevel.Warning);
 
 
 using var host = builder.Build();
+// Whatever takes the process down, and a task's exception nobody awaited, go to the log first (#1811).
+UnhandledExceptionLog.HookForTheProcess(host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.Cli"));
 
 await host.StartAsync();
 

@@ -159,6 +159,8 @@ General coding rules in full: `docs/architecture/coding-rules.md`.
   `new CancellationTokenSource(delay)` (`NoWallClockDeadlineTests`).
 - **`TIANWEN_NOW`** (ISO-8601, ideally with an offset) anchors the whole process clock to a simulated instant that then
   runs at real rate (`StartupTimeOverride`, wired once in `AddExternal`).
+- **Every program hooks `UnhandledExceptionLog.HookForTheProcess` once**, as soon as it has a logger: a crash and a
+  task's exception nobody awaited reach its log with their stack (#1811). `EveryProgramLogsItsUnhandledExceptions`.
 
 ### Devices
 
