@@ -756,7 +756,7 @@ more, where the builder counts 9.4 % more. **The two stores'
 leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
 store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
 
-**What the new plates change in R4h's training pairs: almost nothing** (`plate_pairs_compare.py`). R4h's export line
+**What the new plates change in R4h's training pairs: almost nothing on six of the seven sessions, and on Centaurus A the stars under the noise** (`plate_pairs_compare.py`). R4h's export line
 (synth32's, with its frozen binary and options) was run over seven of its sessions, once from `starless` and once
 from `starless-2449`. The run from `starless` gives synth32's own 2,800 tiles back to the byte, so the two runs
 differ by the plates alone. Both choose the same 40 cells in every session. Differences are in the tile's own noise
@@ -791,7 +791,8 @@ the exporter, and not shown by a run that changes that alone: a star below the c
 it its amplitude in each channel, from one of the catalogue's faint stars, picked by its place in that list
 (`InjectionPopulation.Plan`, the faint stars' colours), while its place comes from a draw the list does not enter
 and its significance from a law fitted to the whole list, which a few rows hardly move. A list that gains or loses
-a row moves every faint pick, not only the picks after it, because the index is `faintRng.Next(_faintColours.Length)`
+a faint row (the pool is only the catalogued rows with a significance above 0 and below `FitLowSigma`) moves every
+faint pick, not only the picks after it, because the index is `faintRng.Next(_faintColours.Length)`
 (`InjectionPopulation.cs`). The stars a model has to remove are
 drawn from the rows themselves, and on six of the seven sessions nearly all of those are as they were (0 to 0.8 % of
 the rows differ, 1.8 % on eta Carinae); on Centaurus A (23,783 of 68,433 rows, 34.8 %) they are not, which is the
@@ -812,9 +813,10 @@ gone and the cluster of dark dots beside the dark globule stays. The dent the bu
 over nebula, which spoke against R4g's targets, is another defect and the refill does not touch it.
 
 **What it leaves for an arm.** Neither kind of arm run so far would see the new plates: R4h's line draws its
-backgrounds and would train on R4h's data to within a few hundredths of the noise, and R4g's bright cells hold
-almost none of what the refill takes. An arm on them could show nothing a second seed would not show, and none is
-proposed. What the refill changes is the plate's pixels at moderately bright stars on smooth sky, so the new plates
+backgrounds and would train on R4h's data, on six of the seven sessions, to within a few hundredths of the noise
+(Centaurus A's inputs differ by 0.098 at the median cell and 0.327 at the worst, by the guard, not the refill), and
+R4g's bright cells hold almost none of what the refill takes. On those six sessions an arm could show nothing a
+second seed would not show, and none is proposed. What the refill changes is the plate's pixels at moderately bright stars on smooth sky, so the new plates
 matter where those pixels are the target or the product: a recipe that puts plate pixels of ordinary star fields in
 its targets (none is in the line; the plates' leftover faint stars are why it draws its backgrounds), the
 grain-rule plates, and the builder as the remover that needs no model. No arm is registered: the owner's call.
