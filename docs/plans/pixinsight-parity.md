@@ -99,7 +99,7 @@ What DSPX is, and what each point means for us:
 
 | Trend | DSPX | TianWen today |
 |---|---|---|
-| **One application from raw subs to the finished picture** | Calibration, Registration, Integration, Drizzle, Mosaic, SubframeStudio (frame judging), CometAlignment, Superbias, DefectMap, LocalNormalization beside all of post | Every engine exists and is measured, nearly all only on the CLI; [stacking-workbench.md](stacking-workbench.md) is NOT STARTED and stops at a stacked, enhanced master |
+| **One application from raw subs to the finished picture** | Calibration, Registration, Integration, Drizzle, Mosaic, SubframeStudio (frame judging), CometAlignment, Superbias, DefectMap, LocalNormalization beside all of post | Every engine exists and is measured, nearly all only on the CLI; [stacking-workbench.md](stacking-workbench.md) was NOT STARTED and stopped at a stacked, enhanced master before the re-cut of 2026-11-19; see that plan for its status and scope |
 | **Native, GPU, offline** | Qt + Vulkan (volk, VMA), Highway SIMD, OpenCV, ONNX Runtime with a WebGPU provider; plate solving offline after a 2.3 GB catalogue download; "no images sent anywhere" | Same shape: Vulkan (SdlVulkan.Renderer), AOT .NET, ORT, offline catalogues; nothing to change |
 | **Bundled offline AI, own models** | DeepStarRemoval, DeepStarMask, DeepSharp: three own ONNX models, about 33 MB each, in the box | Own denoiser, deconvolver, star remover and gradient remover, each at its stage in [model-training-roadmap.md](model-training-roadmap.md); no star remover of ours ships yet |
 | **Hosting other people's tools as processes** | GraXpertBackgroundExtraction, GraXpertDenoise, GraXpertDeconvolution, StarNetStarRemoval are menu processes | GraXpert BGE in process (`GraXpertBackgroundExtractor`), RC-Astro through its CLI ([rc-astro-enhancers.md](rc-astro-enhancers.md)); no StarNet |
@@ -116,7 +116,7 @@ above. The claims of speed ("3x up to 10x" stacking, "up to 20x" deconvolution) 
 **What to take from it, for the owner to weigh** (nothing here is decided):
 
 1. If TianWen grows a processing application, DSPX shows the bar for 2026 is the WHOLE chain in one window with
-   history, not a stacker plus an enhancer. The stacking workbench's W0 (#1640) is where that scope is chosen.
+   history, not a stacker plus an enhancer. The stacking workbench's W0 (#1640) was where that scope was to be chosen; it was decided 2026-11-22 ([stacking-workbench.md](stacking-workbench.md), "Where it lives").
    **The owner, 2026-11-19:** likely a stand-alone app; `tianwen-gui` gets at most a live stacking view. The scope
    was then chosen as the whole chain, and the workbench plan re-cut to it.
 2. An XISF reader is the cheapest, most visible gap; it is a file format, not a product decision.
