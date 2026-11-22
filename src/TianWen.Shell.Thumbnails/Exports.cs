@@ -25,7 +25,8 @@ namespace TianWen.Shell.Thumbnails
         public static int DllGetClassObject(Guid* rclsid, Guid* riid, nint* ppv)
         {
             *ppv = 0;
-            if (*rclsid != ThumbnailRenderer.ShellExtensionClsid)
+            var isThumbnail = *rclsid == ThumbnailRenderer.ShellExtensionClsid;
+            if (!isThumbnail && *rclsid != ThumbnailRenderer.PropertyHandlerClsid)
             {
                 return CLASS_E_CLASSNOTAVAILABLE;
             }
@@ -35,7 +36,9 @@ namespace TianWen.Shell.Thumbnails
                 return E_NOINTERFACE;
             }
 
-            var pUnk = (nint)ComInterfaceMarshaller<ThumbnailClassFactory>.ConvertToUnmanaged(ThumbnailClassFactory.Instance);
+            var pUnk = isThumbnail
+                ? (nint)ComInterfaceMarshaller<ThumbnailClassFactory>.ConvertToUnmanaged(ThumbnailClassFactory.Instance)
+                : (nint)ComInterfaceMarshaller<PropertyHandlerClassFactory>.ConvertToUnmanaged(PropertyHandlerClassFactory.Instance);
             var hr = Marshal.QueryInterface(pUnk, in *riid, out *ppv);
             Marshal.Release(pUnk);
             return hr;

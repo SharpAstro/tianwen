@@ -111,4 +111,73 @@ namespace TianWen.Shell.Thumbnails
         [PreserveSig]
         int GetThumbnail(uint cx, nint* phbmp, int* pdwAlpha);
     }
+
+    /// <summary>
+    /// <c>PROPERTYKEY</c> (wtypes.h): a format id and a property id, 20 bytes on every architecture.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PROPERTYKEY
+    {
+        public Guid fmtid;
+        public uint pid;
+
+        public PROPERTYKEY(Guid fmtid, uint pid)
+        {
+            this.fmtid = fmtid;
+            this.pid = pid;
+        }
+    }
+
+    /// <summary>
+    /// <c>PROPVARIANT</c> (propidl.h), declared IN FULL: 24 bytes on x64 and arm64 (a 2-byte type, three
+    /// reserved words, then a 16-byte union whose widest member is a pointer pair such as <c>CALPWSTR</c> or
+    /// <c>BLOB</c>). The caller of <c>GetValue</c> owns the struct and the callee writes all of it, so a
+    /// trimmed declaration would have the shell clear 24 bytes over a shorter one -- or the handler write
+    /// past it. The union is two 8-byte slots: <see cref="data"/> at offset 8 (a number, a FILETIME, or a
+    /// vector's element count in its low 4 bytes) and <see cref="data2"/> at offset 16 (the vector's element
+    /// pointer, as a <c>CALPWSTR</c> is <c>{ULONG cElems; PWSTR* pElems}</c>). Strings and vectors are
+    /// <c>CoTaskMemAlloc</c>'d for the caller's <c>PropVariantClear</c> to free.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PROPVARIANT
+    {
+        public ushort vt;
+        public ushort wReserved1;
+        public ushort wReserved2;
+        public ushort wReserved3;
+        public ulong data;
+        public ulong data2;
+    }
+
+    /// <summary>propsys.h; a read-only store implements the four reads and refuses the two writes.</summary>
+    [GeneratedComInterface]
+    [Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99")]
+    internal unsafe partial interface IPropertyStore
+    {
+        [PreserveSig]
+        int GetCount(uint* cProps);
+
+        [PreserveSig]
+        int GetAt(uint iProp, PROPERTYKEY* pkey);
+
+        [PreserveSig]
+        int GetValue(PROPERTYKEY* key, PROPVARIANT* pv);
+
+        [PreserveSig]
+        int SetValue(PROPERTYKEY* key, PROPVARIANT* propvar);
+
+        [PreserveSig]
+        int Commit();
+    }
+
+    /// <summary>
+    /// propsys.h. <c>IsPropertyWritable</c> answers <c>S_OK</c> for writable and <c>S_FALSE</c> for not.
+    /// </summary>
+    [GeneratedComInterface]
+    [Guid("c8e2d566-186e-4d49-bf41-6909ead56acc")]
+    internal unsafe partial interface IPropertyStoreCapabilities
+    {
+        [PreserveSig]
+        int IsPropertyWritable(PROPERTYKEY* key);
+    }
 }
