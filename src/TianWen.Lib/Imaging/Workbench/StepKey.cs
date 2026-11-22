@@ -52,6 +52,20 @@ public static class StepKey
         return ContentDigest.Format(XxHash128.Hash(Encoding.UTF8.GetBytes(text.ToString())));
     }
 
+    /// <summary>
+    /// The key of one image's result of a run several images went through (<see cref="IJointOperation"/>): the run's
+    /// key, which <see cref="OfStep"/> makes from the images' keys in sorted order, and the image's own.
+    /// </summary>
+    public static string OfMember(string runKey, string memberKey)
+        => Digest("tianwen-member/1\nrun=" + runKey + "\nmember=" + memberKey + "\n");
+
+    /// <summary>The key of an extra result of a step (<see cref="OperationDescription.ExtraResults"/>): the step's key
+    /// and the result's name.</summary>
+    public static string OfResult(string stepKey, string name)
+        => Digest("tianwen-result/1\nstep=" + stepKey + "\nresult=" + name.ReplaceLineEndings(" ") + "\n");
+
+    private static string Digest(string text) => ContentDigest.Format(XxHash128.Hash(Encoding.UTF8.GetBytes(text)));
+
     /// <summary>A key as a person reads it in a listing: the first twelve digits of its digest.</summary>
     public static string Short(string key)
     {

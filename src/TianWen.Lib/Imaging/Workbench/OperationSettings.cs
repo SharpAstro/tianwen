@@ -97,6 +97,36 @@ public sealed record FillDigsSettings
     public bool KeepOvershoot { get; set; }
 }
 
+/// <summary>The settings of <see cref="DeblurOperation"/>.</summary>
+public sealed record DeblurSettings
+{
+    /// <summary>The brightest input pixel goes to the deblurrer at 1/headroom of its ceiling (<c>--headroom</c>).</summary>
+    public float Headroom { get; set; } = NarrowbandCombination.DefaultDeblurHeadroom;
+}
+
+/// <summary>The settings of <see cref="DenoiseOperation"/>.</summary>
+public sealed record DenoiseSettings
+{
+    /// <summary>Strength in 0 to 1 (<c>--strength</c>); left out, the denoiser's own.</summary>
+    public float? Strength { get; set; }
+}
+
+/// <summary>The settings of <see cref="RemoveStarsOperation"/>.</summary>
+public sealed record RemoveStarsSettings
+{
+    /// <summary>Keep the brightest part of each galaxy or nebula out of the stars (off: <c>--no-protect-cores</c>).</summary>
+    public bool ProtectCores { get; set; } = true;
+
+    /// <summary>The star catalogue asked for the stars inside a protected core (<c>--core-catalogue</c>).</summary>
+    public CoreCatalogueChoice Catalogue { get; set; } = CoreCatalogueChoice.Auto;
+
+    /// <summary>Fill the holes TianWen's own models dig under the stars they take (off: <c>--no-fill-digs</c>).</summary>
+    public bool FillDigs { get; set; } = true;
+
+    /// <summary>Leave the plate as the remover wrote it (<c>--keep-overshoot</c>).</summary>
+    public bool KeepOvershoot { get; set; }
+}
+
 /// <summary>The settings of <see cref="ProtectCoresOperation"/>.</summary>
 public sealed record ProtectCoresSettings
 {
@@ -143,6 +173,9 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(FillDigsSettings))]
 [JsonSerializable(typeof(ContinuumSettings))]
 [JsonSerializable(typeof(ProtectCoresSettings))]
+[JsonSerializable(typeof(DeblurSettings))]
+[JsonSerializable(typeof(DenoiseSettings))]
+[JsonSerializable(typeof(RemoveStarsSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }
