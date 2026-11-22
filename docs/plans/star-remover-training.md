@@ -9133,8 +9133,8 @@ the first angle is a step after the model and not another arm:
     are worked down before another day-long run. The cluster scenes do not join (R4a was killed).
 
 Every script here that runs the remover (`transplant.py`, `site_remove.py`, `crowd_texture.py`, `wb_invariance.py`,
-`flatten_invariance.py`) gives the model AS TRAINED: it passes `--no-fill-digs` and `--no-protect-cores` where the
-build has them (the rows in this plan were made with a build from before both steps). No model reads another's cached
+`flatten_invariance.py`) gives the model AS TRAINED: it passes `--no-fill-digs`, `--no-protect-cores` and `--keep-overshoot` where the
+build has them (the rows in this plan were made with a build from before all three steps). No model reads another's cached
 plate: `site_remove.py` keeps them apart by folder (`SITE_OUT`, one per model, set by `site-run.sh`), the others by
 naming the output for the model as well as the session. `site_core.py` and `site_core_ch.py` read either: `SITE_OUT`'s
 folder, or transplant.py's with `TIANWEN_SR_MODEL` to pick the model.
@@ -9483,7 +9483,7 @@ model not to overshoot (a one-sided term in the loss) would be an arm of its own
 `image remove-stars --keep-overshoot` (and the split's `holdAtOrUnderPlane: false`) leaves the plate as the remover wrote it, for
 measurement: the scorers (`score_whole.py`, `score-arm.ps1`) and the `--no-fill-digs` helpers pass it with `--no-protect-cores`
 and `--no-fill-digs`, so a row is the model's own output as past rows were and the `added` row (#2245) still sees an overshoot.
-`sky_noise` in `screen_back.py` is a strided sample of far pixel pairs with the zero canvas ring masked out.
+`sky_noise` in `screen_back.py` is a strided sample of far pixel pairs with the zero canvas ring masked out. The pedestal and fog columns of the table above were measured with the earlier unit (first 200,000 far pixels, consecutive differences, ring not excluded) and were not re-run with this one, so a re-run differs slightly.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
