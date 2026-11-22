@@ -913,19 +913,23 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // finder's peak (wherever its ties fall on a plateau) and the plateau's centre, where the profile is read and written,
     // can lie in different tiles; a giant half a pixel short of a tile's right edge, whose centre rounds onto the next
     // tile; two bright saturated stars at the FACING edges of two tiles of one phase (columns 0 and 2 of row 1); and a
-    // saturated star the frame's edge cuts, beside a tile boundary along that edge. On this seed four reads reach past
-    // their ground: the giant at (600, 262) is found in the tile above its plateau's centre, and the rings of its profile
-    // and of its halo read 7 rows past that tile's ground; the halos of the two stars at facing edges read 10 and 9
-    // columns past theirs.
-    private static Field TileEdgeField() => MakeField(1, extra:
+    // saturated star the frame's edge cuts, beside a tile boundary along that edge. Measured on this seed: four requests
+    // ask for more than their ground, all SymmetricProfile reads of the giants (the one at (600, 262) is found in the
+    // tile above its plateau's centre, and its ring reads 7 rows past that tile's ground), and 7 pairs of requests of
+    // two tiles of one phase overlap as reads; the test's met (4) counts requests that reach into a phase-mate's ground. No
+    // write reaches a phase-mate: a write reaches 104 px and a read 128, tiles of a phase are 256 px apart.
+    private static Field TileEdgeField(int channels = 1) => MakeField(channels, extra: TileEdgeStars());
+
+    private static Injected[] TileEdgeStars() =>
     [
         new Injected(600.0, 262.0, 1.0e7, true),
         new Injected(262.0, 600.0, 1.0e7, true),
+        new Injected(650.0, 513.0, 1.0e7, true),
         new Injected(255.7, 830.0, 1.0e5, true),
         new Injected(253.0, 420.0, 200.0, true),
         new Injected(515.0, 420.0, 200.0, true),
         new Injected(Ring - 1.0, 250.0, 20.0, true),
-    ]);
+    ];
 
     // #2378: the grounds of the tiles of one phase share no pixel, so work held to its ground cannot meet another tile's;
     // and each holds its own tile, with MaxSubtractRadius round it wherever the frame allows.
@@ -966,11 +970,12 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         }
     }
 
-    // #2378, the check the issue asked for: every rectangle of the working planes a build reads or writes, recorded with the
-    // ground it was held to, on the field of stars where a tile's work reaches furthest. No touched rectangle leaves its
-    // ground, so no tile of a phase reads what another of its phase writes; and the field is one where work ASKED for more,
-    // so the assertion is not over a field the clip never had to cut. Only a DEBUG build records (Category=DebugOnly runs it
-    // on the Debug leg); Release skips.
+    // #2378, the check the issue asked for: every rectangle a routine asks for through Square or Bound, recorded with the
+    // ground it was held to, on the field of stars where a tile's work reaches furthest. No requested rectangle, once cut,
+    // leaves its ground. That every read and write of the working planes goes through those two is the code review's claim,
+    // not this test's. The field is one where work ASKED for more than its ground and where a request reached into the
+    // ground of a tile of its own phase (met > 0), so the assertion is not over a field the clip never had to cut. Only a
+    // DEBUG build records (Category=DebugOnly runs it on the Debug leg); Release skips.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "DebugOnly")]
     public async Task NoTileReadsOrWritesPastItsGround()
@@ -989,17 +994,27 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         output.WriteLine($"{accesses.Length} rectangles recorded, {tileWork.Length} in the tile passes ({tileWork.Count(static a => a.Write)} writes); "
             + $"{pastGround.Length} asked past their ground: {string.Join(", ", pastGround.GroupBy(static a => a.Site).Select(static g => $"{g.Key} {g.Count()}"))}");
 
-        // What would have met without the ground: two tiles of one phase whose asked rectangles overlap, one of them a write.
+        // What would have met without the ground: a request of one tile that reaches into the ground of another tile of its
+        // phase, the rectangle that tile may write. A read against a read races with nothing, so overlapping requests are not
+        // counted; a request into a phase-mate's ground is what the clip exists to stop. The touched rectangles of two tiles
+        // of a phase never share a pixel, which is the claim itself.
         var met = 0;
         foreach (var phase in tileWork.GroupBy(static a => (a.Pass, a.Phase)))
         {
             var tiles = phase.GroupBy(static a => a.Ground).Select(static g => g.ToArray()).ToArray();
             for (var i = 0; i < tiles.Length; i++)
             {
-                for (var j = i + 1; j < tiles.Length; j++)
+                for (var j = 0; j < tiles.Length; j++)
                 {
-                    met += tiles[i].Sum(a => tiles[j].Count(b => (a.Write || b.Write) && a.Asked.IntersectsWith(b.Asked)));
-                    // And what does meet: nothing, which is the claim itself, read off the touched rectangles.
+                    if (i == j)
+                    {
+                        continue;
+                    }
+                    met += tiles[i].Count(a => a.Asked.IntersectsWith(tiles[j][0].Ground));
+                    if (j < i)
+                    {
+                        continue;
+                    }
                     var touchedI = tiles[i].Where(static a => !a.Touched.IsEmpty).ToArray();
                     var touchedJ = tiles[j].Where(static a => !a.Touched.IsEmpty).ToArray();
                     touchedI.Sum(a => touchedJ.Count(b => a.Touched.IntersectsWith(b.Touched)))
@@ -1007,7 +1022,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                 }
             }
         }
-        output.WriteLine($"{met} pairs of a phase's rectangles would have met without the ground");
+        output.WriteLine($"{met} requests reached into a phase-mate's ground");
 
         // The premises: a field with each kind of star the issue names, and with work that reached past its ground.
         plate.Stars.ShouldContain(static s => s.Model == StarFitModel.Pair, "a blend fitted as two stars");
@@ -1015,13 +1030,17 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Nearest(plate, Ring - 1.0, 250.0, 6.0).ShouldNotBeNull().Outcome.ShouldBe(StarFitOutcome.Subtracted, "the star the edge cuts");
         tileWork.Length.ShouldBeGreaterThan(1000);
         pastGround.ShouldNotBeEmpty("the field has work that reached past its tile's ground");
+        // Measured on this field: 4, all SymmetricProfile reads of the giants.
+        met.ShouldBeGreaterThan(0, "premise: a request would have reached into a phase-mate's ground on this field without the clip (measured 4)");
 
         accesses.Where(static a => !a.Touched.IsEmpty && !a.Ground.Contains(a.Touched))
-            .ShouldBeEmpty("no rectangle a tile reads or writes leaves its ground");
+            .ShouldBeEmpty("every rectangle a routine asks for through Square or Bound is cut to its tile's ground");
     }
 
-    // #2378: with every tile's work held to its ground, the plate is the same whether a phase's tiles run one at a time,
-    // in a fixed order, or all at once, to the bit; on the field where their work reaches furthest.
+    // #2378: with every tile's work held to its ground, the plate is the same whether a phase's tiles run one at a time
+    // or all at once, to the bit; on the field where their work reaches furthest. This varies only how many tile passes
+    // run at once (a race could still hide in a schedule this run happens not to take); the deterministic proof of the
+    // tiles' independence is ThePlateDoesNotDependOnTheOrderOfAPhasesTiles.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "Heavy")]
     public async Task ThePlateDoesNotDependOnHowManyTilesRunAtOnce()
@@ -1038,6 +1057,35 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             // A row's amplitudes are an array, which a record compares by reference.
             (many.Stars[k] with { ChannelAmplitudes = default }).ShouldBe(one.Stars[k] with { ChannelAmplitudes = default }, $"row {k}");
             many.Stars[k].ChannelAmplitudes.SequenceEqual(one.Stars[k].ChannelAmplitudes).ShouldBeTrue($"row {k}");
+        }
+    }
+
+    // N1.3 of #2451: the tiles of a phase are visited forward and reversed on one thread each; if any tile read or wrote
+    // what another of its phase does, the order would show in the plate. Mono, and colour (the _lum writes and the colour
+    // branch of AddModel and AddProfileAt), on the same stars. Hand check (N1.3 of #2451): with Bound clipping to the frame
+    // instead of the tile's ground, this test still passed on mono and colour, because the requests that overrun their ground
+    // are reads and no write meets another tile's request (a write reaches 104 px, a phase's tiles are 256 px apart). So it
+    // proves independence on these fields, not that the clip is needed; NoTileReadsOrWritesPastItsGround guards the clip.
+    [Theory(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task ThePlateDoesNotDependOnTheOrderOfAPhasesTiles(int channels)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var image = TileEdgeField(channels).Image;
+        var forward = await ClassicalStarRemover.BuildAsync(image, null, null, 1, null, true, false, ClassicalStarRemover.TileOrder.Forward, ct);
+        var reversed = await ClassicalStarRemover.BuildAsync(image, null, null, 1, null, true, false, ClassicalStarRemover.TileOrder.Reversed, ct);
+
+        for (var c = 0; c < channels; c++)
+        {
+            forward.Plate.GetChannelSpan(c).SequenceEqual(reversed.Plate.GetChannelSpan(c)).ShouldBeTrue($"channel {c}");
+        }
+        reversed.Stars.Length.ShouldBe(forward.Stars.Length);
+        for (var k = 0; k < forward.Stars.Length; k++)
+        {
+            (reversed.Stars[k] with { ChannelAmplitudes = default }).ShouldBe(forward.Stars[k] with { ChannelAmplitudes = default }, $"row {k}");
+            reversed.Stars[k].ChannelAmplitudes.SequenceEqual(forward.Stars[k].ChannelAmplitudes).ShouldBeTrue($"row {k}");
         }
     }
 
