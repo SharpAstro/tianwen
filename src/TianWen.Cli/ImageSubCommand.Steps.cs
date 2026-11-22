@@ -273,21 +273,15 @@ internal sealed partial class ImageSubCommand
         {
             Options = { inputOpt, starlessOpt, outputOpt, catalogueOpt },
         };
+        var protectCores = new ProtectCoresOperation(objectDb);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var starlessPath = parseResult.Required(starlessOpt);
-            // The plate is read as written (its absent pixels are NaN, and an exact zero in it is the remover's value).
-            if (!TryReadMasters([parseResult.Required(inputOpt)], out var input, out var wcs)
-                || !TryReadMasters([starlessPath], out var starless, out _, maskAbsent: false)
-                || !OneGrid([input[0], starless[0]]))
-            {
-                return 1;
-            }
-            var catalogStars = await CoreCatalogueAsync("protect-cores", parseResult.GetValue(catalogueOpt), wcs, input[0].Width, input[0].Height, ct);
-            var mask = ExtendedCoreMask.Find(input[0], ExtendedCoreMask.Options.Default, catalogStars);
-            SayCores("protect-cores", starlessPath, mask);
-            WriteStep(mask.Apply(input[0], starless[0]), StepOutput(starlessPath, "_cores", parseResult.GetValue(outputOpt), 1), wcs, "protect-cores");
-            return 0;
+            // The plate is read as written there (its absent pixels are NaN, and an exact zero in it is the remover's value).
+            return await RunStepAsync("protect-cores", protectCores,
+                new ProtectCoresSettings { Catalogue = CoreCatalogue.Parse(parseResult.GetValue(catalogueOpt)) },
+                [starlessPath, parseResult.Required(inputOpt)],
+                StepOutput(starlessPath, "_cores", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -308,56 +302,12 @@ internal sealed partial class ImageSubCommand
     }
 
     // The catalogued stars of a solved frame, for core protection; null with one line saying why where there are none.
-    private async Task<IReadOnlyList<FrameStar>?> CoreCatalogueAsync(string verb, string? choice, WCS? wcs, int width, int height, CancellationToken ct)
-    {
-        if (choice == "none")
-        {
-            return null;
-        }
-        // A header's pointing, or the matrix made up from its pixel scale and angle, is read as a WCS too and is no solution.
-        if (wcs is not { } solution || !CatalogFrameStars.IsSolved(solution))
-        {
-            consoleHost.WriteScrollable($"[{verb}] the master carries no plate solution, so stars inside a protected core stay with it "
-                + "(tianwen solve writes one)");
-            return null;
-        }
-        if (choice == "embedded" && objectDb is null)
-        {
-            // Only where this command was built without the catalogue; the program always hands it one.
-            consoleHost.WriteScrollable($"[{verb}] the embedded catalogue is not at hand here, so stars inside a protected core stay with it");
-            return null;
-        }
-        var installed = choice == "embedded" ? null : TianWen.Lib.Astrometry.Catalogs.AstapStarDatabase.FindInstalled();
-        var (stars, why) = await CatalogFrameStars.ReadAsync(solution, width, height, installed, objectDb, ct);
-        if (stars is null)
-        {
-            consoleHost.WriteScrollable($"[{verb}] no catalogued stars ({why}), so stars inside a protected core stay with it");
-            return null;
-        }
-        consoleHost.WriteScrollable($"[{verb}] catalogued stars from {stars.Source}");
-        return stars.Stars;
-    }
+    // The routine is Lib's (CoreCatalogue), which the operations an edit list runs call too.
+    private Task<IReadOnlyList<FrameStar>?> CoreCatalogueAsync(string verb, string? choice, WCS? wcs, int width, int height, CancellationToken ct)
+        => CoreCatalogue.ReadAsync(CoreCatalogue.Parse(choice), wcs, width, height, objectDb, line => consoleHost.WriteScrollable($"[{verb}] {line}"), ct);
 
     private void SayCores(string verb, string path, ExtendedCoreMask mask)
-    {
-        var name = Path.GetFileName(path);
-        if (mask.Cores.Length == 0)
-        {
-            consoleHost.WriteScrollable($"[{verb}] {name}: no extended source bright enough to protect");
-            return;
-        }
-        consoleHost.WriteScrollable($"[{verb}] {name}: protected " + string.Join("; ", mask.Cores.Select(c =>
-            string.Create(CultureInfo.InvariantCulture, $"({c.X}, {c.Y}), peak {c.PeakSigma:F0} sigma, {c.CoreAreaPx} px of {c.SourceAreaPx}"))));
-        if (mask.StarsLeftOut is { } found)
-        {
-            consoleHost.WriteScrollable(found.CalibrationStars == 0
-                ? $"[{verb}] {name}: too few catalogued stars show on the frame to read a zero point, so the stars inside the cores stay with them"
-                : string.Create(CultureInfo.InvariantCulture,
-                    $"[{verb}] {name}: {found.Stars} of {found.Peaks} compact peaks inside the cores are catalogued stars and stay removed "
-                    + $"(zero point {found.ZeroPoint:F2} over {found.CalibrationStars} stars, scatter {found.ZeroPointScatter:F2} mag; "
-                    + $"a star of magnitude 10 reaches {found.ReachAtMagnitude10:F0} px)"));
-        }
-    }
+        => CoreCatalogue.Describe(Path.GetFileName(path), mask, line => consoleHost.WriteScrollable($"[{verb}] {line}"));
 
     // -------- tianwen image fill-digs ----------------------------------
 

@@ -47,6 +47,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         new LrgbOperation(),
         new AddStarsOperation(),
         new FillDigsOperation(),
+        new ProtectCoresOperation(),
     ]);
 
     // The real image command over the classical extractor, with what it said.
@@ -219,7 +220,8 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             WorkbenchFixtures.Picture("luminance", green, WorkbenchFixtures.Edit(LuminanceOperation.Id, null, "red", "blue")),
             WorkbenchFixtures.Picture("red-lrgb", red, WorkbenchFixtures.Edit(LrgbOperation.Id, new JsonObject { ["colourSigma"] = 2 }, "luminance")),
             WorkbenchFixtures.Picture("red-with-stars", red, WorkbenchFixtures.Edit(AddStarsOperation.Id, null, "blue")),
-            WorkbenchFixtures.Picture("red-filled", red, WorkbenchFixtures.Edit(FillDigsOperation.Id, new JsonObject { ["keepOvershoot"] = true }, "green"))), ct);
+            WorkbenchFixtures.Picture("red-filled", red, WorkbenchFixtures.Edit(FillDigsOperation.Id, new JsonObject { ["keepOvershoot"] = true }, "green")),
+            WorkbenchFixtures.Picture("red-cores", red, WorkbenchFixtures.Edit(ProtectCoresOperation.Id, new JsonObject { ["catalogue"] = "none" }, "green"))), ct);
         var runner = new WorkbenchRunner(Catalog());
 
         var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
@@ -236,7 +238,11 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             }
         }
 
-        compared.ShouldBe([AlignOperation.Id, ContinuumOperation.Id, AddLineOperation.Id, LuminanceOperation.Id, LrgbOperation.Id, AddStarsOperation.Id, FillDigsOperation.Id]);
+        compared.ShouldBe(
+        [
+            AlignOperation.Id, ContinuumOperation.Id, AddLineOperation.Id, LuminanceOperation.Id, LrgbOperation.Id, AddStarsOperation.Id,
+            FillDigsOperation.Id, ProtectCoresOperation.Id,
+        ]);
     }
 
     [Fact(Timeout = 300_000)]

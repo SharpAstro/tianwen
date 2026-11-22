@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json.Serialization;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.StarRemoval;
 
 namespace TianWen.Lib.Imaging.Workbench;
 
@@ -96,6 +97,13 @@ public sealed record FillDigsSettings
     public bool KeepOvershoot { get; set; }
 }
 
+/// <summary>The settings of <see cref="ProtectCoresOperation"/>.</summary>
+public sealed record ProtectCoresSettings
+{
+    /// <summary>The star catalogue asked for the stars inside a protected core (<c>--core-catalogue</c>).</summary>
+    public CoreCatalogueChoice Catalogue { get; set; } = CoreCatalogueChoice.Auto;
+}
+
 /// <summary>Which measured scale a continuum subtraction uses.</summary>
 public enum ContinuumMethod
 {
@@ -134,6 +142,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(LrgbSettings))]
 [JsonSerializable(typeof(FillDigsSettings))]
 [JsonSerializable(typeof(ContinuumSettings))]
+[JsonSerializable(typeof(ProtectCoresSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }
