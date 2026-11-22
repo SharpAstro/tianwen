@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Geometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
@@ -717,6 +718,139 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             var errors = plain.Select(s => ErrorRms(plate, field, s.X, s.Y, Fwhm, c)).OrderBy(static e => e).ToArray();
             output.WriteLine($"channel {c}: {errors.Length} stars, subtraction error median {errors[errors.Length / 2]:F3} sigma");
             errors[errors.Length / 2].ShouldBeLessThan(0.5);
+        }
+    }
+
+    // #2378: the field of the tests below, the plain mono one (which holds three blends fitted as two stars, FitPair) with
+    // stars where a tile's work reaches furthest from its tile. Two giants whose plateaus straddle a tile boundary, so the
+    // finder's peak (wherever its ties fall on a plateau) and the plateau's centre, where the profile is read and written,
+    // can lie in different tiles; a giant half a pixel short of a tile's right edge, whose centre rounds onto the next
+    // tile; two bright saturated stars at the FACING edges of two tiles of one phase (columns 0 and 2 of row 1); and a
+    // saturated star the frame's edge cuts, beside a tile boundary along that edge. On this seed four reads reach past
+    // their ground: the giant at (600, 262) is found in the tile above its plateau's centre, and the rings of its profile
+    // and of its halo read 7 rows past that tile's ground; the halos of the two stars at facing edges read 10 and 9
+    // columns past theirs.
+    private static Field TileEdgeField() => MakeField(1, extra:
+    [
+        new Injected(600.0, 262.0, 1.0e7, true),
+        new Injected(262.0, 600.0, 1.0e7, true),
+        new Injected(255.7, 830.0, 1.0e5, true),
+        new Injected(253.0, 420.0, 200.0, true),
+        new Injected(515.0, 420.0, 200.0, true),
+        new Injected(Ring - 1.0, 250.0, 20.0, true),
+    ]);
+
+    // #2378: the grounds of the tiles of one phase share no pixel, so work held to its ground cannot meet another tile's;
+    // and each holds its own tile, with MaxSubtractRadius round it wherever the frame allows.
+    [Theory]
+    [InlineData(1024, 1024)]
+    [InlineData(1000, 700)]
+    [InlineData(300, 2000)]
+    [InlineData(200, 90)]
+    public void TheGroundsOfTheTilesOfOnePhaseShareNoPixelAndEachHoldsItsTile(int width, int height)
+    {
+        const int Tile = ClassicalStarRemover.TileSize;
+        const int Grow = ClassicalStarRemover.MaxSubtractRadius;
+        var tilesX = (width + Tile - 1) / Tile;
+        var tilesY = (height + Tile - 1) / Tile;
+        var frame = new PixelRect(0, 0, width, height);
+        for (var phase = 0; phase < 4; phase++)
+        {
+            var grounds = new List<PixelRect>();
+            for (var ty = phase >> 1; ty < tilesY; ty += 2)
+            {
+                for (var tx = phase & 1; tx < tilesX; tx += 2)
+                {
+                    var ground = ClassicalStarRemover.TileGround(tx, ty, width, height);
+                    var tile = PixelRect.Intersect(frame, new PixelRect(tx * Tile, ty * Tile, Tile, Tile));
+                    ground.Contains(tile).ShouldBeTrue($"tile ({tx}, {ty})");
+                    frame.Contains(ground).ShouldBeTrue();
+                    ground.ShouldBe(PixelRect.Intersect(frame, PixelRect.FromLTRB(tile.Left - Grow, tile.Top - Grow, tx * Tile + Tile + Grow, ty * Tile + Tile + Grow)));
+                    grounds.Add(ground);
+                }
+            }
+            for (var a = 0; a < grounds.Count; a++)
+            {
+                for (var b = a + 1; b < grounds.Count; b++)
+                {
+                    grounds[a].IntersectsWith(grounds[b]).ShouldBeFalse($"phase {phase}: {grounds[a]} and {grounds[b]}");
+                }
+            }
+        }
+    }
+
+    // #2378, the check the issue asked for: every rectangle of the working planes a build reads or writes, recorded with the
+    // ground it was held to, on the field of stars where a tile's work reaches furthest. No touched rectangle leaves its
+    // ground, so no tile of a phase reads what another of its phase writes; and the field is one where work ASKED for more,
+    // so the assertion is not over a field the clip never had to cut. Only a DEBUG build records (Category=DebugOnly runs it
+    // on the Debug leg); Release skips.
+    [Fact(Timeout = 600_000)]
+    [Trait("Category", "DebugOnly")]
+    public async Task NoTileReadsOrWritesPastItsGround()
+    {
+        Assert.SkipUnless(TileAccessRecorder.IsActive, "The recorder is compiled out of Release.");
+        var ct = TestContext.Current.CancellationToken;
+        var recorder = new TileAccessRecorder();
+        var plate = await ClassicalStarRemover.BuildAsync(TileEdgeField().Image, null, null, tileThreads: -1, recorder, ct);
+        var accesses = recorder.Accesses.ToArray();
+        var tileWork = accesses.Where(static a => a.Pass >= 0).ToArray();
+        var pastGround = tileWork.Where(static a => !a.Asked.IsEmpty && !a.Ground.Contains(a.Asked)).ToArray();
+        foreach (var a in pastGround)
+        {
+            output.WriteLine($"  past its ground: {a.Site}, pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, touched {a.Touched}");
+        }
+        output.WriteLine($"{accesses.Length} rectangles recorded, {tileWork.Length} in the tile passes ({tileWork.Count(static a => a.Write)} writes); "
+            + $"{pastGround.Length} asked past their ground: {string.Join(", ", pastGround.GroupBy(static a => a.Site).Select(static g => $"{g.Key} {g.Count()}"))}");
+
+        // What would have met without the ground: two tiles of one phase whose asked rectangles overlap, one of them a write.
+        var met = 0;
+        foreach (var phase in tileWork.GroupBy(static a => (a.Pass, a.Phase)))
+        {
+            var tiles = phase.GroupBy(static a => a.Ground).Select(static g => g.ToArray()).ToArray();
+            for (var i = 0; i < tiles.Length; i++)
+            {
+                for (var j = i + 1; j < tiles.Length; j++)
+                {
+                    met += tiles[i].Sum(a => tiles[j].Count(b => (a.Write || b.Write) && a.Asked.IntersectsWith(b.Asked)));
+                    // And what does meet: nothing, which is the claim itself, read off the touched rectangles.
+                    var touchedI = tiles[i].Where(static a => !a.Touched.IsEmpty).ToArray();
+                    var touchedJ = tiles[j].Where(static a => !a.Touched.IsEmpty).ToArray();
+                    touchedI.Sum(a => touchedJ.Count(b => a.Touched.IntersectsWith(b.Touched)))
+                        .ShouldBe(0, $"pass {phase.Key.Pass} phase {phase.Key.Phase}: tiles on {tiles[i][0].Ground} and {tiles[j][0].Ground} touched one pixel");
+                }
+            }
+        }
+        output.WriteLine($"{met} pairs of a phase's rectangles would have met without the ground");
+
+        // The premises: a field with each kind of star the issue names, and with work that reached past its ground.
+        plate.Stars.ShouldContain(static s => s.Model == StarFitModel.Pair, "a blend fitted as two stars");
+        plate.Stars.ShouldContain(static s => s.Model == StarFitModel.Profile, "a giant subtracted by its own profile");
+        Nearest(plate, Ring - 1.0, 250.0, 6.0).ShouldNotBeNull().Outcome.ShouldBe(StarFitOutcome.Subtracted, "the star the edge cuts");
+        tileWork.Length.ShouldBeGreaterThan(1000);
+        pastGround.ShouldNotBeEmpty("the field has work that reached past its tile's ground");
+
+        accesses.Where(static a => !a.Touched.IsEmpty && !a.Ground.Contains(a.Touched))
+            .ShouldBeEmpty("no rectangle a tile reads or writes leaves its ground");
+    }
+
+    // #2378: with every tile's work held to its ground, the plate is the same whether a phase's tiles run one at a time,
+    // in a fixed order, or all at once, to the bit; on the field where their work reaches furthest.
+    [Fact(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
+    public async Task ThePlateDoesNotDependOnHowManyTilesRunAtOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var image = TileEdgeField().Image;
+        var one = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: 1, recorder: null, ct);
+        var many = await ClassicalStarRemover.BuildAsync(image, null, null, tileThreads: -1, recorder: null, ct);
+
+        one.Plate.GetChannelSpan(0).SequenceEqual(many.Plate.GetChannelSpan(0)).ShouldBeTrue();
+        many.Stars.Length.ShouldBe(one.Stars.Length);
+        for (var k = 0; k < one.Stars.Length; k++)
+        {
+            // A row's amplitudes are an array, which a record compares by reference.
+            (many.Stars[k] with { ChannelAmplitudes = default }).ShouldBe(one.Stars[k] with { ChannelAmplitudes = default }, $"row {k}");
+            many.Stars[k].ChannelAmplitudes.SequenceEqual(one.Stars[k].ChannelAmplitudes).ShouldBeTrue($"row {k}");
         }
     }
 
