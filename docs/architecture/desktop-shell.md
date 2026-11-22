@@ -205,6 +205,11 @@ handed to the window already open. Layering, the two CI lanes, the activation bu
 both MSIX traps: this document; packaging: `packaging/windows/msix/`;
 thumbnails: `docs/plans/explorer-thumbnails.md`. Rules that bite:
 
+- **The same DLL serves a property handler for the Explorer detail columns** (`AstroPropertyStore`, its own CLSID,
+  #2429). It reads a header only, through the pure `ExplorerFileProperties.Read` in Lib, and no exception crosses
+  COM. The Store manifest declares it (`desktop2:DesktopPropertyHandler`, a second `com:Class`); the tarball
+  registers it under HKLM only, so unelevated it logs one warning and the rest registers
+  (`docs/plans/explorer-thumbnails.md`, "Detail columns").
 - **Explorer thumbnails run in the shell's surrogate and get a STREAM.** `Initialize` reads NOTHING
   and `WTSCF_FAST` answers `WTS_E_FASTEXTRACTIONNOTSUPPORTED`, because a read HYDRATES a cloud
   placeholder -- buffering there would download a whole OneDrive folder just to answer "do thumbnails
