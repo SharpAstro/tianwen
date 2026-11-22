@@ -913,10 +913,11 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // finder's peak (wherever its ties fall on a plateau) and the plateau's centre, where the profile is read and written,
     // can lie in different tiles; a giant half a pixel short of a tile's right edge, whose centre rounds onto the next
     // tile; two bright saturated stars at the FACING edges of two tiles of one phase (columns 0 and 2 of row 1); and a
-    // saturated star the frame's edge cuts, beside a tile boundary along that edge. On this seed four reads reach past
-    // their ground: the giant at (600, 262) is found in the tile above its plateau's centre, and the rings of its profile
-    // and of its halo read 7 rows past that tile's ground; the halos of the two stars at facing edges read 10 and 9
-    // columns past theirs.
+    // saturated star the frame's edge cuts, beside a tile boundary along that edge. Measured on this seed: four requests
+    // ask for more than their ground, all SymmetricProfile reads of the giants (the one at (600, 262) is found in the
+    // tile above its plateau's centre, and its ring reads 7 rows past that tile's ground), and 7 pairs of requests of
+    // two tiles of one phase overlap (the test's met). No write is among them: a write reaches 104 px and a read 128,
+    // so two tiles of a phase, 256 px apart, never have a write meet a request.
     private static Field TileEdgeField() => MakeField(1, extra:
     [
         new Injected(600.0, 262.0, 1.0e7, true),
@@ -970,8 +971,8 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // #2378, the check the issue asked for: every rectangle a routine asks for through Square or Bound, recorded with the
     // ground it was held to, on the field of stars where a tile's work reaches furthest. No requested rectangle, once cut,
     // leaves its ground. That every read and write of the working planes goes through those two is the code review's claim,
-    // not this test's. The field is one where work ASKED for more than its ground and where tiles of one phase would have
-    // met without the ground (met > 0), so the assertion is not over a field the clip never had to cut. Only a DEBUG build
+    // not this test's. The field is one where work ASKED for more than its ground and where requests of two tiles of one
+    // phase would have met without the ground (met > 0, measured 7), so the assertion is not over a field the clip never had to cut. Only a DEBUG build
     // records (Category=DebugOnly runs it on the Debug leg); Release skips.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "DebugOnly")]
@@ -1019,7 +1020,8 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Nearest(plate, Ring - 1.0, 250.0, 6.0).ShouldNotBeNull().Outcome.ShouldBe(StarFitOutcome.Subtracted, "the star the edge cuts");
         tileWork.Length.ShouldBeGreaterThan(1000);
         pastGround.ShouldNotBeEmpty("the field has work that reached past its tile's ground");
-        met.ShouldBeGreaterThan(0, "premise: two tiles of one phase would have met on this field without the ground");
+        // Measured on this field: 7 (the field's comment).
+        met.ShouldBeGreaterThan(0, "premise: two tiles of one phase would have met on this field without the ground (measured 7)");
 
         accesses.Where(static a => !a.Touched.IsEmpty && !a.Ground.Contains(a.Touched))
             .ShouldBeEmpty("every rectangle a routine asks for through Square or Bound is cut to its tile's ground");
