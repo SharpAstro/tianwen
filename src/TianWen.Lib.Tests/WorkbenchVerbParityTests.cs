@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.CommandLine;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -11,6 +12,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using TianWen.Cli;
+using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
@@ -37,6 +40,13 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         new CropOperation(),
         new LinearFitOperation(),
         new GradientOperation(new ClassicalBackgroundExtractor(), Substitute.For<IGradientCorrector>()),
+        new AlignOperation(),
+        new ContinuumOperation(),
+        new AddLineOperation(),
+        new LuminanceOperation(),
+        new LrgbOperation(),
+        new AddStarsOperation(),
+        new FillDigsOperation(),
     ]);
 
     // The real image command over the classical extractor, with what it said.
@@ -165,6 +175,68 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         // A stored result exported is that result.
         var fit = await runner.RunAsync(folder, new WorkbenchRunOptions { Image = "red", ExportPath = Path.Combine(folder, "red-exported.fits") }, ct);
         ShouldBeTheSameFile(fit.Exported.ShouldNotBeNull(fit.Refusal), fit.Images.Single(static image => image.Name == "red").Steps[1].Output.ShouldNotBeNull(), "the exported fit");
+    }
+
+    private const int FieldSize = 512;
+
+    // One sky seen through another filter or on another night: the same stars, noise of its own.
+    private static Image Field(int noiseSeed)
+        => new([SyntheticStarFieldRenderer.Render(FieldSize, FieldSize, defocusSteps: 0, exposureSeconds: 10, skyBackground: 100, readNoise: 5,
+            starCount: 250, seed: 5, noiseSeed: noiseSeed)], BitDepth.Float32, 65535f, 0f, 0f, new ImageMeta());
+
+    private static string WriteField(string folder, string name, Image field)
+    {
+        var path = Path.Combine(folder, name + ".fits");
+        field.WriteToFitsFile(path);
+        return path;
+    }
+
+    /// <summary>
+    /// The colour steps that take fixed images and give one result (#2465), each as an edit, each held to its verb's
+    /// file. What the fields are does not matter here, only that a step and its verb make the same file from them.
+    /// </summary>
+    [Fact(Timeout = 600_000)]
+    public async Task TheColourStepsAreTheFilesTheirVerbsWrite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-colour-").FullName;
+        var red = WriteField(folder, "red", Field(noiseSeed: 1));
+        var green = WriteField(folder, "green", Field(noiseSeed: 2));
+        var blue = WriteField(folder, "blue", Field(noiseSeed: 3));
+        var line = WriteField(folder, "ha", Field(noiseSeed: 4));
+        // Another night of the same sky, turned and shifted.
+        var turn = Matrix3x2.CreateRotation(3f * MathF.PI / 180f, new Vector2(FieldSize / 2f, FieldSize / 2f)) * Matrix3x2.CreateTranslation(14.5f, -9.25f);
+        var moved = WriteField(folder, "moved", await Field(noiseSeed: 5).WarpToReferenceGridAsync(turn, FieldSize, FieldSize, ct));
+        // An image another takes is listed before it.
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("red", red),
+            WorkbenchFixtures.Picture("green", green),
+            WorkbenchFixtures.Picture("blue", blue),
+            WorkbenchFixtures.Picture("ha", line),
+            WorkbenchFixtures.Picture("aligned", moved, WorkbenchFixtures.Edit(AlignOperation.Id, null, "red")),
+            WorkbenchFixtures.Picture("ha-pure", line, WorkbenchFixtures.Edit(ContinuumOperation.Id, new JsonObject { ["scale"] = 0.25, ["method"] = "photometric" }, "red")),
+            WorkbenchFixtures.Picture("red-with-line", red, WorkbenchFixtures.Edit(AddLineOperation.Id, new JsonObject { ["scale"] = 0.25, ["weight"] = 0.5 }, "ha")),
+            WorkbenchFixtures.Picture("luminance", green, WorkbenchFixtures.Edit(LuminanceOperation.Id, null, "red", "blue")),
+            WorkbenchFixtures.Picture("red-lrgb", red, WorkbenchFixtures.Edit(LrgbOperation.Id, new JsonObject { ["colourSigma"] = 2 }, "luminance")),
+            WorkbenchFixtures.Picture("red-with-stars", red, WorkbenchFixtures.Edit(AddStarsOperation.Id, null, "blue")),
+            WorkbenchFixtures.Picture("red-filled", red, WorkbenchFixtures.Edit(FillDigsOperation.Id, new JsonObject { ["keepOvershoot"] = true }, "green"))), ct);
+        var runner = new WorkbenchRunner(Catalog());
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        var verbs = await ReplayThroughTheVerbsAsync(report, folder, ct);
+        var compared = new List<string>();
+        foreach (var image in report.Images)
+        {
+            foreach (var step in image.Steps)
+            {
+                ShouldBeTheSameFile(step.Output.ShouldNotBeNull(), verbs[NamedOutput(step)], $"{image.Name} ({step.Operation})");
+                compared.Add(step.Operation);
+            }
+        }
+
+        compared.ShouldBe([AlignOperation.Id, ContinuumOperation.Id, AddLineOperation.Id, LuminanceOperation.Id, LrgbOperation.Id, AddStarsOperation.Id, FillDigsOperation.Id]);
     }
 
     [Fact(Timeout = 300_000)]

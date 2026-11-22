@@ -653,11 +653,13 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             var id = operation.Description.Id;
             var roles = operation.Description.ExtraInputs;
             var named = OrEmpty(edit.Inputs);
-            if (named.Length != roles.Length)
+            var needed = roles.Count(static role => !role.Optional);
+            if (named.Length < needed || named.Length > roles.Length)
             {
+                var count = needed == roles.Length ? $"{needed}" : $"{needed} to {roles.Length}";
                 return Refuse(step, roles.Length == 0
                     ? $"'{id}' takes no other image, and {named.Length} are named"
-                    : $"'{id}' takes {roles.Length} other image(s) ({string.Join(", ", roles.Select(static role => role.Name))}), and {named.Length} are named");
+                    : $"'{id}' takes {count} other image(s) ({string.Join(", ", roles.Select(static role => role.Name))}), and {named.Length} are named");
             }
 
             var inputs = ImmutableArray.CreateBuilder<Node>(1 + named.Length);

@@ -57,22 +57,11 @@ internal sealed partial class ImageSubCommand
             var reference = parseResult.Required(referenceArg);
             var targets = parseResult.Required(targetsArg);
             var settings = new LinearFitSettings { RejectHigh = parseResult.GetValue(rejectHighOpt) };
-            if (linearFit.Refusal(settings) is { } refusal)
-            {
-                consoleHost.WriteError($"[linear-fit] {refusal}");
-                return 1;
-            }
             foreach (var target in targets)
             {
-                var outcome = await linearFit.RunAsync(
-                    settings,
-                    [OperationInput.FromFile(target), OperationInput.FromFile(reference)],
-                    StepOutput(target, "_linearfit", parseResult.GetValue(outputOpt), targets.Length),
-                    line => consoleHost.WriteScrollable($"[linear-fit] {line}"),
-                    ct);
-                if (!outcome.Succeeded)
+                if (await RunStepAsync("linear-fit", linearFit, settings, [target, reference],
+                        StepOutput(target, "_linearfit", parseResult.GetValue(outputOpt), targets.Length), ct) != 0)
                 {
-                    consoleHost.WriteError($"[linear-fit] {outcome.Message}");
                     return 1;
                 }
             }
@@ -390,22 +379,15 @@ internal sealed partial class ImageSubCommand
         {
             Options = { inputOpt, starlessOpt, outputOpt, keepOvershootOpt },
         };
-        cmd.SetAction(parseResult =>
+        var fillDigs = new FillDigsOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var starlessPath = parseResult.Required(starlessOpt);
-            // The plate is read as written: remove-stars wrote its absent pixels as NaN, and an exact zero in it is a value
-            // the model gave, not the absent ring a master marks with zero.
-            if (!TryReadMasters([parseResult.Required(inputOpt)], out var input, out var wcs)
-                || !TryReadMasters([starlessPath], out var starless, out _, maskAbsent: false)
-                || !OneGrid([input[0], starless[0]]))
-            {
-                return 1;
-            }
-            var (plate, share) = NarrowbandCombination.FillDigsAlone(input[0], starless[0], holdAtOrUnderPlane: !parseResult.GetValue(keepOvershootOpt));
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[fill-digs] {Path.GetFileName(starlessPath)}: dig-fill step covered {share:P1} of the pixels"));
-            WriteStep(plate, StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), wcs, "fill-digs");
-            return 0;
+            // The plate is read as written there: remove-stars wrote its absent pixels as NaN, and an exact zero in it
+            // is a value the model gave, not the absent ring a master marks with zero.
+            return await RunStepAsync("fill-digs", fillDigs, new FillDigsSettings { KeepOvershoot = parseResult.GetValue(keepOvershootOpt) },
+                [starlessPath, parseResult.Required(inputOpt)],
+                StepOutput(starlessPath, "_filled", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -485,18 +467,14 @@ internal sealed partial class ImageSubCommand
         {
             Options = { broadbandOpt, lineOpt, scaleOpt, weightOpt, outputOpt },
         };
-        cmd.SetAction(parseResult =>
+        var addLine = new AddLineOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var broadbandPath = parseResult.Required(broadbandOpt);
-            if (!TryReadMasters([broadbandPath, parseResult.Required(lineOpt)], out var masters, out var wcs) || !OneGrid(masters))
-            {
-                return 1;
-            }
-            var (withLine, weight) = NarrowbandCombination.AddLineFrom(masters[0], masters[1], parseResult.GetValue(scaleOpt), parseResult.GetValue(weightOpt));
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[add-line] continuum scale {parseResult.GetValue(scaleOpt):G5}; the line added at {weight:G4}"));
-            WriteStep(withLine, StepOutput(broadbandPath, "_line", parseResult.GetValue(outputOpt), 1), wcs, "add-line");
-            return 0;
+            return await RunStepAsync("add-line", addLine,
+                new AddLineSettings { Scale = parseResult.GetValue(scaleOpt), Weight = parseResult.GetValue(weightOpt) },
+                [broadbandPath, parseResult.Required(lineOpt)],
+                StepOutput(broadbandPath, "_line", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -521,33 +499,21 @@ internal sealed partial class ImageSubCommand
         {
             Options = { redOpt, greenOpt, blueOpt, measureOpt, outputOpt },
         };
+        var luminance = new LuminanceOperation();
         cmd.SetAction(async (parseResult, ct) =>
         {
-            if (!TryReadMasters([parseResult.Required(redOpt), parseResult.Required(greenOpt), parseResult.Required(blueOpt)], out var masters, out var wcs) || !OneGrid(masters))
-            {
-                return 1;
-            }
-            List<Image>? measureOn = null;
+            // Green first: the luminance is on its scale, and it is the image the operation's edit is on.
+            List<string> inputs = [parseResult.Required(greenOpt), parseResult.Required(redOpt), parseResult.Required(blueOpt)];
             if (parseResult.GetValue(measureOpt) is { Length: > 0 } measurePaths)
             {
-                if (measurePaths.Length != 3 || !TryReadMasters(measurePaths, out measureOn, out _) || !OneGrid([.. masters, .. measureOn]))
+                if (measurePaths.Length != 3)
                 {
                     consoleHost.WriteError("[luminance] --measure-on takes red, green and blue on the masters' grid.");
                     return 1;
                 }
+                inputs.AddRange(measurePaths);
             }
-            var (luminance, parts, noise) = await SyntheticLuminance.BuildAsync(masters, measureOn, reference: 1, ct);
-            string[] names = ["red", "green", "blue"];
-            for (var i = 0; i < parts.Length; i++)
-            {
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[luminance] {names[i]}: scale {parts[i].Scale:G4} onto green ({parts[i].Stars} stars), noise {parts[i].ScaledNoise:G4} on green's scale, weight {parts[i].Weight:P1}"));
-            }
-            var best = Math.Min(parts[0].ScaledNoise, Math.Min(parts[1].ScaledNoise, parts[2].ScaledNoise));
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[luminance] noise {noise:G4} against the best single channel's {best:G4}: {best / noise:F2}x its signal to noise"));
-            WriteStep(luminance, EnsureFitsExtension(parseResult.Required(outputOpt)), wcs, "luminance");
-            return 0;
+            return await RunStepAsync("luminance", luminance, new NoSettings(), inputs, EnsureFitsExtension(parseResult.Required(outputOpt)), ct);
         });
         return cmd;
     }
@@ -563,33 +529,28 @@ internal sealed partial class ImageSubCommand
             Description = "The blur in pixels a channel keeps its own colour above; below it, the luminance's detail.",
             DefaultValueFactory = _ => LuminanceDetail.DefaultColourSigma,
         };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS, with one channel only. Default: <channel>_lrgb.fits." };
         var cmd = new Command("lrgb", "Give each channel the luminance's fine detail (LuminanceDetail, LRGB in linear form): blur(channel) + "
             + "(L - blur(L)) / scale, the scale measured between the two by a linear fit. Run it on starless planes; the stars go back "
             + "after with image add-stars, in their own colour.")
         {
             Arguments = { channelsArg },
-            Options = { luminanceOpt, colourSigmaOpt },
+            Options = { luminanceOpt, colourSigmaOpt, outputOpt },
         };
-        cmd.SetAction(parseResult =>
+        var lrgb = new LrgbOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var channels = parseResult.Required(channelsArg);
-            if (!TryReadMasters([parseResult.Required(luminanceOpt), .. channels], out var planes, out var wcs) || !OneGrid(planes))
+            var luminancePath = parseResult.Required(luminanceOpt);
+            var settings = new LrgbSettings { ColourSigma = parseResult.GetValue(colourSigmaOpt) };
+            // One channel a run of the operation, so the luminance is read for each.
+            foreach (var channel in channels)
             {
-                return 1;
-            }
-            for (var i = 1; i < planes.Count; i++)
-            {
-                var scale = LuminanceDetail.ScaleFor(planes[i], planes[0]);
-                if (!double.IsFinite(scale))
+                if (await RunStepAsync("lrgb", lrgb, settings, [channel, luminancePath],
+                        StepOutput(channel, "_lrgb", parseResult.GetValue(outputOpt), channels.Length), ct) != 0)
                 {
-                    consoleHost.WriteError($"[lrgb] {channels[i - 1]}: no scale could be measured against the luminance.");
                     return 1;
                 }
-                // LuminanceDetail.Transfer's two halves, the scale checked first so a refusal is an answer, not a throw.
-                var detailed = LuminanceDetail.Apply(planes[i], planes[0], scale, parseResult.GetValue(colourSigmaOpt));
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[lrgb] {Path.GetFileName(channels[i - 1])}: the luminance's detail at 1/{scale:G4}"));
-                WriteStep(detailed, DefaultOut(channels[i - 1], "_lrgb"), wcs, "lrgb");
             }
             return 0;
         });
@@ -607,19 +568,14 @@ internal sealed partial class ImageSubCommand
         {
             Options = { starlessOpt, starsOpt, outputOpt },
         };
-        cmd.SetAction(parseResult =>
+        var addStars = new AddStarsOperation();
+        cmd.SetAction(async (parseResult, ct) =>
         {
             var starlessPath = parseResult.Required(starlessOpt);
-            // The stars are read as written: a stars image is exactly zero wherever the remover left a pixel alone, which
-            // is a value there, not the absent ring a master marks with zero.
-            if (!TryReadMasters([starlessPath], out var starless, out var wcs)
-                || !TryReadMasters([parseResult.Required(starsOpt)], out var stars, out _, maskAbsent: false)
-                || !OneGrid([starless[0], stars[0]]))
-            {
-                return 1;
-            }
-            WriteStep(NarrowbandCombination.WithStars(starless[0], stars[0]), StepOutput(starlessPath, "_stars-back", parseResult.GetValue(outputOpt), 1), wcs, "add-stars");
-            return 0;
+            // The stars are read as written there: a stars image is exactly zero wherever the remover left a pixel alone,
+            // which is a value there, not the absent ring a master marks with zero.
+            return await RunStepAsync("add-stars", addStars, new NoSettings(), [starlessPath, parseResult.Required(starsOpt)],
+                StepOutput(starlessPath, "_stars-back", parseResult.GetValue(outputOpt), 1), ct);
         });
         return cmd;
     }
@@ -665,6 +621,27 @@ internal sealed partial class ImageSubCommand
             }
         }
         return true;
+    }
+
+    // One run of the operation an edit list runs (docs/plans/stacking-workbench.md, W1), given files and said under the
+    // verb's name, so the verb and a project's step are one routine. The exit code: 0, or 1 where it gave no result.
+    private async Task<int> RunStepAsync<TSettings>(string verb, Operation<TSettings> operation, TSettings settings, IReadOnlyList<string> inputs, string output,
+        CancellationToken ct)
+        where TSettings : class, new()
+    {
+        if (operation.Refusal(settings) is { } refusal)
+        {
+            consoleHost.WriteError($"[{verb}] {refusal}");
+            return 1;
+        }
+        var outcome = await operation.RunAsync(settings, [.. inputs.Select(OperationInput.FromFile)], output,
+            line => consoleHost.WriteScrollable($"[{verb}] {line}"), ct);
+        if (!outcome.Succeeded)
+        {
+            consoleHost.WriteError($"[{verb}] {outcome.Message}");
+            return 1;
+        }
+        return 0;
     }
 
     // -o names the output of a step with one input; with several each goes beside its input.

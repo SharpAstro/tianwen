@@ -215,7 +215,8 @@ internal sealed partial class ImageSubCommand(
         };
         var outputOpt = new Option<string?>("--output", "-o")
         {
-            Description = "Directory for the aligned masters, each <name>_aligned.fits. Default: beside each master.",
+            Description = "Directory for the aligned masters, each <name>_aligned.fits. Default: beside each master. "
+                + "With one master, a name ending in .fits is the output file itself.",
         };
         var cmd = new Command("align", "Put masters of one target on one master's grid, matched by their stars and resampled once (Lanczos-3, clamped); "
             + "where a master does not reach is absent (NaN).")
@@ -231,7 +232,11 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteError($"Failed to read FITS file: {referencePath}");
                 return 1;
             }
-            var outputDir = parseResult.GetValue(outputOpt);
+            var others = parseResult.GetValue(othersArg) ?? [];
+            var output = parseResult.GetValue(outputOpt);
+            // With one master, -o may name the file itself; otherwise it is the directory the aligned masters go into.
+            var outputFile = output is not null && others.Length == 1 && HasFitsExtension(output) ? output : null;
+            var outputDir = outputFile is null ? output : null;
             if (outputDir is not null)
             {
                 Directory.CreateDirectory(outputDir);
@@ -241,30 +246,18 @@ internal sealed partial class ImageSubCommand(
                 $"[align] reference {Path.GetFileName(referencePath)}: {reference.Width}x{reference.Height}, {referenceStars.Count} stars, "
                 + $"median FWHM {MasterAlignment.MedianFwhm(referenceStars):F2} px"));
             var failed = 0;
-            foreach (var path in parseResult.GetValue(othersArg) ?? [])
+            foreach (var path in others)
             {
-                if (!Image.TryReadFitsFile(path, out var master, out _))
-                {
-                    consoleHost.WriteError($"Failed to read FITS file: {path}");
-                    failed++;
-                    continue;
-                }
-                var (aligned, reason) = await MasterAlignment.AlignAsync(reference, master, referenceStars, ct);
-                master.Release();
-                if (aligned is null)
-                {
-                    consoleHost.WriteError($"[align] {Path.GetFileName(path)}: not aligned, {reason}");
-                    failed++;
-                    continue;
-                }
-                var dst = Path.Combine(outputDir ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".",
+                var dst = outputFile ?? Path.Combine(outputDir ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".",
                     Path.GetFileNameWithoutExtension(path) + "_aligned.fits");
-                aligned.Image.WriteToFitsFile(dst, referenceWcs, SharpenPipeline.SwModifyHeader());
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[align] {Path.GetFileName(path)}: {aligned.Stars} stars, matched on {aligned.QuadStars} at tolerance {aligned.QuadTolerance:F2}, "
-                    + $"rms {aligned.RmsPx:F3} px; scale {aligned.Scale:F5}, rotation {aligned.RotationDeg:F3} deg, "
-                    + $"shift ({aligned.ToReference.M31:F1}, {aligned.ToReference.M32:F1}) px; median FWHM {aligned.MedianFwhm:F2} px -> {dst}"));
-                aligned.Image.Release();
+                // Each master by the operation an edit list runs (AlignOperation), against the reference read once here.
+                var outcome = await AlignOperation.AlignAsync(reference, referenceWcs, referenceStars, OperationInput.FromFile(path), dst,
+                    line => consoleHost.WriteScrollable($"[align] {line}"), ct);
+                if (!outcome.Succeeded)
+                {
+                    consoleHost.WriteError($"[align] {outcome.Message}");
+                    failed++;
+                }
             }
             reference.Release();
             return failed == 0 ? 0 : 1;
@@ -307,76 +300,40 @@ internal sealed partial class ImageSubCommand(
         {
             Options = { lineOpt, continuumOpt, outputOpt, scaleOpt, methodOpt, significanceOpt, dryRunOpt },
         };
+        var continuumOperation = new ContinuumOperation();
         cmd.SetAction(async (parseResult, ct) =>
         {
             var linePath = parseResult.Required(lineOpt);
-            var continuumPath = parseResult.Required(continuumOpt);
             var method = parseResult.GetValue(methodOpt) ?? "flattest";
             if (method is not ("flattest" or "photometric"))
             {
                 consoleHost.WriteError($"--method must be flattest or photometric, got '{method}'");
                 return 1;
             }
-            if (!Image.TryReadFitsFile(linePath, out var line, out var lineWcs))
+            // The settings of the operation an edit list runs (ContinuumOperation), which measures, reports and subtracts.
+            var settings = new ContinuumSettings
             {
-                consoleHost.WriteError($"Failed to read FITS file: {linePath}");
+                Scale = parseResult.GetValue(scaleOpt),
+                Method = method == "photometric" ? ContinuumMethod.Photometric : ContinuumMethod.Flattest,
+                Significance = parseResult.GetValue(significanceOpt),
+            };
+            if (continuumOperation.Refusal(settings) is { } refusal)
+            {
+                consoleHost.WriteError($"[continuum] {refusal}");
                 return 1;
             }
-            if (!Image.TryReadFitsFile(continuumPath, out var continuum, out _))
-            {
-                consoleHost.WriteError($"Failed to read FITS file: {continuumPath}");
-                line.Release();
-                return 1;
-            }
-            if (line.Width != continuum.Width || line.Height != continuum.Height)
-            {
-                consoleHost.WriteError($"--line is {line.Width}x{line.Height} and --continuum {continuum.Width}x{continuum.Height}: put them on one grid first (tianwen image align).");
-                line.Release();
-                continuum.Release();
-                return 1;
-            }
-
-            var maskedLine = MasterAlignment.MaskAbsent(line);
-            var maskedContinuum = MasterAlignment.MaskAbsent(continuum);
-            var flattest = ContinuumSubtractor.FlattestResidualScale(maskedLine, maskedContinuum,
-                MasterAlignment.StarChannel(maskedLine), MasterAlignment.StarChannel(maskedContinuum), parseResult.GetValue(significanceOpt));
-            var lineStars = await MasterAlignment.FindStarsAsync(maskedLine, ct);
-            var continuumStars = await MasterAlignment.FindStarsAsync(maskedContinuum, ct);
-            var (photometric, matched, spread) = ContinuumSubtractor.PhotometricScale(lineStars, continuumStars);
-            var lineFwhm = MasterAlignment.MedianFwhm(lineStars);
-            var continuumFwhm = MasterAlignment.MedianFwhm(continuumStars);
-            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                $"[continuum] flattest residual k {flattest.K:R} over {flattest.Pixels} pixels (residual deviation {flattest.ResidualAad:G4} "
-                + $"against the line's {flattest.LineAad:G4}); photometric k {photometric:G5} over {matched} stars (spread {spread:P1}); "
-                + $"FWHM line {lineFwhm:F2} px, continuum {continuumFwhm:F2} px"));
-            if (double.IsFinite(flattest.K) && double.IsFinite(photometric) && Math.Abs(flattest.K - photometric) > 0.1 * Math.Abs(photometric))
-            {
-                consoleHost.WriteScrollable("[continuum] the two scales differ by more than 10 percent: check the pairing, the grid and the two PSFs before trusting either.");
-            }
-            if (double.IsFinite(lineFwhm) && double.IsFinite(continuumFwhm) && Math.Abs(lineFwhm - continuumFwhm) > 0.15 * Math.Max(lineFwhm, continuumFwhm))
-            {
-                consoleHost.WriteScrollable("[continuum] the two masters' stars differ in width by more than 15 percent: subtracted stars will leave rings, and a fixed-aperture flux ratio reads the wider side low.");
-            }
-
-            var k = parseResult.GetValue(scaleOpt) ?? (method == "photometric" ? photometric : flattest.K);
-            if (!double.IsFinite(k))
-            {
-                consoleHost.WriteError($"[continuum] no {method} scale could be measured; pass --scale.");
-                line.Release();
-                continuum.Release();
-                return 1;
-            }
-            if (!parseResult.GetValue(dryRunOpt))
-            {
-                var dst = parseResult.GetValue(outputOpt)
+            // --dry-run reports the scales and writes nothing: the operation is given no file to write.
+            var dst = parseResult.GetValue(dryRunOpt)
+                ? null
+                : parseResult.GetValue(outputOpt)
                     ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(linePath)) ?? ".", Path.GetFileNameWithoutExtension(linePath) + "_pure.fits");
-                var pure = ContinuumSubtractor.Subtract(maskedLine, maskedContinuum, k);
-                pure.WriteToFitsFile(dst, lineWcs, SharpenPipeline.SwModifyHeader());
-                pure.Release();
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture, $"[continuum] subtracted with k {k:R} -> {dst}"));
+            var outcome = await continuumOperation.SubtractAsync(settings, OperationInput.FromFile(linePath),
+                OperationInput.FromFile(parseResult.Required(continuumOpt)), dst, line => consoleHost.WriteScrollable($"[continuum] {line}"), ct);
+            if (!outcome.Succeeded)
+            {
+                consoleHost.WriteError($"[continuum] {outcome.Message}");
+                return 1;
             }
-            line.Release();
-            continuum.Release();
             return 0;
         });
         return cmd;
@@ -3126,12 +3083,12 @@ internal sealed partial class ImageSubCommand(
     /// would end up at <c>&lt;path&gt;.png/.jxr</c> while the FITS sits
     /// extensionless, an obviously broken pair).
     /// </summary>
-    private static string EnsureFitsExtension(string path)
+    private static string EnsureFitsExtension(string path) => HasFitsExtension(path) ? path : path + ".fits";
+
+    private static bool HasFitsExtension(string path)
         => path.EndsWith(".fits", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".fit", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".fts", StringComparison.OrdinalIgnoreCase)
-            ? path
-            : path + ".fits";
+            || path.EndsWith(".fts", StringComparison.OrdinalIgnoreCase);
 
     private static string StripExtension(string path)
     {

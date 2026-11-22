@@ -23,6 +23,13 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddClassicalBackgroundExtraction();
         services.AddSingleton<IOperation>(static sp => new CropOperation(sp.GetService<ILogger<CropOperation>>()));
         services.AddSingleton<IOperation, LinearFitOperation>();
+        services.AddSingleton<IOperation, AlignOperation>();
+        services.AddSingleton<IOperation, ContinuumOperation>();
+        services.AddSingleton<IOperation, AddLineOperation>();
+        services.AddSingleton<IOperation, LuminanceOperation>();
+        services.AddSingleton<IOperation, LrgbOperation>();
+        services.AddSingleton<IOperation, AddStarsOperation>();
+        services.AddSingleton<IOperation, FillDigsOperation>();
         services.AddSingleton<IOperation>(static sp => new GradientOperation(
             sp.GetRequiredService<IBackgroundExtractor>(),
             sp.GetRequiredService<IGradientCorrector>(),
