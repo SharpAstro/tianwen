@@ -95,6 +95,14 @@
               handler is only ever given a stream and sniffs FITS vs SER from the first bytes itself.
             -->
             <desktop2:ThumbnailHandler Clsid="bde44417-0b48-4d32-931e-8b3192e81be2" />
+            <!--
+              Explorer detail columns and the Details pane (exposure, camera, dimensions, date taken and
+              the rest of the #2429 table). Same DLL, a second class: a property handler is a different
+              COM object from the thumbnail provider. The manifest has no element that names the Details
+              pane or InfoTip property lists for a type; Windows takes those from the property
+              definitions the handler fills, so none is declared here.
+            -->
+            <desktop2:DesktopPropertyHandler Clsid="22b95ef5-11fd-40eb-a4c9-5979daf5ffa5" />
           </uap:FileTypeAssociation>
         </uap:Extension>
 
@@ -112,6 +120,10 @@
                          Path="tianwen-thumb.dll"
                          ThreadingModel="Both"
                          DisplayName="Astro Photo Viewer thumbnail provider" />
+              <com:Class Id="22b95ef5-11fd-40eb-a4c9-5979daf5ffa5"
+                         Path="tianwen-thumb.dll"
+                         ThreadingModel="Both"
+                         DisplayName="Astro Photo Viewer property handler" />
             </com:SurrogateServer>
           </com:ComServer>
         </com:Extension>
