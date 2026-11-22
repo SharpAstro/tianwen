@@ -764,11 +764,22 @@ such stars give. Centaurus A moves most because the guard of #1867 changes its s
 (`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and the stars it
 draws come from the star list, whose fits the refill leaves alone.
 
-**What it leaves for an arm.** An arm of R4h's line on the new plates would train on R4h's data to within a few
-hundredths of the noise, so it could show nothing a second seed of R4h would not show, and none is proposed. The
-new plates matter where a plate's pixels are the target or the product: an arm that trains on plate targets (R4g's
-kind), the grain-rule plates, and the builder as the remover that needs no model. No arm is registered: the owner's
-call.
+**R4g's plate targets barely change either.** R4g's extra export (its 126 bright cells of ten sessions, the stars
+drawn on the plate itself, `--background plate`) was run the same way from both roots; the run from `starless` gives
+R4g's own 2,268 tiles back to the byte. Per session the target tiles differ by 0.006 to 0.143 of the tile's noise
+(rms, the median cell), and 0.00 to 0.12 % of their values move by more than half a sigma: a cell's noise on bright
+nebula is its shot noise, several times the sky's, and few of the pits the refill takes are deep in it. At 1:1, on
+the four most changed cells (M42's core, the session of 2026-01-18), the stored target's isolated black pixels are
+gone and the cluster of dark dots beside the dark globule stays. The dent the builder leaves at a saturated star
+over nebula, which spoke against R4g's targets, is another defect and the refill does not touch it.
+
+**What it leaves for an arm.** Neither kind of arm run so far would see the new plates: R4h's line draws its
+backgrounds and would train on R4h's data to within a few hundredths of the noise, and R4g's bright cells hold
+almost none of what the refill takes. An arm on them could show nothing a second seed would not show, and none is
+proposed. What the refill changes is the plate's pixels at moderately bright stars on smooth sky, so the new plates
+matter where those pixels are the target or the product: a recipe that puts plate pixels of ordinary star fields in
+its targets (none is in the line; the plates' leftover faint stars are why it draws its backgrounds), the
+grain-rule plates, and the builder as the remover that needs no model. No arm is registered: the owner's call.
 
 ### R1: the injector
 
