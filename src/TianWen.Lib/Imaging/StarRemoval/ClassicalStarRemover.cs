@@ -236,6 +236,24 @@ public static class ClassicalStarRemover
     private const int HaloSearchOffset = 12;
     private const double CompressedCoreFraction = 0.8;
     internal const float HoleSigma = 3f;
+
+    // The hole sweep's second trigger, a dug core (#2449). The hole test reads a core's MEAN over a disc of max(1.5, FWHM)
+    // px, so one pixel the subtraction dug never trips it: at an FWHM of 3.8 px the disc holds about 45 pixels, and one
+    // pixel 5 sigma under the sky moves the mean's z by under 1. Measured on the store's Tarantula master (ASI585MC,
+    // FWHM 3.8 px): a core pixel (within 1.4 px) 5 sigma under the sky round it on 13.8 percent of the 10 to 30 sigma
+    // and 33.1 percent of the 30 to 100 sigma subtracted stars whose core was not inpainted, against 3.5 percent at
+    // random star-free spots. The fit over-takes the peak pixel of an undersampled star and leaves one dark pixel, the
+    // black pit a 1:1 crop shows, which a model trained on the plate learns to dig at every faint star. So a core pixel
+    // within DugCoreSearch px of the fit's centre that sits more than DugPixelSigma of the pixel-to-pixel noise (the
+    // annulus's neighbour differences; DugCore says why not the sweep's rms) under the annulus sky, where the subtraction
+    // took more than DugPixelSigma of that noise, has the disc of DugCoreRadius px about the centre refilled, as a hole
+    // is. The disc holds every pixel within DugCoreSearch of a centre a rounding away from it.
+    internal const double DugPixelSigma = 4.0;
+    internal const double DugCoreSearch = 1.5;
+    internal const double DugCoreRadius = 2.0;
+    // The fewest neighbour pairs an annulus may read its pixel-to-pixel noise from (DugCore); an annulus holds some 250.
+    private const int MinNoisePairs = 32;
+
     private const double SkyAnnulusMax = 40.0;
     private const float DefaultBeta = 3f;
     private const float DefaultFwhm = 2.5f;
@@ -250,16 +268,28 @@ public static class ClassicalStarRemover
     /// </summary>
     public static Task<StarlessPlate> BuildAsync(
         Image image, StarlessPlateOptions? options = null, ILogger? logger = null, CancellationToken cancellationToken = default)
-        => BuildAsync(image, options, logger, tileThreads: -1, recorder: null, cancellationToken);
+        => BuildAsync(image, options, logger, tileThreads: -1, recorder: null, fillDugCores: true, cancellationToken);
 
     /// <summary>
     /// <see cref="BuildAsync(Image, StarlessPlateOptions, ILogger, CancellationToken)"/> with the tiles of a phase fitted
     /// on at most <paramref name="tileThreads"/> threads at once (-1: as many as the pool runs), and every rectangle the
     /// build reads or writes recorded into <paramref name="recorder"/> in a DEBUG build: what the tests of #2378 drive.
+    /// <paramref name="fillDugCores"/> false leaves out the hole sweep's dug-core trigger (#2449), so a test can show the
+    /// pixel it fills and what it leaves alone; every plate is built with it.
+    /// </summary>
+    internal static Task<StarlessPlate> BuildAsync(
+        Image image, StarlessPlateOptions? options, ILogger? logger, int tileThreads, TileAccessRecorder? recorder,
+        bool fillDugCores, CancellationToken cancellationToken)
+        => BuildAsync(image, options, logger, tileThreads, recorder, fillDugCores, retestDugCores: false, cancellationToken);
+
+    /// <summary>
+    /// The same, with <paramref name="retestDugCores"/> true testing a star for a dug pixel in every round of the hole
+    /// sweep, also once it was refilled for one, so a test can show the redraws the sweep's guard prevents; no plate is
+    /// built that way.
     /// </summary>
     internal static async Task<StarlessPlate> BuildAsync(
         Image image, StarlessPlateOptions? options, ILogger? logger, int tileThreads, TileAccessRecorder? recorder,
-        CancellationToken cancellationToken)
+        bool fillDugCores, bool retestDugCores, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(image);
         options ??= StarlessPlateOptions.Default;
@@ -277,6 +307,8 @@ public static class ClassicalStarRemover
         var builder = await CreateBuilderAsync(image, options, logger, cancellationToken);
         builder.TileThreads = tileThreads;
         builder.Recorder = recorder;
+        builder.FillDugCores = fillDugCores;
+        builder.RetestDugCores = retestDugCores;
         return await Task.Run(() => builder.Run(sw), cancellationToken);
     }
 
@@ -371,6 +403,15 @@ public static class ClassicalStarRemover
 
         /// <summary>Where a DEBUG build records every rectangle of the working planes it reads or writes; null for none.</summary>
         public TileAccessRecorder? Recorder { get; set; }
+
+        /// <summary>Whether the hole sweep refills a dug core (#2449); false only in a test that shows what it does.</summary>
+        public bool FillDugCores { get; set; } = true;
+
+        /// <summary>
+        /// Whether the hole sweep tests a star for a dug pixel again once it refilled it for one; true only in a test
+        /// that shows the redraws the guard prevents.
+        /// </summary>
+        public bool RetestDugCores { get; set; }
 
         // The cover as HasLeftItsStar is handed it, made at its first use and kept: the rule is asked for every fit of
         // every star, on every tile's thread. Two threads that make it at once make two that answer alike, and either
@@ -547,12 +588,12 @@ public static class ClassicalStarRemover
             var subtracted = BuildSubtractedMask(fitList);
             var correlation = FillHoles(inpainted);
             RefreshLuminance();
-            SweepHoles(fitList, inpainted);
+            var dugCores = SweepHoles(fitList, inpainted);
             CleanRemnants(subtracted, inpainted);
             _channelRms = ChannelRms();
 
             var stars = Describe(sources, fitList, secondFrom, inpainted);
-            var statistics = Measure(stars, inpainted, subtracted, correlation, sw);
+            var statistics = Measure(stars, inpainted, subtracted, correlation, dugCores, sw);
             var plate = BuildPlate();
             logger?.LogInformation(
                 "ClassicalStarRemover: {W}x{H}x{C}: {Found} point sources, {Subtracted} subtracted, {Knots} left as structure, inpaint {Inpaint:P2}, field width scale {Scale:F3}, {Ms} ms.",
@@ -2010,14 +2051,19 @@ public static class ClassicalStarRemover
         // per channel against the plate's own sky in an annulus beyond it; where it sits more than HoleSigma below, the
         // fill disc grows ring by ring until the plate is back at its sky, and is filled again from beyond that. The first
         // fill alone could not promise it: a pixel the mask missed at a star's centre, over-subtracted, was a known pixel to
-        // the fill and dragged the whole disc down with it.
-        private void SweepHoles(List<Fit> fits, BitMatrix inpainted)
+        // the fill and dragged the whole disc down with it. A core whose mean passes but where the subtraction dug one
+        // pixel (DugCore, #2449) has its DugCoreRadius disc filled in the same round. Returns how many stars were refilled
+        // for a dug pixel alone.
+        private int SweepHoles(List<Fit> fits, BitMatrix inpainted)
         {
+            // Each index is written by its own iteration only.
+            var dugAlone = new bool[fits.Count];
             for (var round = 0; round < HoleSweepRounds; round++)
             {
                 ct.ThrowIfCancellationRequested();
                 var rms = ChannelRms();
                 var discs = new System.Collections.Concurrent.ConcurrentBag<(int X, int Y, double R)>();
+                var dug = new System.Collections.Concurrent.ConcurrentBag<(int X, int Y)>();
                 ParallelFor.Run(fits.Count, k =>
                 {
                     var f = fits[k];
@@ -2026,26 +2072,39 @@ public static class ClassicalStarRemover
                         return;
                     }
                     var grow = 0.0;
+                    var dugCore = false;
                     for (var c = 0; c < _channels; c++)
                     {
-                        if (HoleRadius(f, c, rms[c]) is { } r && r > grow)
+                        var (hole, dugHere) = CoreBelowItsSky(f, c, rms[c], testDug: RetestDugCores || !dugAlone[k]);
+                        if (hole is { } r && r > grow)
                         {
                             grow = r;
                         }
+                        dugCore |= dugHere;
                     }
                     if (grow > 0)
                     {
                         discs.Add(((int)Math.Round(f.X), (int)Math.Round(f.Y), grow));
                     }
+                    else if (dugCore)
+                    {
+                        // A hole's disc, about the same centre, is never under 3 px and holds this one already.
+                        dug.Add(((int)Math.Round(f.X), (int)Math.Round(f.Y)));
+                        dugAlone[k] = true;
+                    }
                 });
-                if (discs.IsEmpty)
+                if (discs.IsEmpty && dug.IsEmpty)
                 {
-                    return;
+                    break;
                 }
                 var added = new BitMatrix(_height, _width);
                 foreach (var (x, y, r) in discs)
                 {
                     StampDisc(added, x, y, r + 1.0);
+                }
+                foreach (var (x, y) in dug)
+                {
+                    StampDisc(added, x, y, DugCoreRadius);
                 }
                 for (var y = 0; y < _height; y++)
                 {
@@ -2059,8 +2118,9 @@ public static class ClassicalStarRemover
                 }
                 HoleFill.Fill(_work, _width, _height, added, _absent, lumPsf.Fwhm, options.Seed + round + 1, Ceiling(), ct);
                 RefreshLuminance();
-                logger?.LogDebug("ClassicalStarRemover: hole sweep {Round}: {Holes} cores below their sky, refilled.", round + 1, discs.Count);
+                logger?.LogDebug("ClassicalStarRemover: hole sweep {Round}: {Holes} cores below their sky, {Dug} dug cores, refilled.", round + 1, discs.Count, dug.Count);
             }
+            return dugAlone.Count(static d => d);
         }
 
         // The last safety net, which no fit's centre can miss: the finder run on the finished plate, and every point source
@@ -2111,17 +2171,19 @@ public static class ClassicalStarRemover
         // where a clamp whose floor passed its ceiling threw and failed the master. Below the cap it IS that clamp.
         private static double SkyAnnulus(double reach, double clear) => Math.Max(clear, Math.Min(reach, SkyAnnulusMax));
 
-        // When a subtracted star's core in one channel sits more than HoleSigma (sigma over root n) below that channel's
-        // median in an annulus beyond the star: the radius out to which the plate is still below its sky (rings averaging
-        // under -0.5 sigma). Null when there is no hole.
-        private double? HoleRadius(in Fit f, int channel, float[] rms)
+        // The sweep's two tests of a subtracted star's core in one channel, both against that channel's median in an annulus
+        // beyond the star and in the per-pixel noise at its centre: a hole (HoleRadius) and a dug pixel (DugCore). No hole
+        // and no dug pixel where that noise or that sky is unknown. A star already refilled for a dug pixel alone is not
+        // tested for one again (testDug false): the fill's own grain can sit under the gate, and redrawing the same disc
+        // every round would only reroll it.
+        private (double? HoleRadius, bool Dug) CoreBelowItsSky(in Fit f, int channel, float[] rms, bool testDug = true)
         {
             var cx = (int)Math.Clamp(Math.Round(f.X), 0, _width - 1);
             var cy = (int)Math.Clamp(Math.Round(f.Y), 0, _height - 1);
             var sigma = rms[cy * _width + cx];
             if (!(sigma > 0))
             {
-                return null;
+                return (null, false);
             }
             var psf = ChannelPsf(channel, f.Width, f.Beta);
             var core = Math.Max(1.5, psf.Fwhm);
@@ -2129,14 +2191,116 @@ public static class ClassicalStarRemover
             {
                 core = Math.Max(core, CoreRadius(f, _rms[cy * _width + cx]));
             }
-            var amplitude = Math.Abs(f.ChannelAmplitudes[channel]);
             var annulus = SkyAnnulus(ReachAt(f, sigma, channel) + 2.0, core + 2.0);
             var plane = _work[channel];
             var sky = AnnulusMedianPlane(plane, f.X, f.Y, annulus, annulus + 6.0, _frame);
             if (!double.IsFinite(sky))
             {
-                return null;
+                return (null, false);
             }
+            return (HoleRadius(f, plane, core, annulus, sky, sigma), FillDugCores && testDug && DugCore(f, channel, sky, annulus));
+        }
+
+        // Whether the subtraction dug a core pixel (#2449): a pixel within DugCoreSearch px of the fit's centre that sits
+        // more than DugPixelSigma of the pixel-to-pixel noise under the annulus sky, where the subtraction took more than
+        // DugPixelSigma of it. What the subtraction took is the input less the plate, every model subtracted at that pixel
+        // (and where the first fill or an earlier round already replaced it, the input less that fill). A dark pixel the
+        // input itself holds, where no model took light, is not one the fit dug and is left alone. The hole test cannot see
+        // this: one pixel barely moves the mean over a core.
+        // The noise is the annulus's own neighbour differences (NeighbourDifferenceNoise), not the sweep's per-pixel rms.
+        // That rms counts the master's correlated noise, and where a crowd or a bright nebula raises it, 2.3 to 7.3 times
+        // the neighbour differences at the deepest pits the first version of this trigger left on the Tarantula master: a
+        // single dug pixel read against it fell under 4 where the pixel-to-pixel noise put it at 5 and more.
+        private bool DugCore(in Fit f, int channel, double sky, double annulus)
+        {
+            var plate = _work[channel];
+            var input = _original[channel];
+            var x0 = (int)Math.Round(f.X);
+            var y0 = (int)Math.Round(f.Y);
+            var r = (int)Math.Ceiling(DugCoreSearch);
+            var (top, bottom) = (Math.Max(0, y0 - r), Math.Min(_height - 1, y0 + r));
+            var (left, right) = (Math.Max(0, x0 - r), Math.Min(_width - 1, x0 + r));
+            // A precheck that skips little: the minimum of the roughly 7 pixels in the search disc is under the annulus
+            // MEDIAN almost every time, so the noise below is measured for nearly every subtracted star, channel and round.
+            // It only spares a core whose every pixel is at or over its sky.
+            var lowest = double.PositiveInfinity;
+            for (var y = top; y <= bottom; y++)
+            {
+                for (var x = left; x <= right; x++)
+                {
+                    if (InDugCoreSearch(f, x, y))
+                    {
+                        lowest = Math.Min(lowest, plate[y * _width + x]);
+                    }
+                }
+            }
+            if (!(lowest < sky))
+            {
+                return false;
+            }
+            var noise = NeighbourDifferenceNoise(plate, f.X, f.Y, annulus, annulus + 6.0);
+            if (!(noise > 0))
+            {
+                return false;
+            }
+            var depth = DugPixelSigma * noise;
+            for (var y = top; y <= bottom; y++)
+            {
+                for (var x = left; x <= right; x++)
+                {
+                    var i = y * _width + x;
+                    if (InDugCoreSearch(f, x, y) && plate[i] < sky - depth && input[i] - plate[i] > depth)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private bool InDugCoreSearch(in Fit f, int x, int y)
+            => (x - f.X) * (x - f.X) + (y - f.Y) * (y - f.Y) <= DugCoreSearch * DugCoreSearch && !IsAbsent(x, y);
+
+        // The pixel-to-pixel noise of a plane over an annulus: 1.4826 times the median magnitude of the differences between
+        // horizontal neighbours both inside it, over root 2, the noise #2449 read its pits in. NaN with fewer than
+        // MinNoisePairs pairs.
+        private double NeighbourDifferenceNoise(float[] plane, double cx, double cy, double inner, double outer)
+        {
+            var r = (int)Math.Ceiling(outer);
+            var x0 = (int)Math.Round(cx);
+            var y0 = (int)Math.Round(cy);
+            var (top, bottom) = (Math.Max(0, y0 - r), Math.Min(_height - 1, y0 + r));
+            var (left, right) = (Math.Max(0, x0 - r), Math.Min(_width - 2, x0 + r - 1));
+            using var buffer = ArrayPoolHelper.Rent<float>((2 * r + 1) * (2 * r + 1));
+            var diffs = buffer.AsSpan(0, buffer.Length);
+            var n = 0;
+            bool Inside(int x, int y)
+            {
+                var d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                return d2 >= inner * inner && d2 <= outer * outer && !IsAbsent(x, y) && float.IsFinite(plane[y * _width + x]);
+            }
+            for (var y = top; y <= bottom; y++)
+            {
+                for (var x = left; x <= right; x++)
+                {
+                    if (Inside(x, y) && Inside(x + 1, y))
+                    {
+                        diffs[n++] = Math.Abs(plane[y * _width + x + 1] - plane[y * _width + x]);
+                    }
+                }
+            }
+            if (n < MinNoisePairs)
+            {
+                return double.NaN;
+            }
+            return 1.4826 * StatisticsHelper.NthSmallest(diffs[..n], n / 2) / Math.Sqrt(2.0);
+        }
+
+        // When a subtracted star's core in one channel sits more than HoleSigma (sigma over root n) below that channel's
+        // median in an annulus beyond the star (sky): the radius out to which the plate is still below its sky (rings
+        // averaging under -0.5 sigma). Null when there is no hole.
+        private double? HoleRadius(in Fit f, float[] plane, double core, double annulus, double sky, double sigma)
+        {
             var z = RingMean(plane, f.X, f.Y, 0.0, core, sky, sigma, out var n) * Math.Sqrt(n);
             // A core above its sky is a remnant (the glow disc a bright star's halo left); refilled like a hole on stars
             // bright enough to leave one, where on a faint star a positive core is as likely the structure under it.
@@ -3129,7 +3293,7 @@ public static class ClassicalStarRemover
             return tried > 0 ? (float)below / tried : float.NaN;
         }
 
-        private StarlessPlateStatistics Measure(ImmutableArray<FittedStar> stars, BitMatrix inpainted, BitMatrix subtracted, ImmutableArray<float> correlation, Stopwatch sw)
+        private StarlessPlateStatistics Measure(ImmutableArray<FittedStar> stars, BitMatrix inpainted, BitMatrix subtracted, ImmutableArray<float> correlation, int dugCores, Stopwatch sw)
         {
             var (leftovers, _) = PointSourceFinder.Find(_lum, _width, _height, _absent, lumPsf.Fwhm, options.LeftoverSigma);
             var bands = ImmutableArray.CreateBuilder<StarlessBand>(BandEdges.Length - 1);
@@ -3170,7 +3334,7 @@ public static class ClassicalStarRemover
                 Faint(static r => r < 1.0 / 3.0),
                 Faint(static r => r > 2.0 / 3.0),
                 fwhmOut, betaOut, (float)_fieldScale, (float)_beta, HoleNullRate(subtracted, inpainted), correlation, sw.Elapsed.TotalSeconds,
-                speckles);
+                speckles, dugCores);
         }
 
         private static float Median(IEnumerable<float> values)

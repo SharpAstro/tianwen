@@ -383,6 +383,52 @@ gone: work that reached past its ground now loses those columns or rows instead 
 image and seed give the same plate on any number of threads. A master on which no tile's work reached past its
 ground gets the same plate, to the bit, as before; the five synthetic fields of the remover's tests did.
 
+**A dug core is refilled (#2449).** The hole sweep tests a core's mean, so one pixel the subtraction dug never
+trips it. On the store's Tarantula master (the ASI585MC at an FWHM of 3.8 px) a core pixel 5 sigma under the sky
+round it stood at 13.8 % of the 10 to 30 sigma and 33.1 % of the 30 to 100 sigma subtracted stars whose core was not
+inpainted, against 3.5 % at random star-free spots: the fit over-takes an undersampled star's peak pixel. The sweep
+now refills such a core in the same round as the holes. Per star and channel, a pixel within 1.5 px of the fit's
+centre more than 4 sigma under the annulus sky the hole test reads, where the subtraction took more than 4 sigma
+(the input less the plate), has the disc of 2 px about the centre filled and marked inpainted. The sigma is the
+pixel-to-pixel noise of that annulus on the working plate (1.4826 times the median magnitude of its horizontal
+neighbour differences, over root 2), not the sweep's per-pixel rms: that rms counts the master's correlated noise,
+and where a crowd or a bright nebula raises it, it stood 2.3 to 7.3 times the neighbour-difference noise at the
+deepest pits a first version left reading against it (a pit 11 to 31 of the one deep was under 4 of the other). A
+dark pixel the input holds, where no model took light, is left. A plate's record counts the stars refilled this way
+(`StarlessPlateStatistics.DugCores`). Unlike the refill driven by the speckle measure that was withdrawn (below,
+"What R0 leaves"), it reads what the subtraction took at the pixel and fills a fixed disc.
+
+Read on that master against the plate main built (the noise from neighbour differences, so the stored plate reads
+13.1 %, 29.8 % and 3.0 % this way): of the stars whose core main left uninpainted, the pit falls from 13.1 % to
+0.7 % of the 10 to 30 sigma ones and from 29.8 % to 0.3 % of the 30 to 100 sigma ones, under the random spots' 3.0 %.
+15,648 stars are refilled (24 % of the subtracted), the inpaint fraction goes from 8.05 % to 10.88 %, and the 9 to
+41 px band of the crowded cells moves by 0.2 at most.
+
+Those refills are over-subtraction, not noise. At a star-free spot nothing was subtracted, so the whole trigger
+cannot fire there and its rate says nothing. The half that noise could trip is the dip: the lowest pixel within
+1.5 px sits more than 4 sigma under its annulus's median, where the sigma is the one that annulus's neighbour
+differences give. Read alone on main's plate over a fixed 6 to 12 px annulus, in any channel, the dip fires at 2.5 %
+of 6,000 random star-free spots, against 55 % of the 10 to 30 sigma and 99 % of the 30 to 100 sigma stars whose core
+main left uninpainted.
+
+A star refilled for a dug pixel alone is not tested for one again in the sweep's later rounds (it is still tested
+for a hole). The fill's own grain can sit under the gate, and a retest redraws the same disc with a new seed each
+round. The grain is drawn at the pixels' noise and the gate reads neighbour differences, which correlated noise
+makes smaller by the root of one less the correlation: on a test field correlated at 0.7, with two hundred shallow
+dug cores, a retest makes 21 redraws among the 178 stars refilled, and the build as shipped none. On the master,
+with a retest every round, the read was 15,661 stars refilled, an inpaint fraction of 10.91 %, a 30 to 100 sigma
+pit of 0.5 % and 250 holes. As shipped, holes in the 10 to 50 sigma bands rose from 106 to 215 of 16,474 stars,
+against the plate's null of 13.9 %. 82 of the 151 stars newly read as holes there were refilled by the
+trigger, and over the refilled stars of those bands the core's depth spreads wider (its 10th to 90th percentile from
+-1.9 to +1.0 to -2.4 to +1.7). Measured and not adopted, both with a retest every round: the trigger at 4 sigma of
+the sweep's rms (pits 5.4 % and 0.3 %, 5,957 stars refilled, inpaint 9.25 %, holes 158) and at 3 sigma of it (1.2 %
+and 0.3 %, 13,951, 10.64 %, 238).
+
+**Each run records what built it.** `tianwen dataset starless-plates` appends one line to
+`stats/starless-plates.provenance.jsonl`, beside the store, as it starts: the library's version and commit (the one
+the bake's launcher reads off the binary), the start time and the builder's options. A run resumed under another
+commit adds its own line.
+
 **The report** (`tianwen dataset starless-plates`, a JSONL store and a markdown table, the shape of
 `gradient-report`), per master: stars found, subtracted, left as knots, inpainted; and four measures.
 

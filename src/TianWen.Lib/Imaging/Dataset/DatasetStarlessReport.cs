@@ -28,6 +28,20 @@ public static class DatasetStarlessReport
     public const string ReportFileName = "starless-plates.md";
 
     /// <summary>
+    /// The provenance record's file name under <c>&lt;out&gt;/stats/</c>, beside the store: one line per run
+    /// (<see cref="StarlessRunProvenance"/>), appended as the run starts, before its first master.
+    /// </summary>
+    /// <remarks>
+    /// <para>A plate carries no record of the code that made it, as a bake's master does not (the bake's launcher writes
+    /// <c>bake-provenance.json</c> for that, <c>tools/run-dataset-bake.ps1</c>). So every run says what built it: the
+    /// library's version and commit (<see cref="BuildInfo"/>, the commit the SDK appends to the informational version,
+    /// which is the one the launcher reads off the binary), when it started, and the builder's options.</para>
+    /// <para>Lines, not one object: a run stopped and resumed under another commit keeps the record of both, and a
+    /// master's <see cref="StarlessMasterRecord.MeasuredUtc"/> falls in the run that started last before it.</para>
+    /// </remarks>
+    public const string ProvenanceFileName = "starless-plates.provenance.jsonl";
+
+    /// <summary>
     /// The stop file, in the output root: create it and the run stops before its NEXT master, the one in progress finished
     /// and recorded, so the next run (which skips every master the store holds) picks up exactly there. The run deletes the
     /// file as it honours it, and one left over from an earlier stop is cleared, with a warning, when a run starts.
@@ -50,6 +64,21 @@ public static class DatasetStarlessReport
 
     /// <summary>What a run did.</summary>
     public sealed record RunResult(int Measured, int Skipped, int Failed, string ReportPath, bool Stopped = false);
+
+    /// <summary>What built a run's plates (<see cref="ProvenanceFileName"/>).</summary>
+    /// <param name="StartedUtc">When the run started.</param>
+    /// <param name="Version">The library's version (<see cref="BuildInfo.Version"/>).</param>
+    /// <param name="Commit">The commit the library was built from (<see cref="BuildInfo.CommitSha"/>); null for a build
+    /// with no source-control information.</param>
+    /// <param name="BuiltUtc">When the library's file was written (<see cref="BuildInfo.BuiltUtc"/>).</param>
+    /// <param name="Builder">The options every plate of the run is built with.</param>
+    /// <param name="Masters">How many masters the run was given.</param>
+    /// <param name="WritePlates">Whether it writes the plates, or measures only.</param>
+    /// <param name="Force">Whether it builds masters the store already holds again.</param>
+    /// <param name="ProfilesOnly">Whether it builds no plate and writes field profiles only.</param>
+    public sealed record StarlessRunProvenance(
+        DateTimeOffset StartedUtc, string Version, string? Commit, DateTime? BuiltUtc, StarlessPlateOptions Builder,
+        int Masters, bool WritePlates, bool Force, bool ProfilesOnly);
 
     /// <summary>One master's record in the store.</summary>
     /// <param name="Master">The master's file name.</param>
@@ -83,9 +112,17 @@ public static class DatasetStarlessReport
             progress?.Report($"[starless] cleared a stop file left by an earlier run ({stopPath})");
         }
 
+        // Written once, before the first master: what builds every plate of this run.
+        var builder = StarlessPlateOptions.Default;
+        await JsonLinesFile.AppendRecordAsync(
+            Path.Combine(statsDir, ProvenanceFileName),
+            new StarlessRunProvenance(DateTimeOffset.UtcNow, BuildInfo.Version, BuildInfo.CommitSha, BuildInfo.BuiltUtc, builder,
+                options.Masters.Length, options.WritePlates, options.Force, options.ProfilesOnly),
+            DatasetStarlessJsonContext.Default.StarlessRunProvenance, cancellationToken);
+
         if (options.ProfilesOnly)
         {
-            return await ProfilesAsync(options, platesDir, store, stopPath, reportPath, logger, progress, cancellationToken);
+            return await ProfilesAsync(options, builder, platesDir, store, stopPath, reportPath, logger, progress, cancellationToken);
         }
 
         int measured = 0, skipped = 0, failed = 0;
@@ -116,7 +153,7 @@ public static class DatasetStarlessReport
                     failed++;
                     continue;
                 }
-                var plate = await ClassicalStarRemover.BuildAsync(image, logger: logger, cancellationToken: cancellationToken);
+                var plate = await ClassicalStarRemover.BuildAsync(image, builder, logger, cancellationToken);
                 var fill = options.ProbeHoles > 0
                     ? StarlessFillProbe.Measure(plate, StarlessFillProbe.DefaultRadii, options.ProbeHoles, cancellationToken: cancellationToken)
                     : ImmutableArray<FillProbeBand>.Empty;
@@ -155,7 +192,7 @@ public static class DatasetStarlessReport
                 store[name] = record;
                 image.Release();
                 measured++;
-                progress?.Report($"[starless] {name}: {record.Found} found, {record.Subtracted} subtracted, {record.Knots} knots, inpaint {plate.Statistics.InpaintFraction:P2}, {plate.Statistics.Seconds:F0} s");
+                progress?.Report($"[starless] {name}: {record.Found} found, {record.Subtracted} subtracted, {record.Knots} knots, inpaint {plate.Statistics.InpaintFraction:P2}, {plate.Statistics.DugCores} dug cores refilled, {plate.Statistics.Seconds:F0} s");
                 await WriteMarkdownAsync(reportPath, store.Values, cancellationToken);
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -173,8 +210,8 @@ public static class DatasetStarlessReport
     // again by the same calibration (deterministic on the same master), and the store's own record of that calibration (the
     // luminance's beta) says whether it is the same one.
     private static async Task<RunResult> ProfilesAsync(
-        RunOptions options, string platesDir, Dictionary<string, StarlessMasterRecord> store, string stopPath, string reportPath,
-        ILogger? logger, IProgress<string>? progress, CancellationToken cancellationToken)
+        RunOptions options, StarlessPlateOptions builder, string platesDir, Dictionary<string, StarlessMasterRecord> store, string stopPath,
+        string reportPath, ILogger? logger, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         int measured = 0, skipped = 0, failed = 0;
         var stopped = false;
@@ -204,7 +241,7 @@ public static class DatasetStarlessReport
                     failed++;
                     continue;
                 }
-                var profile = await ClassicalStarRemover.MeasureFieldProfileAsync(image, logger: logger, cancellationToken: cancellationToken);
+                var profile = await ClassicalStarRemover.MeasureFieldProfileAsync(image, builder, logger, cancellationToken);
                 image.Release();
                 var check = store.TryGetValue(name, out var record)
                     ? Math.Abs(profile.Luminance.Beta - record.Statistics.FieldBeta) <= 1e-3 * Math.Max(1.0, record.Statistics.FieldBeta)
@@ -356,5 +393,6 @@ public static class DatasetStarlessReport
 
 // NaN is a legitimate value here (a band with no clean star has no median), so the named literals are allowed.
 [JsonSerializable(typeof(DatasetStarlessReport.StarlessMasterRecord))]
+[JsonSerializable(typeof(DatasetStarlessReport.StarlessRunProvenance))]
 [JsonSourceGenerationOptions(WriteIndented = false, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
 internal partial class DatasetStarlessJsonContext : JsonSerializerContext;
