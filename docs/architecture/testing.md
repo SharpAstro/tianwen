@@ -82,8 +82,10 @@ come from `Microsoft.Testing.Extensions.CrashDump` / `.HangDump` / `.TrxReport`,
   (`AllocationReadings.Least`, #1331), and every reading is written to the test's output. An allocation the call
   makes on every pass shows in every reading, so a call that allocates each time can never read zero; a one-off
   landing on the measuring thread from elsewhere shows in one. **The body must do the same work on every pass**
-  (#2440): a call that allocates only now and then (a scratch buffer that grows, a pool refilled every Nth call) can
-  read zero in all of them, so such a body makes enough calls inside one pass to include the occasion.
+  (#2440): a call that allocates only now and then can read zero in all of them. A periodic allocation (a pool
+  refilled every Nth call) is put into every reading by making N or more calls inside one pass. A one-time one (a
+  scratch buffer that grows to its size and then stays) is spent in the warm-up and is in no reading, like any
+  first-call cost, and more calls in a pass do not bring it back (#2452).
   `RaDecCellEnumerationTests.ANineCellWalkAllocatesNothing` read 5,336 B once
   in 87 full-suite runs for a walk with no allocating path. What the one-off is, is not known: tiered
   compilation's promotion was the guess, and an allocation-free walk called 60,000 times in a fresh process never
