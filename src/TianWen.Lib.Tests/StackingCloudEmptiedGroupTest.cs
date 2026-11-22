@@ -71,6 +71,71 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// #2419: the forced-drizzle skip, through the pipeline. Twelve lights of a colour sensor all register; three were taken
+    /// under a sky two and a half times the rig's clear night, so the cloud filter leaves those out and nine remain, under
+    /// the twelve the forced drizzle is told to need. The skip says that the filter took the group under, with the pipeline's
+    /// own counts: told that nothing was left out, it would say only "got 9" and send the reader to the registration.
+    /// </summary>
+    [Fact]
+    public async Task AForcedDrizzleTheCloudFilterTookUnderItsMinimumSaysSoThroughThePipeline()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const int Lights = 12;
+        const int Cloudy = 3;
+        using var workspace = new TempStackingWorkspace();
+        var first = WriteFrames(workspace.LightsDir, FrameType.Light, skyBackground: 100.0, count: Lights, SensorType.RGGB,
+            skyOf: static i => i >= Lights - Cloudy ? 250.0 : 100.0);
+
+        var external = new FakeExternal(output);
+        await WriteClearReferenceAsync(external, first, nightDarkestSky: 80f, ct);
+
+        // The star-quality filter is off, so that what is left out is the cloud filter's alone.
+        var options = new StackingOptions(DataRoot: workspace.RootDir, OutputDir: workspace.OutputDir, RejectCloud: true,
+            QualityRejectSigma: 0f, ForcedStrategy: IntegrationStrategyKind.BayerDrizzle, DrizzleOptions: new DrizzleOptions(MinFrameCount: Lights));
+        var pipeline = new StackingPipeline(options, new XunitLogger(output), catalogDb: null, external: external);
+        var results = new List<GroupResult>();
+        await foreach (var r in pipeline.RunAsync(ct))
+        {
+            results.Add(r);
+        }
+
+        var result = results.ShouldHaveSingleItem();
+        result.SkipReason.ShouldBe($"BayerDrizzle requires >= {Lights} matched frames (got {Lights - Cloudy}: {Cloudy} of {Lights} were left out for cloud or twilight; "
+            + "--reject-cloud false keeps them, --drizzle-min-frames lowers the minimum)");
+        result.FramesMatched.ShouldBe(Lights - Cloudy);
+    }
+
+    /// <summary>
+    /// The same skip when it is the STAR-QUALITY filter that took the group under (#2419's second note): two of twelve lights
+    /// are out of focus, the filter leaves them out, and ten remain under the twelve the forced drizzle needs. The cloud filter
+    /// is off here, so that what is left out is the quality filter's alone.
+    /// </summary>
+    [Fact]
+    public async Task AForcedDrizzleTheQualityFilterTookUnderItsMinimumSaysSoThroughThePipeline()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const int Lights = 12;
+        const int Soft = 2;
+        using var workspace = new TempStackingWorkspace();
+        WriteFrames(workspace.LightsDir, FrameType.Light, skyBackground: 100.0, count: Lights, SensorType.RGGB,
+            defocusOf: static i => i >= Lights - Soft ? 40.0 : 0.0);
+
+        var options = new StackingOptions(DataRoot: workspace.RootDir, OutputDir: workspace.OutputDir, RejectCloud: false,
+            ForcedStrategy: IntegrationStrategyKind.BayerDrizzle, DrizzleOptions: new DrizzleOptions(MinFrameCount: Lights));
+        var pipeline = new StackingPipeline(options, new XunitLogger(output), catalogDb: null, external: new FakeExternal(output));
+        var results = new List<GroupResult>();
+        await foreach (var r in pipeline.RunAsync(ct))
+        {
+            results.Add(r);
+        }
+
+        var result = results.ShouldHaveSingleItem();
+        result.SkipReason.ShouldBe($"BayerDrizzle requires >= {Lights} matched frames (got {Lights - Soft}: {Soft} of {Lights} were left out by the star-quality filter; "
+            + "--quality-reject-sigma 0 keeps them, --drizzle-min-frames lowers the minimum)");
+        result.FramesMatched.ShouldBe(Lights - Soft);
+    }
+
+    /// <summary>
     /// The grade reads its sky LEVEL off the raw light, not the calibrated one (#2003): the viewer's references and
     /// <see cref="LightGrading.NightSkyCloudFrom"/> are on the raw scale. Here a matched dark takes 60 counts off a sky of 160, and the
     /// rig's clear night is placed between the two scales: 160 against 80 is 2x, cloud, while the calibrated 100 against 80 is 1.25x,
@@ -150,16 +215,23 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
         (await LightGradeReferenceStore.LoadAsync(external, ct)).Length.ShouldBe(1, "the reference must read back through the store");
     }
 
-    /// <summary>Ten frames of one rig and night (lights carry 60 stars, darks none), the sky at <paramref name="skyBackground"/> counts.</summary>
-    private static string WriteFrames(string dir, FrameType frameType, double skyBackground)
+    /// <summary>
+    /// Frames of one rig and night (lights carry 60 stars, darks none), ten unless <paramref name="count"/> says otherwise,
+    /// the sky at <paramref name="skyBackground"/> counts or what <paramref name="skyOf"/> gives a frame.
+    /// </summary>
+    private static string WriteFrames(string dir, FrameType frameType, double skyBackground, int count = FrameCount,
+        SensorType sensor = SensorType.Monochrome, Func<int, double>? skyOf = null, Func<int, double>? defocusOf = null)
     {
         var light = frameType == FrameType.Light;
         var paths = new List<string>();
-        for (var i = 0; i < FrameCount; i++)
+        for (var i = 0; i < count; i++)
         {
+            // Past the ten offsets, the same ones again a third of a pixel further on: still a dither of its own.
+            var (dx, dy) = DitherOffsets[i % DitherOffsets.Length];
+            var further = 0.33 * (i / DitherOffsets.Length);
             var pixels = SyntheticStarFieldRenderer.Render(
-                width: FrameSize, height: FrameSize, defocusSteps: 0, offsetX: DitherOffsets[i].DX, offsetY: DitherOffsets[i].DY,
-                exposureSeconds: 1.0, skyBackground: skyBackground, readNoise: 5.0, starCount: light ? 60 : 0, seed: 42, hotPixelCount: 0, maxADU: 4096.0,
+                width: FrameSize, height: FrameSize, defocusSteps: defocusOf?.Invoke(i) ?? 0, offsetX: dx + further, offsetY: dy - further,
+                exposureSeconds: 1.0, skyBackground: skyOf?.Invoke(i) ?? skyBackground, readNoise: 5.0, starCount: light ? 60 : 0, seed: 42, hotPixelCount: 0, maxADU: 4096.0,
                 noiseSeed: 42 + i);
             var meta = new ImageMeta
             {
@@ -174,7 +246,7 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
                 BinX = 1,
                 BinY = 1,
                 CCDTemperature = -5f,
-                SensorType = SensorType.Monochrome,
+                SensorType = sensor,
                 ObjectName = light ? "SynthTarget" : "",
                 Gain = 100,
                 Offset = 25,
