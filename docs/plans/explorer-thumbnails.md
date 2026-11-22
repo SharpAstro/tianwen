@@ -224,12 +224,14 @@ every field of `STATSTG` and a trimmed struct is a stack corruption that looks l
 cause). And the native `IStream` is released with `ComObject.FinalRelease` as soon as its bytes are
 copied out, rather than at a finalization this process never reaches.
 
-**What is still open**: the re-measure. Every number above is from the issue's own process inspection and
-from reading the allocation path; nothing here has yet been re-measured against a real surrogate after
-the fix, which needs a folder of large frames outside OneDrive and a cold thumbnail cache. And the
-**bigger** win is untouched by design -- binning the CFA mosaic per colour BEFORE the debayer, so a 256 px
-answer never allocates a full-resolution three-plane image at all. That changes the picture, so it wants
-the harness first.
+**The re-measure in a real surrogate (2026-11-22, #848, closed on it).** The Store's signed package
+(10.0.3416.0) drew a local folder of 320 FITS lights of 17 MB each. Sampled once a second, the surrogate
+holding `tianwen-thumb.dll` peaked at 919 MB private and 990 MB working set, and had exited about six
+minutes later, so nothing was held idle as in #294. When it exited, and whether `IdleHeapCollapse` ran
+first, was not caught; the owner took "it closed and didn't linger" as enough. Still open by design: the
+**bigger** win, binning the CFA mosaic per colour BEFORE the debayer, so a 256 px answer never allocates a
+full-resolution three-plane image at all. That is what would cut a burst's peak, and it wants the harness
+first.
 
 ## Traps, for the next person
 
