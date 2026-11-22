@@ -29,18 +29,19 @@ namespace TianWen.Lib.Logging;
 /// </para>
 /// <para>
 /// <b>A line is queued by the thread that logs it and written by a thread of the provider's own</b> (#541). Every
-/// logger of a process used to share one lock around a writer that flushed each line to disk, so a render thread or
-/// a camera's stream thread that logged waited on another thread's disk write, which is what
+/// logger of a process used to share one lock around a writer that flushed each line, so a render thread or
+/// a camera's stream thread that logged waited on another thread's write to the file, which is what
 /// <c>LogDebugOffThread</c> was written to get around, one call at a time. A line's time is taken where it is
 /// logged, and the lines are written in the order they were queued.
 /// </para>
 /// <para>
-/// <b>What that costs, and what covers it.</b> A line is no longer on disk when <c>Log</c> returns, so a process that
-/// dies in between loses what was still queued. The queue is drained, and the caller waits for it, in the
+/// <b>What that costs, and what covers it.</b> A line used to be handed to the operating system before <c>Log</c>
+/// returned, so it outlived its process however that ended. Now a process that dies between the two loses what was
+/// still queued. The queue is drained, and the caller waits for it (for at most <see cref="FlushBudget"/>), in the
 /// unhandled-exception handler (<see cref="UnhandledExceptionLog"/>), at process exit and on
 /// <see cref="Dispose"/>: a managed crash keeps its last lines as before. A native fail-fast or a kill runs none
-/// of those, and loses the lines the writer had not reached, which is as many as were logged in the time one
-/// batch takes to write.
+/// of those, and loses the lines the writer had not reached: those logged in the time it takes the writer to wake
+/// and write a batch.
 /// </para>
 /// </remarks>
 public sealed class FileLoggerProvider : ILoggerProvider

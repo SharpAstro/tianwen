@@ -125,7 +125,10 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   frame stall -- hand the render thread an immutable snapshot instead); (3) if the lock stays, it must
   be `System.Threading.Lock` (C# 13), never `lock` on an `object`, a collection or any other reachable
   instance (faster, self-documenting, compiler-enforced). None are left (swept 2026-09-24, #353); the
-  one clause still unmet, `FileLoggerProvider` being reachable from a render thread, is #541. For a most-recent-N window polled by readers (guide
+  one clause that stayed unmet, the file log's lock being reachable from a render thread, went with the lock
+  itself (#541: `FileLoggerProvider` queues a line where it is logged and writes it on a thread of its own, so
+  a line is on disk after `Flush()`, not after `Log`; the crash handler, a process exit and `Dispose` drain it,
+  and a native fail-fast or a kill loses what the writer had not reached). For a most-recent-N window polled by readers (guide
   samples, frame metrics), prefer the lock-free `CircularBuffer<T>` (`TianWen.Lib/Sequencing`):
   ImmutableArray + CAS replace, torn-free `Snapshot` reads, O(capacity) appends -- right when producers
   are low-rate (per exposure) and pollers high-rate (per frame).

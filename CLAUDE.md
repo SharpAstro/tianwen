@@ -161,6 +161,9 @@ General coding rules in full: `docs/architecture/coding-rules.md`.
   runs at real rate (`StartupTimeOverride`, wired once in `AddExternal`).
 - **Every program hooks `UnhandledExceptionLog.HookForTheProcess` once**, as soon as it has a logger: a crash and a
   task's exception nobody awaited reach its log with their stack (#1811). `EveryProgramLogsItsUnhandledExceptions`.
+- **The file log writes on a thread of its own** (`FileLoggerProvider`, #541): a line is on disk after `Flush()`, not
+  after `Log`. The crash handler, a process exit and `Dispose` drain it; code that ends the process any other way
+  (`Environment.FailFast`) owes `FileLoggerProvider.FlushAll()` first, and a test that reads a log file flushes first.
 
 ### Devices
 

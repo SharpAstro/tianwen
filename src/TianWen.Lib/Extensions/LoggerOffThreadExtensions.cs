@@ -8,11 +8,15 @@ namespace TianWen.Lib.Extensions;
 /// A line a thread that must not wait says as it goes, written by the thread pool rather than by that thread.
 /// </summary>
 /// <remarks>
-/// <para>A host's file log is one lock for every logger in its process, its writer flushing each line to disk under it
-/// (<c>FileLoggerProvider</c>), and a normal-priority thread a busy machine holds off while it holds that lock would hold
-/// up the thread that logs behind it: the camera's stream thread, the capture's reader (TIA2, review round 1 of #1621).
+/// <para>When this was written a host's file log was one lock for every logger in its process, its writer flushing each
+/// line to disk under it (<c>FileLoggerProvider</c>), and a normal-priority thread a busy machine held off while it held
+/// that lock would hold up the thread that logged behind it: the camera's stream thread, the capture's reader (TIA2,
+/// review round 1 of #1621).
 /// What the line says is taken on the calling thread; only the writing waits, so a line can be written late and out of
 /// order with the lines around it. A time a reader needs goes INTO the line, never read off its write.</para>
+/// <para>Since #541 the file log has no lock: it queues a line where it is logged and writes it on a thread of its own.
+/// What this extension still takes off the calling thread is the line's formatting and whatever other sink a host has
+/// (the console's). The capture was measured with it, and not yet without, so its callers keep it.</para>
 /// </remarks>
 public static class LoggerOffThreadExtensions
 {
