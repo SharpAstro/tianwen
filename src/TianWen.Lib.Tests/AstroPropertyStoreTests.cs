@@ -84,6 +84,7 @@ public unsafe class AstroPropertyStoreTests
     [Fact]
     public void TheFirstPropertyCallReadsTheHeaderOnlyAndTheLaterOnesReadNothing()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "PropVariantClear is ole32's, which only Windows has.");
         var bytes = FitsBytes(1000, 1000, 16, ("INSTRUME", "'ZWO ASI533MC Pro'"), ("EXPTIME", "300.0"));
         var stream = new SeekableStream(bytes);
         var store = new AstroPropertyStore();
@@ -126,6 +127,7 @@ public unsafe class AstroPropertyStoreTests
     [Fact]
     public void AFitsAnswersEachKeyWithItsVariantType()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "PropVariantClear is ole32's, which only Windows has.");
         var store = Store(FitsBytes(32, 24, 16,
             ("INSTRUME", "'ZWO ASI533MC Pro'"), ("TELESCOP", "'Sky-Watcher Esprit 100'"),
             ("EXPTIME", "300.0"), ("FOCALLEN", "550.0"), ("APTDIA", "100"), ("ISOSPEED", "800"),
@@ -157,6 +159,7 @@ public unsafe class AstroPropertyStoreTests
     [Fact]
     public void ASerAnswersItsDurationInHundredNanosecondsAndItsRateInFramesPerThousandSeconds()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "PropVariantClear is ole32's, which only Windows has.");
         var start = new DateTime(2026, 11, 1, 22, 0, 0, DateTimeKind.Utc);
         var store = Store(SerBytes(frames: 101, start, TimeSpan.FromMilliseconds(20)));
 
