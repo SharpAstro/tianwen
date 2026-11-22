@@ -37,7 +37,8 @@ public static class NarrowbandCombination
 
     /// <summary>
     /// Every plane split into its starless plate and its stars (the plane less the plate) on one scale
-    /// (<see cref="StarlessAsync"/>), the remover's own output with nothing done after it: no core protected, no dig filled.
+    /// (<see cref="StarlessAsync"/>), the remover's own output with no core protected and no dig filled, only held at or under
+    /// its plane (<see cref="AtOrUnderPlane"/>), so the stars are never negative.
     /// </summary>
     public static async Task<(Image[] Starless, Image[] Stars)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
@@ -55,7 +56,9 @@ public static class NarrowbandCombination
     /// <para>With <paramref name="fillDigs"/>, and only for a remover that takes it (<see cref="IStarRemover.TakesDigFill"/>:
     /// TianWen's own, never RC-Astro's), each plate then has the holes the model dug under its stars filled
     /// (<see cref="DigFill"/>, #2204). Also the share of each plate's pixels the step could change; null when it did not run.</para>
-    /// <para>The stars are the plane less the FINISHED plate, so plate plus stars is the plane whatever ran.</para>
+    /// <para>Whatever ran, each plate is then held at or under its plane (<see cref="AtOrUnderPlane"/>, #2433).</para>
+    /// <para>The stars are the plane less the FINISHED plate, so plate plus stars is the plane whatever ran, and the stars
+    /// are never negative: screened back onto the plate, they give the plane again.</para>
     /// </summary>
     public static Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
@@ -105,6 +108,12 @@ public static class NarrowbandCombination
                 {
                     plate.Release();
                 }
+            }
+            // Last, after whatever ran: the plate is held at or under its plane, so the stars are never negative (#2433).
+            {
+                var plate = starless[i];
+                starless[i] = AtOrUnderPlane(plate, planes[i]);
+                plate.Release();
             }
             stars[i] = Stars(planes[i], starless[i]);
         }
@@ -285,6 +294,17 @@ public static class NarrowbandCombination
 
     /// <summary>The stars a remover took out: the plane less its starless plate, absent where either is.</summary>
     public static Image Stars(Image plane, Image starless) => Combine(plane, starless, static (a, b) => a - b);
+
+    /// <summary>
+    /// <paramref name="plate"/> held at or under <paramref name="plane"/>, pixel by pixel and channel by channel (the plate's
+    /// own metadata kept, absent where either is), so the stars read off it (<see cref="Stars"/>) are never negative. A stars
+    /// layer cannot hold negative light: where a plate stands over its plane, screening the stars back onto the starless does
+    /// not give the plane again (#2433). On the three held-out whole masters TianWen's own plate stood over its input on 4 to
+    /// 16 % of the pixels, mostly by a few hundredths to a few tenths of the noise, and the screen-back missed by more than the
+    /// sky noise on 0.1 to 0.9 % of them, 35 to 40 % of those 3 to 6 px from a star; StarXTerminator's plate did not stand over
+    /// its input. The clamp lowered a frame's mean by 0.006 to 0.026 of the noise.
+    /// </summary>
+    public static Image AtOrUnderPlane(Image plate, Image plane) => Combine(plate, plane, static (p, input) => MathF.Min(p, input));
 
     /// <summary>A starless plane with its stars (<see cref="Stars"/>) put back.</summary>
     public static Image WithStars(Image starless, Image stars) => Combine(starless, stars, static (a, b) => a + b);

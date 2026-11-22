@@ -9443,6 +9443,42 @@ a dark globule** toward it. The instruments named below (`holes_look.py`, `floor
     | 12.2 megapixel colour (the Andromeda master) | 2,738 MB, 8.5 s | 2,878 MB, 9.3 s |
     | 24.4 megapixel colour (that master joined to its mirror image) | 5,054 MB, 16.3 s | 5,081 MB, 18.2 s |
 
+#### The starless held at or under its input: the stars screen back exactly (2026-11-22, #2433)
+
+The owner's test of the glow guard: "can we re-screen the starlight [lots] of the milkyway without blowing up the
+stars. we could test this against some of our frames", both edits measured apart (`screen_back.py`). Each held-out
+master and each starless are stretched with the master's own stretch; the stars layer is the unscreen of the two, so an
+untouched screen-back gives the master again. Then (a) the starless gets a further midtones transfer of 0.3 and the
+stars go back on unchanged, and (b) the stars layer gets it and goes back onto the original starless. Isolated
+catalogued stars' half-flux diameter over the stretched master's, the share whose peak clips, and the fog (what the
+screen adds between stars, in the master's display-space sky noise):
+
+| master and split | stars layer between stars | (a) HFD, clipped, fog | (b) HFD, clipped, fog |
+|---|---|---|---|
+| Tarantula, the whole master given (a)'s stretch | | x1.11, 5.5 % | |
+| Tarantula, StarXTerminator | 1.49 | x1.07, 2.8 %, 0.90 | x1.11, 5.5 %, 2.63 |
+| Tarantula, R4d through the chain | 0.23 | x1.11, 2.8 %, 0.13 | x1.07, 5.5 %, 0.41 |
+| Sagittarius, StarXTerminator | 0.13 | x1.25, 3.0 %, 0.08 | x1.00, 5.8 %, 0.23 |
+| Sagittarius, R4d through the chain | 0.02 | x1.25, 3.0 %, 0.01 | x0.99, 5.8 %, 0.03 |
+| Andromeda, StarXTerminator | 0.13 | x1.08, 2.2 %, 0.08 | x1.09, 5.3 %, 0.23 |
+| Andromeda, R4d through the chain | 0.12 | x1.08, 2.2 %, 0.07 | x1.09, 5.3 %, 0.21 |
+
+Screening the stars back onto a harder-stretched starless (a) does not blow them up for either split, and halves the
+cores that clip against stretching the whole master. Stretching the stars layer (b) does, for StarXTerminator's on the
+Tarantula: its stars layer holds the LMC's glow, which a stars stretch turns into a haze six times ours (a 2x crop of
+both was sent to the owner). That is the practical reason behind the glow guard, for anyone who stretches the stars.
+
+**The flaw the test found, fixed here.** StarXTerminator's plate never stands over its input, so its screen-back is
+exact. TianWen's stood over its input on 4 to 16 % of the pixels, mostly by a few hundredths to a few tenths of the
+noise, and the screen-back missed by more than the display-space sky noise on 0.32 % (Tarantula), 0.12 % (Sagittarius)
+and 0.90 % (Andromeda) of them, 35 to 40 % of those 3 to 6 px from a catalogued star: a faint ring outside the core once
+the stars are screened back. `NarrowbandCombination.SplitStarsAsync` now holds every plate at or under its plane last,
+after the cores and the dig fill (`AtOrUnderPlane`), so plate plus stars is the plane and the stars are never negative,
+whatever the remover did. On the three masters that changes 5.8 to 16.8 % of the pixels, lowers a frame's mean by 0.006
+to 0.026 of the noise, and takes the screen-back error to the float's rounding (1e-16) with every other figure above
+unchanged. The ring itself is a fill brighter than the sky beside a star; the clamp caps it at the input. Teaching the
+model not to overshoot (a one-sided term in the loss) would be an arm of its own.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure

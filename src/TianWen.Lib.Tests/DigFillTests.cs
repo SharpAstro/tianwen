@@ -480,10 +480,13 @@ public class DigFillTests
         onShare.ShouldNotBeNull();
         onShare[0].ShouldBeGreaterThan(0);
 
-        ShouldBeBitForBit(off[0], raw);
-        offShare.ShouldBeNull("switched off: the model's output, bit for bit");
-        ShouldBeBitForBit(other[0], raw);
-        otherShare.ShouldBeNull("a remover that does not take it (RC-Astro) is never touched");
+        // Off, the fill leaves the model's output as it is; the split then only holds it at or under the input (#2433), which
+        // here moves a pixel the scale's round trip left a rounding error over the input.
+        var held = NarrowbandCombination.AtOrUnderPlane(raw, input);
+        ShouldBeBitForBit(off[0], held);
+        offShare.ShouldBeNull("switched off: the model's output, held at or under the input");
+        ShouldBeBitForBit(other[0], held);
+        otherShare.ShouldBeNull("a remover that does not take it (RC-Astro) is never filled");
 
         // The stars are the input less the FILLED plate, so plate plus stars is still the input.
         for (var y = 0; y < Size; y++)
