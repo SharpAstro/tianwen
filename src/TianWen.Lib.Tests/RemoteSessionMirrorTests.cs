@@ -910,7 +910,7 @@ public class RemoteSessionMirrorTests
     }
 
     [Theory]
-    [InlineData(1)]      // just past half the round trip: the smallest offset that is one
+    [InlineData(1)]      // 1 ms past half the round trip: just past half, so it is applied (the edge itself is one tick past half; the exactly-half side is the test above)
     [InlineData(-1000)]  // a node a second behind at the middle
     public async Task AnOffsetLargerThanHalfItsRoundTripIsStillApplied(int nodeAheadOfTheHalfMs)
     {
