@@ -513,7 +513,7 @@ public partial class Image
     // path uses the same logic. Min/max value computation stays in the pixel
     // read path because the header DATAMIN/DATAMAX fields are often missing or
     // wrong; the pixel-walk recomputes them.
-    private static ImageMeta ParseImageMetaFromHeader(BasicHDU hdu, int channelCount)
+    internal static ImageMeta ParseImageMetaFromHeader(BasicHDU hdu, int channelCount)
     {
         var exposureStartTime = new DateTime(hdu.ObservationDate.Ticks, DateTimeKind.Utc);
         // EXPTIME and EXPOSURE are both in the wild for the same quantity (N.I.N.A. writes both,
@@ -630,6 +630,10 @@ public partial class Image
                 hdu.Header.GetIntValue("GUIDEN", 0))
             : (GuidingStats?)null;
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
+        // OBSERVER names the person; ISOSPEED is a DSLR frame's ISO and is never the GAIN card (a camera
+        // register of a different scale), so an absent card stays -1. Read here only, so both read paths agree.
+        var observer = hdu.Header.GetStringValue("OBSERVER")?.Trim() ?? "";
+        var isoSpeed = ReadIntegerLikeCard(hdu.Header, "ISOSPEED") ?? -1;
         var swModifier = hdu.Header.GetStringValue("SWMODIFY") ?? "";
         // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
         // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
@@ -703,7 +707,9 @@ public partial class Image
             SiteElevation: siteElevation,
             ColourCalibration: colourCalibration,
             Guiding: guiding,
-            Airmass: airmass
+            Airmass: airmass,
+            Observer: observer,
+            Iso: isoSpeed
         )
         {
             IsMaster = isMaster,
