@@ -224,6 +224,22 @@ methods"). `StartPulseGuideAsync` returns once the board is COMMANDED; the hold 
 Dec pair (`CanPulseGuideSimultaneously` is true) clears only when both finish. Pulses under 20 ms are
 ignored. The rate is `SkywatcherGuideRate`, five firmware indices at most 1.0x, snapped by `Nearest`.
 
+**The hold's timer is armed before the caller is told the pulse is commanded** (`PulseHold.RunAsync`, #2330). The
+driver used to tell first and sleep second. The caller, released, began its own wait on the same clock, and where
+the driver's thread had lost the processor in between, the pulse was held from wherever the clock had got to. On
+the machine's clock that is the time a thread waits for a processor. On a clock a test advances it is whatever
+the test advanced meanwhile: a calibration's 750 ms Dec pulse ran for several times its length, the star moved
+7 px where 1 px was meant, and it left the frame (`GuiderCalibrationOnFakeGuideCameraTests`, once on CI;
+reproduced on demand by holding the driver's thread 40 ms in that gap, and gone with the same hold in place once
+the order was turned round).
+
+**What that does not close.** The END of a hold has the same shape and no such remedy: the stop is sent by the
+code that runs after the timer, and a thread held up there sends it late. On a pumped clock a 40 ms hold before
+the Dec `:K2` fails the same test the same way, because the caller's own wait for the pulse (a poll every 50 ms)
+is something parked, and the pump goes on advancing the clock for it. Closing that needs the pump to know that a
+released sleeper has not finished its work (#2081, #2412), or the caller to wait for the pulse's end itself and not
+for the clock, which changes a real guide loop's timing and is not done here.
+
 | Pulse | Start | Hold, then end |
 |-------|-------|----------------|
 | RA, mount tracking (a fresh `:f1`) | `:I1` at (1 + f) x sidereal West, (1 - f) x sidereal East; East at 1.0x commands sidereal / 1000 (`EastPulseHaltsTheAxis`) | **verified** `:I1` back to sidereal |
