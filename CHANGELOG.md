@@ -967,7 +967,7 @@ percent of its peak), but a debayered OSC plane samples it on a 2 px pitch, so p
 with 6 percent at the neighbours, and the sinc's negative lobes ring on a spike by construction (13
 percent of the peak). That ring set the frame minimum, the SAS auto-detect's median-minus-minimum
 statistic crossed 0.125, and the tile exporter wrote a LINEAR sub unstretched, the domain skew the
-denoiser once hid for two weeks. The clamp is PCL's `LanczosInterpolation` rule verbatim (the
+denoiser once hid for two weeks. The clamp is PCL's `LanczosInterpolation` rule, re-implemented from its source and credited in NOTICE (the
 weighted samples split by sign, negative lobes attenuated smoothly above a threshold and dropped once
 they outweigh the positive ones), at a threshold of **0.7, measured, not PixInsight's 0.3**: on a 2.12
 px mono Gaussian at half phase 0.3 lifts every star's skirt by 0.73 px of second-moment FWHM in

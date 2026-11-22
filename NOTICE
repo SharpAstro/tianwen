@@ -80,6 +80,17 @@ attenuated once it passes a threshold of the positive part.
 
   PixInsight Class Library -- https://gitlab.com/pixinsight/PCL
 
+That source file's own notice, as it reads at PCL 2.15.0:
+
+  Copyright (c) 2003-2026 Pleiades Astrophoto S.L. All Rights Reserved.
+
+  The use of this source code is governed by the PixInsight Class Library
+  License Version 2.0, which can be found in the LICENSE file included with
+  this distribution, as well as at:
+  https://pixinsight.com/license/PCL-License-2.0.html
+
+The LICENSE file of that distribution is the text of version 2.0.1 reproduced below.
+
 Ours, and not PCL's: the threshold (0.7, measured, where PCL ships 0.3), and what is
 done with a negative tap, a tap that is not a number and a tap past the edge.
 
