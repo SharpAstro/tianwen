@@ -189,7 +189,9 @@ What bites:
 primitive**: **the in-flight count rises BEFORE the first write and falls only when the hold ends** (GSS #109),
 and **a failed restore parks in `_pendingPulseFault`**, re-thrown from the next `StartPulseGuideAsync` *and*
 `IsPulseGuidingAsync`. **A test for the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**.
-`docs/plans/gss-parity-audit.md`.
+**A driver that times a pulse itself holds it through `PulseHold.RunAsync`**, which arms the pulse's timer before
+it tells the caller the pulse is commanded (#2330; `docs/architecture/skywatcher-protocol.md` says what that
+closes and what it does not). `docs/plans/gss-parity-audit.md`.
 
 ### Backlash Auto-Tuning (from CLAUDE.md)
 
