@@ -916,8 +916,8 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // saturated star the frame's edge cuts, beside a tile boundary along that edge. Measured on this seed: four requests
     // ask for more than their ground, all SymmetricProfile reads of the giants (the one at (600, 262) is found in the
     // tile above its plateau's centre, and its ring reads 7 rows past that tile's ground), and 7 pairs of requests of
-    // two tiles of one phase overlap (the test's met). No write is among them: a write reaches 104 px and a read 128,
-    // so two tiles of a phase, 256 px apart, never have a write meet a request.
+    // two tiles of one phase overlap as reads; the test's met counts requests that reach into a phase-mate's ground. No
+    // write reaches a phase-mate: a write reaches 104 px and a read 128, tiles of a phase are 256 px apart.
     private static Field TileEdgeField(int channels = 1) => MakeField(channels, extra: TileEdgeStars());
 
     private static Injected[] TileEdgeStars() =>
@@ -973,9 +973,9 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // #2378, the check the issue asked for: every rectangle a routine asks for through Square or Bound, recorded with the
     // ground it was held to, on the field of stars where a tile's work reaches furthest. No requested rectangle, once cut,
     // leaves its ground. That every read and write of the working planes goes through those two is the code review's claim,
-    // not this test's. The field is one where work ASKED for more than its ground and where requests of two tiles of one
-    // phase would have met without the ground (met > 0, measured 7), so the assertion is not over a field the clip never had to cut. Only a DEBUG build
-    // records (Category=DebugOnly runs it on the Debug leg); Release skips.
+    // not this test's. The field is one where work ASKED for more than its ground and where a request reached into the
+    // ground of a tile of its own phase (met > 0), so the assertion is not over a field the clip never had to cut. Only a
+    // DEBUG build records (Category=DebugOnly runs it on the Debug leg); Release skips.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "DebugOnly")]
     public async Task NoTileReadsOrWritesPastItsGround()
@@ -991,22 +991,30 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         {
             output.WriteLine($"  past its ground: {a.Site}, pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, touched {a.Touched}");
         }
-        output.WriteLine($"{accesses.Length} rectangles recorded,{tileWork.Length} in the tile passes ({tileWork.Count(static a => a.Write)} writes); "
+        output.WriteLine($"{accesses.Length} rectangles recorded, {tileWork.Length} in the tile passes ({tileWork.Count(static a => a.Write)} writes); "
             + $"{pastGround.Length} asked past their ground: {string.Join(", ", pastGround.GroupBy(static a => a.Site).Select(static g => $"{g.Key} {g.Count()}"))}");
 
-        // What would have met without the ground: two tiles of one phase whose asked rectangles overlap. A write cannot be
-        // the one, by the sizes (a write reaches 104 px, a read 128, and two tiles of a phase are 256 px apart), so the
-        // meeting that exists is two requests for the same pixels, which is what a clip-less read past a tile would share.
+        // What would have met without the ground: a request of one tile that reaches into the ground of another tile of its
+        // phase, the rectangle that tile may write. A read against a read races with nothing, so overlapping requests are not
+        // counted; a request into a phase-mate's ground is what the clip exists to stop. The touched rectangles of two tiles
+        // of a phase never share a pixel, which is the claim itself.
         var met = 0;
         foreach (var phase in tileWork.GroupBy(static a => (a.Pass, a.Phase)))
         {
             var tiles = phase.GroupBy(static a => a.Ground).Select(static g => g.ToArray()).ToArray();
             for (var i = 0; i < tiles.Length; i++)
             {
-                for (var j = i + 1; j < tiles.Length; j++)
+                for (var j = 0; j < tiles.Length; j++)
                 {
-                    met += tiles[i].Sum(a => tiles[j].Count(b => a.Asked.IntersectsWith(b.Asked)));
-                    // And what does meet: nothing, which is the claim itself, read off the touched rectangles.
+                    if (i == j)
+                    {
+                        continue;
+                    }
+                    met += tiles[i].Count(a => a.Asked.IntersectsWith(tiles[j][0].Ground));
+                    if (j < i)
+                    {
+                        continue;
+                    }
                     var touchedI = tiles[i].Where(static a => !a.Touched.IsEmpty).ToArray();
                     var touchedJ = tiles[j].Where(static a => !a.Touched.IsEmpty).ToArray();
                     touchedI.Sum(a => touchedJ.Count(b => a.Touched.IntersectsWith(b.Touched)))
@@ -1014,7 +1022,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                 }
             }
         }
-        output.WriteLine($"{met} pairs of a phase's rectangles would have met without the ground");
+        output.WriteLine($"{met} requests reached into a phase-mate's ground");
 
         // The premises: a field with each kind of star the issue names, and with work that reached past its ground.
         plate.Stars.ShouldContain(static s => s.Model == StarFitModel.Pair, "a blend fitted as two stars");
@@ -1054,7 +1062,10 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     // N1.3 of #2451: the tiles of a phase are visited forward and reversed on one thread each; if any tile read or wrote
     // what another of its phase does, the order would show in the plate. Mono, and colour (the _lum writes and the colour
-    // branch of AddModel and AddProfileAt), on the same stars.
+    // branch of AddModel and AddProfileAt), on the same stars. Hand check (N1.3 of #2451): with Bound clipping to the frame
+    // instead of the tile's ground, this test still passed on mono and colour, because the requests that overrun their ground
+    // are reads and no write meets another tile's request (a write reaches 104 px, a phase's tiles are 256 px apart). So it
+    // proves independence on these fields, not that the clip is needed; NoTileReadsOrWritesPastItsGround guards the clip.
     [Theory(Timeout = 600_000)]
     [Trait("Category", "Heavy")]
     [InlineData(1)]
