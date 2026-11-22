@@ -1516,3 +1516,12 @@ Carinae one). A plain stars export has held its level to the starless plate's re
 scale it is left at the record on purpose, so such an export still compares with the #1947 noise-check arms. On Lobster
 (the plate reads 0.8 of the record) a scale of 4 gives a cell at 3.96 of the record, about 24 % over four times the
 noise that is really there. Bounding it would change what those arms measured; nobody has needed it yet.
+
+### Explorer detail columns: an unpackaged install needs elevation, and a cloud placeholder gives none
+
+Tracked by #2429, plan: `docs/plans/explorer-thumbnails.md`, "Detail columns". Windows reads a property handler
+only from `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers\<ext>`, so the
+tarball's registration without elevation writes the thumbnails and associations and logs one warning that the
+columns need the Store install or an elevated registration. Separately, the handler is given a stream and reading
+it hydrates a OneDrive placeholder, so the columns of a file that is not on disk stay empty, and inside a sync
+root the shell may not ask the handler at all (see the thumbnail entry above). Neither is fixable from the app.

@@ -17,6 +17,8 @@ namespace TianWen.UI.FitsViewer
         /// </summary>
         private const string ThumbnailDllName = "tianwen-thumb.dll";
         private const string ThumbnailProviderName = "Astro Photo Viewer thumbnail provider";
+        private const string PropertyHandlerName = "Astro Photo Viewer property handler";
+        private const string PropertyHandlersKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers";
 
         private static readonly Dictionary<string, string[]> ExtensionGroups = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -60,6 +62,163 @@ namespace TianWen.UI.FitsViewer
             return 1;
         }
 
+        /// <summary>Removes what <see cref="Register"/> wrote on Windows. The Linux registration (desktop entry, MIME XML, xdg-mime default) is not undone.</summary>
+        internal static int Unregister(string group, ILogger logger)
+        {
+            if (!ExtensionGroups.TryGetValue(group, out var extensions))
+            {
+                logger.LogError("Unknown extension group: {Group}. Supported: {Supported}", group, string.Join(", ", ExtensionGroups.Keys));
+                return 1;
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                logger.LogWarning("--unregister is only implemented on Windows");
+                return 1;
+            }
+
+            return UnregisterWindows(extensions, logger);
+        }
+
+        [SupportedOSPlatform("windows")]
+        private static int UnregisterWindows(string[] extensions, ILogger logger)
+        {
+            try
+            {
+                using var classesKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Classes", writable: true);
+                if (classesKey is null)
+                {
+                    logger.LogError(@"Cannot open HKCU\Software\Classes for writing");
+                    return 1;
+                }
+
+                var thumbClsid = ThumbnailRenderer.ShellExtensionClsid.ToString("B");
+                var handlerId = ThumbnailRenderer.ThumbnailProviderHandlerId.ToString("B");
+                foreach (var ext in extensions)
+                {
+                    using (var openWith = classesKey.OpenSubKey($@"{ext}\OpenWithProgids", writable: true))
+                    {
+                        openWith?.DeleteValue(ProgId, throwOnMissingValue: false);
+                    }
+
+                    // Only our own entry: another app's thumbnail provider on the extension stays.
+                    bool ours;
+                    using (var shellEx = classesKey.OpenSubKey($@"{ext}\ShellEx\{handlerId}"))
+                    {
+                        ours = shellEx is not null && string.Equals(shellEx.GetValue(null) as string, thumbClsid, StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    if (ours)
+                    {
+                        classesKey.DeleteSubKeyTree($@"{ext}\ShellEx\{handlerId}", throwOnMissingSubKey: false);
+                    }
+
+                    // Register created these parents; leave none empty behind.
+                    DeleteIfEmpty(classesKey, $@"{ext}\OpenWithProgids");
+                    DeleteIfEmpty(classesKey, $@"{ext}\ShellEx");
+                    DeleteIfEmpty(classesKey, ext);
+
+                    logger.LogInformation("Unregistered {Extension}", ext);
+                }
+
+                // The ProgId and the thumbnail CLSID are shared by every group: they go only when no extension
+                // of another group still names them, or that group's registration would be left dangling.
+                var others = OtherGroupsExtensions(extensions);
+                var progIdInUse = others.Any(e => HasValue(classesKey, $@"{e}\OpenWithProgids", ProgId));
+                var thumbInUse = others.Any(e => HasDefault(classesKey, $@"{e}\ShellEx\{handlerId}", thumbClsid));
+                if (!progIdInUse)
+                {
+                    classesKey.DeleteSubKeyTree(ProgId, throwOnMissingSubKey: false);
+                }
+
+                if (!thumbInUse)
+                {
+                    classesKey.DeleteSubKeyTree(@"CLSID\" + thumbClsid, throwOnMissingSubKey: false);
+                }
+
+                UnregisterPropertyHandler(extensions, logger);
+
+                SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0x0000 /* SHCNF_IDLIST */, nint.Zero, nint.Zero);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to unregister file associations");
+                return 1;
+            }
+        }
+
+        /// <summary>Removes the HKLM property handler keys <see cref="RegisterPropertyHandler"/> wrote; one warning when not elevated.</summary>
+        [SupportedOSPlatform("windows")]
+        private static void UnregisterPropertyHandler(string[] extensions, ILogger logger)
+        {
+            var clsid = ThumbnailRenderer.PropertyHandlerClsid.ToString("B");
+            try
+            {
+                using (var handlers = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(PropertyHandlersKey, writable: true))
+                {
+                    foreach (var ext in extensions)
+                    {
+                        bool ours;
+                        using (var extKey = handlers?.OpenSubKey(ext))
+                        {
+                            ours = extKey is not null && string.Equals(extKey.GetValue(null) as string, clsid, StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        if (ours)
+                        {
+                            handlers?.DeleteSubKeyTree(ext, throwOnMissingSubKey: false);
+                        }
+                    }
+                }
+
+                using var classesKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Classes", writable: true);
+                using var handlersRead = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(PropertyHandlersKey);
+                var inUse = handlersRead is not null && OtherGroupsExtensions(extensions).Any(e => HasDefault(handlersRead, e, clsid));
+                if (!inUse)
+                {
+                    classesKey?.DeleteSubKeyTree(@"CLSID\" + clsid, throwOnMissingSubKey: false);
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+            {
+                logger.LogWarning("Explorer detail columns are not unregistered: the HKLM keys need an elevated process ({Reason}).", ex.Message);
+            }
+        }
+
+        /// <summary>The extensions of every group other than the one whose extensions are given.</summary>
+        private static string[] OtherGroupsExtensions(string[] extensions)
+            => [.. ExtensionGroups.Values.SelectMany(g => g).Where(e => !extensions.Contains(e, StringComparer.OrdinalIgnoreCase))];
+
+        [SupportedOSPlatform("windows")]
+        private static bool HasValue(Microsoft.Win32.RegistryKey root, string subKey, string valueName)
+        {
+            using var key = root.OpenSubKey(subKey);
+            return key?.GetValue(valueName) is not null;
+        }
+
+        [SupportedOSPlatform("windows")]
+        private static bool HasDefault(Microsoft.Win32.RegistryKey root, string subKey, string expected)
+        {
+            using var key = root.OpenSubKey(subKey);
+            return key is not null && string.Equals(key.GetValue(null) as string, expected, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [SupportedOSPlatform("windows")]
+        private static void DeleteIfEmpty(Microsoft.Win32.RegistryKey root, string subKey)
+        {
+            bool empty;
+            using (var key = root.OpenSubKey(subKey))
+            {
+                empty = key is not null && key.SubKeyCount == 0 && key.ValueCount == 0;
+            }
+
+            if (empty)
+            {
+                root.DeleteSubKey(subKey, throwOnMissingSubKey: false);
+            }
+        }
+
         [SupportedOSPlatform("windows")]
         private static int RegisterWindows(string exePath, string[] extensions, ILogger logger)
         {
@@ -92,6 +251,7 @@ namespace TianWen.UI.FitsViewer
                 }
 
                 RegisterThumbnailProvider(classesKey, exePath, extensions, logger);
+                RegisterPropertyHandler(exePath, extensions, logger);
 
                 // Notify Explorer of the association change
                 SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0x0000 /* SHCNF_IDLIST */, nint.Zero, nint.Zero);
@@ -142,6 +302,50 @@ namespace TianWen.UI.FitsViewer
             }
 
             logger.LogInformation("Registered Explorer thumbnails for {Extensions} via {Dll}", string.Join(", ", extensions), thumbDll);
+        }
+
+        /// <summary>
+        /// Registers the Explorer property handler (detail columns, Details pane) in <c>tianwen-thumb.dll</c>.
+        /// Windows reads property handlers ONLY from <c>HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers\&lt;ext&gt;</c>,
+        /// never per user, so this needs an elevated process; without one it logs a single warning and returns.
+        /// It never fails the association or thumbnail registration. The Store package declares the same
+        /// handler in its manifest and needs none of this. No per-type FullDetails or InfoTip list is written:
+        /// the Details pane shows the properties the handler fills, taken from the property definitions.
+        /// </summary>
+        [SupportedOSPlatform("windows")]
+        private static void RegisterPropertyHandler(string exePath, string[] extensions, ILogger logger)
+        {
+            var dll = Path.Combine(Path.GetDirectoryName(exePath) ?? string.Empty, ThumbnailDllName);
+            if (!File.Exists(dll))
+            {
+                logger.LogWarning("No {Dll} beside the executable, so Explorer detail columns are not registered", ThumbnailDllName);
+                return;
+            }
+
+            var clsid = ThumbnailRenderer.PropertyHandlerClsid.ToString("B");
+            try
+            {
+                using var classesKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Classes");
+                using (var clsidKey = classesKey.CreateSubKey(@"CLSID\" + clsid))
+                {
+                    clsidKey.SetValue(null, PropertyHandlerName);
+                    using var inprocKey = clsidKey.CreateSubKey("InprocServer32");
+                    inprocKey.SetValue(null, dll);
+                    inprocKey.SetValue("ThreadingModel", "Both");
+                }
+
+                foreach (var ext in extensions)
+                {
+                    using var handlerKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey($@"{PropertyHandlersKey}\{ext}");
+                    handlerKey.SetValue(null, clsid);
+                }
+
+                logger.LogInformation("Registered Explorer detail columns for {Extensions} via {Dll}", string.Join(", ", extensions), dll);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+            {
+                logger.LogWarning("Explorer detail columns are not registered: Windows reads property handlers only from HKLM, which needs an elevated process ({Reason}). Run the registration elevated, or install the Store package.", ex.Message);
+            }
         }
 
         [SupportedOSPlatform("windows")]

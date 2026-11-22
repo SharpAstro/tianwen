@@ -159,9 +159,50 @@ cache in the library?* Windows.
   `CLSID_LocalThumbnailCache`) rather than build a third one. On Windows that gives the file list the
   same pictures Explorer shows, for free, populated by the same handler.
 
+## Detail columns
+
+Tracked by #2429 (viewer-10.1). The same `tianwen-thumb.dll` also serves a read-only Windows PROPERTY HANDLER
+(`IInitializeWithStream`, `IPropertyStore`, `IPropertyStoreCapabilities`) under its own stable CLSID
+(`ThumbnailRenderer.PropertyHandlerClsid`), so Explorer's Details view, column picker and Details pane show the
+capture's facts for `.fits .fit .fts .fz .ser` without opening the app.
+
+**What it fills, and from which card.** One pure reader in TianWen.Lib, `ExplorerFileProperties.Read(Stream)`,
+holds every value; the DLL only marshals them into PROPERTYKEYs. A FITS header becomes an `ImageMeta` through
+`ParseImageMetaFromHeader`, so the cards are the ones that routine reads (INSTRUME, EXPTIME, FOCALLEN, DATE-OBS,
+the aperture and ISO cards, OBJECT, OBSERVER, SWCREATE and the rest). A SER file gives its header's camera,
+observer and instrument strings, frame size, bit depth, frame count with the first and last timestamp (duration,
+frame rate). The properties: System.Photo.CameraModel, CameraManufacturer, LensModel, LensManufacturer,
+ExposureTime, FocalLength, FNumber, ISOSpeed, DateTaken; System.Subject, Keywords, Author, ApplicationName;
+System.Image.Dimensions, HorizontalSize, VerticalSize, BitDepth; System.Video.FrameWidth, FrameHeight, FrameRate;
+System.Media.Duration. A value a file does not state is absent, never 0 and never a made-up value.
+
+**Brand rule (decided 2026-11-22).** A maker is only ever a brand the file's own text names: the camera and optics
+prefix tables in `ExplorerFileProperties` match the start of INSTRUME or TELESCOP, and an unknown brand gives no
+maker rather than a guess.
+
+**Why header-only.** A FITS data block and a SER frame block are skipped by seeking, never read. The reader asks
+the stream for the header and, for a SER, the first and last timestamp entry, so a column over a 240 MB frame
+costs kilobytes. This is also why `Read` never throws: it sits under a COM boundary, so a malformed or truncated
+file gives the header fields of a SER with a damaged trailer and no exception crosses.
+
+**Cloud placeholders.** Explorer hands the handler a stream, and reading it hydrates a placeholder. The columns of
+a file that is not on disk therefore stay empty until the file is local, and inside a OneDrive sync root the
+shell may not ask this handler at all (the same whole-root provider behaviour as for thumbnails, in
+`docs/known-limitations.md`).
+
+**Registration, in both installs.**
+- Store package: `desktop2:DesktopPropertyHandler` in the `astroimage` file type association plus a second
+  `com:Class` (same DLL, `ThreadingModel` Both) in the existing `SurrogateServer`. `build-msix.ps1 -ValidateOnly`
+  checks the Clsid pair as it does the thumbnail's. The manifest has no element that names a type's Details pane,
+  FullDetails or InfoTip property lists, so none is declared; Windows lists the properties a handler fills.
+- Tarball: `FileAssociationRegistrar` writes the CLSID's `InprocServer32` under `HKLM\SOFTWARE\Classes` and
+  `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers\<ext>`. Windows reads
+  property handlers from there only, never per user, so an unelevated registration logs one warning and leaves
+  the thumbnails and associations as they were. `--unregister` removes what `--register` wrote: the ProgId, the `OpenWithProgids` entries, the thumbnail CLSID and `ShellEx` keys and, when elevated, the property handler's CLSID and `PropertyHandlers` keys (an unelevated run logs one warning for those). The ProgId, the thumbnail CLSID and the property handler CLSID stay while an extension of the other group (`FITS` or `SER`) still names them. `--unregister` is Windows only: the Linux registration is not undone, and on any other platform it logs a warning and returns 1.
+
 ## Phasing
 
-Tracked by #848.
+Tracked by #848 (P1 to P10) and #2429 (P11).
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -175,6 +216,7 @@ Tracked by #848.
 | P7 | Verification through the real shell pipeline on this machine: temporary per-user registration of the published DLL, `IShellItemImageFactory::GetImage(THUMBNAILONLY)` on a real light, keys removed afterwards | see the log below |
 | P8 | Verification on a SIGNED MSIX install (sign a copy with `build-msix.ps1 -SignPackage`, install, browse a folder of `.fits`) | DONE 2026-11-22, #848: the Store's signed package (10.0.3416.0) drew a folder of 320 FITS lights through its `com:SurrogateServer` registration |
 | P10 | The surrogate keeps its heap: `IdleHeapCollapse` (collapse once a burst goes quiet), an exactly sized read from `IStream::Stat`, `ComObject.FinalRelease` on the stream, GC policy in the csproj, and the false lifetime claims corrected | DONE, issue #294; the re-measure in a real surrogate is DONE 2026-11-22 (#848: peak 919 MB private, the process exited afterwards). Open: a sampled curve through the end of a burst (when it exited, and whether `IdleHeapCollapse` ran first, was not caught), and the CFA-binning win, #2456 |
+| P11 | Detail columns (#2429): `ExplorerFileProperties` reader, `AstroPropertyStore` in the DLL, manifest `desktop2:DesktopPropertyHandler` + second `com:Class`, `build-msix.ps1` Clsid check, HKLM registration in `FileAssociationRegistrar` | DONE in code; verification on a signed MSIX install and an elevated tarball registration OPEN |
 | P9 | Later, if wanted: `TypeOverlay` / `Treatment` registry hints (photo border instead of drop shadow); a strided FITS read for very large frames (reads 1/N^2 of the pixels from a seekable stream); a viewer file-list strip reading the shell cache | NOT STARTED |
 
 ## Verification log
