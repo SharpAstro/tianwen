@@ -916,7 +916,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     // saturated star the frame's edge cuts, beside a tile boundary along that edge. Measured on this seed: four requests
     // ask for more than their ground, all SymmetricProfile reads of the giants (the one at (600, 262) is found in the
     // tile above its plateau's centre, and its ring reads 7 rows past that tile's ground), and 7 pairs of requests of
-    // two tiles of one phase overlap as reads; the test's met counts requests that reach into a phase-mate's ground. No
+    // two tiles of one phase overlap as reads; the test's met (4) counts requests that reach into a phase-mate's ground. No
     // write reaches a phase-mate: a write reaches 104 px and a read 128, tiles of a phase are 256 px apart.
     private static Field TileEdgeField(int channels = 1) => MakeField(channels, extra: TileEdgeStars());
 
@@ -1030,8 +1030,8 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Nearest(plate, Ring - 1.0, 250.0, 6.0).ShouldNotBeNull().Outcome.ShouldBe(StarFitOutcome.Subtracted, "the star the edge cuts");
         tileWork.Length.ShouldBeGreaterThan(1000);
         pastGround.ShouldNotBeEmpty("the field has work that reached past its tile's ground");
-        // Measured on this field: 7 (the field's comment).
-        met.ShouldBeGreaterThan(0, "premise: two tiles of one phase would have met on this field without the ground (measured 7)");
+        // Measured on this field: 4, all SymmetricProfile reads of the giants.
+        met.ShouldBeGreaterThan(0, "premise: a request would have reached into a phase-mate's ground on this field without the clip (measured 4)");
 
         accesses.Where(static a => !a.Touched.IsEmpty && !a.Ground.Contains(a.Touched))
             .ShouldBeEmpty("every rectangle a routine asks for through Square or Bound is cut to its tile's ground");
