@@ -1,6 +1,6 @@
 """How much a star remover's training pairs change when the export reads another plate store (2026-11-23, #2449).
 
-    python -I plate_pairs_compare.py <export A> <export B> [<reference export for A>]
+    python -I plate_pairs_compare.py <export A> <export B> [<reference export for A> [<plates A> <plates B>]]
 
 A and B are two outputs of one `tianwen dataset degrade --mode stars` line over the same sessions, A from the stored
 plates and B from the rebuilt ones. Per session: the cells each chose; over the cells both hold, the target tile
@@ -8,8 +8,12 @@ plates and B from the rebuilt ones. Per session: the cells each chose; over the 
 noise plane; and the injected stars (`injections.jsonl`), whether the same stars were drawn at the same places and
 how their amplitudes moved, apart for the stars under the tile's noise and for those at 5 times it and over (the
 first channel's amplitude over the draw's median noise). With a reference export (the arm's own, which A must repeat),
-A's tiles of these sessions are compared with the reference's byte for byte first.
+A's tiles of these sessions are compared with the reference's byte for byte first. With the two plate folders (each
+store's `plates`), each session's star lists are compared too: the rows of one that are not in the other, apart from
+the columns a hole fill sets or reads (`inpainted`, `core_residual`, `core_bias`, `hole_depth`) and the two that
+describe the background. A drawn star takes its brightness and colour from those rows.
 """
+import csv
 import hashlib
 import json
 import os
@@ -33,8 +37,18 @@ def injections(root):
     return out
 
 
+LIST_COLUMNS = ("x", "y", "significance", "amplitude", "width", "sky", "sigma", "outcome", "saturated", "second_pass",
+                "model", "amplitudes")
+
+
+def star_rows(plates, session):
+    with open(os.path.join(plates, session + "_plate.stars.csv"), newline="", encoding="utf-8") as f:
+        return {tuple(r[k] for k in LIST_COLUMNS) for r in csv.DictReader(f)}
+
+
 a_root, b_root = sys.argv[1], sys.argv[2]
 ref = sys.argv[3] if len(sys.argv) > 3 else None
+plates = (sys.argv[4], sys.argv[5]) if len(sys.argv) > 5 else None
 sessions = sorted(os.listdir(os.path.join(b_root, "tiles")))
 if ref:
     same = diff = missing = 0
@@ -105,3 +119,6 @@ for s in sessions:
           f"({np.min(n_ratio) if n_ratio else float('nan'):.4f} to {np.max(n_ratio) if n_ratio else float('nan'):.4f})")
     print(f"  stars: same count in {same_count} of {draws} draws; {same_place:,} of {stars:,} at the same place "
           f"({same_place / max(stars, 1) * 100:.1f} %); amplitude under the noise: {p(faint)}; at 5 and over: {p(bright)}")
+    if plates:
+        la, lb = star_rows(plates[0], s), star_rows(plates[1], s)
+        print(f"  star lists: {len(la):,} and {len(lb):,} rows; not in the other list {len(la - lb):,} and {len(lb - la):,}")

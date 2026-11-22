@@ -665,11 +665,14 @@ it).
   the median and by more than 0.05 points on two masters, the largest by 1.63 points (eta Carinae, 2025-01-14: 11.69 % to
   10.07 %; the rebuilt store has it at 10.91 %, so the guard moved it by more than the refill did, and the
   `starless` against `starless-2449` inpaint figures below carry that move), and the Tarantula session's plate is the same to the byte.
-  Star counts differ on 33 of the 138 masters, by 280 of 68,433 found at most (Centaurus A, 2023-04-02). There the
-  rebuilt plate keeps 248 sources the stored one had subtracted (`plate_kept_now.py`): threshold detections (median
-  significance 5.0 in the stored list), 5 % of them in the inner third of the frame, the rest toward its edge, and
-  the 1:1 crops of the fullest cells show the low-coverage strips at the frame's top, not stars. Against
-  `starless-1867` 34 remain, at the finder's threshold on both plates.
+  Star counts differ on 33 of the 138 masters, by 280 of 68,433 found at most (Centaurus A, 2023-04-02). There a
+  plain finder at the luminance's star width puts 388 sources on the rebuilt plate that the stored one lacks, away
+  from every star the rebuilt build subtracted (`plate_kept_now.py`). They sit at the finder's threshold (median 5.6
+  of its sigma); 292 of them are at a row of the stored list (215 subtracted there, 73 with no fit; median
+  significance 5.0, three in four from the second pass); and they are spread as random places would be (11 % in the
+  inner third of the frame). At 1:1 the three fullest cells show grain and the low-coverage strips at the frame's
+  top, and no star the stored plate lacks. Against `starless-1867` 33 remain, at the finder's threshold on both
+  plates.
 - **The tile clip (#2378) and everything else that changed before the refill**, the runaway-fit refusal of PR #2363
   (#2352) and its follow-up PR #2379 among it, which change which fits are subtracted. The plate main built just before the refill
   differs from the stored one in 8.1 % of its pixels, in 0.06 % by more than one sigma, and in 40 of 67,576 star
@@ -714,34 +717,37 @@ million subtracted stars on each side):
 in widths of the same reading at 6,000 star-free spots of the plate; "bright" is over that null's 99.5th percentile,
 which noise gives 0.5 %). Four masters, the stars refilled on the rebuilt plate and not inpainted on the stored one:
 
-| master | star width (FWHM) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
+| master | star width (FWHM of the luminance) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
 |---|---|---|---|---|---|---|---|
-| eta Carinae at 135 mm, 2022-12-24 | 1.9 px | 46,644 | +0.39 to +0.42 | 0.0 to 0.0 % | +0.63 to +0.48 | 0.1 to 0.0 % | +0.5, 0.0 % |
-| Centaurus A, 2023-04-02 | 2.5 px | 8,164 | +0.78 to +1.23 | 0.2 to 1.0 % | +0.86 to +1.53 | 0.2 to 2.5 % | +0.8 to +0.9, 0.0 to 0.1 % |
-| Vela SNR P5, 2024-02-10 | 2.6 px | 8,302 | +1.35 to +1.64 | 1.4 to 5.2 % | +1.51 to +1.88 | 2.9 to 8.9 % | +1.4 to +1.8, 2.5 to 7.0 % |
-| Running Chicken (QHY294C), 2026-02-20 | 3.0 px | 11,668 | +0.87 to +1.78 | 0.2 to 1.8 % | +0.71 to +1.86 | 0.2 to 1.8 % | +0.8 to +0.9, 0.1 to 0.3 % |
+| eta Carinae at 135 mm, 2022-12-24 | 1.8 px | 46,644 | +0.39 to +0.42 | 0.0 to 0.0 % | +0.63 to +0.48 | 0.1 to 0.0 % | +0.5, 0.0 % |
+| Centaurus A, 2023-04-02 | 2.1 px | 8,164 | +0.78 to +1.23 | 0.2 to 1.0 % | +0.86 to +1.53 | 0.2 to 2.5 % | +0.8 to +0.9, 0.0 to 0.1 % |
+| Vela SNR P5, 2024-02-10 | 2.1 px | 8,302 | +1.35 to +1.64 | 1.4 to 5.2 % | +1.51 to +1.88 | 2.9 to 8.9 % | +1.4 to +1.8, 2.5 to 7.0 % |
+| Running Chicken (QHY294C), 2026-02-20 | 2.7 px | 11,668 | +0.87 to +1.78 | 0.2 to 1.8 % | +0.71 to +1.86 | 0.2 to 1.8 % | +0.8 to +0.9, 0.1 to 0.3 % |
 
 On the sharpest of the four the refilled core keeps its level. On the three with wider stars it reads 0.3 to 1.2
 widths brighter than before, and on two of them brighter than the cores the sweep did not touch (+1.2 to +1.9
 against +0.8 to +0.9). The fill is drawn from the disc's surroundings, and those carry the positive residue of a wing
 the profile under-fits, which the pit had offset in the mean. At 1:1 (the crops the script writes, looked at for the
 first and the last master) the dark pixels are gone on both; on the wider-star master each refilled core is a soft
-bump like the residues round it, and none is a bright core. A plain finder (the luminance smoothed by the PSF, less the same smoothed six times
-wider, 5 of the filtered plate's own sigma) puts a new source on 0.5 to 1.7 % of the refilled cores, and on the
-sharpest master it loses more at them than it gains (1,081 against 385).
+bump like the residues round it, and none is a bright core. A plain finder (the luminance smoothed at its own star
+width, less the same smoothed six times wider, 5 of the filtered plate's own sigma) puts a new source on 0.6 to
+1.9 % of the refilled cores (45 of 8,164 on Centaurus A, 127 of 8,302 on Vela SNR P5, 220 of 11,668 on the Running
+Chicken, 385 of 46,644 on eta Carinae), and on the sharpest master it loses more at them than it gains (1,081
+against 385; the other three lose 13, 39 and 53).
 
 **The leftover count rises, and it is not more sources.** The builder's own count at 5 to 10 sigma goes from 531,074
 to 580,963 (+9.4 %; 185,620 to 212,866 at a subtracted star, 345,454 to 368,097 away from every one), the bands above
 it by 1 to 4 %. The report above calls it the measure that decides whether a plate can be a target, so it was read
-apart (`plate_leftover_scale.py`, every master). One plain finder at one fixed level on both plates counts 814,009
-sources on the stored plates and 808,105 on the rebuilt ones (-0.7 %; per master from -1.8 % at the 10th percentile
-to +2.1 % at the 90th, 31 masters over 1 % more, +7.4 % at most, on Centaurus A, the master of the edge strips
-above). What moved is the scale the builder counts in: in a crowded field its finder's noise is capped by what the
-plate's pixel differences predict, a dug core is a dark pixel beside a bright one, and refilling it narrows those
-differences. The predicted noise falls by 0.5 % at the median master, 1.7 % at the 10th percentile and 5.4 % on eta
-Carinae at 135 mm, where the builder's count rises 18.5 % and the fixed-level count falls 3.6 %. Over the masters the
-builder's change follows that rise in significance with a correlation of 0.54. Not explained in full: the same plain
-finder at each plate's own capped level counts 3.7 % more, where the builder counts 9.4 % more. **The two stores'
+apart (`plate_leftover_scale.py`, every master, the luminance smoothed at its own star width). One plain finder at
+one fixed level on both plates counts 872,649 sources on the stored plates and 862,855 on the rebuilt ones (-1.1 %;
+per master from -2.0 % at the 10th percentile to +0.9 % at the 90th, 14 masters over 1 % more, +6.3 % at most, on
+Centaurus A, the master the guard moves most, above). What moved is the scale the builder counts in: in a crowded
+field its finder's noise is capped by what the plate's pixel differences predict, a dug core is a dark pixel beside
+a bright one, and refilling it narrows those differences. The predicted noise falls by 0.5 % at the median master,
+1.7 % at the 10th percentile and 5.4 % on eta Carinae at 135 mm, where the builder's count rises 18.5 % and the
+fixed-level count falls 4.5 %. Over the masters the builder's change follows that rise in significance with a
+correlation of 0.54. Not explained in full: the same plain finder at each plate's own capped level counts 3.3 %
+more, where the builder counts 9.4 % more. **The two stores'
 leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
 store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
 
@@ -764,11 +770,25 @@ differ by the plates alone. Both choose the same 40 cells in every session. Diff
 The noise planes are the same (their ratio is 1.0000 in every cell but one of eta Carinae's, 0.9985): R4h's line
 keeps each session's noise as recorded. The stars under the tile's noise, the drawn population below the catalogue,
 sit at the same places with other amplitudes on six of the seven sessions (the ratio's median 1.000, its 10th to 90th
-percentile 0.4 to 2.2); why they are drawn anew is not traced, and the inputs' 0.03 to 0.10 of a sigma is of the size
-such stars give. Centaurus A moves most because the guard of #1867 changes its star list (the same star count in
-8 of its 160 draws). The cause of the whole is the line's own design: it draws its backgrounds
-(`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and the stars it
-draws come from the star list, whose fits the refill leaves alone.
+percentile 0.4 to 2.2), and the inputs' 0.03 to 0.10 of a sigma is of the size such stars give.
+
+**Why those amplitudes move: the star lists differ in a few rows, and not by the refill.** The refill fills pixels
+and sets flags; it fits nothing. But the rebuilt store carries the builder's other changes since October too, and
+with the two `plates` folders the same script counts the rows of a session's star list that are not in the other
+store's, apart from the columns a fill sets or reads: none on the Helix, 145 on the Tarantula, 294 on the Running
+Chicken, 338 on the Rosette, 499 on Vela SNR P5, 3,331 on eta Carinae and 23,783 on Centaurus A (of 1,362 to 187,797
+rows; the guard of #1867 is why Centaurus A's is so many, and its star count is the same in 8 of its 160 draws). The
+Helix, whose list is the same row for row, is the one session where every drawn star keeps its amplitude. Read in
+the exporter, and not shown by a run that changes that alone: a star below the catalogue takes its colour, and with
+it its amplitude in each channel, from one of the catalogue's faint stars, picked by its place in that list
+(`InjectionPopulation.Plan`, the faint stars' colours), while its place comes from a draw the list does not enter
+and its significance from a law fitted to the whole list, which a few rows hardly move. A list that gains or loses
+a row moves the picks after it. The stars a model has to remove are
+drawn from the rows themselves, and nearly all of those are as they were.
+
+So the pairs are nearly the same through the line's own design: it draws its backgrounds
+(`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and it draws its
+stars from a list the builder's changes left almost row for row.
 
 **R4g's plate targets barely change either.** R4g's extra export (its 126 bright cells of ten sessions, the stars
 drawn on the plate itself, `--background plate`) was run the same way from both roots; the run from `starless` gives
