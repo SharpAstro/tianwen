@@ -520,7 +520,7 @@ per rule and points here.
     against the original input (the order it was scored in), and only for a remover whose `IStarRemover.TakesDigFill`
     is true. That is `OnnxTianWenStarRemover` alone: **RC-Astro's plate is never touched.** The stars are the input less
     the filled plate, so `image add-stars` still gives the input back.
-  - **Turning it off:** `image remove-stars --model ... --no-fill-digs` writes the models' own output; the scoring
+  - **Turning it off:** `image remove-stars --model ... --no-fill-digs --keep-overshoot` writes the models' own output; the scoring
     scripts (`score-arm.ps1`, `score_whole.py`) pass it, beside `--no-protect-cores`, so their rows stay the model
     alone. `image fill-digs --input <master> --starless <plate>` is the step on its own, with no model run.
   - **It is the Python step, to the bit.** It was chosen and scored as "floor3" of

@@ -121,6 +121,33 @@ public class NarrowbandCombinationTests
         }
     }
 
+    /// <summary>
+    /// With the hold switched off the plate is the remover's own, bit for bit, so a measurement still sees its overshoot: the
+    /// stars go negative where it stood over its plane, and plate plus stars is still the plane.
+    /// </summary>
+    [Fact]
+    public async Task TheSplitLeavesThePlateAsTheRemoverWroteItWhenAskedTo()
+    {
+        var plane = Plane(1000f, nanAt: 2);
+        var remover = new LiftingRemover();
+        var ct = TestContext.Current.CancellationToken;
+
+        var raw = (await NarrowbandCombination.StarlessAsync([plane], remover, ct))[0];
+        var (starless, stars) = await NarrowbandCombination.SplitStarsAsync([plane], remover, holdAtOrUnderPlane: false, ct);
+
+        float.IsNaN(starless[0][0, 0, 2]).ShouldBeTrue("an absent pixel stays absent");
+        for (var x = 0; x < 10; x++)
+        {
+            if (x == 2)
+            {
+                continue;
+            }
+            starless[0][0, 0, x].ShouldBe(raw[0, 0, x], "the remover's plate, unclamped");
+            stars[0][0, 0, x].ShouldBe(plane[0, 0, x] - raw[0, 0, x]);
+        }
+        stars[0][0, 0, 0].ShouldBeLessThan(0f, "premise: the lifted half has negative stars when not held");
+    }
+
     /// <summary>A deblurrer that lifts every value by a gain, as sharpening lifts a star's peak, and stops at the ceiling of
     /// <c>[0, 1]</c> as BlurX's output does.</summary>
     private sealed class SharpeningDeblurrer(float gain) : IImageDeblurrer

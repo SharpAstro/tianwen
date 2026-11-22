@@ -108,8 +108,9 @@ if ($Skip -notcontains 'nucleus' -and -not (Test-Path $nucleusRead)) {
         New-Item -ItemType Directory -Force $arm.m31_out | Out-Null
         # --no-protect-cores: the guard reads the remover's own behaviour on M31's nucleus, which protection (now the default) would hide.
         # --no-fill-digs: likewise the model's own output, as every past row was scored (the dig-fill step is the default since #2204).
+        # --keep-overshoot: the plate is not held under its input (#2433), which would hide the model's overshoot.
         $w = Start-Process $arm.remove_cli -ArgumentList 'image', 'remove-stars', $arm.m31_master, '-o', $m31out,
-            '--no-stars', '--no-protect-cores', '--no-fill-digs', '--model', $onnx, '--views', '8' -NoNewWindow -PassThru -Wait `
+            '--no-stars', '--no-protect-cores', '--no-fill-digs', '--keep-overshoot', '--model', $onnx, '--views', '8' -NoNewWindow -PassThru -Wait `
             -RedirectStandardOutput "$logs/m31.log" -RedirectStandardError "$logs/m31.err.log"
         if ($w.ExitCode -ne 0) { throw "remove-stars over M31 exited $($w.ExitCode)" }
     }

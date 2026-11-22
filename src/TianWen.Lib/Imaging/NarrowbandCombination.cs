@@ -40,10 +40,20 @@ public static class NarrowbandCombination
     /// (<see cref="StarlessAsync"/>), the remover's own output with no core protected and no dig filled, only held at or under
     /// its plane (<see cref="AtOrUnderPlane"/>), so the stars are never negative.
     /// </summary>
-    public static async Task<(Image[] Starless, Image[] Stars)> SplitStarsAsync(
+    public static Task<(Image[] Starless, Image[] Stars)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
+        => SplitStarsAsync(planes, remover, holdAtOrUnderPlane: true, cancellationToken);
+
+    /// <summary>
+    /// <see cref="SplitStarsAsync(IReadOnlyList{Image}, IStarRemover, CancellationToken)"/>; with
+    /// <paramref name="holdAtOrUnderPlane"/> false the plate is left as the remover wrote it, so a measurement reads the
+    /// remover's own overshoot (the stars layer may then hold negative values).
+    /// </summary>
+    public static async Task<(Image[] Starless, Image[] Stars)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, bool holdAtOrUnderPlane, CancellationToken cancellationToken = default)
     {
-        var (starless, stars, _, _) = await SplitStarsAsync(planes, remover, protectCores: null, fillDigs: false, cancellationToken);
+        var (starless, stars, _, _) = await SplitStarsAsync(planes, remover, protectCores: null, fillDigs: false, catalogStars: null,
+            holdAtOrUnderPlane, cancellationToken);
         return (starless, stars);
     }
 
@@ -58,7 +68,7 @@ public static class NarrowbandCombination
     /// (<see cref="DigFill"/>, #2204). Also the share of each plate's pixels the step could change; null when it did not run.</para>
     /// <para>Whatever ran, each plate is then held at or under its plane (<see cref="AtOrUnderPlane"/>, #2433).</para>
     /// <para>The stars are the plane less the FINISHED plate, so plate plus stars is the plane whatever ran, and the stars
-    /// are never negative: screened back onto the plate, they give the plane again.</para>
+    /// are never negative.</para>
     /// </summary>
     public static Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
@@ -71,9 +81,19 @@ public static class NarrowbandCombination
     /// stay removed instead of coming back with the core (<see cref="CoreStars"/>, #2242). All planes are on one grid, so
     /// one list serves them all; null is the split without it.
     /// </summary>
-    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+    public static Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
         IReadOnlyList<FrameStar>? catalogStars, CancellationToken cancellationToken = default)
+        => SplitStarsAsync(planes, remover, protectCores, fillDigs, catalogStars, holdAtOrUnderPlane: true, cancellationToken);
+
+    /// <summary>
+    /// The split with its last step switchable: with <paramref name="holdAtOrUnderPlane"/> false each plate is left as the
+    /// cores and the dig fill (or neither) made it, so a measurement reads the remover's own overshoot, and the stars layer
+    /// may hold negative values (#2433).
+    /// </summary>
+    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores, double[]? DigFillShare)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, bool fillDigs,
+        IReadOnlyList<FrameStar>? catalogStars, bool holdAtOrUnderPlane, CancellationToken cancellationToken = default)
     {
         var starless = await StarlessAsync(planes, remover, cancellationToken);
         var cores = protectCores is null ? null : new ExtendedCoreMask[planes.Count];
@@ -110,6 +130,7 @@ public static class NarrowbandCombination
                 }
             }
             // Last, after whatever ran: the plate is held at or under its plane, so the stars are never negative (#2433).
+            if (holdAtOrUnderPlane)
             {
                 var plate = starless[i];
                 starless[i] = AtOrUnderPlane(plate, planes[i]);
@@ -298,11 +319,11 @@ public static class NarrowbandCombination
     /// <summary>
     /// <paramref name="plate"/> held at or under <paramref name="plane"/>, pixel by pixel and channel by channel (the plate's
     /// own metadata kept, absent where either is), so the stars read off it (<see cref="Stars"/>) are never negative. A stars
-    /// layer cannot hold negative light: where a plate stands over its plane, screening the stars back onto the starless does
-    /// not give the plane again (#2433). On the three held-out whole masters TianWen's own plate stood over its input on 4 to
-    /// 16 % of the pixels, mostly by a few hundredths to a few tenths of the noise, and the screen-back missed by more than the
-    /// sky noise on 0.1 to 0.9 % of them, 35 to 40 % of those 3 to 6 px from a star; StarXTerminator's plate did not stand over
-    /// its input. The clamp lowered a frame's mean by 0.006 to 0.026 of the noise.
+    /// layer cannot hold negative light: where a plate stands over its plane, the plane less the plate is negative (#2433).
+    /// This guarantees the stars are never negative and plate plus stars is the plane; it does not make a screen blend of the
+    /// stars onto the plate give the plane back (that is short of it by plate times stars). On the three held-out whole masters
+    /// TianWen's own plate stood over its input on 4 to 16 % of the pixels, mostly by a few hundredths to a few tenths of the
+    /// noise; StarXTerminator's plate did not stand over its input. The clamp lowered a frame's mean by 0.006 to 0.026 of the noise.
     /// </summary>
     public static Image AtOrUnderPlane(Image plate, Image plane) => Combine(plate, plane, static (p, input) => MathF.Min(p, input));
 

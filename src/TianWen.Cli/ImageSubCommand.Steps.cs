@@ -173,7 +173,7 @@ internal sealed partial class ImageSubCommand
             Description = "Do not protect cores. By default the brightest part of each galaxy or nebula is kept out of the stars, whichever "
                 + "remover runs: a nucleus like M31's or a bright knot a remover takes as a star stays in the starless plate (#1658). On a "
                 + "plate-solved master the catalogued stars inside it are still removed (#2242, see --core-catalogue); on an unsolved "
-                + "one they stay with the core. Give this to read the remover's own behaviour.",
+                + "one they stay with the core. Give this, with --keep-overshoot, to read the remover's own behaviour.",
         };
         var coreCatalogueOpt = CoreCatalogueOption();
         var protectCoresOpt = new Option<bool>("--protect-cores")
@@ -184,7 +184,13 @@ internal sealed partial class ImageSubCommand
         {
             Description = "With --model: do not fill the digs. By default the holes TianWen's own models dig under the stars they take are "
                 + "filled to the sky around them, and the little light they leave is lowered a little (#2204; image fill-digs is the step "
-                + "alone). RC-Astro's plate is never touched. Give this to read the models' own output.",
+                + "alone). RC-Astro's plate is never touched. Give this, with --keep-overshoot, to read the models' own output.",
+        };
+        var keepOvershootOpt = new Option<bool>("--keep-overshoot")
+        {
+            Description = "Leave the plate as the remover wrote it. By default it is held at or under its input, so the stars layer is "
+                + "never negative and plate plus stars is the input (#2433). Give this, with --no-protect-cores and --no-fill-digs, "
+                + "to read the remover's own overshoot: a score of the light a plate added over its input needs it.",
         };
         var blackPointSigmaOpt = new Option<double?>(BlackPointOption.Name)
         {
@@ -198,7 +204,7 @@ internal sealed partial class ImageSubCommand
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, coreCatalogueOpt, noFillDigsOpt, blackPointSigmaOpt },
+            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, noProtectCoresOpt, protectCoresOpt, coreCatalogueOpt, noFillDigsOpt, keepOvershootOpt, blackPointSigmaOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -230,7 +236,8 @@ internal sealed partial class ImageSubCommand
                 ? null
                 : await CoreCatalogueAsync("remove-stars", parseResult.GetValue(coreCatalogueOpt), wcs, masters[0].Width, masters[0].Height, ct);
             var (starless, stars, cores, filled) = await NarrowbandCombination.SplitStarsAsync(
-                masters, remover, coreOptions, fillDigs: !parseResult.GetValue(noFillDigsOpt), catalogStars, ct);
+                masters, remover, coreOptions, fillDigs: !parseResult.GetValue(noFillDigsOpt), catalogStars,
+                holdAtOrUnderPlane: !parseResult.GetValue(keepOvershootOpt), ct);
             for (var i = 0; i < starless.Length; i++)
             {
                 if (filled is not null)
@@ -259,7 +266,7 @@ internal sealed partial class ImageSubCommand
     private Command BuildProtectCoresCommand()
     {
         var inputOpt = new Option<string>("--input") { Description = "The master the stars were removed from.", Required = true };
-        var starlessOpt = new Option<string>("--starless") { Description = "Its starless plate as the remover left it (image remove-stars --no-protect-cores).", Required = true };
+        var starlessOpt = new Option<string>("--starless") { Description = "Its starless plate as the remover left it (image remove-stars --no-protect-cores --keep-overshoot).", Required = true };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <starless>_cores.fits." };
         var catalogueOpt = CoreCatalogueOption();
         var cmd = new Command("protect-cores", "The step image remove-stars runs after its remover, alone (ExtendedCoreMask, #1658): the brightest "
@@ -359,7 +366,7 @@ internal sealed partial class ImageSubCommand
     private Command BuildFillDigsCommand()
     {
         var inputOpt = new Option<string>("--input") { Description = "The master the stars were removed from.", Required = true };
-        var starlessOpt = new Option<string>("--starless") { Description = "Its starless plate as the models left it (image remove-stars --model ... --no-fill-digs).", Required = true };
+        var starlessOpt = new Option<string>("--starless") { Description = "Its starless plate as the models left it (image remove-stars --model ... --no-fill-digs --keep-overshoot).", Required = true };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Output FITS. Default: <starless>_filled.fits." };
         var cmd = new Command("fill-digs", "The step image remove-stars runs after TianWen's own models, alone (DigFill, #2204): where a star was "
             + "taken, a hole dug under it is filled to the sky around it and light left standing is lowered a little, each bounded by "

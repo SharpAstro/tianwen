@@ -134,9 +134,18 @@ for x, y in allxy:
     xi, yi = int(round(x)), int(round(y))
     if 0 <= xi < W and 0 <= yi < H:
         mask[yi, xi] = True
-far = distance_transform_edt(~mask) > 6
+# The zero canvas ring (planes() turns NaN into 0) is not sky: it is out of `far`, so no figure is measured on it.
+far = (distance_transform_edt(~mask) > 6) & (M != 0).any(axis=0)
 lum_m = Ms.mean(axis=0)
-sky_noise = 1.4826 * float(np.median(np.abs(np.diff(lum_m[far.nonzero()[0][:200000], far.nonzero()[1][:200000]])))) / np.sqrt(2)
+# The noise unit: neighbouring-pixel differences along rows over a STRIDED sample of the whole frame, so it does not
+# depend on which rows the first 200,000 far pixels fall in. Both pixels of a pair must be far.
+pair = far[:, 1:] & far[:, :-1]
+py, px = pair.nonzero()
+step = max(1, len(py) // 200000)
+py, px = py[::step], px[::step]
+sky_noise = 1.4826 * float(np.median(np.abs(lum_m[py, px + 1] - lum_m[py, px]))) / np.sqrt(2)
+if not np.isfinite(sky_noise) or sky_noise <= 0:
+    raise SystemExit("no sky noise: no far pixel pair outside the zero canvas ring")
 ref_hfd = np.array([hfd_and_peak(lum_m, x, y) for x, y in stars])
 print(f"{os.path.basename(MASTER)}: {len(stars)} isolated stars, their HFD in the stretched master median {np.nanmedian(ref_hfd):.2f} px; "
       f"{100 * np.mean([Ms[:, int(round(y)), int(round(x))].max() >= 0.98 for x, y in stars]):.1f} % of their peaks clip in the master; "

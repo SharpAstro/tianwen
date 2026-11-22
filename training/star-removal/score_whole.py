@@ -80,7 +80,8 @@ for k in NAMES:
         # --no-protect-cores: the scorecard reads the remover alone (M31's nucleus guard), and protection is the default now.
         # --no-fill-digs: likewise, so a row stays the model's own output as past rows were (the dig-fill step is the default
         # since #2204; a plate with it is scored by handing it over with --plates).
-        run([CLI, 'image', 'remove-stars', src, '-o', dst, '--no-stars', '--no-protect-cores', '--no-fill-digs', '--views', a.views, *mono, '--model', *a.model])
+        # --keep-overshoot: the plate is not held under its input (#2433), or the 'added' row would read 0 by construction.
+        run([CLI, 'image', 'remove-stars', src, '-o', dst, '--no-stars', '--no-protect-cores', '--no-fill-digs', '--keep-overshoot', '--views', a.views, *mono, '--model', *a.model])
     plates[k] = dst
 
 
