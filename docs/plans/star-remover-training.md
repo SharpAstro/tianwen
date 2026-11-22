@@ -644,7 +644,8 @@ Tracked by #902 with the rest of P4.0; none of it is a hole.
 
 The owner's "3. yes" of 2026-11-22 (below, "What the crowded grain is ..."): the builder's residue fixed together with
 the tile clip, then the plates rebuilt once with the build's commit beside them. Nothing here is an arm: nothing is
-registered, exported or scored on the new plates.
+registered, trained or scored on the new plates. Seven sessions were exported from each root to compare the training
+pairs, at the end of this section.
 
 **What was built.** The 138 sessions the export trains on, by a frozen build of main at the merge of PR #2454 (the
 dug-core refill, #2449), into a root of its own beside the store's (`starless-2449`; its
@@ -738,12 +739,36 @@ finder at each plate's own capped level counts 3.7 % more, where the builder cou
 leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
 store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
 
-**What it leaves for an arm.** An export of R4h's command and binary over the new root (`-PlatesRoot`) would differ
-from R4h by the plates alone, and the plates by the refill in all but the sizes above. What the refill can move in a
-model is narrow by this section's own argument: a plate's pit is in the net's input and in its target, so the net
-learns to keep it, not to dig one, and the pit teaches a dig only where a star is injected at a subtracted site.
-Against that stand the drawn cores of four in five 20 to 50 sigma stars and the brighter refills of the wider-star
-masters. No arm is registered: the owner's call.
+**What the new plates change in R4h's training pairs: almost nothing** (`plate_pairs_compare.py`). R4h's export line
+(synth32's, with its frozen binary and options) was run over seven of its sessions, once from `starless` and once
+from `starless-2449`. The run from `starless` gives synth32's own 2,800 tiles back to the byte, so the two runs
+differ by the plates alone. Both choose the same 40 cells in every session. Differences are in the tile's own noise
+(the rms over a cell, its median cell and its worst):
+
+| session | target tile | input draws | input pixels moved by over half a sigma | stars at the same place | amplitude of those at 5 times the noise and over (10th / 90th percentile of the ratio) |
+|---|---|---|---|---|---|
+| Helix (ASI462MC), 2024-08-18 | 0.000 / 0.001 | 0.000 / 0.001 | 0.00 % | 9,104 of 9,104 | 1.000 / 1.000 |
+| Tarantula, 2024-10-02 | 0.003 / 0.011 | 0.033 / 0.059 | 0.08 % | 149,963 of 149,967 | 0.991 / 1.005 |
+| Rosette (ASI294MC), 2021-12-31 | 0.003 / 0.008 | 0.032 / 0.155 | 0.06 % | 52,864 of 52,877 | 0.999 / 1.001 |
+| Running Chicken (QHY294C), 2026-02-20 | 0.003 / 0.008 | 0.033 / 0.095 | 0.08 % | 106,284 of 106,294 | 1.000 / 1.000 |
+| Vela SNR P5, 2024-02-10 | 0.002 / 0.065 | 0.040 / 0.110 | 0.12 % | 114,969 of 114,983 | 0.999 / 1.001 |
+| eta Carinae at 135 mm, 2022-12-24 | 0.008 / 0.045 | 0.031 / 0.067 | 0.03 % | 324,983 of 325,018 | 0.998 / 1.016 |
+| Centaurus A, 2023-04-02 | 0.003 / 0.176 | 0.098 / 0.327 | 0.34 % | 114,200 of 115,615 | 0.274 / 1.386 |
+
+The noise planes are the same (their ratio is 1.0000 in every cell but one of eta Carinae's, 0.9985): R4h's line
+keeps each session's noise as recorded. The stars under the tile's noise, the drawn population below the catalogue,
+sit at the same places with other amplitudes on six of the seven sessions (the ratio's median 1.000, its 10th to 90th
+percentile 0.4 to 2.2); why they are drawn anew is not traced, and the inputs' 0.03 to 0.10 of a sigma is of the size
+such stars give. Centaurus A moves most because the guard of #1867 changes its star list (the same star count in
+8 of its 160 draws). The cause of the whole is the line's own design: it draws its backgrounds
+(`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and the stars it
+draws come from the star list, whose fits the refill leaves alone.
+
+**What it leaves for an arm.** An arm of R4h's line on the new plates would train on R4h's data to within a few
+hundredths of the noise, so it could show nothing a second seed of R4h would not show, and none is proposed. The
+new plates matter where a plate's pixels are the target or the product: an arm that trains on plate targets (R4g's
+kind), the grain-rule plates, and the builder as the remover that needs no model. No arm is registered: the owner's
+call.
 
 ### R1: the injector
 
