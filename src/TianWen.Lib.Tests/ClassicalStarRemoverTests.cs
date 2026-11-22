@@ -988,9 +988,9 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         {
             output.WriteLine($"  past its ground: {a.Site}, pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, touched {a.Touched}");
         }
-        foreach (var a in tileWork.Where(static a => a.Site == "SymmetricProfile" && a.Asked.Width > 200))
+        foreach (var a in tileWork.Where(static a => (a.Site == "SymmetricProfile" && a.Asked.Width > 200) || (a.Write && a.Asked.Width > 100)))
         {
-            output.WriteLine($"  big ask: pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, write {a.Write}");
+            output.WriteLine($"  big ask: {a.Site} pass {a.Pass} phase {a.Phase}, ground {a.Ground}, asked {a.Asked}, write {a.Write}");
         }
         output.WriteLine($"{accesses.Length} rectangles recorded,{tileWork.Length} in the tile passes ({tileWork.Count(static a => a.Write)} writes); "
             + $"{pastGround.Length} asked past their ground: {string.Join(", ", pastGround.GroupBy(static a => a.Site).Select(static g => $"{g.Key} {g.Count()}"))}");
