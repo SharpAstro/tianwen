@@ -12,7 +12,8 @@ same factor. Here the differences are read along rows and columns, where the bui
 Per master: that predicted noise, stored and rebuilt, and the sources one plain finder counts on each plate (the
 luminance smoothed by the PSF, less the same smoothed six times wider, local maxima) over 5 times the stored plate's
 capped noise (one fixed level for both) and, on the rebuilt plate, over 5 times its own. The builder's own 5 to 10
-sigma leftover counts from both report lines ride along. The plain finder is not the builder's: it says whether the
+sigma leftover counts from both report lines ride along. The finder's PSF width is the luminance one, the LAST element of the stats' FwhmPx (per channel, luminance last), as
+the builder's `lumPsf.Fwhm` is. The plain finder is not the builder's: it says whether the
 plates hold more point sources, not what the builder would count.
 """
 import json

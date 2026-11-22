@@ -714,7 +714,7 @@ million subtracted stars on each side):
 in widths of the same reading at 6,000 star-free spots of the plate; "bright" is over that null's 99.5th percentile,
 which noise gives 0.5 %). Four masters, the stars refilled on the rebuilt plate and not inpainted on the stored one:
 
-| master | star width (FWHM, first channel's) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
+| master | star width (FWHM) | refilled | level, 10 to 20 sigma | bright | level, 20 to 50 sigma | bright | untouched stars: level, bright |
 |---|---|---|---|---|---|---|---|
 | eta Carinae at 135 mm, 2022-12-24 | 1.9 px | 46,644 | +0.39 to +0.42 | 0.0 to 0.0 % | +0.63 to +0.48 | 0.1 to 0.0 % | +0.5, 0.0 % |
 | Centaurus A, 2023-04-02 | 2.5 px | 8,164 | +0.78 to +1.23 | 0.2 to 1.0 % | +0.86 to +1.53 | 0.2 to 2.5 % | +0.8 to +0.9, 0.0 to 0.1 % |
@@ -733,15 +733,15 @@ sharpest master it loses more at them than it gains (1,081 against 385).
 **The leftover count rises, and it is not more sources.** The builder's own count at 5 to 10 sigma goes from 531,074
 to 580,963 (+9.4 %; 185,620 to 212,866 at a subtracted star, 345,454 to 368,097 away from every one), the bands above
 it by 1 to 4 %. The report above calls it the measure that decides whether a plate can be a target, so it was read
-apart (`plate_leftover_scale.py`, every master). One plain finder at one fixed level on both plates counts 872,649
-sources on the stored plates and 862,855 on the rebuilt ones (-1.1 %; per master from -2.0 % at the 10th percentile
-to +0.9 % at the 90th, 14 masters over 1 % more, +6.3 % at most, on Centaurus A, the master of the edge strips
+apart (`plate_leftover_scale.py`, every master). One plain finder at one fixed level on both plates counts 814,009
+sources on the stored plates and 808,105 on the rebuilt ones (-0.7 %; per master from -1.8 % at the 10th percentile
+to +2.1 % at the 90th, 31 masters over 1 % more, +7.4 % at most, on Centaurus A, the master of the edge strips
 above). What moved is the scale the builder counts in: in a crowded field its finder's noise is capped by what the
 plate's pixel differences predict, a dug core is a dark pixel beside a bright one, and refilling it narrows those
 differences. The predicted noise falls by 0.5 % at the median master, 1.7 % at the 10th percentile and 5.4 % on eta
-Carinae at 135 mm, where the builder's count rises 18.5 % and the fixed-level count falls 4.5 %. Over the masters the
+Carinae at 135 mm, where the builder's count rises 18.5 % and the fixed-level count falls 3.6 %. Over the masters the
 builder's change follows that rise in significance with a correlation of 0.54. Not explained in full: the same plain
-finder at each plate's own capped level counts 3.3 % more, where the builder counts 9.4 % more. **The two stores'
+finder at each plate's own capped level counts 3.7 % more, where the builder counts 9.4 % more. **The two stores'
 leftover fractions are not to be compared**, and a plate's noise as its differences read it is lower on the rebuilt
 store, by 0.5 % at the median master and by 5 % on eta Carinae at 135 mm.
 
@@ -766,10 +766,9 @@ keeps each session's noise as recorded. The stars under the tile's noise, the dr
 sit at the same places with other amplitudes on six of the seven sessions (the ratio's median 1.000, its 10th to 90th
 percentile 0.4 to 2.2); why they are drawn anew is not traced, and the inputs' 0.03 to 0.10 of a sigma is of the size
 such stars give. Centaurus A moves most because the guard of #1867 changes its star list (the same star count in
-8 of its 160 draws). That the whole change is small follows from the line's own design: it draws its backgrounds
-(`--background synthetic`), so a plate gives the background its strength per scale and no pixel. The amplitude change of
-the faint stars is not explained by that: the star list they come from is the same in its rows, so what moves them is
-untraced.
+8 of its 160 draws). The cause of the whole is the line's own design: it draws its backgrounds
+(`--background synthetic`), so a plate gives the background its strength per scale and no pixel, and the stars it
+draws come from the star list, whose fits the refill leaves alone.
 
 **R4g's plate targets barely change either.** R4g's extra export (its 126 bright cells of ten sessions, the stars
 drawn on the plate itself, `--background plate`) was run the same way from both roots; the run from `starless` gives
