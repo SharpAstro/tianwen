@@ -113,7 +113,8 @@ What DSPX is, and what each point means for us:
 Its process list (about 110 folders under `doc/dscp/`) is the PixInsight menu almost one for one, plus the editor tools
 above. The claims of speed ("3x up to 10x" stacking, "up to 20x" deconvolution) are the vendor's and unmeasured here.
 
-**What to take from it, for the owner to weigh** (nothing here is decided):
+**What to take from it, for the owner to weigh** (nothing here was decided when this was written; item 1 says what
+happened since):
 
 1. If TianWen grows a processing application, DSPX shows the bar for 2026 is the WHOLE chain in one window with
    history, not a stacker plus an enhancer. The stacking workbench's W0 (#1640) was where that scope was to be chosen; it was decided 2026-11-22 ([stacking-workbench.md](stacking-workbench.md), "Where it lives").
