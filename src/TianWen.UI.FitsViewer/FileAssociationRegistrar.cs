@@ -17,6 +17,8 @@ namespace TianWen.UI.FitsViewer
         /// </summary>
         private const string ThumbnailDllName = "tianwen-thumb.dll";
         private const string ThumbnailProviderName = "Astro Photo Viewer thumbnail provider";
+        private const string PropertyHandlerName = "Astro Photo Viewer property handler";
+        private const string PropertyHandlersKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers";
 
         private static readonly Dictionary<string, string[]> ExtensionGroups = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -92,6 +94,7 @@ namespace TianWen.UI.FitsViewer
                 }
 
                 RegisterThumbnailProvider(classesKey, exePath, extensions, logger);
+                RegisterPropertyHandler(exePath, extensions, logger);
 
                 // Notify Explorer of the association change
                 SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0x0000 /* SHCNF_IDLIST */, nint.Zero, nint.Zero);
@@ -142,6 +145,50 @@ namespace TianWen.UI.FitsViewer
             }
 
             logger.LogInformation("Registered Explorer thumbnails for {Extensions} via {Dll}", string.Join(", ", extensions), thumbDll);
+        }
+
+        /// <summary>
+        /// Registers the Explorer property handler (detail columns, Details pane) in <c>tianwen-thumb.dll</c>.
+        /// Windows reads property handlers ONLY from <c>HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PropertySystem\PropertyHandlers\&lt;ext&gt;</c>,
+        /// never per user, so this needs an elevated process; without one it logs a single warning and returns.
+        /// It never fails the association or thumbnail registration. The Store package declares the same
+        /// handler in its manifest and needs none of this. No per-type FullDetails or InfoTip list is written:
+        /// the Details pane shows the properties the handler fills, taken from the property definitions.
+        /// </summary>
+        [SupportedOSPlatform("windows")]
+        private static void RegisterPropertyHandler(string exePath, string[] extensions, ILogger logger)
+        {
+            var dll = Path.Combine(Path.GetDirectoryName(exePath) ?? string.Empty, ThumbnailDllName);
+            if (!File.Exists(dll))
+            {
+                logger.LogWarning("No {Dll} beside the executable, so Explorer detail columns are not registered", ThumbnailDllName);
+                return;
+            }
+
+            var clsid = ThumbnailRenderer.PropertyHandlerClsid.ToString("B");
+            try
+            {
+                using var classesKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Classes");
+                using (var clsidKey = classesKey.CreateSubKey(@"CLSID\" + clsid))
+                {
+                    clsidKey.SetValue(null, PropertyHandlerName);
+                    using var inprocKey = clsidKey.CreateSubKey("InprocServer32");
+                    inprocKey.SetValue(null, dll);
+                    inprocKey.SetValue("ThreadingModel", "Both");
+                }
+
+                foreach (var ext in extensions)
+                {
+                    using var handlerKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey($@"{PropertyHandlersKey}\{ext}");
+                    handlerKey.SetValue(null, clsid);
+                }
+
+                logger.LogInformation("Registered Explorer detail columns for {Extensions} via {Dll}", string.Join(", ", extensions), dll);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+            {
+                logger.LogWarning("Explorer detail columns are not registered: Windows reads property handlers only from HKLM, which needs an elevated process ({Reason}). Run the registration elevated, or install the Store package.", ex.Message);
+            }
         }
 
         [SupportedOSPlatform("windows")]
