@@ -54,12 +54,16 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// now the queue would grow for as long as it lasted, so past this a line is dropped and counted
     /// (<see cref="LinesDropped"/>), and the file says how many at the place they are missing.
     /// <para>
-    /// An Error or a Critical line is taken however many wait: it is the line a reader of a log that fell behind is
-    /// looking for, a crash's own line among them, and the lock this replaced would have waited and written it. So the
-    /// queue can pass the cap, by those lines alone.
+    /// An Error or a Critical line is taken past it: it is the line a reader of a log that fell behind is looking
+    /// for, a crash's own line among them, and the lock this replaced would have waited and written it. Those have a
+    /// bound of their own, <see cref="UrgentHeadroom"/> times this, since an Error logged in a loop against a writer
+    /// that is stuck would otherwise grow the queue for ever, which is what a cap is for.
     /// </para>
     /// </summary>
     internal const int MostQueued = 100_000;
+
+    /// <summary>How many times <see cref="MostQueued"/> may wait before an Error or a Critical line is dropped too.</summary>
+    internal const int UrgentHeadroom = 10;
 
     private static readonly ConcurrentDictionary<FileLoggerProvider, byte> Live = new();
 
@@ -74,6 +78,8 @@ public sealed class FileLoggerProvider : ILoggerProvider
     private readonly TimeProvider _timeProvider;
     // Test seam: run on the writer thread before each line is written.
     private readonly Action? _beforeWrite;
+    // Test seam: makes the file at a path that must not exist yet (a test hands back one whose disk is full).
+    private readonly Func<string, FileStream> _createFile;
     // The writer and the day its file belongs to are the writer thread's alone once it runs: the constructor opens the
     // first file, so that a provider that cannot log fails where it is made, and hands both over.
     private StreamWriter _writer;
@@ -111,9 +117,12 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// <param name="beforeWrite">Run on the writer thread before each line is written: a test holds the writer there, or
     /// reads which thread it is.</param>
     /// <param name="mostQueued"><see cref="MostQueued"/>, which a test makes small.</param>
+    /// <param name="createFile">Makes the log file at a path that must not exist yet; a test hands back one that refuses
+    /// every write, as a full disk's does.</param>
     internal FileLoggerProvider(string appName, string logsRoot, TimeProvider timeProvider, Action? beforeWrite = null,
-        int mostQueued = MostQueued)
+        int mostQueued = MostQueued, Func<string, FileStream>? createFile = null)
     {
+        _createFile = createFile ?? (static path => new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read));
         _appName = appName;
         _logsRoot = logsRoot;
         _timeProvider = timeProvider;
@@ -161,11 +170,11 @@ public sealed class FileLoggerProvider : ILoggerProvider
 
     /// <summary>The file, created fresh, or null when it already exists (another process of this app
     /// started in the same second and owns it).</summary>
-    private static FileStream? TryCreateNew(string path)
+    private FileStream? TryCreateNew(string path)
     {
         try
         {
-            return new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            return _createFile(path);
         }
         catch (IOException) when (File.Exists(path))
         {
@@ -248,7 +257,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
         if (Interlocked.Read(ref _droppedUnsaid) > 0 && Interlocked.Exchange(ref _droppedUnsaid, 0) is > 0 and var dropped)
         {
             Interlocked.Increment(ref _waiting);
-            _entries.Enqueue(new Entry(now, "WRN", BannerCategory, $"{dropped} line(s) were dropped here: {_mostQueued} waited to be written", null));
+            _entries.Enqueue(new Entry(now, "WRN", BannerCategory, $"{dropped} line(s) were dropped here: more than {_mostQueued} waited to be written", null));
         }
     }
 
@@ -272,7 +281,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// stop a process from starting or logging.
     /// </para>
     /// </summary>
-    internal static void WriteBanner(StreamWriter writer, string appName, DateTimeOffset now)
+    private static void WriteBanner(StreamWriter writer, string appName, DateTimeOffset now)
     {
         try
         {
@@ -298,12 +307,13 @@ public sealed class FileLoggerProvider : ILoggerProvider
     }
 
     /// <summary>One entry, stamped with this provider's clock as it is logged, queued for the current day's file.</summary>
-    /// <param name="pastTheCap">An Error or a Critical line, which is taken however many wait (<see cref="MostQueued"/>).</param>
+    /// <param name="pastTheCap">An Error or a Critical line, which is taken past <see cref="MostQueued"/>, up to
+    /// <see cref="UrgentHeadroom"/> times it.</param>
     internal void Write(string level, string categoryName, string message, Exception? exception, bool pastTheCap = false)
     {
         // A closed log refuses a line, as its closed writer did: the caller hears of it and the line is not lost in silence.
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (Interlocked.Increment(ref _waiting) > _mostQueued && !pastTheCap)
+        if (Interlocked.Increment(ref _waiting) > (pastTheCap ? (long)_mostQueued * UrgentHeadroom : _mostQueued))
         {
             Interlocked.Decrement(ref _waiting);
             Interlocked.Increment(ref _dropped);

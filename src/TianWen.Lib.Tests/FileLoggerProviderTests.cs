@@ -211,10 +211,10 @@ public class FileLoggerProviderTests : IDisposable
             [
                 "[INF] t: first",
                 .. Enumerable.Range(0, 10).Select(static i => $"[INF] t: kept {i}"),
-                "[WRN] TianWen.Build: 3 line(s) were dropped here: 10 waited to be written",
+                "[WRN] TianWen.Build: 3 line(s) were dropped here: more than 10 waited to be written",
                 "[ERR] t: an error is kept",
                 "[CRT] t: and so is the line of a crash",
-                "[WRN] TianWen.Build: 1 line(s) were dropped here: 10 waited to be written",
+                "[WRN] TianWen.Build: 1 line(s) were dropped here: more than 10 waited to be written",
                 "[INF] t: after",
             ];
             LinesAfterTheBanner(provider.LogFilePath).ShouldBe(expected);
@@ -258,27 +258,82 @@ public class FileLoggerProviderTests : IDisposable
         LinesAfterTheBanner(provider.LogFilePath).ShouldBe(["[CRT] t: the writer's own last line", "[INF] t: an ordinary line"]);
     }
 
+    // A disk that refuses the banner (full, or the file gone) must not stop a program from starting: the banner is a
+    // diagnostic. The provider opens over a file whose every write fails, which is what its constructor meets on such a
+    // disk; a line logged then is counted as failed, and closing does not throw either.
     [Fact]
-    public void ABannerTheDiskRefusesIsSwallowedAtStart()
+    public void ADiskThatRefusesTheBannerDoesNotStopTheLogFromOpening()
     {
-        using var writer = new StreamWriter(new RefusingStream()) { AutoFlush = false };
-
-        Should.NotThrow(() => FileLoggerProvider.WriteBanner(writer, "Test", TimeProvider.System.GetLocalNow()));
+        FileLoggerProvider? provider = null;
+        Should.NotThrow(() => provider = new FileLoggerProvider("Test", NewLogsRoot(), TimeProvider.System,
+            createFile: static path => new FullDiskFile(path)));
+        var opened = provider.ShouldNotBeNull();
+        try
+        {
+            File.Exists(opened.LogFilePath).ShouldBeTrue();
+            opened.CreateLogger("t").LogInformation("a line the disk refuses too");
+            opened.Flush().ShouldBeTrue("the writer got there; what it could not write is counted, not waited for");
+            opened.LinesFailed.ShouldBeGreaterThan(0);
+        }
+        finally
+        {
+            Should.NotThrow(opened.Dispose);
+        }
     }
 
-    /// <summary>A stream whose every write fails, as a full disk's does.</summary>
-    private sealed class RefusingStream : Stream
+    // The lines that pass the cap have a bound of their own: an Error logged in a loop against a writer that is stuck must
+    // not grow the queue for ever, which is what the cap is for. Ten times the cap, then they are dropped and counted too.
+    [Fact(Timeout = 30_000)]
+    public async Task AnErrorPastTenTimesTheCapIsDroppedToo()
     {
-        public override bool CanRead => false;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override long Length => throw new NotSupportedException();
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new IOException("disk full");
+        var ct = TestContext.Current.CancellationToken;
+        var writerHolds = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        using var provider = new FileLoggerProvider("Test", NewLogsRoot(), TimeProvider.System, beforeWrite: () =>
+        {
+            writerHolds.TrySetResult();
+            release.Wait(); // set by this test, in its finally at the latest
+        }, mostQueued: 2);
+        var logger = provider.CreateLogger("t");
+        try
+        {
+            logger.LogInformation("first");
+            await writerHolds.Task.WaitAsync(ct);
+
+            // Twenty errors wait (ten times the cap of two); the twenty-first is one too many.
+            for (var i = 0; i < 20; i++)
+            {
+                logger.LogError("error {Number}", i);
+            }
+            provider.LinesDropped.ShouldBe(0);
+            logger.LogError("error 20");
+            provider.LinesDropped.ShouldBe(1);
+
+            release.Set();
+            provider.Flush().ShouldBeTrue();
+
+            string[] expected =
+            [
+                "[INF] t: first",
+                .. Enumerable.Range(0, 20).Select(static i => $"[ERR] t: error {i}"),
+                "[WRN] TianWen.Build: 1 line(s) were dropped here: more than 2 waited to be written",
+            ];
+            LinesAfterTheBanner(provider.LogFilePath).ShouldBe(expected);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    /// <summary>A log file whose every write fails, as a full disk's does. It is made, so it has a name.</summary>
+    private sealed class FullDiskFile(string path) : FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read)
+    {
+        private static IOException Full() => new IOException("There is not enough space on the disk.");
+
+        public override void Write(byte[] buffer, int offset, int count) => throw Full();
+        public override void Write(ReadOnlySpan<byte> buffer) => throw Full();
+        public override void WriteByte(byte value) => throw Full();
     }
 
     private string NewLogsRoot() => _folders.Create("filelog").FullName;
