@@ -85,8 +85,9 @@ public class NarrowbandCombinationTests
     }
 
     /// <summary>
-    /// A plate that stands over its plane is held at the plane (#2433), so its stars are never negative and screen back to
-    /// the plane; a pixel the remover lowered keeps the remover's output bit for bit, and an absent pixel stays absent.
+    /// A plate that stands over its plane is held at the plane (#2433), so its stars are never negative and plate plus
+    /// stars is the plane; a pixel the remover lowered keeps the remover's output bit for bit, and an absent pixel stays
+    /// absent.
     /// </summary>
     [Fact]
     public async Task TheSplitHoldsThePlateAtOrUnderItsPlane()

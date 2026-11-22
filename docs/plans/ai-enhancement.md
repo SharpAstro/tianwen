@@ -528,7 +528,8 @@ per rule and points here.
     reasons for each rule and the scores: `docs/plans/star-remover-training.md`), so `DigFill` reproduces scipy's filters exactly (the Gaussian's
     truncation, border and summing order, the median, the maximum, the dilation, the linear zoom). On the three whole
     masters of the scorecard (two colour, one mono) its output equals the Python's bit for bit at every pixel;
-    `training/star-removal/dig_fill_parity.py` is that comparison. A change to a constant or a filter there is a
+    `training/star-removal/dig_fill_parity.py` is that comparison, of `image fill-digs --keep-overshoot` (the verb
+    holds its plate at or under the input by default since #2433, a step the Python does not have). A change to a constant or a filter there is a
     change to a scored step: re-run the parity, and re-score.
   - **It fades where its sky cannot be trusted (floor4).** Inside bright, structured nebula the pixels of removed
     stars form one large blob, the sky under it is spread in from far away, and filling to it drew flat patches over
