@@ -17,6 +17,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Sources;
+using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
@@ -432,6 +433,7 @@ internal sealed partial class ImageSubCommand(
         {
             Options = { redOpt, greenOpt, blueOpt, haOpt, haScaleOpt, haWeightOpt, starlessOpt, coreCatalogueOpt, linearFitOpt, deblurOpt, matchPsfOpt, luminanceOpt, lrgbOpt, colourSigmaOpt, denoiseOpt, denoiseStrengthOpt, colourDenoiseStrengthOpt, outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
         };
+        var combine = new CombineOperation(starRemover, deblurrer, denoiser, objectDb);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var paths = new List<string> { parseResult.Required(redOpt), parseResult.Required(greenOpt), parseResult.Required(blueOpt) };
@@ -439,76 +441,54 @@ internal sealed partial class ImageSubCommand(
             {
                 paths.Add(haPath);
             }
-            var masters = new List<Image>(paths.Count);
-            WCS? wcs = null;
-            foreach (var path in paths)
-            {
-                if (!Image.TryReadFitsFile(path, out var image, out var imageWcs))
-                {
-                    consoleHost.WriteError($"Failed to read FITS file: {path}");
-                    return 1;
-                }
-                wcs ??= imageWcs;
-                masters.Add(MasterAlignment.MaskAbsent(image));
-                image.Release();
-            }
-            // The recipe (ColourComposition) runs each step's own routine in order; this verb only reads, parses and writes.
+            // The settings of the operation an edit list runs (CombineOperation). The recipe (ColourComposition) is that
+            // operation's routine and runs each step's own routine in order; this verb only parses and writes.
             var fitTo = parseResult.GetValue(linearFitOpt) ?? "green";
-            var options = new ColourCompositionOptions
+            var settings = new CombineSettings
             {
-                LinearFitTo = fitTo switch
+                LinearFit = fitTo switch
                 {
-                    "red" => ColourChannel.Red,
-                    "blue" => ColourChannel.Blue,
-                    "none" => null,
-                    _ => ColourChannel.Green,
+                    "red" => CombineLinearFit.Red,
+                    "blue" => CombineLinearFit.Blue,
+                    "none" => CombineLinearFit.None,
+                    _ => CombineLinearFit.Green,
                 },
                 Deblur = parseResult.GetValue(deblurOpt),
                 MatchPsf = parseResult.GetValue(matchPsfOpt),
                 Starless = parseResult.GetValue(starlessOpt),
                 // As image remove-stars: on a plate-solved set the catalogued stars inside a protected core stay removed.
-                CatalogStars = parseResult.GetValue(starlessOpt)
-                    ? await CoreCatalogueAsync("combine", parseResult.GetValue(coreCatalogueOpt), wcs, masters[0].Width, masters[0].Height, ct)
-                    : null,
+                Catalogue = CoreCatalogue.Parse(parseResult.GetValue(coreCatalogueOpt)),
                 LineScale = parseResult.GetValue(haScaleOpt),
                 LineWeight = parseResult.GetValue(haWeightOpt),
-                Luminance = parseResult.GetValue(luminanceOpt) is not null,
                 Lrgb = parseResult.GetValue(lrgbOpt),
                 ColourSigma = parseResult.GetValue(colourSigmaOpt),
                 Denoise = parseResult.GetValue(denoiseOpt),
-                DetailDenoise = parseResult.GetValue(denoiseStrengthOpt) is { } strength
-                    ? new EnhanceOptions(Tuning: new EnhanceTuning(DenoiseStrength: Math.Clamp(strength, 0f, 1f)))
-                    : EnhanceOptions.Default,
-                ColourDenoise = new EnhanceOptions(Tuning: new EnhanceTuning(
-                    DenoiseStrength: Math.Clamp(parseResult.GetValue(colourDenoiseStrengthOpt), 0f, 1f))),
+                DenoiseStrength = parseResult.GetValue(denoiseStrengthOpt) is { } strength ? Math.Clamp(strength, 0f, 1f) : null,
+                ColourDenoiseStrength = Math.Clamp(parseResult.GetValue(colourDenoiseStrengthOpt), 0f, 1f),
             };
-            var roles = new ColourCompositionRoles(starRemover, deblurrer, denoiser);
-            if (ColourComposition.Validate(masters, options, roles) is { } problem)
+            if (combine.Refusal(settings) is { } refusal)
             {
-                consoleHost.WriteError($"[combine] {problem}.");
+                consoleHost.WriteError($"[combine] {refusal}.");
                 return 1;
             }
-            ColourComposition.Result result;
-            try
+            var luminancePath = parseResult.GetValue(luminanceOpt);
+            var (result, outcome) = await combine.ComposeAsync(settings, [.. paths.Select(OperationInput.FromFile)], withLuminance: luminancePath is not null,
+                line => consoleHost.WriteScrollable($"[combine] {line}"), ct);
+            if (result is null)
             {
-                result = await ColourComposition.RunAsync(masters, options, roles, line => consoleHost.WriteScrollable($"[combine] {line}"), ct);
-            }
-            catch (InvalidOperationException ex)
-            {
-                consoleHost.WriteError($"[combine] {ex.Message}.");
+                consoleHost.WriteError($"[combine] {outcome.Message}");
                 return 1;
             }
 
-            if (parseResult.GetValue(luminanceOpt) is { } luminancePath && result.Luminance is { } luminance)
+            if (luminancePath is not null && result.Luminance is { } luminance)
             {
-                luminance.ScaleFloatValuesToUnit().WriteToFitsFile(luminancePath, wcs, SharpenPipeline.SwModifyHeader());
+                luminance.ScaleFloatValuesToUnit().WriteToFitsFile(luminancePath, result.Wcs, SharpenPipeline.SwModifyHeader());
                 consoleHost.WriteScrollable($"[combine] wrote {luminancePath}");
             }
-            var rgb = NarrowbandCombination.Rgb(result.Red, result.Green, result.Blue).ScaleFloatValuesToUnit();
             var dst = parseResult.Required(outputOpt);
-            rgb.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
+            OperationOutput.Write(result.Rgb, dst, result.Wcs);
             consoleHost.WriteScrollable($"[combine] wrote {dst}");
-            await WriteCompanionAsync(rgb, dst, parseResult.GetValue(formatOpt), rgb.ImageMeta, wcs, "combine",
+            await WriteCompanionAsync(result.Rgb, dst, parseResult.GetValue(formatOpt), result.Rgb.ImageMeta, result.Wcs, "combine",
                 useStretchedPng: false,
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
                 gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020, ct: ct);

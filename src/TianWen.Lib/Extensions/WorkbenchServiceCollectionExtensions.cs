@@ -41,6 +41,8 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation>(static sp => new DenoiseOperation(sp.GetService<IDenoiseEnhancer>()));
         services.AddSingleton<IOperation>(static sp => new RemoveStarsOperation(
             sp.GetService<IStarRemover>(), sp.GetService<ICelestialObjectDB>(), sp.GetService<ILogger<RemoveStarsOperation>>()));
+        services.AddSingleton<IOperation>(static sp => new CombineOperation(
+            sp.GetService<IStarRemover>(), sp.GetService<IImageDeblurrer>(), sp.GetService<IDenoiseEnhancer>(), sp.GetService<ICelestialObjectDB>()));
         services.AddSingleton<IOperation>(static sp => new GradientOperation(
             sp.GetRequiredService<IBackgroundExtractor>(),
             sp.GetRequiredService<IGradientCorrector>(),

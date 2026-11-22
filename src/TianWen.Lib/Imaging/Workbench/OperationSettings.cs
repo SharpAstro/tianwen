@@ -127,6 +127,62 @@ public sealed record RemoveStarsSettings
     public bool KeepOvershoot { get; set; }
 }
 
+/// <summary>The channel a colour composition's linear fit puts the others on.</summary>
+public enum CombineLinearFit
+{
+    /// <summary>Green, as a rule.</summary>
+    Green,
+
+    /// <summary>Red.</summary>
+    Red,
+
+    /// <summary>Blue.</summary>
+    Blue,
+
+    /// <summary>The masters are left as they are.</summary>
+    None,
+}
+
+/// <summary>The settings of <see cref="CombineOperation"/>: which steps of the recipe run, and their numbers.</summary>
+public sealed record CombineSettings
+{
+    /// <summary>The channel red, green and blue are put on the scale of first (<c>--linear-fit</c>).</summary>
+    public CombineLinearFit LinearFit { get; set; } = CombineLinearFit.Green;
+
+    /// <summary>Deblur every master before its stars are removed (<c>--deblur</c>).</summary>
+    public bool Deblur { get; set; }
+
+    /// <summary>Blur every sharper master to the widest one's star width, for the colour only (<c>--match-psf</c>).</summary>
+    public bool MatchPsf { get; set; }
+
+    /// <summary>Stars out before the line goes in, and back last (<c>--starless</c>).</summary>
+    public bool Starless { get; set; }
+
+    /// <summary>With <see cref="Starless"/>: the star catalogue asked for the stars inside a protected core (<c>--core-catalogue</c>).</summary>
+    public CoreCatalogueChoice Catalogue { get; set; } = CoreCatalogueChoice.Auto;
+
+    /// <summary>The continuum scale against red as given (<c>--ha-scale</c>); left out, it is measured.</summary>
+    public double? LineScale { get; set; }
+
+    /// <summary>How much of the pure line goes into red, in red's own units (<c>--ha-weight</c>).</summary>
+    public double LineWeight { get; set; } = 1.0;
+
+    /// <summary>Give every channel the synthetic luminance's detail (<c>--lrgb</c>).</summary>
+    public bool Lrgb { get; set; }
+
+    /// <summary>With <see cref="Lrgb"/>: the blur in pixels the channels keep their own colour above (<c>--colour-sigma</c>).</summary>
+    public float ColourSigma { get; set; } = LuminanceDetail.DefaultColourSigma;
+
+    /// <summary>Denoise the starless planes (<c>--denoise</c>); needs <see cref="Starless"/>.</summary>
+    public bool Denoise { get; set; }
+
+    /// <summary>The strength for the planes that carry the detail (<c>--denoise-strength</c>); left out, the denoiser's own.</summary>
+    public float? DenoiseStrength { get; set; }
+
+    /// <summary>The strength for the colour when a luminance carries the detail (<c>--colour-denoise-strength</c>).</summary>
+    public float ColourDenoiseStrength { get; set; } = 0.5f;
+}
+
 /// <summary>The settings of <see cref="ProtectCoresOperation"/>.</summary>
 public sealed record ProtectCoresSettings
 {
@@ -176,6 +232,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(DeblurSettings))]
 [JsonSerializable(typeof(DenoiseSettings))]
 [JsonSerializable(typeof(RemoveStarsSettings))]
+[JsonSerializable(typeof(CombineSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }
