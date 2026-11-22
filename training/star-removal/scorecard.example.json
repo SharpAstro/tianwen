@@ -6,6 +6,12 @@
     "tarantula": "<path to the held-out Tarantula master of 2026-10-17, FITS, 3 planes, PIXORIG = 1>",
     "sag": "<path to the Sagittarius Triplet master, mono or RGB>"
   },
+  "gaia": {
+    "_comment": "Per master, the Gaia stars of the solved frame as CSV (x, y, ra_deg, dec_deg, mag, mag being BP): `tianwen solve <master> --export-gaia <csv>`, from the installed ASTAP star database. Read by nebula_stars_row.py.",
+    "andromeda": "<path to the M31 master's Gaia CSV>",
+    "tarantula": "<path to the Tarantula master's Gaia CSV>",
+    "sag": "<path to the Sagittarius Triplet master's Gaia CSV>"
+  },
   "glow_threshold": {
     "_comment": "Per master, the share-above threshold of glow_ring.py as [R, G, B] sigma-pixels, fixed ONCE from the INPUT master's own stars (the halo before removal): run `python glow_ring.py <master> --derive-threshold` (0.1 of the input's median annulus excess per channel) and paste its three numbers. Never re-derive it from an arm's plate.",
     "andromeda": ["<tR>", "<tG>", "<tB>"],

@@ -10,14 +10,17 @@ blue's shoulder under Andromeda's bright stars and leave light in the Tarantula'
   - the Sagittarius Triplet's crowded stars flat (mono, as three planes), and M31's nucleus taken (the guard, at most 5 %).
   - every master's bright extended light (nebula_rows.py, #2245): the share of it a fill made BRIGHTER than the input, the
     broad light taken, and the input's bright compact peaks left standing. The star rows above pass a flat patch, a star
-    put back inside a protected core and nebula taken with the stars; these do not. No faint star left on nebula is read.
+    put back inside a protected core and nebula taken with the stars; these do not.
+  - every master's faint catalogued stars on bright nebula (nebula_stars_row.py, 2026-11-22): the median share of each
+    star's light the plate took and the share of stars it took under half of, beside the same on dark sky. It needs
+    the config's "gaia" CSV per master (`tianwen solve <master> --export-gaia <csv>`).
 Plates are made at one view (how a model ships) into <out root>/<tag>/ and reused when present; a judge's existing
 plates are linked in with --plates. Glue only: every number is parsed from the checks' own output.
     python score_whole.py <tag> --config scorecard.local.json --model a.onnx [b.onnx ...] [--views 1]
     python score_whole.py <tag> --config scorecard.local.json --plates andromeda=... tarantula=... sag=...
-The machine's paths (the three masters, the tianwen executable, the output root) come from a config file, which
-`scorecard.example.json` shows and `scorecard.local.json` (ignored by git) holds; each can be given on the command line
-instead (--master NAME=PATH, --cli, --out-root). Nothing in this folder names a machine.
+The machine's paths (the three masters, each one's Gaia CSV, the tianwen executable, the output root) come from a config
+file, which `scorecard.example.json` shows and `scorecard.local.json` (ignored by git) holds; each can be given on the
+command line instead (--master NAME=PATH, --gaia NAME=CSV, --cli, --out-root). Nothing in this folder names a machine.
 """
 import argparse
 import json
@@ -31,14 +34,19 @@ import numpy as np
 from astropy.io import fits
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))        # the arm driver runs this with -I, which leaves the script's folder off sys.path
+from nebula_stars_parse import parse_row
+
 NAMES = ('andromeda', 'tarantula', 'sag')
 p = argparse.ArgumentParser()
 p.add_argument('tag')
-p.add_argument('--config', help='JSON with "cli", "out_root" and "masters" {andromeda, tarantula, sag}; '
+p.add_argument('--config', help='JSON with "cli", "out_root", and "masters" and "gaia" {andromeda, tarantula, sag}; '
                                 'default scorecard.local.json beside this script when present')
 p.add_argument('--cli', help='the tianwen executable (overrides the config)')
 p.add_argument('--out-root', help='where <tag>/ is made (overrides the config)')
 p.add_argument('--master', nargs='+', default=[], metavar='NAME=PATH', help='an input master (overrides the config)')
+p.add_argument('--gaia', nargs='+', default=[], metavar='NAME=CSV', help="a master's Gaia CSV, `tianwen solve <master> --export-gaia <csv>` "
+                                                                      "(overrides the config's 'gaia')")
 p.add_argument('--model', nargs='+')
 p.add_argument('--views', default='1')
 p.add_argument('--plates', nargs='+', default=[])
@@ -50,7 +58,9 @@ cfg = json.loads(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else
 CLI = a.cli or cfg.get('cli')
 OUT_ROOT = a.out_root or cfg.get('out_root')
 MASTERS = {k: Path(v) for k, v in {**cfg.get('masters', {}), **dict(x.split('=', 1) for x in a.master)}.items()}
-missing = [what for what, v in (('cli', CLI), ('out_root', OUT_ROOT), *((f'masters.{n}', MASTERS.get(n)) for n in NAMES)) if not v]
+GAIA = {k: v for k, v in {**cfg.get('gaia', {}), **dict(x.split('=', 1) for x in a.gaia)}.items()}
+missing = [what for what, v in (('cli', CLI), ('out_root', OUT_ROOT), *((f'masters.{n}', MASTERS.get(n)) for n in NAMES),
+                                *((f'gaia.{n}', GAIA.get(n)) for n in NAMES)) if not v]
 if missing:
     raise SystemExit(f'not set (config or command line): {", ".join(missing)}')
 out = Path(OUT_ROOT) / a.tag
@@ -161,6 +171,16 @@ for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
     lines = run([py, '-I', HERE / 'nebula_rows.py', MASTERS[k], plates[k], '--name', label]).splitlines()
     score[k]['nebula'] = lines[0]
     nebula[k] = next(x for x in lines if x.startswith('short: '))[len('short: '):]
+# Faint catalogued stars on bright nebula (the owner, 2026-11-22: the Lagoon's "+" stars). The catalogue of each master is
+# the config's "gaia" CSV (checked up front with the other settings), never a skipped row.
+nebstars = {}
+for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
+    line = run([py, '-I', HERE / 'nebula_stars_row.py', MASTERS[k], GAIA[k], plates[k], '--name', label]).strip().splitlines()[-1]
+    m = parse_row(line, label)
+    if m is None:
+        raise KeyError(f'nebula_stars_row.py printed no row for {k} ("{line}"); see {out / "score.log"}')
+    score[k]['nebula_stars'] = m
+    nebstars[k] = f"{label} stars on nebula taken {m['bright_taken']} left {m['bright_left']}{'' if m['bright_left'] == '-' else '%'}"
 (out / 'score.json').write_text(json.dumps(score, indent=1))
 
 def glow_field(d):
@@ -175,6 +195,7 @@ row = (f"{a.tag:>10} | And dark flat {A['dark_flat']:5.1f} dug {A['dark_dug']:5.
        f"{T['profile']['R'][0]:+.2f}/{T['profile']['G'][0]:+.2f}/{T['profile']['B'][0]:+.2f} | Tar crowded {T['crowded_flat']:5.1f} "
        f"BP17-19 {T['bp1719']:5.1f} purity {T['purity']:.1f} | Sag crowded {S['crowded_flat']:5.1f} | nucleus "
        f"{'/'.join(f'{x:.1f}' for x in score['nucleus'])} % | And glow {glow_field(A)} | Tar glow {glow_field(T)}"
-       f" | {nebula['andromeda']} | {nebula['tarantula']} | {nebula['sag']}")
+       f" | {nebula['andromeda']} | {nebula['tarantula']} | {nebula['sag']} | {nebstars['sag']} | {nebstars['tarantula']}"
+       f" | {nebstars['andromeda']}")
 (out / 'row.txt').write_text(row + '\n')
 print(row)
