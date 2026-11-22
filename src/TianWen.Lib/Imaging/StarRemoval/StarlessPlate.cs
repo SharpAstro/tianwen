@@ -118,8 +118,8 @@ public readonly record struct StarlessBand(
 /// <param name="Speckles">Dark speckles at the subtracted sites, per significance band, against the plate's own sky
 /// (<see cref="StarlessSpeckles"/>); null on a record from before they were read.</param>
 /// <param name="DugCores">Subtracted stars whose core the hole sweep refilled for a dug pixel alone: a core pixel the
-/// subtraction took more than 4 sigma from and left more than 4 sigma under the sky round the star, where the core's mean
-/// passed the hole test (#2449). 0 on a record from before the sweep looked for them.</param>
+/// subtraction took more than 4 sigma from and left more than 4 sigma under the sky round the star, in the pixel-to-pixel
+/// noise there, where the core's mean passed the hole test (#2449). 0 on a record from before the sweep looked for them.</param>
 public sealed record StarlessPlateStatistics(
     ImmutableArray<StarlessBand> Bands, float InpaintFraction, int LeftoverNearThreshold,
     float FaintResidualCentre, float FaintResidualCorners, ImmutableArray<float> FwhmPx, ImmutableArray<float> MoffatBeta,

@@ -388,24 +388,25 @@ trips it. On the store's Tarantula master (the ASI585MC at an FWHM of 3.8 px) a 
 round it stood at 13.8 % of the 10 to 30 sigma and 33.1 % of the 30 to 100 sigma subtracted stars whose core was not
 inpainted, against 3.5 % at random star-free spots: the fit over-takes an undersampled star's peak pixel. The sweep
 now refills such a core in the same round as the holes. Per star and channel, a pixel within 1.5 px of the fit's
-centre more than 4 sigma (the sweep's per-pixel noise) under the annulus sky the hole test reads, where the
-subtraction took more than 4 sigma (the input less the plate), has the disc of 2 px about the centre filled and
-marked inpainted. A dark pixel the input holds, where no model took light, is left. A plate's record counts the
-stars refilled this way (`StarlessPlateStatistics.DugCores`). Unlike the refill driven by the speckle measure that
-was withdrawn (below, "What R0 leaves"), it reads what the subtraction took at the pixel and fills a fixed disc.
+centre more than 4 sigma under the annulus sky the hole test reads, where the subtraction took more than 4 sigma
+(the input less the plate), has the disc of 2 px about the centre filled and marked inpainted. The sigma is the
+pixel-to-pixel noise of that annulus on the working plate (1.4826 times the median magnitude of its horizontal
+neighbour differences, over root 2), not the sweep's per-pixel rms: that rms counts the master's correlated noise,
+and where a crowd or a bright nebula raises it, it stood 2.3 to 7.3 times the neighbour-difference noise at the
+deepest pits a first version left reading against it (a pit 11 to 31 of the one deep was under 4 of the other). A
+dark pixel the input holds, where no model took light, is left. A plate's record counts the stars refilled this way
+(`StarlessPlateStatistics.DugCores`). Unlike the refill driven by the speckle measure that was withdrawn (below,
+"What R0 leaves"), it reads what the subtraction took at the pixel and fills a fixed disc.
 
 Read on that master against the plate main built (the noise from neighbour differences, so the stored plate reads
 13.1 %, 29.8 % and 3.0 % this way): of the stars whose core main left uninpainted, the pit falls from 13.1 % to
-5.4 % of the 10 to 30 sigma ones and from 29.8 % to 0.3 % of the 30 to 100 sigma ones, the random spots staying at
-3.0 %. 5,957 stars are refilled (9.1 % of the subtracted), the inpaint fraction goes from 8.05 % to 9.25 %, and the
-9 to 41 px band of the crowded cells moves by 0.1 at most. Holes in the 10 to 50 sigma bands rose from 106 to 158 of
-16,474 stars, against the plate's null of 13.9 %. 40 of the 81 stars newly read as holes there were refilled by the
-trigger, and over all the refilled stars the core's depth spreads wider (its 10th to 90th percentile from -2.1 to
-+0.9 to -2.5 to +1.6). The pits left are where the sweep's noise is high: at four of the deepest it is 2.3 to
-7.3 times the plate's neighbour-difference noise (it counts the master's correlated noise and, in a crowded or bright
-cell, the crowd and the nebula's photon noise), so a pit 11 to 31 of the one deep is under 4 of the other. A trigger
-at 3 sigma of the sweep's noise, measured and not adopted (the issue's design is 4), leaves 1.2 % and 0.3 %, refills
-13,951 stars, takes the inpaint fraction to 10.64 % and the holes in the 10 to 50 sigma bands to 238.
+0.7 % of the 10 to 30 sigma ones and from 29.8 % to 0.5 % of the 30 to 100 sigma ones, under the random spots' 3.0 %.
+15,661 stars are refilled (24 % of the subtracted), the inpaint fraction goes from 8.05 % to 10.91 %, and the 9 to
+41 px band of the crowded cells moves by 0.2 at most. Holes in the 10 to 50 sigma bands rose from 106 to 250 of
+16,474 stars, against the plate's null of 13.9 %. 109 of the 186 stars newly read as holes there were refilled by the
+trigger, and over all the refilled stars the core's depth spreads wider (its 10th to 90th percentile from -1.9 to
++1.0 to -2.4 to +1.7). Measured and not adopted: the trigger at 4 sigma of the sweep's rms (pits 5.4 % and 0.3 %,
+5,957 stars refilled, inpaint 9.25 %, holes 158) and at 3 sigma of it (1.2 % and 0.3 %, 13,951, 10.64 %, 238).
 
 **Each run records what built it.** `tianwen dataset starless-plates` appends one line to
 `stats/starless-plates.provenance.jsonl`, beside the store, as it starts: the library's version and commit (the one

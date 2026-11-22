@@ -729,13 +729,13 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     // #2449: a dark pixel the INPUT holds in a star's core (7 sigma under the sky, beside its peak pixel), in the channel where
     // the star has almost no light (a colour field whose third channel takes 0.003 of each star), is the input's own and not
-    // one the subtraction dug: the star's model took next to nothing there. The trigger leaves it, so the plate round the
-    // star is the same to the bit with the trigger and without it, and nothing in the disc it would refill is inpainted. The
-    // pixel still sits more than 4 sigma under the sky, so a trigger that did not ask what the subtraction took would have
-    // filled it. (In a channel where the star is bright, its model takes more than 4 sigma at every pixel within 1.5 px of
-    // its centre down to the finder's limit, so this is where the question decides.) On smooth sky, where the luminance the
-    // first fill flags on holds a third of the pixel's depth, under its flag. Heavy: two colour builds, where one takes 40 s
-    // on the x64 leg.
+    // one the subtraction dug: the star's model took next to nothing there. The trigger leaves it: nothing in the disc it
+    // would refill is inpainted, and every pixel round the star that no fill owns is the same to the bit with the trigger
+    // and without it. The pixel still sits more than 4 sigma under the sky, so a trigger that did not ask what the
+    // subtraction took would have filled it. (In a channel where the star is bright, its model takes more than 4 sigma at
+    // every pixel within 1.5 px of its centre down to the finder's limit, so this is where the question decides.) On smooth
+    // sky, where the luminance the first fill flags on holds a third of the pixel's depth, under its flag. Heavy: two
+    // colour builds, where one takes 40 s on the x64 leg.
     [Fact(Timeout = 600_000)]
     [Trait("Category", "Heavy")]
     public async Task ADarkPixelTheInputHoldsInAStarsCoreIsLeftAlone()
@@ -773,6 +773,12 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
                     if ((xx - cx) * (xx - cx) + (yy - cy) * (yy - cy) <= ClassicalStarRemover.DugCoreRadius * ClassicalStarRemover.DugCoreRadius)
                     {
                         with.Inpainted[yy, xx].ShouldBeFalse($"({xx}, {yy}), in the disc the trigger would refill about ({cx}, {cy})");
+                    }
+                    // A pixel another fill owns moves with any fill of its round, whose grain follows the frame-wide noise
+                    // map; what the subtraction left is compared.
+                    if (with.Inpainted[yy, xx] || without.Inpainted[yy, xx])
+                    {
+                        continue;
                     }
                     for (var c = 0; c < 3; c++)
                     {

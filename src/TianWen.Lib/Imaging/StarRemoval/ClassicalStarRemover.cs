@@ -244,12 +244,15 @@ public static class ClassicalStarRemover
     // and 33.1 percent of the 30 to 100 sigma subtracted stars whose core was not inpainted, against 3.5 percent at
     // random star-free spots. The fit over-takes the peak pixel of an undersampled star and leaves one dark pixel, the
     // black pit a 1:1 crop shows, which a model trained on the plate learns to dig at every faint star. So a core pixel
-    // within DugCoreSearch px of the fit's centre that sits more than DugPixelSigma of the noise under the annulus sky,
-    // where the subtraction took more than DugPixelSigma of the noise, has the disc of DugCoreRadius px about the centre
-    // refilled, as a hole is. The disc holds every pixel within DugCoreSearch of a centre a rounding away from it.
+    // within DugCoreSearch px of the fit's centre that sits more than DugPixelSigma of the pixel-to-pixel noise (the
+    // annulus's neighbour differences; DugCore says why not the sweep's rms) under the annulus sky, where the subtraction
+    // took more than DugPixelSigma of that noise, has the disc of DugCoreRadius px about the centre refilled, as a hole
+    // is. The disc holds every pixel within DugCoreSearch of a centre a rounding away from it.
     internal const double DugPixelSigma = 4.0;
     internal const double DugCoreSearch = 1.5;
     internal const double DugCoreRadius = 2.0;
+    // The fewest neighbour pairs an annulus may read its pixel-to-pixel noise from (DugCore); an annulus holds some 250.
+    private const int MinNoisePairs = 32;
 
     private const double SkyAnnulusMax = 40.0;
     private const float DefaultBeta = 3f;
@@ -2176,39 +2179,100 @@ public static class ClassicalStarRemover
             {
                 return (null, false);
             }
-            return (HoleRadius(f, plane, core, annulus, sky, sigma), FillDugCores && DugCore(f, channel, sky, sigma));
+            return (HoleRadius(f, plane, core, annulus, sky, sigma), FillDugCores && DugCore(f, channel, sky, annulus));
         }
 
         // Whether the subtraction dug a core pixel (#2449): a pixel within DugCoreSearch px of the fit's centre that sits
-        // more than DugPixelSigma of the noise under the annulus sky, where the subtraction took more than DugPixelSigma of
-        // it. What the subtraction took is the input less the plate, every model subtracted at that pixel (and where the
-        // first fill or an earlier round already replaced it, the input less that fill). A dark pixel the input itself
-        // holds, where no model took light, is not one the fit dug and is left alone. The hole test cannot see this: one
-        // pixel barely moves the mean over a core.
-        private bool DugCore(in Fit f, int channel, double sky, double sigma)
+        // more than DugPixelSigma of the pixel-to-pixel noise under the annulus sky, where the subtraction took more than
+        // DugPixelSigma of it. What the subtraction took is the input less the plate, every model subtracted at that pixel
+        // (and where the first fill or an earlier round already replaced it, the input less that fill). A dark pixel the
+        // input itself holds, where no model took light, is not one the fit dug and is left alone. The hole test cannot see
+        // this: one pixel barely moves the mean over a core.
+        // The noise is the annulus's own neighbour differences (NeighbourDifferenceNoise), not the sweep's per-pixel rms.
+        // That rms counts the master's correlated noise, and where a crowd or a bright nebula raises it, 2.3 to 7.3 times
+        // the neighbour differences at the deepest pits the first version of this trigger left on the Tarantula master: a
+        // single dug pixel read against it fell under 4 where the pixel-to-pixel noise put it at 5 and more.
+        private bool DugCore(in Fit f, int channel, double sky, double annulus)
         {
             var plate = _work[channel];
             var input = _original[channel];
-            var depth = DugPixelSigma * sigma;
             var x0 = (int)Math.Round(f.X);
             var y0 = (int)Math.Round(f.Y);
             var r = (int)Math.Ceiling(DugCoreSearch);
-            for (var y = Math.Max(0, y0 - r); y <= Math.Min(_height - 1, y0 + r); y++)
+            var (top, bottom) = (Math.Max(0, y0 - r), Math.Min(_height - 1, y0 + r));
+            var (left, right) = (Math.Max(0, x0 - r), Math.Min(_width - 1, x0 + r));
+            // Most cores have no pixel under their sky at all, and need no noise measured.
+            var lowest = double.PositiveInfinity;
+            for (var y = top; y <= bottom; y++)
             {
-                for (var x = Math.Max(0, x0 - r); x <= Math.Min(_width - 1, x0 + r); x++)
+                for (var x = left; x <= right; x++)
                 {
-                    if ((x - f.X) * (x - f.X) + (y - f.Y) * (y - f.Y) > DugCoreSearch * DugCoreSearch || IsAbsent(x, y))
+                    if (InDugCoreSearch(f, x, y))
                     {
-                        continue;
+                        lowest = Math.Min(lowest, plate[y * _width + x]);
                     }
+                }
+            }
+            if (!(lowest < sky))
+            {
+                return false;
+            }
+            var noise = NeighbourDifferenceNoise(plate, f.X, f.Y, annulus, annulus + 6.0);
+            if (!(noise > 0))
+            {
+                return false;
+            }
+            var depth = DugPixelSigma * noise;
+            for (var y = top; y <= bottom; y++)
+            {
+                for (var x = left; x <= right; x++)
+                {
                     var i = y * _width + x;
-                    if (plate[i] < sky - depth && input[i] - plate[i] > depth)
+                    if (InDugCoreSearch(f, x, y) && plate[i] < sky - depth && input[i] - plate[i] > depth)
                     {
                         return true;
                     }
                 }
             }
             return false;
+        }
+
+        private bool InDugCoreSearch(in Fit f, int x, int y)
+            => (x - f.X) * (x - f.X) + (y - f.Y) * (y - f.Y) <= DugCoreSearch * DugCoreSearch && !IsAbsent(x, y);
+
+        // The pixel-to-pixel noise of a plane over an annulus: 1.4826 times the median magnitude of the differences between
+        // horizontal neighbours both inside it, over root 2, the noise #2449 read its pits in. NaN with fewer than
+        // MinNoisePairs pairs.
+        private double NeighbourDifferenceNoise(float[] plane, double cx, double cy, double inner, double outer)
+        {
+            var r = (int)Math.Ceiling(outer);
+            var x0 = (int)Math.Round(cx);
+            var y0 = (int)Math.Round(cy);
+            var (top, bottom) = (Math.Max(0, y0 - r), Math.Min(_height - 1, y0 + r));
+            var (left, right) = (Math.Max(0, x0 - r), Math.Min(_width - 2, x0 + r - 1));
+            using var buffer = ArrayPoolHelper.Rent<float>((2 * r + 1) * (2 * r + 1));
+            var diffs = buffer.AsSpan(0, buffer.Length);
+            var n = 0;
+            bool Inside(int x, int y)
+            {
+                var d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                return d2 >= inner * inner && d2 <= outer * outer && !IsAbsent(x, y) && float.IsFinite(plane[y * _width + x]);
+            }
+            for (var y = top; y <= bottom; y++)
+            {
+                for (var x = left; x <= right; x++)
+                {
+                    if (Inside(x, y) && Inside(x + 1, y))
+                    {
+                        diffs[n++] = Math.Abs(plane[y * _width + x + 1] - plane[y * _width + x]);
+                    }
+                }
+            }
+            if (n < MinNoisePairs)
+            {
+                return double.NaN;
+            }
+            return 1.4826 * StatisticsHelper.NthSmallest(diffs[..n], n / 2) / Math.Sqrt(2.0);
         }
 
         // When a subtracted star's core in one channel sits more than HoleSigma (sigma over root n) below that channel's
