@@ -1371,10 +1371,28 @@ jobs:
       run: |
         echo "build: ${{ needs.build.result }}, build-linux: ${{ needs.build-linux.result }}, test-unit: ${{ needs.test-unit.result }}, test-unit-debug: ${{ needs.test-unit-debug.result }}, test-functional: ${{ needs.test-functional.result }}, build-windows: ${{ needs.build-windows.result }}, test-windows: ${{ needs.test-windows.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
         ok() { [ "$1" = success ] || { [ "$1" = skipped ] && { [ "${{ github.event_name }}" = merge_group ] || [ "${{ needs.build.outputs.tested-on-pr }}" = true ]; }; }; }
-        # The test builds are checked too, though a failed one already skips its tests (which ok refuses on a PR): so
-        # the check reads as what it means.
-        [ "${{ needs.build.result }}" = success ] && ok "${{ needs.build-linux.result }}" && ok "${{ needs.build-windows.result }}" \
-          && ok "${{ needs.test-unit.result }}" && ok "${{ needs.test-unit-debug.result }}" && ok "${{ needs.test-functional.result }}" && ok "${{ needs.test-windows.result }}"
+        refused=0
+        # Each need is judged on its own, so the annotation names the job that refused the gate and what its result means.
+        refuse() {
+          case "$2" in
+            failure) why="a step of it failed; read that job's log." ;;
+            cancelled) why="it reached its timeout-minutes or its runner stopped answering (the job's annotations and step times say which; a run cancelled by hand reads the same)." ;;
+            skipped) why="a job it depends on did not succeed, so it did not run." ;;
+            *) why="it did not succeed." ;;
+          esac
+          echo "::error title=gate::$1 was $2: $why"
+          refused=1
+        }
+        # build must have succeeded; the others may also be skipped as ok allows. The test builds are checked too,
+        # though a failed one already skips its tests (which ok refuses on a PR): so the check reads as what it means.
+        [ "${{ needs.build.result }}" = success ] || refuse build "${{ needs.build.result }}"
+        ok "${{ needs.build-linux.result }}" || refuse build-linux "${{ needs.build-linux.result }}"
+        ok "${{ needs.build-windows.result }}" || refuse build-windows "${{ needs.build-windows.result }}"
+        ok "${{ needs.test-unit.result }}" || refuse test-unit "${{ needs.test-unit.result }}"
+        ok "${{ needs.test-unit-debug.result }}" || refuse test-unit-debug "${{ needs.test-unit-debug.result }}"
+        ok "${{ needs.test-functional.result }}" || refuse test-functional "${{ needs.test-functional.result }}"
+        ok "${{ needs.test-windows.result }}" || refuse test-windows "${{ needs.test-windows.result }}"
+        exit $refused
 
   publish-nuget:
     timeout-minutes: 15   # one push
