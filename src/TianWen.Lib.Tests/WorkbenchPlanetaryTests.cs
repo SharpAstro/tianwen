@@ -153,7 +153,7 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         }
 
         (await TelescopeOfVerbAsync("asked")).ShouldContain("150", Case.Insensitive, "the verb without the flag takes the remembered telescope");
-        (await TelescopeOfVerbAsync("flagged", "--no-telescope-memory")).ShouldNotContain("150", "the flag keeps the memory out of the run");
+        (await TelescopeOfVerbAsync("flagged", "--no-telescope-memory")).ShouldNotContain("150", Case.Insensitive, "the flag keeps the memory out of the run");
 
         // The flag also stops a given aperture from being remembered.
         (await TelescopeOfVerbAsync("flagged-told", "--no-telescope-memory", "--aperture-mm", "203", "--design", "sct")).ShouldContain("203");
