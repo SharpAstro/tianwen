@@ -137,6 +137,9 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     }
 
     // One star field in three planes, green above red and blue, so its stars carry the green excess SCNR takes out.
+    // Its colour is stated as balanced and in the pixels (WBAPPLD): the pipeline runs SCNR only on balanced colour,
+    // where a neutral star has R = G = B, and passes it over on any other plate, so without the cards the stated mode
+    // would change nothing here.
     private static Image Colour()
     {
         const int size = 256;
@@ -156,7 +159,8 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
             return scaled;
         }
 
-        return new Image([Scaled(1f), Scaled(1.3f), Scaled(0.9f)], BitDepth.Float32, 65535f * 1.3f, 0f, 0f, new ImageMeta());
+        var meta = new ImageMeta { ColourCalibration = new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc, Applied: true) };
+        return new Image([Scaled(1f), Scaled(1.3f), Scaled(0.9f)], BitDepth.Float32, 65535f * 1.3f, 0f, 0f, meta);
     }
 
     private static bool Differ(Image one, Image other)
