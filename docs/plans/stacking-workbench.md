@@ -567,8 +567,13 @@ each step's output is bit-identical to its CLI verb's.
    (`planetary-compose`, the routine of `planetary compose`): any number of stacks as a set are one step, the colour
    master its result and the luminance a result it gives where a stack through an IR-pass or an L filter was among
    them; and the sharpening of a master again (`planetary-sharpen`, the routine of `planetary sharpen --auto`), which
-   is how a composed or a cropped master is sharpened. Left: the stack with settings of its own, the grades as a
-   step, the colour.
+   is how a composed or a cropped master is sharpened. The owner's call of 2026-11-23 closes the leg with these
+   three: AUTO takes three choices about the finished masters (`PlanetaryAutoChoices`: the strength past the derived
+   gains, luminance-only sharpening, the colour balance's saturation or none), on the stack step and, for the first
+   two, on the sharpen step. Not steps: grading (`planetary grade`) writes nothing a later step reads, so it is one
+   of [the facts a gate may test](#the-facts-a-gate-may-test), W9's; `planetary colour` measures masters against
+   OPAL's maps and is not what balances one; and a look (`planetary look`) is a rendering and never a new master, so
+   it belongs to W3's colour step and the export.
 5. An operation that writes no pixels (#2469). Built: the kind (the plan's "metadata": the finding is kept in the
    store, and the step after it takes its input with the finding applied) and the plate solve as the first, `tianwen
    solve` calling it and gaining `-o`. Statistics is not a step of an edit list: a measurement changes nothing a later

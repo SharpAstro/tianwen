@@ -11,14 +11,24 @@ namespace TianWen.Lib.Imaging.Workbench;
 
 /// <summary>
 /// The settings of <see cref="PlanetarySharpenOperation"/>: what is said of the master, in place of what it is read to
-/// be. AUTO takes no other setting: its sharpening is the measured default.
+/// be, and the two of AUTO's choices that are about sharpening (<see cref="PlanetaryAutoChoices"/>). The sharpening
+/// itself is the measured default.
 /// </summary>
-public sealed record PlanetarySharpenSettings : PlanetaryIdentitySettings;
+public sealed record PlanetarySharpenSettings : PlanetaryIdentitySettings
+{
+    /// <summary>How far past the truth the derived sharpening takes bands 2 and 3 (<c>--strength</c>): 1 is the
+    /// derived sharpening.</summary>
+    public double Strength { get; set; } = 1;
+
+    /// <summary>Sharpen a colour master's luminance once and keep its own colour (<c>--colour luminance</c>).</summary>
+    public bool LuminanceOnly { get; set; }
+}
 
 /// <summary>
 /// A planetary master sharpened again without stacking it again (<c>tianwen planetary sharpen --auto</c>): the master
 /// identified off its own header, and sharpened as AUTO sharpens the master it has just stacked
-/// (<see cref="PlanetaryAuto.Sharpen"/>). It is how a master a compose joined, or one a step cropped, is sharpened.
+/// (<see cref="PlanetaryAuto.Sharpen"/>). It is how a master a compose joined, or one a step cropped, is sharpened,
+/// and where a strength is tried: a changed setting here sharpens again and stacks nothing.
 /// </summary>
 /// <remarks>
 /// <para>It runs two routines in their order and nothing between, which the verb's <c>--sharpened</c> runs too
@@ -48,19 +58,45 @@ public sealed class PlanetarySharpenOperation : Operation<PlanetarySharpenSettin
             new OperationSetting("filterNm", "A mono master's filter, as its wavelength in nanometres; left out, read off the master."),
             new OperationSetting("apertureMm", "The telescope's aperture in millimetres; left out, read off the master."),
             new OperationSetting("design", "The design of the telescope apertureMm gives, whose usual central obstruction the sharpening takes."),
+            new OperationSetting("strength", "How far past the truth the derived sharpening takes bands 2 and 3; 1 is the derived sharpening."),
+            new OperationSetting("luminanceOnly", "Sharpen a colour master's luminance once and keep its own colour."),
         ]);
 
     /// <inheritdoc/>
     protected override JsonTypeInfo<PlanetarySharpenSettings> SettingsInfo => OperationSettingsJsonContext.Default.PlanetarySharpenSettings;
 
     /// <inheritdoc/>
-    public override string? Refusal(PlanetarySharpenSettings settings) => PlanetaryIdentitySettings.RefusalOf(settings);
+    public override string? Refusal(PlanetarySharpenSettings settings)
+        => PlanetaryIdentitySettings.RefusalOf(settings) ?? StrengthRefusal(settings.Strength);
+
+    /// <summary>Why <paramref name="strength"/> is no strength, in words; null when it is one. The stack's step asks
+    /// the same.</summary>
+    public static string? StrengthRefusal(double strength)
+        => strength > 0 && double.IsFinite(strength) ? null : "strength is more than 0: 1 is the derived sharpening, and more takes it past the truth";
+
+    /// <summary>What the settings choose of AUTO's sharpening.</summary>
+    public static PlanetaryAutoChoices ChoicesOf(PlanetarySharpenSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return new PlanetaryAutoChoices { Strength = settings.Strength, LuminanceOnly = settings.LuminanceOnly };
+    }
 
     /// <inheritdoc/>
     public override ImmutableArray<string> CommandLine(PlanetarySharpenSettings settings, IReadOnlyList<string> inputs, string output)
     {
         var line = ImmutableArray.CreateBuilder<string>();
         line.AddRange(StepCommandLine.Program, "planetary", "sharpen", inputs[0], "--auto", "--no-telescope-memory", "--sharpened", output);
+        // A choice is on the line wherever it is not the verb's own default, so the line replays what the step ran.
+        if (settings.Strength != 1)
+        {
+            line.AddRange("--strength", StepCommandLine.Number(settings.Strength));
+        }
+
+        if (settings.LuminanceOnly)
+        {
+            line.AddRange("--colour", "luminance");
+        }
+
         PlanetaryIdentitySettings.AddTo(line, settings);
         return line.ToImmutable();
     }
@@ -77,8 +113,8 @@ public sealed class PlanetarySharpenOperation : Operation<PlanetarySharpenSettin
         try
         {
             // Never the telescope a camera was last said to be on: a step follows from its master and its settings.
-            await SharpenToAsync(master, inputs[0].Path, PlanetaryIdentitySettings.GivenOf(settings), external: null, outputPath, say,
-                cancellationToken);
+            await SharpenToAsync(master, inputs[0].Path, PlanetaryIdentitySettings.GivenOf(settings), ChoicesOf(settings), external: null,
+                outputPath, say, cancellationToken);
             return OperationOutcome.Done;
         }
         finally
@@ -94,18 +130,20 @@ public sealed class PlanetarySharpenOperation : Operation<PlanetarySharpenSettin
     /// <param name="master">The linear master. The caller owns it.</param>
     /// <param name="path">Where it was read from: its file's and folders' names say what its header does not. Null for a master with no file, which has no such names.</param>
     /// <param name="given">What is said of it, in place of what it is read to be.</param>
+    /// <param name="choices">The strength and whether a colour master's luminance alone is sharpened.</param>
     /// <param name="external">Where the telescope last said for its camera is kept; null to ask nothing and keep
     /// nothing, as a step does.</param>
     /// <param name="outputPath">The FITS file to write.</param>
     /// <param name="say">Takes each line of what it was identified as and how it was sharpened.</param>
     /// <param name="cancellationToken">Ends the work.</param>
-    public static async Task SharpenToAsync(Image master, string? path, PlanetaryIdentityGiven given, IExternal? external, string outputPath, Action<string>? say,
-        CancellationToken cancellationToken)
+    public static async Task SharpenToAsync(Image master, string? path, PlanetaryIdentityGiven given, PlanetaryAutoChoices choices, IExternal? external,
+        string outputPath, Action<string>? say, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(master);
+        ArgumentNullException.ThrowIfNull(choices);
         var identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path, given, external, cancellationToken);
         say?.Invoke($"AUTO: {identity.Describe()}");
-        var (sharpened, how) = await Task.Run(() => PlanetaryAuto.Sharpen(master, identity), cancellationToken);
+        var (sharpened, how) = await Task.Run(() => PlanetaryAuto.Sharpen(master, identity, choices), cancellationToken);
         try
         {
             sharpened.WriteToFitsFile(outputPath);

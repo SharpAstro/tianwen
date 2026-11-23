@@ -92,9 +92,27 @@ public abstract record PlanetaryIdentitySettings
 
 /// <summary>
 /// The settings of <see cref="PlanetaryStackOperation"/>: what is said of the capture, in place of what it is read to
-/// be. AUTO takes no other setting: its stack and its sharpening are the measured defaults.
+/// be, and AUTO's three choices about the finished masters (<see cref="PlanetaryAutoChoices"/>). The stack itself is
+/// the measured defaults, and takes no setting.
 /// </summary>
-public sealed record PlanetaryStackSettings : PlanetaryIdentitySettings;
+/// <remarks>A changed setting here stacks the capture again. A strength is tried on the master by
+/// <see cref="PlanetarySharpenOperation"/>, which only sharpens.</remarks>
+public sealed record PlanetaryStackSettings : PlanetaryIdentitySettings
+{
+    /// <summary>How far past the truth the derived sharpening takes bands 2 and 3 (<c>--strength</c>): 1 is the
+    /// derived sharpening.</summary>
+    public double Strength { get; set; } = 1;
+
+    /// <summary>Sharpen a colour master's luminance once and keep the stack's own colour
+    /// (<c>--sharpen-luminance</c>).</summary>
+    public bool LuminanceOnly { get; set; }
+
+    /// <summary>Balance a colour master to the planet's own colour (off: <c>--no-colour-balance</c>).</summary>
+    public bool ColourBalance { get; set; } = true;
+
+    /// <summary>The saturation the colour balance is made at (<c>--colour-saturation</c>).</summary>
+    public double ColourSaturation { get; set; } = PlanetaryColourBalance.DefaultSaturation;
+}
 
 /// <summary>
 /// AUTO (<c>tianwen planetary stack --auto</c>, <see cref="PlanetaryAuto"/>): a recorded capture identified, and
@@ -103,7 +121,7 @@ public sealed record PlanetaryStackSettings : PlanetaryIdentitySettings;
 /// </summary>
 /// <remarks>
 /// <para>It runs the three routines the verb and the viewer's Auto view run, in their order, and nothing between:
-/// <see cref="PlanetaryIdentification.IdentifyAsync"/>, <see cref="PlanetaryAuto.RunAsync"/> and
+/// <see cref="PlanetaryIdentification.IdentifyAsync"/>, <c>PlanetaryAuto.RunAsync</c> and
 /// <see cref="PlanetaryAuto.Write"/>.</para>
 /// <para><b>A step never asks what telescope a camera was last said to be on</b>
 /// (<see cref="PlanetaryTelescopeMemory"/>): that is this computer's memory, and a step's result follows from its
@@ -130,6 +148,10 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
             new OperationSetting("filterNm", "A mono capture's filter, as its wavelength in nanometres; left out, read off the capture."),
             new OperationSetting("apertureMm", "The telescope's aperture in millimetres; left out, read off the capture."),
             new OperationSetting("design", "The design of the telescope apertureMm gives, whose usual central obstruction the sharpening takes."),
+            new OperationSetting("strength", "How far past the truth the derived sharpening takes bands 2 and 3; 1 is the derived sharpening."),
+            new OperationSetting("luminanceOnly", "Sharpen a colour master's luminance once and keep the stack's own colour."),
+            new OperationSetting("colourBalance", "Balance a colour master to the planet's own colour."),
+            new OperationSetting("colourSaturation", "The saturation the colour balance is made at."),
         ])
     {
         ExtraResults = [new OperationResultRole(Sharpened, "The master sharpened by the gains derived through its limb.")],
@@ -139,10 +161,38 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
     protected override JsonTypeInfo<PlanetaryStackSettings> SettingsInfo => OperationSettingsJsonContext.Default.PlanetaryStackSettings;
 
     /// <inheritdoc/>
-    public override string? Refusal(PlanetaryStackSettings settings) => PlanetaryIdentitySettings.RefusalOf(settings);
+    public override string? Refusal(PlanetaryStackSettings settings)
+    {
+        if ((PlanetaryIdentitySettings.RefusalOf(settings) ?? PlanetarySharpenOperation.StrengthRefusal(settings.Strength)) is { } refusal)
+        {
+            return refusal;
+        }
+
+        if (!(settings.ColourSaturation >= 0 && double.IsFinite(settings.ColourSaturation)))
+        {
+            return "colourSaturation is 0 or more";
+        }
+
+        // A saturation with no balance would be a setting that changes a step's key and none of its pixels.
+        return !settings.ColourBalance && settings.ColourSaturation != PlanetaryColourBalance.DefaultSaturation
+            ? "colourSaturation is the colour balance's: with colourBalance off there is nothing it saturates"
+            : null;
+    }
 
     /// <summary>What the settings say of the capture, as the identification takes it.</summary>
     public static PlanetaryIdentityGiven GivenOf(PlanetaryStackSettings settings) => PlanetaryIdentitySettings.GivenOf(settings);
+
+    /// <summary>What the settings choose of AUTO's result.</summary>
+    public static PlanetaryAutoChoices ChoicesOf(PlanetaryStackSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return new PlanetaryAutoChoices
+        {
+            Strength = settings.Strength,
+            LuminanceOnly = settings.LuminanceOnly,
+            ColourSaturation = settings.ColourBalance ? settings.ColourSaturation : null,
+        };
+    }
 
     /// <summary>Where the two masters go: the linear one as the main result, the sharpened one as the extra one.</summary>
     public static StepOutputs Outputs(string master, string sharpened)
@@ -156,6 +206,26 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
         if (outputs.Extra.TryGetValue(Sharpened, out var sharpened))
         {
             line.AddRange("--sharpened", sharpened);
+        }
+
+        // A choice is on the line wherever it is not the verb's own default, so the line replays what the step ran.
+        if (settings.Strength != 1)
+        {
+            line.AddRange("--strength", StepCommandLine.Number(settings.Strength));
+        }
+
+        if (settings.LuminanceOnly)
+        {
+            line.Add("--sharpen-luminance");
+        }
+
+        if (!settings.ColourBalance)
+        {
+            line.Add("--no-colour-balance");
+        }
+        else if (settings.ColourSaturation != PlanetaryColourBalance.DefaultSaturation)
+        {
+            line.AddRange("--colour-saturation", StepCommandLine.Number(settings.ColourSaturation));
         }
 
         PlanetaryIdentitySettings.AddTo(line, settings);
@@ -184,7 +254,7 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
             say?.Invoke($"AUTO: {identity.Describe()}");
             using var stream = SerFrameStream.Open(capture);
             say?.Invoke($"{stream.FrameCount} frames, {stream.Width}x{stream.Height}, layout {stream.Layout}, at the measured defaults...");
-            result = await PlanetaryAuto.RunAsync(stream, identity, progress: null, cancellationToken);
+            result = await PlanetaryAuto.RunAsync(stream, identity, ChoicesOf(settings), progress: null, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
