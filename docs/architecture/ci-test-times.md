@@ -586,9 +586,7 @@ What changed: `gate` now checks each need on its own and prints one `::error tit
 annotation per refusing need with a sentence on what that result means (`failure`: a step failed; `cancelled`: its
 `timeout-minutes` or a runner that stopped answering, which the job's annotations and step times tell apart; `skipped`:
 a job it depends on did not succeed). The annotation carries the job id (`test-functional`), not the shard
-(`test-functional (2/3)`), because the `needs` context holds only the id: the shard is found on the run page. When
-`build` itself refuses, the gate prints that one annotation and stops, since the other six would only be `skipped`
-consequences of it. Which results pass is unchanged.
+(`test-functional (2/3)`), because the `needs` context holds only the id: the shard is found on the run page. Which results pass is unchanged.
 
 A second occurrence: comment on #2493 with the run id and job id, and file it upstream with GitHub as a hosted runner
 that stopped reporting after its last step.

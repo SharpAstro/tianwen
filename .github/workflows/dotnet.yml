@@ -1385,8 +1385,7 @@ jobs:
         }
         # build must have succeeded; the others may also be skipped as ok allows. The test builds are checked too,
         # though a failed one already skips its tests (which ok refuses on a PR): so the check reads as what it means.
-        # Every other need depends on build, so a refused build leaves them skipped as a consequence: one annotation, the cause.
-        [ "${{ needs.build.result }}" = success ] || { refuse build "${{ needs.build.result }}"; exit 1; }
+        [ "${{ needs.build.result }}" = success ] || refuse build "${{ needs.build.result }}"
         ok "${{ needs.build-linux.result }}" || refuse build-linux "${{ needs.build-linux.result }}"
         ok "${{ needs.build-windows.result }}" || refuse build-windows "${{ needs.build-windows.result }}"
         ok "${{ needs.test-unit.result }}" || refuse test-unit "${{ needs.test-unit.result }}"
