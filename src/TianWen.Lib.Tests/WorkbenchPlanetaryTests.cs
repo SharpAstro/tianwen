@@ -202,12 +202,15 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("compose-").FullName;
-        // Seven mono stacks of Jupiter: two runs of red, green and blue and one through an IR-pass, each written as a
-        // compose step writes a stack, so its planet, instant and filter are in its header.
-        var stacks = PlanetaryCompositionTests.Ingested();
+        // Four mono stacks of Jupiter, one through each of red, green, blue and an IR-pass (the first run of the set
+        // PlanetaryCompositionTests composes, and its IR), each written as a compose step writes a stack, so its planet,
+        // instant and filter are in its header. No more of them than the step needs: a compose is seconds a stack, and
+        // this test runs two (29.8 s with all seven on the x64 leg of #2481's first run).
+        var set = PlanetaryCompositionTests.Ingested();
+        PlanetaryMonoStack[] stacks = [set[0], set[1], set[2], set[6]];
         var paths = new List<string>();
         var images = new List<ProjectImage>();
-        for (var i = 0; i < stacks.Count; i++)
+        for (var i = 0; i < stacks.Length; i++)
         {
             var path = Path.Combine(folder, stacks[i].Name + ".fits");
             PlanetaryComposition.WriteStack(stacks[i], path);
@@ -217,10 +220,10 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         // The colour master starts from one stack and takes the others, and a second list holds the same set from
         // another stack in another order: one step.
-        images.Add(WorkbenchFixtures.Starting("colour", "stack3",
-            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack6", "stack0", "stack5", "stack1", "stack4", "stack2")));
+        images.Add(WorkbenchFixtures.Starting("colour", "stack2",
+            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack3", "stack0", "stack1")));
         images.Add(WorkbenchFixtures.Starting("colour-again", "stack0",
-            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack1", "stack2", "stack3", "stack4", "stack5", "stack6")));
+            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack1", "stack2", "stack3")));
         images.Add(WorkbenchFixtures.StartingFromResult("luminance", "colour", PlanetaryComposeOperation.Luminance));
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project([.. images]), ct);
         var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryComposeOperation()]));
@@ -275,18 +278,17 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("compose-rgb-").FullName;
-        // The two runs of red, green and blue alone: nothing to be the luminance.
+        // One run of red, green and blue alone: nothing to be the luminance.
         var stacks = PlanetaryCompositionTests.Ingested();
         var images = new List<ProjectImage>();
-        for (var i = 0; i < 6; i++)
+        for (var i = 0; i < 3; i++)
         {
             var path = Path.Combine(folder, stacks[i].Name + ".fits");
             PlanetaryComposition.WriteStack(stacks[i], path);
             images.Add(WorkbenchFixtures.Picture($"stack{i}", path));
         }
 
-        images.Add(WorkbenchFixtures.Starting("colour", "stack0",
-            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack1", "stack2", "stack3", "stack4", "stack5")));
+        images.Add(WorkbenchFixtures.Starting("colour", "stack0", WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack1", "stack2")));
         images.Add(WorkbenchFixtures.StartingFromResult("luminance", "colour", PlanetaryComposeOperation.Luminance));
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project([.. images]), ct);
         var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryComposeOperation()]));
