@@ -12,25 +12,89 @@ namespace TianWen.Lib.Imaging.Workbench;
 // Every settings property is settable and carries its default (see OperationSettings.cs).
 
 /// <summary>
-/// The settings of <see cref="PlanetaryStackOperation"/>: what is said of the capture, in place of what it is read to
-/// be. AUTO takes no other setting: its stack and its sharpening are the measured defaults.
+/// What a project says a planetary capture or master is, in place of what it is read to be: the settings an AUTO step
+/// takes, and all of them. AUTO's stack and its sharpening are the measured defaults.
 /// </summary>
-public sealed record PlanetaryStackSettings
+public abstract record PlanetaryIdentitySettings
 {
-    /// <summary>The planet, by its name (<c>--planet</c>: jupiter, saturn, mars); left out, read off the capture.</summary>
+    /// <summary>The planet, by its name (<c>--planet</c>: jupiter, saturn, mars); left out, read off the capture or
+    /// the master.</summary>
     public string? Planet { get; set; }
 
     /// <summary>A mono capture's filter, as its wavelength in nanometres (<c>--wavelength</c>); left out, read off the
-    /// capture.</summary>
+    /// capture or the master.</summary>
     public double? FilterNm { get; set; }
 
-    /// <summary>The telescope's aperture in millimetres (<c>--aperture-mm</c>); left out, read off the capture.</summary>
+    /// <summary>The telescope's aperture in millimetres (<c>--aperture-mm</c>); left out, read off the capture or the
+    /// master.</summary>
     public int? ApertureMm { get; set; }
 
     /// <summary>The design of the telescope <see cref="ApertureMm"/> gives (<c>--design</c>), whose usual central
     /// obstruction the sharpening takes.</summary>
     public OpticalDesign Design { get; set; } = OpticalDesign.Unknown;
+
+    /// <summary>Why <paramref name="settings"/> do not say a capture or a master, in words; null when they do.</summary>
+    public static string? RefusalOf(PlanetaryIdentitySettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (settings.Planet is { } planet && PlanetaryCaptureName.Named(planet) is null)
+        {
+            return $"planet '{planet}' is not a planet's name: jupiter, saturn, mars or another by its name";
+        }
+
+        if (settings.FilterNm is { } nm && !PlanetaryIdentityGiven.IsWavelengthNm(nm))
+        {
+            return $"filterNm is a wavelength in nanometres, more than {PlanetaryIdentityGiven.WavelengthAboveNm:0} and less than {PlanetaryIdentityGiven.WavelengthBelowNm:0}";
+        }
+
+        if (settings.ApertureMm is <= 0)
+        {
+            return "apertureMm is millimetres, more than 0";
+        }
+
+        return settings.ApertureMm is null && settings.Design is not OpticalDesign.Unknown
+            ? "design is the design of the telescope apertureMm gives: give its aperture too"
+            : null;
+    }
+
+    /// <summary>What <paramref name="settings"/> say, as the identification takes it.</summary>
+    public static PlanetaryIdentityGiven GivenOf(PlanetaryIdentitySettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return new(settings.Planet is { } planet ? PlanetaryCaptureName.Named(planet) : null, settings.FilterNm, settings.ApertureMm, settings.Design);
+    }
+
+    /// <summary>The options that say <paramref name="settings"/> on a step's command line, which the AUTO verbs share.</summary>
+    public static void AddTo(ImmutableArray<string>.Builder line, PlanetaryIdentitySettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        ArgumentNullException.ThrowIfNull(settings);
+        if (settings.Planet is { } planet)
+        {
+            line.AddRange("--planet", planet);
+        }
+
+        if (settings.FilterNm is { } nm)
+        {
+            line.AddRange("--wavelength", StepCommandLine.Number(nm));
+        }
+
+        if (settings.ApertureMm is { } mm)
+        {
+            line.AddRange("--aperture-mm", StepCommandLine.Number(mm));
+            if (settings.Design is not OpticalDesign.Unknown)
+            {
+                line.AddRange("--design", settings.Design.ToString().ToLowerInvariant());
+            }
+        }
+    }
 }
+
+/// <summary>
+/// The settings of <see cref="PlanetaryStackOperation"/>: what is said of the capture, in place of what it is read to
+/// be. AUTO takes no other setting: its stack and its sharpening are the measured defaults.
+/// </summary>
+public sealed record PlanetaryStackSettings : PlanetaryIdentitySettings;
 
 /// <summary>
 /// AUTO (<c>tianwen planetary stack --auto</c>, <see cref="PlanetaryAuto"/>): a recorded capture identified, and
@@ -75,31 +139,10 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
     protected override JsonTypeInfo<PlanetaryStackSettings> SettingsInfo => OperationSettingsJsonContext.Default.PlanetaryStackSettings;
 
     /// <inheritdoc/>
-    public override string? Refusal(PlanetaryStackSettings settings)
-    {
-        if (settings.Planet is { } planet && PlanetaryCaptureName.Named(planet) is null)
-        {
-            return $"planet '{planet}' is not a planet's name: jupiter, saturn, mars or another by its name";
-        }
-
-        if (settings.FilterNm is { } nm && !PlanetaryIdentityGiven.IsWavelengthNm(nm))
-        {
-            return $"filterNm is a wavelength in nanometres, more than {PlanetaryIdentityGiven.WavelengthAboveNm:0} and less than {PlanetaryIdentityGiven.WavelengthBelowNm:0}";
-        }
-
-        if (settings.ApertureMm is <= 0)
-        {
-            return "apertureMm is millimetres, more than 0";
-        }
-
-        return settings.ApertureMm is null && settings.Design is not OpticalDesign.Unknown
-            ? "design is the design of the telescope apertureMm gives: give its aperture too"
-            : null;
-    }
+    public override string? Refusal(PlanetaryStackSettings settings) => PlanetaryIdentitySettings.RefusalOf(settings);
 
     /// <summary>What the settings say of the capture, as the identification takes it.</summary>
-    public static PlanetaryIdentityGiven GivenOf(PlanetaryStackSettings settings)
-        => new(settings.Planet is { } planet ? PlanetaryCaptureName.Named(planet) : null, settings.FilterNm, settings.ApertureMm, settings.Design);
+    public static PlanetaryIdentityGiven GivenOf(PlanetaryStackSettings settings) => PlanetaryIdentitySettings.GivenOf(settings);
 
     /// <summary>Where the two masters go: the linear one as the main result, the sharpened one as the extra one.</summary>
     public static StepOutputs Outputs(string master, string sharpened)
@@ -115,25 +158,7 @@ public sealed class PlanetaryStackOperation : MultiResultOperation<PlanetaryStac
             line.AddRange("--sharpened", sharpened);
         }
 
-        if (settings.Planet is { } planet)
-        {
-            line.AddRange("--planet", planet);
-        }
-
-        if (settings.FilterNm is { } nm)
-        {
-            line.AddRange("--wavelength", StepCommandLine.Number(nm));
-        }
-
-        if (settings.ApertureMm is { } mm)
-        {
-            line.AddRange("--aperture-mm", StepCommandLine.Number(mm));
-            if (settings.Design is not OpticalDesign.Unknown)
-            {
-                line.AddRange("--design", settings.Design.ToString().ToLowerInvariant());
-            }
-        }
-
+        PlanetaryIdentitySettings.AddTo(line, settings);
         return line.ToImmutable();
     }
 
