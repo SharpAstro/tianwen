@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.CommandLine;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
+using NSubstitute;
 using Shouldly;
+using TianWen.Cli;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Workbench;
 using TianWen.Lib.IO;
@@ -260,6 +263,23 @@ public sealed class WorkbenchNamedResultsTests : IDisposable
 
         export.Refusal.ShouldNotBeNull().ShouldContain("export an image that starts from one of them");
         File.Exists(Path.Combine(project, "out", "night.fits")).ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheOperationsListingSaysWhatAStepNamedByItsRunGives()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var host = Substitute.For<IConsoleHost>();
+        var catalog = new OperationCatalog([new SplitFramesOperation(), new AddOperation("add")]);
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        (await workbench.Parse(["operations"]).InvokeAsync(cancellationToken: ct)).ShouldBe(0);
+
+        // Once, for split-frames: the add operation names its results beforehand and gets no such line.
+        host.Received(1).WriteScrollable(Arg.Is<string>(line => line.Contains("named by the run", StringComparison.Ordinal)));
+        host.Received(1).WriteScrollable(Arg.Is<string>(line => line.Contains(
+            "gives one result for each group the scan finds, named by the run; an image takes one with from and result, and the step has no image of its own",
+            StringComparison.Ordinal)));
     }
 
     [Fact]

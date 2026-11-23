@@ -2010,15 +2010,10 @@ public sealed class StackingPipeline(
             // computer; this computer's own probe then only has to fit the one chosen, and refuses in words where it cannot.
             var selection = IntegrationStrategySelector.Pick(
                 options.NominalProbe ? probe.ToNominalHost() : probe, preferred: preferredStrategy, pool: pool);
-            if (options.NominalProbe)
+            if (options.NominalProbe
+                && IntegrationStrategySelector.NominalHostRefusal(selection, probe, matched.Count, preferredStrategy) is { } refusal)
             {
-                var hostFit = selection.Chosen.Evaluate(probe, new ResourceBudget());
-                if (!hostFit.CanRun)
-                {
-                    throw new InvalidOperationException(
-                        $"The stack chose {selection.Chosen.Kind} for {matched.Count} frames, and this computer cannot run it: {hostFit.Rationale}. "
-                        + "Say a strategy that fits, or stack on a computer with more memory or disk.");
-                }
+                throw new InvalidOperationException(refusal);
             }
             logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
             if (colourShifts is { Count: > 0 } && demosaicedShifts is null

@@ -26,4 +26,33 @@ public sealed class NominalProbeTests
         pickSmall.Chosen.Kind.ShouldBe(pickLarge.Chosen.Kind);
         pickSmall.Sink.ShouldBe(pickLarge.Sink);
     }
+
+    // 100 frames of 4000 x 3000 x 3 floats are 14 GB: nothing the nominal host picks for them runs in 1 GB of memory
+    // and 1 GB of disk, while the nominal host itself runs what it picked.
+    private static IntegrationProbe Tiny() => Probe(ram: 1L << 30, freeRam: 1L << 30, disk: 1L << 30);
+
+    [Fact]
+    public void AComputerThatCannotRunTheNominalPickIsRefusedInWordsAndOneThatCanIsNot()
+    {
+        var job = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30);
+        var selection = IntegrationStrategySelector.Pick(job.ToNominalHost());
+
+        var refusal = IntegrationStrategySelector.NominalHostRefusal(selection, Tiny(), frames: 100, stated: null);
+
+        refusal.ShouldNotBeNull().ShouldStartWith($"The stack chose {selection.Chosen.Kind} for 100 frames, and this computer cannot run it: ");
+        IntegrationStrategySelector.NominalHostRefusal(selection, job.ToNominalHost(), frames: 100, stated: null).ShouldBeNull();
+    }
+
+    [Fact]
+    public void AStatedStrategyThatDoesNotFitIsRefusedAsThePersonsOwn()
+    {
+        var job = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30);
+        var selection = IntegrationStrategySelector.Pick(job.ToNominalHost(), preferred: IntegrationStrategyKind.InRamAllFrames);
+        selection.Chosen.Kind.ShouldBe(IntegrationStrategyKind.InRamAllFrames);
+
+        var refusal = IntegrationStrategySelector.NominalHostRefusal(selection, Tiny(), frames: 100, stated: IntegrationStrategyKind.InRamAllFrames);
+
+        refusal.ShouldNotBeNull().ShouldStartWith("The strategy InRamAllFrames you stated for 100 frames does not fit this computer: ");
+        refusal.ShouldNotContain("The stack chose");
+    }
 }

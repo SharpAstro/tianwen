@@ -56,6 +56,32 @@ public static class IntegrationStrategySelector
         double Score);
 
     /// <summary>
+    /// Why this computer cannot run the strategy picked against the nominal host (a workbench step, #2467), or null
+    /// when it can. <paramref name="stated"/> is the strategy the person said, when they said one: the refusal then
+    /// names it as theirs, not as the stack's choice.
+    /// </summary>
+    /// <param name="selection">The pick, made against <see cref="IntegrationProbe.ToNominalHost"/>.</param>
+    /// <param name="host">This computer's own probe.</param>
+    /// <param name="frames">How many frames the layer stacks, for the words.</param>
+    /// <param name="stated">The strategy the person stated, or null where the stack chose one.</param>
+    /// <param name="budget">RAM / disk safety factors, as <see cref="Pick"/> takes them.</param>
+    public static string? NominalHostRefusal(
+        Selection selection, IntegrationProbe host, int frames, IntegrationStrategyKind? stated, ResourceBudget? budget = null)
+    {
+        var fit = selection.Chosen.Evaluate(host, budget ?? new ResourceBudget());
+        if (fit.CanRun)
+        {
+            return null;
+        }
+
+        return stated == selection.Chosen.Kind
+            ? $"The strategy {stated} you stated for {frames} frames does not fit this computer: {fit.Rationale}. "
+                + "Say one that fits, or stack on a computer with more memory or disk."
+            : $"The stack chose {selection.Chosen.Kind} for {frames} frames, and this computer cannot run it: {fit.Rationale}. "
+                + "Say a strategy that fits, or stack on a computer with more memory or disk.";
+    }
+
+    /// <summary>
     /// Pick the highest-scoring strategy that fits.
     /// </summary>
     /// <param name="probe">Snapshot of the job + host.</param>
