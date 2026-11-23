@@ -149,7 +149,7 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
             var exit = await verb.Parse([capture, "--auto", "--no-png", "--master", master, "--sharpened", Path.Combine(folder, name + "-s.fits"), .. more])
                 .InvokeAsync(cancellationToken: ct);
             exit.ShouldBe(0, string.Join(Environment.NewLine, said));
-            return WorkbenchFixtures.Read(master).ImageMeta.Telescope;
+            return WorkbenchFixtures.Read(master).ImageMeta.Telescope ?? string.Empty;
         }
 
         (await TelescopeOfVerbAsync("asked")).ShouldContain("150", Case.Insensitive, "the verb without the flag takes the remembered telescope");
@@ -166,7 +166,7 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
             WorkbenchFixtures.Picture("step", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id))), ct);
         var report = await new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation()])).RunAsync(folder, cancellationToken: ct);
         report.Succeeded.ShouldBeTrue(Messages(report));
-        var stepTelescope = WorkbenchFixtures.Read(report.Images[0].Steps[0].Output.ShouldNotBeNull()).ImageMeta.Telescope;
+        var stepTelescope = WorkbenchFixtures.Read(report.Images[0].Steps[0].Output.ShouldNotBeNull()).ImageMeta.Telescope ?? string.Empty;
         stepTelescope.ShouldNotContain("150");
         stepTelescope.ShouldNotContain("203");
         stepTelescope.ShouldBe(await TelescopeOfVerbAsync("flagged-again", "--no-telescope-memory"));
