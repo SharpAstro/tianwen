@@ -334,8 +334,10 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     }
 
     [Fact(Timeout = 120_000)]
-    public async Task ACaptureGivenToAnyOtherOperationIsRefusedAsNoFitsImageAndWritesNothing()
+    public async Task ACaptureGivenToDenoiseIsRefusedAsAFileThatIsNoFitsImageAndWritesNothing()
     {
+        // Denoise stands for any operation that reads its input as a FITS file: each goes through OperationInput, whose
+        // refusal of a file that is no FITS image is the words asserted below.
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("capture-denoise-").FullName;
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44.ser"));
@@ -346,6 +348,7 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         report.Succeeded.ShouldBeFalse();
         report.Images[0].Steps[0].State.ShouldBe(StepState.Refused, Messages(report));
+        report.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("Failed to read FITS file", Case.Sensitive, Messages(report));
         var store = Path.Combine(folder, StepStore.FolderName);
         (Directory.Exists(store) ? Directory.GetFiles(store, "*.fits") : []).ShouldBeEmpty();
     }
