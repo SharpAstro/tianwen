@@ -54,6 +54,38 @@ internal sealed class CountFramesOperation : Operation<AddSettings>
 }
 
 /// <summary>
+/// A frame-set operation that cancels a token when its settings are read, which a plan does for each step, so a test
+/// can end an ask between two images' walks without a hook in the index.
+/// </summary>
+internal sealed class CancelWhenPlannedOperation(CancellationTokenSource toCancel) : Operation<AddSettings>
+{
+    public bool Planned { get; private set; }
+
+    public override OperationDescription Description { get; } = new(
+        "cancel-when-planned", Version: 1, Title: "Cancel", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
+    {
+        TakesFrameSet = true,
+    };
+
+    protected override JsonTypeInfo<AddSettings> SettingsInfo
+    {
+        get
+        {
+            Planned = true;
+            toCancel.Cancel();
+            return WorkbenchTestJsonContext.Default.AddSettings;
+        }
+    }
+
+    public override ImmutableArray<string> CommandLine(AddSettings settings, IReadOnlyList<string> inputs, string output)
+        => [Description.Id, inputs[0], "-o", output];
+
+    public override ValueTask<OperationOutcome> RunAsync(AddSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(OperationOutcome.Done);
+}
+
+/// <summary>
 /// A set of frames as an image's original (#2467): a folder is an image of the project, its key is every frame's place
 /// and digest, and the digest index beside the store keeps a frame from being read twice to say the same thing.
 /// </summary>
@@ -407,19 +439,53 @@ public sealed class WorkbenchFrameSetTests : IDisposable
         status.Succeeded.ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData("C:\\", "C:\\frames\\a.fits", true)]
+    [InlineData("C:\\", "C:\\", true)]
+    [InlineData("C:\\frames", "C:\\frames\\", true)]
+    [InlineData("C:\\frames", "C:\\framesX\\a.fits", false)]
+    [InlineData("/", "/store", true)]
+    [InlineData("/mnt/card", "/mnt/card/out.fits", true)]
+    [InlineData("/mnt/card", "/mnt/cardx/out.fits", false)]
+    public void AFolderAtTheRootOfADriveHoldsTheStoreAndAnExportUnderIt(string folder, string inner, bool expected)
+    {
+        var separator = folder.Contains('\\') ? '\\' : '/';
+        if (separator != Path.DirectorySeparatorChar)
+        {
+            return;
+        }
+
+        WorkbenchRunner.HoldsOrIs(folder, inner).ShouldBe(expected);
+    }
+
     [Fact(Timeout = 120_000)]
-    public async Task ACancelledStatusEndsAndKeepsTheIndexAsItWas()
+    public async Task ACancelledStatusKeepsWhatTheWalkOfAnEarlierFolderLearned()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (project, _, runner) = await NightAsync("frame-cancel-keeps-", "a.fits", "b.fits");
-        await runner.StatusAsync(project, cancellationToken: ct);
-        var held = File.ReadAllText(IndexFile(project));
+        var project = _folders.Create("frame-cancel-keeps-").FullName;
+        var first = Path.Combine(_folders.Create("frames-").FullName, "first");
+        var second = Path.Combine(_folders.Create("frames-").FullName, "second");
+        WriteFrame(first, "a.fits", 1);
+        WriteFrame(first, "b.fits", 2);
+        WriteFrame(second, "c.fits", 3);
+        WriteFrame(second, "d.fits", 4);
         using var cancelled = new CancellationTokenSource();
-        await cancelled.CancelAsync();
+        // The first image's step is planned once its folder was walked and learned; planning it cancels the ask, so the
+        // second folder's walk ends at its first frame.
+        var cancelling = new CancelWhenPlannedOperation(cancelled);
+        await WorkbenchProjectFile.WriteAsync(project, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("first", first, WorkbenchFixtures.Edit("cancel-when-planned")),
+            WorkbenchFixtures.Picture("second", second, WorkbenchFixtures.Edit("count-frames"))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([cancelling, new CountFramesOperation()]));
 
         await Should.ThrowAsync<OperationCanceledException>(async () => await runner.StatusAsync(project, cancellationToken: cancelled.Token));
 
-        File.ReadAllText(IndexFile(project)).ShouldBe(held, "what the index learned is kept, and a cancelled walk prunes nothing");
+        cancelling.Planned.ShouldBeTrue("the ask was cancelled after the first folder was walked");
+        File.Exists(IndexFile(project)).ShouldBeTrue("a cancelled ask still saves what it learned");
+        var text = File.ReadAllText(IndexFile(project));
+        text.ShouldContain("a.fits");
+        text.ShouldContain("b.fits");
+        text.ShouldNotContain("c.fits", customMessage: "the folder the cancel ended at its first frame learned nothing");
     }
 
     [Theory]

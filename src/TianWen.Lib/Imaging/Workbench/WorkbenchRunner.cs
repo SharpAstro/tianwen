@@ -865,6 +865,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     private static bool SamePath(string one, string other) => string.Equals(Path.GetFullPath(one), Path.GetFullPath(other), PathComparison);
 
     // Whether <paramref name="inner"/> is <paramref name="folder"/> or lies anywhere under it.
+    // The prefix test is FrameDigestIndex.IsUnder's, which keeps a root's own separator (E:\ or /) instead of doubling it.
     internal static bool HoldsOrIs(string folder, string inner)
     {
         var (outer, within) = (Path.GetFullPath(folder), Path.GetFullPath(inner));
