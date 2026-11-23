@@ -7612,7 +7612,9 @@ the first angle is a step after the model and not another arm:
     per remover and bin, before this arm's cache exists: R4d 90.7, StarXTerminator 96.6. The bar stays as written;
     the level-inclusive row stands 1.4 to 1.7 apart between seeds, this one's spread is not known); (2) the grain
     in the Tarantula's dense cells 4,4 and 5,4 as trained (`band.py`) at most 0.6 of R4d's in every channel (R4d
-    4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6; two seeds of one recipe have stood 23 to 33 % apart on cell 5,4). The
+    4.3 / 3.8 / 3.1 and 4.7 / 4.6 / 3.6; two seeds of one recipe have stood 23 to 33 % apart on cell 5,4). (Row (2)
+    is replaced for every later arm, #2404: its cell 4,4 holds structure the judge keeps, so the scorer now prints
+    the two-sided row of `judge_band_rows.py`, "A row that reads both sides" below. This arm's reads stand as made.) The
     crowded flat between 91.3 and 93.3 with both of these cleared is not a kill and not a pass: it goes to the
     owner with the 1:1 crop of the dense field beside R4d's and StarXTerminator's. Under 91.3 is the kill below,
     whatever the rows read. **A row missed is only reported, never a kill and never a pass by itself:** a pass
@@ -8207,30 +8209,43 @@ the first angle is a step after the model and not another arm:
         cells picked by eye. Here the judge's own plate sorts every 300 px cell of a master: flat where its
         band is under 1.5 (noise alone reads 0.85), structure where it is 3 or over. Per plate, on the
         channels' mean: the median band on the flat cells with the share of them it leaves under 1.5, and on
-        the structure cells its band over the judge's with the share within 0.8 to 1.25.
+        the structure cells its band over the judge's with the share within 0.8 to 1.25. **Since 2026-11-23 the
+        whole-master scorer prints this pair for every plate it scores** (`score_whole.py`, the config's `judge`
+        plates, `judge_band_parse.py`; #2404), reported with no bar, in place of row (2); bars, and whether the
+        pair gates an arm, are the owner's. R4f's seed 0 and R4h, the baseline since that day, were read then.
 
         | master and plate | flat cells: band, share under 1.5 | structure cells: over the judge's, share within 0.8 to 1.25 |
         |---|---|---|
         | **Tarantula** (49 cells: 2 flat, 31 structure) | | |
         | R4d as trained | 3.60, 0 % | 1.18, 42 % |
         | R4d through the chain | 3.29, 0 % | 1.07, 48 % |
+        | R4f seed 0 through the chain | 3.25, 0 % | 1.08, 45 % |
         | R4f seed 1 through the chain | 3.14, 0 % | 1.09, 48 % |
+        | R4h as trained | 3.50, 0 % | 1.17, 42 % |
+        | R4h through the chain | 3.25, 0 % | 1.07, 45 % |
         | the rule, first try, nebula held out | 1.36, 100 % | 0.81, 52 % |
         | the rule, second try | 1.44, 100 % | 0.89, 55 % |
         | **Sagittarius** (64 cells: 48 flat, 7 structure; the judge's own flat cells read 1.14) | | |
         | R4d as trained | 1.59, 44 % | 0.99, 86 % |
         | R4d through the chain | 1.53, 48 % | 0.99, 86 % |
+        | R4f seed 0 through the chain | 1.53, 46 % | 0.98, 100 % |
         | R4f seed 1 through the chain | 1.48, 54 % | 0.98, 100 % |
+        | R4h as trained | 1.62, 38 % | 0.99, 100 % |
+        | R4h through the chain | 1.56, 46 % | 0.98, 100 % |
         | the rule, first try, nebula held out | 1.17, 96 % | 0.92, 86 % |
         | the rule, second try | 1.17, 96 % | 0.94, 86 % |
         | **Andromeda** (77 cells: none flat, 9 structure) | | |
         | R4d through the chain | no flat cell | 1.00, 89 % |
+        | R4f seed 0 through the chain | no flat cell | 1.00, 89 % |
         | R4f seed 1 through the chain | no flat cell | 0.99, 89 % |
+        | R4h through the chain | no flat cell | 1.00, 89 % |
         | the rule, first try and second | no flat cell | 0.95, 89 % |
 
         **The flat side reads what it is meant to.** The models leave none of the Tarantula's flat cells under
-        1.5 and the rule all of them (2 cells only), and on Sagittarius the models leave 44 to 54 % of the 48
-        flat cells there against the rule's 96 %. Only 2 of the Tarantula's 49 cells are flat by the judge, so
+        1.5 and the rule all of them (2 cells only), and on Sagittarius the models leave 38 to 54 % of the 48
+        flat cells there against the rule's 96 %. No arm has moved it: R4d, R4f's two seeds and R4h stand
+        between 1.48 and 1.56 through the chain where the judge's own flat cells read 1.14. Only 2 of the
+        Tarantula's 49 cells are flat by the judge, so
         its "crowded flat" row, which reads the sites of stars, is not this row.
 
         **The structure side is not yet a measure of lost detail** (the review of this note asked). It reads
