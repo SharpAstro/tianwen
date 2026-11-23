@@ -78,6 +78,12 @@ public sealed record OperationDescription(
     /// hold the same edit over the same images share one result. <see cref="ExtraInputs"/> is then empty.
     /// </summary>
     public bool AnyNumber { get; init; }
+
+    /// <summary>
+    /// True for an operation that takes a set of frames (a folder) as its input, by its path, as the one that stacks a
+    /// night will. Any other is refused a folder in words, by a status as by a run.
+    /// </summary>
+    public bool TakesFrameSet { get; init; }
 }
 
 /// <summary>Why an operation did not give a result: which of the verbs' exit codes it is.</summary>

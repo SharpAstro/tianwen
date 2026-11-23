@@ -355,7 +355,9 @@ Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans
 - **A setting is a settable property with its default** (never `init`), in `OperationSettingsJsonContext`, which refuses
   a member the type does not have.
 - **Nothing is decided by a file's date**: a step runs when its key (`StepKey`) is not in the `StepStore`. The store
-  reads and removes only what its index names.
+  reads and removes only what its index names. The one narrowing is a set of frames (a folder as an original): its
+  key is made of every frame's digest, and `FrameDigestIndex` does not read a frame again while its size and time
+  stand; `--verify-frames` reads them all.
 - A stored step reads files and writes one; only a derived step (crop) hands its result on, in memory, to the step
   after it. A step that writes no pixels (`IFindingOperation`, the plate solve) keeps its finding in the store under
   `StepKey.OfFinding` and hands on its input with the finding applied; a plate solution kept as a file is

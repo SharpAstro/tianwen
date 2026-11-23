@@ -560,7 +560,12 @@ each step's output is bit-identical to its CLI verb's.
    did, and `image sharpen` takes its program from the operation and adds only its own stretches. Its steps as edits of
    their own (the toggles of the Process step, each with before and after) are W6's.
 3. The deep-sky frame steps (#2467): scan, grade, calibrate, register and integrate, which take a set of frames, not an
-   image.
+   image. Decided by the owner on 2026-11-23: a set's key comes from a digest index beside the store (a frame whose
+   size and time have not moved is not read again; `--verify-frames` reads them all), there is one `stack` step
+   around `tianwen stack` since that is the one verb, each master is a result of it under its group's name, its
+   settings are the 24 options that choose which frames are stacked and how they are registered and integrated, and
+   a comet run is a leg of its own. Built: a folder as an image's original, its key and the index
+   (`FrameDigestIndex`). Left: results named by the run, the masters' sidecars in the store, and the operation.
 4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour. Built: the AUTO stack (`planetary-stack`,
    the routine of `planetary stack --auto`): a capture is an image's original, its linear master the step's result and
    its sharpened master a result beside it; and the de-rotation and join of several mono stacks

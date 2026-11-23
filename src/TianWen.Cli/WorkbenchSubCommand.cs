@@ -25,37 +25,54 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
 
     private static Option<string?> ImageOption(string what) => new("--image") { Description = what };
 
+    private static Option<bool> VerifyFramesOption() => new("--verify-frames")
+    {
+        Description = "Read every frame of every set of frames to know its key, whatever the digest index beside the store holds, and correct "
+            + "the index. Without it a frame whose size and last write time have not moved is not read again, which is wrong only "
+            + "for a frame changed in place under the same size and time.",
+    };
+
     private Command BuildStatusCommand()
     {
         var projectArg = ProjectArgument();
-        var imageOpt = ImageOption("Count as needed only what this image needs. Default: every image.");
+        var imageOpt = ImageOption("Count as needed only what this image needs. Every image is still planned and reported, so every set of frames is "
+            + "read (or taken from the digest index) whatever is named. Default: every image.");
+        var verifyOpt = VerifyFramesOption();
         var cmd = new Command("status",
-            "What a run would do, with nothing run and nothing written: each image's edits with where they stand (kept in the store, "
-            + "derived, will run) and the command line that does each from a terminal.")
+            "What a run would do, with nothing run and no result written: each image's edits with where they stand (kept in the store, "
+            + "derived, will run) and the command line that does each from a terminal. The one file it may write is the digest index "
+            + "of a set of frames, so that the frames it read are not read again.")
         {
             Arguments = { projectArg },
-            Options = { imageOpt },
+            Options = { imageOpt, verifyOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
-            Print(await runner.StatusAsync(parseResult.Required(projectArg), parseResult.GetValue(imageOpt), ct), commandLines: true));
+            Print(
+                await runner.StatusAsync(
+                    parseResult.Required(projectArg),
+                    new WorkbenchRunOptions { Image = parseResult.GetValue(imageOpt), VerifyFrames = parseResult.GetValue(verifyOpt) },
+                    ct),
+                commandLines: true));
         return cmd;
     }
 
     private Command BuildRunCommand()
     {
         var projectArg = ProjectArgument();
-        var imageOpt = ImageOption("Make only this image, with whatever its edits take. Default: every image.");
+        var imageOpt = ImageOption("Make only this image, with whatever its edits take. Every image is still planned and reported, so every set of "
+            + "frames is read (or taken from the digest index) whatever is named. Default: every image.");
         var exportOpt = new Option<string?>("--export")
         {
             Description = "Also write --image's final result as this FITS file. A derived result (a crop) has no file in the store, "
                 + "so this is how one is had: its operation writes it, as its verb would.",
         };
+        var verifyOpt = VerifyFramesOption();
         var cmd = new Command("run",
             "Make the project's images: work out every step's key, take from the store each step whose key is there and run the rest. "
             + "Run twice, the second run runs nothing; after a changed setting, only that step and the ones after it run.")
         {
             Arguments = { projectArg },
-            Options = { imageOpt, exportOpt },
+            Options = { imageOpt, exportOpt, verifyOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -72,6 +89,7 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                 {
                     Image = parseResult.GetValue(imageOpt),
                     ExportPath = export,
+                    VerifyFrames = parseResult.GetValue(verifyOpt),
                     Say = line => consoleHost.WriteScrollable($"[workbench] {line}"),
                 },
                 ct);
@@ -170,6 +188,11 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                     consoleHost.WriteScrollable($"[workbench]     {StepCommandLine.Display(step.CommandLine)}");
                 }
             }
+        }
+
+        if (report.FramesDigested + report.FramesFromIndex > 0)
+        {
+            consoleHost.WriteScrollable($"[workbench] frames: {report.FramesDigested} read for their digest, {report.FramesFromIndex} known by the index");
         }
 
         if (report.Refusal is { } refused)

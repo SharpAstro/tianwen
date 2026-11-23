@@ -43,6 +43,14 @@ public sealed class OperationInput
         ArgumentException.ThrowIfNullOrEmpty(path);
         return new OperationInput(System.IO.Path.GetFileName(path), path, (out Image? image, out WCS? wcs, out string? refusal) =>
         {
+            // A set of frames is an original too, and only the operation that stacks one takes it, by its path.
+            if (System.IO.Directory.Exists(path))
+            {
+                (image, wcs) = (null, null);
+                refusal = $"{path} is a folder of frames, and this operation takes an image";
+                return false;
+            }
+
             if (Image.TryReadFitsFile(path, out image, out wcs))
             {
                 refusal = null;
