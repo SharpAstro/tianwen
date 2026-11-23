@@ -71,7 +71,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var pupil = PlanetaryMasterScore.PupilOptions();
         var autoOpt = new Option<bool>("--auto")
         {
-            Description = "AUTO (#817): the planet, the filter and the telescope read off the master itself (OBJECT, FILTER, TELESCOP and APTDIA, which planetary stack --auto writes), then its file and folder names, the telescope else the one last given for its camera; sharpened as the pipeline sharpens, nothing asked. --planet, one --wavelength, --aperture-mm with --design, or --telescope give what it would read; every other setting is refused.",
+            Description = "AUTO (#817): the planet, the filter and the telescope read off the master itself (OBJECT, FILTER, TELESCOP and APTDIA, which planetary stack --auto writes), then its file and folder names, the telescope else the one last given for its camera; sharpened as the pipeline sharpens, nothing asked. --planet, one --wavelength, --aperture-mm with --design, or --telescope give what it would read; every other setting is refused, except that with --sharpened one --strength and --colour perchannel or luminance go with it.",
         };
         var designOpt = PlanetaryMasterScore.DesignOption();
         // What lets a project's planetary sharpen step (PlanetarySharpenOperation) be done from a terminal: its one file
