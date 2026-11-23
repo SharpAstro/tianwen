@@ -12,7 +12,10 @@ public sealed class OperationCatalog
 
     /// <summary>A catalog of <paramref name="operations"/>.</summary>
     /// <exception cref="ArgumentException">Two operations share an id, or one says it is derived and has no
-    /// derivation (or the reverse): either would make a step's key or its handling depend on which one was found.</exception>
+    /// derivation (or the reverse): either would make a step's key or its handling depend on which one was found.
+    /// Or one says of its run what its type does not: that several images go through it in one run
+    /// (<see cref="OperationDescription.Joint"/>) with no such run, or the reverse; that such a run takes images by
+    /// role; or that it gives extra results with no run that could be told where they go.</exception>
     public OperationCatalog(IEnumerable<IOperation> operations)
     {
         ArgumentNullException.ThrowIfNull(operations);
@@ -23,6 +26,28 @@ public sealed class OperationCatalog
             {
                 throw new ArgumentException(
                     $"the operation '{description.Id}' says its output is {description.Output} and its type says otherwise", nameof(operations));
+            }
+
+            // What is said twice is held to one meaning here: the runner decides by the type, and the docs, a listing
+            // and a window by the description.
+            if (description.Joint != (operation is IJointOperation))
+            {
+                throw new ArgumentException(
+                    $"the operation '{description.Id}' says {(description.Joint ? "several images go through it in one run" : "nothing of a run several images share")}"
+                    + " and its type says otherwise", nameof(operations));
+            }
+
+            if (description.Joint && !description.ExtraInputs.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    $"the operation '{description.Id}' puts several images through one run and also names images it takes by role: the images of its run are all it takes",
+                    nameof(operations));
+            }
+
+            if (!description.ExtraResults.IsDefaultOrEmpty && operation is not IJointOperation)
+            {
+                throw new ArgumentException(
+                    $"the operation '{description.Id}' says it gives extra results and has no way to be told where they go", nameof(operations));
             }
 
             if (!_byId.TryAdd(description.Id, operation))

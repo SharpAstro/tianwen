@@ -271,6 +271,19 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     // store) the file it has just been run into. Null when it, or something before it, gave no result.
     private static async ValueTask<OperationInput?> EnsureAsync(Node node, StepStore store, Action<string>? say, CancellationToken cancellationToken)
     {
+        var handed = await MakeAsync(node, store, say, cancellationToken);
+        if (handed is null && node is { Attempt: { } attempt, Step: { State: StepState.Refused, Message: { } why } })
+        {
+            // What it was refused for is kept for the length of the call, under the step's key or the key of the run
+            // it shares: another edit list that asks for the same one is told the same, and nothing runs again.
+            attempt.Refusal ??= why;
+        }
+
+        return handed;
+    }
+
+    private static async ValueTask<OperationInput?> MakeAsync(Node node, StepStore store, Action<string>? say, CancellationToken cancellationToken)
+    {
         if (node.File is { } file)
         {
             return OperationInput.FromFile(file);
@@ -299,6 +312,15 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             node.File = made;
             step.State = StepState.Kept;
             return OperationInput.FromFile(made);
+        }
+
+        if (node.Attempt is { Refusal: { } refusedEarlier })
+        {
+            // Another edit list of this call asked for this step, or for the run it shares, and it gave nothing. A
+            // remover that fails after minutes of work is not run again for each master of its run, to fail again.
+            step.State = StepState.Refused;
+            step.Message = refusedEarlier;
+            return null;
         }
 
         var inputs = await EnsureInputsAsync(node, step, store, say, cancellationToken);
@@ -593,11 +615,23 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         /// the images of the run, sorted by key. Empty otherwise.</summary>
         public string RunKey { get; init; } = string.Empty;
 
+        /// <summary>What this step came to in this call, shared by every node of the same key (the run's key, for a
+        /// step several images go through in one run), so a refusal is run into once and said to each. Null for an
+        /// original and for a derived step, which run nothing.</summary>
+        public Attempt? Attempt { get; init; }
+
         /// <summary>The keys of the step's extra results.</summary>
         public ImmutableArray<string> ExtraKeys { get; init; } = [];
 
         /// <summary>For an extra result: the step that gives it. Null otherwise.</summary>
         public Node? Producer { get; init; }
+    }
+
+    // What a step, or the run several images share, came to in one call.
+    private sealed class Attempt
+    {
+        /// <summary>Why it gave nothing, once it has run and been refused.</summary>
+        public string? Refusal { get; set; }
     }
 
     private sealed class StepPlan
@@ -655,6 +689,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     private sealed class Planner(string folder, Dictionary<string, ProjectImage> byName, OperationCatalog operations, StepStore store)
     {
         private readonly Dictionary<string, ImagePlan> _plans = new(StringComparer.Ordinal);
+
+        // What each step of this call came to, by its key, or by its run's key where several images share the run.
+        private readonly Dictionary<string, Attempt> _attempts = new(StringComparer.Ordinal);
 
         // The images being planned, outermost first. An image named again while it is in here takes itself.
         private readonly List<string> _planning = [];
@@ -795,27 +832,41 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 return head;
             }
 
-            // The last of that image's edits that gives a result of this name.
+            // The last of that image's edits that gives a result of this name. An edit that is switched on and could
+            // not be planned stops the search where it is the one that would give it, or where no operation has its
+            // name and so nothing says what it gives: an earlier edit's result is never taken for the last one's.
             for (var i = source.Steps.Count - 1; i >= 0; i--)
             {
-                if (source.Steps[i].Node is { Operation: { } operation } producer
-                    && operation.Description.ExtraResults.Any(result => string.Equals(result.Name, wanted, StringComparison.Ordinal)))
+                var each = source.Steps[i];
+                if (!each.Edit.Enabled || (operations.TryGet(each.Edit.Operation, out var named) && !Gives(named, wanted)))
                 {
-                    var key = StepKey.OfResult(producer.Key, wanted);
-                    plan.Key = key;
-                    return new Node
-                    {
-                        Label = $"{origin} {wanted}",
-                        Key = key,
-                        Producer = producer,
-                        File = InStore(store, producer) is null ? null : store.Find(key),
-                    };
+                    continue;
                 }
+
+                if (each.Node is not { } producer)
+                {
+                    plan.Refusal = $"edit {each.Index + 1} of the image '{origin}' ({each.Edit.Operation}), the last that would give '{wanted}', cannot be made";
+                    return null;
+                }
+
+                var key = StepKey.OfResult(producer.Key, wanted);
+                plan.Key = key;
+                return new Node
+                {
+                    Label = $"{origin} {wanted}",
+                    Key = key,
+                    Producer = producer,
+                    File = InStore(store, producer) is null ? null : store.Find(key),
+                };
             }
 
             plan.Refusal = $"no edit of the image '{origin}' gives a result named '{wanted}'";
             return null;
         }
+
+        // True for an operation one of whose results has this name.
+        private static bool Gives(IOperation operation, string result)
+            => operation.Description.ExtraResults.Any(role => string.Equals(role.Name, result, StringComparison.Ordinal));
 
         // The step's node, with its key and where it stands; null, with the step refused or blocked, when it cannot be planned.
         private Node? PlanStep(ImagePlan plan, StepPlan step, Node previous)
@@ -894,6 +945,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Inputs = members,
                     Step = step,
                     RunKey = runKey,
+                    Attempt = AttemptOf(runKey),
                     ExtraKeys = [.. operation.Description.ExtraResults.Select(result => StepKey.OfResult(memberKey, result.Name))],
                 };
                 step.CommandLine = joint.CommandLine(
@@ -912,6 +964,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     Settings = settings,
                     Inputs = inputs.MoveToImmutable(),
                     Step = step,
+                    Attempt = operation is IDerivedOperation ? null : AttemptOf(key),
                 };
                 // A step's command line names files: an original, a result in the store, or where in the store a result
                 // would be. A derived step has no file, so run by hand it writes one there, which the store does not take
@@ -936,6 +989,18 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             }
 
             return node;
+        }
+
+        // The one record of what a step, or the run several images share, came to in this call, by its key.
+        private Attempt AttemptOf(string key)
+        {
+            if (!_attempts.TryGetValue(key, out var attempt))
+            {
+                attempt = new Attempt();
+                _attempts[key] = attempt;
+            }
+
+            return attempt;
         }
 
         // Where in the store the results under this key would be: what a step's command line names for them.

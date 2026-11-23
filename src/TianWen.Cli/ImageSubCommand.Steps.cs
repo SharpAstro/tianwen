@@ -215,12 +215,23 @@ internal sealed partial class ImageSubCommand
                 return 1;
             }
             var outputs = new List<StepOutputs>(paths.Length);
+            var written = new List<string>(starless);
             for (var i = 0; i < paths.Length; i++)
             {
                 var stars = starsGiven.Length > 0 ? EnsureFitsExtension(starsGiven[i]) : StarsOutput(starless[i]);
+                if (!noStars)
+                {
+                    written.Add(stars);
+                }
                 outputs.Add(noStars
                     ? new StepOutputs(starless[i])
                     : new StepOutputs(starless[i]) { Extra = System.Collections.Immutable.ImmutableDictionary<string, string>.Empty.Add(RemoveStarsOperation.Stars, stars) });
+            }
+            // A stars file that is a starless plate's file, or another master's stars file, is one result lost.
+            if (NamedTwice(written) is { } twice)
+            {
+                consoleHost.WriteError($"[remove-stars] {twice} is named twice among the starless and the stars outputs: each needs a file of its own.");
+                return 1;
             }
             // The settings of the operation an edit list runs (RemoveStarsOperation): the split, its core protection and
             // its dig fill are that operation's routine, here with the registered remover or one of this run's own.
@@ -617,16 +628,43 @@ internal sealed partial class ImageSubCommand
         if (given is not { Length: > 0 })
         {
             outputs = [.. inputs.Select(input => DefaultOut(input, suffix))];
-            return true;
         }
-        if (given.Length != inputs.Count)
+        else if (given.Length != inputs.Count)
         {
             consoleHost.WriteError($"[{verb}] -o is given once for each input ({inputs.Count}), or not at all; got {given.Length}.");
             outputs = null;
             return false;
         }
-        outputs = [.. given.Select(EnsureFitsExtension)];
+        else
+        {
+            outputs = [.. given.Select(EnsureFitsExtension)];
+        }
+
+        // Two masters' results in one file is one of them lost: the second written over the first without a word.
+        if (NamedTwice(outputs) is { } twice)
+        {
+            consoleHost.WriteError($"[{verb}] {twice} is named twice among the outputs: each master's result needs a file of its own.");
+            outputs = null;
+            return false;
+        }
+
         return true;
+    }
+
+    // The first file named twice among a verb's outputs, as the file system tells files apart; null when each is its own.
+    internal static string? NamedTwice(IEnumerable<string> files)
+    {
+        // Windows and macOS fold the case of a file's name by default, Linux does not.
+        var seen = new HashSet<string>(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            if (!seen.Add(Path.GetFullPath(file)))
+            {
+                return file;
+            }
+        }
+
+        return null;
     }
 
     // -o names the output of a step with one input; with several each goes beside its input.

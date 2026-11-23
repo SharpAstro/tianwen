@@ -113,19 +113,27 @@ says `Joint`). Each master gets its own result.
 - **The run happens once.** The runner sorts the images by key before it hands them over, so every edit list of one run
   asks for the same run whatever order it names the others in. The first list that needs it runs it and every image's
   result goes into the store, each under its own key; the other lists find theirs there (`Kept`).
+- **A run that is refused is refused once.** What a step, or the run several images share, came to is kept for the
+  length of the call under its key: the other edit lists that ask for it are told the same and nothing runs again, so
+  a remover that fails after minutes of work is not paid for once for each master. The next call tries again.
 - **So a result must not depend on the order of the images.** That is the operation's promise. `image denoise
   --colour`, where the order of three planes is their colour, is for that reason not the denoise operation.
 - **A result can have a second result beside it** (`OperationDescription.ExtraResults`): star removal gives the starless
   plate and, as `stars`, the stars it took out. Each extra result is kept in the store under a key of its own, and a
   step is kept only when all of its results are there.
 - **Its verb takes `-o` once for each master**, in the masters' order, and `image remove-stars` takes `--stars-output`
-  the same way, so a step's command line names every file it writes.
+  the same way, so a step's command line names every file it writes. Two results named into one file are refused:
+  the second would be written over the first.
+- **`Joint` is said once in effect.** The description says it for a listing and a window, the type
+  (`IJointOperation`) for the runner, and `OperationCatalog` refuses an operation whose two disagree, a shared run
+  that names images by role, and extra results on an operation that cannot be told where they go.
 
 ## An image that starts from another
 
 A project's image is a file, or it starts from another image of the project (`from`): that image as its own edits
 leave it. With `result` it starts from an extra result of that image instead, the one the last of its edits gives
-under that name.
+under that name. Where that last edit cannot be made (it is refused or blocked, or no operation has its name), the
+image has no such result and says so: an earlier edit's is never taken for it.
 
 ```json
 { "name": "red", "path": "masters/master_red.fits", "edits": [ { "operation": "crop", "settings": { "auto": true } } ] },

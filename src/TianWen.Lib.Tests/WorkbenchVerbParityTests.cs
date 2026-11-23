@@ -584,4 +584,61 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         text.ShouldContain("removed or saved half way");
         File.Exists(WorkbenchProjectFile.PathIn(folder)).ShouldBeFalse();
     }
+
+    /// <summary>
+    /// The verbs that take several masters name a file for each result, and refuse what they cannot do so with: -o some
+    /// other number of times than there are masters, the stars' files likewise or with <c>--no-stars</c>, and two
+    /// results named into one file, which would be one of them written over the other without a word.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AVerbForSeveralMastersRefusesOutputsItCannotGiveEachAFileOfItsOwn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("outputs-").FullName;
+        var a = WorkbenchFixtures.WriteMaster(folder, "a", WorkbenchFixtures.Master(seed: 1));
+        var b = WorkbenchFixtures.WriteMaster(folder, "b", WorkbenchFixtures.Master(seed: 2));
+        var (x, s) = (Path.Combine(folder, "x.fits"), Path.Combine(folder, "s.fits"));
+        var (image, said) = ImageCommand();
+
+        async Task RefusesAsync(string says, params string[] line)
+        {
+            said.Clear();
+            var exit = await image.Parse(line).InvokeAsync(cancellationToken: ct);
+            exit.ShouldBe(1, string.Join(' ', line));
+            string.Join(Environment.NewLine, said).ShouldContain(says);
+        }
+
+        await RefusesAsync("-o is given once for each input (2), or not at all; got 1", "match-psf", a, b, "-o", x);
+        await RefusesAsync("is named twice among the outputs", "match-psf", a, b, "-o", x, "-o", x);
+        // The same file under another spelling of its path is the same file.
+        await RefusesAsync("is named twice among the outputs", "deblur", a, b, "-o", x, "-o", Path.Combine(folder, ".", "x.fits"));
+        await RefusesAsync("--stars-output is given once for each master (2)", "remove-stars", a, b, "--stars-output", s);
+        await RefusesAsync("not with --no-stars", "remove-stars", a, "--no-stars", "--stars-output", s);
+        await RefusesAsync("is named twice among the starless and the stars outputs", "remove-stars", a, "-o", x, "--stars-output", x);
+        await RefusesAsync("is named twice among the starless and the stars outputs", "remove-stars", a, b, "--stars-output", s, "--stars-output", s);
+
+        // A refusal writes nothing: the two masters are all there is.
+        Directory.GetFiles(folder).Select(static file => Path.GetFileName(file)).Order(StringComparer.Ordinal).ToArray().ShouldBe(["a.fits", "b.fits"]);
+    }
+
+    /// <summary>The list of operations says what an edit of a shared run names, and what a step gives beside its own
+    /// image, so a person reading it learns both.</summary>
+    [Fact]
+    public async Task TheListOfOperationsSaysWhatASharedRunTakesAndWhatAStepGives()
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        var catalog = Catalog();
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        var exit = await workbench.Parse(new[] { "operations" }).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        // Under each operation of a shared run, and under no other.
+        var takesTheRun = said.Count(static line => line.Contains("takes the other images of its run, any number of them", StringComparison.Ordinal));
+        takesTheRun.ShouldBe(catalog.All.Count(static operation => operation.Description.Joint));
+        takesTheRun.ShouldBe(4, "match-psf, deblur, denoise and remove-stars");
+        said.ShouldContain(line => line.StartsWith($"    gives {RemoveStarsOperation.Stars}: ", StringComparison.Ordinal));
+    }
 }
