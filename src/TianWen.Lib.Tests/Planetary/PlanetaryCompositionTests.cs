@@ -705,8 +705,9 @@ public sealed class PlanetaryCompositionTests : IDisposable
         (stack.Planet, stack.Instant, stack.Filter).ShouldBe((CatalogIndex.Jupiter, new DateTimeOffset(2024, 12, 15, 12, 56, 42, TimeSpan.Zero), Filter.Luminance));
     }
 
-    // The set rendered and ingested from WinJUPOS-style names.
-    private static List<PlanetaryMonoStack> Ingested()
+    // The set rendered and ingested from WinJUPOS-style names. Internal: the workbench's compose step is held to the verb on
+    // this set too (WorkbenchPlanetaryTests).
+    internal static List<PlanetaryMonoStack> Ingested()
     {
         var stacks = new List<PlanetaryMonoStack>();
         foreach (var s in Set)

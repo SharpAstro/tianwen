@@ -34,7 +34,11 @@ public sealed record OperationInputRole(string Name, string Summary, bool Option
 /// <summary>A result an operation gives beyond its main one: the stars a star removal took out.</summary>
 /// <param name="Name">What an image of a project names to start from it (<see cref="ProjectImage.Result"/>).</param>
 /// <param name="Summary">What it is.</param>
-public sealed record OperationResultRole(string Name, string Summary);
+/// <param name="Optional">True for a result the step gives only for some inputs (a luminance, where a stack through
+/// an IR or L filter was among them). A step is whole in the store without it, and an image that starts from it has
+/// nothing where the step left it out. Only a step with fixed inputs or any number of them has one; a run several
+/// images share gives every result for every image.</param>
+public sealed record OperationResultRole(string Name, string Summary, bool Optional = false);
 
 /// <summary>
 /// What an operation is, said once: the edit list, the step store, the command line shown under a step and a window's
@@ -66,6 +70,14 @@ public sealed record OperationDescription(
     /// other images of its run, any number of them, and <see cref="ExtraInputs"/> is empty.
     /// </summary>
     public bool Joint { get; init; }
+
+    /// <summary>
+    /// True for an operation that takes any number of images after its edit list's own, as a SET: a colour master
+    /// joined from every stack of a night. They are handed over sorted by key, the edit list's own among them, so the
+    /// result does not depend on which list holds the edit nor on the order it names the others in, and two lists that
+    /// hold the same edit over the same images share one result. <see cref="ExtraInputs"/> is then empty.
+    /// </summary>
+    public bool AnyNumber { get; init; }
 }
 
 /// <summary>Why an operation did not give a result: which of the verbs' exit codes it is.</summary>

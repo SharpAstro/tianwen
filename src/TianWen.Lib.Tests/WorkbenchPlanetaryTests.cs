@@ -13,6 +13,7 @@ using TianWen.Cli;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Imaging.Workbench;
 using Xunit;
@@ -22,7 +23,9 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// The planetary steps of a project (#2468), the AUTO stack first: a capture is an image's original, its master is the
 /// step's result and its sharpened master a result beside it, and both are the files
-/// <c>tianwen planetary stack --auto</c> writes.
+/// <c>tianwen planetary stack --auto</c> writes. Then the compose: a set of mono stacks is one step, its colour master
+/// the step's result and its luminance a result beside it, and both are the files <c>tianwen planetary compose</c>
+/// writes.
 /// </summary>
 [Collection("Imaging")]
 public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposable
@@ -194,6 +197,111 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         await ShouldRefuseAsync(needsBoth, "--auto", "--sharpened", Path.Combine(folder, "s.fits"));
     }
 
+    [Fact(Timeout = 300_000)]
+    public async Task ThePlanetaryComposeStepIsTheTwoFilesPlanetaryComposeWrites()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("compose-").FullName;
+        // Seven mono stacks of Jupiter: two runs of red, green and blue and one through an IR-pass, each written as a
+        // compose step writes a stack, so its planet, instant and filter are in its header.
+        var stacks = PlanetaryCompositionTests.Ingested();
+        var paths = new List<string>();
+        var images = new List<ProjectImage>();
+        for (var i = 0; i < stacks.Count; i++)
+        {
+            var path = Path.Combine(folder, stacks[i].Name + ".fits");
+            PlanetaryComposition.WriteStack(stacks[i], path);
+            paths.Add(path);
+            images.Add(WorkbenchFixtures.Picture($"stack{i}", path));
+        }
+
+        // The colour master starts from one stack and takes the others, and a second list holds the same set from
+        // another stack in another order: one step.
+        images.Add(WorkbenchFixtures.Starting("colour", "stack3",
+            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack6", "stack0", "stack5", "stack1", "stack4", "stack2")));
+        images.Add(WorkbenchFixtures.Starting("colour-again", "stack0",
+            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack1", "stack2", "stack3", "stack4", "stack5", "stack6")));
+        images.Add(WorkbenchFixtures.StartingFromResult("luminance", "colour", PlanetaryComposeOperation.Luminance));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project([.. images]), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryComposeOperation()]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
+        var step = Of("colour").Steps[0];
+        step.State.ShouldBe(StepState.Ran);
+        Of("colour-again").Steps[0].State.ShouldBe(StepState.Kept, "the same stacks under the same settings are one step, whoever holds it");
+        Of("colour-again").Steps[0].Key.ShouldBe(step.Key);
+        var master = step.Output.ShouldNotBeNull();
+        var luminance = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(step.Key, PlanetaryComposeOperation.Luminance)));
+        Of("luminance").Refusal.ShouldBeNull();
+        Of("luminance").Key.ShouldBe(StepKey.OfResult(step.Key, PlanetaryComposeOperation.Luminance));
+        File.Exists(luminance).ShouldBeTrue("the stack through the IR-pass is the luminance, kept beside the master");
+        WorkbenchFixtures.Read(master).ChannelCount.ShouldBe(3);
+        WorkbenchFixtures.Read(luminance).ChannelCount.ShouldBe(1);
+
+        // The step's command line through the real verb, its two files named.
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var compose = new PlanetaryComposeSubCommand(host, new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance)).Build();
+        var line = step.CommandLine.ToArray();
+        line[..3].ShouldBe([StepCommandLine.Program, "planetary", "compose"]);
+        var (atMaster, atLuminance) = (Array.IndexOf(line, "-o") + 1, Array.IndexOf(line, "--luminance-output") + 1);
+        line[atMaster].ShouldBe(master, "the line names the step's own file");
+        line[atLuminance].ShouldBe(luminance);
+        // The stacks are the project's own files, every one of them once.
+        line[3..(atMaster - 1)].Order(StringComparer.Ordinal).ToArray().ShouldBe(paths.Order(StringComparer.Ordinal).ToArray());
+        var (verbMaster, verbLuminance) = (Path.Combine(folder, "verb.fits"), Path.Combine(folder, "verb-luminance.fits"));
+        (line[atMaster], line[atLuminance]) = (verbMaster, verbLuminance);
+        output.WriteLine(StepCommandLine.Display(line));
+
+        var exit = await compose.Parse(line[3..]).InvokeAsync(cancellationToken: ct);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(master, verbMaster, "the colour master");
+        ShouldBeTheSameFile(luminance, verbLuminance, "the luminance");
+
+        var again = await runner.RunAsync(folder, cancellationToken: ct);
+
+        again.Succeeded.ShouldBeTrue(Messages(again));
+        again.Images.SelectMany(static image => image.Steps).Select(static each => each.State).ShouldBe([StepState.Kept, StepState.Kept]);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task WithNoStackThroughAnIrPassOrLTheComposeStepIsWholeWithoutALuminance()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("compose-rgb-").FullName;
+        // The two runs of red, green and blue alone: nothing to be the luminance.
+        var stacks = PlanetaryCompositionTests.Ingested();
+        var images = new List<ProjectImage>();
+        for (var i = 0; i < 6; i++)
+        {
+            var path = Path.Combine(folder, stacks[i].Name + ".fits");
+            PlanetaryComposition.WriteStack(stacks[i], path);
+            images.Add(WorkbenchFixtures.Picture($"stack{i}", path));
+        }
+
+        images.Add(WorkbenchFixtures.Starting("colour", "stack0",
+            WorkbenchFixtures.Edit(PlanetaryComposeOperation.Id, null, "stack1", "stack2", "stack3", "stack4", "stack5")));
+        images.Add(WorkbenchFixtures.StartingFromResult("luminance", "colour", PlanetaryComposeOperation.Luminance));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project([.. images]), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryComposeOperation()]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+        var again = await runner.RunAsync(folder, cancellationToken: ct);
+
+        ImageReport Of(WorkbenchReport of, string name) => of.Images.Single(image => image.Name == name);
+        Of(report, "colour").Steps[0].State.ShouldBe(StepState.Ran, Messages(report));
+        WorkbenchFixtures.Read(Of(report, "colour").Steps[0].Output.ShouldNotBeNull()).ChannelCount.ShouldBe(3);
+        Of(report, "luminance").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
+        Of(again, "colour").Steps[0].State.ShouldBe(StepState.Kept, "the step is whole without the result it may leave out");
+        Of(again, "luminance").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task AFileThatIsNoCaptureIsARefusalOfItsStepAndNeverAThrow()
     {
@@ -245,5 +353,52 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         given.Planet.ShouldNotBeNull();
         (given.ApertureMm, given.Design).ShouldBe(((int?)254, OpticalDesign.Newtonian));
         stack.Description.ExtraResults.Select(static result => result.Name).ShouldBe([PlanetaryStackOperation.Sharpened]);
+    }
+
+    [Fact]
+    public void TheComposeSettingsAreItsVerbsOptionsAndRefuseHalfARingFeather()
+    {
+        var compose = new PlanetaryComposeOperation();
+
+        compose.Refusal(new PlanetaryComposeSettings()).ShouldBeNull();
+        compose.Refusal(new PlanetaryComposeSettings { Planet = "nowhere" }).ShouldNotBeNull().ShouldContain("not a planet's name");
+        compose.Refusal(new PlanetaryComposeSettings { RingFeatherInner = 2 }).ShouldNotBeNull().ShouldContain("state both");
+        compose.Refusal(new PlanetaryComposeSettings { RingFeatherInner = 4, RingFeatherOuter = 2 }).ShouldNotBeNull().ShouldContain("past it");
+        compose.Refusal(new PlanetaryComposeSettings { RingFeatherInner = 2, RingFeatherOuter = 4 }).ShouldBeNull();
+
+        var outputs = PlanetaryComposeOperation.Outputs("m.fits", "l.fits");
+        compose.CommandLine(new PlanetaryComposeSettings(), ["a.fits", "b.fits"], outputs).ToArray()
+            .ShouldBe(
+            [
+                StepCommandLine.Program, "planetary", "compose", "a.fits", "b.fits", "-o", "m.fits", "--luminance-output", "l.fits",
+                "--relight", "blurred",
+            ]);
+        var everything = new PlanetaryComposeSettings
+        {
+            Planet = "saturn",
+            Lrgb = true,
+            ViewingWeights = PlanetaryViewingWeights.Limb,
+            BandWeights = PlanetaryBandWeights.Wiener,
+            Relight = PlanetaryTurnRelight.Minnaert,
+            RingFeatherInner = 2,
+            RingFeatherOuter = 4,
+            ColourBalance = false,
+        };
+        compose.CommandLine(everything, ["a.fits"], outputs).ToArray()[8..]
+            .ShouldBe(
+            [
+                "--planet", "saturn", "--lrgb", "--viewing-weights", "limb", "--band-weights", "wiener", "--relight", "minnaert",
+                "--ring-feather", "2,4", "--no-colour-balance",
+            ]);
+
+        // An edit states them as the verb's options are spelt, and a setting the operation does not have is refused.
+        compose.TryReadSettings(
+            new JsonObject { ["viewingWeights"] = "limb", ["bandWeights"] = "wiener", ["relight"] = "minnaert", ["ringFeatherInner"] = 2, ["ringFeatherOuter"] = 4 }
+                .ToJsonString(),
+            out _, out var refusal).ShouldBeTrue(refusal);
+        compose.TryReadSettings(new JsonObject { ["utc"] = "2024-12-15T12:56:44Z" }.ToJsonString(), out _, out _).ShouldBeFalse();
+
+        compose.Description.AnyNumber.ShouldBeTrue();
+        compose.Description.ExtraResults.Select(static result => (result.Name, result.Optional)).ShouldBe([(PlanetaryComposeOperation.Luminance, true)]);
     }
 }

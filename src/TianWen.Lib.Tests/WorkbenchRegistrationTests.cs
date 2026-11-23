@@ -31,8 +31,8 @@ public sealed class WorkbenchRegistrationTests
         [
             AddLineOperation.Id, AddStarsOperation.Id, AlignOperation.Id, CombineOperation.Id, ContinuumOperation.Id, CropOperation.Id,
             DeblurOperation.Id, DenoiseOperation.Id, DenoiseColourOperation.Id, EnhanceOperation.Id, FillDigsOperation.Id, GradientOperation.Id,
-            LinearFitOperation.Id, LrgbOperation.Id, LuminanceOperation.Id, MatchPsfOperation.Id, PlanetaryStackOperation.Id, ProtectCoresOperation.Id,
-            RemoveStarsOperation.Id, SolveOperation.Id,
+            LinearFitOperation.Id, LrgbOperation.Id, LuminanceOperation.Id, MatchPsfOperation.Id, PlanetaryComposeOperation.Id,
+            PlanetaryStackOperation.Id, ProtectCoresOperation.Id, RemoveStarsOperation.Id, SolveOperation.Id,
         ]);
         provider.GetServices<IOperation>().Count().ShouldBe(catalog.All.Count, "the catalog holds every operation registered, each once");
         provider.GetRequiredService<WorkbenchRunner>().ShouldNotBeNull();

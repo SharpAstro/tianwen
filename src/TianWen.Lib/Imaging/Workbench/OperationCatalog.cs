@@ -52,6 +52,12 @@ public sealed class OperationCatalog
                     $"the operation '{description.Id}' says it gives extra results and has no way to be told where they go", nameof(operations));
             }
 
+            if (description.AnyNumber && (description.Joint || !description.ExtraInputs.IsDefaultOrEmpty))
+            {
+                throw new ArgumentException(
+                    $"the operation '{description.Id}' says it takes any number of images, and also names the images it takes or shares its run", nameof(operations));
+            }
+
             if (!_byId.TryAdd(description.Id, operation))
             {
                 throw new ArgumentException($"two operations are named '{description.Id}'", nameof(operations));
