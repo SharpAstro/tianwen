@@ -197,7 +197,8 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
 
         if (report.FramesDigested + report.FramesFromIndex > 0)
         {
-            consoleHost.WriteScrollable($"[workbench] frames: {report.FramesDigested} read for their digest, {report.FramesFromIndex} known by the index");
+            consoleHost.WriteScrollable($"[workbench] frames: {report.FramesDigested} read for their digest, {report.FramesFromIndex} known by the index"
+                + (report.FramesIndexNotSaved ? " (the index could not be saved)" : string.Empty));
         }
 
         if (report.Refusal is { } refused)

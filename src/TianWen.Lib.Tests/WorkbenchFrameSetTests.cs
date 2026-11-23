@@ -422,6 +422,77 @@ public sealed class WorkbenchFrameSetTests : IDisposable
         File.ReadAllText(IndexFile(project)).ShouldBe(held, "what the index learned is kept, and a cancelled walk prunes nothing");
     }
 
+    [Theory]
+    [InlineData("C:\\", "C:\\", true)]
+    [InlineData("C:\\", "C:\\Frames\\x", true)]
+    [InlineData("C:\\Frames", "C:\\Frames", true)]
+    [InlineData("C:\\Frames", "C:\\Frames\\x", true)]
+    [InlineData("C:\\Frames", "C:\\FramesX\\x", false)]
+    [InlineData("/", "/Frames/x", true)]
+    [InlineData("/Frames", "/Frames/x", true)]
+    [InlineData("/Frames", "/FramesX/x", false)]
+    public void AFolderThatIsADriveRootHoldsAnythingUnderIt(string folder, string inner, bool expected)
+    {
+        // The guards that keep the store and an export out of an original's frames; a root keeps its own separator.
+        if ((folder.Contains('\\') ? '\\' : '/') != Path.DirectorySeparatorChar)
+        {
+            return;
+        }
+
+        WorkbenchRunner.HoldsOrIs(folder, inner).ShouldBe(expected);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AHandEditedIndexWithNullsKnowsNothingOfThoseEntriesAndIsReplaced()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (project, _, runner) = await NightAsync("frame-nulls-", "a.fits", "b.fits");
+        Directory.CreateDirectory(Path.GetDirectoryName(IndexFile(project)) ?? project);
+        File.WriteAllText(IndexFile(project), "{\"frames\":[null,{\"path\":null,\"digest\":\"x\"},{\"path\":\"/q/a.fits\",\"digest\":null}]}");
+
+        var report = await runner.StatusAsync(project, cancellationToken: ct);
+
+        report.Succeeded.ShouldBeTrue(Said(report));
+        (report.FramesDigested, report.FramesFromIndex).ShouldBe((2, 0));
+        File.ReadAllText(IndexFile(project)).ShouldContain("b.fits");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AnIndexThatCannotBeWrittenIsSaidSoAndNeverFailsTheRun()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (project, _, runner) = await NightAsync("frame-unwritable-", "a.fits");
+        // A folder where the index file belongs: opening it for a write is refused.
+        Directory.CreateDirectory(IndexFile(project));
+
+        var report = await runner.StatusAsync(project, cancellationToken: ct);
+
+        report.FramesDigested.ShouldBe(1);
+        report.FramesIndexNotSaved.ShouldBeTrue();
+        report.Images[0].Refusal.ShouldBeNullOrEmpty();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AWalkCancelledAfterAFolderWasReadStillSavesWhatThatFolderLearnedAndPrunesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (project, first, _) = await NightAsync("frame-cancel-mid-", "a.fits", "b.fits");
+        var second = Path.Combine(_folders.Create("frames-").FullName, "other");
+        WriteFrame(second, "z.fits", 5);
+        var index = await FrameDigestIndex.OpenAsync(Path.Combine(project, StepStore.FolderName), ct);
+        index.KeepOnly([first, second]);
+        index.KeyOf(first, verify: false, out _, ct);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        Should.Throw<OperationCanceledException>(() => index.KeyOf(second, verify: false, out _, cancelled.Token));
+        await index.SaveAsync(CancellationToken.None);
+
+        var text = File.ReadAllText(IndexFile(project));
+        text.ShouldContain("a.fits");
+        text.ShouldContain("b.fits");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task TheVerifyFramesOptionReachesTheRunnerAndCorrectsAFrameChangedInPlace()
     {
@@ -441,5 +512,7 @@ public sealed class WorkbenchFrameSetTests : IDisposable
 
         (await workbench.Parse(["status", project, "--verify-frames"]).InvokeAsync(cancellationToken: ct)).ShouldBe(0);
         File.ReadAllText(IndexFile(project)).ShouldNotBe(before, "the option reads every frame and corrects the index");
+        host.Received(2).WriteScrollable(Arg.Is<string>(line => line.Contains("frames: 1 read for their digest, 0 known by the index")));
+        host.Received(1).WriteScrollable(Arg.Is<string>(line => line.Contains("frames: 0 read for their digest, 1 known by the index")));
     }
 }

@@ -91,6 +91,9 @@ public sealed record WorkbenchReport(ImmutableArray<ImageReport> Images, string?
     /// <summary>Frames whose digest the index had (<see cref="FrameDigestIndex"/>), their size and time unmoved.</summary>
     public int FramesFromIndex { get; init; }
 
+    /// <summary>True when the frame digest index could not be written (the run is unaffected; the frames are read again next time).</summary>
+    public bool FramesIndexNotSaved { get; init; }
+
     /// <summary>True when nothing was refused: the project read, every image has its file, and no step is refused or blocked.</summary>
     public bool Succeeded => Refusal is null
         && Images.All(static image => image.Refusal is null
@@ -283,6 +286,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         {
             FramesDigested = frames.Digested,
             FramesFromIndex = frames.FromIndex,
+            FramesIndexNotSaved = frames.NotSaved,
         };
         if (run && await RecordAsync(folder, project, planner, cancellationToken) is { } note)
         {
@@ -861,11 +865,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     private static bool SamePath(string one, string other) => string.Equals(Path.GetFullPath(one), Path.GetFullPath(other), PathComparison);
 
     // Whether <paramref name="inner"/> is <paramref name="folder"/> or lies anywhere under it.
-    private static bool HoldsOrIs(string folder, string inner)
+    internal static bool HoldsOrIs(string folder, string inner)
     {
-        var (outer, within) = (Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)), Path.GetFullPath(inner));
-        return string.Equals(outer, Path.TrimEndingDirectorySeparator(within), PathComparison)
-            || within.StartsWith(outer + Path.DirectorySeparatorChar, PathComparison);
+        var (outer, within) = (Path.GetFullPath(folder), Path.GetFullPath(inner));
+        return string.Equals(Path.TrimEndingDirectorySeparator(outer), Path.TrimEndingDirectorySeparator(within), PathComparison)
+            || FrameDigestIndex.IsUnder(within, outer);
     }
 
     /// <summary>Something a step can take: an original file, or a step's result.</summary>
