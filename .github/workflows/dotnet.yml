@@ -1363,13 +1363,13 @@ jobs:
   # or was skipped as it should be (the merge queue, or a push of a tree its PR tested).
   gate:
     timeout-minutes: 5
-    needs: [build, build-linux, test-unit, test-unit-debug, test-functional, build-windows, test-windows]
+    needs: [plan, build, build-linux, test-unit, test-unit-debug, test-functional, build-windows, test-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
     - name: Build and tests passed
       run: |
-        echo "build: ${{ needs.build.result }}, build-linux: ${{ needs.build-linux.result }}, test-unit: ${{ needs.test-unit.result }}, test-unit-debug: ${{ needs.test-unit-debug.result }}, test-functional: ${{ needs.test-functional.result }}, build-windows: ${{ needs.build-windows.result }}, test-windows: ${{ needs.test-windows.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
+        echo "plan: ${{ needs.plan.result }}, build: ${{ needs.build.result }}, build-linux: ${{ needs.build-linux.result }}, test-unit: ${{ needs.test-unit.result }}, test-unit-debug: ${{ needs.test-unit-debug.result }}, test-functional: ${{ needs.test-functional.result }}, build-windows: ${{ needs.build-windows.result }}, test-windows: ${{ needs.test-windows.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
         ok() { [ "$1" = success ] || { [ "$1" = skipped ] && { [ "${{ github.event_name }}" = merge_group ] || [ "${{ needs.build.outputs.tested-on-pr }}" = true ]; }; }; }
         refused=0
         # Each need is judged on its own, so the annotation names the job that refused the gate and what its result means.
@@ -1383,6 +1383,8 @@ jobs:
           echo "::error title=gate::$1 was $2: $why"
           refused=1
         }
+        # plan must have succeeded: when it fails, build is skipped, and without this the annotation would blame build.
+        [ "${{ needs.plan.result }}" = success ] || refuse plan "${{ needs.plan.result }}"
         # build must have succeeded; the others may also be skipped as ok allows. The test builds are checked too,
         # though a failed one already skips its tests (which ok refuses on a PR): so the check reads as what it means.
         [ "${{ needs.build.result }}" = success ] || refuse build "${{ needs.build.result }}"
