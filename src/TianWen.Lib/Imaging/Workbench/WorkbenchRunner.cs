@@ -983,7 +983,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             {
                 if (source.Head is not { } head)
                 {
-                    plan.Refusal = $"the image '{origin}', which it starts from, cannot be made";
+                    // The reason that image has, when it has one, is said here too: one hop past a result its step
+                    // left out, a status and a second run say that, as the first run does.
+                    plan.Refusal = source.Refusal is { Length: > 0 } why
+                        ? $"the image '{origin}', which it starts from, cannot be made: {why}"
+                        : $"the image '{origin}', which it starts from, cannot be made";
                     return null;
                 }
 
