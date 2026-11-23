@@ -30,6 +30,16 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation>(static sp => new CropOperation(sp.GetService<ILogger<CropOperation>>()));
         services.AddSingleton<IOperation, LinearFitOperation>();
         services.AddSingleton<IOperation, GradientOperation>();
+        services.AddSingleton<IOperation, AlignOperation>();
+        services.AddSingleton<IOperation, ContinuumOperation>();
+        services.AddSingleton<IOperation, AddLineOperation>();
+        services.AddSingleton<IOperation, LuminanceOperation>();
+        services.AddSingleton<IOperation, LrgbOperation>();
+        services.AddSingleton<IOperation, AddStarsOperation>();
+        services.AddSingleton<IOperation, FillDigsOperation>();
+        // The embedded catalogue answers for the stars inside a protected core where the host registered it, and a host
+        // without it still protects cores (those stars then stay with them): the constructor's own default.
+        services.AddSingleton<IOperation, ProtectCoresOperation>();
         // The enhance runs on the host's pipeline, with whatever enhancers the host registered; a host that registered
         // none gets a pipeline of none, whose every step is then left out.
         services.TryAddSingleton<SharpenPipeline>();

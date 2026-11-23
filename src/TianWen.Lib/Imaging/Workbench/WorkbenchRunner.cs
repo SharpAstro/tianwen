@@ -80,6 +80,10 @@ public sealed record ImageReport(
 /// <param name="Exported">The file an export wrote; null when none was asked for or it failed.</param>
 public sealed record WorkbenchReport(ImmutableArray<ImageReport> Images, string? Refusal, string? Exported = null)
 {
+    /// <summary>Something a person should know that is not a refusal (the run's results could not be recorded in an
+    /// unreadable project file); the run still succeeded. Null when there is nothing to say.</summary>
+    public string? Note { get; init; }
+
     /// <summary>True when nothing was refused: the project read, every image has its file, and no step is refused or blocked.</summary>
     public bool Succeeded => Refusal is null
         && Images.All(static image => image.Refusal is null
@@ -223,9 +227,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         // The report is read off the plan before the project file takes this run's keys, so "changed since the last
         // run" is said against the run before this one.
         var report = new WorkbenchReport([.. images.Select(image => planner.Plan(image.Name).Report())], refusal, exported);
-        if (run)
+        if (run && await RecordAsync(folder, project, planner, cancellationToken) is { } note)
         {
-            await RecordAsync(folder, project, planner, cancellationToken);
+            report = report with { Note = note };
         }
 
         return report;
@@ -381,30 +385,34 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
     // minutes, so the file is read again under the file's lock and the keys go onto the edits that are still the ones
     // the run planned: an edit made to project.json meanwhile is kept, and an edit changed since gets no key of a
     // result it did not make.
-    private static async Task RecordAsync(string folder, WorkbenchProject project, Planner planner, CancellationToken cancellationToken)
+    // Returns a note when the file could not be read under the lock (missing, or saved half way): it is then left as
+    // it is, never overwritten with the run's start-of-run copy, and the next run finds the results again by their keys.
+    private static async Task<string?> RecordAsync(string folder, WorkbenchProject project, Planner planner, CancellationToken cancellationToken)
     {
         if (!TryRecord(folder, project, planner, out _))
         {
-            return;
+            return null;
         }
 
-        // A project file that cannot be read now is someone's edit caught half way. It is left as it is: this run's
-        // keys are found again by the next run, and a person's edit is not.
-        if ((await WorkbenchProjectFile.ReadAsync(folder, cancellationToken)).Project is null)
-        {
-            return;
-        }
-
-        await SharedFile.UpdateJsonAsync(
+        // A null from the callback leaves the file as the person left it: nothing is staged, so nothing is overwritten.
+        var written = await SharedFile.UpdateJsonIfAsync(
             WorkbenchProjectFile.PathIn(folder),
             WorkbenchJsonContext.Default.WorkbenchProject,
             onDisk =>
             {
-                TryRecord(folder, onDisk ?? project, planner, out var recorded);
+                if (onDisk is null)
+                {
+                    return null;
+                }
+
+                TryRecord(folder, onDisk, planner, out var recorded);
                 return recorded;
             },
             logger: null,
             cancellationToken);
+        return written
+            ? null
+            : $"{WorkbenchProjectFile.PathIn(folder)} could not be read at the end of the run (it was removed or saved half way), so this run's results are not recorded in it; the next run finds them again";
     }
 
     // The keys and outputs of this run's plan put onto what is in <paramref name="current"/>, wherever the edit is still
@@ -658,11 +666,13 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             var id = operation.Description.Id;
             var roles = operation.Description.ExtraInputs;
             var named = OrEmpty(edit.Inputs);
-            if (named.Length != roles.Length)
+            var needed = roles.Count(static role => !role.Optional);
+            if (named.Length < needed || named.Length > roles.Length)
             {
+                var count = needed == roles.Length ? $"{needed}" : $"{needed} to {roles.Length}";
                 return Refuse(step, roles.Length == 0
                     ? $"'{id}' takes no other image, and {named.Length} are named"
-                    : $"'{id}' takes {roles.Length} other image(s) ({string.Join(", ", roles.Select(static role => role.Name))}), and {named.Length} are named");
+                    : $"'{id}' takes {count} other image(s) ({string.Join(", ", roles.Select(static role => role.Name))}), and {named.Length} are named");
             }
 
             var inputs = ImmutableArray.CreateBuilder<Node>(1 + named.Length);

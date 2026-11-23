@@ -9538,7 +9538,209 @@ nothing is registered, exported or scored for it.
   The gap is the Lagoon's, the one master of the three with bright emission nebula; on the Tarantula's few bright
   nebula stars and on M31's disc ours is level with the judge. R4d through the product's chain (cores protected,
   floor5) reads like R4d as trained on these stars (by BP 13.5 to 15.5 on the Lagoon: taken 0.32 against 0.31). The
-  row is reported, no bar: R4h's and R4i's registrations predate it and do not judge on it.
+  row is reported, no bar: R4h's and R4i's registrations predate it and do not judge on it. **Superseded on
+  2026-11-23:** half of the Lagoon's 180 are no stars, and the median is no figure to quote; the row's baseline is
+  the table of the section below.
+
+#### Faint stars on bright nebula: the row corrected, the planted-star test, and R4j (2026-11-23)
+
+**Issue:** #2484 (ours leaves faint stars on bright nebula that StarXTerminator takes: the subject here). The
+scorecard's side of it is #2245.
+
+The owner, 2026-11-23, asked whether an arm can now aim at the faint stars on bright nebula. Three checks came first,
+none of them a training run. They corrected the row of 2026-11-22, gave a better instrument, and measured where the
+weakness is. All of it is on the held-out Sagittarius master (one plane; its bright nebula is the Lagoon's), ours as
+trained, every remover run with `bh-bin12` (the build R4h's and R4i's plates are made with), no core protection and no
+dig fill. Working files are in `C:/temp/e2/explore` and `D:/temp/tianwen-scratch/plant-neb2` on the development machine,
+the sheets in `D:/temp/tianwen-scratch/r4-look`.
+
+- **The row of 2026-11-22 counted nebula bumps as stars, and its median is no figure.**
+  - **The median flips with the seed.** Over the plates already scored (twenty-one of ours, `nebula_stars_row.py` as
+    it was) the median share taken on the Lagoon reads 0.05 to 0.53, and for two seeds of one recipe 0.10 against 0.53
+    (R3s) and 0.12 against 0.39 (R3v). A star is taken whole or not at all: of StarXTerminator's 180, 77 are taken by
+    under a tenth and 59 by over nine tenths (R4d: 89 and 50), so the median jumps where the share left passes one
+    half. "Left" (under half taken) is the figure: 48.3 to 70.0 % for ours over those plates, StarXTerminator 50.6 %.
+  - **Half of the 180 are no stars.** The catalogue lists 131,859 stars on this frame, about one every 8 px, most of
+    them far under the noise, and on bright nebula a bump of the nebula or of its noise at such a place reads as 20
+    sky sigma of "light". The master's own dark-sky stars tie light to magnitude (light = 10^(-0.4 (BP - 18.54)) sky
+    sigma, a scatter of 0.17 mag over 30,459 stars), and 96 of the 180 hold over twice or under half the light their
+    magnitude gives. A remover is right to leave a bump of the nebula.
+    The row now keeps a star only when its measured light is within a factor 2 of what its magnitude gives on
+    that master (`--match 2`, the default; `--match 0` is the row as it read on 2026-11-22 and gives R4d's old line to
+    the digit; `test_nebula_stars_row.py`). Stars left, as trained:
+
+    | master | stars on bright nebula, of the row before | StarXTerminator | R4d | dark sky (control), SXT / R4d |
+    |---|---|---|---|---|
+    | Sagittarius (the Lagoon) | 84 of 180 | 15.5 % | 34.5 % | 0.2 % / 4.0 % of 30,215 |
+    | Tarantula | 15 of 26 | 0.0 % | 0.0 % | 0.0 % / 0.0 % of 7,345 |
+    | Andromeda (the galaxy's disc) | 1,786 of 2,037 | 5.3 % | 5.8 % | 4.1 % / 6.0 % of 6,264 |
+
+    The gap is still the Lagoon's, and it is 16 stars (13 against 29 of 84). The rows "faint stars left on bright
+    background" in R4g's and in R4h's and R4i's registrations are another instrument (`audit.py real`: peaks of the
+    input less StarXTerminator's image, no catalogue in it) and are not touched by this.
+- **The planted-star test** (`plant_stars.py`, `plant_read.py`). Sixteen stars cannot carry a bar, and a real star's
+  light is known only as measured. So the same star is added twice to the master: once on bright nebula (a 32 px
+  block 20 sky sigma or more over the sky, the row's rule) and once on dark sky (under 5), each spot with no
+  catalogued star brighter than BP 17.5 within 8 px and no other plant within 14 px. What a remover took of a plant is
+  the planted light less the change of its plate (its plate of the planted master less its plate of the master), so
+  the field's own stars and the nebula cancel. Three seeds of spots, 280 stars planted twice, 7 to 150 sky sigma,
+  drawn evenly in log light; 205 of them are of 20 to 150, the row's band.
+  - **What is planted.** `--stamp layer`, the one the figures below are of: a real dark-sky star's own light without
+    its noise, cut from StarXTerminator's star layer (master less its plate) where it took the star whole (0.9 to 1.1
+    of its light; 287 such donors), added at whole pixels. Two others at the same spots check it: `psf`, the master's
+    mean star (197 bright dark-sky stars stacked) at a random sub-pixel place, and `donor`, a real star's patch of the
+    master with its noise (the spot then holds the noise twice inside 7.5 px).
+  - **StarXTerminator and R4d, the share of plants left** (under half taken):
+
+    | light planted, sky sigma | bright nebula: SXT / R4d | dark sky: SXT / R4d |
+    |---|---|---|
+    | 7 to 20 (75 stars) | 89.3 % / 94.7 % | 18.7 % / 62.7 % |
+    | 20 to 50 (111) | 66.7 % / 88.3 % | 0.9 % / 12.6 % |
+    | 50 to 150 (94) | 13.8 % / 45.7 % | 0.0 % / 0.0 % |
+
+    The other two stamps read the same on bright nebula: at 20 to 50, `psf` 64.0 / 83.7 and `donor` 63.6 / 83.0; at
+    50 to 150, 10.6 / 48.9 and 12.8 / 45.7.
+  - **It is the nebula, and more than its noise.** The nebula's pixel noise at the spots is 2.8 to 2.9 times the
+    sky's (the median spot of each seed), so a star of one light stands that much lower there. Binned by the light in
+    the spot's OWN noise the two backgrounds should then read alike, and for ours they do not:
+
+    | light in the spot's own noise | bright nebula: SXT / R4d | dark sky: SXT / R4d |
+    |---|---|---|
+    | 7 to 20 | 60.0 % / 92.7 % of 110 | 21.1 % / 69.0 % of 71 |
+    | 20 to 50 | 7.7 % / 38.5 % of 65 | 0.0 % / 10.2 % of 108 |
+    | 50 to 150 | 0.0 % / 0.0 % of 16 | 0.0 % / 0.0 % of 94 |
+
+    And it grows with the nebula's level under the plant (plants of 20 to 150 sky sigma): at 20 to 40 sky sigma
+    StarXTerminator leaves 34.9 % and R4d 49.4 % (of 83), at 40 to 80 48.0 % and 76.0 % (of 75), at 80 and over 46.8 %
+    and 91.5 % (of 47). The owner's theory of 2026-11-22 ("the bright background signal manages to get these stars
+    visible that would otherwise be drowned in noise") has it the other way round: the nebula's noise drowns them,
+    and ours loses more on top.
+  - **A plant reads as a real star does on dark sky.** A real star is picked by its light as measured, a plant by
+    its light as planted, so the plants are binned by the light as it APPEARS on the planted master for this: of the
+    200 dark plants that appear at 20 to 150 sky sigma R4d leaves 5.0 % and StarXTerminator none, and the corrected
+    row's dark-sky control reads 4.0 % and 0.2 % of 30,215 real stars.
+  - **Every model of ours, plants of 20 to 150 sky sigma** (205 on each background; the two columns after them are
+    the bands 20 to 50 and 50 to 150, the last the nebula's level 20 to 40, 40 to 80, 80 and over):
+
+    | model, as trained | left on bright nebula | left on dark sky | bright, by light | dark, by light | bright, by the nebula's level |
+    |---|---|---|---|---|---|
+    | StarXTerminator | 42.4 | 0.5 | 66.7 / 13.8 | 0.9 / 0.0 | 34.9 / 48.0 / 46.8 |
+    | R3s seed 1 | 46.8 | 7.3 | 69.4 / 20.2 | 13.5 / 0.0 | 39.8 / 44.0 / 63.8 |
+    | R3v seed 1 | 47.8 | 8.3 | 75.7 / 14.9 | 15.3 / 0.0 | 50.6 / 44.0 / 48.9 |
+    | R3z | 61.0 | 7.8 | 83.8 / 34.0 | 13.5 / 1.1 | 51.8 / 65.3 / 70.2 |
+    | R4e | 61.0 | 6.3 | 86.5 / 30.9 | 10.8 / 1.1 | 55.4 / 65.3 / 63.8 |
+    | R3v seed 0 | 62.0 | 6.8 | 85.6 / 34.0 | 12.6 / 0.0 | 51.8 / 57.3 / 87.2 |
+    | R4a seed 1 | 64.4 | 10.7 | 89.2 / 35.1 | 18.9 / 1.1 | 54.2 / 66.7 / 78.7 |
+    | R4f seed 1 | 65.4 | 6.3 | 87.4 / 39.4 | 11.7 / 0.0 | 50.6 / 65.3 / 91.5 |
+    | R3s seed 0 | 66.8 | 7.8 | 88.3 / 41.5 | 14.4 / 0.0 | 51.8 / 69.3 / 89.4 |
+    | R4c | 68.8 | 6.3 | 91.9 / 41.5 | 11.7 / 0.0 | 55.4 / 72.0 / 87.2 |
+    | R4d | 68.8 | 6.8 | 88.3 / 45.7 | 12.6 / 0.0 | 49.4 / 76.0 / 91.5 |
+    | R4b | 69.8 | 8.8 | 91.0 / 44.7 | 16.2 / 0.0 | 54.2 / 74.7 / 89.4 |
+    | R4i (last step) | 73.7 | 6.8 | 93.7 / 50.0 | 12.6 / 0.0 | 59.0 / 78.7 / 91.5 |
+    | R4a seed 0 | 74.6 | 7.3 | 91.9 / 54.3 | 13.5 / 0.0 | 54.2 / 85.3 / 93.6 |
+    | R4g | 74.6 | 7.8 | 92.8 / 53.2 | 14.4 / 0.0 | 57.8 / 81.3 / 93.6 |
+
+  - **What the table says.** (1) Every one of the fourteen leaves more than StarXTerminator on bright nebula, and
+    twelve of them 61.0 % or over. (2) **Seeds of one recipe stand 10 to 20 points apart** (R4a 74.6 and 64.4, R3v
+    62.0 and 47.8, R3s 66.8 and 46.8), as far as the recipes do, so one run cannot carry a bar here. (3) No change of
+    the last weeks moved it: the stars under the catalogue (R4c, R4d), the noise's level (R4e), the grain-free targets
+    (R4f), the black point (R4i) read 61.0 to 73.7, and R4g, the one arm with real nebula in its targets, reads
+    highest with R4a's seed 0. (4) On dark sky ours leaves 6.3 to 10.7 % where StarXTerminator leaves 0.5 %, nearly
+    all of it at 20 to 50 sky sigma: a smaller gap of the same kind.
+  - **What it does not say.** One master, one object, one plane; the spots are emptier than a star's usual place;
+    the stamps are real shapes at whole pixels. A plant is a way to count, and the renders are the check on it.
+  - **The renders** (`lagoon-sxt-ours-level.png`, `lagoon-sxt-ours-close.png`, `lagoon-sxt-ours-kept.png`; input,
+    StarXTerminator and R4d on the input's stretch, the catalogued stars marked by what each remover did). In the 140
+    px crop of the close sheet six points of light stand in R4d's plate that StarXTerminator took (4 or more times the
+    local noise of a disc sum); five are stars of 21 to 107 sky sigma in the input, and what R4d keeps of them stands
+    4 to 6 times over that noise. The owner, on that sheet: "yeah these are 3 stars, so are these: and there's
+    probably a handful of others", and "they are super faint though".
+- **StarXTerminator's smooth plate of the Tarantula's crowded field makes nothing up** (`judge_floor_check.py`; the
+  owner: "do you think SXT is making up nebulosity here? it feels awfully smooth"). The 400 px crop of the sheet of
+  2026-11-20 (x 400, y 504, green), in the master's sky noise, beside R4d through the chain:
+  - It never adds light: no pixel of its plate stands over the input by more than one sky noise (ours: 1.3 % of the
+    crop). It lowers every pixel of the crop by more than that (ours: 66 %).
+  - Its structure of 8 to 60 px is the data's: it follows the input's own lower envelope (a running 15th percentile,
+    no network in it) at a correlation of 0.81 (ours 0.76), and outside the bright knots it follows ours at 0.78 and
+    is weaker than ours (0.89 against 1.30 sky noise, the envelope 1.22).
+  - It sits under the darkest tenth of the input (14.2 sky noise over the frame's sky; the input's 10th percentile
+    15.8, its median 22.2; ours 19.3) and holds the pixel noise of empty sky (0.97; ours 1.66; the input 3.02). So it
+    takes the carpet of unresolved stars off every pixel and leaves no grain, which is why it looks smooth.
+  - There is no independent truth under a field this dense: "follows the envelope" says consistent with the data, and
+    whether the fine noise it leaves is the data's or its fill this cannot tell. It is the crowded rows' gap again:
+    the level it takes is a choice (the owner's rule of 2026-10-23 keeps the unresolved glow), the grain ours keeps
+    is the defect.
+- **The owner's word, 2026-11-23:** "everything else being equal, the faint stars is not the top prority, but we
+  should still see if we can improve it, we should give us a few more runs to evaluate if something can be done
+  here". So a few arms may aim at it. Each is registered first, and R4h's and R4i's registered read comes before any
+  of them is scored.
+- **The loss mask an arm on real nebula needs** (`tianwen dataset plate-masks --rule drawn-stars`,
+  `StarRemovalMasks.Rule.DrawnStars`, with this section's PR). R4g drew stars on the stored plate over bright nebula
+  and counted the whole tile but the sky near the sources the plate's finder lists; it learnt to keep stars, because
+  a plate over bright nebula holds faint stars no finder lists. The new rule is the other way round: a pixel counts
+  where a drawn star's light (the draw less the plate) stands over a quarter of the pixel's noise within three PSF
+  widths of the star's centre, and within one PSF width of such a pixel, so a hole dug round the star costs as the
+  star left does; everything else is 0, and a far halo is left to the draws on a synthetic background. An export
+  takes one rule: the first run records it (`plate-masks.rule`) and the other is refused, since a draw that has its
+  mask is skipped. **Checked on real draws before this registration** (two sessions of R4g's export, the Lagoon and
+  Trifid of 2023-08-09 and eta Carinae of 2025-01-31, 344 draws, from this branch's Release build): 62,180 drawn
+  stars, 12.1 % of the pixels inside the rim counted (a draw's median 11.3 %, 6.5 to 19.2 % from its 10th to its 90th
+  percentile, 170 stars a draw at the median; D4's rule left out 7.1 % on R4g's own check). Looked at on three draws
+  (`r4j-preflight-masks.png`: the draw, its target, what was drawn, the mask): the discs sit on the drawn stars, and
+  the many stars the eta Carinae plate cells still hold lie outside them.
+- **R4j, pre-registered 2026-11-23 before any mask, cache or score of it. One change from R4h: bright nebula cells
+  join the draw, drawn on the stored plate, and their loss counts only the drawn stars.**
+  - **The data.** R4h's cache (`r2-synth32`) and, as the extra cache, `bright2`: the draws of R4g's export `bright1`
+    as they stand (its cell list, its export line, `bh-bin11`; a re-export of them on 2026-11-23 gave the stored
+    bytes) LESS the Lagoon's three session ids (the Lagoon and Trifid of 2023-08-09, 18 cells, and the Lagoon of
+    2025-05-25 under its two ids, 3 cells each), so that the object the question is read on is in no plate cell.
+    That leaves 102 cells of 8 draws: 96 training cells (85 of eta Carinae, 11 of Orion) and the 6 held out.
+    `--faint-stars` is not in it, as for R4g: the exporter takes it on a synthetic background only, so the stars
+    drawn on a plate are the catalogue's own, and over a nebula three times as noisy as the sky many of those are
+    faint enough. The masks are written by `plate-masks --rule drawn-stars` from a build of main once this section's
+    PR is on it, and the cache `r2-bright2` is prepared with the trainer's lists and `--prepare-keep`.
+  - **The training.** R4h's recipe, cache, frozen trainer copy and command line exactly, with `--extra-cache
+    r2-bright2 --extra-loss-mask --schedule-on main` added, seeds 0 and 1, each a Batch job that removes itself, the
+    two beside each other as R4h ran beside R4i. Models `r4j_synth32b2_s0` and `r4j_synth32b2_s1`. The bright cells
+    are 768 of 18,848 input tiles, 4.1 % of the draw. The masked loss is a mean over a batch's counted pixels, so a
+    bright row weighs by the ninth of its pixels its mask counts, all of them on drawn stars: by counted pixels the
+    bright rows are about half a percent of what the batches average over. How that weighs against the main rows'
+    own stars (most of a main row's pixels are sky the model returns unchanged) was not measured; if the arm shows
+    part of a gain, the dose is the first thing to raise. The plateau halves and stops on synth32's held-out part
+    alone, as R4h's does.
+  - **Read first:** the 1:1 sheets (below), then the training by the stall rule of R4h's and R4i's registration.
+  - **The question, on the models as trained:** of the 205 plants of 20 to 150 sky sigma on the Lagoon's bright
+    nebula (`plant_stars.py --stamp layer` on the Sagittarius master with StarXTerminator's plate, seeds 1, 2 and 3;
+    `plant_read.py`), **at most 45.0 % left on BOTH seeds** (StarXTerminator 42.4; our fourteen 46.8 to 74.6, twelve
+    of them 61.0 or over). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
+    score of R4j exists; if R4h alone reads 45.0 or under, the bar cannot show the mask's doing and the read says so.
+  - **Guards, on each seed:** R4h's and R4i's, on the same terms (every row of the 40 sigma read's table at its bar,
+    as trained or through the chain as that table reads it; a row R4h misses too is the exporter's, and R4j is then
+    held to R4h's value and the bar's allowance): the Tarantula's crowded flat at least 90.3 and Sagittarius's 96.3;
+    Andromeda's dark flat at least 95 with at most 3 % dug; the Tarantula's dark flat at least 91; the glow's green
+    median within 450 on Andromeda and 500 on the Tarantula; M31's nucleus taken under 10 %; purity at most 1.0; the
+    light taken from the Tarantula field at most 83 and 84 %; Gaia BP 17-19 with the level set aside at least 89.7;
+    light added on each master's nebula at most 1.0 %; the brightest tenth of the Tarantula's peaks standing on at
+    least 11 of 77; faint stars left on the Lagoon's core at most 37 % and on 30 Doradus at most 27 %; the Lagoon's
+    broad light taken at most 2.67. And one for this arm: of the 205 plants on dark sky at most 12.0 % left (ours
+    6.3 to 10.7). The peaks row is the one to watch: a model taught to take compact light on bright nebula may take
+    a knot.
+  - **Kill:** a guard fails on a seed that trained as the others, or both seeds leave 60.0 % or over of the bright
+    plants (no better than twelve of the fourteen). **Cleared:** the question with every guard held on both seeds.
+    Anything else is neither, and the rows go to the owner. A stalled seed is neither killed nor cleared.
+  - **Reported, no bar:** R4h's planted row beside each seed's; the plant read's tables by light, by the spot's own
+    noise and by the nebula's level, and the `psf` and `donor` stamps; the corrected row on the three masters; the
+    extra cache's held-out objective beside its training objective at the best step (96 targets can be learnt by
+    heart); the best step's weights; the 26 bright-star rows; the Lagoon's standing peaks (18).
+  - **Looked at before the rows are quoted:** the three Lagoon crops above with both seeds, R4h and StarXTerminator;
+    a sheet of planted spots at 1:1 (planted master, each plate); 30 Doradus's core and the Tarantula's knots; M31's
+    nucleus; a bright star on dark sky.
+  - **Prediction:** both seeds leave between 50 and 58 % of the bright plants, a gain of 10 to 20 points on R4h and
+    short of the bar, so the likely outcome is "neither"; the dark plants do not move; the guards hold, the
+    Tarantula's standing peaks falling by a few. What speaks against more: a twenty-fifth of the draw, 85 of the 96
+    cells one object through one 3 nm filter, no star under the finder's limit in these rows, and seeds that stand
+    10 to 20 points apart.
+  - **Nothing is adopted;** adoption is the owner's.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 

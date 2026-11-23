@@ -456,6 +456,30 @@ public sealed class WorkbenchRunnerTests : IDisposable
 
         States(report).ShouldBe([StepState.Ran]);
         (await File.ReadAllTextAsync(WorkbenchProjectFile.PathIn(folder), ct)).ShouldBe(halfWay, "an edit caught half way is not written over with the run's own copy");
+        report.Succeeded.ShouldBeTrue();
+        report.Note.ShouldNotBeNull().ShouldContain("not recorded", Case.Insensitive, "a person who saved a broken file is told");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AProjectFileRemovedWhileARunWorksIsNotWrittenBackFromTheRunsCopy()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("removed", m => WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", m, WorkbenchFixtures.Edit("add", Amount(1)))));
+        _add.DuringRun = () => File.Delete(WorkbenchProjectFile.PathIn(folder));
+
+        var report = await _runner.RunAsync(folder, cancellationToken: ct);
+
+        File.Exists(WorkbenchProjectFile.PathIn(folder)).ShouldBeFalse("the run's start-of-run copy is not put back over what the person did");
+        report.Note.ShouldNotBeNull().ShouldContain("removed", Case.Insensitive, "the note says the file is gone, not only unreadable");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ARunThatRecordsEverythingHasNoNote()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("no-note", m => WorkbenchFixtures.Project(WorkbenchFixtures.Picture("m", m, WorkbenchFixtures.Edit("add", Amount(1)))));
+
+        (await _runner.RunAsync(folder, cancellationToken: ct)).Note.ShouldBeNull();
     }
 
     [Fact(Timeout = 120_000)]
@@ -646,6 +670,23 @@ public sealed class WorkbenchRunnerTests : IDisposable
         Of("gone").Refusal.ShouldNotBeNull().ShouldContain("no-such-master.fits");
         Of("gone").Steps[0].State.ShouldBe(StepState.Blocked);
         Of("fine").Steps[0].State.ShouldBe(StepState.Ran, "one image's refusal does not stop another");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AnOperationTakesItsOptionalImagesOrLeavesThemOutAndNoOtherNumber()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("optional", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("few", m, WorkbenchFixtures.Edit(LuminanceOperation.Id, null, "a")),
+            WorkbenchFixtures.Picture("many", m, WorkbenchFixtures.Edit(LuminanceOperation.Id, null, "a", "a", "a", "a", "a", "a")),
+            WorkbenchFixtures.Picture("a", m)));
+        var runner = new WorkbenchRunner(new OperationCatalog([new LuminanceOperation()]));
+
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+
+        status.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("takes 2 to 5 other image(s)");
+        status.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("and 1 are named");
+        status.Images[1].Steps[0].Message.ShouldNotBeNull().ShouldContain("and 6 are named");
     }
 
     [Fact]

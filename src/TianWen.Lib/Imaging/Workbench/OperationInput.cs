@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging.Enhancement;
@@ -80,6 +81,59 @@ public sealed class OperationInput
 
         master = MasterAlignment.MaskAbsent(image);
         image.Release();
+        return true;
+    }
+}
+
+/// <summary>How an operation reads several images that have to be on one grid.</summary>
+public static class OperationInputs
+{
+    /// <summary>What an operation says when its images are not on one grid.</summary>
+    public const string NotOnOneGrid = "the masters are not on one grid: put them there first (tianwen image align).";
+
+    /// <summary>
+    /// Every input read as a master (<see cref="OperationInput.TryReadMaster"/>), in order, with the first plate
+    /// solution among them; false with the reason when one will not read or they are not on one grid.
+    /// </summary>
+    public static bool TryReadMasters(IReadOnlyList<OperationInput> inputs, [NotNullWhen(true)] out Image[]? masters, out WCS? wcs,
+        [NotNullWhen(false)] out string? refusal)
+    {
+        masters = null;
+        wcs = null;
+        var read = new Image[inputs.Count];
+        for (var i = 0; i < inputs.Count; i++)
+        {
+            if (!inputs[i].TryReadMaster(out var master, out var masterWcs, out refusal))
+            {
+                return false;
+            }
+
+            read[i] = master;
+            wcs ??= masterWcs;
+        }
+
+        if (!OnOneGrid(read))
+        {
+            refusal = NotOnOneGrid;
+            return false;
+        }
+
+        masters = read;
+        refusal = null;
+        return true;
+    }
+
+    /// <summary>True when every image has the first one's width and height.</summary>
+    public static bool OnOneGrid(params ReadOnlySpan<Image> images)
+    {
+        foreach (var image in images)
+        {
+            if (image.Width != images[0].Width || image.Height != images[0].Height)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 }

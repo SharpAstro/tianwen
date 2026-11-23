@@ -157,6 +157,11 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
             consoleHost.WriteError($"[workbench] {refused}");
         }
 
+        if (report.Note is { } note)
+        {
+            consoleHost.WriteScrollable($"[workbench] note: {note}");
+        }
+
         return report.Succeeded ? 0 : 2;
     }
 

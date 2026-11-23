@@ -328,6 +328,18 @@ the unrejected lane subset, broadcast the κ band, generate the new rejection
 mask via `Vector.GreaterThan` / `Vector.LessThan`. The masked-stats kernel is
 the hottest loop in the whole pipeline; benchmark first, optimize second.
 
+**As built, and what is open (2026-11-23).** Five rejectors exist: `SigmaClipRejector`,
+`WinsorizedSigmaClipRejector`, `LinearFitClipRejector`, `PercentileClipRejector` and `MinMaxClipRejector`.
+`StackingPipeline.BuildRejector` picks one by frame count (none under 5 frames, linear-fit clip under 30,
+winsorized sigma clip under 60, sigma clip from 60), and `--reject-low-sigma` and `--reject-high-sigma` set the
+sigma pair of whichever it picked. The `EsdRejector` named above was not built. It is #2463: the generalized ESD
+test (Rosner, 1983), **written from the paper and not ported from another program's source** (the owner,
+2026-11-23, who wants fewer derived pieces, so the port named above is off), selectable first, and measured
+before it becomes what `BuildRejector` picks anywhere. The comet layer is the case to measure first: there a
+pixel can hold a star in several frames, which is the several-outliers case the test is built for
+([comet-integration.md](comet-integration.md), "Rejection: the comet layer and the star layer want opposite
+thresholds").
+
 ### I. Tile-pipelined integrator (`TianWen.Lib.Imaging.Stacking`)
 
 `Integrator.IntegrateAsync(IReadOnlyList<RegistrationResult> lights, Calibrator cal, IPixelRejector rejector, IntegrationCombiner combiner)`:
