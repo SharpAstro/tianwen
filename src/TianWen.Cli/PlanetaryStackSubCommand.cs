@@ -698,6 +698,23 @@ internal sealed class PlanetaryStackSubCommand(
                     consoleHost.WriteError($"--auto stacks at the measured defaults: {refused.Name} is a setting it does not take.");
                     return 1;
                 }
+                // The step's own refusals (PlanetaryStackOperation.Refusal), asked before any work so a verb and its step refuse alike.
+                if (TianWen.Lib.Imaging.Workbench.PlanetarySharpenOperation.StrengthRefusal(parseResult.GetValue(strengthOpt)) is { } strengthRefusal)
+                {
+                    consoleHost.WriteError($"--strength: {strengthRefusal}.");
+                    return 1;
+                }
+                var chosenSaturation = parseResult.GetValue(colourSaturationOpt);
+                if (!(chosenSaturation >= 0 && double.IsFinite(chosenSaturation)))
+                {
+                    consoleHost.WriteError("--colour-saturation is 0 or more.");
+                    return 1;
+                }
+                if (parseResult.GetValue(noColourBalanceOpt) && parseResult.GetResult(colourSaturationOpt) is { Implicit: false })
+                {
+                    consoleHost.WriteError("--colour-saturation is the colour balance's: with --no-colour-balance there is nothing it saturates.");
+                    return 1;
+                }
                 if (AutoGiven() is not { } given)
                 {
                     return 1;
