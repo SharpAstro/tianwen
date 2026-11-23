@@ -672,6 +672,23 @@ public sealed class WorkbenchRunnerTests : IDisposable
         Of("fine").Steps[0].State.ShouldBe(StepState.Ran, "one image's refusal does not stop another");
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task AnOperationTakesItsOptionalImagesOrLeavesThemOutAndNoOtherNumber()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (folder, _) = await ProjectAsync("optional", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("few", m, WorkbenchFixtures.Edit(LuminanceOperation.Id, null, "a")),
+            WorkbenchFixtures.Picture("many", m, WorkbenchFixtures.Edit(LuminanceOperation.Id, null, "a", "a", "a", "a", "a", "a")),
+            WorkbenchFixtures.Picture("a", m)));
+        var runner = new WorkbenchRunner(new OperationCatalog([new LuminanceOperation()]));
+
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+
+        status.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("takes 2 to 5 other image(s)");
+        status.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("and 1 are named");
+        status.Images[1].Steps[0].Message.ShouldNotBeNull().ShouldContain("and 6 are named");
+    }
+
     [Fact]
     public void ASettingLeftOutIsItsDefaultAndASettingTheOperationDoesNotHaveIsRefused()
     {
