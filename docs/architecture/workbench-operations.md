@@ -406,7 +406,10 @@ store.
 - **A step never asks what this computer remembers.** `tianwen stack` judges cloud against the clear nights the
   viewer recorded on this computer (`LightGradeReferenceStore`); a step judges on the group's own baselines
   (`StackingOptions.ClearNightReferences` off), and its line says `--no-clear-night-references`, the verb's option
-  for the same. It is the rule the planetary stack follows with `--no-telescope-memory`.
+  for the same. It is the rule the planetary stack follows with `--no-telescope-memory`. Nor does it choose an
+  unstated strategy by this computer's free memory and disk: `StackingOptions.NominalProbe` chooses against a fixed
+  nominal host (32 GB, 1 TB SSD) and refuses in words where this computer cannot fit the one chosen, and the line says
+  `--nominal-host`, the verb's option for the same.
 - **A setting that changes no pixel is refused**, where the verb warns and goes on: a drizzle's two settings where no
   drizzle can run, and `bayerDrizzle` off beside a stated drizzle. A filter that filters nothing is left out, never
   written empty, so each thing is said one way and has one key.

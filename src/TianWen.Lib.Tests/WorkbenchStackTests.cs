@@ -143,8 +143,8 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
             operation.Refusal(settings).ShouldBeNull(name);
             var line = operation.CommandLine(settings, [frames], into).ToArray();
             output.WriteLine(StepCommandLine.Display(line));
-            line[..9].ShouldBe(
-                [StepCommandLine.Program, "stack", frames, "--output", into, "--no-plate-solve", "--output-format", "none", "--no-clear-night-references"],
+            line[..10].ShouldBe(
+                [StepCommandLine.Program, "stack", frames, "--output", into, "--no-plate-solve", "--output-format", "none", "--no-clear-night-references", "--nominal-host"],
                 name);
             resolved = null;
             said.Clear();
@@ -156,7 +156,7 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
             (resolved.ShouldNotBeNull(name) with { EnhanceOptions = null }).ShouldBe(StackOperation.OptionsOf(settings, frames, into), name);
         }
 
-        operation.CommandLine(new StackSettings(), [frames], into).Length.ShouldBe(9, "settings at their defaults put nothing on the line");
+        operation.CommandLine(new StackSettings(), [frames], into).Length.ShouldBe(10,"settings at their defaults put nothing on the line");
 
         // A setting added later is replayed above away from its default, or this says which one is not.
         var defaults = JsonNode.Parse(operation.DefaultSettings).ShouldNotBeNull().AsObject();
@@ -257,6 +257,7 @@ public sealed class WorkbenchStackTests(ITestOutputHelper output) : IDisposable
         line[4].ShouldBe(Path.Combine(store, Path.GetFileNameWithoutExtension(StepStore.FileNameOf(step.Key))), "the line names the folder the step's results would go into");
         line.ShouldContain("--no-plate-solve");
         line.ShouldContain("--no-clear-night-references", "a step never asks what clear nights this computer keeps");
+        line.ShouldContain("--nominal-host", "a step never chooses its strategy by this computer's free memory");
         line.ShouldContain("--quality-reject-sigma");
         line.ShouldContain("--warp-interpolation");
         var into = Path.Combine(_folders.Create("verb-").FullName, "output");

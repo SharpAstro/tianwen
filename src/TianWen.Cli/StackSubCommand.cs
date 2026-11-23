@@ -284,6 +284,10 @@ internal sealed class StackSubCommand(
         {
             Description = "Judge cloud on each group's own baselines alone, never against the clear nights the FITS viewer recorded on this computer. By default --reject-cloud reads them, so a run cloudy from first light to last is judged against a clear one. With this flag the masters follow from the frames and the options alone, which is what a workbench step runs with.",
         };
+        var nominalHostOpt = new Option<bool>("--nominal-host")
+        {
+            Description = "Choose an unstated integration strategy by the frames alone, against a fixed nominal computer (32 GB of memory, 1 TB of SSD), and refuse in words where this computer cannot fit the one chosen. By default the strategy is chosen against this computer's free memory and disk. With this flag the masters follow from the frames and the options alone, which is what a workbench step runs with.",
+        };
         var enhanceOpt = new Option<bool>("--enhance")
         {
             Description = "Run the canonical AI sharpen pipeline (gradient correction + remove stars + sharpen stars + deconvolve + denoise + recombine) against each master after integration. Writes master_*_sharpened.fits and (when autocrop is active) master_*_sharpened_autocrop.fits alongside the raw masters; the linear masters are never overwritten. Each step needs an installed backend (RC-Astro, or model weights the resolver finds); one that has none fails naming the paths it searched.",
@@ -350,7 +354,7 @@ internal sealed class StackSubCommand(
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
                 inheritWbOpt,
-                noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt, noClearNightReferencesOpt,
+                noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt, noClearNightReferencesOpt, nominalHostOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
                 saturationOpt, contrastBoostOpt,
@@ -558,6 +562,8 @@ internal sealed class StackSubCommand(
                 PreviewBoost = previewBoost,
                 // The clear nights the viewer recorded on this computer judge cloud, unless the line leaves them out.
                 ClearNightReferences = !parseResult.GetValue(noClearNightReferencesOpt),
+                // The strategy is chosen against this computer, unless the line says the nominal one (a step's line does).
+                NominalProbe = parseResult.GetValue(nominalHostOpt),
             };
 
             if (OptionsSink is { } optionsSink)

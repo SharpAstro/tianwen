@@ -360,9 +360,10 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
     public override ImmutableArray<string> CommandLine(StackSettings settings, IReadOnlyList<string> inputs, string output)
     {
         var line = ImmutableArray.CreateBuilder<string>();
-        // No plate solve (a solve is a step of its own), no picture, and never this computer's clear nights.
+        // No plate solve (a solve is a step of its own), no picture, never this computer's clear nights and never
+        // this computer's free memory in the choice of a strategy.
         line.AddRange(StepCommandLine.Program, "stack", inputs[0], "--output", output, "--no-plate-solve", "--output-format", "none",
-            "--no-clear-night-references");
+            "--no-clear-night-references", "--nominal-host");
 
         // A setting is on the line wherever it is not the verb's own default, so the line replays what the step ran.
         if (settings.GroupFilter is { } filter)
