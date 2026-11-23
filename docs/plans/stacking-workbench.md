@@ -1,6 +1,6 @@
 # Stacking Workbench: from a folder of frames to a finished picture, in one window
 
-**Status: W0 DECIDED 2026-11-22, W1 PARTIAL (its first leg: the operation contract, the step store, the project and the runner, with three operations), W10 PARTIAL (image crop and the W10 audit are done), the rest NOT STARTED.** A plan the owner decided W0 of (the owner, 2026-10-17: "do we already have a milestone
+**Status: W0 DECIDED 2026-11-22, W1 DONE 2026-11-23 (the operation contract, the step store, the project and the runner, with twenty-three operations; the last leg was #2490), W10 PARTIAL (image crop and the W10 audit are done), the rest NOT STARTED.** A plan the owner decided W0 of (the owner, 2026-10-17: "do we already have a milestone
 for a GUI based stacking app? not just planetary etc", then "yeah lets do that"). Milestone `stacking-workbench`.
 
 **Re-cut 2026-11-19** from a stacker into the processing application: image editing as operations, a non-destructive edit list,
@@ -548,7 +548,8 @@ each step's output is bit-identical to its CLI verb's.
 - **The tests** are the three the phase names. The third runs every step's printed command line through the real
   `tianwen image` command and compares the two files to the byte, which holds rule 3 as well as rule 1.
 
-**Still to do in W1**, each a leg of its own with its own issue, and #1641 stays open until the last:
+**The legs after the first**, each with its own issue, all built by 2026-11-23, so W1 is done and #1641 closes with
+them:
 
 1. The other colour steps (#2465). Built: `align`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`,
    `fill-digs`, `protect-cores`, the four that put several masters through one run, `match-psf`, `deblur`, `denoise`
