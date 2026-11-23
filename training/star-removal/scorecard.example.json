@@ -12,6 +12,12 @@
     "tarantula": "<path to the Tarantula master's Gaia CSV>",
     "sag": "<path to the Sagittarius Triplet master's Gaia CSV>"
   },
+  "judge": {
+    "_comment": "Per master, the judge's starless plate of that same master (StarXTerminator's, made once and kept). Read by judge_band_rows.py, which sorts the frame's cells by what the judge's plate holds between 9 and 41 px.",
+    "andromeda": "<path to StarXTerminator's starless plate of the M31 master>",
+    "tarantula": "<path to StarXTerminator's starless plate of the Tarantula master>",
+    "sag": "<path to StarXTerminator's starless plate of the Sagittarius Triplet master>"
+  },
   "glow_threshold": {
     "_comment": "Per master, the share-above threshold of glow_ring.py as [R, G, B] sigma-pixels, fixed ONCE from the INPUT master's own stars (the halo before removal): run `python glow_ring.py <master> --derive-threshold` (0.1 of the input's median annulus excess per channel) and paste its three numbers. Never re-derive it from an arm's plate.",
     "andromeda": ["<tR>", "<tG>", "<tB>"],

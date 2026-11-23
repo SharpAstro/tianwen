@@ -14,13 +14,18 @@ blue's shoulder under Andromeda's bright stars and leave light in the Tarantula'
   - every master's faint catalogued stars on bright nebula (nebula_stars_row.py, 2026-11-22): the median share of each
     star's light the plate took and the share of stars it took under half of, beside the same on dark sky. It needs
     the config's "gaia" CSV per master (`tianwen solve <master> --export-gaia <csv>`).
+  - every master's 9 to 41 px band against the JUDGE's own plate, cell by cell (judge_band_rows.py, #2404): the mottle the
+    plate leaves on the cells the judge leaves flat, and its band over the judge's on the cells where the judge keeps
+    structure. It needs the config's "judge" plate per master (StarXTerminator's starless plate of that master).
+    Reported, no bar: it replaces R4f's added row (2), which read two cells picked by eye.
 Plates are made at one view (how a model ships) into <out root>/<tag>/ and reused when present; a judge's existing
 plates are linked in with --plates. Glue only: every number is parsed from the checks' own output.
     python score_whole.py <tag> --config scorecard.local.json --model a.onnx [b.onnx ...] [--views 1]
     python score_whole.py <tag> --config scorecard.local.json --plates andromeda=... tarantula=... sag=...
 The machine's paths (the three masters, each one's Gaia CSV, the tianwen executable, the output root) come from a config
 file, which `scorecard.example.json` shows and `scorecard.local.json` (ignored by git) holds; each can be given on the
-command line instead (--master NAME=PATH, --gaia NAME=CSV, --cli, --out-root). Nothing in this folder names a machine.
+command line instead (--master NAME=PATH, --gaia NAME=CSV, --judge NAME=PLATE, --cli, --out-root). Nothing in this
+folder names a machine.
 """
 import argparse
 import json
@@ -36,6 +41,7 @@ from astropy.io import fits
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))        # the arm driver runs this with -I, which leaves the script's folder off sys.path
 from nebula_stars_parse import parse_row
+import judge_band_parse
 
 NAMES = ('andromeda', 'tarantula', 'sag')
 p = argparse.ArgumentParser()
@@ -47,6 +53,8 @@ p.add_argument('--out-root', help='where <tag>/ is made (overrides the config)')
 p.add_argument('--master', nargs='+', default=[], metavar='NAME=PATH', help='an input master (overrides the config)')
 p.add_argument('--gaia', nargs='+', default=[], metavar='NAME=CSV', help="a master's Gaia CSV, `tianwen solve <master> --export-gaia <csv>` "
                                                                       "(overrides the config's 'gaia')")
+p.add_argument('--judge', nargs='+', default=[], metavar='NAME=PLATE', help="the judge's starless plate of a master, StarXTerminator's "
+                                                                        "(overrides the config's 'judge')")
 p.add_argument('--model', nargs='+')
 p.add_argument('--views', default='1')
 p.add_argument('--plates', nargs='+', default=[])
@@ -59,8 +67,9 @@ CLI = a.cli or cfg.get('cli')
 OUT_ROOT = a.out_root or cfg.get('out_root')
 MASTERS = {k: Path(v) for k, v in {**cfg.get('masters', {}), **dict(x.split('=', 1) for x in a.master)}.items()}
 GAIA = {k: v for k, v in {**cfg.get('gaia', {}), **dict(x.split('=', 1) for x in a.gaia)}.items()}
+JUDGE = {k: v for k, v in {**cfg.get('judge', {}), **dict(x.split('=', 1) for x in a.judge)}.items()}
 missing = [what for what, v in (('cli', CLI), ('out_root', OUT_ROOT), *((f'masters.{n}', MASTERS.get(n)) for n in NAMES),
-                                *((f'gaia.{n}', GAIA.get(n)) for n in NAMES)) if not v]
+                                *((f'gaia.{n}', GAIA.get(n)) for n in NAMES), *((f'judge.{n}', JUDGE.get(n)) for n in NAMES)) if not v]
 if missing:
     raise SystemExit(f'not set (config or command line): {", ".join(missing)}')
 out = Path(OUT_ROOT) / a.tag
@@ -181,6 +190,17 @@ for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
         raise KeyError(f'nebula_stars_row.py printed no row for {k} ("{line}"); see {out / "score.log"}')
     score[k]['nebula_stars'] = m
     nebstars[k] = f"{label} stars on nebula taken {m['bright_taken']} left {m['bright_left']}{'' if m['bright_left'] == '-' else '%'}"
+# The 9 to 41 px band against the judge's own plate (#2404): on the cells the judge leaves flat the plate's mottle, on the
+# cells where the judge keeps structure the plate's band over the judge's. A row that asks for less band than the judge
+# keeps rewards smoothing structure away (R4f's row (2) did, in one of its two cells), so both sides are read.
+judged = {}
+for k, label in (('andromeda', 'And'), ('tarantula', 'Tar'), ('sag', 'Sag')):
+    text = run([py, '-I', HERE / 'judge_band_rows.py', JUDGE[k], f'plate={plates[k]}'])
+    m = next((r for r in map(judge_band_parse.parse_row, text.splitlines()) if r is not None), None)
+    if m is None:
+        raise KeyError(f'judge_band_rows.py printed no plate line for {k}; see {out / "score.log"}')
+    score[k]['judge_band'] = m
+    judged[k] = judge_band_parse.short(label, m)
 (out / 'score.json').write_text(json.dumps(score, indent=1))
 
 def glow_field(d):
@@ -196,6 +216,6 @@ row = (f"{a.tag:>10} | And dark flat {A['dark_flat']:5.1f} dug {A['dark_dug']:5.
        f"BP17-19 {T['bp1719']:5.1f} purity {T['purity']:.1f} | Sag crowded {S['crowded_flat']:5.1f} | nucleus "
        f"{'/'.join(f'{x:.1f}' for x in score['nucleus'])} % | And glow {glow_field(A)} | Tar glow {glow_field(T)}"
        f" | {nebula['andromeda']} | {nebula['tarantula']} | {nebula['sag']} | {nebstars['sag']} | {nebstars['tarantula']}"
-       f" | {nebstars['andromeda']}")
+       f" | {nebstars['andromeda']} | {judged['sag']} | {judged['tarantula']} | {judged['andromeda']}")
 (out / 'row.txt').write_text(row + '\n')
 print(row)
