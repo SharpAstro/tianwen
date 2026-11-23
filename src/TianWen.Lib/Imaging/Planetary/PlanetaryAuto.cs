@@ -40,6 +40,20 @@ public static class PlanetaryAuto
         => PlanetaryBestStack.RunAsync(stream, OptionsFor(identity), progress, cancellationToken);
 
     /// <summary>
+    /// A written master sharpened again as AUTO sharpens the master it has just stacked: <see cref="PlanetaryBestStack.Sharpen"/> with what
+    /// <see cref="OptionsFor"/> gives for <paramref name="identity"/>, so the two cannot part. The instant is the master's own (its DATE-OBS
+    /// and EXPTIME's middle). A colour master is sharpened as it was written, its colour balance already in it, where a stack sharpens
+    /// before it balances. The words say how it was sharpened, and why where the gains could not be derived. The caller owns the image.
+    /// </summary>
+    public static (Image Sharpened, string How) Sharpen(Image master, PlanetaryIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        var options = OptionsFor(identity);
+        return PlanetaryBestStack.Sharpen(master, options.Planet, epoch: null, options.Telescope, options.WavelengthsNm, options.Fix, options.Strength,
+            options.LuminanceOnly, options.Target);
+    }
+
+    /// <summary>
     /// Where AUTO's masters of a capture named <paramref name="baseName"/> (its file's name, without the extension) go in
     /// <paramref name="outputDir"/>: <c>master_&lt;capture&gt;_auto.fits</c> and its <c>_sharpened</c>, beside the masters a Best stack or a plain
     /// <c>planetary stack</c> writes, never over them.

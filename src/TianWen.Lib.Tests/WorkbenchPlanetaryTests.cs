@@ -25,7 +25,7 @@ namespace TianWen.Lib.Tests;
 /// step's result and its sharpened master a result beside it, and both are the files
 /// <c>tianwen planetary stack --auto</c> writes. Then the compose: a set of mono stacks is one step, its colour master
 /// the step's result and its luminance a result beside it, and both are the files <c>tianwen planetary compose</c>
-/// writes.
+/// writes. Then the sharpening of a master again, which is the file <c>tianwen planetary sharpen --auto</c> writes.
 /// </summary>
 [Collection("Imaging")]
 public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposable
@@ -314,6 +314,105 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         Of(again, "hop").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
     }
 
+    [Fact(Timeout = 300_000)]
+    public async Task ThePlanetarySharpenStepIsTheFilePlanetarySharpenAutoWrites()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-sharpen-").FullName;
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA");
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("stacked", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id)),
+            // Nothing said: what the master is, is read off the header its stack wrote.
+            WorkbenchFixtures.Starting("again", "stacked", WorkbenchFixtures.Edit(PlanetarySharpenOperation.Id)),
+            // Another telescope said: another step, and another sharpening.
+            WorkbenchFixtures.Starting("told", "stacked", WorkbenchFixtures.Edit(PlanetarySharpenOperation.Id,
+                new JsonObject { ["apertureMm"] = 203, ["design"] = "sct" }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation(), new PlanetarySharpenOperation()]));
+        var stepsSaid = new List<string>();
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions
+        {
+            Say = text =>
+            {
+                stepsSaid.Add(text);
+                output.WriteLine(text);
+            },
+        }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
+        var master = Of("stacked").Steps[0].Output.ShouldNotBeNull();
+        Of("again").Steps[0].State.ShouldBe(StepState.Ran);
+        Of("told").Steps[0].State.ShouldBe(StepState.Ran);
+        Of("told").Steps[0].Key.ShouldNotBe(Of("again").Steps[0].Key, "what is said of a master is part of its step's key");
+        // Each step says what it took its master to be: the telescope its stack wrote into the header, or the one given.
+        stepsSaid.Any(static text => text.StartsWith("[again ", StringComparison.Ordinal) && text.Contains("AUTO:", StringComparison.Ordinal)
+            && text.Contains("254", StringComparison.Ordinal)).ShouldBeTrue(string.Join(Environment.NewLine, stepsSaid));
+        stepsSaid.Any(static text => text.StartsWith("[told ", StringComparison.Ordinal) && text.Contains("AUTO:", StringComparison.Ordinal)
+            && text.Contains("203", StringComparison.Ordinal)).ShouldBeTrue(string.Join(Environment.NewLine, stepsSaid));
+
+        // Each step's command line through the real verb, its one file named.
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var sharpen = new PlanetarySharpenSubCommand(
+            host,
+            new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance),
+            new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        foreach (var name in new[] { "again", "told" })
+        {
+            var each = Of(name).Steps[0];
+            var line = each.CommandLine.ToArray();
+            line[..3].ShouldBe([StepCommandLine.Program, "planetary", "sharpen"]);
+            line[3].ShouldBe(master, "the step sharpens the stack step's own file");
+            line.ShouldContain("--auto");
+            line.ShouldContain("--no-telescope-memory", "a step never asks what telescope a camera was last said to be on");
+            var at = Array.IndexOf(line, "--sharpened") + 1;
+            line[at].ShouldBe(each.Output.ShouldNotBeNull(), "the line names the step's own file");
+            var written = Path.Combine(folder, name + "-verb.fits");
+            line[at] = written;
+            output.WriteLine(StepCommandLine.Display(line));
+            said.Clear();
+
+            var exit = await sharpen.Parse(line[3..]).InvokeAsync(cancellationToken: ct);
+
+            exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+            ShouldBeTheSameFile(each.Output.ShouldNotBeNull(), written, $"the sharpened master of '{name}'");
+        }
+
+        // The result is not the master as stacked: an equal file would make the comparison above empty.
+        var (stacked, again) = (WorkbenchFixtures.Read(master), WorkbenchFixtures.Read(Of("again").Steps[0].Output.ShouldNotBeNull()));
+        stacked.GetChannelSpan(0).SequenceEqual(again.GetChannelSpan(0)).ShouldBeFalse("the step sharpened");
+
+        // The verb without --sharpened is its research path: it reads and scores as it goes, and writes into a folder.
+        // Its pixels are the step's all the same, so its file is too: AUTO sharpens one way wherever it is asked. That
+        // holds where the gains are derived, which this master's are; where a limb does not fit, the research path
+        // refuses and a step falls back to the preset, as a stack does.
+        stepsSaid.Any(static text => text.StartsWith("[again ", StringComparison.Ordinal) && text.Contains("derived through the limb's edge", StringComparison.Ordinal))
+            .ShouldBeTrue(string.Join(Environment.NewLine, stepsSaid));
+        var research = _folders.Create("research-").FullName;
+        said.Clear();
+        var researched = await sharpen.Parse(new[] { master, "--auto", "--no-telescope-memory", "-o", research }).InvokeAsync(cancellationToken: ct);
+        researched.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(Of("again").Steps[0].Output.ShouldNotBeNull(), Path.Combine(research, Path.GetFileNameWithoutExtension(master) + "_sharpened.fits"),
+            "the verb's own AUTO against the step");
+
+        // What goes with --sharpened and what does not, in words.
+        said.Clear();
+        (await sharpen.Parse(new[] { master, "--auto", "--sharpened", Path.Combine(folder, "x.fits"), "--no-write" }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        string.Join(Environment.NewLine, said).ShouldContain("does not go with it");
+        said.Clear();
+        (await sharpen.Parse(new[] { master, "--sharpened", Path.Combine(folder, "x.fits") }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        string.Join(Environment.NewLine, said).ShouldContain("go with --auto");
+        File.Exists(Path.Combine(folder, "x.fits")).ShouldBeFalse();
+
+        var second = await runner.RunAsync(folder, cancellationToken: ct);
+
+        second.Images.SelectMany(static image => image.Steps).Select(static step => step.State).ShouldBe([StepState.Kept, StepState.Kept, StepState.Kept]);
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task AFileThatIsNoCaptureIsARefusalOfItsStepAndNeverAThrow()
     {
@@ -412,6 +511,28 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         compose.Description.AnyNumber.ShouldBeTrue();
         compose.Description.ExtraResults.Select(static result => (result.Name, result.Optional)).ShouldBe([(PlanetaryComposeOperation.Luminance, true)]);
+    }
+
+    [Fact]
+    public void TheSharpenSettingsSayTheMasterAsTheStacksSayTheCapture()
+    {
+        var sharpen = new PlanetarySharpenOperation();
+
+        sharpen.Refusal(new PlanetarySharpenSettings()).ShouldBeNull();
+        sharpen.Refusal(new PlanetarySharpenSettings { Planet = "nowhere" }).ShouldNotBeNull().ShouldContain("not a planet's name");
+        sharpen.Refusal(new PlanetarySharpenSettings { Design = OpticalDesign.SCT }).ShouldNotBeNull().ShouldContain("give its aperture too");
+
+        sharpen.CommandLine(new PlanetarySharpenSettings(), ["master.fits"], "sharpened.fits").ToArray()
+            .ShouldBe([StepCommandLine.Program, "planetary", "sharpen", "master.fits", "--auto", "--no-telescope-memory", "--sharpened", "sharpened.fits"]);
+        sharpen.CommandLine(new PlanetarySharpenSettings { Planet = "saturn", FilterNm = 650, ApertureMm = 254, Design = OpticalDesign.Newtonian },
+                ["master.fits"], "sharpened.fits").ToArray()[8..]
+            .ShouldBe(["--planet", "saturn", "--wavelength", "650", "--aperture-mm", "254", "--design", "newtonian"]);
+
+        // The two AUTO steps take one set of settings, written one way: an edit's settings read for either.
+        var settings = new JsonObject { ["planet"] = "saturn", ["apertureMm"] = 254, ["design"] = "newtonian" }.ToJsonString();
+        sharpen.TryReadSettings(settings, out var forSharpen, out var refusal).ShouldBeTrue(refusal);
+        new PlanetaryStackOperation().TryReadSettings(settings, out var forStack, out refusal).ShouldBeTrue(refusal);
+        forSharpen.ShouldBe(forStack);
     }
 
     [Fact(Timeout = 60_000)]

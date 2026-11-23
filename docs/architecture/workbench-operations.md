@@ -154,6 +154,7 @@ its own image, and every setting at its default. An edit names an operation by i
 | `solve` | no pixels: the plate solution is stored | `solve` | |
 | `planetary-stack` | stored; the sharpened master as an extra result | `planetary stack --auto` | none. Its own image is the capture, a SER file |
 | `planetary-compose` | stored; the luminance as an extra result, where there is one | `planetary compose` | the other mono stacks, any number, as a set |
+| `planetary-sharpen` | stored | `planetary sharpen --auto` | none. Its own image is a planetary master |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -233,6 +234,32 @@ master is the step's result, and the sharpened master its extra result (`sharpen
 ```json
 { "name": "jupiter", "path": "captures/Jupiter_Red_2024-12-15T12_56_44.ser", "edits": [ { "operation": "planetary-stack", "settings": { "apertureMm": 254, "design": "newtonian" } } ] },
 { "name": "jupiter-sharpened", "from": "jupiter", "result": "sharpened" }
+```
+
+## A planetary master sharpened again
+
+`planetary-sharpen` sharpens a master without stacking it again: one a compose joined, one a step cropped, or the
+linear master of a stack. It runs two routines in their order and nothing between,
+`PlanetaryIdentification.IdentifyMasterAsync` and `PlanetaryAuto.Sharpen`, which is `PlanetaryBestStack.Sharpen` with
+the options AUTO stacks with, so a master is sharpened one way whether it has just been stacked or was read from a
+file.
+
+- **Its settings are the stack step's** (`PlanetaryIdentitySettings`: `planet`, `filterNm`, `apertureMm`, `design`):
+  what is said of the master, in place of what its header says. Like the stack's, the step never asks what telescope
+  a camera was last said to be on.
+- **Where the gains cannot be derived the master is still sharpened**, by the planetary preset, as a stack's is: no
+  planet with a rotation model, no instant, no telescope, or a limb that does not fit. The step's words say which,
+  and it is no refusal.
+- **A colour master is sharpened as it was written**, its colour balance already in it. A stack sharpens before it
+  balances; a master read from a file has no unbalanced form to go back to.
+- **The verb's `--sharpened <file>` is the step**: with `--auto` it calls the step's routine
+  (`PlanetarySharpenOperation.SharpenToAsync`) and writes that one file. Without it `planetary sharpen --auto` is the
+  verb's research path, which reads and scores as it goes. The two give the same file, and
+  `WorkbenchPlanetaryTests` holds them to it.
+
+```json
+{ "name": "jupiter", "from": "green", "edits": [ { "operation": "planetary-compose", "inputs": [ "red", "blue" ] } ] },
+{ "name": "jupiter-sharpened", "from": "jupiter", "edits": [ { "operation": "planetary-sharpen", "settings": { "apertureMm": 254, "design": "newtonian" } } ] }
 ```
 
 ## Any number of images, as a set
@@ -420,8 +447,8 @@ that gave no result.
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
 - **The remaining operations.** The deep-sky frame steps (#2467) and the rest of the planetary steps (#2468): the
-  stack with settings of its own, the grades as a step, the sharpening of a master and the colour. Every colour step
-  of #2465 is here, and so is the canonical enhance (#2466).
+  stack with settings of its own, the grades as a step, and the colour. Every colour step of #2465 is here, and so is
+  the canonical enhance (#2466).
 - **A set of frames as an input** (calibrate, register, integrate; #2467).
 - **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
   reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's

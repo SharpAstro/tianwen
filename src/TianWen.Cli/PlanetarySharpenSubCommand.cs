@@ -12,6 +12,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.Workbench;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Cli;
@@ -73,11 +74,21 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
             Description = "AUTO (#817): the planet, the filter and the telescope read off the master itself (OBJECT, FILTER, TELESCOP and APTDIA, which planetary stack --auto writes), then its file and folder names, the telescope else the one last given for its camera; sharpened as the pipeline sharpens, nothing asked. --planet, one --wavelength, --aperture-mm with --design, or --telescope give what it would read; every other setting is refused.",
         };
         var designOpt = PlanetaryMasterScore.DesignOption();
+        // What lets a project's planetary sharpen step (PlanetarySharpenOperation) be done from a terminal: its one file
+        // named, and nothing taken from this computer's memory.
+        var sharpenedOpt = new Option<string?>("--sharpened")
+        {
+            Description = "With --auto: the one file the sharpened master is written to, by the routine a project's sharpen step runs (the master identified, then sharpened as planetary stack --auto sharpens the master it has just stacked). Nothing is scored and no preview is drawn: -o, --no-write, --stacked-preview, --truth, --utc and the score options do not go with it.",
+        };
+        var noTelescopeMemoryOpt = new Option<bool>("--no-telescope-memory")
+        {
+            Description = "With --auto: do not take the telescope this camera was last said to be on, and do not remember one. The run then follows from the master and the options alone, as a project's step does.",
+        };
 
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, taperOpt, scoreTaperOpt, scoreAgainstOpt, gainsOpt, learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, taperOpt, scoreTaperOpt, scoreAgainstOpt, gainsOpt, learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt, sharpenedOpt, noTelescopeMemoryOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
@@ -86,6 +97,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
             fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, taperOpt, gainsOpt,
             learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
         ];
+        // What --sharpened does not go with: it writes one file, and reads nothing else off the result.
+        Option[] sharpenedRefuses = [outputOpt, noWriteOpt, stackedPreviewOpt, truthOpt, utcOpt, scoreTaperOpt, scoreAgainstOpt];
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -200,8 +213,33 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     {
                         return 1;
                     }
-                    identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path, given, external, ct);
+                    // --no-telescope-memory: neither asked nor told, so the run is the master's and the options' alone.
+                    var remembered = parseResult.GetValue(noTelescopeMemoryOpt) ? null : external;
+                    if (parseResult.GetValue(sharpenedOpt) is { } sharpenedFile)
+                    {
+                        // The file a project's sharpen step writes, by its routine (PlanetarySharpenOperation.SharpenToAsync):
+                        // identified, sharpened as AUTO sharpens the master it has just stacked, written. The readings
+                        // further down are this verb's own research, and are not part of a step.
+                        if (sharpenedRefuses.FirstOrDefault(option => parseResult.GetResult(option) is { Implicit: false }) is { } notWith)
+                        {
+                            consoleHost.WriteError($"--sharpened writes the one file a project's step writes: {notWith.Name} does not go with it.");
+                            return 1;
+                        }
+                        if (Path.GetDirectoryName(Path.GetFullPath(sharpenedFile)) is { Length: > 0 } sharpenedFolder)
+                        {
+                            Directory.CreateDirectory(sharpenedFolder);
+                        }
+                        await PlanetarySharpenOperation.SharpenToAsync(master, path, given, remembered, sharpenedFile,
+                            autoLine => consoleHost.WriteScrollable($"[planetary] {autoLine}"), ct);
+                        return 0;
+                    }
+                    identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path, given, remembered, ct);
                     consoleHost.WriteScrollable($"[planetary] AUTO: {identity.Describe()}");
+                }
+                else if (parseResult.GetValue(sharpenedOpt) is not null || parseResult.GetValue(noTelescopeMemoryOpt))
+                {
+                    consoleHost.WriteError("--sharpened and --no-telescope-memory go with --auto.");
+                    return 1;
                 }
                 else if (parseResult.GetValue(designOpt) is not null)
                 {

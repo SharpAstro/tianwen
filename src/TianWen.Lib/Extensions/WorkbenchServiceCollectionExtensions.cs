@@ -61,6 +61,7 @@ public static class WorkbenchServiceCollectionExtensions
         // The planetary steps. A capture (a SER file) is the image's original; its master is the step's result.
         services.AddSingleton<IOperation, PlanetaryStackOperation>();
         services.AddSingleton<IOperation, PlanetaryComposeOperation>();
+        services.AddSingleton<IOperation, PlanetarySharpenOperation>();
         services.TryAddSingleton<OperationCatalog>();
         services.TryAddSingleton<WorkbenchRunner>();
         return services;
