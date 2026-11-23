@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
 
@@ -25,7 +26,7 @@ public static class WorkbenchServiceCollectionExtensions
     public static IServiceCollection AddWorkbench(this IServiceCollection services)
     {
         services.AddClassicalBackgroundExtraction();
-        // The one operation built by hand: its constructor takes the non-generic ILogger its verb hands it, and the
+        // Built by hand, one of two (the solve is the other): its constructor takes the non-generic ILogger its verb hands it, and the
         // container fills that with nothing (AddAstrometry says the same of CatalogPlateSolver).
         services.AddSingleton<IOperation>(static sp => new CropOperation(sp.GetService<ILogger<CropOperation>>()));
         services.AddSingleton<IOperation, LinearFitOperation>();
@@ -52,6 +53,10 @@ public static class WorkbenchServiceCollectionExtensions
         // none gets a pipeline of none, whose every step is then left out.
         services.TryAddSingleton<SharpenPipeline>();
         services.AddSingleton<IOperation, EnhanceOperation>();
+        // Built by hand, as the crop is: the solve takes the solver the FACTORY picks among those a host registered,
+        // where the container would hand it the last one registered as a plate solver. A host with no plate solver
+        // still has every other operation, and its solve step says so when it runs.
+        services.AddSingleton<IOperation>(static sp => new SolveOperation(sp.GetService<IPlateSolverFactory>()));
         services.TryAddSingleton<OperationCatalog>();
         services.TryAddSingleton<WorkbenchRunner>();
         return services;
