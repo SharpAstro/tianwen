@@ -35,7 +35,7 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
     public void Dispose() => _folders.Dispose();
 
     /// <summary>An enhancer that scales what it is handed: the same answer for the same input.</summary>
-    private sealed class Scaling(string name, float factor) : IStarRemover, IDenoiseEnhancer
+    private sealed class Scaling(string name, float factor) : IStarRemover, IDenoiseEnhancer, IImageDeblurrer, INonStellarDeconvolver
     {
         public string Name => name;
 
@@ -134,6 +134,109 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         var tuned = WorkbenchFixtures.Read(report.Images[2].Steps[0].Output.ShouldNotBeNull());
         plain[0, 100, 100].ShouldNotBe(pared[0, 100, 100]);
         plain[0, 100, 100].ShouldNotBe(tuned[0, 100, 100]);
+    }
+
+    // One star field in three planes, green above red and blue, so its stars carry the green excess SCNR takes out.
+    private static Image Colour()
+    {
+        const int size = 256;
+        var plane = SyntheticStarFieldRenderer.Render(size, size, defocusSteps: 0, exposureSeconds: 10, skyBackground: 100, readNoise: 5,
+            starCount: 80, seed: 5, noiseSeed: 1);
+        float[,] Scaled(float by)
+        {
+            var scaled = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    scaled[y, x] = plane[y, x] * by;
+                }
+            }
+
+            return scaled;
+        }
+
+        return new Image([Scaled(1f), Scaled(1.3f), Scaled(0.9f)], BitDepth.Float32, 65535f * 1.3f, 0f, 0f, new ImageMeta());
+    }
+
+    private static bool Differ(Image one, Image other)
+    {
+        for (var c = 0; c < one.ChannelCount; c++)
+        {
+            if (!one.GetChannelSpan(c).SequenceEqual(other.GetChannelSpan(c)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// With a deblurrer live (#2475's review): the two settings <c>image sharpen</c> passes on only when their option
+    /// was typed, the starless deconvolution's blend and the SCNR mode, are held to the verb by the same comparison.
+    /// A verb that dropped either would run another program and write another file. A colour input, since SCNR does
+    /// nothing to one plane.
+    /// </summary>
+    [Fact(Timeout = 600_000)]
+    public async Task WithADeblurrerAStatedDeconvolutionAndAStatedScnrAreTheFilesImageSharpenWrites()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-enhance-deblur-").FullName;
+        var master = Path.Combine(folder, "colour.fits");
+        Colour().WriteToFitsFile(master);
+        var pipeline = new SharpenPipeline(
+            starRemover: new Scaling("Test/Remover", 0.5f), nonStellarDeconvolver: new Scaling("Test/Deconvolver", 0.9f),
+            denoiser: new Scaling("Test/Denoiser", 0.8f), deblurrer: new Scaling("Test/Deblurrer", 0.95f));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("program", master, WorkbenchFixtures.Edit(EnhanceOperation.Id)),
+            WorkbenchFixtures.Picture("deconvolved", master, WorkbenchFixtures.Edit(EnhanceOperation.Id, new JsonObject { ["deconvolveBlend"] = 0.6 })),
+            WorkbenchFixtures.Picture("fringed", master, WorkbenchFixtures.Edit(EnhanceOperation.Id, new JsonObject { ["scnr"] = "none" }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new EnhanceOperation(pipeline)]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var image = new ImageSubCommand(
+            host,
+            pipeline,
+            Substitute.For<IStarRemover>(),
+            Substitute.For<IGradientCorrector>(),
+            Substitute.For<IBackgroundExtractor>(),
+            new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance)).Build();
+        foreach (var each in report.Images)
+        {
+            var step = each.Steps[0];
+            var line = step.CommandLine.ToArray();
+            var written = Path.Combine(folder, each.Name + "-verb.fits");
+            line[Array.IndexOf(line, "-o") + 1] = written;
+            output.WriteLine(StepCommandLine.Display(line));
+            said.Clear();
+
+            var exit = await image.Parse(line[2..]).InvokeAsync(cancellationToken: ct);
+
+            exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+            ShouldBeTheSameFile(step.Output.ShouldNotBeNull(), written, each.Name);
+        }
+
+        // Each line says what its settings state and nothing they leave to the program.
+        LineOf("program").ShouldNotContain("--deconv-blend");
+        LineOf("program").ShouldNotContain("--scnr");
+        LineOf("deconvolved").ShouldContain("--deconv-blend");
+        LineOf("fringed").ShouldContain("--scnr");
+
+        // And the three are three programs: a stated blend keeps the starless deconvolution a deblurrer would drop, and a
+        // stated mode takes out the SCNR the program runs with one. Equal files would make the comparison above empty.
+        var program = WorkbenchFixtures.Read(Result("program"));
+        Differ(program, WorkbenchFixtures.Read(Result("deconvolved"))).ShouldBeTrue("the starless deconvolution ran where its blend was stated");
+        Differ(program, WorkbenchFixtures.Read(Result("fringed"))).ShouldBeTrue("the SCNR did not run where its mode was stated as none");
+
+        string[] LineOf(string name) => [.. report.Images.Single(each => each.Name == name).Steps[0].CommandLine];
+        string Result(string name) => report.Images.Single(each => each.Name == name).Steps[0].Output.ShouldNotBeNull();
     }
 
     [Fact]
