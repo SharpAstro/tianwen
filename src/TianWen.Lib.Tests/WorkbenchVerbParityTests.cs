@@ -73,6 +73,7 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         new MatchPsfOperation(),
         new DeblurOperation(Deblurrer),
         new DenoiseOperation(Denoiser),
+        new DenoiseColourOperation(Denoiser),
         new RemoveStarsOperation(Remover),
         new CombineOperation(Remover, Deblurrer, Denoiser),
         new CropOperation(),
@@ -353,6 +354,51 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         var back = WorkbenchFixtures.Read(Of("red-back").Steps[0].Output.ShouldNotBeNull());
         var original = WorkbenchFixtures.Read(red);
         back[0, 100, 100].ShouldBe(original[0, 100, 100], original[0, 100, 100] * 1e-4f);
+    }
+
+    /// <summary>
+    /// Three planes denoised as ONE colour image (#2465): red's plane is the step's own result and green's and blue's
+    /// are results beside it, each held to the file <c>image denoise --colour</c> writes for it.
+    /// </summary>
+    [Fact(Timeout = 600_000)]
+    public async Task ThreePlanesDenoisedAsOneColourImageAreTheFilesImageDenoiseColourWrites()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-denoise-colour-").FullName;
+        var red = WriteField(folder, "red", Field(noiseSeed: 1));
+        var green = WriteField(folder, "green", Field(noiseSeed: 2));
+        var blue = WriteField(folder, "blue", Field(noiseSeed: 3));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("green", green),
+            WorkbenchFixtures.Picture("blue", blue),
+            WorkbenchFixtures.Picture("red-denoised", red, WorkbenchFixtures.Edit(DenoiseColourOperation.Id, new JsonObject { ["strength"] = 0.5 }, "green", "blue")),
+            WorkbenchFixtures.StartingFromResult("green-denoised", "red-denoised", DenoiseColourOperation.Green),
+            WorkbenchFixtures.StartingFromResult("blue-denoised", "red-denoised", DenoiseColourOperation.Blue)), ct);
+        var runner = new WorkbenchRunner(Catalog());
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
+        var step = Of("red-denoised").Steps[0];
+        step.State.ShouldBe(StepState.Ran);
+        step.CommandLine.ShouldContain("--colour");
+        var verbs = await ReplayThroughTheVerbsAsync(report, folder, ct);
+        verbs.Count.ShouldBe(3, "one line, three files");
+        var plane = step.Output.ShouldNotBeNull();
+        ShouldBeTheSameFile(plane, verbs[plane], "red");
+        foreach (var name in new[] { "green-denoised", "blue-denoised" })
+        {
+            // An extra result is an image of the project that starts from the step, and a file of its own in the store.
+            var extra = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of(name).Key));
+            File.Exists(extra).ShouldBeTrue($"{name} is in the store");
+            ShouldBeTheSameFile(extra, verbs[extra], name);
+        }
+
+        // The planes went through as one image and came back as three: none is another's.
+        var denoisedRed = WorkbenchFixtures.Read(plane);
+        var denoisedGreen = WorkbenchFixtures.Read(Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("green-denoised").Key)));
+        denoisedRed[0, 100, 100].ShouldNotBe(denoisedGreen[0, 100, 100]);
     }
 
     /// <summary>
