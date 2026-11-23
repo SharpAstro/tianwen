@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -91,6 +92,11 @@ public sealed class StepStore
         return File.Exists(path) ? path : null;
     }
 
+    /// <summary>True when the step with this key is in the index and says it left out its result of this name: a step
+    /// that may leave one out, and did. False for a result it gave, and for a step the index does not name.</summary>
+    public bool LeftOut(string key, string result)
+        => _entries.TryGetValue(key, out var entry) && !entry.LeftOut.IsDefault && entry.LeftOut.Contains(result, StringComparer.Ordinal);
+
     /// <summary>A place inside the store for the step with this key to write its result, taken into the store by
     /// <see cref="CommitAsync"/> and removed when disposed.</summary>
     public StepStaging Stage(string key)
@@ -102,13 +108,22 @@ public sealed class StepStore
 
     /// <summary>Takes a staged result into the store and names it in the index.</summary>
     /// <returns>The stored file.</returns>
-    public async Task<string> CommitAsync(StepStaging staging, string operationId, CancellationToken cancellationToken = default)
+    public Task<string> CommitAsync(StepStaging staging, string operationId, CancellationToken cancellationToken = default)
+        => CommitAsync(staging, operationId, [], cancellationToken);
+
+    /// <summary>Takes a step's staged main result into the store and names it in the index, with the results the step
+    /// may leave out and did (<see cref="StepStoreEntry.LeftOut"/>).</summary>
+    /// <returns>The stored file.</returns>
+    public async Task<string> CommitAsync(StepStaging staging, string operationId, ImmutableArray<string> leftOut, CancellationToken cancellationToken = default)
     {
         var file = FileNameOf(staging.Key);
         var stored = Path.Combine(Folder, file);
         File.Move(staging.Path, stored, overwrite: true);
 
-        var entry = new StepStoreEntry { Key = staging.Key, Operation = operationId, File = file, Bytes = new FileInfo(stored).Length };
+        var entry = new StepStoreEntry
+        {
+            Key = staging.Key, Operation = operationId, File = file, Bytes = new FileInfo(stored).Length, LeftOut = leftOut.IsDefault ? [] : leftOut,
+        };
         await SharedFile.UpdateJsonAsync(
             Path.Combine(Folder, IndexFileName),
             WorkbenchJsonContext.Default.StepStoreIndex,

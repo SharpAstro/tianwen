@@ -60,6 +60,15 @@ public sealed record PlanetaryIdentity(CatalogIndex? Planet, string PlanetFrom, 
 public sealed record PlanetaryIdentityGiven(CatalogIndex? Planet = null, double? FilterNm = null, int? ApertureMm = null,
     OpticalDesign Design = OpticalDesign.Unknown)
 {
+    /// <summary>A wavelength in nm is taken only above this: the one bound the verb's <c>--wavelength</c> and a step's filterNm share.</summary>
+    public const double WavelengthAboveNm = 200;
+
+    /// <summary>A wavelength in nm is taken only below this.</summary>
+    public const double WavelengthBelowNm = 2000;
+
+    /// <summary>True when <paramref name="nm"/> is a wavelength AUTO takes: finite, above <see cref="WavelengthAboveNm"/> and below <see cref="WavelengthBelowNm"/>.</summary>
+    public static bool IsWavelengthNm(double nm) => double.IsFinite(nm) && nm > WavelengthAboveNm && nm < WavelengthBelowNm;
+
     /// <summary>Nothing said: AUTO reads everything from the capture.</summary>
     public static PlanetaryIdentityGiven Nothing { get; } = new PlanetaryIdentityGiven();
 }

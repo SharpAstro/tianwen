@@ -535,7 +535,7 @@ internal static class PlanetaryMasterScore
         var values = new double[parts.Length];
         for (var i = 0; i < parts.Length; i++)
         {
-            if (!double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]) || values[i] is <= 200 or >= 2000)
+            if (!double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]) || !PlanetaryIdentityGiven.IsWavelengthNm(values[i]))
             {
                 consoleHost.WriteError($"--wavelength {text}: a comma list of wavelengths in nm, one a channel");
                 return null;

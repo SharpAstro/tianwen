@@ -125,12 +125,14 @@ public interface IJointOperation : IOperation
 }
 
 /// <summary>
-/// An operation with fixed inputs whose one run gives more than one result
-/// (<see cref="OperationDescription.ExtraResults"/>): three planes denoised as one colour image, and each handed back.
+/// An operation with fixed inputs, or one that takes a set of images (<see cref="OperationDescription.AnyNumber"/>),
+/// whose one run gives more than one result (<see cref="OperationDescription.ExtraResults"/>): three planes denoised as
+/// one colour image, and each handed back; a set of planetary stacks composed into a colour master and a luminance.
 /// </summary>
 /// <remarks>
-/// What each input is, is its place among the inputs. That is the difference from <see cref="IJointOperation"/>, whose
-/// images are handed over sorted and whose results must not depend on their order.
+/// With fixed inputs, what each input is, is its place among the inputs. A set is handed over sorted by key, so an
+/// input's place means nothing and the result must not depend on it. Either way the run is one step's, unlike
+/// <see cref="IJointOperation"/>, which puts several images of the project through one run and gives each its own results.
 /// </remarks>
 public interface IMultiResultOperation : IOperation
 {

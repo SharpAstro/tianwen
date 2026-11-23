@@ -322,6 +322,20 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "AUTO (#817): nothing asked. The capture is identified (its planet, its filter and its telescope, read from its header, its capture program's settings beside it, its file and folder names and its frames, the telescope else the one last given for its camera) and stacked and sharpened at the measured defaults, as the viewer's Full view does: master_<capture>_auto.fits, its _sharpened and its PNG. --planet, --wavelength (one, for a mono capture), --aperture-mm with --design, or --telescope give what it would read, and a telescope given is remembered for the capture's camera; every other setting is refused.",
         };
         var designOpt = PlanetaryMasterScore.DesignOption();
+        // What lets a project's planetary stack step (PlanetaryStackOperation) be done from a terminal: its two files
+        // named, and nothing taken from this computer's memory.
+        var masterOpt = new Option<string?>("--master")
+        {
+            Description = "With --auto and --sharpened: the file the linear master is written to, in place of master_<capture>_auto.fits in the output folder.",
+        };
+        var sharpenedOpt = new Option<string?>("--sharpened")
+        {
+            Description = "With --auto and --master: the file the sharpened master is written to.",
+        };
+        var noTelescopeMemoryOpt = new Option<bool>("--no-telescope-memory")
+        {
+            Description = "With --auto: do not take the telescope this camera was last said to be on, and do not remember one. The run then follows from the capture and the options alone, as a project's step does.",
+        };
         var halvesOpt = new Option<bool>("--halves")
         {
             Description = "Also fold the frames into two halves, alternately by rank, and write them beside the master on its grid (master_*_halfA.fits, _halfB.fits): half their difference is the master's noise, which planetary sharpen --shrink reads (#1313). The alignment-point stack only.",
@@ -337,7 +351,7 @@ internal sealed class PlanetaryStackSubCommand(
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, plateScaleOpt, learnedOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt,
                 referenceFramesOpt, derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
-                autoOpt, designOpt,
+                autoOpt, designOpt, masterOpt, sharpenedOpt, noTelescopeMemoryOpt,
             },
         };
 
@@ -405,6 +419,11 @@ internal sealed class PlanetaryStackSubCommand(
             if (parseResult.GetValue(designOpt) is not null)
             {
                 consoleHost.WriteError("--design gives --auto the telescope's design; without --auto, give --obstruction.");
+                return 1;
+            }
+            if (parseResult.GetValue(masterOpt) is not null || parseResult.GetValue(sharpenedOpt) is not null || parseResult.GetValue(noTelescopeMemoryOpt))
+            {
+                consoleHost.WriteError("--master, --sharpened and --no-telescope-memory go with --auto.");
                 return 1;
             }
 
@@ -681,8 +700,16 @@ internal sealed class PlanetaryStackSubCommand(
                 {
                     return 1;
                 }
-                var identity = await PlanetaryIdentification.IdentifyAsync(serPaths[0], given, external, ct);
-                if (given.ApertureMm is { } givenMm && identity.Camera is { } camera)
+                var (masterFile, sharpenedFile) = (parseResult.GetValue(masterOpt), parseResult.GetValue(sharpenedOpt));
+                if ((masterFile is null) != (sharpenedFile is null))
+                {
+                    consoleHost.WriteError("--master and --sharpened name AUTO's two files: give both, or neither.");
+                    return 1;
+                }
+                // --no-telescope-memory: neither asked nor told, so the run is the capture's and the options' alone.
+                var noTelescopeMemory = parseResult.GetValue(noTelescopeMemoryOpt);
+                var identity = await PlanetaryIdentification.IdentifyAsync(serPaths[0], given, noTelescopeMemory ? null : external, ct);
+                if (!noTelescopeMemory && given.ApertureMm is { } givenMm && identity.Camera is { } camera)
                 {
                     await PlanetaryTelescopeMemory.RememberAsync(external, camera, givenMm, given.Design, ct);
                     consoleHost.WriteScrollable($"[planetary] remembered: {camera} is on a {identity.TelescopeName}");
@@ -710,7 +737,13 @@ internal sealed class PlanetaryStackSubCommand(
                 {
                     consoleHost.WriteScrollable(
                         $"[planetary] {baseName}: stacked {result.Stack.FramesUsed}/{result.Stack.FramesGraded} frames in {sw.Elapsed.TotalSeconds:F1}s");
-                    var paths = PlanetaryAuto.OutputPaths(autoDir, prefix + baseName);
+                    (string Master, string Sharpened) paths = masterFile is not null && sharpenedFile is not null
+                        ? (masterFile, sharpenedFile)
+                        : PlanetaryAuto.OutputPaths(autoDir, prefix + baseName);
+                    foreach (var autoFile in new[] { paths.Master, paths.Sharpened })
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(autoFile)) ?? autoDir);
+                    }
                     PlanetaryAuto.Write(result, paths);
                     consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(paths.Master)} (linear master) and {Path.GetFileName(paths.Sharpened)} ({result.HowSharpened})");
                     if (parseResult.GetValue(reportOpt))

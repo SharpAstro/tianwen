@@ -218,9 +218,16 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         {
             foreach (var each in asked)
             {
-                if (planner.Plan(each).Furthest is { } furthest)
+                var asking = planner.Plan(each);
+                if (asking.Furthest is { } furthest
+                    && await EnsureAsync(furthest, store, options.Say, cancellationToken) is null
+                    && furthest is { Producer.Step.State: StepState.Ran or StepState.Kept, ResultName: { Length: > 0 } leftOut }
+                    && asking.Refusal is null)
                 {
-                    await EnsureAsync(furthest, store, options.Say, cancellationToken);
+                    // The image ends at a result its step may leave out (its own, or the one of the image it starts
+                    // from, with no edit switched on after it), and this run the step left it out: the image has
+                    // nothing, which is said and not passed over. An edit after it says so itself, as blocked.
+                    asking.Refusal = LeftOut(leftOut);
                 }
             }
 
@@ -482,15 +489,21 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             var main = store.Stage(node.Key);
             stagings.Add(main);
             var extras = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+            // The places of the results the step may leave out, by name: one of these not written is no failure.
+            var mayBeLeftOut = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var result in several.Description.ExtraResults)
             {
                 var staged = store.Stage(StepKey.OfResult(node.Key, result.Name));
                 stagings.Add(staged);
                 extras[result.Name] = staged.Path;
+                if (result.Optional)
+                {
+                    mayBeLeftOut[staged.Path] = result.Name;
+                }
             }
 
             var outcome = await several.RunAsync(node.Settings, inputs, new StepOutputs(main.Path) { Extra = extras.ToImmutable() }, Named(say, node), cancellationToken);
-            if (outcome.Succeeded && stagings.Find(static staged => !File.Exists(staged.Path)) is { } missing)
+            if (outcome.Succeeded && stagings.Find(staged => !mayBeLeftOut.ContainsKey(staged.Path) && !File.Exists(staged.Path)) is { } missing)
             {
                 outcome = OperationOutcome.Failed($"'{several.Description.Id}' reported its results and did not write {Path.GetFileName(missing.Path)}");
             }
@@ -503,11 +516,19 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             }
 
             // The extra results first and the main one last. The order does not decide what is kept (InStore needs the main
-            // result and every extra, so a run that ends between two commits is made again either way).
-            for (var i = stagings.Count - 1; i >= 0; i--)
+            // result and every extra, so a run that ends between two commits is made again either way). The main one's
+            // entry names the results the step left out, so a result the store loses later is not taken for one of them.
+            ImmutableArray<string> leftOut = [.. mayBeLeftOut.Where(static place => !File.Exists(place.Key)).Select(static place => place.Value).Order(StringComparer.Ordinal)];
+            for (var i = stagings.Count - 1; i >= 1; i--)
             {
-                await store.CommitAsync(stagings[i], several.Description.Id, cancellationToken);
+                // A result the step left out has no file to take in.
+                if (File.Exists(stagings[i].Path))
+                {
+                    await store.CommitAsync(stagings[i], several.Description.Id, cancellationToken);
+                }
             }
+
+            await store.CommitAsync(main, several.Description.Id, leftOut, cancellationToken);
         }
         finally
         {
@@ -522,9 +543,18 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         return node.File is { } stored ? OperationInput.FromFile(stored) : null;
     }
 
-    // A step's main result in the store, when its extra results are there too: a step is kept whole or made again.
+    // What an image is told when the result it starts from is one its step may leave out, and did.
+    private static string LeftOut(string result) => $"the step it starts from gave no '{result}' for these images";
+
+    // A step's main result in the store, when its extra results are there too: a step is kept whole or made again. A
+    // result it may leave out is there, or named by the main result's entry as left out; one it gave and the store has
+    // lost since makes the step run again.
     private static string? InStore(StepStore store, Node node)
-        => store.Find(node.Key) is { } file && node.ExtraKeys.All(key => store.Find(key) is not null) ? file : null;
+        => store.Find(node.Key) is { } file
+            && node.ExtraKeys.All(key => store.Find(key) is not null)
+            && node.OptionalResults.All(name => store.Find(StepKey.OfResult(node.Key, name)) is not null || store.LeftOut(node.Key, name))
+            ? file
+            : null;
 
     private static async ValueTask<List<OperationInput>?> EnsureInputsAsync(Node node, StepPlan step, StepStore store, Action<string>? say, CancellationToken cancellationToken)
     {
@@ -534,7 +564,10 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             if (await EnsureAsync(input, store, say, cancellationToken) is not { } value)
             {
                 step.State = StepState.Blocked;
-                step.Message = $"'{input.Label}', which it takes, gave no result";
+                // A result its step may leave out, and did, is said so in words rather than as no result.
+                step.Message = input is { ResultName: { Length: > 0 } leftOut, Producer.Step.State: StepState.Ran or StepState.Kept }
+                    ? $"'{input.Label}', which it takes: {LeftOut(leftOut)}"
+                    : $"'{input.Label}', which it takes, gave no result";
                 return null;
             }
 
@@ -732,6 +765,9 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         public bool Needed { get; set; }
 
+        /// <summary>For a node that is an extra result of a step: the result's name. Null otherwise.</summary>
+        public string? ResultName { get; init; }
+
         /// <summary>For a step several images go through in one run: the run's key. Its <see cref="Inputs"/> are then
         /// the images of the run, sorted by key. Empty otherwise.</summary>
         public string RunKey { get; init; } = string.Empty;
@@ -743,6 +779,10 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
         /// <summary>The keys of the step's extra results.</summary>
         public ImmutableArray<string> ExtraKeys { get; init; } = [];
+
+        /// <summary>The names of the results the step may leave out: each is in the store, or the step's entry says it
+        /// was left out.</summary>
+        public ImmutableArray<string> OptionalResults { get; init; } = [];
 
         /// <summary>For an extra result: the step that gives it. Null otherwise.</summary>
         public Node? Producer { get; init; }
@@ -957,7 +997,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             {
                 if (source.Head is not { } head)
                 {
-                    plan.Refusal = $"the image '{origin}', which it starts from, cannot be made";
+                    // The reason that image has, when it has one, is said here too: one hop past a result its step
+                    // left out, a status and a second run say that, as the first run does.
+                    plan.Refusal = source.Refusal is { Length: > 0 } why
+                        ? $"the image '{origin}', which it starts from, cannot be made: {why}"
+                        : $"the image '{origin}', which it starts from, cannot be made";
                     return null;
                 }
 
@@ -984,12 +1028,23 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
 
                 var key = StepKey.OfResult(producer.Key, wanted);
                 plan.Key = key;
+                var whole = InStore(store, producer) is not null;
+                var file = whole ? store.Find(key) : null;
+                if (whole && file is null)
+                {
+                    // The step is whole in the store without this result, so it is one the step may leave out, and
+                    // for these images it did: a status says so as a run does.
+                    plan.Refusal = LeftOut(wanted);
+                    return null;
+                }
+
                 return new Node
                 {
                     Label = $"{origin} {wanted}",
                     Key = key,
                     Producer = producer,
-                    File = InStore(store, producer) is null ? null : store.Find(key),
+                    File = file,
+                    ResultName = wanted,
                 };
             }
 
@@ -1020,7 +1075,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             var named = OrEmpty(edit.Inputs);
             var joint = operation as IJointOperation;
             var needed = roles.Count(static role => !role.Optional);
-            if (joint is null && (named.Length < needed || named.Length > roles.Length))
+            var anyNumber = operation.Description.AnyNumber;
+            if (joint is null && !anyNumber && (named.Length < needed || named.Length > roles.Length))
             {
                 var count = needed == roles.Length ? $"{needed}" : $"{needed} to {roles.Length}";
                 return Refuse(step, roles.Length == 0
@@ -1088,18 +1144,35 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             }
             else
             {
-                var key = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. inputs.Select(static input => input.Key)]);
+                var taken = inputs.MoveToImmutable();
+                if (anyNumber)
+                {
+                    // A set: in an order every edit list that holds this step agrees on, by key, so the lists share one
+                    // result and it does not depend on the order an edit names the others in.
+                    taken = taken.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+                    for (var i = 1; i < taken.Length; i++)
+                    {
+                        if (string.Equals(taken[i - 1].Key, taken[i].Key, StringComparison.Ordinal))
+                        {
+                            return Refuse(step, $"'{id}' is handed one image twice: '{taken[i].Label}' is '{taken[i - 1].Label}'");
+                        }
+                    }
+                }
+
+                var key = StepKey.OfStep(operation.Description, settings, Served(operation, settings), [.. taken.Select(static input => input.Key)]);
                 node = new Node
                 {
                     Label = label,
                     Key = key,
                     Operation = operation,
                     Settings = settings,
-                    Inputs = inputs.MoveToImmutable(),
+                    Inputs = taken,
                     Step = step,
                     Attempt = operation is IDerivedOperation ? null : AttemptOf(key),
                     FindingKey = operation is IFindingOperation ? StepKey.OfFinding(key) : string.Empty,
-                    ExtraKeys = [.. operation.Description.ExtraResults.Select(result => StepKey.OfResult(key, result.Name))],
+                    // The results a step is not whole without: one it may leave out is not among them.
+                    ExtraKeys = [.. operation.Description.ExtraResults.Where(static result => !result.Optional).Select(result => StepKey.OfResult(key, result.Name))],
+                    OptionalResults = [.. operation.Description.ExtraResults.Where(static result => result.Optional).Select(static result => result.Name)],
                 };
                 // A step's command line names files: an original, a result in the store, or where in the store a result
                 // would be. A derived step has no file, and neither has a step that writes no pixels, so run by hand it

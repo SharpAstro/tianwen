@@ -10,6 +10,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.Cli;
 
@@ -30,6 +31,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The colour master to write (FITS); <planet>_<yyyy-MM-dd-HHmm>_composed.fits in the current folder when not given." };
         var labels = LabelOptions();
         var lrgbOpt = new Option<bool>("--lrgb") { Description = "Carry the IR or L stacks' detail into the colour planes by the deep-sky LRGB step (the lrgb step); an option, since IR's belt contrast is its own." };
+        var luminanceOutputOpt = new Option<string?>("--luminance-output") { Description = "The luminance to write (FITS), where there is one; <output>_luminance.fits beside the master when not given." };
         var viewingWeightsOpt = ViewingWeightsOption();
         var bandWeightsOpt = BandWeightsOption();
         var relightOpt = RelightOption();
@@ -38,7 +40,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt, relightOpt, ringFeatherOpt, noBalanceOpt },
+            Options = { outputOpt, luminanceOutputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt, relightOpt, ringFeatherOpt, noBalanceOpt },
         };
         command.Subcommands.Add(BuildIngest());
         command.Subcommands.Add(BuildRegister());
@@ -68,7 +70,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
                 return 1;
             }
             var output = parseResult.GetValue(outputOpt) ?? DefaultName(stacks[0].Planet, derotation.Instant);
-            return await WriteComposedAsync(composed, output, !parseResult.GetValue(noBalanceOpt), ct) ? 0 : 1;
+            return await WriteComposedAsync(composed, output, !parseResult.GetValue(noBalanceOpt), ct, parseResult.GetValue(luminanceOutputOpt)) ? 0 : 1;
         });
         return command;
     }
@@ -500,35 +502,26 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
 
     // The colour master, balanced to the planet's own colour as the stack balances its masters unless asked not to (#1580), its planetary
     // preview beside it, and the luminance beside both when there is one.
-    private async Task<bool> WriteComposedAsync(PlanetaryComposed composed, string output, bool balanceColour, System.Threading.CancellationToken ct)
+    //
+    // The files are written by the routine a project's compose step writes through (PlanetaryComposeOperation.WriteAsync),
+    // so the two are one file; the preview is this verb's own, drawn from the image as it was written.
+    private async Task<bool> WriteComposedAsync(PlanetaryComposed composed, string output, bool balanceColour, System.Threading.CancellationToken ct,
+        string? luminanceOutput = null)
     {
         var folder = Path.GetDirectoryName(Path.GetFullPath(output)) ?? ".";
         Directory.CreateDirectory(folder);
-        var (balanced, balance, how) = balanceColour && composed.Master.ChannelCount == 3
-            ? PlanetaryComposition.BalancedToPlanet(composed.Master)
-            : (null, null, "colours left as the filters gave them");
-        var written = balanced ?? composed.Master;
         var stem = Path.Combine(folder, Path.GetFileNameWithoutExtension(output));
-        try
+        var luminancePath = luminanceOutput ?? stem + "_luminance.fits";
+        // A folder is made for the luminance only where there is one to write into it.
+        if (composed.Luminance is not null && Path.GetDirectoryName(Path.GetFullPath(luminancePath)) is { Length: > 0 } luminanceFolder)
         {
-            written.WriteToFitsFile(output, null, balance?.HeaderCards());
+            Directory.CreateDirectory(luminanceFolder);
+        }
+        await PlanetaryComposeOperation.WriteAsync(composed, output, luminancePath, balanceColour, Say, async written =>
+        {
             await previewRenderer.RenderPlanetaryAsync(written, stem + ".png", ct: ct);
-            consoleHost.WriteScrollable($"wrote {output} and its preview {stem}.png");
-            if (composed.Master.ChannelCount == 3)
-            {
-                consoleHost.WriteScrollable(how);
-            }
-        }
-        finally
-        {
-            balanced?.Release();
-        }
-        if (composed.Luminance is { } luminance)
-        {
-            var path = stem + "_luminance.fits";
-            luminance.WriteToFitsFile(path);
-            consoleHost.WriteScrollable($"wrote the luminance {path}");
-        }
+            consoleHost.WriteScrollable($"wrote its preview {stem}.png");
+        });
         return true;
     }
 
