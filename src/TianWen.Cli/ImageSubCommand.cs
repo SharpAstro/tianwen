@@ -660,7 +660,9 @@ internal sealed partial class ImageSubCommand(
             };
             var operation = new CropOperation(logger);
             var resolved = operation.TryResolve(settings, src, input, say: null, out var resolution, out var refusal);
-            var rule = MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin);
+            // Auto is set, so the resolution always carries the rule the scan ran under; a fallback rule would only
+            // restate the build in CropOperation, which is what carrying it avoids.
+            var rule = resolution.Rule ?? throw new InvalidOperationException("an auto crop resolves with the rule its scan ran under");
             var scan = resolution.Scan.GetValueOrDefault();
             var rect = resolution.Rectangle;
 
