@@ -27,8 +27,9 @@ public sealed class WorkbenchRegistrationTests
 
         catalog.All.Select(static operation => operation.Description.Id).ShouldBe(
         [
-            AddLineOperation.Id, AddStarsOperation.Id, AlignOperation.Id, ContinuumOperation.Id, CropOperation.Id, EnhanceOperation.Id,
-            FillDigsOperation.Id, GradientOperation.Id, LinearFitOperation.Id, LrgbOperation.Id, LuminanceOperation.Id, ProtectCoresOperation.Id,
+            AddLineOperation.Id, AddStarsOperation.Id, AlignOperation.Id, CombineOperation.Id, ContinuumOperation.Id, CropOperation.Id,
+            DeblurOperation.Id, DenoiseOperation.Id, EnhanceOperation.Id, FillDigsOperation.Id, GradientOperation.Id, LinearFitOperation.Id,
+            LrgbOperation.Id, LuminanceOperation.Id, MatchPsfOperation.Id, ProtectCoresOperation.Id, RemoveStarsOperation.Id,
         ]);
         provider.GetServices<IOperation>().Count().ShouldBe(catalog.All.Count, "the catalog holds every operation registered, each once");
         provider.GetRequiredService<WorkbenchRunner>().ShouldNotBeNull();

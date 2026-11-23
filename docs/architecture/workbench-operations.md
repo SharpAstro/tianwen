@@ -104,6 +104,11 @@ operation by its id.
 | `add-stars` | stored | `image add-stars` | `stars`: the stars a star removal took out |
 | `fill-digs` | stored | `image fill-digs` | `input`: the master the stars were removed from. Its own image is the starless plate |
 | `protect-cores` | stored | `image protect-cores` | `input`: the master the stars were removed from. Its own image is the starless plate |
+| `match-psf` | stored, one run for several | `image match-psf` | the other masters of the run |
+| `deblur` | stored, one run for several | `image deblur` | the other masters of the run |
+| `denoise` | stored, one run for several | `image denoise` | the other masters of the run |
+| `remove-stars` | stored, one run for several; the stars as a second result | `image remove-stars` | the other masters of the run |
+| `combine` | stored | `image combine` | `green`, `blue`, and optionally `ha`. Its own image is red |
 | `enhance` | stored | `image sharpen` | |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
@@ -114,6 +119,52 @@ operation by its id.
   file where one master is aligned (it still takes a folder for several).
 - **The star catalogue of a protected core is `CoreCatalogue`** in Lib: which catalogue is asked, read once, and what is
   said about it. The verbs and the operations call it; what would answer is in the step's key.
+
+## A run several images share
+
+Deblur, denoise, star removal and the blur match put several masters through ONE run, on one scale, so a scale measured
+between two of them still holds between their results (`IJointOperation`, `JointOperation<TSettings>`; the description
+says `Joint`). Each master gets its own result.
+
+- **Each image's edit names the others.** `inputs` is then the other images of the run, any number of them; none is a
+  run of one. An image handed in twice is refused.
+- **The run happens once.** The runner sorts the images by key before it hands them over, so every edit list of one run
+  asks for the same run whatever order it names the others in. The first list that needs it runs it and every image's
+  result goes into the store, each under its own key; the other lists find theirs there (`Kept`).
+- **A run that is refused is refused once.** What a step, or the run several images share, came to is kept for the
+  length of the call under its key: the other edit lists that ask for it are told the same and nothing runs again, so
+  a remover that fails after minutes of work is not paid for once for each master. The next call tries again.
+- **So a result must not depend on the order of the images.** That is the operation's promise. `image denoise
+  --colour`, where the order of three planes is their colour, is for that reason not the denoise operation.
+- **A result can have a second result beside it** (`OperationDescription.ExtraResults`): star removal gives the starless
+  plate and, as `stars`, the stars it took out. Each extra result is kept in the store under a key of its own, and a
+  step is kept only when all of its results are there.
+- **Its verb takes `-o` once for each master**, in the masters' order, and `image remove-stars` takes `--stars-output`
+  the same way, so a step's command line names every file it writes. Two results named into one file are refused:
+  the second would be written over the first.
+- **`Joint` is said once in effect.** The description says it for a listing and a window, the type
+  (`IJointOperation`) for the runner, and `OperationCatalog` refuses an operation whose two disagree, a shared run
+  that names images by role, and extra results on an operation that cannot be told where they go.
+
+## An image that starts from another
+
+A project's image is a file, or it starts from another image of the project (`from`): that image as its own edits
+leave it. With `result` it starts from an extra result of that image instead, the one the last of its edits gives
+under that name. Where that last edit cannot be made (it is refused or blocked, or no operation has its name), the
+image has no such result and says so: an earlier edit's is never taken for it.
+
+```json
+{ "name": "red", "path": "masters/master_red.fits", "edits": [ { "operation": "crop", "settings": { "auto": true } } ] },
+{ "name": "green", "path": "masters/master_green.fits", "edits": [ { "operation": "crop", "settings": { "auto": true } } ] },
+{ "name": "red-starless", "from": "red", "edits": [ { "operation": "remove-stars", "inputs": [ "green" ] } ] },
+{ "name": "green-starless", "from": "green", "edits": [ { "operation": "remove-stars", "inputs": [ "red" ] } ] },
+{ "name": "red-stars", "from": "red-starless", "result": "stars" }
+```
+
+This is what lets a run of several images be written down without a circle. `red-starless` and `green-starless` each
+name the other's image BEFORE the run (`red`, `green`), and go on from their own. Had `red`'s own list held the star
+removal and named `green`, and `green`'s named `red`, each would take the other as its edits leave it, which is after
+the run: a circle, and it is refused.
 
 ## The enhance as one step
 
@@ -135,6 +186,10 @@ settings=<canonical settings JSON>
 input=<key of the edit list's image as the edits before leave it>
 input=<key of each extra input, in order>
 ```
+
+For a run several images share, the `input=` lines are the images' keys in sorted order, and that digest is the run's
+key. One image's result of it is `StepKey.OfMember(run, image)`, and an extra result of a step is
+`StepKey.OfResult(step, name)`.
 
 An original file's key is the digest of its bytes (`StepKey.OfFile`), computed on every status and run. Keys are made
 from keys, so a stored result is never hashed. Nothing is decided by a file's date: the same bytes under a new date
@@ -229,11 +284,10 @@ that gave no result.
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** Of the colour steps (#2465) the four that put several masters through one run
-  (`match-psf`, `deblur`, `denoise`, `remove-stars`) and `combine`, the recipe as one step; the deep-sky frame steps
-  (#2467) and the planetary steps (#2468).
-- **A step with two results** (star removal: the starless plate and the stars), and a second image that starts from
-  one of them (#2465). The store's index entry and the project's `inputs` are where it goes.
+- **The remaining operations.** The deep-sky frame steps (#2467) and the planetary steps (#2468). Every colour step of
+  #2465 is here but the one below, and so is the canonical enhance (#2466).
+- **`image denoise --colour`** (#2465): three planes denoised as one colour image, where the order of the planes is
+  their colour, so it is not a run several images share.
 - **A set of frames as an input** (calibrate, register, integrate; #2467), and an operation that writes no pixels
   (plate solve, statistics; #2469).
 - **Preconditions and how an operation previews**: the facts are W9's (#2236), the preview W12's (#2239).

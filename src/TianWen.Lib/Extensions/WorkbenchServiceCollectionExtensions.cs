@@ -40,6 +40,14 @@ public static class WorkbenchServiceCollectionExtensions
         // The embedded catalogue answers for the stars inside a protected core where the host registered it, and a host
         // without it still protects cores (those stars then stay with them): the constructor's own default.
         services.AddSingleton<IOperation, ProtectCoresOperation>();
+        // The operations several masters go through in one run, and the recipe as one step. An enhancer the host did
+        // not register is the constructor's own default, none: its step says so when it runs, and every other
+        // operation still works.
+        services.AddSingleton<IOperation, MatchPsfOperation>();
+        services.AddSingleton<IOperation, DeblurOperation>();
+        services.AddSingleton<IOperation, DenoiseOperation>();
+        services.AddSingleton<IOperation, RemoveStarsOperation>();
+        services.AddSingleton<IOperation, CombineOperation>();
         // The enhance runs on the host's pipeline, with whatever enhancers the host registered; a host that registered
         // none gets a pipeline of none, whose every step is then left out.
         services.TryAddSingleton<SharpenPipeline>();

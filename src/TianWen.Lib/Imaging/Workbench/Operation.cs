@@ -69,6 +69,35 @@ public interface IDerivedOperation : IOperation
     OperationInput Derive(string canonicalSettings, IReadOnlyList<OperationInput> inputs);
 }
 
+/// <summary>Where one image's results of a run go.</summary>
+/// <param name="Path">The FITS file its main result is written to.</param>
+public sealed record StepOutputs(string Path)
+{
+    /// <summary>The file each extra result is written to, by the result's name (<see cref="OperationDescription.ExtraResults"/>).
+    /// A result with no file here is not written.</summary>
+    public ImmutableDictionary<string, string> Extra { get; init; } = ImmutableDictionary<string, string>.Empty;
+}
+
+/// <summary>
+/// An operation several images go through in one run (<see cref="OperationDescription.Joint"/>): they are put on one
+/// scale, so a scale measured between two of them still holds between their results, and each gets its own result.
+/// </summary>
+/// <remarks>
+/// <para><b>The result for an image must not depend on the order the images are handed in.</b> Each image's edit list
+/// names the others, and the runner hands them over sorted by key, so every list of one run asks for the same run
+/// and it happens once. One image alone is a run of one.</para>
+/// </remarks>
+public interface IJointOperation : IOperation
+{
+    /// <summary>The command that does the run from a terminal, program name first: every image and every file it writes.</summary>
+    ImmutableArray<string> CommandLine(string canonicalSettings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs);
+
+    /// <summary>Puts <paramref name="members"/> through together and writes each one's results to the files
+    /// <paramref name="outputs"/> names for it, in the same order. A refusal writes nothing that counts.</summary>
+    ValueTask<OperationOutcome> RunJointAsync(string canonicalSettings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs, Action<string>? say,
+        CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// An operation with its settings as a type. A verb builds the settings from its options and calls
 /// <see cref="RunAsync"/>; the runner goes through <see cref="IOperation"/> and reaches the same method, so the two
@@ -155,6 +184,44 @@ public abstract class Operation<TSettings> : IOperation
     ValueTask<OperationOutcome> IOperation.RunAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
         CancellationToken cancellationToken)
         => RunAsync(Parse(canonicalSettings), inputs, outputPath, say, cancellationToken);
+}
+
+/// <summary>An <see cref="Operation{TSettings}"/> several images go through in one run (<see cref="IJointOperation"/>).</summary>
+/// <typeparam name="TSettings">The settings, as for <see cref="Operation{TSettings}"/>.</typeparam>
+public abstract class JointOperation<TSettings> : Operation<TSettings>, IJointOperation
+    where TSettings : class, new()
+{
+    /// <inheritdoc cref="IJointOperation.CommandLine"/>
+    public abstract ImmutableArray<string> CommandLine(TSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs);
+
+    /// <inheritdoc cref="IJointOperation.RunJointAsync"/>
+    public abstract ValueTask<OperationOutcome> RunJointAsync(TSettings settings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs, Action<string>? say,
+        CancellationToken cancellationToken);
+
+    /// <summary>One image alone is a run of one.</summary>
+    public sealed override ImmutableArray<string> CommandLine(TSettings settings, IReadOnlyList<string> inputs, string output)
+    {
+        IReadOnlyList<StepOutputs> outputs = [new StepOutputs(output)];
+        return CommandLine(settings, inputs, outputs);
+    }
+
+    /// <summary>One image alone is a run of one; several need a place for each one's result, which
+    /// <see cref="RunJointAsync"/> takes.</summary>
+    public sealed override ValueTask<OperationOutcome> RunAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<StepOutputs> outputs = [new StepOutputs(outputPath)];
+        return inputs.Count == 1
+            ? RunJointAsync(settings, inputs, outputs, say, cancellationToken)
+            : ValueTask.FromResult(OperationOutcome.BadInput($"'{Description.Id}' puts several images through one run, and each needs a place for its result"));
+    }
+
+    ImmutableArray<string> IJointOperation.CommandLine(string canonicalSettings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
+        => CommandLine(Parse(canonicalSettings), members, outputs);
+
+    ValueTask<OperationOutcome> IJointOperation.RunJointAsync(string canonicalSettings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs,
+        Action<string>? say, CancellationToken cancellationToken)
+        => RunJointAsync(Parse(canonicalSettings), members, outputs, say, cancellationToken);
 }
 
 /// <summary>An <see cref="Operation{TSettings}"/> whose result is derived, never stored.</summary>

@@ -35,8 +35,46 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
 
     public void Dispose() => _folders.Dispose();
 
+    /// <summary>An enhancer that scales what it is handed: the same answer for the same input, which is all a step and
+    /// its verb need to be held to one another.</summary>
+    private sealed class ScalingEnhancer(string name, float factor) : IStarRemover, IImageDeblurrer, IDenoiseEnhancer
+    {
+        public string Name => name;
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var (channels, width, height) = input.Shape;
+            var planes = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var source = input.GetChannelSpan(c);
+                var plane = new float[height, width];
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        plane[y, x] = source[(y * width) + x] * factor;
+                    }
+                }
+
+                planes[c] = plane;
+            }
+
+            return Task.FromResult(new Image(planes, BitDepth.Float32, 1f, 0f, 0f, input.ImageMeta));
+        }
+    }
+
+    private static readonly ScalingEnhancer Remover = new("Test/Remover", 0.5f);
+    private static readonly ScalingEnhancer Deblurrer = new("Test/Deblurrer", 0.9f);
+    private static readonly ScalingEnhancer Denoiser = new("Test/Denoiser", 0.8f);
+
     private static OperationCatalog Catalog() => new(
     [
+        new MatchPsfOperation(),
+        new DeblurOperation(Deblurrer),
+        new DenoiseOperation(Denoiser),
+        new RemoveStarsOperation(Remover),
+        new CombineOperation(Remover, Deblurrer, Denoiser),
         new CropOperation(),
         new LinearFitOperation(),
         new GradientOperation(new ClassicalBackgroundExtractor(), Substitute.For<IGradientCorrector>()),
@@ -60,10 +98,12 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         var command = new ImageSubCommand(
             host,
             new SharpenPipeline(),
-            Substitute.For<IStarRemover>(),
+            Remover,
             Substitute.For<IGradientCorrector>(),
             new ClassicalBackgroundExtractor(),
-            new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance)).Build();
+            new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance),
+            Deblurrer,
+            Denoiser).Build();
         return (command, said);
     }
 
@@ -75,29 +115,34 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
     private async Task<Dictionary<string, string>> ReplayThroughTheVerbsAsync(WorkbenchReport report, string folder, CancellationToken ct)
     {
         var (image, said) = ImageCommand();
+        var store = Path.Combine(folder, StepStore.FolderName) + Path.DirectorySeparatorChar;
         var written = new Dictionary<string, string>(StringComparer.Ordinal);
         var count = 0;
         foreach (var step in report.Images.SelectMany(static each => each.Steps))
         {
             var line = step.CommandLine.ToArray();
             line[..2].ShouldBe([StepCommandLine.Program, "image"]);
-            var at = Array.IndexOf(line, "-o") + 1;
-            at.ShouldBeGreaterThan(0, "every step's command line names its output with -o");
-            var named = line[at];
+            line.ShouldContain("-o", "every step's command line names its output with -o");
             for (var i = 2; i < line.Length; i++)
             {
-                if (i != at && written.TryGetValue(line[i], out var earlier))
+                if (written.TryGetValue(line[i], out var earlier))
                 {
+                    // A result an earlier line wrote (or this same line, where several edit lists share one run).
                     line[i] = earlier;
+                }
+                else if (line[i].StartsWith(store, StringComparison.Ordinal))
+                {
+                    // A file of the store no earlier line wrote is one this line writes: the verb gets a file of its own.
+                    var own = Path.Combine(folder, $"verb-{count++}.fits");
+                    written[line[i]] = own;
+                    line[i] = own;
                 }
             }
 
-            line[at] = Path.Combine(folder, $"verb-{count++}.fits");
             output.WriteLine(StepCommandLine.Display(line));
             said.Clear();
             var exit = await image.Parse(line[2..]).InvokeAsync(cancellationToken: ct);
             exit.ShouldBe(0, string.Join(Environment.NewLine, said));
-            written[named] = line[at];
         }
 
         return written;
@@ -243,6 +288,107 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             AlignOperation.Id, ContinuumOperation.Id, AddLineOperation.Id, LuminanceOperation.Id, LrgbOperation.Id, AddStarsOperation.Id,
             FillDigsOperation.Id, ProtectCoresOperation.Id,
         ]);
+    }
+
+    /// <summary>
+    /// The steps several masters go through in one run (#2465), each held to its verb's files: every master's result,
+    /// and the stars a star removal took out. Stand-in enhancers serve the three roles, the same ones in the catalog
+    /// and in the image command.
+    /// </summary>
+    [Fact(Timeout = 600_000)]
+    public async Task TheStepsSeveralMastersGoThroughTogetherAreTheFilesTheirVerbsWrite()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-together-").FullName;
+        var red = WriteField(folder, "red", Field(noiseSeed: 1));
+        var green = WriteField(folder, "green", Field(noiseSeed: 2));
+        var blue = WriteField(folder, "blue", Field(noiseSeed: 3));
+        JsonObject NoCatalogue() => new() { ["catalogue"] = "none" };
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("red", red),
+            WorkbenchFixtures.Picture("green", green),
+            WorkbenchFixtures.Picture("blue", blue),
+            // Two edit lists of one run of three: the second finds its result in the store.
+            WorkbenchFixtures.Starting("red-psf", "red", WorkbenchFixtures.Edit(MatchPsfOperation.Id, null, "green", "blue")),
+            WorkbenchFixtures.Starting("green-psf", "green", WorkbenchFixtures.Edit(MatchPsfOperation.Id, null, "blue", "red")),
+            WorkbenchFixtures.Starting("red-deblur", "red", WorkbenchFixtures.Edit(DeblurOperation.Id, new JsonObject { ["headroom"] = 2 }, "green")),
+            WorkbenchFixtures.Starting("red-denoise", "red", WorkbenchFixtures.Edit(DenoiseOperation.Id, new JsonObject { ["strength"] = 0.5 }, "blue")),
+            // A run of one, its stars as an image of their own, and the two put back together.
+            WorkbenchFixtures.Starting("red-starless", "red", WorkbenchFixtures.Edit(RemoveStarsOperation.Id, NoCatalogue())),
+            WorkbenchFixtures.StartingFromResult("red-stars", "red-starless", RemoveStarsOperation.Stars),
+            WorkbenchFixtures.Starting("red-back", "red-starless", WorkbenchFixtures.Edit(AddStarsOperation.Id, null, "red-stars")),
+            // And a star removal of two on one scale, with nothing protected and the remover's overshoot kept.
+            WorkbenchFixtures.Starting("green-starless", "green",
+                WorkbenchFixtures.Edit(RemoveStarsOperation.Id, new JsonObject { ["protectCores"] = false, ["fillDigs"] = false, ["keepOvershoot"] = true }, "blue"))), ct);
+        var runner = new WorkbenchRunner(Catalog());
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
+        Of("red-psf").Steps[0].State.ShouldBe(StepState.Ran);
+        Of("green-psf").Steps[0].State.ShouldBe(StepState.Kept, "the run of three happened once");
+        var verbs = await ReplayThroughTheVerbsAsync(report, folder, ct);
+        var compared = new List<string>();
+        foreach (var image in report.Images)
+        {
+            foreach (var step in image.Steps)
+            {
+                var result = step.Output.ShouldNotBeNull();
+                ShouldBeTheSameFile(result, verbs[result], $"{image.Name} ({step.Operation})");
+                compared.Add(step.Operation);
+            }
+        }
+
+        compared.ShouldBe(
+        [
+            MatchPsfOperation.Id, MatchPsfOperation.Id, DeblurOperation.Id, DenoiseOperation.Id, RemoveStarsOperation.Id, AddStarsOperation.Id,
+            RemoveStarsOperation.Id,
+        ]);
+
+        // The stars are a result of their own in the store, and the file the verb wrote for them.
+        var stars = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("red-stars").Key));
+        ShouldBeTheSameFile(stars, verbs[stars], "the stars a star removal took out");
+        // Plate plus stars is the input: the remover's half and the other half.
+        var back = WorkbenchFixtures.Read(Of("red-back").Steps[0].Output.ShouldNotBeNull());
+        var original = WorkbenchFixtures.Read(red);
+        back[0, 100, 100].ShouldBe(original[0, 100, 100], original[0, 100, 100] * 1e-4f);
+    }
+
+    /// <summary>
+    /// The recipe as one step (#2465): red, green and blue made one colour image, held to the file image combine writes,
+    /// once as it is by default and once with the steps a stand-in enhancer can serve switched on.
+    /// </summary>
+    [Fact(Timeout = 600_000)]
+    public async Task TheColourRecipeAsOneStepIsTheFileImageCombineWrites()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("parity-combine-").FullName;
+        var red = WriteField(folder, "red", Field(noiseSeed: 1));
+        var green = WriteField(folder, "green", Field(noiseSeed: 2));
+        var blue = WriteField(folder, "blue", Field(noiseSeed: 3));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("green", green),
+            WorkbenchFixtures.Picture("blue", blue),
+            WorkbenchFixtures.Picture("plain", red, WorkbenchFixtures.Edit(CombineOperation.Id, null, "green", "blue")),
+            WorkbenchFixtures.Picture("worked", red, WorkbenchFixtures.Edit(CombineOperation.Id,
+                new JsonObject { ["linearFit"] = "red", ["matchPsf"] = true, ["starless"] = true, ["catalogue"] = "none", ["lrgb"] = true, ["colourSigma"] = 2, ["denoise"] = true, ["denoiseStrength"] = 0.4 },
+                "green", "blue"))), ct);
+        var runner = new WorkbenchRunner(Catalog());
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        var verbs = await ReplayThroughTheVerbsAsync(report, folder, ct);
+        foreach (var image in report.Images.Where(static image => image.Steps.Length > 0))
+        {
+            var result = image.Steps[0].Output.ShouldNotBeNull();
+            ShouldBeTheSameFile(result, verbs[result], image.Name);
+            WorkbenchFixtures.Read(result).ChannelCount.ShouldBe(3, "one colour image");
+        }
+
+        report.Images[3].Steps[0].CommandLine.ShouldContain("--starless");
+        report.Images[3].Steps[0].Key.ShouldNotBe(report.Images[2].Steps[0].Key);
     }
 
     [Fact(Timeout = 300_000)]
@@ -437,5 +583,62 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         text.ShouldContain("[workbench] note: ");
         text.ShouldContain("removed or saved half way");
         File.Exists(WorkbenchProjectFile.PathIn(folder)).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The verbs that take several masters name a file for each result, and refuse what they cannot do so with: -o some
+    /// other number of times than there are masters, the stars' files likewise or with <c>--no-stars</c>, and two
+    /// results named into one file, which would be one of them written over the other without a word.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AVerbForSeveralMastersRefusesOutputsItCannotGiveEachAFileOfItsOwn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("outputs-").FullName;
+        var a = WorkbenchFixtures.WriteMaster(folder, "a", WorkbenchFixtures.Master(seed: 1));
+        var b = WorkbenchFixtures.WriteMaster(folder, "b", WorkbenchFixtures.Master(seed: 2));
+        var (x, s) = (Path.Combine(folder, "x.fits"), Path.Combine(folder, "s.fits"));
+        var (image, said) = ImageCommand();
+
+        async Task RefusesAsync(string says, params string[] line)
+        {
+            said.Clear();
+            var exit = await image.Parse(line).InvokeAsync(cancellationToken: ct);
+            exit.ShouldBe(1, string.Join(' ', line));
+            string.Join(Environment.NewLine, said).ShouldContain(says);
+        }
+
+        await RefusesAsync("-o is given once for each input (2), or not at all; got 1", "match-psf", a, b, "-o", x);
+        await RefusesAsync("is named twice among the outputs", "match-psf", a, b, "-o", x, "-o", x);
+        // The same file under another spelling of its path is the same file.
+        await RefusesAsync("is named twice among the outputs", "deblur", a, b, "-o", x, "-o", Path.Combine(folder, ".", "x.fits"));
+        await RefusesAsync("--stars-output is given once for each master (2)", "remove-stars", a, b, "--stars-output", s);
+        await RefusesAsync("not with --no-stars", "remove-stars", a, "--no-stars", "--stars-output", s);
+        await RefusesAsync("is named twice among the starless and the stars outputs", "remove-stars", a, "-o", x, "--stars-output", x);
+        await RefusesAsync("is named twice among the starless and the stars outputs", "remove-stars", a, b, "--stars-output", s, "--stars-output", s);
+
+        // A refusal writes nothing: the two masters are all there is.
+        Directory.GetFiles(folder).Select(static file => Path.GetFileName(file)).Order(StringComparer.Ordinal).ToArray().ShouldBe(["a.fits", "b.fits"]);
+    }
+
+    /// <summary>The list of operations says what an edit of a shared run names, and what a step gives beside its own
+    /// image, so a person reading it learns both.</summary>
+    [Fact]
+    public async Task TheListOfOperationsSaysWhatASharedRunTakesAndWhatAStepGives()
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        var catalog = Catalog();
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        var exit = await workbench.Parse(new[] { "operations" }).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        // Under each operation of a shared run, and under no other.
+        var takesTheRun = said.Count(static line => line.Contains("takes the other images of its run, any number of them", StringComparison.Ordinal));
+        takesTheRun.ShouldBe(catalog.All.Count(static operation => operation.Description.Joint));
+        takesTheRun.ShouldBe(4, "match-psf, deblur, denoise and remove-stars");
+        said.ShouldContain(line => line.StartsWith($"    gives {RemoveStarsOperation.Stars}: ", StringComparison.Ordinal));
     }
 }

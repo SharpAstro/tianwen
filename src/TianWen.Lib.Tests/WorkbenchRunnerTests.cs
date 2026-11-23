@@ -109,6 +109,14 @@ internal static class WorkbenchFixtures
     public static ProjectImage Picture(string name, string path, params ProjectEdit[] edits)
         => new() { Name = name, Path = path, Edits = [.. edits] };
 
+    /// <summary>An image that starts from another image of the project, as that one's edits leave it.</summary>
+    public static ProjectImage Starting(string name, string origin, params ProjectEdit[] edits)
+        => new() { Name = name, From = origin, Edits = [.. edits] };
+
+    /// <summary>An image that starts from an extra result of another image's step.</summary>
+    public static ProjectImage StartingFromResult(string name, string origin, string result, params ProjectEdit[] edits)
+        => new() { Name = name, From = origin, Result = result, Edits = [.. edits] };
+
     public static WorkbenchProject Project(params ProjectImage[] images) => new() { Images = [.. images] };
 }
 
@@ -173,6 +181,103 @@ internal sealed class AddOperation(string id, bool takesAnother = false) : Opera
         say?.Invoke($"added {settings.Amount}");
         OperationOutput.Write(new Image([plane], BitDepth.Float32, maxValue: 100f, minValue: 0f, pedestal: 0f, imageMeta: image.ImageMeta), outputPath, wcs);
         return ValueTask.FromResult(OperationOutcome.Done);
+    }
+}
+
+/// <summary>
+/// A stored operation several images go through in one run. Every image gets its own pixels plus the amount plus the
+/// sum of every image's first pixel (so a result depends on which images ran together, and not on their order), and as
+/// an extra result the image as it was handed in. It counts its runs.
+/// </summary>
+internal sealed class TogetherOperation : JointOperation<AddSettings>
+{
+    public const string Twin = "twin";
+
+    public int Runs { get; private set; }
+
+    public override OperationDescription Description { get; } = new(
+        "together", Version: 1, Title: "Together", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: [])
+    {
+        Joint = true,
+        ExtraResults = [new OperationResultRole(Twin, "The image as it was handed in.")],
+    };
+
+    protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override ImmutableArray<string> CommandLine(AddSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
+        => [Description.Id, .. members, .. outputs.Select(static output => output.Path)];
+
+    public override ValueTask<OperationOutcome> RunJointAsync(AddSettings settings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs,
+        Action<string>? say, CancellationToken cancellationToken)
+    {
+        Runs++;
+        var read = new List<(Image Image, WCS? Wcs)>(members.Count);
+        foreach (var member in members)
+        {
+            if (!member.TryRead(out var handed, out var handedWcs, out var refusal))
+            {
+                return ValueTask.FromResult(OperationOutcome.BadInput(refusal));
+            }
+
+            read.Add((handed, handedWcs));
+        }
+
+        var shared = read.Sum(static each => each.Image[0, 0, 0]);
+        for (var i = 0; i < read.Count; i++)
+        {
+            var (image, wcs) = read[i];
+            var plane = new float[image.Height, image.Width];
+            for (var y = 0; y < image.Height; y++)
+            {
+                for (var x = 0; x < image.Width; x++)
+                {
+                    plane[y, x] = image[0, y, x] + settings.Amount + shared;
+                }
+            }
+
+            OperationOutput.Write(new Image([plane], BitDepth.Float32, maxValue: 1000f, minValue: 0f, pedestal: 0f, imageMeta: image.ImageMeta), outputs[i].Path, wcs);
+            if (outputs[i].Extra.TryGetValue(Twin, out var twin))
+            {
+                OperationOutput.Write(image, twin, wcs);
+            }
+        }
+
+        return ValueTask.FromResult(OperationOutcome.Done);
+    }
+}
+
+/// <summary>A stored operation that says of itself whatever it is told to: what a catalog refuses is read off it.</summary>
+internal sealed class DescribedOperation(OperationDescription description) : Operation<AddSettings>
+{
+    public override OperationDescription Description { get; } = description;
+
+    protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override ImmutableArray<string> CommandLine(AddSettings settings, IReadOnlyList<string> inputs, string output) => [Description.Id];
+
+    public override ValueTask<OperationOutcome> RunAsync(AddSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        CancellationToken cancellationToken)
+        => ValueTask.FromResult(OperationOutcome.Done);
+}
+
+/// <summary>The same, of the kind several images go through in one run. Its run writes nothing: it fails with the
+/// words it was given, and counts how often it ran.</summary>
+internal sealed class DescribedJointOperation(OperationDescription description, string fails = "it gave up") : JointOperation<AddSettings>
+{
+    public int Runs { get; private set; }
+
+    public override OperationDescription Description { get; } = description;
+
+    protected override JsonTypeInfo<AddSettings> SettingsInfo => WorkbenchTestJsonContext.Default.AddSettings;
+
+    public override ImmutableArray<string> CommandLine(AddSettings settings, IReadOnlyList<string> members, IReadOnlyList<StepOutputs> outputs)
+        => [Description.Id, .. members];
+
+    public override ValueTask<OperationOutcome> RunJointAsync(AddSettings settings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs,
+        Action<string>? say, CancellationToken cancellationToken)
+    {
+        Runs++;
+        return ValueTask.FromResult(OperationOutcome.Failed(fails));
     }
 }
 
@@ -549,6 +654,241 @@ public sealed class WorkbenchRunnerTests : IDisposable
 
         (await runner.RunAsync(folder, cancellationToken: ct)).Images[0].Steps[0].State.ShouldBe(StepState.Refused);
         breaking.Runs.ShouldBe(2, "nothing was kept, so it is tried again");
+    }
+
+    // Deblur, denoise and star removal put several masters through one run, on one scale (#2465). Each master's edit
+    // list names the others, in whatever order, and the run happens once.
+    [Fact(Timeout = 120_000)]
+    public async Task ImagesThatGoThroughOneRunShareItAndEachTakesItsOwnResult()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var together = new TogetherOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([together, _add]));
+        var (folder, master) = await ProjectAsync("one-run", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("add", Amount(1))),
+            WorkbenchFixtures.Picture("b", m, WorkbenchFixtures.Edit("add", Amount(2))),
+            WorkbenchFixtures.Picture("c", m, WorkbenchFixtures.Edit("add", Amount(3))),
+            WorkbenchFixtures.Starting("a-out", "a", WorkbenchFixtures.Edit("together", Amount(10), "b", "c")),
+            WorkbenchFixtures.Starting("b-out", "b", WorkbenchFixtures.Edit("together", Amount(10), "c", "a")),
+            WorkbenchFixtures.Starting("c-out", "c", WorkbenchFixtures.Edit("together", Amount(10), "a", "b"))));
+
+        var report = await runner.RunAsync(folder, cancellationToken: ct);
+
+        report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        together.Runs.ShouldBe(1, "three edit lists ask for the same run, whatever order each names the others in");
+        var outs = report.Images.Skip(3).Select(static image => image.Steps[0]).ToArray();
+        outs.Count(static step => step.State == StepState.Ran).ShouldBe(1, "the list that asked first ran it");
+        outs.Count(static step => step.State == StepState.Kept).ShouldBe(2, "the other two found their results in the store");
+        outs.Select(static step => step.Key).Distinct().Count().ShouldBe(3, "each image's result has a key of its own");
+        outs.Select(static step => step.CommandLine).Distinct(EqualityComparer<ImmutableArray<string>>.Create(static (a, b) => a.SequenceEqual(b), static line => line.Length))
+            .Count().ShouldBe(1, "and all three say the same command");
+
+        var original = WorkbenchFixtures.Read(master);
+        var (first, value) = (original[0, 0, 0], original[0, 40, 50]);
+        var shared = (3f * first) + 6f;
+        WorkbenchFixtures.Read(outs[0].Output.ShouldNotBeNull())[0, 40, 50].ShouldBe(value + 1f + 10f + shared, 1e-3f);
+        WorkbenchFixtures.Read(outs[1].Output.ShouldNotBeNull())[0, 40, 50].ShouldBe(value + 2f + 10f + shared, 1e-3f);
+        WorkbenchFixtures.Read(outs[2].Output.ShouldNotBeNull())[0, 40, 50].ShouldBe(value + 3f + 10f + shared, 1e-3f);
+
+        var again = await runner.RunAsync(folder, cancellationToken: ct);
+        again.Images.Skip(3).Select(static image => image.Steps[0].State).ShouldBe([StepState.Kept, StepState.Kept, StepState.Kept]);
+        together.Runs.ShouldBe(1);
+
+        // Another image in the run is another run: its key is made from every image of it.
+        await EditAsync(folder, project => project with { Images = project.Images.SetItem(3, WorkbenchFixtures.Starting("a-out", "a", WorkbenchFixtures.Edit("together", Amount(10), "b"))) });
+        var fewer = await runner.RunAsync(folder, new WorkbenchRunOptions { Image = "a-out" }, ct);
+        fewer.Images[3].Steps[0].State.ShouldBe(StepState.Ran);
+        together.Runs.ShouldBe(2);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AnImageStartsFromAnotherOrFromAnExtraResultOfOneOfItsSteps()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var together = new TogetherOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([together, _add]));
+        var (folder, master) = await ProjectAsync("starts-from", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("add", Amount(1)), WorkbenchFixtures.Edit("together", Amount(10))),
+            WorkbenchFixtures.Starting("after", "a", WorkbenchFixtures.Edit("add", Amount(100))),
+            WorkbenchFixtures.StartingFromResult("twin", "a", TogetherOperation.Twin, WorkbenchFixtures.Edit("add", Amount(1000)))));
+        var original = WorkbenchFixtures.Read(master);
+        var (first, value) = (original[0, 0, 0], original[0, 40, 50]);
+
+        // Asked for alone, the image that starts from an extra result has the step that gives it run.
+        var twinOnly = await runner.RunAsync(folder, new WorkbenchRunOptions { Image = "twin" }, ct);
+
+        twinOnly.Succeeded.ShouldBeTrue(string.Join("; ", twinOnly.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
+        States(twinOnly, image: 0).ShouldBe([StepState.Ran, StepState.Ran]);
+        States(twinOnly, image: 1).ShouldBe([StepState.NotNeeded], "nothing asked for the image that goes on from 'a'");
+        States(twinOnly, image: 2).ShouldBe([StepState.Ran]);
+        together.Runs.ShouldBe(1);
+        twinOnly.Images[1].Path.ShouldBe("from a");
+        twinOnly.Images[2].Path.ShouldBe("from a (twin)");
+        // The twin is the image as the run was handed it: the original plus 1.
+        WorkbenchFixtures.Read(twinOnly.Images[2].Steps[0].Output.ShouldNotBeNull())[0, 40, 50].ShouldBe(value + 1f + 1000f, 1e-2f);
+
+        var all = await runner.RunAsync(folder, cancellationToken: ct);
+
+        States(all, image: 0).ShouldBe([StepState.Kept, StepState.Kept]);
+        States(all, image: 1).ShouldBe([StepState.Ran]);
+        States(all, image: 2).ShouldBe([StepState.Kept]);
+        together.Runs.ShouldBe(1);
+        // It goes on from where 'a' stops: the original plus 1, through the run of one (plus 10, plus its own first pixel), plus 100.
+        WorkbenchFixtures.Read(all.Images[1].Steps[0].Output.ShouldNotBeNull())[0, 40, 50].ShouldBe(value + 1f + 10f + (first + 1f) + 100f, 1e-3f);
+
+        // An image with no edit of its own that starts from an extra result exports that result.
+        await EditAsync(folder, project => project with { Images = project.Images.Add(WorkbenchFixtures.StartingFromResult("bare", "a", TogetherOperation.Twin)) });
+        var exported = await runner.RunAsync(folder, new WorkbenchRunOptions { Image = "bare", ExportPath = Path.Combine(folder, "bare.fits") }, ct);
+        WorkbenchFixtures.Read(exported.Exported.ShouldNotBeNull(exported.Refusal))[0, 40, 50].ShouldBe(value + 1f, 1e-5f);
+    }
+
+    // A star removal that fails after minutes of model work is not paid for once for each master of its run.
+    [Fact(Timeout = 120_000)]
+    public async Task ARunThatIsRefusedIsRunOnceAndSaidToEveryEditListThatAsksForIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var givesUp = new DescribedJointOperation(
+            new OperationDescription("give-up", Version: 1, Title: "Give up", Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: []) { Joint = true },
+            fails: "the remover gave up");
+        var breaking = new BreakOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([givesUp, breaking, _add]));
+        var (folder, _) = await ProjectAsync("refused-once", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("add", Amount(1))),
+            WorkbenchFixtures.Picture("b", m, WorkbenchFixtures.Edit("add", Amount(2))),
+            WorkbenchFixtures.Picture("c", m, WorkbenchFixtures.Edit("add", Amount(3))),
+            WorkbenchFixtures.Starting("a-out", "a", WorkbenchFixtures.Edit("give-up", null, "b", "c")),
+            WorkbenchFixtures.Starting("b-out", "b", WorkbenchFixtures.Edit("give-up", null, "c", "a")),
+            WorkbenchFixtures.Starting("c-out", "c", WorkbenchFixtures.Edit("give-up", null, "a", "b")),
+            // The same step in two edit lists is one step, and fails once too.
+            WorkbenchFixtures.Picture("d", m, WorkbenchFixtures.Edit("break")),
+            WorkbenchFixtures.Picture("e", m, WorkbenchFixtures.Edit("break"))));
+
+        var report = await runner.RunAsync(folder, cancellationToken: ct);
+
+        givesUp.Runs.ShouldBe(1, "a run that gave nothing for one master is not run again for the next");
+        var outs = report.Images.Skip(3).Take(3).Select(static image => image.Steps[0]).ToArray();
+        outs.Select(static step => step.State).ShouldBe([StepState.Refused, StepState.Refused, StepState.Refused]);
+        outs.Select(static step => step.Message).ShouldBe(["the remover gave up", "the remover gave up", "the remover gave up"]);
+        breaking.Runs.ShouldBe(1, "and so for a step two images share");
+        var shared = report.Images.Skip(6).Select(static image => image.Steps[0]).ToArray();
+        shared.Select(static step => step.State).ShouldBe([StepState.Refused, StepState.Refused]);
+        shared.Select(static step => step.Message).ShouldBe([BreakOperation.WhyItFails, BreakOperation.WhyItFails]);
+
+        // What is remembered is the call's: the next run tries again.
+        await runner.RunAsync(folder, cancellationToken: ct);
+
+        givesUp.Runs.ShouldBe(2);
+        breaking.Runs.ShouldBe(2);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AStepIsKeptOnlyWhileEveryOneOfItsResultsIsInTheStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var together = new TogetherOperation();
+        var runner = new WorkbenchRunner(new OperationCatalog([together, _add]));
+        var (folder, _) = await ProjectAsync("whole-or-again", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("together", Amount(10)))));
+        var first = await runner.RunAsync(folder, cancellationToken: ct);
+        var step = first.Images[0].Steps[0];
+        step.State.ShouldBe(StepState.Ran, step.Message);
+        var twin = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(step.Key, TogetherOperation.Twin)));
+        File.Exists(twin).ShouldBeTrue();
+
+        // Its main result is there and its second one is gone: the step is not whole, so it is made again, both of them.
+        File.Delete(twin);
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+        var second = await runner.RunAsync(folder, cancellationToken: ct);
+
+        States(status).ShouldBe([StepState.WillRun]);
+        States(second).ShouldBe([StepState.Ran]);
+        together.Runs.ShouldBe(2);
+        File.Exists(twin).ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AResultIsTheLastEditsThatGivesItAndNeverAnEarlierOnesWhereTheLastCannotBeMade()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runner = new WorkbenchRunner(new OperationCatalog([new TogetherOperation(), _add]));
+        var (folder, _) = await ProjectAsync("last-gives", m => WorkbenchFixtures.Project(
+            // The second edit would give the twin last, and its settings are refused.
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("together", Amount(10)), WorkbenchFixtures.Edit("together", new JsonObject { ["nope"] = 1 })),
+            WorkbenchFixtures.StartingFromResult("twin-of-a", "a", TogetherOperation.Twin),
+            // Here the edit that cannot be made is one that gives no twin, so the twin is the first edit's.
+            WorkbenchFixtures.Picture("b", m, WorkbenchFixtures.Edit("together", Amount(20)), WorkbenchFixtures.Edit("add", new JsonObject { ["nope"] = 1 })),
+            WorkbenchFixtures.StartingFromResult("twin-of-b", "b", TogetherOperation.Twin),
+            // And an edit no operation has the name of says nothing of what it gives, so it stops the search too.
+            WorkbenchFixtures.Picture("c", m, WorkbenchFixtures.Edit("together", Amount(30)), WorkbenchFixtures.Edit("no-such-operation")),
+            WorkbenchFixtures.StartingFromResult("twin-of-c", "c", TogetherOperation.Twin)));
+
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+
+        ImageReport Of(string name) => status.Images.Single(image => image.Name == name);
+        Of("a").Steps[1].State.ShouldBe(StepState.Refused);
+        Of("twin-of-a").Refusal.ShouldNotBeNull().ShouldContain("edit 2 of the image 'a' (together)");
+        Of("twin-of-a").Refusal.ShouldNotBeNull().ShouldContain("cannot be made");
+        Of("twin-of-b").Refusal.ShouldBeNull("an edit that gives no such result does not stand between an image and the result");
+        Of("twin-of-c").Refusal.ShouldNotBeNull().ShouldContain("edit 2 of the image 'c' (no-such-operation)");
+    }
+
+    [Fact]
+    public void ACatalogRefusesAnOperationThatSaysOneThingOfItsRunAndIsAnother()
+    {
+        static OperationDescription Says(string id) => new(id, Version: 1, Title: id, Verb: "none", OperationOutputKind.Stored, ExtraInputs: [], Settings: []);
+        var twin = new OperationResultRole("twin", "A second result.");
+        var other = new OperationInputRole("other", "Another image.");
+
+        // It says several images go through it in one run and has no such run; and the reverse.
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedOperation(Says("says-joint") with { Joint = true })]))
+            .Message.ShouldContain("'says-joint' says several images go through it in one run");
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedJointOperation(Says("is-joint"))]))
+            .Message.ShouldContain("'is-joint' says nothing of a run several images share");
+        // The images of a shared run are all it takes: it names none by role.
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedJointOperation(Says("joint-with-roles") with { Joint = true, ExtraInputs = [other] })]))
+            .Message.ShouldContain("'joint-with-roles' puts several images through one run and also names images");
+        // Only a shared run is told where its extra results go, so any other operation's would be a file nobody writes.
+        Should.Throw<ArgumentException>(() => new OperationCatalog([new DescribedOperation(Says("extra-results") with { ExtraResults = [twin] })]))
+            .Message.ShouldContain("'extra-results' says it gives extra results");
+
+        // What says what it is, is taken.
+        new OperationCatalog(
+        [
+            new DescribedJointOperation(Says("joint") with { Joint = true, ExtraResults = [twin] }),
+            new DescribedOperation(Says("plain") with { ExtraInputs = [other] }),
+        ]).All.Count.ShouldBe(2);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AStartThatCannotBeFoundIsRefusedInWords()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runner = new WorkbenchRunner(new OperationCatalog([new TogetherOperation(), _add]));
+        var (folder, _) = await ProjectAsync("bad-starts", m => WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("a", m, WorkbenchFixtures.Edit("add")),
+            WorkbenchFixtures.Starting("stranger", "nobody", WorkbenchFixtures.Edit("add")),
+            WorkbenchFixtures.StartingFromResult("no-such-result", "a", "stars"),
+            new ProjectImage { Name = "both", Path = m, From = "a" },
+            new ProjectImage { Name = "result-alone", Path = m, Result = TogetherOperation.Twin },
+            WorkbenchFixtures.Starting("x", "y"),
+            WorkbenchFixtures.Starting("y", "x"),
+            WorkbenchFixtures.Picture("same", m),
+            WorkbenchFixtures.Picture("twice", m, WorkbenchFixtures.Edit("together", null, "same"))));
+
+        var status = await runner.StatusAsync(folder, cancellationToken: ct);
+
+        ImageReport Of(string name) => status.Images.Single(image => image.Name == name);
+        status.Succeeded.ShouldBeFalse();
+        Of("a").Refusal.ShouldBeNull();
+        Of("stranger").Refusal.ShouldNotBeNull().ShouldContain("starts from the image 'nobody'");
+        Of("stranger").Steps[0].State.ShouldBe(StepState.Blocked);
+        Of("no-such-result").Refusal.ShouldNotBeNull().ShouldContain("gives a result named 'stars'");
+        Of("both").Refusal.ShouldNotBeNull().ShouldContain("one or the other");
+        Of("result-alone").Refusal.ShouldNotBeNull().ShouldContain("say which it starts from");
+        Of("y").Refusal.ShouldNotBeNull().ShouldContain("in a circle: x -> y -> x");
+        Of("x").Refusal.ShouldNotBeNull().ShouldContain("'y', which it starts from, cannot be made");
+        Of("twice").Steps[0].State.ShouldBe(StepState.Refused);
+        Of("twice").Steps[0].Message.ShouldNotBeNull().ShouldContain("handed one image twice");
     }
 
     [Fact(Timeout = 120_000)]

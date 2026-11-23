@@ -101,6 +101,17 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                     consoleHost.WriteScrollable($"    takes {role.Name}: {role.Summary}");
                 }
 
+                // What an edit's inputs are where the operation names no places for them.
+                if (description.Joint)
+                {
+                    consoleHost.WriteScrollable("    takes the other images of its run, any number of them: one run for them all");
+                }
+
+                foreach (var result in description.ExtraResults)
+                {
+                    consoleHost.WriteScrollable($"    gives {result.Name}: {result.Summary}");
+                }
+
                 consoleHost.WriteScrollable($"    settings {operation.DefaultSettings}");
                 foreach (var setting in description.Settings)
                 {
