@@ -9354,7 +9354,11 @@ the first angle is a step after the model and not another arm:
       So the hazard is a frame's, not the rule's everywhere: on Andromeda the median stands on the galaxy's light and
       the plain sky of the corners lies under a black point that close, on the other two it does not. The smoothed
       copy is a Gaussian's, not a denoiser's: it cuts the noise 3.6 to 8.3 times, about the 5 to 10 times #2341
-      names for a denoised frame, and it widens every star by 1.5 px, which a denoiser does not.
+      names for a denoised frame, and it widens every star by 1.5 px, which a denoiser does not. Andromeda, the one
+      master that shows the hazard, is cut only 3.6 to 4.8 times (under #2341's 5) and its black points sit 8.5 to
+      11.3 master sigma under the median where #2341 reasons 4 to 8, so only Sagittarius (4.7) is inside #2341's
+      band: the smoothed Andromeda is a milder case than #2341's hypothesis, and the hazard may be larger on a real
+      denoiser.
       **All three smoothed masters went through R4i as trained**, and the three nebula guards were read on each
       (`nebula_rows.py`, plate against its smoothed input, in the smoothed frame's own noise, so the nebula region is
       another, 83 / 39 / 25 % of the frame, and no figure is a match for the table's or its bars):
@@ -9372,8 +9376,8 @@ the first angle is a step after the model and not another arm:
       `r4i-smoothed-*.png`): a dark corner of Andromeda (x 300, y 2591) comes back flat, 5.6 master sigma over the
       master's sky and grey-green where the sky is blue, with the stars left as dim discs; the other four crops
       (30 Doradus's core, the Tarantula's knots at x 705, y 1585, the Lagoon's core, a Sagittarius star field at
-      x 600, y 600) keep their level, each crop's median within one master sigma of the master's, as the plate of
-      the master is. The three star fields are left with a mottle of dim stars, and 30 Doradus's core is left
+      x 600, y 600) keep their level, each crop's median within one master sigma of the master's (the plates of the
+      master read -1.3 on the core, then -0.7, -0.2 and -0.2, so the core's own plate is not within one). The three star fields are left with a mottle of dim stars, and 30 Doradus's core is left
       bright where the plate of the master has the magenta wash. The stars left and the core kept are the
       smoothing's doing as far as this can tell (the model was shown no star that wide and no frame that quiet), and
       say nothing of the black point; the flat corner is the black point's. The guard #2341 asks for is needed
@@ -9858,8 +9862,7 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     `plant_read.py`), **at most 45.0 % left on both training seeds** (the 45.0 %, StarXTerminator's 42.4 and our fourteen, 46.8 to 74.6, twelve
     of them 61.0 or over, are unclamped plates made on `bh-bin12`; the R4j read is made on a build with `--keep-overshoot`,
     main since #2435, with `--no-protect-cores --no-fill-digs --keep-overshoot`, which holds the plates over their input
-    as `bh-bin12` left them; the two builds were not compared byte for byte, so the first R4j score row first checks that an
-    unchanged model, R4h, gives the same plate on both). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
+    as `bh-bin12` left them; the two builds' R4h plates were compared and are identical, see "Before the launch" below). R4h's own figure, the parent's, is taken when R4h is scored and written here before any
     score of R4j exists; if R4h alone reads 45.0 or under, the bar cannot show the mask's doing and the read says so.
   - **Guards, on each seed:** R4h's and R4i's, on the same terms (every row of the 40 sigma read's table at its bar,
     as trained or through the chain as that table reads it; a row R4h misses too is the exporter's, and R4j is then
