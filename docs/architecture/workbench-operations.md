@@ -572,7 +572,7 @@ that gave no result.
 
 ## Not here yet
 
-Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
+Each is a later phase (W2 to W9), or the comet run (#2489), which is outside W1, and none is assumed by the code above.
 
 - **Operations.** None of W1's is left to wrap: every colour step of #2465 is here, so is the canonical enhance
   (#2466), so are the planetary steps (#2468: by the owner's call of 2026-11-23 the stack, the compose and the

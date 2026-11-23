@@ -565,7 +565,7 @@ them:
    size and time have not moved is not read again; `--verify-frames` reads them all), there is one `stack` step
    around `tianwen stack` since that is the one verb, each master is a result of it under its group's name, its
    settings are the 24 options that choose which frames are stacked and how they are registered and integrated, and
-   a comet run is a leg of its own (#2489). Built: a folder as an image's original, its key and the index
+   a comet run is not W1: it is its own issue (#2489). Built: a folder as an image's original, its key and the index
    (`FrameDigestIndex`); results named by the run (`IRunNamedOperation`), each in the store under its name with
    the files that belong beside it, the step keeping the list of them; and the `stack` operation
    (`StackOperation`), whose settings the verb builds its own options from. A step judges cloud on the group's own
