@@ -315,8 +315,9 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         Of(again, "hop").Refusal.ShouldNotBeNull().ShouldContain("gave no 'luminance'");
     }
 
-    // Heavy by measurement: 42.3 s on the Windows unit leg of #2482's first run (14 to 15 s on Linux), most of it the stack of
-    // the capture and the sharpenings of its master, which the verb then repeats for the line of each step.
+    // Heavy by measurement: 42.3 s on the Windows unit leg of #2482's first run, and 54 s (arm) and 1 m 24 s (x64) on the Linux
+    // heavy run, most of it the stack of the capture and the sharpenings of its master, which the verb then repeats for the
+    // line of each step and for each of its refusals and memory cases.
     [Fact(Timeout = 300_000)]
     [Trait("Category", "Heavy")]
     public async Task ThePlanetarySharpenStepIsTheFilePlanetarySharpenAutoWrites()
