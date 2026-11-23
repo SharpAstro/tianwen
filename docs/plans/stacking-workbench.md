@@ -563,7 +563,9 @@ each step's output is bit-identical to its CLI verb's.
 4. The planetary steps (#2468): grade, stack, de-rotate, sharpen, colour.
 5. An operation that writes no pixels (#2469). Built: the kind (the plan's "metadata": the finding is kept in the
    store, and the step after it takes its input with the finding applied) and the plate solve as the first, `tianwen
-   solve` calling it and gaining `-o`. Left: statistics.
+   solve` calling it and gaining `-o`. Statistics is not a step of an edit list: a measurement changes nothing a later
+   step reads, so as an edit it would only re-key every step after it. It is one of [the facts a gate may
+   test](#the-facts-a-gate-may-test), which W9 owns.
 
 ### W2 The app's shell
 
