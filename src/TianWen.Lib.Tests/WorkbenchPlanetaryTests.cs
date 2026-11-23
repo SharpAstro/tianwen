@@ -453,6 +453,80 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task AStrengthIsItsVerbsOptionOnTheStackAndOnTheSharpening()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-strength-").FullName;
+        // A mono capture, which stacks in seconds: the strength is the one of AUTO's choices a mono master has. The two
+        // that are a colour master's are held by the heavy test after this one.
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA");
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("strong", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id, new JsonObject { ["strength"] = 1.5 })),
+            // The master sharpened again at another strength: only the sharpening runs.
+            WorkbenchFixtures.Starting("stronger", "strong", WorkbenchFixtures.Edit(PlanetarySharpenOperation.Id, new JsonObject { ["strength"] = 2 }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation(), new PlanetarySharpenOperation()]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
+        var (stacked, again) = (Of("strong").Steps[0], Of("stronger").Steps[0]);
+        var ownSharpened = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(stacked.Key, PlanetaryStackOperation.Sharpened)));
+
+        // Each step's command line through its real verb, the strength on it.
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
+        var stack = new PlanetaryStackSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        var stackLine = stacked.CommandLine.ToArray();
+        stackLine.ShouldContain("--strength");
+        var (verbMaster, verbSharpened) = (Path.Combine(folder, "strong-verb.fits"), Path.Combine(folder, "strong-verb-sharpened.fits"));
+        (stackLine[Array.IndexOf(stackLine, "--master") + 1], stackLine[Array.IndexOf(stackLine, "--sharpened") + 1]) = (verbMaster, verbSharpened);
+        output.WriteLine(StepCommandLine.Display(stackLine));
+
+        var stackExit = await stack.Parse(stackLine[3..]).InvokeAsync(cancellationToken: ct);
+
+        stackExit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(stacked.Output.ShouldNotBeNull(), verbMaster, "the master stacked with a strength");
+        ShouldBeTheSameFile(ownSharpened, verbSharpened, "its sharpened master at that strength");
+
+        var sharpen = new PlanetarySharpenSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        var sharpenLine = again.CommandLine.ToArray();
+        sharpenLine.ShouldContain("--strength");
+        var written = Path.Combine(folder, "stronger-verb.fits");
+        sharpenLine[Array.IndexOf(sharpenLine, "--sharpened") + 1] = written;
+        output.WriteLine(StepCommandLine.Display(sharpenLine));
+        said.Clear();
+
+        var sharpenExit = await sharpen.Parse(sharpenLine[3..]).InvokeAsync(cancellationToken: ct);
+
+        sharpenExit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(again.Output.ShouldNotBeNull(), written, "the master sharpened again at another strength");
+
+        // A strength is another sharpening: the stack's own at 1.5 is not the one made again at 2. Equal files would
+        // make the comparisons above empty.
+        WorkbenchFixtures.Read(ownSharpened).GetChannelSpan(0).SequenceEqual(WorkbenchFixtures.Read(again.Output.ShouldNotBeNull()).GetChannelSpan(0)).ShouldBeFalse();
+
+        // The research path takes no strength under --auto, and a list of strengths is no step's.
+        var master = stacked.Output.ShouldNotBeNull();
+        said.Clear();
+        (await sharpen.Parse(new[] { master, "--auto", "--strength", "1.5" }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
+        string.Join(Environment.NewLine, said).ShouldContain("is a setting it does not take");
+        said.Clear();
+        (await sharpen.Parse(new[] { master, "--auto", "--sharpened", Path.Combine(folder, "x.fits"), "--strength", "1,1.5" }).InvokeAsync(cancellationToken: ct))
+            .ShouldBe(1);
+        string.Join(Environment.NewLine, said).ShouldContain("one number above 0");
+        File.Exists(Path.Combine(folder, "x.fits")).ShouldBeFalse();
+    }
+
+    // Heavy by measurement: 58.7 s on the x64 leg of #2483's first run. A Bayer capture stacks and sharpens three planes,
+    // and the comparison stacks it four times (two steps, each again through the verb). The strength, which a mono
+    // capture has too, is held in the PR legs by the test before this one.
+    [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task AutosChoicesAreItsVerbsOptionsOnTheStackAndOnTheSharpening()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -538,17 +612,6 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         // at 1.5. Equal files would make the comparisons above empty.
         WorkbenchFixtures.Read(SharpenedOf(Of("as-captured").Steps[0])).GetChannelSpan(0)
             .SequenceEqual(WorkbenchFixtures.Read(again.Output.ShouldNotBeNull()).GetChannelSpan(0)).ShouldBeFalse();
-
-        // The research path takes neither choice under --auto, and a list of strengths is no step's.
-        said.Clear();
-        var master0 = Of("as-captured").Steps[0].Output.ShouldNotBeNull();
-        (await sharpen.Parse(new[] { master0, "--auto", "--strength", "1.5" }).InvokeAsync(cancellationToken: ct)).ShouldBe(1);
-        string.Join(Environment.NewLine, said).ShouldContain("is a setting it does not take");
-        said.Clear();
-        (await sharpen.Parse(new[] { master0, "--auto", "--sharpened", Path.Combine(folder, "x.fits"), "--strength", "1,1.5" }).InvokeAsync(cancellationToken: ct))
-            .ShouldBe(1);
-        string.Join(Environment.NewLine, said).ShouldContain("one number above 0");
-        File.Exists(Path.Combine(folder, "x.fits")).ShouldBeFalse();
     }
 
     [Fact(Timeout = 120_000)]
