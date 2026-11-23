@@ -177,7 +177,8 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         denoiser.Name.ShouldContain(N2nDenoiser.ModelFileName);
         deblurrer.Name.ShouldContain(OnnxTianWenDeconvolver.ModelFileName);
         var served = new EnhanceOperation(new SharpenPipeline(denoiser: denoiser, deblurrer: deblurrer)).ServedBy(new EnhanceSettings());
-        served.ShouldContain(N2nDenoiser.ModelFileName, "what served an enhance names the model, so a retrained one is another key");
+        // What served an enhance names the model, so a retrained one is another key.
+        served.ShouldContain(N2nDenoiser.ModelFileName);
         served.ShouldContain(OnnxTianWenDeconvolver.ModelFileName);
     }
 
