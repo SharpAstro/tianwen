@@ -28,36 +28,47 @@ public sealed class NominalProbeTests
         pickSmall.Sink.ShouldBe(pickLarge.Sink);
     }
 
-    [Fact]
-    public void AComputerTooSmallForTheChosenStrategyRefusesInWords()
-    {
-        var nominal = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30).ToNominalHost();
-        var selection = IntegrationStrategySelector.Pick(nominal);
-        var tiny = Probe(ram: 1L << 20, freeRam: 1L << 20, disk: 1L << 20);
+    // 100 frames of 4000 x 3000 x 3 floats are 14 GB: nothing the nominal host picks for them runs in 1 GB of memory
+    // and 1 GB of disk, while the nominal host itself runs what it picked.
+    private static IntegrationProbe Tiny() => Probe(ram: 1L << 30, freeRam: 1L << 30, disk: 1L << 30);
 
-        var ex = Should.Throw<InvalidOperationException>(() => StackingPipeline.RequireThisComputerFits(selection, tiny, 100, stated: false));
-        ex.Message.ShouldContain("The stack chose");
-        ex.Message.ShouldContain("cannot run it");
+    [Fact]
+    public void AComputerThatCannotRunTheNominalPickIsRefusedInWordsAndOneThatCanIsNot()
+    {
+        var job = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30);
+        var selection = IntegrationStrategySelector.Pick(job.ToNominalHost());
+
+        var refusal = IntegrationStrategySelector.NominalHostRefusal(selection, Tiny(), frames: 100, stated: null);
+
+        refusal.ShouldNotBeNull().ShouldStartWith($"The stack chose {selection.Chosen.Kind} for 100 frames, and this computer cannot run it: ");
+        IntegrationStrategySelector.NominalHostRefusal(selection, job.ToNominalHost(), frames: 100, stated: null).ShouldBeNull();
     }
 
     [Fact]
-    public void AStatedStrategyThatDoesNotFitIsRefusedAsStated()
+    public void ThePipelinesPickRefusesOnTheNominalHostOnlyAndAComputerThatFitsPicksWhatTheNominalHostPicks()
     {
-        var nominal = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30).ToNominalHost();
-        var selection = IntegrationStrategySelector.Pick(nominal);
-        var tiny = Probe(ram: 1L << 20, freeRam: 1L << 20, disk: 1L << 20);
+        var job = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30);
+        var tiny = Tiny();
 
-        var ex = Should.Throw<InvalidOperationException>(() => StackingPipeline.RequireThisComputerFits(selection, tiny, 100, stated: true));
-        ex.Message.ShouldContain("you stated");
-        ex.Message.ShouldNotContain("The stack chose");
+        Should.Throw<InvalidOperationException>(() => IntegrationStrategySelector.PickForHost(tiny, nominalHost: true, frames: 100))
+            .Message.ShouldStartWith("The stack chose ");
+        // Not a workbench step: this computer's own probe is the one picked against, with no refusal of the pick.
+        IntegrationStrategySelector.PickForHost(job, nominalHost: false, frames: 100).Chosen.Kind
+            .ShouldBe(IntegrationStrategySelector.Pick(job).Chosen.Kind);
+        IntegrationStrategySelector.PickForHost(job.ToNominalHost(), nominalHost: true, frames: 100).Chosen.Kind
+            .ShouldBe(IntegrationStrategySelector.Pick(job.ToNominalHost()).Chosen.Kind);
     }
 
     [Fact]
-    public void AComputerThatFitsIsNotRefused()
+    public void AStatedStrategyThatDoesNotFitIsRefusedAsThePersonsOwn()
     {
-        var nominal = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30).ToNominalHost();
-        var selection = IntegrationStrategySelector.Pick(nominal);
+        var job = Probe(ram: 8L << 30, freeRam: 2L << 30, disk: 50L << 30);
+        var selection = IntegrationStrategySelector.Pick(job.ToNominalHost(), preferred: IntegrationStrategyKind.InRamAllFrames);
+        selection.Chosen.Kind.ShouldBe(IntegrationStrategyKind.InRamAllFrames);
 
-        StackingPipeline.RequireThisComputerFits(selection, nominal, 100, stated: false);
+        var refusal = IntegrationStrategySelector.NominalHostRefusal(selection, Tiny(), frames: 100, stated: IntegrationStrategyKind.InRamAllFrames);
+
+        refusal.ShouldNotBeNull().ShouldStartWith("The strategy InRamAllFrames you stated for 100 frames does not fit this computer: ");
+        refusal.ShouldNotContain("The stack chose");
     }
 }

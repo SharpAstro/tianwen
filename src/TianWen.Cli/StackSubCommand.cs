@@ -696,118 +696,127 @@ internal sealed class StackSubCommand(
 
             var groupCount = 0;
             var integratedCount = 0;
-            await foreach (var result in pipeline.RunAsync(ct))
+            try
             {
-                groupCount++;
-                // What became of the group, worded once by the stack operation: a workbench step says the same line.
-                consoleHost.WriteScrollable($"[stack] {StackOperation.GroupLine(result)}");
-                if (!string.IsNullOrEmpty(result.SkipReason))
+                await foreach (var result in pipeline.RunAsync(ct))
                 {
-                    continue;
-                }
-                integratedCount++;
-                if (result.CompositeFitsPath is { } compositePath)
-                {
-                    // The finished picture of a comet run is neither of the two layers, so name it.
-                    consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: composite {Path.GetFileName(compositePath)}");
-                }
-                // Per-stage wall time with stored Items/Pixels denominators (GroupResult.Stages) --
-                // the same table the dataset build prints, so a stack and a bake read side by side.
-                if (!result.Stages.IsDefaultOrEmpty)
-                {
-                    foreach (var line in TianWen.Lib.Imaging.Stacking.StageTimings
-                        .DescribeTable(result.Stages, result.Elapsed.TotalSeconds)
-                        .Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                    groupCount++;
+                    // What became of the group, worded once by the stack operation: a workbench step says the same line.
+                    consoleHost.WriteScrollable($"[stack] {StackOperation.GroupLine(result)}");
+                    if (!string.IsNullOrEmpty(result.SkipReason))
                     {
-                        consoleHost.WriteScrollable($"[stack]   {line.TrimEnd()}");
+                        continue;
                     }
-                }
-
-                // EXR companion path: short-circuit before the PNG renderer
-                // block. Both master + autocrop are written as float-true
-                // .exr next to the FITS, no SPCC / stretch involved -- the
-                // unstretched linear HDR master.
-                if (format == ImageOutputFormat.Exr && result.MasterFitsPath is { } masterFitsForExr)
-                {
-                    var autocropFitsForExr = Path.Combine(
-                        Path.GetDirectoryName(masterFitsForExr) ?? string.Empty,
-                        Path.GetFileNameWithoutExtension(masterFitsForExr) + "_autocrop.fits");
-                    if (Image.TryReadFitsFile(masterFitsForExr, out var masterImageForExr, out _) && masterImageForExr is not null)
+                    integratedCount++;
+                    if (result.CompositeFitsPath is { } compositePath)
                     {
-                        try
+                        // The finished picture of a comet run is neither of the two layers, so name it.
+                        consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: composite {Path.GetFileName(compositePath)}");
+                    }
+                    // Per-stage wall time with stored Items/Pixels denominators (GroupResult.Stages) --
+                    // the same table the dataset build prints, so a stack and a bake read side by side.
+                    if (!result.Stages.IsDefaultOrEmpty)
+                    {
+                        foreach (var line in TianWen.Lib.Imaging.Stacking.StageTimings
+                            .DescribeTable(result.Stages, result.Elapsed.TotalSeconds)
+                            .Split('\n', StringSplitOptions.RemoveEmptyEntries))
                         {
-                            var exrPath = Path.ChangeExtension(masterFitsForExr, ".exr");
-                            await masterImageForExr.WriteExrAsync(exrPath, DebayerAlgorithm.VNG, ct);
-                            consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(exrPath)} (EXR HDR)");
-                        }
-                        catch (Exception ex)
-                        {
-                            consoleHost.WriteError($"[stack] {result.GroupSlug}: master EXR failed: {ex.Message}");
+                            consoleHost.WriteScrollable($"[stack]   {line.TrimEnd()}");
                         }
                     }
-                    if (File.Exists(autocropFitsForExr)
-                        && Image.TryReadFitsFile(autocropFitsForExr, out var cropImageForExr, out _)
-                        && cropImageForExr is not null)
+
+                    // EXR companion path: short-circuit before the PNG renderer
+                    // block. Both master + autocrop are written as float-true
+                    // .exr next to the FITS, no SPCC / stretch involved -- the
+                    // unstretched linear HDR master.
+                    if (format == ImageOutputFormat.Exr && result.MasterFitsPath is { } masterFitsForExr)
                     {
-                        try
+                        var autocropFitsForExr = Path.Combine(
+                            Path.GetDirectoryName(masterFitsForExr) ?? string.Empty,
+                            Path.GetFileNameWithoutExtension(masterFitsForExr) + "_autocrop.fits");
+                        if (Image.TryReadFitsFile(masterFitsForExr, out var masterImageForExr, out _) && masterImageForExr is not null)
                         {
-                            var cropExrPath = Path.ChangeExtension(autocropFitsForExr, ".exr");
-                            await cropImageForExr.WriteExrAsync(cropExrPath, DebayerAlgorithm.VNG, ct);
-                            consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(cropExrPath)} (EXR HDR)");
+                            try
+                            {
+                                var exrPath = Path.ChangeExtension(masterFitsForExr, ".exr");
+                                await masterImageForExr.WriteExrAsync(exrPath, DebayerAlgorithm.VNG, ct);
+                                consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(exrPath)} (EXR HDR)");
+                            }
+                            catch (Exception ex)
+                            {
+                                consoleHost.WriteError($"[stack] {result.GroupSlug}: master EXR failed: {ex.Message}");
+                            }
                         }
-                        catch (Exception ex)
+                        if (File.Exists(autocropFitsForExr)
+                            && Image.TryReadFitsFile(autocropFitsForExr, out var cropImageForExr, out _)
+                            && cropImageForExr is not null)
                         {
-                            consoleHost.WriteError($"[stack] {result.GroupSlug}: autocrop EXR failed: {ex.Message}");
+                            try
+                            {
+                                var cropExrPath = Path.ChangeExtension(autocropFitsForExr, ".exr");
+                                await cropImageForExr.WriteExrAsync(cropExrPath, DebayerAlgorithm.VNG, ct);
+                                consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(cropExrPath)} (EXR HDR)");
+                            }
+                            catch (Exception ex)
+                            {
+                                consoleHost.WriteError($"[stack] {result.GroupSlug}: autocrop EXR failed: {ex.Message}");
+                            }
+                        }
+                    }
+
+                    // SPCC summary + per-gate funnel from the pipeline's preview solve
+                    // (computed in MasterPostProcessor now, against the ENHANCED master when
+                    // enhancing -- so it reflects the actual output the PNG + split plates
+                    // share). Release console is Warning-floored, so the renderer's ILogger
+                    // lines are file-only; surface the summary here through IConsoleHost.
+                    //
+                    // Funnel reads: "of <detected> stars FindStarsAsync reported, breakdown by
+                    // gate to the photometric kappa-sigma stage" -- lets us answer "why are we
+                    // losing X% of stars" by which counter dominates (no-cand = catalog missing,
+                    // tol-miss = WCS distortion, no-bv = Tycho-2 photometry gaps, k-rej =
+                    // kappa-sigma outliers after the match).
+                    {
+                        if (result.Spcc is { } s)
+                        {
+                            consoleHost.WriteScrollable(
+                                $"[stack] {result.GroupSlug}: SPCC WB=({s.WbR:F3}, {s.WbG:F3}, {s.WbB:F3}) " +
+                                $"{s.FinalMatches}/{s.InitialMatches} Tycho-2 matches " +
+                                $"({s.Iterations} iters, {s.Elapsed.TotalMilliseconds:F0} ms)");
+
+                            var f = s.Funnel;
+                            var kRej = s.InitialMatches - s.FinalMatches;
+                            var gate = f.MagGateActive ? $"zp={f.ZeroPoint:F2}" : "off";
+                            // Probe stats are NaN when the field was too sparse for adaptive sizing;
+                            // surface "probe=off" in that case so the log is unambiguous.
+                            var probe = float.IsNaN(f.ProbeMedianArcsec)
+                                ? "off"
+                                : $"med={f.ProbeMedianArcsec:F1}\" mad={f.ProbeMadArcsec:F1}\"";
+                            consoleHost.WriteScrollable(
+                                $"[stack] {result.GroupSlug}: SPCC funnel " +
+                                $"detected={f.Detected} wcs-fail={f.WcsFail} no-cand={f.NoCandidates} " +
+                                $"tol-miss={f.TolMissed} rej-mag={f.RejMagDiff} no-bv={f.NoBmv} no-v={f.NoVmag} " +
+                                $"accepted={f.Accepted} k-rej={kRej} " +
+                                $"tol={f.EffectiveRadiusArcsec:F1}\" probe={probe} mag-gate={gate}");
+
+                            // Per-quadrant tol-miss + rej-mag localisation -- a corner heavy on
+                            // tol-miss% points at lens distortion (SIP); a corner heavy on rej-mag
+                            // points at dense-field close-pair contamination that the magnitude
+                            // gate caught (or at zero-point bias if every quadrant rises together).
+                            consoleHost.WriteScrollable(
+                                $"[stack] {result.GroupSlug}: SPCC by-quadrant (det/tol-miss/rej-mag/acc)  " +
+                                $"TL={f.TL.Detected}/{f.TL.TolMissed}/{f.TL.RejMagDiff}/{f.TL.Accepted}  " +
+                                $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.RejMagDiff}/{f.TR.Accepted}  " +
+                                $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.RejMagDiff}/{f.BL.Accepted}  " +
+                                $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.RejMagDiff}/{f.BR.Accepted}");
                         }
                     }
                 }
-
-                // SPCC summary + per-gate funnel from the pipeline's preview solve
-                // (computed in MasterPostProcessor now, against the ENHANCED master when
-                // enhancing -- so it reflects the actual output the PNG + split plates
-                // share). Release console is Warning-floored, so the renderer's ILogger
-                // lines are file-only; surface the summary here through IConsoleHost.
-                //
-                // Funnel reads: "of <detected> stars FindStarsAsync reported, breakdown by
-                // gate to the photometric kappa-sigma stage" -- lets us answer "why are we
-                // losing X% of stars" by which counter dominates (no-cand = catalog missing,
-                // tol-miss = WCS distortion, no-bv = Tycho-2 photometry gaps, k-rej =
-                // kappa-sigma outliers after the match).
-                {
-                    if (result.Spcc is { } s)
-                    {
-                        consoleHost.WriteScrollable(
-                            $"[stack] {result.GroupSlug}: SPCC WB=({s.WbR:F3}, {s.WbG:F3}, {s.WbB:F3}) " +
-                            $"{s.FinalMatches}/{s.InitialMatches} Tycho-2 matches " +
-                            $"({s.Iterations} iters, {s.Elapsed.TotalMilliseconds:F0} ms)");
-
-                        var f = s.Funnel;
-                        var kRej = s.InitialMatches - s.FinalMatches;
-                        var gate = f.MagGateActive ? $"zp={f.ZeroPoint:F2}" : "off";
-                        // Probe stats are NaN when the field was too sparse for adaptive sizing;
-                        // surface "probe=off" in that case so the log is unambiguous.
-                        var probe = float.IsNaN(f.ProbeMedianArcsec)
-                            ? "off"
-                            : $"med={f.ProbeMedianArcsec:F1}\" mad={f.ProbeMadArcsec:F1}\"";
-                        consoleHost.WriteScrollable(
-                            $"[stack] {result.GroupSlug}: SPCC funnel " +
-                            $"detected={f.Detected} wcs-fail={f.WcsFail} no-cand={f.NoCandidates} " +
-                            $"tol-miss={f.TolMissed} rej-mag={f.RejMagDiff} no-bv={f.NoBmv} no-v={f.NoVmag} " +
-                            $"accepted={f.Accepted} k-rej={kRej} " +
-                            $"tol={f.EffectiveRadiusArcsec:F1}\" probe={probe} mag-gate={gate}");
-
-                        // Per-quadrant tol-miss + rej-mag localisation -- a corner heavy on
-                        // tol-miss% points at lens distortion (SIP); a corner heavy on rej-mag
-                        // points at dense-field close-pair contamination that the magnitude
-                        // gate caught (or at zero-point bias if every quadrant rises together).
-                        consoleHost.WriteScrollable(
-                            $"[stack] {result.GroupSlug}: SPCC by-quadrant (det/tol-miss/rej-mag/acc)  " +
-                            $"TL={f.TL.Detected}/{f.TL.TolMissed}/{f.TL.RejMagDiff}/{f.TL.Accepted}  " +
-                            $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.RejMagDiff}/{f.TR.Accepted}  " +
-                            $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.RejMagDiff}/{f.BL.Accepted}  " +
-                            $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.RejMagDiff}/{f.BR.Accepted}");
-                    }
-                }
+            }
+            // A nominal-host step throws when this computer cannot run the pick; the verb says it in the step's own words.
+            catch (InvalidOperationException ex) when (options.NominalProbe)
+            {
+                consoleHost.WriteError($"[stack] {ex.Message}");
+                return 1;
             }
 
             consoleHost.WriteScrollable($"[stack] done: {integratedCount} integrated / {groupCount} groups");

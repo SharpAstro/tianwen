@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -461,7 +462,8 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("planetary-strength-").FullName;
-        // A mono capture, which stacks in seconds: the strength is the one of AUTO's choices a mono master has. The two
+        // A mono capture: the strength is the one of AUTO's choices a mono master has. One stack of it takes seconds, but
+        // the verb runs below repeat the stack and the sharpening for each line, which is most of this test's time. The two
         // that are a colour master's are held by the heavy tests after this one. This test is Heavy too: 30 s on the
         // Windows PR leg of #2483's run 45168746400.
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
@@ -734,8 +736,8 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     [Fact(Timeout = 120_000)]
     public async Task ACaptureGivenToDenoiseIsRefusedAsAFileThatIsNoFitsImageAndWritesNothing()
     {
-        // Denoise stands for any operation that reads its input as a FITS file: each goes through OperationInput, whose
-        // refusal of a file that is no FITS image is the words asserted below.
+        // Denoise stands for any operation that reads its input as a FITS file: each goes through OperationInput, which
+        // refuses a file that is no FITS by its name before any reader is handed it, in the words asserted below.
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("capture-denoise-").FullName;
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44.ser"));
@@ -746,7 +748,7 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         report.Succeeded.ShouldBeFalse();
         report.Images[0].Steps[0].State.ShouldBe(StepState.Refused, Messages(report));
-        report.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("is no FITS image", Case.Sensitive, Messages(report));
+        report.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain($"{capture} is no FITS image, and this operation takes one", Case.Sensitive, Messages(report));
         var store = Path.Combine(folder, StepStore.FolderName);
         (Directory.Exists(store) ? Directory.GetFiles(store, "*.fits") : []).ShouldBeEmpty();
     }
@@ -805,15 +807,15 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     [InlineData("--strength", "NaN", "--strength")]
     [InlineData("--colour-saturation", "-1", "--colour-saturation is 0 or more")]
     public async Task AutoRefusesABadStrengthOrSaturationBeforeItStacks(string option, string value, string said)
-        => await AutoRefusesAsync([option, value], said);
+        => await AutoRefusesAsync([option, value], said, TestContext.Current.CancellationToken);
 
     [Fact(Timeout = 120_000)]
     public async Task AutoRefusesASaturationWithTheColourBalanceOff()
-        => await AutoRefusesAsync(["--no-colour-balance", "--colour-saturation", "1.4"], "with --no-colour-balance");
+        => await AutoRefusesAsync(["--no-colour-balance", "--colour-saturation", "1.4"], "with --no-colour-balance", TestContext.Current.CancellationToken);
 
-    private async Task AutoRefusesAsync(string[] choice, string expected)
+    // The token comes from each test, so the Timeout on each is held by its own token (xUnit1069).
+    private async Task AutoRefusesAsync(string[] choice, string expected, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("planetary-auto-refuses-").FullName;
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
             telescope: "254 mm f/4.7 Newtonian, Test OTA");

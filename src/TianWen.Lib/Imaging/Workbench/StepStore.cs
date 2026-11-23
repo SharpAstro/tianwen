@@ -107,11 +107,6 @@ public sealed class StepStore
     public bool LeftOut(string key, string result)
         => _entries.TryGetValue(key, out var entry) && !entry.LeftOut.IsDefault && entry.LeftOut.Contains(result, StringComparer.Ordinal);
 
-    /// <summary>The files that belong beside the result of this key, where the store holds it: a master's map
-    /// sidecars and its manifest.</summary>
-    public ImmutableArray<string> CompanionsOf(string key)
-        => _entries.TryGetValue(key, out var entry) ? [.. CompanionsOf(entry).Select(companion => Path.Combine(Folder, companion))] : [];
-
     private static ImmutableArray<string> CompanionsOf(StepStoreEntry entry) => entry.Companions.IsDefault ? [] : entry.Companions;
 
     /// <summary>A place inside the store for the step with this key to write its result, taken into the store by
