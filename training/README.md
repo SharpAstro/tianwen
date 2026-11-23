@@ -161,7 +161,7 @@ every `scorecard.local.json` older than 2026-11-22 is one) stops in the first se
 plate is made; add the three CSVs before the next whole step.
 The config's `judge` object names each master's judge plate (StarXTerminator's starless plate of that same master, made
 once and kept), read by `judge_band_rows.py` for the two-sided crowded row. A config without the three `judge` paths (every
-`scorecard.local.json` older than this change is one) stops with `not set (config or command line): judge.<name>`, and so does
+`scorecard.local.json` older than 2026-11-24 is one) stops with `not set (config or command line): judge.<name>`, and so does
 every unattended arm chain's whole step (`arm-step.ps1`); add the three plates before the next whole step.
 The Gaia stars for the Tarantula come from Vizier through `denoise/gaia_vizier.py`, cached under `TIANWEN_GAIA_CACHE`
 (default `~/.tianwen/gaia-cache`), so the first run needs the network and later ones do not.

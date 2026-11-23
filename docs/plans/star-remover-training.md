@@ -9942,6 +9942,139 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       command line on the two real caches print what is registered: 96 training cells of 8 draws, 4.1 % of the
       training draw, 6 held-out cells, the schedule reading the main cache's objective.
   - **Nothing is adopted;** adoption is the owner's.
+- **R4j's read, 2026-11-24: KILLED. Both seeds leave 60 % or over of the bright plants, and both leave more of 30
+  Doradus's faint stars than the guard allows.** The mask did not teach the model to take a faint star on bright
+  nebula, and on two rows the arm reads worse than its parent.
+  - **Looked at first.** `r4j-lagoon-level.png`, `r4j-lagoon-close.png` and `r4j-lagoon-kept.png`: the three Lagoon
+    crops with R4h, both seeds and StarXTerminator. `r4j-seed<1..3>-plants-*.png`: planted spots at 4x, the planted
+    master and each plate, and under them the plant itself and what each plate left of it, since a plant of 20 sky
+    sigma is a few sigma a pixel and does not show in a plate. The step's sheets of 30 Doradus's core, the Lagoon's
+    core, M31's nucleus, the Tarantula's knots and the bright stars. At 300 px the seeds' plates of the Lagoon are
+    R4h's: the nebula's structure stands and nothing is torn. In the 140 px crop R4h keeps 4 points of light that
+    StarXTerminator took, seed 0 keeps 8 and seed 1 keeps 5, three of seed 1's in the dark lane. On the planted
+    sheets the plants StarXTerminator takes stand whole in our plates more often than not, seed 1 taking more of
+    them than seed 0; where StarXTerminator takes a plant it often leaves a dark dot of a pixel or two in its
+    place, which ours do not. On 30 Doradus's core seed 1 as trained leaves stars standing beside the core that
+    R4d takes. M31's nucleus as trained is tinted on seed 1, which takes 38 to 45 % of it, and is whole through the
+    chain on both.
+  - **The training, by the stall rule: neither seed stalled.** Seed 0 halved first at step 58,000. The median of
+    its held-out windows is 1.56e-5 from step 30,000 to there and 1.03e-5 over the next 60,000 steps, a ratio of
+    0.66, with 26 new bests after the halving; it halved again at 117,000, 142,000 and 156,000 and stopped itself
+    at 167,500 (best 8.31e-6 at 143,500), no resume. Seed 1 halved first at 38,000 (2.33e-5 before, over 16 windows
+    only, and 1.16e-5 after: 0.50, with 42 new bests), again at 165,500, 186,500 and 211,500, and stopped itself at
+    223,000 (best 8.13e-6 at 199,000). Its node was taken once and it resumed after step 214,000 from the
+    container's checkpoint with its best unchanged. So both seeds are trained runs in the registration's sense.
+  - **The question, as trained** (`plant_read.py`, the layer stamp, seeds 1, 2 and 3, `bh-bin14` with
+    `--no-protect-cores --no-fill-digs --keep-overshoot`):
+
+    | plants of 20 to 150 sky sigma left | StarXTerminator | R4h | R4j seed 0 | R4j seed 1 | bar | read |
+    |---|---|---|---|---|---|---|
+    | on the Lagoon's bright nebula, of 205 | 42.4 % | 67.8 % | **72.2 %** | **64.4 %** | at most 45.0 on both; 60.0 or over on both kills | **missed, and the kill fires** |
+    | on dark sky, of 205 | 0.5 % | 6.8 % | 7.3 % | 6.3 % | at most 12.0 | held |
+
+    Seed 0 is 4.4 points worse than R4h and seed 1 is 3.4 better. The two stand 7.8 points apart with the parent
+    between them, where two seeds of one recipe have stood 10 to 20 apart, so no gain is shown.
+  - **The guards** (R4h's and R4i's table, each row as that table reads it):
+
+    | row | R4h | R4j seed 0 | R4j seed 1 | bar | read |
+    |---|---|---|---|---|---|
+    | Tarantula crowded flat, chain | 91.9 | 92.6 | 90.7 | at least 90.3 | held |
+    | Sagittarius crowded flat, chain | 97.4 | 97.4 | 96.7 | at least 96.3 | held |
+    | Andromeda dark flat and dug, chain | 98.6, 0.5 | 98.2, 0.7 | 98.2, 0.9 | at least 95, at most 3 | held |
+    | Tarantula dark flat, chain | 95.9 | 96.0 | 95.9 | at least 91 | held |
+    | glow green median on Andromeda, chain | -47.9 | -49.7 | -74.3 | within 450 | held |
+    | glow green median on the Tarantula, chain | -14.7 | 253.5 | 60.8 | within 500 | held |
+    | M31 nucleus, chain | 0.0 % | 0.0 % | 0.0 % | under 10 % | held |
+    | purity, chain | 0.9 | 0.9 | 0.7 | at most 1.0 | held |
+    | light taken from the Tarantula field, chain | 81, 84 % | 82, **86 %** | 80, 82 % | at most 83, 84 % | **failed on seed 0** by two points |
+    | Gaia BP 17-19 with the level set aside, chain | 91.4 | 94.1 | 91.6 | at least 89.7 | held |
+    | light added on each master's nebula, as trained | 0.0 % | 0.0 % | 0.0, 0.3, 0.0 % | at most 1.0 % | held |
+    | brightest tenth of the Tarantula's peaks standing, as trained | 18 of 77 | 19 of 77 | 18 of 77 | at least 11 | held |
+    | faint stars left on the Lagoon's core, as trained | 30 % | 36 % | 19 % | at most 37 % | held, seed 0 by a point |
+    | faint stars left on 30 Doradus, as trained | 17 % | **31 %** | **36 %** | at most 27 % | **failed on both** |
+    | the Lagoon's broad light taken, as trained | 1.91 | 1.17 | 0.84 | at most 2.67 | held |
+    | plants left on dark sky, as trained | 6.8 % | 7.3 % | 6.3 % | at most 12.0 % | held |
+
+    R4h holds both failed rows, so neither is the exporter's. On 30 Doradus the stars left are not only the
+    faintest: at 10 to 30 times the local noise seed 0 leaves 7 % of 330 and seed 1 leaves 21 %, where R4d leaves
+    1 %, and at 30 and over seed 1 leaves 6 % of 96 (R4d none). The peaks row, the one named to watch, holds on
+    both seeds: the arm did not teach the model to take a knot. It taught it nothing the Lagoon shows either.
+  - **Against the prediction.** "Both seeds between 50 and 58 %, a gain of 10 to 18 points on R4h": neither seed;
+    they read 72.2 and 64.4. "The dark plants do not move": right. "The guards hold, the Tarantula's standing peaks
+    falling by a few": the peaks did not fall, and two other guards failed.
+  - **Reported, no bar.**
+    - **The plant read's tables, bright plants left, R4h / seed 0 / seed 1 (StarXTerminator in brackets).** By the light
+      planted: 7 to 20 sky sigma 98.7 / 98.7 / 98.7 %; 20 to 50, 91.9 / 92.8 / 88.3 %; 50 to 150, 39.4 / 47.9 /
+      36.2 %. By that light in the spot's own noise: 7 to 20, 94.5 / 97.3 / 91.8 % (60.0); 20 to 50, 32.3 / 41.5 /
+      24.6 % (7.7); 50 and over, none left by any. By the nebula's level under a plant of 20 to 150 sky sigma: 20
+      to 40, 54.2 / 57.8 / 53.0 %; 40 to 80, 72.0 / 76.0 / 66.7 %; 80 and over, 85.1 / 91.5 / 80.9 %.
+    - **The `psf` and `donor` stamps** (run after the scoring, the same build and switches; R4h's are new too):
+      bright plants left, StarXTerminator / R4d / R4h / seed 0 / seed 1. `psf`, of 180: 36.1 / 65.6 / 60.0 / 67.2 /
+      65.0 %. `donor`, of 182: 37.4 / 63.7 / 63.2 / 68.7 / 58.8 %. Dark plants: `psf` 0.6 / 6.1 / 11.7 / 17.2 /
+      12.8 %, `donor` 0.5 / 10.4 / 11.0 / 10.4 / 11.0 %. Seed 0 is behind R4h on both stamps as on the layer one;
+      seed 1 is ahead on one and behind on the other. The dark guard is registered on the layer stamp; on `psf`
+      seed 0's dark plants read 17.2 %.
+    - **The corrected row on the three masters** (`nebula_stars_row.py`, real stars of 20 to 150 sky sigma on
+      bright nebula, left): the Lagoon's 84, StarXTerminator 15.5 %, R4h 34.5 %, seed 0 38.1 %, seed 1 25.0 %;
+      Andromeda's 1,786, R4h 4.4 %, 5.1 and 3.0 %; the Tarantula's 15, none, none and one star. On dark sky: Sagittarius
+      4.4 / 3.7 / 3.8 % (StarXTerminator 0.2), Andromeda 6.0 / 7.4 / 9.4 %, the Tarantula none. Seed 1's 25.0 on
+      the Lagoon's real stars is better than R4h's and R4d's (34.5 both), and its twin seed reads 38.1: thirteen
+      points between two seeds on 84 stars.
+    - **The extra cache's held-out objective** at each seed's best step is 1.16e-4 and 1.15e-4, over its lowest
+      of the run (7.7e-5 and 8.3e-5). Its training objective cannot be set beside it as the registration asked:
+      the trainer logs one loss for the whole batch and none per cache.
+    - **The best step's weights** (143,500 and 199,000) say the same: bright plants left 71.2 and 61.5 %, dark 7.3
+      and 5.9 %; 30 Doradus's faint stars 34 and 32 %; the Lagoon's core 33 and 15 %; the Tarantula's crowded flat
+      through the chain 92.4 and 90.6; the field light over the whole frame 85 and 83 %; the peaks 19 and 18 of
+      77.
+    - **The 26 bright-star rows** (`bright_star_nights.py`, red): the innermost ring is taken under 80 % of
+      StarXTerminator's take on 12 and 14 rows, where R4h has 9 and R4d 7; the two Pleiades nights stand up to 81
+      and 68 points apart (R4h 47). Both seeds leave the bright Pleiads standing more than their parent does.
+    - **The Lagoon's standing peaks:** of the brightest 18, one stands on each seed (R4h none).
+    - **The two-sided crowded row** (#2404, through the chain): Sagittarius's flat cells 1.52 and 1.54 where R4h
+      reads 1.56 and the judge 1.14, 45.8 % of them under 1.5 on all three; its structure cells 0.98 and 0.99 of
+      the judge's. The Tarantula's two flat cells 3.30 and 3.25; its structure cells 1.06 and 1.08, 48 and 52 %
+      inside the window (R4h 45 %). Andromeda's structure cells 1.00 and 0.99. The arm does not move this row.
+  - **What it says.** A twenty-fifth of the draw on plate cells of bright nebula, the loss counting only the drawn
+    stars, changes nothing the planted test can see, and it costs on 30 Doradus and on the bright stars' inner
+    rings, on both seeds. On seed 0 alone the Tarantula's field light fails its guard and the glow's green median
+    through the chain stands at 253.5 (209.0 at its best step) where R4h reads -14.7. That is the highest of the
+    five runs read this way (seed 1 60.8, R4d 106.5, R4i 178.8) and half the bar of 500; one seed cannot say
+    whether it is the arm's doing, and it is listed here as a move, not as a cost. The registration named the dose
+    as the first thing to raise "if the arm shows part of a gain"; it shows none, so that step is not triggered.
+    Why the 30 Doradus row falls is not measured. One thing the design leaves
+    open is SUSPECTED and no more: on those tiles every pixel outside a drawn star's disc is free, the plate's own
+    real stars among them, so the rows tell the model nothing about a real star on nebula.
+  - **Nothing is adopted;** what follows is the owner's.
+- **The Tarantula's Gaia BP 17-19 gap sits in the densest part of the star field, not on bright nebula
+  (2026-11-23, a measurement on existing plates, no arm).** `gaia_bp_by_level.py` takes `gaia_compact.py`'s stars
+  and its "level set aside" share for that bin (21,903 stars the frame shows; ours 91.4 % removed, StarXTerminator
+  96.6 %, R4h through the chain) and splits them by the nebula under the star (its 32 px block over the frame's
+  sky, in sky noise), by the star's light and by the count of catalogued stars within 16 px.
+  - **Not bright nebula.** 3 % of the bin's stars have 20 sky sigma or more under them. Over all lights the two
+    removers read level there (ours 76.6 against 75.8 % of 529 at 20 to 40, 38.8 against 23.3 % of 103 at 40 to
+    80), but that is two bands cancelling. Of the 142 stars of 20 to 150 sky sigma at 20 to 40, the planted test's
+    band, StarXTerminator removes 88.7 % and R4h 71.8 %: 17 points behind, the planted row's sign. The other 387,
+    mostly of 150 sky sigma and over, go to ours (about 78 against 71 %). The faint band is some 24 stars of the
+    bin's gap of 1,142, so the BP row's gap is still not the planted gap: the two rows read different places.
+  - **The crowd.** In this field the level is mostly the crowd itself (it goes with the count at 0.74). Of the
+    stars of 20 to 150 sky sigma, the most crowded third (99 or more catalogued stars within 16 px) at 10 to 20
+    sky sigma of level is 4,066 stars: StarXTerminator removes 99.2 % of them and R4h 82.7 %. That one cell is 671
+    of the bin's net gap of 1,142 stars, 59 %. On dark sky in the least crowded third (4,976 stars) the two read
+    99.6 and 96.4 %, the planted test's dark-sky figure again; at 5 to 10 in the middle third (4,154) 98.0 and
+    93.1 %.
+  - **Not the nearest neighbour.** 94 % of these stars have another catalogued star within 4 px, and the share
+    removed does not move with its distance: 91.5 / 90.6 / 91.8 / 90.2 % from under 3 px to 8 to 12 px.
+  - **So the BP row is the crowded row seen star by star,** where this plan already traces the cause to what the
+    training plates hold (the stars the builder's finder never found, #2203) and where R4a's cluster scenes and a
+    second pass bought nothing. For scale (`drawn_density.py`, 300 tiles spread through R4h's export, one every 25
+    MB of its 8.4 GB injections list): a drawn star has 12 other drawn stars within 16 px at the median and 60 at
+    the 99th percentile, and 0.14 % have 99 or more, the count the Tarantula's most crowded third starts at. That
+    comparison is rough, since the catalogue's count includes stars the frame does not show (45 % of the BP 17 to
+    19 ones), and it proves no cause.
+  - **R4j's seeds on the same split** (through the chain): that cell of 4,066 stars reads 91.7 % on seed 0 and
+    86.8 % on seed 1, the bin 94.1 and 91.6 %. Seed 0 stands 9.0 points over R4h there and seed 1 4.1, under half
+    of it, where two seeds of one recipe stand 10 to 20 points apart on other rows of this plan.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
