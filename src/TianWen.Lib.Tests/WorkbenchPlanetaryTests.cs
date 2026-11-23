@@ -149,7 +149,8 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
             var exit = await verb.Parse([capture, "--auto", "--no-png", "--master", master, "--sharpened", Path.Combine(folder, name + "-s.fits"), .. more])
                 .InvokeAsync(cancellationToken: ct);
             exit.ShouldBe(0, string.Join(Environment.NewLine, said));
-            return WorkbenchFixtures.Read(master).ImageMeta.Telescope ?? string.Empty;
+            // A run that knows no telescope leaves it null; Shouldly's string checks cannot take a null.
+            return WorkbenchFixtures.Read(master).ImageMeta.Telescope ?? "";
         }
 
         (await TelescopeOfVerbAsync("asked")).ShouldContain("150", Case.Insensitive, "the verb without the flag takes the remembered telescope");
@@ -166,7 +167,7 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
             WorkbenchFixtures.Picture("step", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id))), ct);
         var report = await new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation()])).RunAsync(folder, cancellationToken: ct);
         report.Succeeded.ShouldBeTrue(Messages(report));
-        var stepTelescope = WorkbenchFixtures.Read(report.Images[0].Steps[0].Output.ShouldNotBeNull()).ImageMeta.Telescope ?? string.Empty;
+        var stepTelescope = WorkbenchFixtures.Read(report.Images[0].Steps[0].Output.ShouldNotBeNull()).ImageMeta.Telescope ?? "";
         stepTelescope.ShouldNotContain("150");
         stepTelescope.ShouldNotContain("203");
         stepTelescope.ShouldBe(await TelescopeOfVerbAsync("flagged-again", "--no-telescope-memory"));
@@ -328,6 +329,23 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         report.Succeeded.ShouldBeFalse();
         report.Images[0].Steps[0].State.ShouldBe(StepState.Refused);
         report.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("could not be stacked as a planetary capture");
+        var store = Path.Combine(folder, StepStore.FolderName);
+        (Directory.Exists(store) ? Directory.GetFiles(store, "*.fits") : []).ShouldBeEmpty();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ACaptureGivenToAnyOtherOperationIsRefusedAsNoFitsImageAndWritesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("capture-denoise-").FullName;
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44.ser"));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("c", capture, WorkbenchFixtures.Edit(DenoiseOperation.Id))), ct);
+
+        var report = await new WorkbenchRunner(new OperationCatalog([new DenoiseOperation()])).RunAsync(folder, cancellationToken: ct);
+
+        report.Succeeded.ShouldBeFalse();
+        report.Images[0].Steps[0].State.ShouldBe(StepState.Refused, Messages(report));
         var store = Path.Combine(folder, StepStore.FolderName);
         (Directory.Exists(store) ? Directory.GetFiles(store, "*.fits") : []).ShouldBeEmpty();
     }
