@@ -522,21 +522,84 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         File.Exists(Path.Combine(folder, "x.fits")).ShouldBeFalse();
     }
 
-    // Heavy by measurement: 58.7 s on the x64 leg of #2483's first run. A Bayer capture stacks and sharpens three planes,
-    // and the comparison stacks it four times (two steps, each again through the verb). The strength, which a mono
-    // capture has too, is held in the PR legs by the test before this one.
+    // A colour capture: the balance and the luminance-only sharpening are a colour master's.
+    private static string ColourCapture(string folder)
+        => ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA", dispersed: true);
+
+    // A console host that keeps what a verb says.
+    private static (IConsoleHost Host, List<string> Said) Listening()
+    {
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        return (host, said);
+    }
+
+    // A stack step's command line through the real verb: its master and its sharpened master are the verb's two files.
+    private async Task TheStackStepIsTheTwoFilesItsVerbWritesAsync(string folder, string name, StepReport step, IConsoleHost host, List<string> said,
+        MasterPreviewRenderer renderer)
+    {
+        var stack = new PlanetaryStackSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
+        var sharpenedOfStep = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(step.Key, PlanetaryStackOperation.Sharpened)));
+        var line = step.CommandLine.ToArray();
+        var (atMaster, atSharpened) = (Array.IndexOf(line, "--master") + 1, Array.IndexOf(line, "--sharpened") + 1);
+        var (master, sharpened) = (Path.Combine(folder, name + "-verb.fits"), Path.Combine(folder, name + "-verb-sharpened.fits"));
+        (line[atMaster], line[atSharpened]) = (master, sharpened);
+        output.WriteLine(StepCommandLine.Display(line));
+        said.Clear();
+
+        var exit = await stack.Parse(line[3..]).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        exit.ShouldBe(0, string.Join(Environment.NewLine, said));
+        ShouldBeTheSameFile(step.Output.ShouldNotBeNull(), master, $"the master of '{name}'");
+        ShouldBeTheSameFile(sharpenedOfStep, sharpened, $"the sharpened master of '{name}'");
+    }
+
+    // Heavy by measurement, and two tests by measurement. As one test (four AUTO runs of a colour capture: two stack
+    // steps, each again through the verb) it took 58.7 s on the x64 leg of #2483's first run and 3 min 35 s in the
+    // heavy run on the branch, under the load of the other heavy tests, against a bound of 5 min. A Bayer capture stacks
+    // and sharpens three planes, so each AUTO run is its own cost; this test has two of them and the next the other
+    // two. The strength, which a mono capture has too, is held in the PR legs by the test before these.
     [Fact(Timeout = 300_000)]
     [Trait("Category", "Heavy")]
-    public async Task AutosChoicesAreItsVerbsOptionsOnTheStackAndOnTheSharpening()
+    public async Task AutosChoicesOnAColourStackAreItsVerbsOptions()
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("planetary-choices-").FullName;
-        // A colour capture: the balance and the luminance-only sharpening are a colour master's.
-        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_2024-12-15T12_56_44_OTA1.ser"),
-            telescope: "254 mm f/4.7 Newtonian, Test OTA", dispersed: true);
+        var capture = ColourCapture(folder);
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
             WorkbenchFixtures.Picture("chosen", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id,
-                new JsonObject { ["strength"] = 1.5, ["luminanceOnly"] = true, ["colourSaturation"] = 1.4 })),
+                new JsonObject { ["strength"] = 1.5, ["luminanceOnly"] = true, ["colourSaturation"] = 1.4 }))), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new PlanetaryStackOperation()]));
+
+        var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+
+        report.Succeeded.ShouldBeTrue(Messages(report));
+        var chosen = report.Images.Single(static image => image.Name == "chosen").Steps[0];
+        WorkbenchFixtures.Read(chosen.Output.ShouldNotBeNull()).ChannelCount.ShouldBe(3, "a Bayer capture stacks to a colour master");
+
+        // The step's command line through the real verb: the choices are on it, and both files are the verb's.
+        var (host, said) = Listening();
+        await TheStackStepIsTheTwoFilesItsVerbWritesAsync(folder, "chosen", chosen, host, said, new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance));
+
+        var line = chosen.CommandLine.ToArray();
+        line.ShouldContain("--strength");
+        line.ShouldContain("--sharpen-luminance");
+        line.ShouldContain("--colour-saturation");
+    }
+
+    // Heavy with the test above, whose comment has the measurements: the other two AUTO runs of a colour capture, and
+    // two sharpenings of its master.
+    [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
+    public async Task AStackLeftAsCapturedAndItsMasterSharpenedAgainAreTheirVerbsFiles()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("planetary-as-captured-").FullName;
+        var capture = ColourCapture(folder);
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
             WorkbenchFixtures.Picture("as-captured", capture, WorkbenchFixtures.Edit(PlanetaryStackOperation.Id, new JsonObject { ["colourBalance"] = false })),
             // The unbalanced master sharpened again, at a strength and by its luminance: only the sharpening runs.
             WorkbenchFixtures.Starting("resharpened", "as-captured", WorkbenchFixtures.Edit(PlanetarySharpenOperation.Id,
@@ -555,42 +618,16 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         report.Succeeded.ShouldBeTrue(Messages(report));
         ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
-        var store = Path.Combine(folder, StepStore.FolderName);
-        string SharpenedOf(StepReport step) => Path.Combine(store, StepStore.FileNameOf(StepKey.OfResult(step.Key, PlanetaryStackOperation.Sharpened)));
-        WorkbenchFixtures.Read(Of("chosen").Steps[0].Output.ShouldNotBeNull()).ChannelCount.ShouldBe(3, "a Bayer capture stacks to a colour master");
+        var asCaptured = Of("as-captured").Steps[0];
         // With the balance off the step says so, in the stack's own words.
         stepsSaid.Any(static text => text.StartsWith("[as-captured ", StringComparison.Ordinal) && text.Contains("colours left as captured", StringComparison.Ordinal))
             .ShouldBeTrue(string.Join(Environment.NewLine, stepsSaid));
 
-        // Each stack step's command line through the real verb: the choices are on it, and both files are the verb's.
-        var said = new List<string>();
-        var host = Substitute.For<IConsoleHost>();
-        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => said.Add(call.Arg<string>()));
-        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        // The stack step's command line through the real verb: the choice is on it, and both files are the verb's.
+        var (host, said) = Listening();
         var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
-        var stack = new PlanetaryStackSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
-        foreach (var name in new[] { "chosen", "as-captured" })
-        {
-            var each = Of(name).Steps[0];
-            var line = each.CommandLine.ToArray();
-            var (atMaster, atSharpened) = (Array.IndexOf(line, "--master") + 1, Array.IndexOf(line, "--sharpened") + 1);
-            var (master, sharpened) = (Path.Combine(folder, name + "-verb.fits"), Path.Combine(folder, name + "-verb-sharpened.fits"));
-            (line[atMaster], line[atSharpened]) = (master, sharpened);
-            output.WriteLine(StepCommandLine.Display(line));
-            said.Clear();
-
-            var exit = await stack.Parse(line[3..]).InvokeAsync(cancellationToken: ct);
-
-            exit.ShouldBe(0, string.Join(Environment.NewLine, said));
-            ShouldBeTheSameFile(each.Output.ShouldNotBeNull(), master, $"the master of '{name}'");
-            ShouldBeTheSameFile(SharpenedOf(each), sharpened, $"the sharpened master of '{name}'");
-        }
-
-        var chosen = Of("chosen").Steps[0].CommandLine.ToArray();
-        chosen.ShouldContain("--strength");
-        chosen.ShouldContain("--sharpen-luminance");
-        chosen.ShouldContain("--colour-saturation");
-        Of("as-captured").Steps[0].CommandLine.ToArray().ShouldContain("--no-colour-balance");
+        await TheStackStepIsTheTwoFilesItsVerbWritesAsync(folder, "as-captured", asCaptured, host, said, renderer);
+        asCaptured.CommandLine.ToArray().ShouldContain("--no-colour-balance");
 
         // The sharpen step's two choices through its verb.
         var sharpen = new PlanetarySharpenSubCommand(host, renderer, new FakeExternal(output, root: _folders.Create("memory-"))).Build();
@@ -610,7 +647,8 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         // A strength is another sharpening: the unbalanced stack's own sharpened master, at 1, is not the one made again
         // at 1.5. Equal files would make the comparisons above empty.
-        WorkbenchFixtures.Read(SharpenedOf(Of("as-captured").Steps[0])).GetChannelSpan(0)
+        var sharpenedOfStack = Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(StepKey.OfResult(asCaptured.Key, PlanetaryStackOperation.Sharpened)));
+        WorkbenchFixtures.Read(sharpenedOfStack).GetChannelSpan(0)
             .SequenceEqual(WorkbenchFixtures.Read(again.Output.ShouldNotBeNull()).GetChannelSpan(0)).ShouldBeFalse();
     }
 
