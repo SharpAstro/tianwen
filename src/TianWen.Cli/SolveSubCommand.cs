@@ -9,6 +9,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Workbench;
 
 namespace TianWen.Cli;
 
@@ -23,6 +24,10 @@ namespace TianWen.Cli;
 /// faster on the same input). Star detection is identical to what
 /// <c>StackingPipeline</c> runs during registration, so exported star
 /// lists are reproducible across the two paths.</para>
+///
+/// <para>The solve itself is <see cref="SolveOperation"/>'s routine, which a project's solve step runs too
+/// (docs/architecture/workbench-operations.md): the verb builds the settings from its options, and its star list,
+/// its exports and its annotated picture are its own.</para>
 /// </summary>
 internal sealed class SolveSubCommand(
     IConsoleHost consoleHost,
@@ -32,7 +37,9 @@ internal sealed class SolveSubCommand(
     /// <summary>Solver scale-tolerance default (matches the internal
     /// <see cref="IPlateSolver"/> constant). +/- 3 % of the supplied
     /// pixel scale is a good blind-solve sweet spot.</summary>
-    private const float DefaultRange = 0.03f;
+    private const float DefaultRange = SolveOperation.DefaultRange;
+
+    private readonly SolveOperation _solve = new(plateSolverFactory);
 
     public Command Build()
     {
@@ -66,7 +73,7 @@ internal sealed class SolveSubCommand(
         var searchRadiusOpt = new Option<double>("--search-radius")
         {
             Description = "Search radius in degrees around --search-origin. Ignored unless --search-origin is set.",
-            DefaultValueFactory = _ => 5.0,
+            DefaultValueFactory = _ => SolveOperation.DefaultSearchRadius,
         };
         var rangeOpt = new Option<float>("--range")
         {
@@ -115,6 +122,11 @@ internal sealed class SolveSubCommand(
             Description = "Write the solved WCS back into the input FITS file in place. Default off (read-only).",
         };
 
+        var outputOpt = new Option<string?>("--output", "-o")
+        {
+            Description = "Write the image with the solved WCS to this FITS file, and leave the input as it is. Needs a successful solve.",
+        };
+
         var annotateOpt = new Option<string?>("--annotate")
         {
             Description = "Write a plate-solve verification PNG to this path. Overlays detected stars (green circles), nearest Tycho-2 projections (red crosses), and residual lines (green<=tolerance, yellow<=3x, red>3x). Makes the tol-miss pattern visible at a glance - if lines all point one direction it's a global offset, fan out it's distortion. Requires a successful solve.",
@@ -135,7 +147,7 @@ internal sealed class SolveSubCommand(
                 snrMinOpt, minStarsOpt, maxStarsOpt,
                 exportStarsOpt, exportFormatOpt,
                 exportGaiaOpt, gaiaMaxMagOpt,
-                updateFitsOpt,
+                updateFitsOpt, outputOpt,
                 annotateOpt, annotateSearchRadiusOpt,
             },
         };
@@ -189,6 +201,22 @@ internal sealed class SolveSubCommand(
                 return 1;
             }
 
+            // What the solve is asked, as the operation takes it. It refuses what cannot be a solve (a scale of 0, a
+            // place off the sky) before anything is read.
+            var settings = new SolveSettings
+            {
+                Scale = scaleResult.Scale,
+                Range = parseResult.GetValue(rangeOpt),
+                SearchRa = searchOrigin?.CenterRA,
+                SearchDec = searchOrigin?.CenterDec,
+                SearchRadius = parseResult.GetValue(searchRadiusOpt),
+            };
+            if (_solve.Refusal(settings) is { } refused)
+            {
+                consoleHost.WriteError($"[solve] {refused}");
+                return 1;
+            }
+
             if (!Image.TryReadImageFile(fitsPath, out var image, out var existingWcs))
             {
                 consoleHost.WriteError($"Failed to read image file: {fitsPath}");
@@ -204,42 +232,44 @@ internal sealed class SolveSubCommand(
             var stars = await image.FindStarsAsync(channel: image.ReferenceStarChannel, snrMin: snrMin, maxStars: maxStars, minStars: minStars, cancellationToken: ct);
             consoleHost.WriteScrollable($"[detect] {stars.Count} stars (snr>={snrMin}, max={maxStars})");
 
-            // Build the ImageDim hint. "auto" lets the solver fall back to FITS
-            // header reads; an explicit scale overrides.
             var (width, height) = (image.Width, image.Height);
-            ImageDim? imageDim = scaleResult.Scale is { } s
-                ? new ImageDim(s, width, height)
-                : null;
 
-            var range = parseResult.GetValue(rangeOpt);
-            var radius = parseResult.GetValue(searchRadiusOpt);
-            consoleHost.WriteScrollable(
-                $"[solve] {(imageDim is { } d ? $"scale={d.PixelScale:F3} arcsec/px" : "scale=auto (from FITS)")} {(searchOrigin is null ? "(blind)" : $"hint @ {radius:F1}°")}");
-
-            PlateSolveResult result;
-            try
+            // The solve is the operation's routine: it builds the ImageDim hint ("auto" lets the solver fall back to
+            // FITS header reads; an explicit scale overrides), prints the scale line and the solution line, and solves
+            // by path where the image is a FITS file.
+            var (result, failure) = await _solve.SolveAsync(settings, image, isFits ? fitsPath : null, line => consoleHost.WriteScrollable(line), ct);
+            if (failure is not null)
             {
-                result = isFits
-                    ? await plateSolverFactory.SolveFileAsync(fitsPath, imageDim, range, searchOrigin, searchOrigin is null ? null : radius, ct)
-                    : await plateSolverFactory.SolveImageAsync(image, imageDim, range, searchOrigin, searchOrigin is null ? null : radius, ct);
-            }
-            catch (PlateSolverException ex)
-            {
-                consoleHost.WriteError($"[solve] failed: {ex.Message}");
-                result = new PlateSolveResult(null, TimeSpan.Zero);
+                consoleHost.WriteError(failure);
             }
 
+            // A solved image that cannot be written is said, not thrown, and ends a solved run with 3 as a failed
+            // export does.
+            var outputFailed = false;
             if (result.Solution is { } solvedWcs)
             {
-                consoleHost.WriteScrollable(
-                    $"[solve] RA={solvedWcs.CenterRA:F4}h Dec={solvedWcs.CenterDec:F4}° scale={solvedWcs.PixelScaleArcsec:F3}\"/px matched={result.MatchedStars}/{result.DetectedStars} catalog={result.CatalogStars}");
-
                 if (parseResult.GetValue(updateFitsOpt))
                 {
                     // Re-encode the image with the new WCS embedded. Existing
                     // headers are preserved; only WCS keywords get updated.
-                    image.WriteToFitsFile(fitsPath, solvedWcs);
+                    SolveOperation.WriteSolved(image, solvedWcs, fitsPath);
                     consoleHost.WriteScrollable($"[solve] wrote WCS to {fitsPath}");
+                }
+
+                if (parseResult.GetValue(outputOpt) is { } outputPath)
+                {
+                    // The same re-encoding into a file of its own, which is how a project's solve step is done from a
+                    // terminal: the input is never written.
+                    try
+                    {
+                        SolveOperation.WriteSolved(image, solvedWcs, outputPath);
+                        consoleHost.WriteScrollable($"[solve] wrote the solved image to {outputPath}");
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
+                    {
+                        consoleHost.WriteError($"[solve] {e.Message}");
+                        outputFailed = true;
+                    }
                 }
 
                 if (parseResult.GetValue(annotateOpt) is { } annotPath)
@@ -310,13 +340,14 @@ internal sealed class SolveSubCommand(
                 }
             }
 
-            return ExitCode(result.Solution is not null, gaiaFailed || exportFailed);
+            return ExitCode(result.Solution is not null, gaiaFailed || exportFailed || outputFailed);
         });
         return solveCommand;
     }
 
     /// <summary>The code a solve ends with. No solution is the run's first answer and keeps its code, 2, whatever an
-    /// export did; 3 is a solved run of which an export failed; 0 a solved run with every export written.</summary>
+    /// export did; 3 is a solved run of which an export (or the <c>-o</c> image) failed; 0 a solved run with every
+    /// export written.</summary>
     internal static int ExitCode(bool solved, bool anExportFailed) => !solved ? 2 : anExportFailed ? 3 : 0;
 
     // -------------------------------------------------------------------- helpers

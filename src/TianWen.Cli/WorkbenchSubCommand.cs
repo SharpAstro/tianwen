@@ -94,7 +94,12 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
             foreach (var operation in operations.All)
             {
                 var description = operation.Description;
-                var kept = description.Output is OperationOutputKind.Derived ? "derived, never stored" : "stored";
+                var kept = description.Output switch
+                {
+                    OperationOutputKind.Derived => "derived, never stored",
+                    OperationOutputKind.Finding => "writes no pixels, its finding stored",
+                    _ => "stored",
+                };
                 consoleHost.WriteScrollable($"{description.Id} (version {description.Version}): {description.Title}, {kept}; the routine of `tianwen {description.Verb}`");
                 foreach (var role in description.ExtraInputs)
                 {

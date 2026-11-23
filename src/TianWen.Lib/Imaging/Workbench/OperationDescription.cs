@@ -10,6 +10,10 @@ public enum OperationOutputKind
 
     /// <summary>Made again from its input whenever it is asked for, and never stored: a crop.</summary>
     Derived,
+
+    /// <summary>No pixels are written (the plan's "metadata"): what the operation finds out about its input is a small
+    /// file in the step store, and its result is its input with that applied. A plate solve.</summary>
+    Finding,
 }
 
 /// <summary>One setting of an operation, as a listing or a panel shows it. Its default is not repeated here: it is the

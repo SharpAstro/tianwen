@@ -12,14 +12,16 @@ public sealed class OperationCatalog
 
     /// <summary>A catalog of <paramref name="operations"/>.</summary>
     /// <exception cref="ArgumentException">Two operations share an id, or one says it is derived and has no
-    /// derivation (or the reverse): either would make a step's key or its handling depend on which one was found.</exception>
+    /// derivation, or that it writes no pixels and has no finding (or the reverse): either would make a step's key or
+    /// its handling depend on which one was found.</exception>
     public OperationCatalog(IEnumerable<IOperation> operations)
     {
         ArgumentNullException.ThrowIfNull(operations);
         foreach (var operation in operations)
         {
             var description = operation.Description;
-            if ((description.Output is OperationOutputKind.Derived) != (operation is IDerivedOperation))
+            if ((description.Output is OperationOutputKind.Derived) != (operation is IDerivedOperation)
+                || (description.Output is OperationOutputKind.Finding) != (operation is IFindingOperation))
             {
                 throw new ArgumentException(
                     $"the operation '{description.Id}' says its output is {description.Output} and its type says otherwise", nameof(operations));

@@ -64,6 +64,14 @@ public static class StepKey
     public static string OfResult(string stepKey, string name)
         => Digest("tianwen-result/1\nstep=" + stepKey + "\nresult=" + name.ReplaceLineEndings(" ") + "\n");
 
+    /// <summary>
+    /// The key a step that writes no pixels keeps its finding under (<see cref="IFindingOperation"/>). The step's own
+    /// key names the image the step gives, which has no file in the store, so a file written there by hand (the step's
+    /// command line names that place) is never taken for the finding.
+    /// </summary>
+    public static string OfFinding(string stepKey)
+        => Digest("tianwen-finding/1\nstep=" + stepKey + "\n");
+
     private static string Digest(string text) => ContentDigest.Format(XxHash128.Hash(Encoding.UTF8.GetBytes(text)));
 
     /// <summary>A key as a person reads it in a listing: the first twelve digits of its digest.</summary>

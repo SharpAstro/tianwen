@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
@@ -47,6 +48,9 @@ public static class WorkbenchServiceCollectionExtensions
             sp.GetRequiredService<IBackgroundExtractor>(),
             sp.GetRequiredService<IGradientCorrector>(),
             sp.GetService<ILogger<GradientOperation>>()));
+        // GetService: a host with no plate solver still has every other operation, and its solve step says so when it
+        // runs.
+        services.AddSingleton<IOperation>(static sp => new SolveOperation(sp.GetService<IPlateSolverFactory>()));
         services.TryAddSingleton(static sp => new OperationCatalog(sp.GetServices<IOperation>()));
         services.TryAddSingleton<WorkbenchRunner>();
         return services;
