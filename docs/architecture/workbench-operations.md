@@ -334,7 +334,7 @@ that gave no result.
 1. Its settings: a `sealed record` of settable properties with defaults in `OperationSettings.cs`, and a
    `[JsonSerializable]` line on `OperationSettingsJsonContext`.
 2. The class: `Operation<TSettings>` (stored), `DerivedOperation<TSettings>`, `JointOperation<TSettings>` (one run
-   for several images) or `FindingOperation<TSettings>` (no pixels). It reads through `OperationInput`
+   for several images), `MultiResultOperation<TSettings>` (fixed inputs and extra results beside the main one) or `FindingOperation<TSettings>` (no pixels). It reads through `OperationInput`
    (`TryRead`, or `TryReadMaster` where the verb masks the absent ring) and writes with `OperationOutput.Write`. It
    calls the existing routine and adds nothing.
 3. The verb calls it. Where the verb needs more than the file (a companion picture, a second output), the operation

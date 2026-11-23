@@ -502,8 +502,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 return null;
             }
 
-            // The extra results first and the main one last: a step is kept only when all of them are there, so a run
-            // that ends in between is made again.
+            // The extra results first and the main one last. The order does not decide what is kept (InStore needs the main
+            // result and every extra, so a run that ends between two commits is made again either way).
             for (var i = stagings.Count - 1; i >= 0; i--)
             {
                 await store.CommitAsync(stagings[i], several.Description.Id, cancellationToken);

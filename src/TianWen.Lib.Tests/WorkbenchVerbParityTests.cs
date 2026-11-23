@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -41,9 +42,13 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
     {
         public string Name => name;
 
+        /// <summary>The channel count of every image this stand-in was handed: what tells one colour image from three mono planes.</summary>
+        public ConcurrentQueue<int> ChannelsSeen { get; } = new();
+
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
         {
             var (channels, width, height) = input.Shape;
+            ChannelsSeen.Enqueue(channels);
             var planes = new float[channels][,];
             for (var c = 0; c < channels; c++)
             {
@@ -395,10 +400,23 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             ShouldBeTheSameFile(extra, verbs[extra], name);
         }
 
-        // The planes went through as one image and came back as three: none is another's.
-        var denoisedRed = WorkbenchFixtures.Read(plane);
-        var denoisedGreen = WorkbenchFixtures.Read(Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("green-denoised").Key)));
-        denoisedRed[0, 100, 100].ShouldNotBe(denoisedGreen[0, 100, 100]);
+        // The planes went through as one colour image (the stand-in saw three channels at once, not three mono planes) and
+        // came back as three, each its OWN input's: the stand-in scales by 0.8, so a swapped or reused plane would show.
+        Denoiser.ChannelsSeen.ShouldContain(3);
+        foreach (var (written, input) in new[]
+        {
+            (plane, red),
+            (Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("green-denoised").Key)), green),
+            (Path.Combine(folder, StepStore.FolderName, StepStore.FileNameOf(Of("blue-denoised").Key)), blue),
+        })
+        {
+            var result = WorkbenchFixtures.Read(written);
+            var source = WorkbenchFixtures.Read(input);
+            foreach (var (x, y) in new[] { (100, 100), (60, 140), (150, 90) })
+            {
+                result[0, y, x].ShouldBe(source[0, y, x] * 0.8f, Math.Max(1f, MathF.Abs(source[0, y, x]) * 0.02f), Path.GetFileName(written));
+            }
+        }
     }
 
     /// <summary>
