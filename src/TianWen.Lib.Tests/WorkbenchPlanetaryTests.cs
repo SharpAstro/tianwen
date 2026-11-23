@@ -746,7 +746,7 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
 
         report.Succeeded.ShouldBeFalse();
         report.Images[0].Steps[0].State.ShouldBe(StepState.Refused, Messages(report));
-        report.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("Failed to read FITS file", Case.Sensitive, Messages(report));
+        report.Images[0].Steps[0].Message.ShouldNotBeNull().ShouldContain("is no FITS image", Case.Sensitive, Messages(report));
         var store = Path.Combine(folder, StepStore.FolderName);
         (Directory.Exists(store) ? Directory.GetFiles(store, "*.fits") : []).ShouldBeEmpty();
     }

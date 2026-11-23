@@ -211,32 +211,6 @@ public sealed record FrameDigestEntry
     public string Digest { get; set; } = string.Empty;
 }
 
-/// <summary>The frame digest index's file (<see cref="FrameDigestIndex"/>).</summary>
-public sealed record FrameDigestIndexFile
-{
-    /// <summary>The layout the file was written in.</summary>
-    public int SchemaVersion { get; set; } = 1;
-
-    /// <summary>One entry for each frame whose digest is remembered, in the order of the paths.</summary>
-    public ImmutableArray<FrameDigestEntry> Frames { get; set; } = [];
-}
-
-/// <summary>One frame's digest, and the size and time it was read under.</summary>
-public sealed record FrameDigestEntry
-{
-    /// <summary>The frame's full path.</summary>
-    public string Path { get; set; } = string.Empty;
-
-    /// <summary>Its size when it was digested.</summary>
-    public long Bytes { get; set; }
-
-    /// <summary>Its last write time when it was digested, in UTC ticks.</summary>
-    public long LastWriteUtcTicks { get; set; }
-
-    /// <summary>The digest of its bytes (<see cref="ContentDigest"/>).</summary>
-    public string Digest { get; set; } = string.Empty;
-}
-
 // Files a person reads and may write by hand: indented, camelCase, enums as words. A member the type does not have is
 // refused, not passed over: an "edit" for "edits" would otherwise be an image with no edits, and say nothing.
 [JsonSourceGenerationOptions(
