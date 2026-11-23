@@ -1015,6 +1015,7 @@ internal sealed partial class ImageSubCommand(
         };
         var deconvKernelOpts = new DeconvolutionKernelOptions();
         deconvKernelOpts.AddTo(cmd);
+        var enhance = new EnhanceOperation(sharpenPipeline);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var input = parseResult.Required(inputArg);
@@ -1195,18 +1196,66 @@ internal sealed partial class ImageSubCommand(
                 return 1;
             }
 
-            // AI enhancers require [0, 1]. ScaleFloatValuesToUnit is a no-op
-            // when MaxValue <= 1 (= already normalised) and otherwise produces
-            // a fresh copy at unit range. Original `src` is unchanged.
-            var normalised = src.ScaleFloatValuesToUnit();
-
+            // The settings of the operation an edit list runs (EnhanceOperation, docs/plans/stacking-workbench.md W1).
+            // The program below is that operation's, and this verb adds only its own per-plate stretches to it, so
+            // `tianwen image sharpen` and a project's enhance step are one routine.
+            ImmutableArray<float> statedWhiteBalance = [];
+            if (parseResult.GetValue(sharpenWhiteBalanceOpt) is { Length: > 0 } wbText)
+            {
+                if (!TryParseWhiteBalance(wbText, out var given))
+                {
+                    consoleHost.WriteError($"--white-balance must be three positive finite numbers 'R,G,B'; got '{wbText}'.");
+                    return 1;
+                }
+                statedWhiteBalance = [given.R, given.G, given.B];
+            }
+            var scnrExplicit = parseResult.GetResult(scnrOpt)?.Tokens.Count > 0;
+            var settings = new EnhanceSettings
+            {
+                Backend = backend,
+                Gradient = !noGradient,
+                GradientBackend = gradient,
+                Mode = mode,
+                StellarSharpen = stellarOptIn,
+                StellarBlend = stellarBlend,
+                Deconvolve = !noDeconv,
+                // Stated only where the caller ASKED for the starless deconvolution: with BlurX live the canonical
+                // program drops it, and a stated blend is what keeps it.
+                DeconvolveBlend = deconvExplicit ? deconvBlend : null,
+                Denoise = !noDenoise,
+                DenoiseBlend = denoiseBlend,
+                DenoiseVariant = denoiseVariant,
+                // Stated only where --scnr was given: left out, the program decides.
+                Scnr = scnrExplicit ? scnrMode : null,
+                ScnrAmount = scnrAmount,
+                DeblurSharpen = deblurSharpen >= 0 ? (float)deblurSharpen : null,
+                DenoiseStrength = denoiseStrength >= 0 ? (float)denoiseStrength : null,
+                DenoiseIterations = denoiseIterations >= 1 ? denoiseIterations : null,
+                DeconvKernel = parseResult.GetValue(deconvKernelOpts.Kernel),
+                DeconvBeta = parseResult.GetValue(deconvKernelOpts.Beta),
+                DeconvResample = parseResult.GetValue(deconvKernelOpts.Resample),
+                WhiteBalance = statedWhiteBalance,
+            };
+            // The options the run uses are the ones the operation makes of these settings: one reading of them.
+            if (!EnhanceOperation.TryOptions(settings, out enhanceOptions, out var optionsRefusal))
+            {
+                consoleHost.WriteError($"[sharpen] {InSharpenOptions(optionsRefusal)}");
+                return 1;
+            }
+            if (enhance.Refusal(settings) is { } refusal)
+            {
+                consoleHost.WriteError($"[sharpen] {InSharpenOptions(refusal)}");
+                return 1;
+            }
 
             // What can serve THIS image under THESE options sets the program's shape (the RC-Astro
             // licence probe runs here, at the first enhance, never at DI build): the split program with
             // a star remover, BlurX-first where a deblurrer serves, and the whole-frame program
-            // (gradient, then denoise the frame) where no star remover does.
-            var capabilities = sharpenPipeline.CapabilitiesFor(normalised, enhanceOptions);
-            var deblurLive = capabilities.Deblur;
+            // (gradient, then denoise the frame) where no star remover does. The input goes onto the unit
+            // scale there too; the original `src` is unchanged.
+            var start = enhance.Start(src, enhanceOptions);
+            var normalised = start.Normalised;
+            var capabilities = start.Capabilities;
             if (!capabilities.StarRemoval && (dualStretch || noRecombine))
             {
                 consoleHost.WriteError(
@@ -1215,104 +1264,12 @@ internal sealed partial class ImageSubCommand(
                 return 1;
             }
 
-            // Stellar-sharpen is opt-in (default OFF), and only where a stellar sharpener serves: none
-            // ships today (the SETI Astro one went with the SAS tier on 2026-09-26, and it hardened
-            // bright cores into square white blocks, ~89k clipped px measured on a dense field). Hard
-            // override: when a BlurX deblurrer is live it is skipped even if opted in -- the BlurX-first
-            // (PixInsight OSC) flow deblurs whole-frame before star extraction, so re-sharpening the
-            // split stars double-dips.
-            var doStellar = stellarOptIn && !deblurLive && capabilities.StellarSharpen && capabilities.StarRemoval;
-            if (stellarOptIn && deblurLive)
-            {
-                consoleHost.WriteScrollable(
-                    "[sharpen] --stellar-sharpen ignored: BlurX deblurrer live (deblur is whole-frame upstream; re-sharpening extracted stars over-sharpens).");
-            }
-            else if (stellarOptIn && !doStellar)
-            {
-                consoleHost.WriteScrollable(
-                    "[sharpen] --stellar-sharpen ignored: no stellar sharpener is available (none ships today; RC-Astro BlurXTerminator's deblur tightens stars).");
-            }
-
-            // SCNR on the stars plate follows whichever canonical program applies, and only an
-            // explicit --scnr overrides it. SharpenRequest.DeblurFirst carries ScnrStarsStep
-            // (Average) and SharpenRequest.Canonical does not, which is the split honoured here:
-            // BlurX tightens every star to near the sampling limit, and the faint ones then carry a
-            // green fringe where the G channel outpaces R and B, so the BlurX-first flow neutralises
-            // it and the split program without a deblurrer has nothing to neutralise. --dual-stretch keeps its own
-            // reason on top: green stars are a stretched-space artefact, so a program that stretches
-            // in-pipeline wants SCNR whichever deblurrer is live.
-            var scnrExplicit = parseResult.GetResult(scnrOpt)?.Tokens.Count > 0;
-            var effectiveScnrMode = scnrExplicit ? scnrMode
-                : deblurLive || dualStretch ? ScnrMode.Average
-                : ScnrMode.None;
-            if (scnrExplicit && !capabilities.StarRemoval && scnrMode != ScnrMode.None)
-            {
-                consoleHost.WriteScrollable(
-                    "[sharpen] --scnr ignored: SCNR works on the stars plate, and with no star remover the program is whole-frame.");
-            }
-
-            // THE STEP ORDER IS NOT WRITTEN HERE. LinearEnhanceProgram.For is the one place it
-            // lives, and the viewer's Enhance button, the hosted endpoint and MasterPostProcessor
-            // all read it from there too; this verb only says which steps its flags keep and at
-            // what blend. It used to carry a hand-assembled list that began at RemoveStarsStep, so
-            // `tianwen image sharpen` ran neither the whole-frame deblur nor the gradient
-            // correction the other callers have always run: the same master enhanced in the viewer
-            // and on the command line came out visibly different, an uncorrected background with
-            // its colour cast intact, and nothing said so.
-            //
-            // Deviations from the canonical defaults, each with its own reason (and none of them can
-            // switch on a step no role serves: every step flag is ANDed with its capability):
-            //  - StellarSharpen is opt-in here, where a sharpener serves at all (see above).
-            //  - DeconvolveStarless survives a live deblurrer only if asked for outright.
-            //  - Scnr follows whichever canonical program applies unless --scnr overrides it, and
-            //    --dual-stretch wants it either way (green stars are a stretched-space artefact).
-            //  - Recombine is cleared by --no-recombine, which writes each plate separately.
-            //  - WhiteBalance multiplies a broadband SPCC balance the input states (a stacked master's WB
-            //    cards), or the one --white-balance gives for an input that states none, into the linear data
-            //    first, as `stack --enhance` and the viewer apply theirs.
-            (float R, float G, float B)? explicitWb = null;
-            if (parseResult.GetValue(sharpenWhiteBalanceOpt) is { Length: > 0 } wbText)
-            {
-                if (!TryParseWhiteBalance(wbText, out var given))
-                {
-                    consoleHost.WriteError($"--white-balance must be three positive finite numbers 'R,G,B'; got '{wbText}'.");
-                    return 1;
-                }
-                explicitWb = given;
-            }
-            var (stated, wbNote) = ResolveSharpenWhiteBalance(normalised.ImageMeta.ColourCalibration, explicitWb);
-            if (wbNote is not null)
-            {
-                consoleHost.WriteScrollable(wbNote);
-            }
-            var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(stated, normalised.ImageMeta, ct);
-            if (whiteBalance is { } applying)
-            {
-                consoleHost.WriteScrollable(
-                    $"[sharpen] {ColourCalibration.CardOf(applying.Source)} white balance ({applying.R:F3}, {applying.G:F3}, {applying.B:F3}) applied to the linear input before the enhance");
-            }
-            var program = LinearEnhanceProgram.For(capabilities) with
-            {
-                WhiteBalance = whiteBalance,
-                // Blend left at the step default, as the canonical program has it; --deblur-sharpen
-                // tunes RC-Astro's own sharpening through EnhanceOptions and is a different dial.
-                GradientCorrection = !noGradient && capabilities.GradientCorrection,
-                SplitMode = mode,
-                StellarSharpen = doStellar,
-                StellarBlend = stellarBlend,
-                DeconvolveStarless = !noDeconv && capabilities.StarRemoval && capabilities.Deconvolve && (!deblurLive || deconvExplicit),
-                DeconvolveBlend = deconvBlend,
-                Denoise = !noDenoise && capabilities.Denoise,
-                DenoiseBlend = denoiseBlend,
-                DenoiseVariant = denoiseVariant,
-                Scnr = effectiveScnrMode,
-                ScnrAmount = scnrAmount,
-                Recombine = !noRecombine,
-                // Dual-stretch produces plates already in [0, 1] stretched space. Additive sum
-                // saturates at 1.0; screen is the natural bounded composite:
-                // Final = 1 - (1-bg)(1-fg). Split stays in linear (mode controls that).
-                RecombineMode = dualStretch ? RecombineMode.Screen : mode,
-            };
+            // THE STEP ORDER IS NOT WRITTEN HERE, nor which steps the flags keep: both are EnhanceOperation's
+            // (LinearEnhanceProgram.For, and its deviations from it, each with its reason there).
+            var program = await enhance.ProgramAsync(start, settings, stretchedInPipeline: dualStretch, recombine: !noRecombine,
+                line => consoleHost.WriteScrollable($"[sharpen] {InSharpenOptions(line)}"), ct);
+            var doStellar = program.StellarSharpen;
+            var effectiveScnrMode = program.Scnr;
 
             // The plate steps, then this verb's own per-plate stretch, then the composite. The
             // stretch's PLACEMENT is the CLI's call (SCNR after it, PixInsight convention); the
@@ -2519,26 +2476,6 @@ internal sealed partial class ImageSubCommand(
     }
 
     /// <summary>
-    /// Which balance <c>image sharpen</c> works from: an explicit <c>--white-balance</c> WINS over the input's own WB
-    /// cards (an option on the command line is the user's intent, and the cards used to win silently, so an override
-    /// was lost without a word), and the note names both triples when it replaced the file's. Null note when nothing
-    /// was replaced.
-    /// </summary>
-    internal static (ColourCalibration? Chosen, string? Note) ResolveSharpenWhiteBalance(
-        ColourCalibration? fromFile, (float R, float G, float B)? explicitWb)
-    {
-        if (explicitWb is not { } given)
-        {
-            return (fromFile, null);
-        }
-        var chosen = new ColourCalibration(given.R, given.G, given.B, ColourCalibrationSource.Spcc);
-        var note = fromFile is { } file
-            ? $"[sharpen] --white-balance ({given.R:F3}, {given.G:F3}, {given.B:F3}) replaces the input's own {ColourCalibration.CardOf(file.Source)} white balance ({file.R:F3}, {file.G:F3}, {file.B:F3})"
-            : null;
-        return (chosen, note);
-    }
-
-    /// <summary>
     /// Parse a <c>--white-balance</c> triple. Accepts exactly what the render line prints,
     /// <c>R,G,B</c>, and refuses anything that is not three positive finite numbers -- a zero or
     /// negative gain would black out or invert a channel, and a silently-dropped override would
@@ -3062,6 +2999,32 @@ internal sealed partial class ImageSubCommand(
 
     private static string DefaultOut(string input, string suffix)
         => StripExtension(input) + suffix + ".fits";
+
+    /// <summary>
+    /// A line the enhance operation worded, said as this verb says it: the operation names a setting and
+    /// <c>image sharpen</c> names its option, as it did before the operation had the words (#2475). Each pair is a
+    /// setting's name as the operation's lines start with it; a line that names none is said as it is.
+    /// </summary>
+    internal static string InSharpenOptions(string line)
+    {
+        foreach (var (setting, option) in SharpenOptionOfSetting)
+        {
+            line = line.Replace(setting, option, StringComparison.Ordinal);
+        }
+        return line;
+    }
+
+    private static readonly (string Setting, string Option)[] SharpenOptionOfSetting =
+    [
+        ("deblurSharpen is", "--deblur-sharpen is"),
+        ("denoiseStrength is", "--denoise-strength is"),
+        ("denoiseIterations is", "--denoise-iterations is"),
+        ("whiteBalance is", "--white-balance is"),
+        ("gradientBackend chooses the extractor of a gradient step that gradient leaves out", "--gradient chooses the extractor of a gradient step that --no-gradient leaves out"),
+        ("stellar sharpening ignored", "--stellar-sharpen ignored"),
+        ("scnr ignored", "--scnr ignored"),
+        ("the white balance given", "--white-balance"),
+    ];
 
     /// <summary>Says which of the master's map sidecars were cropped with it, and any that were not, with the reason.</summary>
     private void SayCroppedSidecars(string verb, MasterCropResult result)

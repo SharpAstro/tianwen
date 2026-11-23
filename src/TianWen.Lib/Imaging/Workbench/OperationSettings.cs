@@ -137,6 +137,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(CropSettings))]
 [JsonSerializable(typeof(LinearFitSettings))]
 [JsonSerializable(typeof(GradientSettings))]
+[JsonSerializable(typeof(EnhanceSettings))]
 [JsonSerializable(typeof(NoSettings))]
 [JsonSerializable(typeof(AddLineSettings))]
 [JsonSerializable(typeof(LrgbSettings))]

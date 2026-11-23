@@ -34,7 +34,7 @@ namespace TianWen.AI.Imaging
         GraXpertBackgroundExtractor graXpert,
         ClassicalBackgroundExtractor classical,
         ILogger<FallbackGradientCorrector>? logger = null)
-        : IGradientCorrector
+        : IGradientCorrector, IEnhancerAvailability
     {
         private int _fallbackAnnounced;
 
@@ -63,6 +63,16 @@ namespace TianWen.AI.Imaging
         };
 
         public string Name => Pick().Name;
+
+        /// <summary>A corrector always answers: the classical fit needs no model, and a run that names GraXpert where
+        /// its weights are not installed fails naming where it looked, which is that run's to say and no reason to
+        /// leave the step out of a program.</summary>
+        public bool CanServe(int channelCount, EnhanceOptions options) => true;
+
+        /// <summary>The name of the corrector <paramref name="options"/> choose (<see cref="For"/>), which is the one
+        /// that would run: an enhance step that says <c>classical</c> is keyed by the classical fit on a computer
+        /// where GraXpert is installed too, and its key does not move when GraXpert is installed or removed (#2475).</summary>
+        public string NameUnder(EnhanceOptions options) => For(options.Gradient).Name;
 
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => Pick().EnhanceAsync(input, cancellationToken);
