@@ -31,6 +31,7 @@ takes besides its own, its settings) and everything else reads that.
 | `CommandLine(settings, inputs, output)` | The command that does the step from a terminal, program name first |
 | `RunAsync(settings, inputs, outputPath, say, ct)` | The work: reads its inputs, writes one FITS file. The verb's routine |
 | `Derive(settings, inputs)` | `IDerivedOperation` only: the result as an input for the next step, with no file |
+| `FindAsync`, `Apply`, `Write` | `IFindingOperation` only: find it out and write the finding; the input with the finding applied, for the next step; the result as the file the verb writes, from a finding made before |
 
 The rules that bite:
 
@@ -69,6 +70,32 @@ stored operations here read. Written as a file from a FILE it also carries the a
 sidecars (`MasterCrop.CropLoaded`). An operation that reads a map sidecar after a derived crop finds none; none exists
 yet, and the one that will (SPCC's saturation map, #2284) has to settle this first.
 
+## An operation that writes no pixels
+
+A plate solve finds something out about its input and changes no pixel (`OperationOutputKind.Finding`, the plan's
+"metadata"; `IFindingOperation`, `FindingOperation<TSettings>`).
+
+- **What the store keeps is the finding**, a small file, under a key of its own (`StepKey.OfFinding(step)`). The step's
+  own key names the image the step gives, which has no file in the store; a step's command line names that place, so a
+  file written there by hand is never taken for the finding.
+- **The step after it takes its input with the finding applied** (`Apply`): the pixels of what is before the step, and
+  the finding. So such a step needs what is before it whenever it is needed itself, even when its finding is kept.
+- **It is not run again while its finding is in the store** (`Kept`), and a refusal keeps nothing.
+- **Written as a file it is its verb's file.** `workbench run --export` writes it from the finding the run made or kept
+  (`Write`), and finds nothing out a second time.
+
+**The plate solve** (`solve`, `tianwen solve`) is the first. Its finding is the plate solution as a FITS header with no
+data (`PlateSolutionFile`): the cards `WCS.WriteToHeader` writes, read back through `WCS.FromHeader`. So the step after
+a solve works on the numbers a verb reads off the solved image, to the last digit a card holds.
+
+- `tianwen solve` builds `SolveSettings` and calls `SolveOperation.SolveAsync`, and writes the solved image with
+  `SolveOperation.WriteSolved`. It gains `-o`: the image with the solution in a file of its own, the input left as it
+  is, which is how a project's solve step is done from a terminal (`--update-fits` still writes the input in place).
+- **Which solver answered is not in the step's key.** The solvers are tried in order of priority until one answers,
+  and every answer is a solution of the same sky; installing another solver must not run again every step after a
+  solve. A host with no solver has the operation, and its step says so when it runs.
+- A solve that finds nothing is a refusal of the step, kept nowhere and tried again by the next run.
+
 ## The operations
 
 `tianwen workbench operations` prints this list from the code, with every setting at its default. An edit names an
@@ -92,6 +119,7 @@ operation by its id.
 | `denoise` | stored, one run for several | `image denoise` | the other masters of the run |
 | `remove-stars` | stored, one run for several; the stars as a second result | `image remove-stars` | the other masters of the run |
 | `combine` | stored | `image combine` | `green`, `blue`, and optionally `ha`. Its own image is red |
+| `solve` | no pixels: the plate solution is stored | `solve` | |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -155,7 +183,7 @@ input=<key of each extra input, in order>
 
 For a run several images share, the `input=` lines are the images' keys in sorted order, and that digest is the run's
 key. One image's result of it is `StepKey.OfMember(run, image)`, and an extra result of a step is
-`StepKey.OfResult(step, name)`.
+`StepKey.OfResult(step, name)`. The finding of a step that writes no pixels is kept under `StepKey.OfFinding(step)`.
 
 An original file's key is the digest of its bytes (`StepKey.OfFile`), computed on every status and run. Keys are made
 from keys, so a stored result is never hashed. Nothing is decided by a file's date: the same bytes under a new date
@@ -167,7 +195,7 @@ change without the other.
 ## The step store
 
 `<project>/store/`, one `<digest>.fits` a stored step, and `index.json` naming every result with its key, its
-operation and its size.
+operation and its size. The finding of a step that writes no pixels is a file there too, named by the finding's key.
 
 - **A result appears whole or not at all.** A step writes into `store/.staging/<guid>/` and the file is renamed into
   place when the step has succeeded; the index gains its entry after that, under the folder's lock
@@ -225,7 +253,8 @@ folder. A member the type does not have is refused.
    the store needs nothing before it**, so an earlier result that is gone is not made again for its sake
    (`NotNeeded`).
 3. A run makes each image as far as it could be planned: a stored step that is needed and not in the store runs
-   (`Ran`), one that is there is `Kept`, a derived step is `Derived`.
+   (`Ran`), one that is there is `Kept`, a derived step is `Derived`. A step that writes no pixels is `Ran` or `Kept`
+   by its finding.
 4. A run records each step's key and result in the project file, and writes it only when something changed.
 
 `tianwen workbench status <project>` prints the plan with every step's command line and writes nothing.
@@ -237,13 +266,15 @@ that gave no result.
 
 1. Its settings: a `sealed record` of settable properties with defaults in `OperationSettings.cs`, and a
    `[JsonSerializable]` line on `OperationSettingsJsonContext`.
-2. The class: `Operation<TSettings>` (stored) or `DerivedOperation<TSettings>`. It reads through `OperationInput`
+2. The class: `Operation<TSettings>` (stored), `DerivedOperation<TSettings>`, `JointOperation<TSettings>` (one run
+   for several images) or `FindingOperation<TSettings>` (no pixels). It reads through `OperationInput`
    (`TryRead`, or `TryReadMaster` where the verb masks the absent ring) and writes with `OperationOutput.Write`. It
    calls the existing routine and adds nothing.
 3. The verb calls it. Where the verb needs more than the file (a companion picture, a second output), the operation
    offers the work without the files, as `GradientOperation.ExtractAsync` does, and both write with the same writer.
 4. A line in `WorkbenchServiceCollectionExtensions.AddWorkbench`.
-5. A step in `WorkbenchVerbParityTests`, so its command line and its file are held to the verb's.
+5. A step in `WorkbenchVerbParityTests`, so its command line and its file are held to the verb's. A verb that is
+   not a `tianwen image` one has the same test beside it (`WorkbenchSolveTests` for `tianwen solve`).
 
 ## Not here yet
 
@@ -253,8 +284,8 @@ Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the c
   steps (#2468). Every colour step of #2465 is here but the one below.
 - **`image denoise --colour`** (#2465): three planes denoised as one colour image, where the order of the planes is
   their colour, so it is not a run several images share.
-- **A set of frames as an input** (calibrate, register, integrate; #2467), and an operation that writes no pixels
-  (plate solve, statistics; #2469).
+- **A set of frames as an input** (calibrate, register, integrate; #2467).
+- **Statistics** as the second operation that writes no pixels (#2469); the kind is here with the plate solve.
 - **Preconditions and how an operation previews**: the facts are W9's (#2236), the preview W12's (#2239).
 - **The enhance program's steps.** `SharpenStep` and its records stay the pipeline's in-memory program; an operation's
   settings are a JSON class that the operation turns into those records in one place

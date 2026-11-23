@@ -353,7 +353,9 @@ Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans
 - **Nothing is decided by a file's date**: a step runs when its key (`StepKey`) is not in the `StepStore`. The store
   reads and removes only what its index names.
 - A stored step reads files and writes one; only a derived step (crop) hands its result on, in memory, to the step
-  after it.
+  after it. A step that writes no pixels (`IFindingOperation`, the plate solve) keeps its finding in the store under
+  `StepKey.OfFinding` and hands on its input with the finding applied; a plate solution kept as a file is
+  `PlateSolutionFile`, read through `WCS.FromHeader`.
 
 ### Hosting API and remote rigs
 
