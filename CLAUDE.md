@@ -345,9 +345,13 @@ Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans
 
 - **A verb's file-to-file work is its operation's routine** (`Operation<TSettings>`): the verb builds the settings and
   calls the operation, and `WorkbenchRunner` reaches the same method. A new operation ships its step in
-  `WorkbenchVerbParityTests`, which holds its file to the verb's, to the byte.
-- **Other pixels for the same settings is a new `Version`** of the operation; what serves a step (`ServedBy`) is in its
-  key.
+  `WorkbenchVerbParityTests`, which holds its file to the verb's, to the byte (the enhance's is
+  `WorkbenchEnhanceParityTests`; `image sharpen` shares the program with its operation and not the run).
+- **Other pixels for the same settings is a new `Version`** of the operation (the enhance's default program is pinned by
+  a test); what serves a step (`ServedBy`) is in its key, asked once a plan, and an in-house enhancer's name carries
+  its model file.
+- **An operation is registered by its type** (`AddWorkbench`): a factory lambda only where the container cannot fill the
+  constructor, with the reason beside it. The catalog takes every `IOperation`; never a keyed lookup at run time.
 - **A setting is a settable property with its default** (never `init`), in `OperationSettingsJsonContext`, which refuses
   a member the type does not have.
 - **Nothing is decided by a file's date**: a step runs when its key (`StepKey`) is not in the `StepStore`. The store

@@ -137,7 +137,7 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
             new OperationSetting("scnrAmount", "Its strength, 0 to 1."),
             new OperationSetting("deblurSharpen", "The deblurrer's own sharpening, 0 to 1. Left out: the enhancer's default."),
             new OperationSetting("denoiseStrength", "The denoiser's own strength, 0 to 1. Left out: the enhancer's default."),
-            new OperationSetting("denoiseIterations", "Denoise passes, run ungated. Left out: gated, up to three."),
+            new OperationSetting("denoiseIterations", "Denoise passes, 1 or more, run ungated. Left out: gated, up to three."),
             new OperationSetting("deconvKernel", "The blur TianWen's own deconvolver removes, as a Moffat FWHM in pixels: one value or three."),
             new OperationSetting("deconvBeta", "The Moffat beta of the kernel."),
             new OperationSetting("deconvResample", "The scale the frame is deconvolved at."),
@@ -163,6 +163,24 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
         if (settings.WhiteBalance.IsDefault || (settings.WhiteBalance.Length is not (0 or 3)) || settings.WhiteBalance.Any(static gain => !float.IsFinite(gain) || gain <= 0f))
         {
             return "whiteBalance is three positive numbers (red, green, blue), or left out";
+        }
+
+        // The verb reads a value below these ranges as "not stated" (its options' own sentinels), so a step that kept one
+        // would not be the file its printed command line makes: zero passes here is one ungated pass, and
+        // --denoise-iterations 0 there is the gated three.
+        if (settings.DeblurSharpen is { } deblurSharpen && !IsFraction(deblurSharpen))
+        {
+            return "deblurSharpen is 0 to 1, or left out for the deblurrer's own";
+        }
+
+        if (settings.DenoiseStrength is { } denoiseStrength && !IsFraction(denoiseStrength))
+        {
+            return "denoiseStrength is 0 to 1, or left out for the denoiser's own";
+        }
+
+        if (settings.DenoiseIterations is < 1)
+        {
+            return "denoiseIterations is 1 or more, or left out for the gated passes";
         }
 
         return IsFraction(settings.StellarBlend) && IsFraction(settings.DeconvolveBlend ?? 1f) && IsFraction(settings.DenoiseBlend) && IsFraction(settings.ScnrAmount)
@@ -193,6 +211,11 @@ public sealed class EnhanceOperation(SharpenPipeline pipeline, ILogger<EnhanceOp
     }
 
     /// <summary>The enhancer registered for each role: a result made with one set is not a result made with another.</summary>
+    /// <remarks>
+    /// Naming a role can cost a licence probe: an RC-Astro role names the backend that would serve, which asks whether
+    /// its product is licensed. The runner therefore asks this once for an operation and its settings in a plan, and a
+    /// caller with many steps should do the same.
+    /// </remarks>
     public override string ServedBy(EnhanceSettings settings) => pipeline.DescribeRoles();
 
     /// <inheritdoc/>

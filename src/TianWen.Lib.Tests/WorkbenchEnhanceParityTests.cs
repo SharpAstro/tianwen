@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
+using TianWen.AI.Imaging;
+using TianWen.AI.Imaging.Onnx;
 using TianWen.Cli;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
@@ -151,9 +153,121 @@ public sealed class WorkbenchEnhanceParityTests(ITestOutputHelper output) : IDis
         enhance.Refusal(new EnhanceSettings { WhiteBalance = [1f, 0f, 1f] }).ShouldNotBeNull().ShouldContain("three positive numbers");
         enhance.Refusal(new EnhanceSettings { DenoiseBlend = 1.5f }).ShouldNotBeNull().ShouldContain("0 to 1");
         enhance.Refusal(new EnhanceSettings { DeconvBeta = 2.5 }).ShouldNotBeNull("a beta with no kernel is the kernel parser's to refuse");
+        // What the verb reads as "not stated" is refused, so no step keeps a value its own command line would drop.
+        enhance.Refusal(new EnhanceSettings { DenoiseIterations = 0 }).ShouldNotBeNull().ShouldContain("denoiseIterations is 1 or more");
+        enhance.Refusal(new EnhanceSettings { DenoiseIterations = 1 }).ShouldBeNull();
+        enhance.Refusal(new EnhanceSettings { DeblurSharpen = -1f }).ShouldNotBeNull().ShouldContain("deblurSharpen is 0 to 1");
+        enhance.Refusal(new EnhanceSettings { DeblurSharpen = 1.5f }).ShouldNotBeNull().ShouldContain("deblurSharpen is 0 to 1");
+        enhance.Refusal(new EnhanceSettings { DenoiseStrength = -0.5f }).ShouldNotBeNull().ShouldContain("denoiseStrength is 0 to 1");
+        enhance.Refusal(new EnhanceSettings { DeblurSharpen = 0f, DenoiseStrength = 1f }).ShouldBeNull();
 
         // What serves is in the key: the pipeline names the enhancer of every role, and "none" where there is none.
         enhance.ServedBy(new EnhanceSettings()).ShouldBe("deblur none; gradient none; stars none; stellar none; deconvolve none; denoise none");
         new EnhanceOperation(new SharpenPipeline(denoiser: new Scaling("Test/Denoiser", 1f))).ServedBy(new EnhanceSettings()).ShouldContain("denoise Test/Denoiser");
+    }
+
+    [Fact]
+    public void AnInHouseEnhancersNameCarriesItsModelFileSoARetrainIsAnotherStep()
+    {
+        // No model is on these paths and none is loaded: a name is asked of an enhancer that has run nothing.
+        var resolver = new ModelResolver([_folders.Create("no-models-").FullName]);
+        using var denoiser = new N2nDenoiser(resolver);
+        using var deblurrer = new OnnxTianWenDeconvolver(resolver);
+
+        denoiser.Name.ShouldContain(N2nDenoiser.ModelFileName);
+        deblurrer.Name.ShouldContain(OnnxTianWenDeconvolver.ModelFileName);
+        var served = new EnhanceOperation(new SharpenPipeline(denoiser: denoiser, deblurrer: deblurrer)).ServedBy(new EnhanceSettings());
+        served.ShouldContain(N2nDenoiser.ModelFileName, "what served an enhance names the model, so a retrained one is another key");
+        served.ShouldContain(OnnxTianWenDeconvolver.ModelFileName);
+    }
+
+    // The program the settings make of a set of roles, with what was said on the way. No enhancer runs: the program is
+    // read off what serves, which is handed in.
+    private static async Task<(LinearEnhanceProgram Program, List<string> Said)> ProgramAsync(EnhanceCapabilities capabilities, EnhanceSettings settings,
+        bool stretchedInPipeline = false, bool recombine = true)
+    {
+        var said = new List<string>();
+        var start = new EnhanceStart(WorkbenchFixtures.Master(seed: 1), EnhanceOptions.Default, capabilities);
+        var program = await new EnhanceOperation(new SharpenPipeline()).ProgramAsync(start, settings, stretchedInPipeline, recombine, said.Add,
+            TestContext.Current.CancellationToken);
+        return (program, said);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheProgramKeepsWhatTheSettingsStateAndOnlyWhatServes()
+    {
+        var (withDeblur, noDeblur) = (EnhanceCapabilities.AllRoles(deblur: true), EnhanceCapabilities.AllRoles(deblur: false));
+
+        // The starless deconvolution: dropped where a deblurrer serves, unless its blend is stated outright.
+        (await ProgramAsync(withDeblur, new EnhanceSettings())).Program.DeconvolveStarless.ShouldBeFalse();
+        var asked = (await ProgramAsync(withDeblur, new EnhanceSettings { DeconvolveBlend = 0.6f })).Program;
+        (asked.DeconvolveStarless, asked.DeconvolveBlend).ShouldBe((true, 0.6f));
+        (await ProgramAsync(noDeblur, new EnhanceSettings())).Program.DeconvolveStarless.ShouldBeTrue();
+        (await ProgramAsync(noDeblur, new EnhanceSettings { Deconvolve = false })).Program.DeconvolveStarless.ShouldBeFalse();
+        (await ProgramAsync(withDeblur, new EnhanceSettings { Deconvolve = false, DeconvolveBlend = 0.6f })).Program.DeconvolveStarless.ShouldBeFalse();
+
+        // SCNR follows the program (on with a deblurrer, or where the plates are stretched in the pipeline) until stated.
+        (await ProgramAsync(withDeblur, new EnhanceSettings())).Program.Scnr.ShouldBe(ScnrMode.Average);
+        (await ProgramAsync(noDeblur, new EnhanceSettings())).Program.Scnr.ShouldBe(ScnrMode.None);
+        (await ProgramAsync(noDeblur, new EnhanceSettings(), stretchedInPipeline: true)).Program.Scnr.ShouldBe(ScnrMode.Average);
+        (await ProgramAsync(withDeblur, new EnhanceSettings { Scnr = ScnrMode.None })).Program.Scnr.ShouldBe(ScnrMode.None);
+        var stated = (await ProgramAsync(noDeblur, new EnhanceSettings { Scnr = ScnrMode.Maximum, ScnrAmount = 0.5f })).Program;
+        (stated.Scnr, stated.ScnrAmount).ShouldBe((ScnrMode.Maximum, 0.5f));
+
+        // Stellar sharpening is asked for, and left out and said where a deblurrer is live or no sharpener serves.
+        (await ProgramAsync(noDeblur, new EnhanceSettings())).Program.StellarSharpen.ShouldBeFalse("it is opt-in");
+        (await ProgramAsync(noDeblur, new EnhanceSettings { StellarSharpen = true, StellarBlend = 0.4f })).Program.StellarSharpen.ShouldBeTrue();
+        var overDeblur = await ProgramAsync(withDeblur, new EnhanceSettings { StellarSharpen = true });
+        overDeblur.Program.StellarSharpen.ShouldBeFalse();
+        overDeblur.Said.ShouldContain(line => line.Contains("stellar sharpening ignored: a deblurrer is live"));
+        var noSharpener = await ProgramAsync(noDeblur with { StellarSharpen = false }, new EnhanceSettings { StellarSharpen = true });
+        noSharpener.Program.StellarSharpen.ShouldBeFalse();
+        noSharpener.Said.ShouldContain(line => line.Contains("no stellar sharpener is available"));
+
+        // With no star remover the program is whole-frame: a stated SCNR is said to be ignored, and no step asks a role
+        // that does not serve.
+        var wholeFrame = await ProgramAsync(noDeblur with { StarRemoval = false }, new EnhanceSettings { Scnr = ScnrMode.Average });
+        wholeFrame.Said.ShouldContain(line => line.Contains("scnr ignored"));
+        wholeFrame.Program.ToSteps().ToArray().ShouldBe([new GradientCorrectionStep(), new DenoiseFrameStep()]);
+        (await ProgramAsync(new EnhanceCapabilities(false, false, false, false, false, false), new EnhanceSettings())).Program.ToSteps().ShouldBeEmpty();
+
+        // What a caller clears, and a stretch inside the pipeline: each plate by itself, and a screen of stretched plates.
+        (await ProgramAsync(noDeblur, new EnhanceSettings(), recombine: false)).Program.Recombine.ShouldBeFalse();
+        (await ProgramAsync(noDeblur, new EnhanceSettings(), stretchedInPipeline: true)).Program.RecombineMode.ShouldBe(RecombineMode.Screen);
+        var screened = (await ProgramAsync(noDeblur, new EnhanceSettings { Mode = RecombineMode.Screen })).Program;
+        (screened.SplitMode, screened.RecombineMode).ShouldBe((RecombineMode.Screen, RecombineMode.Screen));
+        var pared = (await ProgramAsync(noDeblur, new EnhanceSettings { Gradient = false, Denoise = false })).Program;
+        (pared.GradientCorrection, pared.Denoise).ShouldBe((false, false));
+    }
+
+    /// <summary>
+    /// The enhance's default program, step for step, for both shapes of the split program. A change here is other
+    /// pixels for the same settings and enhancers: it needs a new <c>Version</c> of <see cref="EnhanceOperation"/>, or a
+    /// result of the old program is taken for the new one's.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task TheDefaultProgramIsPinnedSoAChangeToItIsANewVersionOfTheOperation()
+    {
+        const string why = "the default program changed: raise EnhanceOperation's Version with it (docs/architecture/workbench-operations.md)";
+        new EnhanceOperation(new SharpenPipeline()).Description.Version.ShouldBe(1, "this test pins version 1's program: pin the new one with the new number");
+
+        (await ProgramAsync(EnhanceCapabilities.AllRoles(deblur: false), new EnhanceSettings())).Program.ToSteps().ToArray().ShouldBe(
+        [
+            new GradientCorrectionStep(),
+            new RemoveStarsStep(SplitMode: RecombineMode.Additive),
+            new DeconvolveStarlessStep(Blend: 1f),
+            new DenoiseStarlessStep(Blend: 1f, Variant: DenoiseVariant.Default),
+            new RecombineStep(Mode: RecombineMode.Additive),
+        ], why);
+
+        (await ProgramAsync(EnhanceCapabilities.AllRoles(deblur: true), new EnhanceSettings())).Program.ToSteps().ToArray().ShouldBe(
+        [
+            new DeblurStep(Blend: 1f),
+            new GradientCorrectionStep(),
+            new RemoveStarsStep(SplitMode: RecombineMode.Additive),
+            new DenoiseStarlessStep(Blend: 1f, Variant: DenoiseVariant.Default),
+            new ScnrStarsStep(Mode: ScnrMode.Average, Amount: 1f),
+            new RecombineStep(Mode: RecombineMode.Additive),
+        ], why);
     }
 }
