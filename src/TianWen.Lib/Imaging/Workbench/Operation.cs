@@ -146,6 +146,44 @@ public interface IMultiResultOperation : IOperation
 }
 
 /// <summary>
+/// An operation whose results are named by its run (<see cref="OperationDescription.NamedByRun"/>): a stack, which gives
+/// a master for each group its scan finds. Its verb writes them into a folder under names of its own, so here the
+/// place <see cref="IOperation.CommandLine"/> and <see cref="IOperation.RunAsync"/> take is that folder.
+/// </summary>
+/// <remarks>
+/// The step itself has no image: an edit after it in the same list has nothing to take. An image of the project starts
+/// from one of its results by name, as it starts from an extra result of any other step.
+/// </remarks>
+public interface IRunNamedOperation : IOperation
+{
+    /// <summary>Does the work into <paramref name="folder"/>, as the verb does into its output folder, and answers
+    /// what it wrote there: each result's name, its file, and the files that belong beside it.</summary>
+    /// <param name="canonicalSettings">The settings, as <see cref="IOperation.TryReadSettings"/> answered them.</param>
+    /// <param name="inputs">The edit list's image first, then the description's extra inputs in order.</param>
+    /// <param name="folder">The folder to write into. The caller takes from it what the answer names.</param>
+    /// <param name="say">Takes each line the operation reports (what a verb prints), or null.</param>
+    /// <param name="cancellationToken">Ends the work.</param>
+    ValueTask<NamedResults> RunIntoAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>One result of a run that names its own results.</summary>
+/// <param name="Name">What an image of the project names to start from it. A run gives no two results one name.</param>
+/// <param name="File">The file the run wrote.</param>
+/// <param name="Companions">The files that belong beside it and are found by its name: a master's map sidecars and
+/// its manifest. Each is named as <paramref name="File"/> is without its ending, with an ending of its own.</param>
+public sealed record NamedResult(string Name, string File, ImmutableArray<string> Companions);
+
+/// <summary>What a run that names its own results gave.</summary>
+/// <param name="Outcome">Whether it succeeded, and why not.</param>
+/// <param name="Results">The results, where it succeeded.</param>
+public sealed record NamedResults(OperationOutcome Outcome, ImmutableArray<NamedResult> Results)
+{
+    /// <summary>A run that gave nothing, and why.</summary>
+    public static NamedResults Refused(OperationOutcome outcome) => new(outcome, []);
+}
+
+/// <summary>
 /// An operation with its settings as a type. A verb builds the settings from its options and calls
 /// <see cref="RunAsync"/>; the runner goes through <see cref="IOperation"/> and reaches the same method, so the two
 /// cannot differ.
@@ -269,6 +307,27 @@ public abstract class JointOperation<TSettings> : Operation<TSettings>, IJointOp
     ValueTask<OperationOutcome> IJointOperation.RunJointAsync(string canonicalSettings, IReadOnlyList<OperationInput> members, IReadOnlyList<StepOutputs> outputs,
         Action<string>? say, CancellationToken cancellationToken)
         => RunJointAsync(Parse(canonicalSettings), members, outputs, say, cancellationToken);
+}
+
+/// <summary>An <see cref="Operation{TSettings}"/> whose results are named by its run (<see cref="IRunNamedOperation"/>).</summary>
+/// <typeparam name="TSettings">The settings, as for <see cref="Operation{TSettings}"/>.</typeparam>
+/// <remarks>The place <see cref="Operation{TSettings}.CommandLine"/> takes is the folder its results go into.</remarks>
+public abstract class RunNamedOperation<TSettings> : Operation<TSettings>, IRunNamedOperation
+    where TSettings : class, new()
+{
+    /// <inheritdoc cref="IRunNamedOperation.RunIntoAsync"/>
+    public abstract ValueTask<NamedResults> RunIntoAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+        CancellationToken cancellationToken);
+
+    /// <summary>The verb's routine: the results are left in the folder <paramref name="outputPath"/> names, under the
+    /// names the run gives them.</summary>
+    public sealed override async ValueTask<OperationOutcome> RunAsync(TSettings settings, IReadOnlyList<OperationInput> inputs, string outputPath, Action<string>? say,
+        CancellationToken cancellationToken)
+        => (await RunIntoAsync(settings, inputs, outputPath, say, cancellationToken)).Outcome;
+
+    ValueTask<NamedResults> IRunNamedOperation.RunIntoAsync(string canonicalSettings, IReadOnlyList<OperationInput> inputs, string folder, Action<string>? say,
+        CancellationToken cancellationToken)
+        => RunIntoAsync(Parse(canonicalSettings), inputs, folder, say, cancellationToken);
 }
 
 /// <summary>An <see cref="Operation{TSettings}"/> whose one run gives several results (<see cref="IMultiResultOperation"/>).</summary>

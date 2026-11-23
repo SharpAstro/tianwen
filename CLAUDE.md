@@ -358,6 +358,12 @@ Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans
   reads and removes only what its index names. The one narrowing is a set of frames (a folder as an original): its
   key is made of every frame's digest, and `FrameDigestIndex` does not read a frame again while its size and time
   stand; `--verify-frames` reads them all.
+- **A step whose results are named by its run** (`IRunNamedOperation`, a stack's masters) keeps the list of them
+  under its own key and each result under `StepKey.OfResult`, with the files that belong beside it; it has no image
+  of its own, so nothing takes the step itself.
+- **A step never asks what this computer remembers** (a camera's last telescope, the viewer's clear nights): its
+  result follows from its inputs and its settings. The verb has an option that leaves the memory out
+  (`--no-telescope-memory`, `--no-clear-night-references`), and the step's command line says it.
 - A stored step reads files and writes one; only a derived step (crop) hands its result on, in memory, to the step
   after it. A step that writes no pixels (`IFindingOperation`, the plate solve) keeps its finding in the store under
   `StepKey.OfFinding` and hands on its input with the finding applied; a plate solution kept as a file is

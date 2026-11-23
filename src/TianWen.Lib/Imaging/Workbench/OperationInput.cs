@@ -51,6 +51,15 @@ public sealed class OperationInput
                 return false;
             }
 
+            // A file that is no FITS by its name is refused in words and never handed to the FITS reader: a capture
+            // (a SER file), or the list a step keeps of the results its run named.
+            if (!Image.IsFitsPath(path))
+            {
+                (image, wcs) = (null, null);
+                refusal = $"{path} is no FITS image, and this operation takes one";
+                return false;
+            }
+
             if (Image.TryReadFitsFile(path, out image, out wcs))
             {
                 refusal = null;

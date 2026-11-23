@@ -1481,8 +1481,9 @@ public sealed class StackingPipeline(
         if (cloudGrades is { Count: > 0 })
         {
             // The rig's clear nights the viewer keeps (#1976), so a run cloudy from first light to last is judged against them and not
-            // against itself, as the viewer judges it. No IExternal (a host with no data folder) judges on the group's own baselines.
-            ImmutableArray<LightGradeReference> references = external is null
+            // against itself, as the viewer judges it. No IExternal (a host with no data folder) judges on the group's own baselines,
+            // and so does a run told to leave this computer's memory out (ClearNightReferences off: a workbench step, #2467).
+            ImmutableArray<LightGradeReference> references = external is null || !options.ClearNightReferences
                 ? []
                 : await LightGradeReferenceStore.LoadAsync(external, ct);
             var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable(), references);

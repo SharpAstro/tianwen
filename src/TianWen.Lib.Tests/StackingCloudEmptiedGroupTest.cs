@@ -71,6 +71,37 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The same group with the same reference on file, and the run told to leave this computer's clear nights out
+    /// (<see cref="StackingOptions.ClearNightReferences"/> off: what a workbench step runs with, #2467, and the verb's
+    /// <c>--no-clear-night-references</c>). The lights are judged on the group's own baselines, by which ten frames under
+    /// one sky are clear, so the group stacks. The theory above is the other side: with the reference read, every one of
+    /// these frames is left out.
+    /// </summary>
+    [Fact]
+    public async Task WithTheClearNightsLeftOutTheSameGroupIsJudgedOnItsOwnBaselinesAndStacks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var workspace = new TempStackingWorkspace();
+        var first = WriteFrames(workspace.LightsDir, FrameType.Light, skyBackground: 100.0);
+
+        var external = new FakeExternal(output);
+        await WriteClearReferenceAsync(external, first, nightDarkestSky: 1e-3f, ct);
+
+        var options = new StackingOptions(DataRoot: workspace.RootDir, OutputDir: workspace.OutputDir, RejectCloud: true) { ClearNightReferences = false };
+        var pipeline = new StackingPipeline(options, new XunitLogger(output), catalogDb: null, external: external);
+
+        var results = new List<GroupResult>();
+        await foreach (var r in pipeline.RunAsync(ct))
+        {
+            results.Add(r);
+        }
+
+        var result = results.ShouldHaveSingleItem();
+        result.SkipReason.ShouldBeEmpty($"with the clear nights left out the frames are judged on their own night and stack: '{result.SkipReason}'");
+        result.FramesMatched.ShouldBe(FrameCount);
+    }
+
+    /// <summary>
     /// #2419: the forced-drizzle skip, through the pipeline. Twelve lights of a colour sensor all register; three were taken
     /// under a sky two and a half times the rig's clear night, so the cloud filter leaves those out and nine remain, under
     /// the twelve the forced drizzle is told to need. The skip says that the filter took the group under, with the pipeline's
@@ -201,7 +232,7 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
     /// The rig's clear night, keyed as the pipeline keys the group (the frame's own grade key and rig, the site), from another night,
     /// with the darkest sky given.
     /// </summary>
-    private static async Task WriteClearReferenceAsync(FakeExternal external, string firstFrame, float nightDarkestSky,
+    internal static async Task WriteClearReferenceAsync(FakeExternal external, string firstFrame, float nightDarkestSky,
         System.Threading.CancellationToken ct)
     {
         Image.TryReadFitsFile(firstFrame, out var image).ShouldBeTrue();
@@ -219,7 +250,7 @@ public class StackingCloudEmptiedGroupTest(ITestOutputHelper output)
     /// Frames of one rig and night (lights carry 60 stars, darks none), ten unless <paramref name="count"/> says otherwise,
     /// the sky at <paramref name="skyBackground"/> counts or what <paramref name="skyOf"/> gives a frame.
     /// </summary>
-    private static string WriteFrames(string dir, FrameType frameType, double skyBackground, int count = FrameCount,
+    internal static string WriteFrames(string dir, FrameType frameType, double skyBackground, int count = FrameCount,
         SensorType sensor = SensorType.Monochrome, Func<int, double>? skyOf = null, Func<int, double>? defocusOf = null)
     {
         var light = frameType == FrameType.Light;

@@ -62,6 +62,8 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation, PlanetaryStackOperation>();
         services.AddSingleton<IOperation, PlanetaryComposeOperation>();
         services.AddSingleton<IOperation, PlanetarySharpenOperation>();
+        // The stack of a set of frames: a folder is the image's original, and each group's master a result of the step.
+        services.AddSingleton<IOperation, StackOperation>();
         services.TryAddSingleton<OperationCatalog>();
         services.TryAddSingleton<WorkbenchRunner>();
         return services;

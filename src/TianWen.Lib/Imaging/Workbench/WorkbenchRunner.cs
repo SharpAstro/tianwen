@@ -259,13 +259,14 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 var asking = planner.Plan(each);
                 if (asking.Furthest is { } furthest
                     && await EnsureAsync(furthest, store, options.Say, cancellationToken) is null
-                    && furthest is { Producer.Step.State: StepState.Ran or StepState.Kept, ResultName: { Length: > 0 } leftOut }
+                    && furthest is { Producer: { Step.State: StepState.Ran or StepState.Kept } gaveNone, ResultName: { Length: > 0 } leftOut }
                     && asking.Refusal is null)
                 {
-                    // The image ends at a result its step may leave out (its own, or the one of the image it starts
-                    // from, with no edit switched on after it), and this run the step left it out: the image has
-                    // nothing, which is said and not passed over. An edit after it says so itself, as blocked.
-                    asking.Refusal = LeftOut(leftOut);
+                    // The image ends at a result its step may leave out, or one its run did not name (its own, or the
+                    // one of the image it starts from, with no edit switched on after it), and this run the step gave
+                    // none: the image has nothing, which is said and not passed over. An edit after it says so itself,
+                    // as blocked.
+                    asking.Refusal = LeftOut(leftOut, store, gaveNone);
                 }
             }
 
@@ -398,6 +399,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         if (operation is IJointOperation joint)
         {
             return await RunJointAsync(node, step, joint, inputs, store, say, cancellationToken);
+        }
+
+        if (operation is IRunNamedOperation named)
+        {
+            return await RunNamedAsync(node, step, named, inputs, store, say, cancellationToken);
         }
 
         if (operation is IMultiResultOperation several)
@@ -585,17 +591,82 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         return node.File is { } stored ? OperationInput.FromFile(stored) : null;
     }
 
+    // One run whose results are named by the run itself (a stack's masters): it writes into a folder of its own, each
+    // result it names is taken into the store under its own key with the files that belong beside it, and the list of
+    // the names last, under the step's key. The step is kept only when the list is there and every result it names.
+    private static async ValueTask<OperationInput?> RunNamedAsync(Node node, StepPlan step, IRunNamedOperation named, List<OperationInput> inputs, StepStore store,
+        Action<string>? say, CancellationToken cancellationToken)
+    {
+        var id = named.Description.Id;
+        using var work = store.Work();
+        var ran = await named.RunIntoAsync(node.Settings, inputs, work.Folder, Named(say, node), cancellationToken);
+        var outcome = ran.Outcome;
+        var results = ran.Results.IsDefault ? [] : ran.Results;
+        if (outcome.Succeeded)
+        {
+            if (results.IsEmpty)
+            {
+                outcome = OperationOutcome.Failed($"'{id}' reported its results and named none");
+            }
+            else if (results.Select(static result => result.Name).Distinct(StringComparer.Ordinal).Count() != results.Length)
+            {
+                outcome = OperationOutcome.Failed($"'{id}' gave two results one name");
+            }
+            else if (results.FirstOrDefault(static result => !File.Exists(result.File)) is { } missing)
+            {
+                outcome = OperationOutcome.Failed($"'{id}' named the result '{missing.Name}' and did not write {Path.GetFileName(missing.File)}");
+            }
+        }
+
+        if (!outcome.Succeeded)
+        {
+            step.State = StepState.Refused;
+            step.Message = outcome.Message;
+            return null;
+        }
+
+        foreach (var result in results)
+        {
+            await store.AdoptAsync(StepKey.OfResult(node.Key, result.Name), result.File, result.Companions.IsDefault ? [] : result.Companions, id, cancellationToken);
+        }
+
+        using var list = store.Stage(node.Key, StepResultsList.Ending);
+        await StepResultsList.WriteAsync(list.Path, [.. results.Select(static result => result.Name)], cancellationToken);
+        node.File = await store.CommitAsync(list, id, cancellationToken);
+        step.State = StepState.Ran;
+        return OperationInput.FromFile(node.File);
+    }
+
     // What an image is told when the result it starts from is one its step may leave out, and did.
     private static string LeftOut(string result) => $"the step it starts from gave no '{result}' for these images";
 
+    // The same, with what a step whose results are named by its run did give.
+    private static string LeftOut(string result, StepStore store, Node producer)
+        => LeftOut(result) + (producer.Operation is IRunNamedOperation && NamesIn(store, producer) is { Length: > 0 } gave
+            ? $": it gave {string.Join(", ", gave)}"
+            : string.Empty);
+
     // A step's main result in the store, when its extra results are there too: a step is kept whole or made again. A
     // result it may leave out is there, or named by the main result's entry as left out; one it gave and the store has
-    // lost since makes the step run again.
+    // lost since makes the step run again. A step whose results are named by its run is whole when its list is there
+    // with every result the list names.
     private static string? InStore(StepStore store, Node node)
-        => store.Find(node.Key) is { } file
-            && node.ExtraKeys.All(key => store.Find(key) is not null)
-            && node.OptionalResults.All(name => store.Find(StepKey.OfResult(node.Key, name)) is not null || store.LeftOut(node.Key, name))
-            ? file
+    {
+        if (store.Find(node.Key) is not { } file
+            || !node.ExtraKeys.All(key => store.Find(key) is not null)
+            || !node.OptionalResults.All(name => store.Find(StepKey.OfResult(node.Key, name)) is not null || store.LeftOut(node.Key, name)))
+        {
+            return null;
+        }
+
+        return node.Operation is not IRunNamedOperation || NamesIn(store, node) is not null ? file : null;
+    }
+
+    // The names of the results a step named by its run gave, where its list and every result of it are in the store.
+    private static ImmutableArray<string>? NamesIn(StepStore store, Node node)
+        => store.Find(node.Key) is { } list && StepResultsList.TryRead(list, out var names)
+            && names.All(name => store.Find(StepKey.OfResult(node.Key, name)) is not null)
+            ? names
             : null;
 
     private static async ValueTask<List<OperationInput>?> EnsureInputsAsync(Node node, StepPlan step, StepStore store, Action<string>? say, CancellationToken cancellationToken)
@@ -631,6 +702,11 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
         if (head.Operation is null && head.Producer is null)
         {
             return $"'{name}' has no edit switched on: its result is its own file, {head.File}";
+        }
+
+        if (head.Operation is IRunNamedOperation)
+        {
+            return $"'{name}' gives results named by its run and no image of its own: export an image that starts from one of them";
         }
 
         try
@@ -1070,6 +1146,12 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     return null;
                 }
 
+                if (head.Operation is IRunNamedOperation)
+                {
+                    plan.Refusal = $"the image '{origin}', which it starts from, gives results named by its run: say which one with \"result\"";
+                    return null;
+                }
+
                 plan.Key = head.Key;
                 return head;
             }
@@ -1099,7 +1181,7 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 {
                     // The step is whole in the store without this result, so it is one the step may leave out, and
                     // for these images it did: a status says so as a run does.
-                    plan.Refusal = LeftOut(wanted);
+                    plan.Refusal = LeftOut(wanted, store, producer);
                     return null;
                 }
 
@@ -1117,14 +1199,22 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return null;
         }
 
-        // True for an operation one of whose results has this name.
+        // True for an operation one of whose results has this name, or could have: a step whose results are named by
+        // its run gives whatever its run names, which only its list in the store says.
         private static bool Gives(IOperation operation, string result)
-            => operation.Description.ExtraResults.Any(role => string.Equals(role.Name, result, StringComparison.Ordinal));
+            => operation is IRunNamedOperation
+                || operation.Description.ExtraResults.Any(role => string.Equals(role.Name, result, StringComparison.Ordinal));
 
         // The step's node, with its key and where it stands; null, with the step refused or blocked, when it cannot be planned.
         private Node? PlanStep(ImagePlan plan, StepPlan step, Node previous)
         {
             var edit = step.Edit;
+            if (previous.Operation is IRunNamedOperation)
+            {
+                return Refuse(step, $"'{edit.Operation}' has no image to take: the step before it gives results named by its run, and an image "
+                    + "starts from one of them (\"from\" with \"result\")");
+            }
+
             if (!operations.TryGet(edit.Operation, out var operation))
             {
                 return Refuse(step, $"there is no operation named '{edit.Operation}'");
@@ -1168,6 +1258,12 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                     step.State = StepState.Blocked;
                     step.Message = $"the image '{name}', which it takes, cannot be made";
                     return null;
+                }
+
+                if (head.Operation is IRunNamedOperation)
+                {
+                    return Refuse(step, $"it takes the image '{name}', which gives results named by its run and no image of its own: take one "
+                        + "of them through an image that starts from it (\"from\" with \"result\")");
                 }
 
                 inputs.Add(head);
@@ -1256,7 +1352,8 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
                 ImmutableArray<string> files = [.. node.Inputs.Select(input => input.File ?? store.PathOf(input.Key))];
                 step.CommandLine = operation is IMultiResultOperation withResults
                     ? withResults.CommandLine(settings, files, OutputsOf(operation.Description, key))
-                    : operation.CommandLine(settings, files, store.PathOf(key));
+                    // Results named by the run have no file to name beforehand: the line names the folder they go into.
+                    : operation.CommandLine(settings, files, operation is IRunNamedOperation ? store.FolderOf(key) : store.PathOf(key));
             }
 
             step.Node = node;

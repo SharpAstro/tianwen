@@ -169,6 +169,20 @@ public sealed record StepStoreEntry
     /// An entry written before this was kept names none, so such a step runs once more.
     /// </summary>
     public ImmutableArray<string> LeftOut { get; set; } = [];
+
+    /// <summary>The files that belong beside it, by their names inside the store's folder: a master's map sidecars
+    /// and its manifest, each named as the result is with its own ending. The result is there only when they all are.</summary>
+    public ImmutableArray<string> Companions { get; set; } = [];
+}
+
+/// <summary>The list a step whose results are named by its run keeps under its own key (<see cref="StepResultsList"/>).</summary>
+public sealed record StepResultsFile
+{
+    /// <summary>The layout the file was written in.</summary>
+    public int SchemaVersion { get; set; } = 1;
+
+    /// <summary>The name of each result the run gave, in the order it gave them.</summary>
+    public ImmutableArray<string> Results { get; set; } = [];
 }
 
 /// <summary>The frame digest index's file (<see cref="FrameDigestIndex"/>).</summary>
@@ -208,6 +222,7 @@ public sealed record FrameDigestEntry
 [JsonSerializable(typeof(WorkbenchProject))]
 [JsonSerializable(typeof(StepStoreIndex))]
 [JsonSerializable(typeof(FrameDigestIndexFile))]
+[JsonSerializable(typeof(StepResultsFile))]
 public sealed partial class WorkbenchJsonContext : JsonSerializerContext
 {
 }

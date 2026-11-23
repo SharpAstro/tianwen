@@ -316,5 +316,15 @@ public sealed record StackingOptions(
     // from green on the frame's own stars (Image.ChannelOffsets), and the debayered paths warp each colour plane by its own
     // shift while the drizzle deposits each photosite colour by its own, so atmospheric dispersion and lateral colour that
     // change with altitude do not fringe the stars. ON by default; off integrates every colour by the frame's transform alone.
-    bool AlignColours = true);
+    bool AlignColours = true)
+{
+    /// <summary>
+    /// Judge cloud against the clear nights this computer keeps (<c>LightGradeReferenceStore</c>, #1976), where the
+    /// host hands the pipeline its data folder. ON by default. Off judges on the group's own baselines alone, so the
+    /// masters follow from the frames and the options: what a workbench step runs with (#2467), and the verb's
+    /// <c>--no-clear-night-references</c>.
+    /// </summary>
+    /// <remarks>A property and not one more parameter: the constructor every caller compiled against stays.</remarks>
+    public bool ClearNightReferences { get; init; } = true;
+}
 

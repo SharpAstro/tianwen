@@ -238,6 +238,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(PlanetaryStackSettings))]
 [JsonSerializable(typeof(PlanetaryComposeSettings))]
 [JsonSerializable(typeof(PlanetarySharpenSettings))]
+[JsonSerializable(typeof(StackSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }
