@@ -412,6 +412,17 @@ public sealed class StarRemovalEvalTests : IDisposable
         File.Delete(Path.Combine(export, StarRemovalMasks.RuleFileName));
         (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct)).ShouldNotBeNull("masks with no record are the plate-sources rule's");
         (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.PlateSources, ct)).ShouldBeNull();
+
+        // Masks deleted to be redone by the other rule: a record left behind speaks for nothing, and the run rewrites it.
+        await StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.PlateSources, cancellationToken: ct);
+        foreach (var keep in Directory.EnumerateFiles(export, "*" + StarRemovalMasks.KeepTileExtension,SearchOption.AllDirectories))
+        {
+            File.Delete(keep);
+        }
+        File.Exists(Path.Combine(export, StarRemovalMasks.RuleFileName)).ShouldBeTrue();
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.DrawnStars, ct)).ShouldBeNull("with no mask left the stale record is ignored");
+        await StarRemovalMasks.RunAsync(export, StarRemovalMasks.Rule.DrawnStars, cancellationToken: ct);
+        (await StarRemovalMasks.RefusalAsync(export, StarRemovalMasks.Rule.PlateSources, ct)).ShouldNotBeNull();
     }
 
     [Fact]
