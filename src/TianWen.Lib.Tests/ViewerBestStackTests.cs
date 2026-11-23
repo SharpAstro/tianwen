@@ -247,12 +247,12 @@ public class ViewerBestStackTests
     }
 
     // A short Jupiter capture: a textured disk wandering a pixel or two, 8 bits, a frame every 10 ms.
-    internal static string WriteCapture(string path, string telescope = "", bool dispersed = false)
+    internal static string WriteCapture(string path, string telescope = "", bool dispersed = false, string instrument = "")
     {
         const int n = 96, frames = 32;
         var random = new Random(7);
         var start = new DateTimeOffset(2024, 12, 15, 12, 56, 44, TimeSpan.Zero);
-        using (var writer = new SerWriter(path, n, n, dispersed ? SerColorId.BayerRGGB : SerColorId.Mono, 8, telescope: telescope))
+        using (var writer = new SerWriter(path, n, n, dispersed ? SerColorId.BayerRGGB : SerColorId.Mono, 8, instrument: instrument, telescope: telescope))
         {
             var frame = new byte[n * n];
             for (var i = 0; i < frames; i++)
