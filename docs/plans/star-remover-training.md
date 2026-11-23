@@ -9353,9 +9353,9 @@ the first angle is a step after the model and not another arm:
 
       So the hazard is a frame's, not the rule's everywhere: on Andromeda the median stands on the galaxy's light and
       the plain sky of the corners lies under a black point that close, on the other two it does not. The smoothed
-      copy is a Gaussian's, not a denoiser's: it cuts the noise 3.6 to 8.3 times, about the 5 to 10 times #2341
+      copy is a Gaussian's, not a denoiser's: it cuts the noise 3.5 to 8.5 times, about the 5 to 10 times #2341
       names for a denoised frame, and it widens every star by 1.5 px, which a denoiser does not. Andromeda, the one
-      master that shows the hazard, is cut only 3.6 to 4.8 times (under #2341's 5) and its black points sit 8.5 to
+      master that shows the hazard, is cut only 3.5 to 4.7 times (under #2341's 5) and its black points sit 8.5 to
       11.3 master sigma under the median where #2341 reasons 4 to 8. Inside that band are Sagittarius (4.7) and the
       Tarantula's blue channel (6.6; its red and green read 8.6 and 9.0), neither of which shows the hazard: so the
       smoothed Andromeda is a milder case than #2341's hypothesis, the hazard may be larger on a real denoiser, and
@@ -9374,8 +9374,8 @@ the first angle is a step after the model and not another arm:
       the frame, in green by more than one master sigma on 9.3 % of the frame and by 3.3 master sigma at the median
       of those pixels. On the other two it adds nothing. **Five sheets were looked at** (`smooth_sheet.py`, four
       panels on one stretch: the master, R4i's plate of it, the smoothed copy, R4i's plate of that; files
-      `r4i-smoothed-*.png`): a dark corner of Andromeda (x 300, y 2591) comes back flat, 5.6 master sigma over the
-      master's sky and grey-green where the sky is blue, with the stars left as dim discs; the other four crops
+      `r4i-smoothed-*.png`): a dark corner of Andromeda (x 300, y 2591) comes back flat, 5.6 crop sigma over the
+      master's level and grey-green where the sky is blue, with the stars left as dim discs; the other four crops
       (30 Doradus's core, the Tarantula's knots at x 705, y 1585, the Lagoon's core, a Sagittarius star field at
       x 600, y 600) keep their level, each crop's median within one sigma of the master's (the plates of the
       master read -1.3 on the core, then -0.7, -0.2 and -0.2, so the core's own plate is not within one). The
