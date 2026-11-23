@@ -134,6 +134,11 @@ internal sealed class WorkbenchSubCommand(IConsoleHost consoleHost, OperationCat
                     consoleHost.WriteScrollable("    takes any number of other images, as a set");
                 }
 
+                if (description.NamedByRun)
+                {
+                    consoleHost.WriteScrollable("    gives one result for each group the scan finds, named by the run; an image takes one with from and result, and the step has no image of its own");
+                }
+
                 foreach (var result in description.ExtraResults)
                 {
                     consoleHost.WriteScrollable($"    gives {result.Name}{(result.Optional ? ", for some inputs only" : string.Empty)}: {result.Summary}");

@@ -80,7 +80,7 @@ public sealed record StackSettings
     /// <summary>Place red and blue on green per frame (off: <c>--no-colour-align</c>).</summary>
     public bool ColourAlign { get; set; } = Defaults.AlignColours;
 
-    /// <summary>The integration strategy (<c>--strategy</c>); left out, the stack chooses one by the frames.</summary>
+    /// <summary>The integration strategy (<c>--strategy</c>); left out, the stack chooses one by the frames alone, against a fixed nominal computer, and refuses where this computer cannot fit it.</summary>
     public IntegrationStrategyKind? Strategy { get; set; }
 
     /// <summary>The debayer the integration runs on (<c>--stack-debayer</c>).</summary>
@@ -161,7 +161,7 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
             new OperationSetting("warpInterpolation", "The kernel that places each frame on the reference's grid.",
                 "Clamped Lanczos-3 keeps a 2 px star's width where bilinear adds about a pixel (docs/plans/deconvolver-training.md, R1)."),
             new OperationSetting("colourAlign", "Place red and blue on green per frame."),
-            new OperationSetting("strategy", "The integration strategy; left out, the stack chooses one by the frames."),
+            new OperationSetting("strategy", "The integration strategy; left out, the stack chooses one by the frames alone, against a fixed nominal computer, and refuses where this computer cannot fit it."),
             new OperationSetting("stackDebayer", "The debayer the integration runs on."),
             new OperationSetting("rejectLowSigma", "The pixel rejector's low threshold; left out, its own for the frame count."),
             new OperationSetting("rejectHighSigma", "The pixel rejector's high threshold; left out, its own for the frame count."),
@@ -313,6 +313,8 @@ public sealed class StackOperation(ILogger<StackingPipeline>? logger = null) : R
         {
             // Never the clear nights this computer keeps: a step follows from its frames and its settings.
             ClearNightReferences = false,
+            // The strategy by the frames alone, never by this computer's free memory.
+            NominalProbe = true,
         };
     }
 

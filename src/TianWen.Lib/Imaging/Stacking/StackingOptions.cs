@@ -326,5 +326,13 @@ public sealed record StackingOptions(
     /// </summary>
     /// <remarks>A property and not one more parameter: the constructor every caller compiled against stays.</remarks>
     public bool ClearNightReferences { get; init; } = true;
+
+    /// <summary>
+    /// Choose an unstated integration strategy from the frames alone, against a fixed nominal host
+    /// (<see cref="IntegrationProbe.ToNominalHost"/>), and refuse in words where this computer cannot fit the one chosen.
+    /// Off (the verb) picks against this computer's free memory and disk. A workbench step runs it on, so its master
+    /// follows from its frames and its settings and one step key never holds two masters (#2467).
+    /// </summary>
+    public bool NominalProbe { get; init; }
 }
 

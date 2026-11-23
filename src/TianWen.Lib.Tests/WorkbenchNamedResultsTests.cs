@@ -187,6 +187,39 @@ public sealed class WorkbenchNamedResultsTests : IDisposable
     }
 
     [Fact(Timeout = 120_000)]
+    public async Task AResultWhoseNameHoldsADotKeepsWhatBelongsBesideItAndIsFound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var project = _folders.Create("named-dot-").FullName;
+        var frames = Path.Combine(_folders.Create("frames-").FullName, "night");
+        WriteFrame(frames, "m42_0.5s.fits", 2);
+        await WorkbenchProjectFile.WriteAsync(project, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("night", frames, WorkbenchFixtures.Edit("split-frames")),
+            WorkbenchFixtures.StartingFromResult("m42", "night", "m42_0.5s")), ct);
+        var runner = new WorkbenchRunner(new OperationCatalog([new SplitFramesOperation(), new AddOperation("add")]));
+        var store = Path.Combine(project, StepStore.FolderName);
+
+        var first = await runner.RunAsync(project, cancellationToken: ct);
+
+        var night = Of(first, "night").Steps[0];
+        night.State.ShouldBe(StepState.Ran, Said(first));
+        var resultKey = StepKey.OfResult(night.Key, "m42_0.5s");
+        var storedName = StepStore.FileNameOf(resultKey);
+        var stored = Path.Combine(store, storedName);
+        File.Exists(stored).ShouldBeTrue();
+        // The companion is named after the stored file without its ending, so the dot in the group's name costs it nothing.
+        var beside = Path.Combine(store, Path.GetFileNameWithoutExtension(storedName) + ".coverage.fits");
+        File.ReadAllText(beside).ShouldBe("m42_0.5s");
+
+        var second = await runner.RunAsync(project, cancellationToken: ct);
+
+        Of(second, "night").Steps[0].State.ShouldBe(StepState.Kept);
+        Of(second, "m42").Refusal.ShouldBeNull(Said(second));
+        var opened = await StepStore.OpenAsync(store, ct);
+        opened.Find(resultKey).ShouldBe(stored);
+    }
+
+    [Fact(Timeout = 120_000)]
     public async Task WhatWouldTakeTheStepItselfAsAnImageIsRefusedInWords()
     {
         var ct = TestContext.Current.CancellationToken;

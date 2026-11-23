@@ -132,6 +132,21 @@ public sealed record IntegrationProbe(
     /// <see cref="DiskKind.Unknown"/> -- pass the orchestrator's best guess
     /// (typically <see cref="DiskKind.Ssd"/>) until auto-detection is wired.
     /// </summary>
+    /// <summary>Nominal RAM of the host a workbench step chooses its strategy against.</summary>
+    public const long NominalRamBytes = 32L * 1024 * 1024 * 1024;
+
+    /// <summary>Nominal free disk of the host a workbench step chooses its strategy against.</summary>
+    public const long NominalDiskBytes = 1024L * 1024 * 1024 * 1024;
+
+    /// <summary>This probe's job on a fixed nominal host (32 GB RAM all free, 1 TB disk, SSD): the same answer on every computer.</summary>
+    public IntegrationProbe ToNominalHost() => this with
+    {
+        AvailableRamBytes = NominalRamBytes,
+        FreeRamBytes = NominalRamBytes,
+        AvailableDiskBytes = NominalDiskBytes,
+        StagingDiskKind = DiskKind.Ssd,
+    };
+
     public static IntegrationProbe Snapshot(
         int frameCount,
         int frameWidth,

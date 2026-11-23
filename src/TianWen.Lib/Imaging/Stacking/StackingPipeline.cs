@@ -2006,7 +2006,20 @@ public sealed class StackingPipeline(
                     preferredStrategy = null;
                 }
             }
-            var selection = IntegrationStrategySelector.Pick(probe, preferred: preferredStrategy, pool: pool);
+            // A workbench step (NominalProbe) chooses against a fixed nominal host, so one key holds one master on every
+            // computer; this computer's own probe then only has to fit the one chosen, and refuses in words where it cannot.
+            var selection = IntegrationStrategySelector.Pick(
+                options.NominalProbe ? probe.ToNominalHost() : probe, preferred: preferredStrategy, pool: pool);
+            if (options.NominalProbe)
+            {
+                var hostFit = selection.Chosen.Evaluate(probe, new ResourceBudget());
+                if (!hostFit.CanRun)
+                {
+                    throw new InvalidOperationException(
+                        $"The stack chose {selection.Chosen.Kind} for {matched.Count} frames, and this computer cannot run it: {hostFit.Rationale}. "
+                        + "Say a strategy that fits, or stack on a computer with more memory or disk.");
+                }
+            }
             logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
             if (colourShifts is { Count: > 0 } && demosaicedShifts is null
                 && selection.Chosen.Kind is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle))
