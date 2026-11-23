@@ -21,7 +21,7 @@ namespace TianWen.Lib.Imaging.Workbench;
 /// <remarks>
 /// What <c>tianwen stack</c> does besides is no setting here. A plate solve is a step of its own
 /// (<see cref="SolveOperation"/>), an enhance is one too, and a picture of a master is how a result is shown. A comet
-/// run (<c>--comet</c>, <c>--remove-stars</c>, <c>--manifest</c>) is a leg of its own.
+/// run (<c>--comet</c>, <c>--remove-stars</c>, <c>--manifest</c>) is not W1: it is its own issue (#2489).
 /// </remarks>
 public sealed record StackSettings
 {

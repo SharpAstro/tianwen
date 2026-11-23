@@ -168,7 +168,7 @@ edit list, the command line shown under a step (rule 3).
 | How it previews | **In the shader** (stretch, white balance, crop: free while dragging), **on a region** (run on the visible part of the image and shown split: denoise, deblur) or **not at all** (a whole-frame fit such as gradient or SPCC, whose answer for a region is a different answer) |
 | Progress and cancel | The engine's own `IProgress`, as rule 6 |
 
-**What the code holds so far** (W1's first leg, #1641; [workbench-operations.md](../architecture/workbench-operations.md)):
+**What the code holds** (W1, done; #1641; [workbench-operations.md](../architecture/workbench-operations.md)):
 the id and version, the settings, the images an operation takes, how its output is kept (stored, derived, or as
 metadata: a finding in the store and no pixels, with the plate solve as the first, #2469), what serves it, its command
 line, and the lines it reports. The preconditions come with the facts (W9), and how it previews with the panel that
@@ -183,8 +183,7 @@ there is no second hierarchy beside them.
 default, read and written through a source-generated JSON context. The records cannot be that as they stand: they are
 immutable and positional, they are one hierarchy that a JSON file could only tell apart by a type tag, and one of them
 (`WhiteBalanceStep`) holds a measured calibration, which is a result and not a setting. So the records stay what they
-are, the pipeline's program in memory, and the enhance operation turns its settings into them in one place when it is
-wrapped. No operation carries a step of its own beside them.
+are, the pipeline's program in memory, and the enhance operation turns its settings into them in one place. No operation carries a step of its own beside them.
 
 **A preview on a region is honest about what it is.** An operation whose thresholds are in noise units of the whole frame, or whose
 model normalises over the whole input, does not give the same pixels on a crop as on the frame. The description says which
