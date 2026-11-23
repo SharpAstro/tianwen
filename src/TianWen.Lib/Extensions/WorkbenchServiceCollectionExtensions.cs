@@ -52,6 +52,8 @@ public static class WorkbenchServiceCollectionExtensions
         // GetService: a host with no plate solver still has every other operation, and its solve step says so when it
         // runs.
         services.AddSingleton<IOperation>(static sp => new SolveOperation(sp.GetService<IPlateSolverFactory>()));
+        // The planetary steps. A capture (a SER file) is the image's original; its master is the step's result.
+        services.AddSingleton<IOperation, PlanetaryStackOperation>();
         services.TryAddSingleton(static sp => new OperationCatalog(sp.GetServices<IOperation>()));
         services.TryAddSingleton<WorkbenchRunner>();
         return services;

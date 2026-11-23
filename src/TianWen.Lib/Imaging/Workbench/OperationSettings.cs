@@ -234,6 +234,7 @@ public sealed record ContinuumSettings
 [JsonSerializable(typeof(RemoveStarsSettings))]
 [JsonSerializable(typeof(CombineSettings))]
 [JsonSerializable(typeof(SolveSettings))]
+[JsonSerializable(typeof(PlanetaryStackSettings))]
 public sealed partial class OperationSettingsJsonContext : JsonSerializerContext
 {
 }

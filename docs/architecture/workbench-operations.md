@@ -127,6 +127,7 @@ operation by its id.
 | `remove-stars` | stored, one run for several; the stars as a second result | `image remove-stars` | the other masters of the run |
 | `combine` | stored | `image combine` | `green`, `blue`, and optionally `ha`. Its own image is red |
 | `solve` | no pixels: the plate solution is stored | `solve` | |
+| `planetary-stack` | stored; the sharpened master as an extra result | `planetary stack --auto` | none. Its own image is the capture, a SER file |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -173,6 +174,32 @@ place among the inputs: the edit list's own image is red, and it takes green and
 { "name": "red-denoised", "from": "red-starless", "edits": [ { "operation": "denoise-colour", "inputs": [ "green-starless", "blue-starless" ] } ] },
 { "name": "green-denoised", "from": "red-denoised", "result": "green" },
 { "name": "blue-denoised", "from": "red-denoised", "result": "blue" }
+```
+
+## A capture as an image's original
+
+A project's image can be a planetary capture (a SER file). Its key is the digest of the file's bytes like any
+original's, and its first edit is `planetary-stack`, which reads the capture by its path; any other operation refuses
+it as no FITS image.
+
+`planetary-stack` is AUTO (`PlanetaryAuto`): the capture identified, then stacked and sharpened at the measured
+defaults. It runs the three routines `planetary stack --auto` and the viewer's Auto view run, in their order and with
+nothing between: `PlanetaryIdentification.IdentifyAsync`, `PlanetaryAuto.RunAsync`, `PlanetaryAuto.Write`. The linear
+master is the step's result, and the sharpened master its extra result (`sharpened`).
+
+- **Its settings say the capture** (`planet`, `filterNm`, `apertureMm`, `design`) in place of what it is read to be.
+  AUTO takes no other setting.
+- **A step never asks what telescope a camera was last said to be on** (`PlanetaryTelescopeMemory`). That is this
+  computer's memory, and a step's result follows from its capture and its settings. The verb's
+  `--no-telescope-memory` is the same, and a step's command line says it.
+- **What a capture says of itself is more than its bytes**: its capture program's settings file beside it, and its
+  file's and folders' names. The step's key holds the bytes and the settings, so a capture moved to a folder named for
+  another telescope keeps its key. State in the settings what the result must not depend on.
+- **The verb names AUTO's two files** with `--master` and `--sharpened`, so a step's line names what it writes.
+
+```json
+{ "name": "jupiter", "path": "captures/Jupiter_Red_2024-12-15T12_56_44.ser", "edits": [ { "operation": "planetary-stack", "settings": { "apertureMm": 254, "design": "newtonian" } } ] },
+{ "name": "jupiter-sharpened", "from": "jupiter", "result": "sharpened" }
 ```
 
 ## An image that starts from another
@@ -306,8 +333,9 @@ that gave no result.
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** The canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary
-  steps (#2468). Every colour step of #2465 is here.
+- **The remaining operations.** The canonical enhance (#2466), the deep-sky frame steps (#2467) and the rest of the
+  planetary steps (#2468): the stack with settings of its own, the grades as a step, the de-rotation of several
+  stacks, the sharpening of a master and the colour. Every colour step of #2465 is here.
 - **A set of frames as an input** (calibrate, register, integrate; #2467).
 - **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
   reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's
