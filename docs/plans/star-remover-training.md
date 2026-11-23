@@ -9356,9 +9356,10 @@ the first angle is a step after the model and not another arm:
       copy is a Gaussian's, not a denoiser's: it cuts the noise 3.6 to 8.3 times, about the 5 to 10 times #2341
       names for a denoised frame, and it widens every star by 1.5 px, which a denoiser does not. Andromeda, the one
       master that shows the hazard, is cut only 3.6 to 4.8 times (under #2341's 5) and its black points sit 8.5 to
-      11.3 master sigma under the median where #2341 reasons 4 to 8, so only Sagittarius (4.7) is inside #2341's
-      band: the smoothed Andromeda is a milder case than #2341's hypothesis, and the hazard may be larger on a real
-      denoiser.
+      11.3 master sigma under the median where #2341 reasons 4 to 8. Inside that band are Sagittarius (4.7) and the
+      Tarantula's blue channel (6.6; its red and green read 8.6 and 9.0), neither of which shows the hazard: so the
+      smoothed Andromeda is a milder case than #2341's hypothesis, the hazard may be larger on a real denoiser, and
+      a black point that deep is not enough to bring it about where the median does not stand on bright light.
       **All three smoothed masters went through R4i as trained**, and the three nebula guards were read on each
       (`nebula_rows.py`, plate against its smoothed input, in the smoothed frame's own noise, so the nebula region is
       another, 83 / 39 / 25 % of the frame, and no figure is a match for the table's or its bars):
@@ -9376,9 +9377,12 @@ the first angle is a step after the model and not another arm:
       `r4i-smoothed-*.png`): a dark corner of Andromeda (x 300, y 2591) comes back flat, 5.6 master sigma over the
       master's sky and grey-green where the sky is blue, with the stars left as dim discs; the other four crops
       (30 Doradus's core, the Tarantula's knots at x 705, y 1585, the Lagoon's core, a Sagittarius star field at
-      x 600, y 600) keep their level, each crop's median within one master sigma of the master's (the plates of the
-      master read -1.3 on the core, then -0.7, -0.2 and -0.2, so the core's own plate is not within one). The three star fields are left with a mottle of dim stars, and 30 Doradus's core is left
-      bright where the plate of the master has the magenta wash. The stars left and the core kept are the
+      x 600, y 600) keep their level, each crop's median within one sigma of the master's (the plates of the
+      master read -1.3 on the core, then -0.7, -0.2 and -0.2, so the core's own plate is not within one). The
+      sheets' sigma is the crop's own difference noise, not the master's sky noise: the two agree within 15 % on the
+      Andromeda and Sagittarius crops, and on the two Tarantula crops the crop's is 0.8 to 2.6 times the master's by
+      channel, a looser test there. The three star fields are left with a mottle of dim stars, and 30 Doradus's
+      core is left bright where the plate of the master has the magenta wash. The stars left and the core kept are the
       smoothing's doing as far as this can tell (the model was shown no star that wide and no frame that quiet), and
       say nothing of the black point; the flat corner is the black point's. The guard #2341 asks for is needed
       before any model with a depth ships; R4i is not that model.
