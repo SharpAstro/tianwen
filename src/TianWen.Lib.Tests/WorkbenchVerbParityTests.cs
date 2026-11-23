@@ -381,7 +381,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
             WorkbenchFixtures.StartingFromResult("blue-denoised", "red-denoised", DenoiseColourOperation.Blue)), ct);
         var runner = new WorkbenchRunner(Catalog());
 
+        var seen = Denoiser.ChannelsSeen.Count;
         var report = await runner.RunAsync(folder, new WorkbenchRunOptions { Say = output.WriteLine }, ct);
+        var workbenchCalls = Denoiser.ChannelsSeen.Skip(seen).ToArray();
 
         report.Succeeded.ShouldBeTrue(string.Join("; ", report.Images.SelectMany(static image => image.Steps).Select(static step => step.Message)));
         ImageReport Of(string name) => report.Images.Single(image => image.Name == name);
@@ -402,7 +404,9 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
 
         // The planes went through as one colour image (the stand-in saw three channels at once, not three mono planes) and
         // came back as three, each its OWN input's: the stand-in scales by 0.8, so a swapped or reused plane would show.
-        Denoiser.ChannelsSeen.ShouldContain(3);
+        // Denoiser is shared by the class's tests, so only what THIS run's workbench step handed it counts (the replay
+        // through the verbs above has called it again).
+        workbenchCalls.ShouldBe([3]);
         foreach (var (written, input) in new[]
         {
             (plane, red),
