@@ -197,15 +197,18 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
         await ShouldRefuseAsync(needsBoth, "--auto", "--sharpened", Path.Combine(folder, "s.fits"));
     }
 
+    // Heavy by measurement on the x64 leg: 29.8 s and 39.4 s with seven stacks (#2481's and #2482's first runs), and still
+    // 29.2 s with the four it needs (#2483's): a compose is about a quarter of a minute whatever it is handed, and
+    // this test runs two, the step's and the verb's. The step alone stays in the PR legs (the test after this one).
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task ThePlanetaryComposeStepIsTheTwoFilesPlanetaryComposeWrites()
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("compose-").FullName;
         // Four mono stacks of Jupiter, one through each of red, green, blue and an IR-pass (the first run of the set
         // PlanetaryCompositionTests composes, and its IR), each written as a compose step writes a stack, so its planet,
-        // instant and filter are in its header. No more of them than the step needs: a compose is seconds a stack, and
-        // this test runs two (29.8 s with all seven on the x64 leg of #2481's first run).
+        // instant and filter are in its header. No more of them than the step needs.
         var set = PlanetaryCompositionTests.Ingested();
         PlanetaryMonoStack[] stacks = [set[0], set[1], set[2], set[6]];
         var paths = new List<string>();
