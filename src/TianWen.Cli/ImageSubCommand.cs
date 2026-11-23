@@ -18,6 +18,7 @@ using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Sources;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
@@ -648,14 +649,20 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            // What a refused edge loses is CoverageTrimPolicy's, not this verb's: the Lib routine
-            // applies the producing policy (the one the stacker uses), so this verb and a master
-            // written by `tianwen stack` crop identically, which they did not while this logic lived
-            // here: the CLI removed V1045 Ori's strip exactly and the bake kept it.
-            var rule = MasterAutoCropRule.ForModel(
-                parseResult.GetValue(trimDeclinedOpt), parseResult.GetValue(marginOpt));
-            var scan = MasterAutoCrop.Scan(src, input, rule, logger);
-            var rect = scan.Rect;
+            // The rectangle is CropOperation's: the verb builds its settings from the options, and the operation
+            // resolves them (what a refused edge loses is CoverageTrimPolicy's, so this verb, the workbench and a
+            // master written by `tianwen stack` crop identically). The verb words what the scan did from its result.
+            var settings = new CropSettings
+            {
+                Auto = true,
+                TrimDeclined = parseResult.GetValue(trimDeclinedOpt),
+                Margin = parseResult.GetValue(marginOpt),
+            };
+            var operation = new CropOperation(logger);
+            var resolved = operation.TryResolve(settings, src, input, say: null, out var resolution, out var refusal);
+            var rule = MasterAutoCropRule.ForModel(settings.TrimDeclined, settings.Margin);
+            var scan = resolution.Scan.GetValueOrDefault();
+            var rect = resolution.Rectangle;
 
             if (scan.DeclinedTrim is { } declined)
             {
@@ -684,9 +691,9 @@ internal sealed partial class ImageSubCommand(
                 $"[autocrop] {src.Width}x{src.Height} -> {rect.Width}x{rect.Height} at ({rect.X},{rect.Y}) "
                 + $"via the {tier}{(scan.Declined ? ", one or more edges DECLINED (band never settled)" : "")}");
 
-            if (rect.Width <= 0 || rect.Height <= 0)
+            if (!resolved)
             {
-                consoleHost.WriteError("The scan left nothing; refusing to write an empty crop.");
+                consoleHost.WriteError(refusal);
                 return Task.FromResult(2);
             }
             if (parseResult.GetValue(dryRunOpt))
@@ -697,7 +704,7 @@ internal sealed partial class ImageSubCommand(
             // Written through the same routine as `image crop`, so the output carries the alignment
             // provenance (canvas origin, reference frame) moved by the crop offset as well as the WCS.
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_autocrop"));
-            var written = MasterCrop.CropLoaded(input, src, wcs, rect, dst);
+            var written = CropOperation.Write(input, src, wcs, rect, dst);
             if (!written.Succeeded)
             {
                 consoleHost.WriteError(written.Message);
@@ -718,7 +725,7 @@ internal sealed partial class ImageSubCommand(
     /// numbers are exactly the crop or nothing: a rectangle not wholly inside the image is refused in
     /// words and no file is written. The WCS and the alignment provenance move with the crop.
     ///
-    /// <para>This calls <see cref="MasterCrop"/> and nothing of its own.</para>
+    /// <para>This builds <see cref="CropSettings"/> and calls <see cref="CropOperation"/> and nothing of its own.</para>
     /// </summary>
     private Command BuildCropCommand()
     {
@@ -750,12 +757,30 @@ internal sealed partial class ImageSubCommand(
                 return Task.FromResult(1);
             }
 
-            var rect = new PixelRect(
-                parseResult.GetValue(xOpt), parseResult.GetValue(yOpt),
-                parseResult.GetValue(widthOpt), parseResult.GetValue(heightOpt));
+            var settings = new CropSettings
+            {
+                X = parseResult.GetValue(xOpt),
+                Y = parseResult.GetValue(yOpt),
+                Width = parseResult.GetValue(widthOpt),
+                Height = parseResult.GetValue(heightOpt),
+            };
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_crop"));
 
-            var result = MasterCrop.CropFile(input, rect, dst);
+            if (!Image.TryReadFitsFile(input, out var image, out var wcs))
+            {
+                consoleHost.WriteError($"{input} could not be read as a FITS image");
+                return Task.FromResult(2);
+            }
+
+            // The rectangle is validated and written by CropOperation, as the workbench does.
+            if (!new CropOperation(logger).TryResolve(settings, image, input, say: null, out var resolution, out var refusal))
+            {
+                consoleHost.WriteError(refusal);
+                return Task.FromResult(2);
+            }
+
+            var rect = resolution.Rectangle;
+            var result = CropOperation.Write(input, image, wcs, rect, dst);
             if (!result.Succeeded)
             {
                 consoleHost.WriteError(result.Message);
@@ -1685,6 +1710,7 @@ internal sealed partial class ImageSubCommand(
                 backendOpt, degreeOpt, surfaceOpt, downsampleOpt, divideOpt, excludeOpt,
             },
         };
+        var gradient = new GradientOperation(backgroundExtractor, gradientCorrector);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var input = parseResult.Required(inputArg);
@@ -1699,7 +1725,6 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteError($"Failed to read FITS file: {input}");
                 return 1;
             }
-            var normalised = src.ScaleFloatValuesToUnit();
             var format = parseResult.GetValue(formatOpt);
             var peakNits = Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f);
             var gamutToBt2020 = parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020;
@@ -1743,92 +1768,49 @@ internal sealed partial class ImageSubCommand(
                 exclusions = built.MoveToImmutable();
             }
 
-            if (backend == GradientBackend.Graxpert && !gradientCorrector.Name.Contains("GraXpert", StringComparison.OrdinalIgnoreCase))
+            // The settings of the operation an edit list runs (GradientOperation, docs/plans/stacking-workbench.md W1):
+            // what follows is that operation's own routine, so this verb and a project's step are one. It refuses
+            // what the classical options refuse, in their words.
+            var settings = new GradientSettings
             {
-                // Naming a backend has to mean it. 'auto' is the mode that silently substitutes; asking
-                // for GraXpert on a machine without its weights and quietly getting the classical fit
-                // would make a script's output depend on which box it ran on.
-                consoleHost.WriteError(
-                    "--backend graxpert: the GraXpert BGE weights are not installed, so the active corrector is "
-                    + $"'{gradientCorrector.Name}'. Install GraXpert and run it once (its model cache is read in place), "
-                    + "or use --backend classical / --backend auto.");
+                Backend = backend,
+                Degree = degree ?? BackgroundExtractionOptions.Default.PolynomialDegree,
+                Downsample = downsample ?? BackgroundExtractionOptions.Default.Downsample,
+                Surface = surface,
+                Divide = divide,
+                Exclusions = [.. exclusions.Select(GradientOperation.Flatten)],
+            };
+            if (gradient.Refusal(settings) is { } refusal)
+            {
+                consoleHost.WriteError($"flatten: {refusal}");
+                src.Release();
                 return 1;
-            }
-
-            BackgroundExtractionOptions? classicalOptions = null;
-            if (backend == GradientBackend.Classical)
-            {
-                classicalOptions = BackgroundExtractionOptions.Default with
-                {
-                    PolynomialDegree = degree ?? BackgroundExtractionOptions.Default.PolynomialDegree,
-                    Downsample = downsample ?? BackgroundExtractionOptions.Default.Downsample,
-                    SurfaceRefinement = surface,
-                    Correction = divide ? BackgroundCorrection.Divide : BackgroundCorrection.Subtract,
-                    Exclusions = exclusions,
-                };
-                try
-                {
-                    classicalOptions.Validate();
-                }
-                catch (ArgumentException ex)
-                {
-                    consoleHost.WriteError($"flatten: {ex.Message}");
-                    src.Release();
-                    return 1;
-                }
             }
 
             consoleHost.WriteScrollable(
                 $"[flatten] {input} {src.Width}x{src.Height}x{src.ChannelCount} backend={backend.ToString().ToLowerInvariant()}"
-                + (classicalOptions is { } o
-                    ? $" degree={o.PolynomialDegree} downsample={o.Downsample} surface={o.SurfaceRefinement}"
-                      + $" {o.Correction.ToString().ToLowerInvariant()}"
+                + (backend == GradientBackend.Classical
+                    ? $" degree={settings.Degree} downsample={settings.Downsample} surface={settings.Surface}"
+                      + $" {(divide ? BackgroundCorrection.Divide : BackgroundCorrection.Subtract).ToString().ToLowerInvariant()}"
                       + (exclusions.Length > 0 ? $" exclusions={exclusions.Length}" : "")
                     : "")
                 + (saveGradient ? " save-gradient=true" : ""));
 
             Image flattened;
-            Image? background = null;
+            Image? background;
             try
             {
-                if (classicalOptions is { } options)
+                // The classical extractor hands back the model whether or not it was asked, so
+                // --save-gradient costs nothing there and the "no separate surface" note below is
+                // unreachable on that path.
+                var (result, outcome) = await gradient.ExtractAsync(src, settings, saveGradient, line => consoleHost.WriteScrollable($"[flatten] {line}"), ct);
+                if (result is null)
                 {
-                    // The classical extractor hands back the model whether or not it was asked, so
-                    // --save-gradient costs nothing here and the "no separate surface" note below is
-                    // unreachable on this path.
-                    var result = await backgroundExtractor.ExtractAsync(normalised, options, ct);
-                    flattened = result.Cleaned;
-                    background = saveGradient ? result.Background : null;
-                    if (!saveGradient)
-                    {
-                        result.Background.Release();
-                    }
-
-                    // The kept fraction is the one number that says whether the fit sampled the sky or
-                    // the object: it is the share of working pixels the final iteration was made on, and
-                    // a frame-filling nebula drives it down. G1 measured 0.795 with the surface off
-                    // against 0.581 with it on over 118 real masters, so a run well under that is the
-                    // signal to look at --exclude or to turn --surface back off.
-                    foreach (var plane in result.Planes)
-                    {
-                        consoleHost.WriteScrollable(
-                            $"[flatten]   plane {plane.Plane}: kept {plane.KeptFraction:P1}"
-                            // P2, and only above a hundredth of a percent: a TianWen master's canvas
-                            // ring makes this nonzero on almost every real frame, and "excluded 0.0%"
-                            // reads as a bug rather than as the edge blocks it is.
-                            + (plane.ExcludedFraction >= 1e-4f ? $" excluded {plane.ExcludedFraction:P2}" : "")
-                            + $" residual {plane.ResidualSigma:0.###e+0} sigma, level {plane.Level:0.####}"
-                            + $", {plane.Iterations} iterations{(plane.Converged ? "" : " (NOT converged)")}");
-                    }
+                    // Naming a backend has to mean it: GraXpert asked for where its weights are not installed.
+                    consoleHost.WriteError($"--backend graxpert: {outcome.Message}");
+                    return 1;
                 }
-                else if (saveGradient)
-                {
-                    (flattened, background) = await gradientCorrector.EnhanceAndEstimateBackgroundAsync(normalised, ct);
-                }
-                else
-                {
-                    flattened = await gradientCorrector.EnhanceAsync(normalised, ct);
-                }
+                (flattened, background) = (result.Flattened, result.Background);
             }
             catch (Exception ex)
             {
@@ -1838,7 +1820,7 @@ internal sealed partial class ImageSubCommand(
             }
 
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_flattened"));
-            flattened.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
+            OperationOutput.Write(flattened, dst, wcs);
             consoleHost.WriteScrollable($"[flatten] wrote {dst}");
             await WriteCompanionAsync(flattened, dst, format, src.ImageMeta, wcs, "flatten",
                 useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);

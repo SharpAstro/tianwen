@@ -339,6 +339,22 @@ Full rules: `docs/plans/ai-enhancement.md`, `docs/plans/rc-astro-enhancers.md`, 
   noise units of the working grid (a block mean of `Downsample^2` pixels); the polynomial iterates, the surface runs once; a one-channel RGGB input is fitted per
   photosite colour; the level is per plane; a master's zero canvas ring is masked to NaN before fitting.
 
+### Operations and the workbench (`TianWen.Lib.Imaging.Workbench`)
+
+Full rules: `docs/architecture/workbench-operations.md`; the design: `docs/plans/stacking-workbench.md`.
+
+- **A verb's file-to-file work is its operation's routine** (`Operation<TSettings>`): the verb builds the settings and
+  calls the operation, and `WorkbenchRunner` reaches the same method. A new operation ships its step in
+  `WorkbenchVerbParityTests`, which holds its file to the verb's, to the byte.
+- **Other pixels for the same settings is a new `Version`** of the operation; what serves a step (`ServedBy`) is in its
+  key.
+- **A setting is a settable property with its default** (never `init`), in `OperationSettingsJsonContext`, which refuses
+  a member the type does not have.
+- **Nothing is decided by a file's date**: a step runs when its key (`StepKey`) is not in the `StepStore`. The store
+  reads and removes only what its index names.
+- A stored step reads files and writes one; only a derived step (crop) hands its result on, in memory, to the step
+  after it.
+
 ### Hosting API and remote rigs
 
 Full rules: `docs/architecture/hosting-api.md`, `docs/plans/hardware-in-the-server.md`, `docs/plans/remote-profile.md`.

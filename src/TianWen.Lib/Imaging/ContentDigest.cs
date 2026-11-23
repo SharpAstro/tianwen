@@ -42,7 +42,7 @@ namespace TianWen.Lib.Imaging
                 using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
                 return OfStream(fs, long.MaxValue);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return "";
             }
