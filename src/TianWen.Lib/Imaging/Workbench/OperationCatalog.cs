@@ -59,6 +59,13 @@ public sealed class OperationCatalog
                     nameof(operations));
             }
 
+            if (description.NamedByRun != (operation is IRunNamedOperation)
+                || (description.NamedByRun && (description.Joint || !description.ExtraResults.IsDefaultOrEmpty || description.Output is not OperationOutputKind.Stored)))
+            {
+                throw new ArgumentException(
+                    $"the operation '{description.Id}' says its results are named by its run, or its type does, and the rest of it says otherwise", nameof(operations));
+            }
+
             if (description.AnyNumber && (description.Joint || !description.ExtraInputs.IsDefaultOrEmpty))
             {
                 throw new ArgumentException(

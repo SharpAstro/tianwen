@@ -155,6 +155,7 @@ its own image, and every setting at its default. An edit names an operation by i
 | `planetary-stack` | stored; the sharpened master as an extra result | `planetary stack --auto` | none. Its own image is the capture, a SER file |
 | `planetary-compose` | stored; the luminance as an extra result, where there is one | `planetary compose` | the other mono stacks, any number, as a set |
 | `planetary-sharpen` | stored | `planetary sharpen --auto` | none. Its own image is a planetary master |
+| `stack` | stored; each group's master a result named by the run | `stack` | none. Its own image is a folder of frames |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -214,7 +215,8 @@ place among the inputs: the edit list's own image is red, and it takes green and
 
 A project's image can be a planetary capture (a SER file). Its key is the digest of the file's bytes like any
 original's, and its first edit is `planetary-stack`, which reads the capture by its path; any other operation refuses
-it as a file that is no FITS image ("Failed to read FITS file: <path>", from `OperationInput`).
+it as a file that is no FITS image by its name, before any reader is handed it ("<path> is no FITS image, and this
+operation takes one", from `OperationInput`).
 
 `planetary-stack` is AUTO (`PlanetaryAuto`): the capture identified, then stacked and sharpened at the measured
 defaults. It runs the three routines `planetary stack --auto` and the viewer's Auto view run, in their order and with
@@ -348,8 +350,79 @@ that stacks it, which reads the folder by its path; any other operation refuses 
   a status as by a run. The stack step's leg sets it.
 - A status and a run say how many frames were read for their digest and how many the index knew.
 
-The step that stacks a set is not here yet (below); `WorkbenchFrameSetTests` holds the set and its key with a
-stand-in.
+The step that stacks a set is `stack` (below, "The stack of a set of frames"); `WorkbenchFrameSetTests` holds the
+set and its key with a stand-in.
+
+## Results named by the run
+
+A stack gives a master for each group its scan finds, so what it gives is not known until it has run. An operation
+says so with `NamedByRun` (`IRunNamedOperation`, `RunNamedOperation<TSettings>`), and answers a run with its results:
+each one's name, its file, and the files that belong beside it.
+
+- **Each result is in the store under `StepKey.OfResult(step, name)`**, as an extra result of any step is, and an
+  image of the project starts from one with `from` and `result`.
+- **The step keeps the list of the names** under its own key (`<digest>.results.json`, `StepResultsList`). So a status
+  knows what a stack gave without stacking, a name the run did not give is refused in words with the names it gave,
+  and the step is kept only when its list is there with every result the list names.
+- **What belongs beside a result is beside it in the store.** A master's map sidecars and its manifest are found by
+  the master's name with another ending, so they are stored under the result's name there with their own endings
+  (`<digest>.coverage.fits`), and the store's index names them (`StepStoreEntry.Companions`). A result is there only
+  when they all are. A crop that starts from a stored master carries them as it does for a master in a folder.
+- **The step itself has no image.** An edit after it in the same list, an image that starts from it and names no
+  result, an edit that takes it as its other image, and an export of it are each refused in words.
+- **Its verb writes into a folder**, so the place its command line names is a folder: where its results would go,
+  under the names the verb gives them. Its run writes into a folder of its own inside the store, and the store takes
+  from it what the run named.
+- A file that is no FITS by its name is refused by `OperationInput` in words and never handed to the FITS reader: a
+  capture given to an operation that takes an image, or a step's list of results.
+
+```json
+{ "name": "night", "path": "D:/Astro/2026-11-20", "edits": [ { "operation": "stack" } ] },
+{ "name": "m31-luminance", "from": "night", "result": "M31_L_300s", "edits": [ { "operation": "crop", "settings": { "auto": true } } ] }
+```
+
+`WorkbenchNamedResultsTests` holds the kind with a stand-in; the `stack` operation of this example is the next
+section.
+
+## The stack of a set of frames
+
+`stack` (`StackOperation`) is `tianwen stack` as a step: a folder of a night's lights with its calibration frames is
+scanned, grouped, calibrated, registered and integrated, and each group's master is a result of the step under the
+group's name (the verb writes it as `master_<group>.fits`), with its map sidecars and its manifest beside it in the
+store.
+
+- **Its settings are the 24 options that choose what is stacked and how** (the owner's call of 2026-11-23): which
+  frames and groups (`groupFilter`, `groupExclude`, `groupTemperatureTolerance`, `splitByPierSide`,
+  `includeMaybeCloud`, `includeIntegrations`, `qualityRejectSigma`, `rejectCloud`, `requireGainMatch`), how they are
+  registered (`centroidDebayer`, `snrMin`, `minStars`, `quadStars`, `referenceFrame`, `warpInterpolation`,
+  `colourAlign`) and how they are integrated (`strategy`, `stackDebayer`, `rejectLowSigma`, `rejectHighSigma`,
+  `hotPixelSigma`, `drizzlePixfrac`, `drizzleMinFrames`, `bayerDrizzle`). Each default is its option's, read off
+  `StackingOptions` where the option reads it.
+- **The verb builds its options from the same settings** (`StackOperation.OptionsOf`), then adds what only it does: a
+  rendition, an enhance, a comet run. An option and its setting cannot come to mean two things:
+  `WorkbenchStackTests` replays a step's line, with every setting away from its default, through the verb's real
+  option definitions and compares the pipeline's options whole.
+- **No plate solve and no picture.** A solve is a step of its own (`solve`), and nothing is rendered: the step's line
+  says `--no-plate-solve --output-format none`.
+- **A step never asks what this computer remembers.** `tianwen stack` judges cloud against the clear nights the
+  viewer recorded on this computer (`LightGradeReferenceStore`); a step judges on the group's own baselines
+  (`StackingOptions.ClearNightReferences` off), and its line says `--no-clear-night-references`, the verb's option
+  for the same. It is the rule the planetary stack follows with `--no-telescope-memory`. Nor does it choose an
+  unstated strategy by this computer's free memory and disk: `StackingOptions.NominalProbe` chooses against a fixed
+  nominal host (32 GB, 1 TB SSD) and refuses in words where this computer cannot fit the one chosen, and the line says
+  `--nominal-host`, the verb's option for the same.
+- **A setting that changes no pixel is refused**, where the verb warns and goes on: a drizzle's two settings where no
+  drizzle can run, and `bayerDrizzle` off beside a stated drizzle. A filter that filters nothing is left out, never
+  written empty, so each thing is said one way and has one key.
+- **A group the stack skipped is no result.** The step says each one with the stack's reason, and an image that
+  starts from it is told what the step did give. A set no group of which gave a master is the step's refusal.
+- **`referenceFrame` is looked for in a frame's whole path**, as the verb looks, and the set's key holds each frame's
+  place inside the folder only: name the frame by its file name.
+- The auto-crop the verb writes beside each master, and the calibration masters a run builds, are in the folder the
+  run writes into, which the store does not keep. A crop is a derived step (`crop` with `auto`); a stack that runs
+  again builds its calibration masters again (below).
+
+`WorkbenchStackTests` holds the step's master and its maps to the verb's, to the byte.
 
 ## An image that starts from another
 
@@ -410,7 +483,8 @@ change without the other.
 `<project>/store/`, one `<digest>.fits` a stored step, and `index.json` naming every result with its key, its
 operation and its size. The finding of a step that writes no pixels is a file there too, named by the finding's key.
 `frames.json` beside them holds the digests of the project's sets of frames (`FrameDigestIndex`); it is no result
-and names none.
+and names none. A result can have files that belong beside it, named as it is with their own endings, and a step
+whose results are named by its run keeps their list as `<digest>.results.json` (above).
 
 - **A result appears whole or not at all.** A step writes into `store/.staging/<guid>/` and the file is renamed into
   place when the step has succeeded; the index gains its entry after that, under the folder's lock
@@ -483,8 +557,9 @@ that gave no result.
 1. Its settings: a `sealed record` of settable properties with defaults in `OperationSettings.cs`, and a
    `[JsonSerializable]` line on `OperationSettingsJsonContext`.
 2. The class: `Operation<TSettings>` (stored), `DerivedOperation<TSettings>`, `JointOperation<TSettings>` (one run
-   for several images), `MultiResultOperation<TSettings>` (several results of one step, with fixed inputs or a set)
-   or `FindingOperation<TSettings>` (no pixels). It reads through `OperationInput`
+   for several images), `MultiResultOperation<TSettings>` (several results of one step, with fixed inputs or a set),
+   `RunNamedOperation<TSettings>` (results named by the run) or `FindingOperation<TSettings>` (no pixels). It reads
+   through `OperationInput`
    (`TryRead`, or `TryReadMaster` where the verb masks the absent ring) and writes with `OperationOutput.Write`. It
    calls the existing routine and adds nothing.
 3. The verb calls it. Where the verb needs more than the file (a companion picture, a second output), the operation
@@ -492,24 +567,26 @@ that gave no result.
 4. A line in `WorkbenchServiceCollectionExtensions.AddWorkbench`.
 5. A step in `WorkbenchVerbParityTests`, so its command line and its file are held to the verb's. The enhance's is in
    `WorkbenchEnhanceParityTests`: the step and the verb there share one pipeline of stand-in enhancers. A verb that is
-   not a `tianwen image` one has the same test beside it (`WorkbenchSolveTests` for `tianwen solve`).
+   not a `tianwen image` one has the same test beside it (`WorkbenchSolveTests` for `tianwen solve`,
+   `WorkbenchStackTests` for `tianwen stack`).
 
 ## Not here yet
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** The deep-sky frame steps (#2467). Every colour step of #2465 is here, so is the
-  canonical enhance (#2466), and so are the planetary steps (#2468): by the owner's call of 2026-11-23 they are the
-  stack, the compose and the sharpening, with AUTO's three choices.
+- **Operations.** None of W1's is left to wrap: every colour step of #2465 is here, so is the canonical enhance
+  (#2466), so are the planetary steps (#2468: by the owner's call of 2026-11-23 the stack, the compose and the
+  sharpening, with AUTO's three choices), and so is the stack of a set of frames (#2467).
 - **Planetary grading, and a look.** `planetary grade` scores a capture's frames and writes nothing a later step
   reads, so it is a fact about a capture and W9's (#2236), as statistics are. `planetary colour` is a measurement
   against OPAL's maps and not what balances a master; the balance is inside the stack and the compose. A look
   (`planetary look`) is a rendering of the linear master and never a new master, so it goes with how a result is
   shown and exported.
-- **The step that stacks a set of frames** (#2467). The set as an image's original and its key are here. Still to
-  come, by the owner's call of 2026-11-23: one `stack` operation around `tianwen stack` with the options that choose
-  what is stacked and how it is registered and integrated as its settings, each master a result of the step under
-  its group's name, and the masters' map sidecars beside them in the store. A comet run is a leg of its own.
+- **A comet run as a step** (#2489): `--comet`, `--remove-stars` and `--manifest` are a leg of their own by the
+  owner's call of 2026-11-23, and none of them is a setting of `stack`.
+- **What a stack keeps between its runs.** A `stack` step that runs again builds its calibration masters again, and
+  judges cloud without the clear nights a rig keeps. The masters and what each light takes, and the subs' table
+  with its gates, are W4's (#1644); a stack re-integrated from its manifest is W5's (#1645).
 - **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
   reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's
   result, which is W9's (#2236): measured when a gate or a panel asks, and kept by the key of the result it measures.

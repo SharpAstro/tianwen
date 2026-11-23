@@ -72,6 +72,14 @@ public sealed record OperationDescription(
     public bool Joint { get; init; }
 
     /// <summary>
+    /// True for an operation whose results are named by its run and not beforehand (<see cref="IRunNamedOperation"/>):
+    /// a stack gives a master for each group its scan finds. The step keeps the list of them, each result is in the
+    /// store under <see cref="StepKey.OfResult"/> of the step's key and its name, and an image of the project starts
+    /// from one by that name. <see cref="ExtraResults"/> is then empty: nothing is known of them until the run.
+    /// </summary>
+    public bool NamedByRun { get; init; }
+
+    /// <summary>
     /// True for an operation that takes any number of images after its edit list's own, as a SET: a colour master
     /// joined from every stack of a night. They are handed over sorted by key, the edit list's own among them, so the
     /// result does not depend on which list holds the edit nor on the order it names the others in, and two lists that

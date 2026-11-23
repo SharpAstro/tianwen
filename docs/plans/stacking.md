@@ -444,6 +444,8 @@ E:/Captures nights read the same through the stacker as through the viewer. Two 
 other three (2026-05-14, 07-06, 08-31) were not, so the default rests on two nights. The stacker reads the rig's clear-night
 references from the viewer's store (`LightGradeReferenceStore`, `Viewer/clear-sky.json`) and passes them to `CloudRejection`, so
 a run cloudy from first light to last (07-06) can be judged against them; with none on file it judges on the group's own baselines.
+`--no-clear-night-references` (`StackingOptions.ClearNightReferences` off) judges on the group's own baselines whatever is on file,
+so the masters follow from the frames and the options alone: what a workbench `stack` step runs with (#2467).
 **The grade's sky LEVEL is the raw light's** (`LightGrading.RawSkyLevel`, read before `Calibrator.Apply` consumes the frame,
 #2003), the scale the viewer's references and `NightSkyCloudFrom` were measured on. Patchiness stays the calibrated frame's (the MAD of its
 tile medians about a fitted surface, in counts, so a dark offset leaves it alone and a flat rescales it); on the reference path it is

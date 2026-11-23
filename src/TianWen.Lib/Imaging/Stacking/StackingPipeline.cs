@@ -1481,8 +1481,9 @@ public sealed class StackingPipeline(
         if (cloudGrades is { Count: > 0 })
         {
             // The rig's clear nights the viewer keeps (#1976), so a run cloudy from first light to last is judged against them and not
-            // against itself, as the viewer judges it. No IExternal (a host with no data folder) judges on the group's own baselines.
-            ImmutableArray<LightGradeReference> references = external is null
+            // against itself, as the viewer judges it. No IExternal (a host with no data folder) judges on the group's own baselines,
+            // and so does a run told to leave this computer's memory out (ClearNightReferences off: a workbench step, #2467).
+            ImmutableArray<LightGradeReference> references = external is null || !options.ClearNightReferences
                 ? []
                 : await LightGradeReferenceStore.LoadAsync(external, ct);
             var rejected = CloudRejection.Rejected(cloudGrades.ToImmutable(), references);
@@ -2005,7 +2006,10 @@ public sealed class StackingPipeline(
                     preferredStrategy = null;
                 }
             }
-            var selection = IntegrationStrategySelector.Pick(probe, preferred: preferredStrategy, pool: pool);
+            // A workbench step (NominalProbe) chooses against a fixed nominal host, so one key holds one master on every
+            // computer; this computer's own probe then only has to fit the one chosen, and refuses in words where it cannot.
+            var selection = IntegrationStrategySelector.PickForHost(
+                probe, options.NominalProbe, matched.Count, preferredStrategy, pool);
             logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
             if (colourShifts is { Count: > 0 } && demosaicedShifts is null
                 && selection.Chosen.Kind is not (IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle))

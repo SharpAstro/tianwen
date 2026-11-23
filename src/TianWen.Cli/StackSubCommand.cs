@@ -12,6 +12,7 @@ using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.Workbench;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
@@ -279,6 +280,14 @@ internal sealed class StackSubCommand(
         {
             Description = "Keep frames with a non-zero FITS STACK_N header (integrated masters from a previous run) as scan inputs. Default behaviour is to drop them since stale masters in adjacent output-*/ dirs otherwise pollute the next session's grouping. Pass this flag for two-stage mosaic stacking: integrate each panel separately, then re-run with --include-integrations against the panel masters to produce the final mosaic. .rejection.fits sidecars are ALWAYS dropped regardless of this flag.",
         };
+        var noClearNightReferencesOpt = new Option<bool>("--no-clear-night-references")
+        {
+            Description = "Judge cloud on each group's own baselines alone, never against the clear nights the FITS viewer recorded on this computer. By default --reject-cloud reads them, so a run cloudy from first light to last is judged against a clear one. With this flag the masters follow from the frames and the options alone, which is what a workbench step runs with.",
+        };
+        var nominalHostOpt = new Option<bool>("--nominal-host")
+        {
+            Description = "Choose an unstated integration strategy by the frames alone, against a fixed nominal computer (32 GB of memory, 1 TB of SSD), and refuse in words where this computer cannot fit the one chosen. By default the strategy is chosen against this computer's free memory and disk. With this flag the masters follow from the frames and the options alone, which is what a workbench step runs with.",
+        };
         var enhanceOpt = new Option<bool>("--enhance")
         {
             Description = "Run the canonical AI sharpen pipeline (gradient correction + remove stars + sharpen stars + deconvolve + denoise + recombine) against each master after integration. Writes master_*_sharpened.fits and (when autocrop is active) master_*_sharpened_autocrop.fits alongside the raw masters; the linear masters are never overwritten. Each step needs an installed backend (RC-Astro, or model weights the resolver finds); one that has none fails naming the paths it searched.",
@@ -345,7 +354,7 @@ internal sealed class StackSubCommand(
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt, noStarLayerOpt, noCompositeOpt, cometMaskArcsecOpt,
                 inheritWbOpt,
-                noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt,
+                noBayerDrizzleOpt, noColourAlignOpt, includeIntegrationsOpt, includeMaybeCloudOpt, noClearNightReferencesOpt, nominalHostOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
                 saturationOpt, contrastBoostOpt,
@@ -381,29 +390,49 @@ internal sealed class StackSubCommand(
             }
 
             var outputDir = parseResult.GetValue(outputOpt) ?? Path.Combine(dataRoot, "output");
-            var forcedStrategy = parseResult.GetValue(strategyOpt);
-            var pixfrac = parseResult.GetValue(drizzlePixfracOpt);
-            var drizzleMinFrames = parseResult.GetValue(drizzleMinFramesOpt);
-            var disableBayerDrizzle = parseResult.GetValue(noBayerDrizzleOpt);
-            var alignColours = !parseResult.GetValue(noColourAlignOpt);
+            // The options that choose which frames and groups are stacked, how they are registered and how they are
+            // integrated are the stack operation's settings (StackOperation, #2467). A workbench step and this verb
+            // build the pipeline's options from them in one place, StackOperation.OptionsOf, so the two cannot differ.
+            var settings = new StackSettings
+            {
+                GroupFilter = parseResult.GetValue(groupFilterOpt) is { Length: > 0 } groupFilter ? groupFilter : null,
+                GroupExclude = parseResult.GetValue(groupExcludeOpt) is { Length: > 0 } groupExclude ? groupExclude : null,
+                GroupTemperatureTolerance = parseResult.GetValue(groupTempToleranceOpt),
+                SplitByPierSide = parseResult.GetValue(splitByPierSideOpt),
+                IncludeMaybeCloud = parseResult.GetValue(includeMaybeCloudOpt),
+                IncludeIntegrations = parseResult.GetValue(includeIntegrationsOpt),
+                // The option is never absent (its default is the record's, above), and 0 runs no relative gate.
+                QualityRejectSigma = parseResult.GetValue(qualityRejectSigmaOpt) ?? 0f,
+                RejectCloud = parseResult.GetValue(rejectCloudOpt),
+                RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
+                CentroidDebayer = parseResult.GetValue(centroidDebayerOpt),
+                SnrMin = parseResult.GetValue(snrMinOpt),
+                MinStars = parseResult.GetValue(minStarsOpt),
+                QuadStars = parseResult.GetValue(quadStarsOpt),
+                ReferenceFrame = parseResult.GetValue(referenceFrameHintOpt),
+                WarpInterpolation = parseResult.GetValue(warpInterpolationOpt),
+                ColourAlign = !parseResult.GetValue(noColourAlignOpt),
+                Strategy = parseResult.GetValue(strategyOpt),
+                StackDebayer = parseResult.GetValue(stackDebayerOpt),
+                RejectLowSigma = parseResult.GetValue(rejectLowSigmaOpt),
+                RejectHighSigma = parseResult.GetValue(rejectHighSigmaOpt),
+                HotPixelSigma = parseResult.GetValue(hotPixelSigmaOpt),
+                DrizzlePixfrac = parseResult.GetValue(drizzlePixfracOpt),
+                DrizzleMinFrames = parseResult.GetValue(drizzleMinFramesOpt),
+                BayerDrizzle = !parseResult.GetValue(noBayerDrizzleOpt),
+            };
             // Drizzle options now apply for both forced drizzle AND auto-
             // picked drizzle, so build them whenever drizzle could be
             // selected (anything except a non-drizzle forced strategy).
             // The pixfrac / min-frames flags stay no-ops only when the
             // user has BOTH forced a non-drizzle strategy AND set them
             // -- the previous warning fired too eagerly under auto-pick.
-            DrizzleOptions? drizzleOptions = null;
-            var forcedNonDrizzle = forcedStrategy is { } fs
-                && fs != IntegrationStrategyKind.BayerDrizzle
-                && fs != IntegrationStrategyKind.TilePipelinedDrizzle;
-            if (!forcedNonDrizzle)
-            {
-                drizzleOptions = new DrizzleOptions(Pixfrac: pixfrac, MinFrameCount: drizzleMinFrames);
-            }
-            else if (pixfrac != DefaultDrizzle.Pixfrac || drizzleMinFrames != DefaultDrizzle.MinFrameCount)
+            // (StackOperation.OptionsOf builds them; here only the warning is left.)
+            if (StackOperation.IgnoresDrizzle(settings)
+                && (settings.DrizzlePixfrac != DefaultDrizzle.Pixfrac || settings.DrizzleMinFrames != DefaultDrizzle.MinFrameCount))
             {
                 consoleHost.WriteScrollable(
-                    $"[stack] warning: --drizzle-* options ignored when --strategy={forcedStrategy} (non-drizzle)");
+                    $"[stack] warning: --drizzle-* options ignored when --strategy={settings.Strategy} (non-drizzle)");
             }
             // Comet mode. --comet with NO value means "read the designation off the frames", which
             // is the unattended case, so absence and empty have to be told apart -- GetValue answers
@@ -501,58 +530,41 @@ internal sealed class StackSubCommand(
             var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f || splitPlatesArg
                 || enhanceOptions.Backend != EnhanceBackend.Auto || enhanceOptions.Tuning is not null
                 || enhanceOptions.Gradient != GradientBackend.Auto;
-            var options = new StackingOptions(
-                DataRoot: dataRoot,
-                OutputDir: outputDir,
-                GroupFilter: parseResult.GetValue(groupFilterOpt) ?? "",
-                GroupExclude: parseResult.GetValue(groupExcludeOpt) ?? "",
-                LightGroupTemperatureToleranceC: parseResult.GetValue(groupTempToleranceOpt),
-                ForcedStrategy: forcedStrategy,
-                CentroidDebayerAlg: parseResult.GetValue(centroidDebayerOpt),
-                StackDebayerAlg: parseResult.GetValue(stackDebayerOpt),
-                WarpInterpolation: parseResult.GetValue(warpInterpolationOpt),
-                RejectCloud: parseResult.GetValue(rejectCloudOpt),
-                AlignColours: alignColours,
-                SnrMin: parseResult.GetValue(snrMinOpt),
-                MinStars: parseResult.GetValue(minStarsOpt),
-                QuadStars: parseResult.GetValue(quadStarsOpt),
-                DrizzleOptions: drizzleOptions,
-                SplitByPierSide: parseResult.GetValue(splitByPierSideOpt),
-                RequireGainMatch: parseResult.GetValue(requireGainMatchOpt),
-                HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
-                QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
-                RejectLowSigma: parseResult.GetValue(rejectLowSigmaOpt),
-                RejectHighSigma: parseResult.GetValue(rejectHighSigmaOpt),
-                StarRemovalMode: parseResult.GetValue(starRemovalModeOpt),
-                SaveCalibrated: parseResult.GetValue(saveCalibratedOpt),
-                SaveNormalized: parseResult.GetValue(saveNormalizedOpt),
-                ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
-                ManifestPath: parseResult.GetValue(manifestOpt),
-                RemoveStarsPerFrame: parseResult.GetValue(removeStarsOpt),
-                CometRatePxPerHour: cometRate,
-                CometDesignation: cometDesignation,
-                CometStarLayer: !parseResult.GetValue(noStarLayerOpt),
-                CometComposite: !parseResult.GetValue(noCompositeOpt),
-                CometMaskArcsec: parseResult.GetValue(cometMaskArcsecOpt),
-                InheritedWhiteBalance: inheritedWb,
-                DisableBayerDrizzle: disableBayerDrizzle,
-                IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
-                IncludeSuspectedCloud: parseResult.GetValue(includeMaybeCloudOpt),
-                Enhance: enhanceArg,
-                EnhanceBlend: enhanceBlendArg,
-                SplitPlates: splitPlatesArg,
-                EnhanceOptions: enhanceOptions,
+            // What a step runs with, then what only this verb does: a comet run, an enhance, a rendition, and this
+            // computer's clear nights.
+            var options = StackOperation.OptionsOf(settings, dataRoot, outputDir) with
+            {
+                StarRemovalMode = parseResult.GetValue(starRemovalModeOpt),
+                SaveCalibrated = parseResult.GetValue(saveCalibratedOpt),
+                SaveNormalized = parseResult.GetValue(saveNormalizedOpt),
+                ManifestPath = parseResult.GetValue(manifestOpt),
+                RemoveStarsPerFrame = parseResult.GetValue(removeStarsOpt),
+                CometRatePxPerHour = cometRate,
+                CometDesignation = cometDesignation,
+                CometStarLayer = !parseResult.GetValue(noStarLayerOpt),
+                CometComposite = !parseResult.GetValue(noCompositeOpt),
+                CometMaskArcsec = parseResult.GetValue(cometMaskArcsecOpt),
+                InheritedWhiteBalance = inheritedWb,
+                Enhance = enhanceArg,
+                EnhanceBlend = enhanceBlendArg,
+                SplitPlates = splitPlatesArg,
+                EnhanceOptions = enhanceOptions,
                 // The pipeline (MasterPostProcessor) renders the display outputs now, so
                 // the PNG / Ultra HDR JPEG + split-plate TIFFs share one WB + bg-neut solve.
                 // The --output-format selects which display rendition(s) to emit.
-                RenderOutputs: parseResult.GetValue(formatOpt) switch
+                RenderOutputs = parseResult.GetValue(formatOpt) switch
                 {
                     ImageOutputFormat.Png => MasterRenderOutputs.PreviewPng,
                     ImageOutputFormat.UltraHdr => MasterRenderOutputs.UltraHdr,
                     _ => MasterRenderOutputs.None,
                 },
-                UltraHdrPeakNits: Math.Clamp(parseResult.GetValue(hdrPeakNitsOpt), 1f, 10000f),
-                PreviewBoost: previewBoost);
+                UltraHdrPeakNits = Math.Clamp(parseResult.GetValue(hdrPeakNitsOpt), 1f, 10000f),
+                PreviewBoost = previewBoost,
+                // The clear nights the viewer recorded on this computer judge cloud, unless the line leaves them out.
+                ClearNightReferences = !parseResult.GetValue(noClearNightReferencesOpt),
+                // The strategy is chosen against this computer, unless the line says the nominal one (a step's line does).
+                NominalProbe = parseResult.GetValue(nominalHostOpt),
+            };
 
             if (OptionsSink is { } optionsSink)
             {
@@ -611,12 +623,8 @@ internal sealed class StackSubCommand(
                         // Post-walk summary. Always report the scanned count;
                         // append what was dropped so a re-ingested TianWen
                         // product (the silent footgun) is never invisible.
-                        var summary = $"[stack] scanned: {s.FramesScanned} FITS";
-                        if (s.ProductsSkipped > 0) summary += $", ignored {s.ProductsSkipped} TianWen product(s) (pass --include-integrations to keep)";
-                        if (s.RejectionMapsSkipped > 0) summary += $", ignored {s.RejectionMapsSkipped} rejection map(s)";
-                        if (s.SuspectedCloudSkipped > 0) summary += $", left out {s.SuspectedCloudSkipped} suspected-cloud frame(s) named MAYBE_CLOUD_ (pass --include-maybe-cloud to keep)";
-                        if (s.ProductsKept > 0) summary += $", kept {s.ProductsKept} integration(s) as input";
-                        consoleHost.WriteScrollable(summary);
+                        // Worded once, by the stack operation: a workbench step says the same line.
+                        consoleHost.WriteScrollable($"[stack] {StackOperation.ScanLine(s)}");
                         break;
                     }
                     case StackingPhase.Scanning:
@@ -688,120 +696,127 @@ internal sealed class StackSubCommand(
 
             var groupCount = 0;
             var integratedCount = 0;
-            await foreach (var result in pipeline.RunAsync(ct))
+            try
             {
-                groupCount++;
-                if (!string.IsNullOrEmpty(result.SkipReason))
+                await foreach (var result in pipeline.RunAsync(ct))
                 {
-                    consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: SKIPPED ({result.SkipReason})");
-                    continue;
-                }
-                integratedCount++;
-                consoleHost.WriteScrollable(
-                    $"[stack] {result.GroupSlug}: {result.FramesMatched}/{result.FramesAttempted} matched, " +
-                    $"wrote {Path.GetFileName(result.MasterFitsPath)} in {result.Elapsed.TotalSeconds:F1}s");
-                if (result.CompositeFitsPath is { } compositePath)
-                {
-                    // The finished picture of a comet run is neither of the two layers, so name it.
-                    consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: composite {Path.GetFileName(compositePath)}");
-                }
-                // Per-stage wall time with stored Items/Pixels denominators (GroupResult.Stages) --
-                // the same table the dataset build prints, so a stack and a bake read side by side.
-                if (!result.Stages.IsDefaultOrEmpty)
-                {
-                    foreach (var line in TianWen.Lib.Imaging.Stacking.StageTimings
-                        .DescribeTable(result.Stages, result.Elapsed.TotalSeconds)
-                        .Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                    groupCount++;
+                    // What became of the group, worded once by the stack operation: a workbench step says the same line.
+                    consoleHost.WriteScrollable($"[stack] {StackOperation.GroupLine(result)}");
+                    if (!string.IsNullOrEmpty(result.SkipReason))
                     {
-                        consoleHost.WriteScrollable($"[stack]   {line.TrimEnd()}");
+                        continue;
                     }
-                }
-
-                // EXR companion path: short-circuit before the PNG renderer
-                // block. Both master + autocrop are written as float-true
-                // .exr next to the FITS, no SPCC / stretch involved -- the
-                // unstretched linear HDR master.
-                if (format == ImageOutputFormat.Exr && result.MasterFitsPath is { } masterFitsForExr)
-                {
-                    var autocropFitsForExr = Path.Combine(
-                        Path.GetDirectoryName(masterFitsForExr) ?? string.Empty,
-                        Path.GetFileNameWithoutExtension(masterFitsForExr) + "_autocrop.fits");
-                    if (Image.TryReadFitsFile(masterFitsForExr, out var masterImageForExr, out _) && masterImageForExr is not null)
+                    integratedCount++;
+                    if (result.CompositeFitsPath is { } compositePath)
                     {
-                        try
+                        // The finished picture of a comet run is neither of the two layers, so name it.
+                        consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: composite {Path.GetFileName(compositePath)}");
+                    }
+                    // Per-stage wall time with stored Items/Pixels denominators (GroupResult.Stages) --
+                    // the same table the dataset build prints, so a stack and a bake read side by side.
+                    if (!result.Stages.IsDefaultOrEmpty)
+                    {
+                        foreach (var line in TianWen.Lib.Imaging.Stacking.StageTimings
+                            .DescribeTable(result.Stages, result.Elapsed.TotalSeconds)
+                            .Split('\n', StringSplitOptions.RemoveEmptyEntries))
                         {
-                            var exrPath = Path.ChangeExtension(masterFitsForExr, ".exr");
-                            await masterImageForExr.WriteExrAsync(exrPath, DebayerAlgorithm.VNG, ct);
-                            consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(exrPath)} (EXR HDR)");
-                        }
-                        catch (Exception ex)
-                        {
-                            consoleHost.WriteError($"[stack] {result.GroupSlug}: master EXR failed: {ex.Message}");
+                            consoleHost.WriteScrollable($"[stack]   {line.TrimEnd()}");
                         }
                     }
-                    if (File.Exists(autocropFitsForExr)
-                        && Image.TryReadFitsFile(autocropFitsForExr, out var cropImageForExr, out _)
-                        && cropImageForExr is not null)
+
+                    // EXR companion path: short-circuit before the PNG renderer
+                    // block. Both master + autocrop are written as float-true
+                    // .exr next to the FITS, no SPCC / stretch involved -- the
+                    // unstretched linear HDR master.
+                    if (format == ImageOutputFormat.Exr && result.MasterFitsPath is { } masterFitsForExr)
                     {
-                        try
+                        var autocropFitsForExr = Path.Combine(
+                            Path.GetDirectoryName(masterFitsForExr) ?? string.Empty,
+                            Path.GetFileNameWithoutExtension(masterFitsForExr) + "_autocrop.fits");
+                        if (Image.TryReadFitsFile(masterFitsForExr, out var masterImageForExr, out _) && masterImageForExr is not null)
                         {
-                            var cropExrPath = Path.ChangeExtension(autocropFitsForExr, ".exr");
-                            await cropImageForExr.WriteExrAsync(cropExrPath, DebayerAlgorithm.VNG, ct);
-                            consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(cropExrPath)} (EXR HDR)");
+                            try
+                            {
+                                var exrPath = Path.ChangeExtension(masterFitsForExr, ".exr");
+                                await masterImageForExr.WriteExrAsync(exrPath, DebayerAlgorithm.VNG, ct);
+                                consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(exrPath)} (EXR HDR)");
+                            }
+                            catch (Exception ex)
+                            {
+                                consoleHost.WriteError($"[stack] {result.GroupSlug}: master EXR failed: {ex.Message}");
+                            }
                         }
-                        catch (Exception ex)
+                        if (File.Exists(autocropFitsForExr)
+                            && Image.TryReadFitsFile(autocropFitsForExr, out var cropImageForExr, out _)
+                            && cropImageForExr is not null)
                         {
-                            consoleHost.WriteError($"[stack] {result.GroupSlug}: autocrop EXR failed: {ex.Message}");
+                            try
+                            {
+                                var cropExrPath = Path.ChangeExtension(autocropFitsForExr, ".exr");
+                                await cropImageForExr.WriteExrAsync(cropExrPath, DebayerAlgorithm.VNG, ct);
+                                consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(cropExrPath)} (EXR HDR)");
+                            }
+                            catch (Exception ex)
+                            {
+                                consoleHost.WriteError($"[stack] {result.GroupSlug}: autocrop EXR failed: {ex.Message}");
+                            }
+                        }
+                    }
+
+                    // SPCC summary + per-gate funnel from the pipeline's preview solve
+                    // (computed in MasterPostProcessor now, against the ENHANCED master when
+                    // enhancing -- so it reflects the actual output the PNG + split plates
+                    // share). Release console is Warning-floored, so the renderer's ILogger
+                    // lines are file-only; surface the summary here through IConsoleHost.
+                    //
+                    // Funnel reads: "of <detected> stars FindStarsAsync reported, breakdown by
+                    // gate to the photometric kappa-sigma stage" -- lets us answer "why are we
+                    // losing X% of stars" by which counter dominates (no-cand = catalog missing,
+                    // tol-miss = WCS distortion, no-bv = Tycho-2 photometry gaps, k-rej =
+                    // kappa-sigma outliers after the match).
+                    {
+                        if (result.Spcc is { } s)
+                        {
+                            consoleHost.WriteScrollable(
+                                $"[stack] {result.GroupSlug}: SPCC WB=({s.WbR:F3}, {s.WbG:F3}, {s.WbB:F3}) " +
+                                $"{s.FinalMatches}/{s.InitialMatches} Tycho-2 matches " +
+                                $"({s.Iterations} iters, {s.Elapsed.TotalMilliseconds:F0} ms)");
+
+                            var f = s.Funnel;
+                            var kRej = s.InitialMatches - s.FinalMatches;
+                            var gate = f.MagGateActive ? $"zp={f.ZeroPoint:F2}" : "off";
+                            // Probe stats are NaN when the field was too sparse for adaptive sizing;
+                            // surface "probe=off" in that case so the log is unambiguous.
+                            var probe = float.IsNaN(f.ProbeMedianArcsec)
+                                ? "off"
+                                : $"med={f.ProbeMedianArcsec:F1}\" mad={f.ProbeMadArcsec:F1}\"";
+                            consoleHost.WriteScrollable(
+                                $"[stack] {result.GroupSlug}: SPCC funnel " +
+                                $"detected={f.Detected} wcs-fail={f.WcsFail} no-cand={f.NoCandidates} " +
+                                $"tol-miss={f.TolMissed} rej-mag={f.RejMagDiff} no-bv={f.NoBmv} no-v={f.NoVmag} " +
+                                $"accepted={f.Accepted} k-rej={kRej} " +
+                                $"tol={f.EffectiveRadiusArcsec:F1}\" probe={probe} mag-gate={gate}");
+
+                            // Per-quadrant tol-miss + rej-mag localisation -- a corner heavy on
+                            // tol-miss% points at lens distortion (SIP); a corner heavy on rej-mag
+                            // points at dense-field close-pair contamination that the magnitude
+                            // gate caught (or at zero-point bias if every quadrant rises together).
+                            consoleHost.WriteScrollable(
+                                $"[stack] {result.GroupSlug}: SPCC by-quadrant (det/tol-miss/rej-mag/acc)  " +
+                                $"TL={f.TL.Detected}/{f.TL.TolMissed}/{f.TL.RejMagDiff}/{f.TL.Accepted}  " +
+                                $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.RejMagDiff}/{f.TR.Accepted}  " +
+                                $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.RejMagDiff}/{f.BL.Accepted}  " +
+                                $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.RejMagDiff}/{f.BR.Accepted}");
                         }
                     }
                 }
-
-                // SPCC summary + per-gate funnel from the pipeline's preview solve
-                // (computed in MasterPostProcessor now, against the ENHANCED master when
-                // enhancing -- so it reflects the actual output the PNG + split plates
-                // share). Release console is Warning-floored, so the renderer's ILogger
-                // lines are file-only; surface the summary here through IConsoleHost.
-                //
-                // Funnel reads: "of <detected> stars FindStarsAsync reported, breakdown by
-                // gate to the photometric kappa-sigma stage" -- lets us answer "why are we
-                // losing X% of stars" by which counter dominates (no-cand = catalog missing,
-                // tol-miss = WCS distortion, no-bv = Tycho-2 photometry gaps, k-rej =
-                // kappa-sigma outliers after the match).
-                {
-                    if (result.Spcc is { } s)
-                    {
-                        consoleHost.WriteScrollable(
-                            $"[stack] {result.GroupSlug}: SPCC WB=({s.WbR:F3}, {s.WbG:F3}, {s.WbB:F3}) " +
-                            $"{s.FinalMatches}/{s.InitialMatches} Tycho-2 matches " +
-                            $"({s.Iterations} iters, {s.Elapsed.TotalMilliseconds:F0} ms)");
-
-                        var f = s.Funnel;
-                        var kRej = s.InitialMatches - s.FinalMatches;
-                        var gate = f.MagGateActive ? $"zp={f.ZeroPoint:F2}" : "off";
-                        // Probe stats are NaN when the field was too sparse for adaptive sizing;
-                        // surface "probe=off" in that case so the log is unambiguous.
-                        var probe = float.IsNaN(f.ProbeMedianArcsec)
-                            ? "off"
-                            : $"med={f.ProbeMedianArcsec:F1}\" mad={f.ProbeMadArcsec:F1}\"";
-                        consoleHost.WriteScrollable(
-                            $"[stack] {result.GroupSlug}: SPCC funnel " +
-                            $"detected={f.Detected} wcs-fail={f.WcsFail} no-cand={f.NoCandidates} " +
-                            $"tol-miss={f.TolMissed} rej-mag={f.RejMagDiff} no-bv={f.NoBmv} no-v={f.NoVmag} " +
-                            $"accepted={f.Accepted} k-rej={kRej} " +
-                            $"tol={f.EffectiveRadiusArcsec:F1}\" probe={probe} mag-gate={gate}");
-
-                        // Per-quadrant tol-miss + rej-mag localisation -- a corner heavy on
-                        // tol-miss% points at lens distortion (SIP); a corner heavy on rej-mag
-                        // points at dense-field close-pair contamination that the magnitude
-                        // gate caught (or at zero-point bias if every quadrant rises together).
-                        consoleHost.WriteScrollable(
-                            $"[stack] {result.GroupSlug}: SPCC by-quadrant (det/tol-miss/rej-mag/acc)  " +
-                            $"TL={f.TL.Detected}/{f.TL.TolMissed}/{f.TL.RejMagDiff}/{f.TL.Accepted}  " +
-                            $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.RejMagDiff}/{f.TR.Accepted}  " +
-                            $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.RejMagDiff}/{f.BL.Accepted}  " +
-                            $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.RejMagDiff}/{f.BR.Accepted}");
-                    }
-                }
+            }
+            // A nominal-host step throws when this computer cannot run the pick; the verb says it in the step's own words.
+            catch (InvalidOperationException ex) when (options.NominalProbe)
+            {
+                consoleHost.WriteError($"[stack] {ex.Message}");
+                return 1;
             }
 
             consoleHost.WriteScrollable($"[stack] done: {integratedCount} integrated / {groupCount} groups");

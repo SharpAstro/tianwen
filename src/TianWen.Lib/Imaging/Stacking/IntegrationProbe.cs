@@ -117,6 +117,21 @@ public sealed record IntegrationProbe(
     /// <summary>Bytes for all frames in RAM simultaneously (InRamAllFrames).</summary>
     public long AllFramesRamBytes => FrameBytes * FrameCount;
 
+    /// <summary>Nominal RAM of the host a workbench step chooses its strategy against.</summary>
+    public const long NominalRamBytes = 32L * 1024 * 1024 * 1024;
+
+    /// <summary>Nominal free disk of the host a workbench step chooses its strategy against.</summary>
+    public const long NominalDiskBytes = 1024L * 1024 * 1024 * 1024;
+
+    /// <summary>This probe's job on a fixed nominal host (32 GB RAM all free, 1 TB disk, SSD): the same answer on every computer.</summary>
+    public IntegrationProbe ToNominalHost() => this with
+    {
+        AvailableRamBytes = NominalRamBytes,
+        FreeRamBytes = NominalRamBytes,
+        AvailableDiskBytes = NominalDiskBytes,
+        StagingDiskKind = DiskKind.Ssd,
+    };
+
     /// <summary>
     /// Snapshot the live host. Reads <see cref="GC.GetGCMemoryInfo()"/>'s
     /// <c>TotalAvailableMemoryBytes</c> for RAM ("how big can the process

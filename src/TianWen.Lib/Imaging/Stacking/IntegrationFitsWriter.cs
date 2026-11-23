@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -701,6 +702,26 @@ public static class IntegrationFitsWriter
             || name.EndsWith(BadPixelMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(SaturationMapSuffix, StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(StandardErrorMapSuffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The map sidecars that are beside <paramref name="masterPath"/> now, each in the form it is stored in: the
+    /// rejection or weight map, the coverage, the bad pixel map, the saturation and the standard error. For what
+    /// moves a master with what belongs to it (a workbench step's result into the step store, #2467); a reader of
+    /// one map asks for that map.
+    /// </summary>
+    public static ImmutableArray<string> ExistingSidecarsOf(string masterPath)
+    {
+        var existing = ImmutableArray.CreateBuilder<string>();
+        foreach (var suffix in (ReadOnlySpan<string>)[RejectionMapSuffix, CoverageMapSuffix, BadPixelMapSuffix, SaturationMapSuffix, StandardErrorMapSuffix])
+        {
+            if (ExistingSidecarPath(SiblingPath(masterPath, suffix)) is { } path)
+            {
+                existing.Add(path);
+            }
+        }
+
+        return existing.ToImmutable();
     }
 
     /// <summary>The saturation sibling of a master: the stem plus <see cref="SaturationMapSuffix"/>.</summary>
