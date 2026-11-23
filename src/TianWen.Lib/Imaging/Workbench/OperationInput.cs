@@ -62,6 +62,17 @@ public sealed class OperationInput
         return new OperationInput(name, null, derive);
     }
 
+    /// <summary>
+    /// The result of a derived operation that changes no pixel, so what sits beside <paramref name="path"/> (the map
+    /// sidecars a crop reads and carries) still describes it: the derived input keeps the file's path.
+    /// </summary>
+    public static OperationInput FromDerivation(string name, string? path, Reader derive)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentNullException.ThrowIfNull(derive);
+        return new OperationInput(name, path, derive);
+    }
+
     /// <summary>The image and its plate solution as they are in the file (or as derived); false with the reason in
     /// words when it cannot be had.</summary>
     public bool TryRead([NotNullWhen(true)] out Image? image, out WCS? wcs, [NotNullWhen(false)] out string? refusal)

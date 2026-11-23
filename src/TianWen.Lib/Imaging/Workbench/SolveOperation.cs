@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using nom.tam.fits;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Lib.Imaging.Workbench;
 
@@ -168,7 +169,8 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
             return "searchDec is degrees, -90 to 90";
         }
 
-        return settings.SearchRadius > 0 && double.IsFinite(settings.SearchRadius) ? null : "searchRadius is degrees, more than 0";
+        // The radius is read only with a place to look, so it is judged only then.
+        return settings.SearchRa is null || (settings.SearchRadius > 0 && double.IsFinite(settings.SearchRadius)) ? null : "searchRadius is degrees, more than 0";
     }
 
     /// <inheritdoc/>
@@ -251,8 +253,19 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
     /// Written from the solution as a header holds it (<see cref="PlateSolutionFile.AsHeld"/>), so the file the verb
     /// writes from the solver's answer and the file a project writes from the solution it kept are one file, to the
     /// byte. No digit a card keeps is changed by it.
+    /// <para>With <paramref name="inputPath"/>, the file the image was read from, the map sidecars beside it (coverage,
+    /// rejection, saturation, standard error) are carried to <paramref name="path"/> as a crop of the whole frame
+    /// carries them (<see cref="MasterCrop.CarrySidecars"/>), so a crop after the solve, by its step or by its verb on
+    /// this file, finds the coverage plane as one on the input would. No pixel changes, so no map does.</para>
     /// </remarks>
-    public static void WriteSolved(Image image, WCS solution, string path) => image.WriteToFitsFile(path, PlateSolutionFile.AsHeld(solution));
+    public static void WriteSolved(Image image, WCS solution, string path, string? inputPath = null)
+    {
+        image.WriteToFitsFile(path, PlateSolutionFile.AsHeld(solution));
+        if (inputPath is not null)
+        {
+            MasterCrop.CarrySidecars(inputPath, image.Width, image.Height, path);
+        }
+    }
 
     /// <inheritdoc/>
     public override async ValueTask<OperationOutcome> FindAsync(SolveSettings settings, IReadOnlyList<OperationInput> inputs, string findingPath, Action<string>? say,
@@ -290,7 +303,9 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
     public override OperationInput Apply(SolveSettings settings, IReadOnlyList<OperationInput> inputs, string findingPath)
     {
         var input = inputs[0];
-        return OperationInput.FromDerivation($"{input.Name}, solved", (out Image? image, out WCS? wcs, out string? refusal) =>
+        // The solve changes no pixel, so the input's file stays its path and what sits beside it (the coverage sidecar an
+        // auto crop reads) still describes the pixels: [solve, crop auto] crops as [crop auto] does.
+        return OperationInput.FromDerivation($"{input.Name}, solved", input.Path, (out Image? image, out WCS? wcs, out string? refusal) =>
         {
             wcs = null;
             if (!input.TryRead(out image, out _, out refusal))
@@ -327,7 +342,7 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
 
         try
         {
-            WriteSolved(image, solution, outputPath);
+            WriteSolved(image, solution, outputPath, input.Path);
             return OperationOutcome.Done;
         }
         finally
@@ -359,7 +374,7 @@ public sealed class SolveOperation(IPlateSolver? plateSolver) : FindingOperation
                 return OperationOutcome.Failed(failure ?? NoSolution(input));
             }
 
-            WriteSolved(image, solution, outputPath);
+            WriteSolved(image, solution, outputPath, input.Path);
             return OperationOutcome.Done;
         }
         finally

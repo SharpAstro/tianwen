@@ -123,43 +123,94 @@ public static class MasterCrop
                 return result;
             }
 
-            var leftOut = new List<string>(maps.LeftOut);
-            foreach (var stale in IntegrationFitsWriter.RemoveCanvasMapSidecars(outputPath))
-            {
-                leftOut.Add($"{Path.GetFileName(stale)} was beside the output from an earlier file and could not be removed");
-            }
-
-            var written = new List<string>();
-            if (maps.Coverage is { } coverage)
-            {
-                IntegrationFitsWriter.WriteCoverageMap(outputPath, coverage, frameCount, strategy);
-                written.Add("coverage");
-            }
-            if (maps.Rejection is { } rejection)
-            {
-                IntegrationFitsWriter.WriteRejectionMap(outputPath, rejection, frameCount, MeanOf(rejection), strategy);
-                written.Add("rejection");
-            }
-            if (maps.Saturation is { } saturation)
-            {
-                IntegrationFitsWriter.WriteSaturationMap(outputPath, saturation, frameCount, strategy);
-                written.Add("saturation");
-            }
-            if (maps.StandardError is { } standardError)
-            {
-                IntegrationFitsWriter.WriteStandardErrorMap(outputPath, standardError, frameCount, strategy);
-                written.Add("standard error");
-            }
-
+            var (written, leftOut) = WriteMaps(maps, outputPath, frameCount, strategy);
             return result with { Sidecars = written, SidecarsLeftOut = leftOut };
         }
         finally
         {
-            maps.Coverage?.Release();
-            maps.Rejection?.Release();
-            maps.Saturation?.Release();
-            maps.StandardError?.Release();
+            ReleaseMaps(maps);
         }
+    }
+
+    /// <summary>
+    /// Carries the map sidecars of the master in <paramref name="inputPath"/> to <paramref name="outputPath"/>, whose
+    /// pixels are the master's own (same grid): what <c>tianwen solve -o</c> does so the solved file keeps the
+    /// coverage plane a later auto crop reads, as a crop of the whole frame would. Nothing is written when the output
+    /// is the input's own file, which has them already.
+    /// </summary>
+    /// <returns>The sidecars written and what was left out and why.</returns>
+    public static (IReadOnlyList<string> Written, IReadOnlyList<string> LeftOut) CarrySidecars(string inputPath, int width, int height, string outputPath)
+    {
+        if (string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return ([], []);
+        }
+
+        var frameCount = 0;
+        IntegrationStrategyKind? strategy = null;
+        using (var fits = Image.OpenFitsHeader(inputPath))
+        {
+            if (fits.ReadFirstImageHduHeaderOnly()?.Header is { } header)
+            {
+                frameCount = Math.Max(0, header.GetIntValue("STACK_N", 0));
+                if (Enum.TryParse<IntegrationStrategyKind>(header.GetStringValue("STRATEGY"), ignoreCase: true, out var kind))
+                {
+                    strategy = kind;
+                }
+            }
+        }
+
+        var maps = ReadCroppedMaps(inputPath, width, height, new PixelRect(0, 0, width, height));
+        try
+        {
+            return WriteMaps(maps, outputPath, frameCount, strategy);
+        }
+        finally
+        {
+            ReleaseMaps(maps);
+        }
+    }
+
+    private static (List<string> Written, List<string> LeftOut) WriteMaps(
+        (Image? Coverage, Image? Rejection, Image? Saturation, Image? StandardError, List<string> LeftOut) maps, string outputPath, int frameCount, IntegrationStrategyKind? strategy)
+    {
+        var leftOut = new List<string>(maps.LeftOut);
+        foreach (var stale in IntegrationFitsWriter.RemoveCanvasMapSidecars(outputPath))
+        {
+            leftOut.Add($"{Path.GetFileName(stale)} was beside the output from an earlier file and could not be removed");
+        }
+
+        var written = new List<string>();
+        if (maps.Coverage is { } coverage)
+        {
+            IntegrationFitsWriter.WriteCoverageMap(outputPath, coverage, frameCount, strategy);
+            written.Add("coverage");
+        }
+        if (maps.Rejection is { } rejection)
+        {
+            IntegrationFitsWriter.WriteRejectionMap(outputPath, rejection, frameCount, MeanOf(rejection), strategy);
+            written.Add("rejection");
+        }
+        if (maps.Saturation is { } saturation)
+        {
+            IntegrationFitsWriter.WriteSaturationMap(outputPath, saturation, frameCount, strategy);
+            written.Add("saturation");
+        }
+        if (maps.StandardError is { } standardError)
+        {
+            IntegrationFitsWriter.WriteStandardErrorMap(outputPath, standardError, frameCount, strategy);
+            written.Add("standard error");
+        }
+
+        return (written, leftOut);
+    }
+
+    private static void ReleaseMaps((Image? Coverage, Image? Rejection, Image? Saturation, Image? StandardError, List<string> LeftOut) maps)
+    {
+        maps.Coverage?.Release();
+        maps.Rejection?.Release();
+        maps.Saturation?.Release();
+        maps.StandardError?.Release();
     }
 
     /// <summary>

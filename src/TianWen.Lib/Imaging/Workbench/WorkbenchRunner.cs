@@ -98,7 +98,9 @@ public sealed record WorkbenchRunOptions
     public string? Image { get; init; }
 
     /// <summary>Also write <see cref="Image"/>'s final result as this file. A derived result (a crop) has no file of
-    /// its own, so this is how one is had: the operation's own routine writes it, as its verb would.</summary>
+    /// its own, so this is how one is had: the operation's own routine writes it, as its verb would. A step that
+    /// writes no pixels (the plate solve) keeps only its finding, a header-only FITS file with no image, so the
+    /// image to have is this export.</summary>
     public string? ExportPath { get; init; }
 
     /// <summary>Takes each line a step reports, with the step named in front.</summary>
@@ -114,7 +116,8 @@ public sealed record WorkbenchRunOptions
 /// needs it. A project run twice runs nothing the second time; a changed setting changes the key of its step and of
 /// the steps after it, so those run and the ones before it do not (the plan's rule 2).</para>
 /// <para><b>Work is pulled from the end.</b> A step whose result is in the store needs nothing before it, so an
-/// earlier result that is gone is not made again for its sake.</para>
+/// earlier result that is gone is not made again for its sake. A step that writes no pixels is the exception: what
+/// it keeps is a finding, not an image, so it needs its input whenever its own result is needed.</para>
 /// <para><b>A stored step reads a file and writes a file.</b> Only a derived step hands its result over in memory,
 /// and only to the step after it.</para>
 /// <para><b>A step that writes no pixels keeps its finding.</b> The finding is in the store under a key of its own

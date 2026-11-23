@@ -87,6 +87,13 @@ stored operations here read. Written as a file from a FILE it also carries the a
 sidecars (`MasterCrop.CropLoaded`). An operation that reads a map sidecar after a derived crop finds none; none exists
 yet, and the one that will (SPCC's saturation map, #2284) has to settle this first.
 
+**What a no-pixel step does with what sits beside its input's file.** A step that writes no pixels (the plate solve)
+hands on its input with the input's file path kept (`OperationInput.FromDerivation(name, path, ...)`), so a crop after
+it reads the master's coverage sidecar as it would on the input: `[solve, crop auto]` crops as `[crop auto]` does.
+Its verb agrees: `tianwen solve -o` carries the map sidecars to the file it writes, as a crop of the whole frame does
+(`MasterCrop.CarrySidecars`), so `tianwen solve -o` then `image autocrop` finds them too. `-o` cannot name the input
+(`--update-fits` is the flag that writes it).
+
 ## An operation that writes no pixels
 
 A plate solve finds something out about its input and changes no pixel (`OperationOutputKind.Finding`, the plan's
