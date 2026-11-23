@@ -215,7 +215,8 @@ place among the inputs: the edit list's own image is red, and it takes green and
 
 A project's image can be a planetary capture (a SER file). Its key is the digest of the file's bytes like any
 original's, and its first edit is `planetary-stack`, which reads the capture by its path; any other operation refuses
-it as a file that is no FITS image ("Failed to read FITS file: <path>", from `OperationInput`).
+it as a file that is no FITS image by its name, before any reader is handed it ("<path> is no FITS image, and this
+operation takes one", from `OperationInput`).
 
 `planetary-stack` is AUTO (`PlanetaryAuto`): the capture identified, then stacked and sharpened at the measured
 defaults. It runs the three routines `planetary stack --auto` and the viewer's Auto view run, in their order and with
