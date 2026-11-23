@@ -454,12 +454,14 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     }
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task AStrengthIsItsVerbsOptionOnTheStackAndOnTheSharpening()
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = _folders.Create("planetary-strength-").FullName;
         // A mono capture, which stacks in seconds: the strength is the one of AUTO's choices a mono master has. The two
-        // that are a colour master's are held by the heavy test after this one.
+        // that are a colour master's are held by the heavy tests after this one. This test is Heavy too: 30 s on the
+        // Windows PR leg of #2483's run 45168746400.
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
             telescope: "254 mm f/4.7 Newtonian, Test OTA");
         await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
@@ -562,7 +564,9 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
     // steps, each again through the verb) it took 58.7 s on the x64 leg of #2483's first run and 3 min 35 s in the
     // heavy run on the branch, under the load of the other heavy tests, against a bound of 5 min. A Bayer capture stacks
     // and sharpens three planes, so each AUTO run is its own cost; this test has two of them and the next the other
-    // two. The strength, which a mono capture has too, is held in the PR legs by the test before these.
+    // two. The strength, which a mono capture has too, is held through its verb in the heavy test
+    // AStrengthIsItsVerbsOptionOnTheStackAndOnTheSharpening (30 s on the Windows PR leg, so Heavy by measurement); the PR
+    // legs hold it as AutoOptionsCarryTheThreeChoicesIntoTheBestStack and the AutoRefuses tests.
     [Fact(Timeout = 300_000)]
     [Trait("Category", "Heavy")]
     public async Task AutosChoicesOnAColourStackAreItsVerbsOptions()
@@ -664,8 +668,10 @@ public sealed class WorkbenchPlanetaryTests(ITestOutputHelper output) : IDisposa
             var identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path: null, cancellationToken: TestContext.Current.CancellationToken);
 
             (identity.Planet, identity.PlanetFrom).ShouldBe(((CatalogIndex?)null, "nothing names one"));
-            (identity.FilterNm, identity.FilterFrom).ShouldBe(((double?)null, "none named"));
-            (identity.ApertureMm, identity.TelescopeFrom).ShouldBe(((int?)null, "none named"));
+            // What the master states itself is still read: the fixture's header names a luminance filter and an instrument,
+            // and nothing is taken from a folder or a file name.
+            (identity.FilterNm, identity.FilterFrom).ShouldBe(((double?)550, "the master's FILTER"));
+            (identity.ApertureMm, identity.TelescopeFrom).ShouldBe(((int?)null, "none named or remembered for synthetic"));
         }
         finally
         {
