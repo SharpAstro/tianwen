@@ -10037,8 +10037,12 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
       inside the window (R4h 45 %). Andromeda's structure cells 1.00 and 0.99. The arm does not move this row.
   - **What it says.** A twenty-fifth of the draw on plate cells of bright nebula, the loss counting only the drawn
     stars, changes nothing the planted test can see, and it costs on 30 Doradus and on the bright stars' inner
-    rings. The registration named the dose as the first thing to raise "if the arm shows part of a gain"; it shows
-    none, so that step is not triggered. Why the 30 Doradus row falls is not measured. One thing the design leaves
+    rings, on both seeds. On seed 0 alone the Tarantula's field light fails its guard and the glow's green median
+    through the chain stands at 253.5 (209.0 at its best step) where R4h reads -14.7. That is the highest of the
+    five runs read this way (seed 1 60.8, R4d 106.5, R4i 178.8) and half the bar of 500; one seed cannot say
+    whether it is the arm's doing, and it is listed here as a move, not as a cost. The registration named the dose
+    as the first thing to raise "if the arm shows part of a gain"; it shows none, so that step is not triggered.
+    Why the 30 Doradus row falls is not measured. One thing the design leaves
     open is SUSPECTED and no more: on those tiles every pixel outside a drawn star's disc is free, the plate's own
     real stars among them, so the rows tell the model nothing about a real star on nebula.
   - **Nothing is adopted;** what follows is the owner's.
@@ -10047,9 +10051,12 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
   and its "level set aside" share for that bin (21,903 stars the frame shows; ours 91.4 % removed, StarXTerminator
   96.6 %, R4h through the chain) and splits them by the nebula under the star (its 32 px block over the frame's
   sky, in sky noise), by the star's light and by the count of catalogued stars within 16 px.
-  - **Not bright nebula.** 3 % of the bin's stars have 20 sky sigma or more under them, and there the removers are
-    level or ours ahead: 76.6 against 75.8 % of 529 at 20 to 40, 38.8 against 23.3 % of 103 at 40 to 80. So this
-    row and the planted row are two different gaps.
+  - **Not bright nebula.** 3 % of the bin's stars have 20 sky sigma or more under them. Over all lights the two
+    removers read level there (ours 76.6 against 75.8 % of 529 at 20 to 40, 38.8 against 23.3 % of 103 at 40 to
+    80), but that is two bands cancelling. Of the 142 stars of 20 to 150 sky sigma at 20 to 40, the planted test's
+    band, StarXTerminator removes 88.7 % and R4h 71.8 %: 17 points behind, the planted row's sign. The other 387,
+    mostly of 150 sky sigma and over, go to ours (about 78 against 71 %). The faint band is some 24 stars of the
+    bin's gap of 1,142, so the BP row's gap is still not the planted gap: the two rows read different places.
   - **The crowd.** In this field the level is mostly the crowd itself (it goes with the count at 0.74). Of the
     stars of 20 to 150 sky sigma, the most crowded third (99 or more catalogued stars within 16 px) at 10 to 20
     sky sigma of level is 4,066 stars: StarXTerminator removes 99.2 % of them and R4h 82.7 %. That one cell is 671
@@ -10060,13 +10067,14 @@ the sheets in `D:/temp/tianwen-scratch/r4-look`.
     removed does not move with its distance: 91.5 / 90.6 / 91.8 / 90.2 % from under 3 px to 8 to 12 px.
   - **So the BP row is the crowded row seen star by star,** where this plan already traces the cause to what the
     training plates hold (the stars the builder's finder never found, #2203) and where R4a's cluster scenes and a
-    second pass bought nothing. For scale (`drawn_density.py`, 300 tiles of R4h's export): a drawn star has 12
-    other drawn stars within 16 px at the median and 60 at the 99th percentile, and 0.14 % have 99 or more. That
+    second pass bought nothing. For scale (`drawn_density.py`, 300 tiles spread through R4h's export, one every 25
+    MB of its 8.4 GB injections list): a drawn star has 12 other drawn stars within 16 px at the median and 60 at
+    the 99th percentile, and 0.14 % have 99 or more, the count the Tarantula's most crowded third starts at. That
     comparison is rough, since the catalogue's count includes stars the frame does not show (45 % of the BP 17 to
     19 ones), and it proves no cause.
   - **R4j's seeds on the same split** (through the chain): that cell of 4,066 stars reads 91.7 % on seed 0 and
-    86.8 % on seed 1, the bin 94.1 and 91.6 %. Seed 0's nine points on R4h there are one seed's, and seed 1 does
-    not repeat them.
+    86.8 % on seed 1, the bin 94.1 and 91.6 %. Seed 0 stands 9.0 points over R4h there and seed 1 4.1, under half
+    of it, where two seeds of one recipe stand 10 to 20 points apart on other rows of this plan.
 
 #### The dig floor inside bright nebula: floor4, and what it leaves (2026-11-20)
 
