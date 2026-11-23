@@ -1,8 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using TianWen.Lib.Astrometry.Catalogs;
-using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Workbench;
 
@@ -18,12 +16,20 @@ public static class WorkbenchServiceCollectionExtensions
     /// Call it after the AI registration (<c>AddTianWenAi()</c>, <c>AddRcAstroAi()</c>) where there is one: the
     /// gradient operation takes the <see cref="IGradientCorrector"/> registered first, and this adds the classical
     /// fit only where no other was registered, so a host with no AI project still has every operation here.
+    /// <para><b>An operation is registered by its type</b>, and the container fills its constructor: what the host
+    /// registered, and the parameter's own default where it registered nothing (a logger, an enhancer), as
+    /// <see cref="SharpenPipeline"/>'s roles are filled. The catalog takes every <see cref="IOperation"/> there is
+    /// and finds one by the id its own description states, so no id is written a second time as a key, and nothing
+    /// asks the container for an operation while a project runs.</para>
     /// </remarks>
     public static IServiceCollection AddWorkbench(this IServiceCollection services)
     {
         services.AddClassicalBackgroundExtraction();
+        // The one operation built by hand: its constructor takes the non-generic ILogger its verb hands it, and the
+        // container fills that with nothing (AddAstrometry says the same of CatalogPlateSolver).
         services.AddSingleton<IOperation>(static sp => new CropOperation(sp.GetService<ILogger<CropOperation>>()));
         services.AddSingleton<IOperation, LinearFitOperation>();
+        services.AddSingleton<IOperation, GradientOperation>();
         services.AddSingleton<IOperation, AlignOperation>();
         services.AddSingleton<IOperation, ContinuumOperation>();
         services.AddSingleton<IOperation, AddLineOperation>();
@@ -31,14 +37,14 @@ public static class WorkbenchServiceCollectionExtensions
         services.AddSingleton<IOperation, LrgbOperation>();
         services.AddSingleton<IOperation, AddStarsOperation>();
         services.AddSingleton<IOperation, FillDigsOperation>();
-        // GetService: the embedded catalogue answers for the stars inside a protected core, and a host without it still
-        // protects cores (those stars then stay with them).
-        services.AddSingleton<IOperation>(static sp => new ProtectCoresOperation(sp.GetService<ICelestialObjectDB>()));
-        services.AddSingleton<IOperation>(static sp => new GradientOperation(
-            sp.GetRequiredService<IBackgroundExtractor>(),
-            sp.GetRequiredService<IGradientCorrector>(),
-            sp.GetService<ILogger<GradientOperation>>()));
-        services.TryAddSingleton(static sp => new OperationCatalog(sp.GetServices<IOperation>()));
+        // The embedded catalogue answers for the stars inside a protected core where the host registered it, and a host
+        // without it still protects cores (those stars then stay with them): the constructor's own default.
+        services.AddSingleton<IOperation, ProtectCoresOperation>();
+        // The enhance runs on the host's pipeline, with whatever enhancers the host registered; a host that registered
+        // none gets a pipeline of none, whose every step is then left out.
+        services.TryAddSingleton<SharpenPipeline>();
+        services.AddSingleton<IOperation, EnhanceOperation>();
+        services.TryAddSingleton<OperationCatalog>();
         services.TryAddSingleton<WorkbenchRunner>();
         return services;
     }

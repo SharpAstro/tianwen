@@ -1,6 +1,6 @@
 using Shouldly;
-using TianWen.Cli;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Workbench;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -16,7 +16,7 @@ public sealed class SharpenWhiteBalanceOptionTests
     [Fact]
     public void AnExplicitTripleReplacesTheFilesAndTheNoteNamesBoth()
     {
-        var (chosen, note) = ImageSubCommand.ResolveSharpenWhiteBalance(FromFile, (0.38f, 1f, 1.02f));
+        var (chosen, note) = EnhanceOperation.ResolveWhiteBalance(FromFile, [0.38f, 1f, 1.02f]);
 
         chosen.ShouldBe(new ColourCalibration(0.38f, 1f, 1.02f, ColourCalibrationSource.Spcc));
         note.ShouldNotBeNull();
@@ -28,7 +28,7 @@ public sealed class SharpenWhiteBalanceOptionTests
     [Fact]
     public void WithNoOptionTheFilesTripleStandsAndNothingIsSaid()
     {
-        var (chosen, note) = ImageSubCommand.ResolveSharpenWhiteBalance(FromFile, explicitWb: null);
+        var (chosen, note) = EnhanceOperation.ResolveWhiteBalance(FromFile, stated: []);
 
         chosen.ShouldBe(FromFile);
         note.ShouldBeNull();
@@ -37,7 +37,7 @@ public sealed class SharpenWhiteBalanceOptionTests
     [Fact]
     public void AnExplicitTripleOnAnInputThatStatesNoneIsUsedWithoutANote()
     {
-        var (chosen, note) = ImageSubCommand.ResolveSharpenWhiteBalance(fromFile: null, (1.5f, 1f, 0.75f));
+        var (chosen, note) = EnhanceOperation.ResolveWhiteBalance(fromFile: null, [1.5f, 1f, 0.75f]);
 
         chosen.ShouldBe(new ColourCalibration(1.5f, 1f, 0.75f, ColourCalibrationSource.Spcc));
         note.ShouldBeNull();
