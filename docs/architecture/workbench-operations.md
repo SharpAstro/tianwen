@@ -87,6 +87,11 @@ operation by its id.
 | `add-stars` | stored | `image add-stars` | `stars`: the stars a star removal took out |
 | `fill-digs` | stored | `image fill-digs` | `input`: the master the stars were removed from. Its own image is the starless plate |
 | `protect-cores` | stored | `image protect-cores` | `input`: the master the stars were removed from. Its own image is the starless plate |
+| `match-psf` | stored, one run for several | `image match-psf` | the other masters of the run |
+| `deblur` | stored, one run for several | `image deblur` | the other masters of the run |
+| `denoise` | stored, one run for several | `image denoise` | the other masters of the run |
+| `remove-stars` | stored, one run for several; the stars as a second result | `image remove-stars` | the other masters of the run |
+| `combine` | stored | `image combine` | `green`, `blue`, and optionally `ha`. Its own image is red |
 
 - **An optional image comes last** (`OperationInputRole.Optional`): an edit that names fewer images leaves the last ones
   out. `luminance` takes two, or five with its three measure copies; any other number is refused.
@@ -244,9 +249,8 @@ that gave no result.
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** The other colour steps (#2465: `match-psf`, `deblur`, `denoise`, `remove-stars`,
-  `protect-cores`, `fill-digs`, `continuum`, `add-line`, `luminance`, `lrgb`, `add-stars`, `align`, `combine`), the
-  canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary steps (#2468).
+- **The remaining operations.** The canonical enhance (#2466), the deep-sky frame steps (#2467) and the planetary
+  steps (#2468). Every colour step of #2465 is here but the one below.
 - **`image denoise --colour`** (#2465): three planes denoised as one colour image, where the order of the planes is
   their colour, so it is not a run several images share.
 - **A set of frames as an input** (calibrate, register, integrate; #2467), and an operation that writes no pixels
