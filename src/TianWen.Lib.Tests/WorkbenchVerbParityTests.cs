@@ -325,4 +325,39 @@ public sealed class WorkbenchVerbParityTests(ITestOutputHelper output) : IDispos
         refused.Said.ShouldContain("2 gradient: refused");
         refused.Said.ShouldContain("past the image width 256");
     }
+
+    [Fact(Timeout = 300_000)]
+    public async Task TheWorkbenchRunVerbPrintsTheNoteWhenTheProjectFileCannotBeRecordedInto()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var folder = _folders.Create("workbench-verb-note-").FullName;
+        var master = WorkbenchFixtures.WriteMaster(folder, "master", WorkbenchFixtures.Master(seed: 1));
+        await WorkbenchProjectFile.WriteAsync(folder, WorkbenchFixtures.Project(
+            WorkbenchFixtures.Picture("m", master,
+                WorkbenchFixtures.Edit(GradientOperation.Id, new JsonObject { ["backend"] = "classical" }))), ct);
+        var said = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call =>
+        {
+            var line = call.Arg<string>();
+            said.Add(line);
+            // The step speaks while the run works, before its results are recorded: the person removes project.json then.
+            if (line.Contains("[m 1 gradient]") && File.Exists(WorkbenchProjectFile.PathIn(folder)))
+            {
+                File.Delete(WorkbenchProjectFile.PathIn(folder));
+            }
+        });
+        host.When(h => h.WriteError(Arg.Any<string>())).Do(call => said.Add("error: " + call.Arg<string>()));
+        var catalog = Catalog();
+        var workbench = new WorkbenchSubCommand(host, catalog, new WorkbenchRunner(catalog)).Build();
+
+        var exit = await workbench.Parse(["run", folder]).InvokeAsync(cancellationToken: ct);
+
+        var text = string.Join(Environment.NewLine, said);
+        output.WriteLine(text);
+        exit.ShouldBe(0, "a run that only could not record is still a success");
+        text.ShouldContain("[workbench] note: ");
+        text.ShouldContain("removed or saved half way");
+        File.Exists(WorkbenchProjectFile.PathIn(folder)).ShouldBeFalse();
+    }
 }

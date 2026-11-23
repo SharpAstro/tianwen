@@ -470,7 +470,7 @@ public sealed class WorkbenchRunnerTests : IDisposable
         var report = await _runner.RunAsync(folder, cancellationToken: ct);
 
         File.Exists(WorkbenchProjectFile.PathIn(folder)).ShouldBeFalse("the run's start-of-run copy is not put back over what the person did");
-        report.Note.ShouldNotBeNull();
+        report.Note.ShouldNotBeNull().ShouldContain("removed", Case.Insensitive, "the note says the file is gone, not only unreadable");
     }
 
     [Fact(Timeout = 120_000)]

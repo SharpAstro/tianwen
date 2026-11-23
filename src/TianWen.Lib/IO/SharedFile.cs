@@ -324,6 +324,14 @@ public static partial class SharedFile
     /// </summary>
     public static async Task UpdateJsonAsync<T>(string path, JsonTypeInfo<T> jsonTypeInfo, Func<T?, T> update, ILogger? logger = null,
         CancellationToken cancellationToken = default) where T : class
+        => await UpdateJsonIfAsync(path, jsonTypeInfo, current => update(current), logger, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="UpdateJsonAsync"/>, but <paramref name="update"/> may return null to leave the file exactly as it is
+    /// (nothing is staged or replaced). False when it did, true when the file was written.
+    /// </summary>
+    public static async Task<bool> UpdateJsonIfAsync<T>(string path, JsonTypeInfo<T> jsonTypeInfo, Func<T?, T?> update, ILogger? logger = null,
+        CancellationToken cancellationToken = default) where T : class
     {
         var directory = DirectoryOf(path);
         Directory.CreateDirectory(directory);
@@ -345,9 +353,14 @@ public static partial class SharedFile
                 }
             }
 
-            var next = update(current);
+            if (update(current) is not { } next)
+            {
+                return false;
+            }
+
             await StageAsync(staging, (stream, token) => JsonSerializer.SerializeAsync(stream, next, jsonTypeInfo, token), cancellationToken);
             await RetryAsync(() => Replace(staging, path), cancellationToken);
+            return true;
         }
         finally
         {

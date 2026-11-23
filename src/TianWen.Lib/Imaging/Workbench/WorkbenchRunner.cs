@@ -394,33 +394,26 @@ public sealed class WorkbenchRunner(OperationCatalog operations)
             return null;
         }
 
-        try
-        {
-            await SharedFile.UpdateJsonAsync(
-                WorkbenchProjectFile.PathIn(folder),
-                WorkbenchJsonContext.Default.WorkbenchProject,
-                onDisk =>
+        // A null from the callback leaves the file as the person left it: nothing is staged, so nothing is overwritten.
+        var written = await SharedFile.UpdateJsonIfAsync(
+            WorkbenchProjectFile.PathIn(folder),
+            WorkbenchJsonContext.Default.WorkbenchProject,
+            onDisk =>
+            {
+                if (onDisk is null)
                 {
-                    if (onDisk is null)
-                    {
-                        // Thrown before anything is staged, so the file stays as the person left it.
-                        throw new ProjectUnreadableException();
-                    }
+                    return null;
+                }
 
-                    TryRecord(folder, onDisk, planner, out var recorded);
-                    return recorded;
-                },
-                logger: null,
-                cancellationToken);
-            return null;
-        }
-        catch (ProjectUnreadableException)
-        {
-            return $"{WorkbenchProjectFile.PathIn(folder)} could not be read at the end of the run, so this run's results are not recorded in it; the next run finds them again";
-        }
+                TryRecord(folder, onDisk, planner, out var recorded);
+                return recorded;
+            },
+            logger: null,
+            cancellationToken);
+        return written
+            ? null
+            : $"{WorkbenchProjectFile.PathIn(folder)} could not be read at the end of the run (it was removed or saved half way), so this run's results are not recorded in it; the next run finds them again";
     }
-
-    private sealed class ProjectUnreadableException : Exception;
 
     // The keys and outputs of this run's plan put onto what is in <paramref name="current"/>, wherever the edit is still
     // the planned one; true when that changed anything.
