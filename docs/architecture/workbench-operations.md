@@ -221,8 +221,14 @@ defaults. It runs the three routines `planetary stack --auto` and the viewer's A
 nothing between: `PlanetaryIdentification.IdentifyAsync`, `PlanetaryAuto.RunAsync`, `PlanetaryAuto.Write`. The linear
 master is the step's result, and the sharpened master its extra result (`sharpened`).
 
-- **Its settings say the capture** (`planet`, `filterNm`, `apertureMm`, `design`) in place of what it is read to be.
-  AUTO takes no other setting.
+- **Its settings say the capture** (`planet`, `filterNm`, `apertureMm`, `design`) in place of what it is read to be,
+  and choose three things of the finished masters (`PlanetaryAutoChoices`, the owner's call of 2026-11-23): `strength`,
+  how far past the truth the derived sharpening goes; `luminanceOnly`, a colour master's luminance sharpened once;
+  and `colourBalance` with `colourSaturation`, the balance to the planet's own colour or none. None of them changes
+  how the capture is stacked, which stays the measured defaults.
+- **A changed setting stacks the capture again**, since the step is one run. A strength is tried on
+  `planetary-sharpen` (below), which only sharpens. The stack step has the choices all the same, because its
+  sharpened master is the one sharpened before the colour balance, which is the pipeline's order.
 - **A step never asks what telescope a camera was last said to be on** (`PlanetaryTelescopeMemory`). That is this
   computer's memory, and a step's result follows from its capture and its settings. The verb's
   `--no-telescope-memory` is the same, and a step's command line says it.
@@ -246,7 +252,9 @@ file.
 
 - **Its settings are the stack step's** (`PlanetaryIdentitySettings`: `planet`, `filterNm`, `apertureMm`, `design`):
   what is said of the master, in place of what its header says. Like the stack's, the step never asks what telescope
-  a camera was last said to be on.
+  a camera was last said to be on. It also takes `strength` and `luminanceOnly`, the two of AUTO's choices that are
+  about sharpening, and it is where a strength is tried: a changed one sharpens again and stacks nothing. The colour
+  balance is not among its settings, since a written master is not balanced again.
 - **Where the gains cannot be derived the master is still sharpened**, by the planetary preset, as a stack's is: no
   planet with a rotation model, no instant, no telescope, or a limb that does not fit. The step's words say which,
   and it is no refusal.
@@ -451,9 +459,14 @@ that gave no result.
 
 Each is a later leg of W1 (#1641) or a later phase, and none is assumed by the code above.
 
-- **The remaining operations.** The deep-sky frame steps (#2467) and the rest of the planetary steps (#2468): the
-  stack with settings of its own, the grades as a step, and the colour. Every colour step of #2465 is here, and so is
-  the canonical enhance (#2466).
+- **The remaining operations.** The deep-sky frame steps (#2467). Every colour step of #2465 is here, so is the
+  canonical enhance (#2466), and so are the planetary steps (#2468): by the owner's call of 2026-11-23 they are the
+  stack, the compose and the sharpening, with AUTO's three choices.
+- **Planetary grading, and a look.** `planetary grade` scores a capture's frames and writes nothing a later step
+  reads, so it is a fact about a capture and W9's (#2236), as statistics are. `planetary colour` is a measurement
+  against OPAL's maps and not what balances a master; the balance is inside the stack and the compose. A look
+  (`planetary look`) is a rendering of the linear master and never a new master, so it goes with how a result is
+  shown and exported.
 - **A set of frames as an input** (calibrate, register, integrate; #2467).
 - **Statistics** (`image stats`, `image sources`, `image channel-offsets`). A measurement changes nothing a later step
   reads, so as an edit of a list it would only give every step after it another key. It is a fact about a step's
