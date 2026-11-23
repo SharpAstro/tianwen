@@ -1376,7 +1376,7 @@ jobs:
         refuse() {
           case "$2" in
             failure) why="a step of it failed; read that job's log." ;;
-            cancelled) why="it reached its timeout-minutes or its runner stopped answering (the job's annotations and step times say which; a run cancelled by hand reads the same)." ;;
+            cancelled) why="it reached its timeout-minutes or its runner stopped answering (the job's annotations and step times say which). The job id is named here, not the shard: find the shard on the run page." ;;
             skipped) why="a job it depends on did not succeed, so it did not run." ;;
             *) why="it did not succeed." ;;
           esac
@@ -1385,7 +1385,8 @@ jobs:
         }
         # build must have succeeded; the others may also be skipped as ok allows. The test builds are checked too,
         # though a failed one already skips its tests (which ok refuses on a PR): so the check reads as what it means.
-        [ "${{ needs.build.result }}" = success ] || refuse build "${{ needs.build.result }}"
+        # Every other need depends on build, so a refused build leaves them skipped as a consequence: one annotation, the cause.
+        [ "${{ needs.build.result }}" = success ] || { refuse build "${{ needs.build.result }}"; exit 1; }
         ok "${{ needs.build-linux.result }}" || refuse build-linux "${{ needs.build-linux.result }}"
         ok "${{ needs.build-windows.result }}" || refuse build-windows "${{ needs.build-windows.result }}"
         ok "${{ needs.test-unit.result }}" || refuse test-unit "${{ needs.test-unit.result }}"
